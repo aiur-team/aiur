@@ -8,6 +8,19 @@ This is the one dependency graph and delivery sequence for the pack (brief §6 P
 - **Integrity findings:** [cross-feature-reviews/graph-check.md](cross-feature-reviews/graph-check.md) (after Phase D: 0 dangling references, 0 cycles, 0 missing gates, 0 wave inversions; the 11 chunk-level references left are deliberate).
 - **Generator:** `depgraph.py`, run with `python3 -I depgraph.py <pack-root> <out-dir>`. It is kept in the Phase D scratchpad and is not part of the pack. Re-run it after any ticket edit; the numbers below are a snapshot.
 
+## MP-E8 added (2026-10-08)
+
+The 76 MP-E8 tickets are now in [dependency-graph.json](dependency-graph.json)
+(CR-E8-9), added in the same node and edge shape as the other features: 76
+ticket nodes, 214 ticket edges, 76 `DESIGN-E8` edges, and owner-gate nodes
+`OQ-E8-5` (C11-T10), `OQ-E8-9` (C12-T02) and `DESIGN-E8/S-8` (C13-T03). C1–C13
+are wave `0b` (between MP-E1 and the refactor); C14 is wave 3, after its MP-E2,
+MP-E4 and MP-E7 predecessors. The graph stays acyclic with no dangling
+references, and no ticket outside MP-E8 depends on an MP-E8 ticket. The totals
+and wave tables below are the 2026-10-06 snapshot and do not count MP-E8. The
+E8-internal order and the cross-feature edges are in
+[bucket-2-platform/MP-E8/tickets/README.md](bucket-2-platform/MP-E8/tickets/README.md).
+
 ## Totals
 
 | Item | Count |

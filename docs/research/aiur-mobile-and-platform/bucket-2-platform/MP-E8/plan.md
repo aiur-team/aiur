@@ -125,7 +125,7 @@ flowchart LR
   data (C1-T01), and the real one is C8-T04. MP-R1 moves the stores
   (`Aiur.BuildOrder.History`, `.Features`) into `build-orders` and the page into
   its web surface. The hook, the payload and the UI do not change. A source-scan
-  test (C3-T04) keeps the imports on the seam.
+  test (C3-T01; the C3-T04 id is retired) keeps the imports on the seam.
 - **The payload (C3-T02)** is versioned. Diffs are keyed by ticket id with a
   generation number. On a gap or a rejoin, the server sends a full snapshot.
 - **URL state is server-owned (C3-T03).** The hook asks LiveView to patch the

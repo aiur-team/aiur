@@ -7,10 +7,12 @@ Researched 2026-10-07 at aiur `origin/main` `58854d4c8`. Design source:
 [../questions.md](../questions.md). Contract requests:
 [CONTRACT-REQUESTS.md](CONTRACT-REQUESTS.md).
 
-**Status.** No ticket docs exist yet. Each row below is the brief for one writer
-agent. The writer researches the row with the pack and the live code, then
-writes `MP-E8-Cx-Tyy.md` in the shape of `../../MP-E1/tickets/MP-E1-C3-T01.md`
-(frontmatter, then the nine sections of brief §9).
+**Status (2026-10-08).** All 76 ticket docs exist, each written by one agent
+and reviewed by a second. The ticket files are the source of truth; the summary
+table below is generated from their front matter. The briefs under "Ticket
+briefs" are the original work-order and are kept for history; where a brief and
+a ticket file differ, the ticket file wins. Cross-ticket mismatches the writers
+and reviewers reported were reconciled on 2026-10-08 (see "Reconciliation").
 
 **Rules every writer applies.**
 - **Every ticket is `blocked` on DESIGN-E8.** Add the extra `blocked_by` tickets listed in the row.
@@ -44,116 +46,245 @@ Abbreviations: `J` = `design-source/assets/build.js`, `C` = `design-source/asset
 | MP-E8-C1-T01 | Design fixture exporter | 2 | — |
 | MP-E8-C1-T02 | Side-by-side screenshot parity runner | 4 | C1-T01 |
 | MP-E8-C1-T03 | Motion and interaction parity scripts | 4 | C1-T02 |
-| MP-E8-C2-T01 | Tokens, Gruvbox palette, body wash, self-hosted fonts | 3 | C1-T02, OQ-E8-1 |
-| MP-E8-C2-T02 | App shell restyle (top bar, cog menu, sidenav) | 4 | C2-T01, OQ-E8-1, OQ-E8-2 |
-| MP-E8-C2-T03 | Static assets and the four-place hook registration | 1 | — |
-| MP-E8-C2-T04 | Consolidated home stylesheet from build.css | 4 | C2-T01, C1-T02 |
-| MP-E8-C3-T01 | BuildLive, DataSource behaviour, fixture source, seam scan | 3 | C1-T01, C2-T03 |
+| MP-E8-C2-T01 | Tokens, Gruvbox palette, body wash, self-hosted fonts | 3 | C1-T02 |
+| MP-E8-C2-T02 | App shell restyle (top bar, cog menu, sidenav) | 4 | C2-T01 |
+| MP-E8-C2-T03 | Static assets and the four-place hook registration | 2 | C1-T01 |
+| MP-E8-C2-T04 | Consolidated home stylesheet from build.css | 4 | C1-T02, C2-T01, C2-T03 |
+| MP-E8-C3-T01 | BuildLive, DataSource behaviour, fixture source, seam scan | 3 | C1-T01, C2-T03, C1-T02 |
 | MP-E8-C3-T02 | Payload schema v1, diff and resync protocol | 4 | C3-T01 |
 | MP-E8-C3-T03 | Server-owned URL state and legacy URL presets | 2 | C3-T01 |
-| MP-E8-C4-T01 | `Aiur.BuildOrder.History` store | 3 | — |
-| MP-E8-C4-T02 | One-time history backfill (about 30–45 GraphQL points) | 4 | C4-T01 |
+| MP-E8-C4-T01 | Aiur.BuildOrder.History store | 3 | — |
+| MP-E8-C4-T02 | One-time history backfill (about 42-45 GraphQL points) | 4 | C4-T01 |
 | MP-E8-C4-T03 | Steady-state history feed and boot catch-up | 4 | C4-T01 |
 | MP-E8-C4-T04 | Start and end times for Gantt | 3 | C4-T02, C4-T03 |
-| MP-E8-C4-T05 | Historic edges, children index, order violations | 2 | C4-T02 |
+| MP-E8-C4-T05 | Historic edges, children index, order violations | 2 | C4-T02, C4-T04 |
 | MP-E8-C5-T01 | Epics config section and docs | 2 | — |
 | MP-E8-C5-T02 | Epic resolver | 2 | C5-T01 |
 | MP-E8-C5-T03 | Epic override registry and batch CLI | 3 | C5-T02 |
 | MP-E8-C5-T04 | Skill and prompt guidance for categories and estimates | 2 | C5-T03, C6-T04, C7-T03 |
-| MP-E8-C6-T01 | Feature registry and membership journal | 3 | C5-T02 |
-| MP-E8-C6-T02 | `feature:` label projection and reconciliation | 3 | C6-T01 |
-| MP-E8-C6-T03 | Build Order roots imported as features | 2 | C6-T01 |
-| MP-E8-C6-T04 | `aiur feature` CLI | 3 | C6-T01, C6-T02 |
-| MP-E8-C6-T05 | Feature statistics | 2 | C6-T01, C4-T01 |
+| MP-E8-C6-T01 | Feature registry and membership journal | 3 | C5-T01 |
+| MP-E8-C6-T02 | feature label projection and reconciliation | 3 | C6-T01, C4-T01, C4-T03, MP-E1-C3-T01, MP-E1-C3-T04 |
+| MP-E8-C6-T03 | Build Order roots imported as features | 3 | C6-T01, C4-T01, C4-T02 |
+| MP-E8-C6-T04 | `aiur feature` CLI and the agent `aiur_feature` tool | 3 | C6-T01, C6-T02 |
+| MP-E8-C6-T05 | Feature statistics | 2 | C6-T01, C4-T01, C1-T01 |
 | MP-E8-C7-T01 | Planned rows, waves and cues from the build queue | 3 | C4-T01, MP-E1-C6-T01, MP-E1-C7-T02, MP-E1-C5-T02 |
-| MP-E8-C7-T02 | Unfiled planning-pack items as planned rows | 2 | C7-T01 |
-| MP-E8-C7-T03 | Estimates, overrides, CLI and ETA | 3 | C7-T01, OQ-E8-7 |
-| MP-E8-C7-T04 | Not-queued rows | 1 | C4-T01, MP-E1-C6-T01 |
+| MP-E8-C7-T02 | Unfiled planning-pack items as planned rows | 3 | C7-T01, C8-T04, C11-T02 |
+| MP-E8-C7-T03 | Estimates, overrides, CLI and ETA | 3 | C7-T01, C8-T04, C9-T08, C9-T09, C9-T12, C11-T02 |
+| MP-E8-C7-T04 | Not-queued rows | 2 | MP-E1-C6-T01 |
 | MP-E8-C8-T01 | Now-band rows and agent-state mapping | 3 | C3-T02 |
 | MP-E8-C8-T02 | Usage strip data | 3 | C3-T02 |
-| MP-E8-C8-T03 | Daemon, freshness and offline signals | 2 | C3-T02 |
-| MP-E8-C8-T04 | Ticket index assembler, live diffs, history by day | 4 | C3-T02, C4-T03, C5-T02, C6-T05, C7-T01, C7-T04, C8-T01 |
+| MP-E8-C8-T03 | Daemon, freshness and offline signals | 3 | C3-T02, C9-T01 |
+| MP-E8-C8-T04 | Ticket index assembler, live diffs, history by day | 4 | C3-T02, C4-T02, C4-T03, C4-T04, C4-T05, C5-T02, C5-T03, C6-T05, C7-T01, C7-T04, C8-T01, C8-T02, C8-T03 |
 | MP-E8-C9-T01 | Hook shell, scrollbar, payload intake, URL bridge | 4 | C3-T02, C3-T03, C2-T04 |
 | MP-E8-C9-T02 | Timeline layout and density tiers | 3 | C9-T01 |
 | MP-E8-C9-T03 | Virtualised rendering and history paging | 3 | C9-T02 |
-| MP-E8-C9-T04 | Dynamic epic columns | 3 | C9-T03 |
+| MP-E8-C9-T04 | Dynamic epic columns | 3 | C9-T03, C1-T03 |
 | MP-E8-C9-T05 | Ticket cards in four tiers | 4 | C9-T03 |
-| MP-E8-C9-T06 | Agent indicators (logo, glow, stuck, idle) | 2 | C9-T05 |
-| MP-E8-C9-T07 | Dependency edges | 3 | C9-T05 |
-| MP-E8-C9-T08 | Now band, live snap and jump to live | 4 | C9-T05, C9-T07 |
+| MP-E8-C9-T06 | Agent indicators (logo, glow, stuck, idle) | 2 | C9-T05, C8-T01 |
+| MP-E8-C9-T07 | Dependency edges | 3 | C9-T05, C9-T04 |
+| MP-E8-C9-T08 | Now band, live snap and jump to live | 4 | C9-T05, C9-T07, C9-T04 |
 | MP-E8-C9-T09 | Gantt mode | 4 | C9-T05, C9-T07, C4-T04 |
-| MP-E8-C9-T10 | Span, zoom and calendar controls | 2 | C9-T02 |
-| MP-E8-C9-T11 | Dependency chains, lock tab, whole-tree view | 3 | C9-T07 |
-| MP-E8-C9-T12 | List view | 2 | C9-T01 |
-| MP-E8-C9-T13 | Loading, empty and stale board states | 2 | C9-T03, C8-T03 |
-| MP-E8-C10-T01 | Toolbar and status line | 2 | C9-T01 |
-| MP-E8-C10-T02 | Filters, popovers and the `not_planned` default | 4 | C10-T01, C9-T05, C8-T04 |
-| MP-E8-C10-T03 | Feature header, focus and compact modes | 4 | C10-T02, C6-T05, C9-T09 |
+| MP-E8-C9-T10 | Span, zoom and calendar controls | 2 | C9-T02, C9-T03, C10-T01 |
+| MP-E8-C9-T11 | Dependency chains, lock tab, whole-tree view | 3 | C9-T07, C9-T10, C8-T01 |
+| MP-E8-C9-T12 | List view | 3 | C9-T01, C9-T03, C9-T13, C8-T01 |
+| MP-E8-C9-T13 | Loading, empty and stale board states | 3 | C9-T03, C8-T03 |
+| MP-E8-C10-T01 | Toolbar and status line | 3 | C9-T01, C8-T03 |
+| MP-E8-C10-T02 | Filters, popovers and the not_planned default | 4 | C10-T01, C9-T05, C9-T06, C8-T04 |
+| MP-E8-C10-T03 | Feature header, focus and compact modes | 4 | C10-T02, C6-T05, C9-T09, C9-T04, C1-T03 |
 | MP-E8-C10-T04 | Usage strip | 3 | C10-T01, C8-T02 |
-| MP-E8-C11-T01 | Modal frame, `?ticket=` deep link, navigation | 3 | C3-T03, C9-T05, OQ-E8-5 |
+| MP-E8-C11-T01 | Modal frame, ?ticket= deep link, navigation | 3 | C3-T03, C9-T05, C9-T06 |
 | MP-E8-C11-T02 | Issue view for tickets without an agent | 3 | C11-T01, C7-T01, MP-E1-C6-T02 |
 | MP-E8-C11-T03 | Conversation read seam and wave-0b adapter | 4 | C11-T01 |
 | MP-E8-C11-T04 | Event rows in the conversation | 3 | C11-T03 |
-| MP-E8-C11-T05 | Minimap preview sidebar, live tail, typing | 3 | C11-T03, C11-T04 |
+| MP-E8-C11-T05 | Minimap preview sidebar, live tail, typing | 3 | C11-T03, C11-T04, C8-T01, C8-T03 |
 | MP-E8-C11-T06 | Composer: send to the agent | 4 | C11-T03 |
-| MP-E8-C11-T07 | Pause, resume and "Open in Conversations" | 2 | C11-T01 |
+| MP-E8-C11-T07 | Pause, resume and "Open in Conversations | 3 | C11-T01, C8-T04 |
 | MP-E8-C11-T08 | Command answer card | 3 | C11-T03 |
 | MP-E8-C11-T09 | Dictation button | 2 | C11-T06 |
-| MP-E8-C11-T10 | Units fields in the modal (only if OQ-E8-5 says yes) | 2 | C11-T01, OQ-E8-5 |
-| MP-E8-C12-T01 | Cutover: `/` is home, Units retired, rollback route | 3 | C9-*, C10-*, C11-T01..T08, C11-T10, C8-T04, OQ-E8-3 |
-| MP-E8-C12-T02 | Build Order routes retire to feature focus | 2 | C12-T01, C6-T03 |
-| MP-E8-C12-T03 | Dead-code deletion | 2 | C12-T01 |
+| MP-E8-C11-T10 | Units fields in the modal (only if OQ-E8-5 says yes) | 3 | OQ-E8-5, C11-T01, C8-T01 |
+| MP-E8-C12-T01 | Cutover: / is home, Units retired, rollback route | 4 | C8-T04, C9-T01, C9-T02, C9-T03, C9-T04, C9-T05, C9-T06, C9-T07, C9-T08, C9-T09, C9-T10, C9-T11, C9-T12, C9-T13, C10-T01, C10-T02, C10-T03, C10-T04, C11-T01, C11-T02, C11-T03, C11-T04, C11-T05, C11-T06, C11-T07, C11-T08, C7-T02, C7-T03 |
+| MP-E8-C12-T02 | Build Order routes retire to feature focus | 2 | OQ-E8-9, C12-T01, C6-T03 |
+| MP-E8-C12-T03 | Dead-code deletion after the home-page cutover | 3 | C12-T01, C11-T09 |
 | MP-E8-C12-T04 | Phone width and WebView | 3 | C12-T01 |
-| MP-E8-C12-T05 | Accessibility pass | 3 | C12-T01 |
+| MP-E8-C12-T05 | Accessibility pass (keyboard, screen reader, live region, forced colours, axe) | 3 | C12-T01 |
 | MP-E8-C12-T06 | Performance budget and measurement | 3 | C12-T01 |
-| MP-E8-C12-T07 | Documentation | 2 | C12-T01, C5-T03, C6-T04, C7-T03 |
-| MP-E8-C12-T08 | DESIGN-E8 sign-off package | 2 | C12-T01..T06, C1-T03 |
+| MP-E8-C12-T07 | Documentation: the Build home page, the build-history concept page, and the docs screenshots | 3 | C12-T01, C5-T03, C6-T04, C7-T03 |
+| MP-E8-C12-T08 | DESIGN-E8 sign-off package | 3 | C12-T01, C12-T03, C12-T04, C12-T05, C12-T06, C1-T03 |
+| MP-E8-C13-T00 | Measure the history classification cost before the backfill runs (instrumentation) | 2 | C13-T01 |
 | MP-E8-C13-T01 | `aiur history export` for classification | 2 | C12-T01 |
-| MP-E8-C13-T00 | Measure the backfill cost (instrumentation) | 2 | C13-T01 |
-| MP-E8-C13-T04 | Backfill runbook and the agent run | 2 | C13-T00, C5-T03, C6-T04 |
-| MP-E8-C13-T02 | Optional paced label writes for classifications | 3 | C13-T04 |
-| MP-E8-C13-T03 | Unconfirmed classification display and confirm | 2 | C13-T04, S-8 (a real wait) |
-| MP-E8-C14-T01 | Conversation reads from the MP-E4 journal | 3 | MP-E4-C2-T01, MP-E4-C3-T02, MP-E4-C4-T01, C11-T04 |
-| MP-E8-C14-T02 | Delivery receipts in the composer | 2 | MP-E4-C6-T01, MP-E7-C3-T03, MP-E7-C3-T04, C11-T06 |
-| MP-E8-C14-T03 | "Open in Conversations" to the full view | 1 | MP-E4-C5-T01, C11-T07 |
-| MP-E8-C14-T04 | Command answers through the MP-E2 contract | 2 | MP-E2-C1-T01, MP-E2-C3-T01, C11-T08 |
+| MP-E8-C13-T02 | Optional paced label writes for classifications | 3 | C13-T04, C13-T00, C6-T02, C6-T01, C5-T03, C5-T01, C4-T01, MP-E1-C3-T04 |
+| MP-E8-C13-T03 | Unconfirmed classification display and confirm | 2 | DESIGN-E8/S-8, C13-T04, C12-T08 |
+| MP-E8-C13-T04 | Backfill runbook and the agent run | 3 | C13-T00, C5-T03, C6-T04, C12-T07 |
+| MP-E8-C14-T01 | Conversation reads from the MP-E4 journal | 3 | DESIGN-E4, MP-E4-C2-T01, MP-E4-C3-T02, MP-E4-C4-T01, MP-E4-C8-T01, C11-T04, C11-T05, C11-T06 |
+| MP-E8-C14-T02 | Delivery receipts in the composer | 2 | MP-E4-C6-T01, MP-E7-C3-T03, MP-E7-C3-T04, C11-T06, C14-T01 |
+| MP-E8-C14-T03 | "Open in Conversations" to the full view | 2 | MP-E4-C5-T01, MP-E4-C5-T03, MP-E4-C2-T02, C11-T07, C12-T07 |
+| MP-E8-C14-T04 | Command answers through the MP-E2 contract | 3 | DESIGN-E2, MP-E2-C1-T01, MP-E2-C3-T01, MP-E2-C3-T02, MP-E2-C3-T03, C11-T08 |
 
-Counts: C1 3 · C2 4 · C3 3 · C4 5 · C5 4 · C6 5 · C7 4 · C8 4 · C9 13 · C10 4 ·
-C11 10 · C12 8 · C13 5 · C14 4 = **76 tickets**. Complexity sum 210.
-67 tickets ship in wave 0b, C13's five after cutover, C14's four in waves 2–3.
-C11-T10 is conditional: it is dropped if Kevin answers OQ-E8-5 "no".
-C3-T04 was merged into C3-T01 by the review pass; its id is retired.
+Counts: C1 3 · C2 4 · C3 3 · C4 5 · C5 4 · C6 5 · C7 4 · C8 4 · C9 13 · C10 4 · C11 10 · C12 8 · C13 5 · C14 4 = **76 tickets**. Complexity sum 227 (210 in the
+work-order; writers raised several rows after research). 67 tickets ship in wave 0b,
+C13's five after cutover, C14's four in wave 3 (`wave: 3` in their front matter).
+C11-T10 is conditional: OQ-E8-5's default is "no", so it is dropped unless Kevin
+says yes, and it no longer blocks C12-T01. C3-T04 was merged into C3-T01; its id
+is retired. This table is generated from the ticket front matter (the files are
+the source of truth); `ticket_id`, `title`, `blocked_by` and `complexity` are
+checked by the coordinator's graph check (0 errors, 0 cycles on
+2026-10-08).
 
 ## Dependency order (critical path)
 
-```text
-C1-T01 ─► C1-T02 ─► C2-T01 ─► C2-T04 ─┐
-C2-T03 ─► C3-T01 ─► C3-T02 ───────────┴─► C9-T01 ─► C9-T02 ─► C9-T03 ─► C9-T05 ─► C9-T07 ─► C9-T08 ─┐
-C4-T01 ─► C4-T03 ─┐                                                                                 │
-C5-T01 ─► C5-T02 ─┼─► C6-T01 ─► C6-T05 ─┐                                                           │
-MP-E1-C6-T01 ─► C7-T01 ─────────────────┼─► C8-T04 ─────────────────────────────────────────────────┴─► C12-T01 ─► C12-T05/T06 ─► C12-T08
-C3-T02 ─► C8-T01 ───────────────────────┘
-C9-T05 ─► C11-T01 ─► C11-T03 ─► C11-T04 ─► C11-T05 ─► C12-T01
-```
+Longest chain (18 merges, counted from the front matter):
+C1-T01 → C2-T03 → C3-T01 → C3-T03 → C9-T01 → C9-T02 → C9-T03 → C9-T05 → C9-T06 → C11-T01 → C11-T03 → C11-T04 → C11-T05 → C12-T01 → C13-T01 → C13-T00 → C13-T04 → C13-T02.
+The wave-0b part ends at C12-T01 (14 merges); the
+rest is the C13 backfill chain after cutover.
 
-Critical path (15 merges): C1-T01 → C1-T02 → C2-T01 → C2-T04 → C9-T01 → C9-T02 →
-C9-T03 → C9-T05 → C11-T01 → C11-T03 → C11-T04 → C11-T05 → C12-T01 → C12-T05 →
-C12-T08. Server data (C4–C8) runs alongside it and joins at C8-T04 → C12-T01.
+- **Level 0 (after DESIGN-E8):** C1-T01, C4-T01, C5-T01. C2-T03 now waits for
+  C1-T01 (its DeepSeek check reads C1-T01's in-tree design copy).
+- **Server and client tracks run apart and join at C8-T04 → C12-T01.** The
+  client builds against the fixture DataSource (C3-T01). Client tickets that wait
+  on server tickets before the join: C8-T03 ← C9-T01 (and C10-T01, C9-T13,
+  C11-T05 ← C8-T03), C9-T06/C9-T11/C9-T12/C11-T05/C11-T10 ← C8-T01, C9-T09 ←
+  C4-T04, C10-T02/C11-T07 ← C8-T04, C10-T03 ← C6-T05, C10-T04 ← C8-T02, C11-T02 ←
+  C7-T01 and MP-E1-C6-T02.
+- **C7-T02 and C7-T03 land after the join.** Each wires its own rows or fields
+  into the C8-T04 assembler (rule R-G12 below), and C12-T01 waits for both.
+- **File conflicts:** C9 tickets edit modules under `src/priv/static/build-home/`
+  (C9-T01 fixes the layout; `hook.js`, not `build-home-hook.js`). C2-T04 and every
+  visual ticket edit `build-home/home.css`. Merge in graph order.
 
-## What may run concurrently
+## Reconciliation (2026-10-08)
 
-- **After DESIGN-E8 (level 0):** C1-T01, C2-T03, C4-T01, C5-T01. All touch different files.
-- **Server and client tracks mostly run apart and join fully at C8-T04.** The
-  client builds against the fixture DataSource (C3-T01). Before the join, these
-  client tickets wait on server tickets: C9-T09 ← C4-T04, C9-T13 ← C8-T03,
-  C10-T02 ← C8-T04, C10-T03 ← C6-T05, C10-T04 ← C8-T02, C11-T02 ← C7-T01 and
-  MP-E1-C6-T02.
-- **Inside C9, after C9-T05:** T06, T07 and T12 can run in parallel. T08 and T09 wait for T07.
-- **Inside C11, after C11-T03:** T04, T06 and T08 can run in parallel. T07 needs only T01.
-- **File conflicts:** C9 tickets all edit the one hook file (PROPOSED
-  `src/priv/static/build-home-hook.js`). Writers split it into modules by
-  subsystem (C9-T01 decides the module layout) so parallel tickets do not collide.
-  C2-T04 and every visual ticket edit the one stylesheet. Merge in the order listed.
+152 agents (one writer and one reviewer per ticket) reported the interface
+mismatches each ticket had with its neighbours. Most were fixed by the reviewers
+in place. The rest were settled once, here, and applied to both sides of each
+mismatch. The ticket files now agree with these rules.
+
+### Graph changes (front matter)
+
+| Ticket | Change | Why |
+| --- | --- | --- |
+| C2-T03 | + C1-T01 | Its DeepSeek check reads C1-T01's in-tree design copy ("merge after C1-T01" is a real edge). |
+| C3-T01 | + C1-T02 | Its loading-state test uses C1-T02's element mode. |
+| C6-T01 | C5-T02 → C5-T01 | The resolver takes the owner record as input; C6-T01 needs only the configured epic keys. |
+| C7-T03 | + C8-T04, C9-T08, C9-T09, C9-T12, C11-T02 | C7-T03 wires estimates into the assembler and replaces the interim estimate/ETA sites (R-G12). Keeps the client chain free of MP-E1. |
+| C12-T01 | + C7-T02, C7-T03; − C11-T10 | Cutover needs pack rows and estimates. C11-T10 is dropped under OQ-E8-5's default, so it cannot block cutover. |
+| C12-T03 | + C11-T09 | Deleting the drawer voice tests needs C11-T09's modal spec. |
+| C12-T08 | − C12-T02 | C12-T02 is gated on OQ-E8-9, which Kevin answers in the sign-off; the package must not wait on it. |
+| C14-T01..T04 | `wave: 3` | Their predecessors are MP-E2/E4/E7 tickets (waves 2–3). |
+
+The writers' own edge additions are kept as written (for example C2-T04 + C2-T03,
+C4-T05 + C4-T04, C8-T03 + C9-T01, C8-T04 + C4-T02/T04/T05, C5-T03, C8-T02/T03,
+C9-T07/T08 + C9-T04, C10-T03 + C9-T04 and C1-T03, C11-T05 + C8-T01 and C8-T03,
+C14-T01 + MP-E4-C8-T01 and C11-T05/T06, C14-T02 + C14-T01, C14-T03 +
+MP-E4-C5-T03 and MP-E4-C2-T02, C14-T04 + MP-E2-C3-T02/T03). The summary table
+shows the result.
+
+### Rules every ticket follows
+
+- **R-G1 Additive payload fields.** Schema v1 (C3-T02) stays additive. The
+  ticket that produces a new field, source key, state, event or reply kind adds
+  it to `Payload.validate/1` and the fixture mapper in its own PR. C3-T02 lists
+  every known addition with its owner.
+- **R-G2 `fx` defaults.** A ticket that calls an `fx.*` entry before its owner
+  merges adds the no-op default to C9-T01's `state.js` table.
+- **R-G3 Seam allowlist.** A ticket that needs a new module on the C3-T01
+  allowlist adds that entry in its own PR.
+- **R-G4 Later edits earlier.** When B lands after A and needs a small change in
+  A's module, B makes it in its own PR.
+- **R-G5 Event names are kebab-case** (C3-T02): `load-earlier`, `open-ticket`,
+  `close-ticket`, `conversation-page`, `conversation-close`, `queue-add`,
+  `build-resync`, `open-conversation`, `request-unit-control` (pause and
+  resume, C11-T07), `send`. The briefs
+  below still spell some in snake_case; the tickets are right.
+- **R-G6 Parity allowlist** (C1-T02 owns the loader): status `approved` or
+  `pending-sign-off`; kinds `design-removal`, `pixel-mask`, `design-style`,
+  `property`, `motion`, `axe` (with `rule`), `copy`. A pending entry passes in CI
+  and fails only in the C12-T08 `--gate` run.
+- **R-G7 Harness:** `productUrl(dataset)` over C3-T01's fixture-only
+  `GET /build-fixture/:dataset`, then `/build`; `openParityPair({dataset, ticket,
+  query})`; ready waits for `data-bd-mounted` and `data-bd-paging="idle"`; class
+  comparisons ignore `phx-*`; `AIUR_PARITY_FULL=1` runs the full C1-T03 matrix.
+- **R-G8 Paths:** `src/priv/static/build-home/hook.js` (hook `BuildHome`) and
+  `src/priv/static/build-home/home.css` (C2-T03 creates and links; C2-T04 fills).
+- **R-G9 One copy of each shared helper:** `icons.js` (C9-T01), `now-state.js`
+  `AST`/`agentState`/`progress`/`modelLabel` (C8-T01), `match.js` (first of
+  C9-T05/C9-T12), `list.js` `stClass`/`stText` (C9-T12), `history.js`
+  `loadEarlier`/`ensureDays`/`ensureFrom` (C9-T03), `clock.js` `nowMs`/`stampMs`
+  (C9-T01), `viewport()` (C9-T03).
+- **R-G10** The model name is `agent.name`; there is no `agent.full`.
+- **R-G11** Unknown agent state reads "State unknown"; ticket `status: "closed"`
+  (duplicates, unknown close reasons) reads "Closed" and is visible by default.
+- **R-G12 Estimates** arrive with C7-T03, after the assembler and the client
+  sites exist. Until then every estimate/ETA site shows the unknown mark, never
+  the design's `EST[cx-1]` or Σ/4 fallback.
+- **R-G13** New sign-off items have final ids S-18..S-50 in
+  [DESIGN-E8](../../../owner-design-tasks/DESIGN-E8.md); C12-T08 verifies them.
+- **R-G14** A ticket body (without its review log) stays at or under 62,000
+  bytes so the Build Order issue body fits (`PlanningSource` drops bodies over
+  64,000 bytes).
+
+### Owners assigned where a row said "nobody does X"
+
+| Work | Owner |
+| --- | --- |
+| In-tree copy of the design source | C1-T01 |
+| `convo(t)` conversation fixture | C11-T03 (extends the C1-T01 exporter) |
+| n2/n7 usage fixtures | C10-T04 (extends the C1-T01 exporter) |
+| DST and day-boundary cases (EC-20) | C9-T02 (client, N14) and C8-T04 (server, W3); the design fixtures stay PDT-only |
+| Design-vs-default epics parity test | C8-T04 (was asked of C12-T08, which cannot diff real data) |
+| `toggle-global-pause` on BuildLive | C12-T01 |
+| Usage-watch registration on the home page | C8-T02 |
+| `.btn:disabled` (H:1362) | C11-T08; C11-T02 reuses it |
+| `build-home/icons.js` (J:32–73) | C9-T01 |
+| `viewport()` (J:604–636) | C9-T03 |
+| H:150 and H:152–154 page base rules, C:1147 | C2-T02 |
+| `khSpin` (H:720), modal CSS H:1595–1636, dead rules `.bd-mk.wave`, `.bd-zb`, `#bd-fit`, `.bd-card.line.gt` | C2-T04 |
+| Unknown-progress look | C8-T01 (`progress` helper) and C9-T05 (renders no bar); S-31 |
+| `features[k].oldest` | C10-T03 (server field in the C8-T04 assembler) |
+| `unit_row/2` DataSource callback | C11-T07 |
+| Agent tools `aiur_set_epic` / `aiur_feature` (`backfill: true` on both) | C5-T03 / C6-T04 |
+| `aiur_history_export` daemon tool over `Export.page/1` | C13-T04 |
+| Feature-label projection state (`label_states/1`, `mark_labelled/3`, `:held_backfill`) | C6-T02 |
+| `chat: null` until the full Conversations view exists | C12-T01, reverted by C14-T03 |
+
+### Decisions made without the owner
+
+Kevin was away. Each call is reversible and is listed for his sign-off.
+
+1. **Event, path and allowlist spellings** follow the ticket that owns them
+   (C3-T02 kebab-case events; C2-T03 paths; C1-T02 `pending-sign-off`), because
+   the owner's tests enforce its own spelling.
+2. **Estimates arrive late (R-G12)** instead of making the C9 client chain wait
+   on C7-T01 and MP-E1. The cost is an `ETA —` on the board until C7-T03 merges.
+3. **C11-T10 no longer blocks cutover.** OQ-E8-5's written default is "add no
+   Units fields", which drops C11-T10. If Kevin says yes, it ships after C12-T01.
+4. **C12-T08 does not wait for C12-T02.** OQ-E8-9 is one of the questions the
+   sign-off answers, so waiting for it would deadlock the package.
+5. **C6-T01 waits on C5-T01, not C5-T02** (shorter path; the resolver stays pure).
+6. **Hist rows always carry an integer `end`.** A closed ticket with no known
+   close time is counted in `history.undated` and not drawn, rather than drawn at
+   a guessed date.
+7. **The 64 KB snapshot budget excludes the not-queued section.** C12-T06 owns a
+   separate 160 KB budget for 300 not-queued rows.
+8. **Model keys in the URL** accept any slug (`^[a-z0-9][a-z0-9._-]{0,31}$`), not
+   only `provider_families/0`, so a filter on a new model survives a reload.
+9. **Backfill writes are held.** `backfill-agent` feature joins start in
+   `:held_backfill`, so the C13-T04 run writes no GitHub labels (E8-D10); only
+   C13-T02 releases them, at 60 per hour.
+10. **One flag for agent backfill writes.** `aiur_feature` takes `backfill: true`
+    like `aiur_set_epic`, and refuses `create` and `also` in that mode.
+11. **New sign-off items are numbered here** (S-18..S-50, ticket-id order), not
+    in C12-T08, so every ticket can cite a final id now.
+12. **Two new owner questions** (OQ-E8-11 GUI-only Units features, OQ-E8-12
+    dashboard queue writes) and nine new contract requests (CR-E8-10..18).
+13. **`sources.index` is the Index process's own health;** the not-queued
+    section reads `sources.open_tickets` (C7-T04, C8-T04, C9-T12).
+14. **Usage subscribes per socket** in `IndexSource.subscribe/1` (it runs in the
+    LiveView process), only for an authorized session, and never on the shared
+    Index topic (C8-T02, C8-T04).
+15. **Pause and resume travel as one `request-unit-control {id, action}` event**
+    (C11-T07), not two events.
+16. **`closed` stays out of the weighted feature figure,** like `not_planned`
+    (C6-T05; part of S-26).
 
 ---
 
@@ -338,7 +469,7 @@ C12-T08. Server data (C4–C8) runs alongside it and joins at C8-T04 → C12-T01
 - **Design elements.** H:1910, 2059–2064.
 - **Predecessors.** C1-T01, C2-T03.
 - **Cx.** 3.
-- **Owns.** EC-01 (loading before the first payload), EC-10 (modal survives patches).
+- **Owns.** EC-01 (loading before the first payload), modal survival under patches (no EC id; EC-10 is the scroll anchor).
 
 #### MP-E8-C3-T02 — Payload schema v1, diff and resync protocol
 - **Scope.** Define the JSON the hook consumes, as a versioned schema with an
@@ -734,7 +865,7 @@ Merged into C3-T01 by the review pass on 2026-10-07. Do not write a doc for it.
 ### C9 — Client timeline engine (port of build.js)
 
 #### MP-E8-C9-T01 — Hook shell, scrollbar, payload intake, URL bridge
-- **Scope.** The LiveView hook (PROPOSED `src/priv/static/build-home-hook.js`,
+- **Scope.** The LiveView hook (PROPOSED `src/priv/static/build-home/hook.js`,
   split into modules) that:
   - ports `shell()` (J:543–573): toolbar hosts, `.bd-vpw`, `#bd-vp`, the overlay
     scrollbar `#bd-sb` with drag and track click and its `.act` (700 ms reveal),

@@ -121,3 +121,47 @@ particular the Units fields and CI state the modal omits (OQ-E8-5, conditional
 ticket C11-T10), no type filter (OQ-E8-4), the Build Order panes retiring
 (OQ-E8-9), the demo-only controls dropped (item 5), and sending to a parked agent
 (OQ-E8-10).
+
+## Sign-off items added by the ticket pass (2026-10-08)
+
+The 76 ticket writers and reviewers found more states the design does not show.
+Several proposed the same number ("S-18"). The coordinator assigned the final ids
+below in ticket-id order; MP-E8-C12-T08 verifies this register and does not
+renumber it. Each ticket follows the default until Kevin answers. Writer labels
+are kept so the ticket text can be traced.
+
+| ID | Item | Default until answered | Tickets (writer label) |
+| --- | --- | --- | --- |
+| S-18 | Reduced motion: the product's global rule (`dashboard.css:6865-6874`) makes the modal `tkin` open, the `.bd-spin` loader and the 0.4 s dot-grid transition static, where the design keeps them moving | Keep the global rule; three `motion` allowlist entries, `pending-sign-off` | C1-T03, C9-T10 |
+| S-19 | Six token values held at WCAG AA: the design's `--faint` fails in all four theme × palette combinations (2.98–4.02:1), light `--attn-ink` fails in both light combinations | AA values, as `design-style` allowlist entries | C2-T01 ("S-18") |
+| S-20 | Pause item when the pause state is unknown | "Pause state unknown", disabled | C2-T02 |
+| S-21 | A stored sidenav collapse on a phone hides the cog with no way back | Collapse ignored below 961 px | C2-T02 |
+| S-22 | The design's `.btn` paints `#fff` on accent fills (3.51:1) | Ported as designed; contrast measured in the package | C2-T04 |
+| S-23 | Loading frame: toolbar, usage strip and feature header have no data before the first payload | Empty in the loading frame | C3-T01 |
+| S-24 | Edge looks for an "unknown" dependency state and an order violation | Unknown uses the base `.bd-e`; violation keeps its own cause in `causes` | C4-T05 |
+| S-25 | The design mock puts some feature members in general columns; E8-D11 says the owning feature sets the column | E8-D11 wins | C5-T02 |
+| S-26 | Feature figures: an unknown Weighted/Done figure, a feature with no owners, `not_planned` members, unknown complexity | `—` with the reasons in `title`; zero-owner shows `—` (design `0%`); `not_planned` out of the weighted figure but in Done n/m; unknown complexity gives no lower bound | C6-T05, C10-T03 ("S-18") |
+| S-27 | Id and queue slot shown for an unfiled planning-pack row | "—" with title "Not filed yet", label "Planned · not filed" | C7-T02 ("S-new-A"), C9-T05 |
+| S-28 | Planning packs cannot be read | "Planning packs unavailable" marker | C7-T02 ("S-new-B") |
+| S-29 | Planned estimate or ETA unknown or partial | `—` and `≥Nh` | C7-T03 ("S-18") |
+| S-30 | Not-queued list above 1,000 open issues, and its order | "1000+ open · not in the queue"; oldest first (the design's order) | C7-T04 |
+| S-31 | Agent state unknown, progress unknown, and an exhausted ticket with an open Command | "State unknown"; no progress bar element; not a now row | C8-T01 (D7, D8, D16) |
+| S-32 | Usage strip: the credits "of $10.65" total and the "Search" row | No total (no probe for it); no Search row, ElevenLabs takes the slot | C8-T02 |
+| S-33 | Daemon headline for causes the design does not show | "Daemon unreachable", "Daemon stale", "Daemon status unknown" next to live/offline | C8-T03 ("S-18") |
+| S-34 | Board copy the design does not have: header error, total unknown, history unavailable, "not on the board", "links not yet known", `Q?` / `W?` | As written in the tickets | C9-T02, C9-T03, C9-T11 |
+| S-35 | On bar, mini and line cards the agent state shows only by colour and tooltip (S-4 default) although E8-D12 asks for a marker that does not rely on colour | As designed (colour and tooltip) | C9-T06 |
+| S-36 | Design bug: after flow mode (narrow) back to wide, dependency lines stay hidden | Lines return (`pending-sign-off` entry) | C9-T07 |
+| S-37 | "Agent state unavailable" in the now band | `.bd-now-empty` with "unavailable" copy and the age | C9-T08 |
+| S-38 | With the demo select gone, the status-line legend moves to the right end | Accept the move | C10-T01 |
+| S-39 | Unknown filter percent, and whether duplicate closures are hidden | `—`; duplicates are `closed` and visible | C10-T02 |
+| S-40 | Conversation event rows: unknown time, progress with no percent, unreadable event log, log cut at 500 rows | `—`; muted "Progress updated"; one "Ticket events could not be read" line; one "Earlier ticket events not shown" line | C11-T04 ("S-18") |
+| S-41 | The "Open in Conversations" expand button on past tickets (shown in the design) | Hidden until MP-E8-C14-T03 | C11-T07 |
+| S-42 | Command-answer card: pending, read-only, settled, error, unavailable and zero-option states | A `p.st` / `p.st.bad` state line after `.row` | C11-T08 ("S-18"), C14-T04 |
+| S-43 | Modal header with the Units fields (only if OQ-E8-5 is "yes") | Product-only screenshots; no parity test | C11-T10 |
+| S-44 | Product-only states at cutover: no nav badge when the count is unknown, the Build badge only on `/`, `/units` and `/build-orders` with no active nav item, the `/chat` 404 and 503 bodies | As written in C12-T01 | C12-T01 |
+| S-45 | Phone gaps in the design: modal `100vh`, composer font under 16 px (iOS zoom), `liveGuard` during momentum scroll, no `viewport-fit=cover`, no fallback for old engines, (conditional) no flow mode at 430 px, tap targets under 44 px | Design kept; each is a `test.fail()` design gap | C12-T04 (PS-T04-1..6) |
+| S-46 | Design contrast failures found by axe | One `axe` allowlist entry each, `pending-sign-off` | C12-T05 |
+| S-47 | Performance budgets | The proposed budgets in C12-T06 | C12-T06 |
+| S-48 | Fleet capacity control and the routing preview leave the GUI with Units (see OQ-E8-11) | `/units` only for one release; capacity through `aiur set max-agents` | C12-T07, C12-T03 |
+| S-49 | The `build-dark.png` image the docs publish | Shown in the package | C12-T07 |
+| S-50 | Usage-strip states the design does not show (provider not yet observed, stale row, locked session, unknown credits) | The product-only screenshots and `pending-sign-off` entries in C10-T04 §4.6 | C10-T04 |

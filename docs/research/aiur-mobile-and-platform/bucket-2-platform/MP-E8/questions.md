@@ -123,3 +123,21 @@ answers. The defaults are also listed in [plan.md §10](plan.md#10-decisions-mad
     message resumes any paused agent when a slot is free, including one parked on
     its account limit (#2742), which then hits the limit again. Default: keep
     main's behaviour; no orchestrator change. Ticket: C11-T06.
+
+## 11. Questions from the 2026-10-08 ticket pass
+
+Kevin was away. Each has a default that the tickets follow.
+
+11. **OQ-E8-11. Which Units-only GUI features may go when the Units components
+    are deleted?** No MP-E8 ticket moves the fleet capacity control, the routing
+    preview, the drawer's interactive voice chat, the Tickets panel's "Add an
+    agent" or the run-summary strip to the home page, and the design has none of
+    them. Default: they stay on the hidden `/units` route for one release
+    (capacity through `aiur set max-agents`), and MP-E8-C12-T03 Part B (the
+    deletion) waits for this answer. Tickets: C12-T03, C12-T07 (sign-off S-48).
+12. **OQ-E8-12. May the dashboard write to the build queue?** The MP-E1 plan
+    makes the dashboard view read-only (E1-R7), but the E8 plan §6 and S-14 put
+    an "Add to queue" button in the ticket modal. Default: keep the button
+    (MP-E8-C11-T02) and ask MP-E1 for a written exception and the add function in
+    its contract (CR-E8-12). If the answer is "read-only", C11-T02 drops the
+    button and shows the CLI command instead.
