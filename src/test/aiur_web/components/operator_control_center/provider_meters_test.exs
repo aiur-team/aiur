@@ -169,6 +169,64 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "Loading account meters"
   end
 
+  test "Claude account usage renders equal segments instead of duplicate weekly bars" do
+    observed_at = DateTime.utc_now()
+
+    readings = %{
+      "work" => %{reading: %{windows: [%{window: "seven_day", used_percent: 80}]}, observed_at: observed_at, freshness: :fresh},
+      "default" => %{reading: %{windows: [%{window: "seven_day", used_percent: 40}]}, observed_at: DateTime.add(observed_at, -30, :second), freshness: :stale}
+    }
+
+    snapshot =
+      healthy(:claude)
+      |> Map.put(:windows, %{
+        "seven_day" => %{kind: :rate_limit, name: "Weekly", used_percent: 20, source: :provider},
+        "five_hour" => %{kind: :rate_limit, name: "Five hour", used_percent: 10, source: :provider}
+      })
+
+    view = Presenter.present(authorized(), %{claude: snapshot}, readings)
+    html = render(view, Presenter.announcement(view))
+
+    assert html =~ "×2"
+    assert html =~ "Average weekly use: 60.0%"
+    assert html =~ ~s(width: 50.0%)
+    assert html =~ "default: 40%"
+    assert html =~ "work: 80%"
+    assert html =~ "stale"
+    assert html =~ "30s old"
+    assert html =~ "role=\"img\""
+    assert html =~ ~s(class="provider-meter-account-bar")
+    assert length(Regex.scan(~r/class="provider-meter-account-segment /, html)) == 2
+    assert html =~ "account-color-0"
+    assert html =~ "account-color-1"
+    assert length(Regex.scan(~r/class="provider-meter-bar"/, html)) == 1
+    refute html =~ "Weekly"
+  end
+
+  test "an unavailable Claude account remains unknown and does not become zero in the average" do
+    readings = %{
+      "known" => %{reading: %{windows: [%{window: "seven_day", used_percent: 40}]}, observed_at: DateTime.utc_now(), freshness: :fresh},
+      "offline" => %{reading: nil, observed_at: DateTime.utc_now(), freshness: :unavailable, reason: :no_credentials}
+    }
+
+    view = Presenter.present(authorized(), %{}, readings)
+    html = render(view, Presenter.announcement(view))
+
+    assert html =~ "Average weekly use: unknown"
+    assert html =~ "offline: unknown"
+    refute html =~ "offline: 0%"
+  end
+
+  test "one configured account keeps the legacy provider meter render" do
+    reading = %{reading: %{windows: [%{window: "seven_day", used_percent: 40}]}, observed_at: DateTime.utc_now(), freshness: :fresh}
+    view = Presenter.present(authorized(), %{claude: healthy(:claude)}, %{"default" => reading})
+    html = render(view, Presenter.announcement(view))
+
+    assert html =~ "provider-meter-bar"
+    refute html =~ "provider-meter-account-bar"
+    refute html =~ "×1"
+  end
+
   defp render(view, announcement) do
     render_component(&ProviderMeters.provider_meters/1, view: view, announcement: announcement)
   end

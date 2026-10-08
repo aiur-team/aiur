@@ -1027,6 +1027,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> State.apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
       |> maybe_put_worker_pause_reason(status, pause_reason)
       |> put_usage_limit_reset(status, pause_reason, pause_payload)
+      |> put_usage_limit_session(status, pause_reason, pause_payload)
       |> maybe_clear_control_owned_pause(request, status)
       |> maybe_clear_pending_pause_reason(request, status)
       |> maybe_clear_interrupted_turn(status)
@@ -1056,6 +1057,11 @@ defmodule Aiur.Orchestrator.PauseResume do
     do: Map.put(entry, :usage_limit_reset_at, reset)
 
   defp put_usage_limit_reset(entry, _status, _reason, _payload), do: Map.delete(entry, :usage_limit_reset_at)
+
+  defp put_usage_limit_session(entry, :paused, :usage_limit_exhausted, payload),
+    do: Map.put(entry, :usage_limit_session, Map.take(payload, [:session_id, :account_name, :cwd, :backend]))
+
+  defp put_usage_limit_session(entry, _status, _reason, _payload), do: entry
 
   defp maybe_clear_interrupted_turn(running_entry, :paused),
     do: Map.delete(running_entry, :interrupted_turn_observed_at)

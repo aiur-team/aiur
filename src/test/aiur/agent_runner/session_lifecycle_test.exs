@@ -1,7 +1,8 @@
 defmodule Aiur.AgentRunner.SessionLifecycleTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Issue, LiveConversation, TrackerIdentity}
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.{AgentEvents, AgentPubSub, AgentRunner, CodingAgent, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.{MessageHandler, SessionLifecycle}
   alias Aiur.Claude.{DisplayTailer, HookEvents}
   alias Aiur.Workspace.Ownership
@@ -75,6 +76,57 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       {"codex", false, session_opts} = SessionLifecycle.resolve_session_options(issue, [], nil)
 
       assert Keyword.fetch!(session_opts, :model) == "gpt-9.9-nova"
+    end
+  end
+
+  describe "Claude account selection wait" do
+    test "waits until the earliest exhausted account reset when no account is available" do
+      reset_at = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.truncate(:second)
+      UsageReadings.reset()
+
+      on_exit(fn -> UsageReadings.reset() end)
+
+      :ok =
+        UsageReadings.record(
+          "claude",
+          "default",
+          {:ok,
+           %{
+             windows: [
+               %{window: "seven_day", used_percent: 100, resets_at: reset_at},
+               %{window: "five_hour", used_percent: 100, resets_at: DateTime.add(reset_at, 600, :second)}
+             ]
+           }},
+          DateTime.utc_now()
+        )
+
+      issue = %Issue{id: "issue-account-wait", identifier: "ACCOUNT-WAIT", selected_backend: "claude"}
+
+      config = %{
+        accounts: %{"claude" => ["default"]},
+        account_selection: "balance"
+      }
+
+      {"claude", false, session_opts} =
+        SessionLifecycle.resolve_session_options(
+          issue,
+          [account_config: config, account_list_fun: fn "claude" -> [%{name: "default"}] end],
+          nil
+        )
+
+      assert Keyword.get(session_opts, :account_selection_wait) == DateTime.to_iso8601(reset_at)
+      refute Keyword.has_key?(session_opts, :account_selection_error)
+
+      issue = %Issue{id: "issue-account-wait", identifier: "ACCOUNT-WAIT"}
+      parent = self()
+      runner = spawn(fn -> send(parent, {:wait_result, AgentRunner.pause_for_account_usage_wait(issue, parent, DateTime.to_iso8601(reset_at))}) end)
+
+      assert_receive {:worker_control_state, "issue-account-wait", :paused, pause_payload}, 1_000
+      assert pause_payload.kind == :usage_limit_exhausted
+      assert pause_payload.reset_at == DateTime.to_iso8601(reset_at)
+
+      send(runner, {:resume_agent, 1})
+      assert_receive {:wait_result, :resume_after_before_run_pause}, 1_000
     end
   end
 

@@ -120,8 +120,19 @@ defmodule Aiur.CodexProber do
     _kind, _reason -> {:error, :no_workspace_root}
   end
 
-  defp start_probe_port(workspace, opts),
-    do: Keyword.get(opts, :start_port_fun, &AppServerPort.start_port/4).(workspace, nil, nil, nil)
+  defp start_probe_port(workspace, opts) do
+    env =
+      case Keyword.get(opts, :codex_home) do
+        home when is_binary(home) -> [{"CODEX_HOME", home}]
+        _ -> []
+      end
+
+    case Keyword.get(opts, :start_port_fun) do
+      fun when is_function(fun, 4) -> fun.(workspace, nil, nil, nil)
+      fun when is_function(fun, 5) -> fun.(workspace, nil, nil, nil, env)
+      _ -> AppServerPort.start_port(workspace, nil, nil, nil, fn _pid -> :ok end, env)
+    end
+  end
 
   defp initialize_probe_port(port, opts),
     do: Keyword.get(opts, :initialize_fun, &Handshake.send_initialize/1).(port)
