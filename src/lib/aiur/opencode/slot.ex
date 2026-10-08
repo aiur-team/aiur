@@ -496,9 +496,8 @@ defmodule Aiur.Opencode.Slot do
     do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)
 
     result =
-      with :ok <- TokenRegistry.allow_identifier(state.token, identifier) do
-        Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index)
-      else
+      case TokenRegistry.allow_identifier(state.token, identifier) do
+        :ok -> Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index)
         {:error, _} = err -> {:writer_failed, err}
       end
 
