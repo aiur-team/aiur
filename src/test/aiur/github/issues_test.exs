@@ -444,6 +444,74 @@ defmodule Aiur.GitHub.IssuesTest do
       assert Agent.get(list_step, & &1) == 3
     end
 
+    test "fresh non-dispatchable states survive repeated polls and next-poll zero-label healing" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["todo", "in-progress"]
+      )
+
+      for target <- ~w(ci-wait human-review error) do
+        number = System.unique_integer([:positive])
+        identifier = to_string(number)
+        previous = %Issue{id: identifier, identifier: identifier, state: "in-progress", state_labels: ["in-progress"]}
+        state = %Aiur.Orchestrator.State{last_polled_issues: %{identifier => previous}}
+        {:ok, reads} = Agent.start_link(fn -> 0 end)
+
+        request_fun = fn request ->
+          # Neither label-evidence polls nor their synchronization need a timeline or by-id read.
+          assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+          step = Agent.get_and_update(reads, &{&1, &1 + 1})
+          labels = if step < 2, do: [%{"name" => "sym:#{target}"}], else: []
+
+          {:ok,
+           %{
+             status: 200,
+             headers: [{"etag", "#{target}-#{step}"}],
+             body: [%{"number" => number, "title" => "Fresh lifecycle evidence", "state" => "open", "labels" => labels}]
+           }}
+        end
+
+        sync = fn state, issues ->
+          Aiur.Orchestrator.IssueSync.sync_polled_issue_state(
+            state,
+            issues,
+            fn ids -> flunk("unexpected per-issue fetch: #{inspect(ids)}") end,
+            fn _, _ -> :ok end,
+            MapSet.new(["done"]),
+            fn _ -> :ok end,
+            fn _, _ -> :ok end
+          )
+        end
+
+        assert {:ok, [fresh] = issues, cache} = Client.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+        assert fresh.state == target
+        refute fresh.dispatch_authorized?
+        state = sync.(state, issues)
+        assert state.last_polled_issues[identifier].state == target
+
+        assert {:ok, [fresh] = issues, cache} = Client.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+        assert fresh.state == target
+        state = sync.(state, issues)
+        assert state.last_polled_issues[identifier].state == target
+
+        assert {:ok, [missing], _cache} = Client.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+        assert missing.state_labels == []
+        parent = self()
+
+        {_, [healed]} =
+          Aiur.Orchestrator.IssueSync.reconcile_contradictory_state_labels(state, [missing], fn id, restored ->
+            send(parent, {:heal, id, restored})
+            :ok
+          end)
+
+        assert_received {:heal, ^identifier, ^target}
+        assert healed.state_labels == [target]
+        assert Agent.get(reads, & &1) == 3
+      end
+    end
+
     test "the conditional path surfaces degenerate tickets for repair but excludes pull requests" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",

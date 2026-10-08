@@ -1281,12 +1281,17 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     passed_head = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> Map.get(target)
     observed_head = Map.get(result, :head_sha)
 
-    if HumanReview.human_review_state?(effective_ci_state(issue)) do
-      is_nil(approved_head) or
-        (ci_head_approved?(state, issue, result) and
-           (is_nil(passed_head) or passed_head != observed_head))
-    else
-      ci_head_approved?(state, issue, result)
+    cond do
+      Map.get(result, :draft?) == true ->
+        false
+
+      HumanReview.human_review_state?(effective_ci_state(issue)) ->
+        is_nil(approved_head) or
+          (ci_head_approved?(state, issue, result) and
+             (is_nil(passed_head) or passed_head != observed_head))
+
+      true ->
+        ci_head_approved?(state, issue, result)
     end
   end
 
@@ -1327,24 +1332,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp remember_ci_approved_head(state, _issue, _result), do: state
 
-  # A `ci-wait` label that co-owns a ticket with a real disposition (human-review,
-  # rework, …) is a stale leftover: CI finished and the ticket moved on, but the
-  # waiting marker was never cleared. The human-review branches keep the ticket in
-  # its review disposition without a state swap, so they must explicitly drop the
-  # stale `ci-wait` to leave GitHub carrying exactly one state label and keep the
-  # ticket dispatchable (#2366). Best-effort: a failed removal logs and leaves the
-  # state untouched; the next terminal observation retries.
+  # Reassert the surviving disposition through the add-first owner; an approved head alone is not a label.
   defp clear_stale_ci_wait(%State{} = state, %Issue{} = issue) do
-    if @ci_wait_state in List.wrap(issue.state_labels) do
-      label = "#{Aiur.GitHub.Config.label_prefix()}:#{@ci_wait_state}"
-
-      case Tracker.remove_label(to_string(issue.id || issue.identifier), label) do
+    if @ci_wait_state in List.wrap(issue.state_labels) and HumanReview.human_review_state?(effective_ci_state(issue)) do
+      case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state, expected_state_opts(issue)) do
         :ok ->
           state
 
         {:error, reason} ->
-          Logger.warning("Stale ci-wait removal failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
+          Logger.warning("Stale ci-wait cleanup failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
           state
       end
     else
