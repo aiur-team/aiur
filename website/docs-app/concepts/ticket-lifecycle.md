@@ -561,8 +561,8 @@ in [GitHub](/apis/github); this page does not duplicate them.
 
 If the run was started with `/aiur-run`, the Executor agent is subscribed to PR
 events and spins up a background agent for code review. `Aiur.ExecutorBindings`
-reconciles a compile-time set of exactly **28** default bindings
-(`src/lib/aiur/executor_bindings.ex:7-32`), each with its delivery channel.
+reconciles a compile-time set of default bindings
+(`src/lib/aiur/executor_bindings.ex`), each with its delivery channel.
 Grouped by channel:
 
 **commands** — the Executor's control-plane catch-all:
@@ -582,6 +582,7 @@ Grouped by channel:
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
+| `system.queue.attention.#` (including `.resolved`) | `dispatch:auto` |
 
 **pr** — pull request lifecycle:
 
@@ -608,6 +609,7 @@ Grouped by channel:
 | Pattern | Channel |
 | --- | --- |
 | `ticket.*.agent.attention.*` | `attention:auto` |
+| `ticket.*.queue.attention.#` (including `.resolved`) | `attention:auto` |
 | `ticket.*.agent.paused` | `attention:auto` |
 | `ticket.*.agent.error.tokens_exhausted` | `attention:auto` |
 | `ticket.*.agent.retry_exhausted` | `attention:auto` |

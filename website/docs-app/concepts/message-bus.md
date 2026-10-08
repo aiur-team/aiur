@@ -71,6 +71,12 @@ Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are tru
 
 ## Dependencies
 
+Queue attentions add two default Executor bindings: `ticket.*.queue.attention.#`
+(`attention:auto`) and `system.queue.attention.#` (`dispatch:auto`). Both include
+the `.resolved` events that clear an attention. Queue latches survive restarts;
+failed durable emissions are retried on reconciliation. Queue bus payloads carry
+allowlisted references and attributes; human-readable copy stays in the local alert feed.
+
 | Step | Contract |
 | --- | --- |
 | Declare | `aiur_declare_blocker(N)` records the native issue dependency and subscriptions. |
