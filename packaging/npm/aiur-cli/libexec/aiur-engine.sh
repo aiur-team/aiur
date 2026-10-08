@@ -2665,6 +2665,26 @@ cmd_usage() {
   run_control_rpc "Aiur.AgentControlCLI.usage()"
 }
 
+cmd_accounts() {
+  local json_arg=false
+  [ "$#" -le 1 ] || die "accounts accepts only --json"
+  if [ "$#" -eq 1 ]; then
+    [ "$1" = "--json" ] || die "accounts accepts only --json"
+    json_arg=true
+  fi
+
+  resolve_release || return $?
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    # The local one-shot CLI renders the identity and marks usage unavailable.
+    # It never makes a provider request.
+    run_local_cli accounts "$@"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.accounts(json: $json_arg)"
+  fi
+}
+
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -4141,7 +4161,11 @@ aiur_engine_main() {
     login)
       run_account_login "$@"
       ;;
-    accounts | logout)
+    accounts)
+      shift
+      cmd_accounts "$@"
+      ;;
+    logout)
       run_local_cli "$@"
       ;;
     findings)

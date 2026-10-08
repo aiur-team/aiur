@@ -168,7 +168,6 @@ defmodule Aiur.AccountsCLI do
 
   defp freshness(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp freshness(_reason), do: "unavailable"
-
   defp percent(windows, id) do
     case Enum.find(windows, &(&1.window == id)) do
       %{used_percent: percent} -> percent

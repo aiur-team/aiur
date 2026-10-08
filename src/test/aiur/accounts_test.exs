@@ -415,6 +415,35 @@ defmodule Aiur.AccountsTest do
     assert output =~ ~s("age_ms":)
   end
 
+  test "daemon accounts control command reads the polled usage snapshot", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+    :ok = Accounts.register("claude", "max", nil)
+
+    UsageReadings.record(
+      "claude",
+      "max",
+      {:ok,
+       %{
+         windows: [
+           %{window: "seven_day", used_percent: 41},
+           %{window: "five_hour", used_percent: 18}
+         ]
+       }},
+      DateTime.utc_now()
+    )
+
+    output = capture_io(fn -> Aiur.AgentControlCLI.accounts(true) end)
+    [json | _marker] = String.split(output, "\n", trim: true)
+    row = Enum.find(Jason.decode!(json), &(&1["name"] == "max"))
+
+    assert row["weekly_percent"] == 41
+    assert row["five_hour_percent"] == 18
+    assert row["freshness"] == "fresh"
+    assert row["observed_at"]
+    assert is_integer(row["age_ms"])
+  end
+
   test "accounts json reports daemon not running while retaining identity", %{home: home} do
     File.mkdir_p!(Path.join(home, ".claude"))
     File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
