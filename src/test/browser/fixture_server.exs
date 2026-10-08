@@ -156,7 +156,8 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
     <main class="app-shell">
       <DashboardShell.dashboard_shell route={RouteRegistry.current_route(:index)} routes={RouteRegistry.routes(%{})}
         tracker_kind="fixture" agent_kind="fixture" nav_collapsed={@nav_collapsed}>
-        <button id="probe-palette-item" type="button" role="menuitemcheckbox" aria-checked="true" phx-hook="PaletteToggle">Gruvbox palette</button>
+        <button id="probe-palette-button" type="button" aria-pressed="true" phx-hook="PaletteToggle" data-probe-patch={to_string(@nav_collapsed)}>Gruvbox palette button</button>
+        <button id="probe-palette-item" type="button" role="menuitemcheckbox" aria-checked="true" phx-hook="PaletteToggle" data-probe-patch={to_string(@nav_collapsed)}>Gruvbox palette</button>
       </DashboardShell.dashboard_shell>
     </main>
     """
