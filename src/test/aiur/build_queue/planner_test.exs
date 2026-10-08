@@ -165,6 +165,13 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :unknown}], []} = Planner.plan(input)
   end
 
+  test "cached unauthorized decline latches after a planned promotion without a second action batch" do
+    input = %{F.input() | claims: %{"1" => {:declined, :unauthorized}}}
+    actions = [{:promote, "1"}, {:attention_open, {:promoted_unauthorized, "1"}}]
+    assert {[%{state: :ready}], ^actions} = Planner.plan(input)
+    assert {[%{state: :promoted_unauthorized}], []} = input |> F.apply_actions(actions) |> Planner.plan()
+  end
+
   property "applied effects do not repeat actions" do
     check all(input <- F.generator()) do
       {_states, first} = Planner.plan(input)

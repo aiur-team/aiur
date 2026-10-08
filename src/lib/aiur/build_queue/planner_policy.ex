@@ -29,6 +29,12 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
       f.todo and not own_promotion?(f) -> result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
       external_removal?(f) -> external_hold(f)
       held?(f) -> result(:held, f.item.hold || :queue_hold)
+      true -> managed_labels(f)
+    end
+  end
+
+  defp managed_labels(f) do
+    cond do
       f.todo and own_promotion?(f) -> promoted(f)
       withdrawing?(f) and intent?(f, :withdraw) -> released(f)
       true -> ready_or_waiting(f)

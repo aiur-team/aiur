@@ -31,7 +31,9 @@ defmodule Aiur.BuildQueue.Planner do
     context = context(input)
     pairs = Enum.map(input.items, &project(&1, context)) |> Enum.sort_by(fn {state, _actions} -> state.rank end)
     {states, actions} = Enum.unzip(pairs)
-    {states, Enum.concat(actions) ++ attention_actions(states, context)}
+    actions = Enum.concat(actions)
+    context = Map.put(context, :promotions, for({:promote, id} <- actions, do: id))
+    {states, actions ++ attention_actions(states, context)}
   end
 
   defp context(input) do
@@ -92,6 +94,11 @@ defmodule Aiur.BuildQueue.Planner do
       _key -> false
     end)
     |> MapSet.new()
+  end
+
+  # Latch a known decline after its planned promotion, so applied effects converge.
+  defp attention_keys(%{state: :ready, issue_id: id}, context) do
+    if id in context.promotions and is_map(context.input.claims) and context.input.claims[id] == {:declined, :unauthorized}, do: [{:promoted_unauthorized, id}], else: []
   end
 
   defp attention_keys(%{state: :promoted_unauthorized, issue_id: id}, _context), do: [{:promoted_unauthorized, id}]
