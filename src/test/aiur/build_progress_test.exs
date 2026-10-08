@@ -19,7 +19,7 @@ defmodule Aiur.BuildProgressTest do
     put(server, context.scope, 20)
     refute_received {:event, %{topic: _}}
     put(server, context.scope, 80)
-    assert_receive {:event, event}
+    assert_received {:event, event}
     assert event.topic == topic(context.scope)
     assert event.milestone == 75
     assert event.percent == 80
@@ -35,7 +35,7 @@ defmodule Aiur.BuildProgressTest do
   test "restart at 80% emits nothing and decreases never reset the latch", context do
     server = start_store(context.path)
     put(server, context.scope, 80)
-    assert_receive {:event, %{milestone: 75}}
+    assert_received {:event, %{milestone: 75}}
     GenServer.stop(server)
     restarted = start_store(context.path)
     put(restarted, context.scope, 80)
@@ -43,7 +43,7 @@ defmodule Aiur.BuildProgressTest do
     put(restarted, context.scope, 80)
     refute_received {:event, %{topic: _}}
     put(restarted, context.scope, 100)
-    assert_receive {:event, %{milestone: 100}}
+    assert_received {:event, %{milestone: 100}}
   end
 
   test "partial resolution emits; unresolved and unknown do not", context do
@@ -52,7 +52,7 @@ defmodule Aiur.BuildProgressTest do
     put(server, context.scope, 25, resolution: :unknown)
     refute_received {:event, %{topic: _}}
     put(server, context.scope, 25, resolution: :partial)
-    assert_receive {:event, %{milestone: 25}}
+    assert_received {:event, %{milestone: 25}}
   end
 
   test "stale and unknown freshness suppress milestones until current", context do
@@ -61,15 +61,15 @@ defmodule Aiur.BuildProgressTest do
     put(server, context.scope, 50, freshness: :unknown)
     refute_received {:event, %{topic: _}}
     put(server, context.scope, 50)
-    assert_receive {:event, %{milestone: 50}}
+    assert_received {:event, %{milestone: 50}}
   end
 
   test "new generation after 100 starts at 25 without resetting an older generation", context do
     server = start_store(context.path)
     put(server, context.scope, 100)
-    assert_receive {:event, %{milestone: 100, generation: 1}}
+    assert_received {:event, %{milestone: 100, generation: 1}}
     put(server, context.scope, 25, generation: 2)
-    assert_receive {:event, %{milestone: 25, generation: 2}}
+    assert_received {:event, %{milestone: 25, generation: 2}}
     put(server, context.scope, 100)
     refute_received {:event, %{topic: _}}
   end
@@ -78,7 +78,7 @@ defmodule Aiur.BuildProgressTest do
     server = start_store(context.path)
     :ok = BuildProgress.subscribe()
     initial = put(server, context.scope, 20)
-    assert_receive {:build_progress_changed, ^initial}
+    assert_received {:build_progress_changed, ^initial}
     assert :ok = BuildProgress.put_fact(initial, server)
     later = %{initial | observed_at: DateTime.add(initial.observed_at, 1)}
     assert :ok = BuildProgress.put_fact(later, server)
@@ -88,7 +88,7 @@ defmodule Aiur.BuildProgressTest do
     Enum.reduce([[percent: 10], [resolution: :partial], [freshness: :stale], [generation: 2]], later, fn attrs, previous ->
       changed = Map.merge(previous, Map.new(attrs))
       assert :ok = BuildProgress.put_fact(changed, server)
-      assert_receive {:build_progress_changed, ^changed}
+      assert_received {:build_progress_changed, ^changed}
       changed
     end)
   end
@@ -99,9 +99,9 @@ defmodule Aiur.BuildProgressTest do
     :ok = Exchange.subscribe(topic(root))
     first = put(server, context.scope, 25)
     second = put(server, root, 25)
-    assert_receive {:event, %{topic: queue_topic, milestone: 25}}
+    assert_received {:event, %{topic: queue_topic, milestone: 25}}
     assert queue_topic == topic(context.scope)
-    assert_receive {:event, %{topic: root_topic, milestone: 25}}
+    assert_received {:event, %{topic: root_topic, milestone: 25}}
     assert root_topic == topic(root)
     assert MapSet.new(BuildProgress.facts(:all, server)) == MapSet.new([first, second])
     assert BuildProgress.facts(root, server) == [second]
@@ -126,7 +126,7 @@ defmodule Aiur.BuildProgressTest do
     File.mkdir!(context.path)
     :ok = BuildProgress.subscribe()
     fact = put(server, context.scope, 50)
-    assert_receive {:build_progress_changed, ^fact}
+    assert_received {:build_progress_changed, ^fact}
     assert BuildProgress.facts(context.scope, server) == [fact]
     refute_received {:event, %{topic: _}}
     File.rmdir!(context.path)
@@ -161,7 +161,7 @@ defmodule Aiur.BuildProgressTest do
     refute_received {:event, %{topic: _}}
     unknown = put(server, context.scope, nil, resolution: :unknown, completed: nil, resolved: nil, total: nil)
     assert BuildProgress.facts(:all, server) == [unknown]
-    assert_receive {:build_progress_changed, ^unknown}
+    assert_received {:build_progress_changed, ^unknown}
     refute_received {:event, %{topic: _}}
   end
 
@@ -170,7 +170,7 @@ defmodule Aiur.BuildProgressTest do
     :ok = BuildProgress.subscribe()
     fact = put(server, context.scope, 80)
     assert BuildProgress.facts(context.scope, server) == [fact]
-    assert_receive {:build_progress_changed, ^fact}
+    assert_received {:build_progress_changed, ^fact}
     refute_received {:event, %{topic: _}}
     GenServer.stop(server)
   end
