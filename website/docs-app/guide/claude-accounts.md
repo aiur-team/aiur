@@ -63,9 +63,10 @@ agent:
 
 `balance` selects the account with the lowest weekly utilization, using
 five-hour utilization to break ties. `priority` uses the first configured
-account. Usage-aware selection currently applies to Claude and Codex; API-key
-accounts have unavailable usage, so use `priority` when those backends have
-multiple keys. The chosen account stays fixed for that ticket's session.
+account. Usage-aware selection currently applies to Claude and Codex.
+
+API-key accounts have unavailable usage, so use `priority` when those backends
+have multiple keys. The chosen account stays fixed for that ticket's session.
 
 Claude usage includes weekly and five-hour account readings. Codex identities
 come from auth metadata, never token contents; its usage probe reads the
