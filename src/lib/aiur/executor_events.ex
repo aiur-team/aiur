@@ -123,15 +123,15 @@ defmodule Aiur.ExecutorEvents do
     ticket = Keyword.get(opts, :ticket)
     patterns = [topic]
     :ok = subscribe(topic)
-    cursor = subscription_cursor(topic)
+    cursor = if String.starts_with?(topic, "executor."), do: last_seen_event_id() || 0, else: subscription_cursor(topic)
 
     try do
       Enum.each(patterns, &Exchange.subscribe/1)
 
       case replay(patterns, cursor) do
         {:ok, events} ->
-          Enum.each(events, &deliver(&1, ticket))
-          receive_events(patterns, ticket)
+          Enum.each(events, &deliver(&1, ticket, topic))
+          receive_events(patterns, ticket, topic)
 
         {:error, reason} ->
           raise "Executor event journal is unavailable: #{inspect(reason)}"
@@ -155,28 +155,28 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  defp receive_events(patterns, ticket) do
+  defp receive_events(patterns, ticket, cursor_topic) do
     receive do
       {:event, event} ->
         topic = Map.get(event, :topic) || Map.get(event, "topic")
 
         if matches_any?(patterns, topic) do
-          if not is_integer(event_id(event)) or event_id(event) > subscription_cursor(topic) do
-            deliver(event, ticket)
+          if not is_integer(event_id(event)) or event_id(event) > listener_cursor(cursor_topic) do
+            deliver(event, ticket, cursor_topic)
           end
         end
 
-        receive_events(patterns, ticket)
+        receive_events(patterns, ticket, cursor_topic)
     end
   end
 
-  defp deliver(event, ticket) do
+  defp deliver(event, ticket, cursor_topic) do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
 
     if is_binary(topic) and String.starts_with?(topic, "executor.") do
       deliver_executor_event(event)
     else
-      deliver_wake_event(event, ticket)
+      deliver_wake_event(event, ticket, cursor_topic)
     end
   end
 
@@ -189,7 +189,7 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  defp deliver_wake_event(event, requested_ticket) do
+  defp deliver_wake_event(event, requested_ticket, cursor_topic) do
     case ExecutorWakeProjection.project(event) do
       {:ok, record} ->
         record = Map.put(record, "wake_id", record["wake_id"] || record["event_id"])
@@ -202,7 +202,7 @@ defmodule Aiur.ExecutorEvents do
           end
 
         IO.puts(Jason.encode!(record))
-        advance_subscription_cursor(Map.get(event, :topic) || Map.get(event, "topic"), record["wake_id"])
+        advance_subscription_cursor(cursor_topic, record["wake_id"])
 
       :ignore ->
         :ok
@@ -272,6 +272,10 @@ defmodule Aiur.ExecutorEvents do
     state = subscription_state()
     entry = Enum.find(state["subscribed_to"], &(&1["topic"] == topic))
     Map.get(entry || %{}, "last_seen_event_id", 0)
+  end
+
+  defp listener_cursor(topic) do
+    if String.starts_with?(topic, "executor."), do: last_seen_event_id() || 0, else: subscription_cursor(topic)
   end
 
   defp event_id(event), do: Map.get(event, :id) || Map.get(event, "id")
@@ -534,7 +538,8 @@ defmodule Aiur.ExecutorEvents do
         %{
           "topic" => entry["topic"] || entry[:topic],
           "reason" => entry["reason"] || entry[:reason] || "manual:legacy",
-          "subscription_created_at_event_id" => entry["subscription_created_at_event_id"] || entry[:subscription_created_at_event_id] || 0
+          "subscription_created_at_event_id" => entry["subscription_created_at_event_id"] || entry[:subscription_created_at_event_id] || 0,
+          "last_seen_event_id" => entry["last_seen_event_id"] || entry[:last_seen_event_id] || 0
         }
     end)
   end
@@ -546,19 +551,11 @@ defmodule Aiur.ExecutorEvents do
     id = Map.get(event, "id", 0)
     topic = Map.get(event, "topic")
 
-    is_integer(id) and id > subscription_cursor_for(entries, topic, cursor) and matches_any?(patterns, topic) and
+    is_integer(id) and id > cursor and matches_any?(patterns, topic) and
       Enum.any?(entries, fn entry ->
         floor = entry["subscription_created_at_event_id"] || 0
         is_binary(entry["topic"]) and is_integer(floor) and id > floor and Topic.matches?(entry["topic"], topic)
       end)
-  end
-
-  defp subscription_cursor_for(entries, topic, cursor) do
-    entries
-    |> Enum.filter(fn entry -> is_binary(entry["topic"]) and Topic.matches?(entry["topic"], topic || "") end)
-    |> Enum.map(&Map.get(&1, "last_seen_event_id", 0))
-    |> Kernel.++([cursor])
-    |> Enum.max(fn -> 0 end)
   end
 
   defp safe_unsubscribe(topic) do

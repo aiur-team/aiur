@@ -1578,28 +1578,54 @@ printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
     refute out =~ "GenServer"
   end
 
-  test "listen accepts ticket shorthand, keeps executor-listen alias, and refuses widening patterns" do
+  test "listen validates through daemon, supports alias, and rejects widening patterns" do
     {ticket, 0} =
       run_sourced_engine(
-        ~s|run_control_stream() { echo "RPC:$1"; return 0; }
-cmd_listen --ticket 3028|,
+        ~s|run_control_rpc() { echo "VALIDATE:$1"; return 0; }
+run_control_stream() { echo "STREAM:$1"; return 0; }
+aiur_engine_main listen --ticket 3028|,
         []
       )
 
+    assert ticket =~ ~s|executor_listen_validate(Base.decode64!("dGlja2V0LjMwMjguIw=="))|
     assert ticket =~ ~s|executor_listen(topic: Base.decode64!("dGlja2V0LjMwMjguIw=="), ticket: "3028")|
 
     {alias_output, 0} =
       run_sourced_engine(
-        ~s|run_control_stream() { echo "RPC:$1"; return 0; }
+        ~s|run_control_rpc() { return 0; }
+run_control_stream() { echo "STREAM:$1"; return 0; }
 aiur_engine_main executor-listen --topic 'ticket.3028.#'|,
         []
       )
 
     assert alias_output =~ "executor_listen(topic:"
 
-    {widened, 64} = run_sourced_engine(~s|cmd_listen --topic 'ticket.*.#'|, [])
-    assert widened =~ "widens beyond reviewed Executor bindings"
+    {widened, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "$1"; echo 'aiur: listen topic rejected (:binding_not_allowlisted); allowed bindings: executor.#, ticket.*.ci.passed'; return 64; }
+run_control_stream() { echo SHOULD_NOT_STREAM; return 0; }
+aiur_engine_main listen --topic 'ticket.*.#'|,
+        []
+      )
+
+    assert widened =~ "executor_listen_validate"
     assert widened =~ "ticket.*.ci.passed"
+    refute widened =~ "SHOULD_NOT_STREAM"
+  end
+
+  test "listen stops after five daemon reconnect failures" do
+    {out, 1} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+stream_count=0
+run_control_stream() { stream_count=$((stream_count + 1)); echo "ATTEMPT:$stream_count"; return 1; }
+sleep() { :; }
+aiur_engine_main listen --ticket 3028|,
+        []
+      )
+
+    assert length(Regex.scan(~r/ATTEMPT:/, out)) == 5, out
+    assert out =~ "could not reconnect after 5 attempts"
   end
 
   test "executor-wait dispatches a bounded RPC and validates timeout usage" do

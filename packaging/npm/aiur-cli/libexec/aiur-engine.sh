@@ -3251,33 +3251,27 @@ cmd_listen() {
     topic="ticket.${ticket}.#"
   fi
   [ -n "$topic" ] || { echo "aiur: listen requires a topic" >&2; exit 64; }
-  if [[ "$topic" == *"#"* || "$topic" == *"*"* ]]; then
-    case "$topic" in
-      executor.#|executor.*|system.dispatch.capacity_starved|system.dispatch.capacity_starved.resolved|system.fleet.capacity.starved|system.fleet.capacity.starved.resolved|system.dispatch.prewarm_blocked|system.dispatch.prewarm_blocked.resolved|system.dispatch.todo_capacity_exceeded|system.tracker.auth_preflight_failed|system.tracker.auth_preflight_failed.resolved|system.fleet.capacity.backoff|system.fleet.capacity.resumed|system.fleet.contradictory_state_labels|system.fleet.contradictory_state_labels.resolved|system.github.connectivity_lost|ticket.*.pr.opened|ticket.*.branch.push|ticket.*.pr.merged|ticket.*.agent.attention.*|ticket.*.agent.paused|ticket.*.agent.error.tokens_exhausted|ticket.*.agent.retry_exhausted|ticket.*.pr.parked_ready|ticket.*.ci.passed|ticket.*.ci.failed|ticket.*.pr.ready_for_review|ticket.*.issue.opened.allowed_contributor)
-        ;;
-      ticket.[0-9]*.#)
-        ticket_id="${topic#ticket.}"
-        ticket_id="${ticket_id%.#}"
-        [[ "$ticket_id" =~ ^[0-9]+$ ]] || { echo "aiur: listen topic widens beyond reviewed Executor bindings; allowed bindings: ticket.* event patterns and listed system/executor patterns" >&2; exit 64; }
-        ;;
-      *) echo "aiur: listen topic widens beyond reviewed Executor bindings; allowed bindings: executor.#, system.dispatch.capacity_starved, system.dispatch.capacity_starved.resolved, system.fleet.capacity.starved, system.fleet.capacity.starved.resolved, system.dispatch.prewarm_blocked, system.dispatch.prewarm_blocked.resolved, system.dispatch.todo_capacity_exceeded, system.tracker.auth_preflight_failed, system.tracker.auth_preflight_failed.resolved, system.fleet.capacity.backoff, system.fleet.capacity.resumed, system.fleet.contradictory_state_labels, system.fleet.contradictory_state_labels.resolved, system.github.connectivity_lost, ticket.*.pr.opened, ticket.*.branch.push, ticket.*.pr.merged, ticket.*.agent.attention.*, ticket.*.agent.paused, ticket.*.agent.error.tokens_exhausted, ticket.*.agent.retry_exhausted, ticket.*.pr.parked_ready, ticket.*.ci.passed, ticket.*.ci.failed, ticket.*.pr.ready_for_review, ticket.*.issue.opened.allowed_contributor" >&2; exit 64 ;;
-    esac
-  fi
   local encoded
   encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
   local ticket_opt=""
   if [ -n "$ticket" ]; then ticket_opt=", ticket: \"$ticket\""; fi
-  while true; do
-    run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\")${ticket_opt})"
-    local status=$?
+  run_control_rpc "Aiur.AgentControlCLI.executor_listen_validate(Base.decode64!(\"$encoded\"))" || return $?
+  local attempt=0 status
+  while [ "$attempt" -lt 5 ]; do
+    attempt=$((attempt + 1))
+    status=0
+    run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\")${ticket_opt})" || status=$?
     [ "$status" -eq 0 ] && return 0
     if [ "$status" -ne 1 ] || [ "${AIUR_LISTEN_RECONNECT:-1}" -ne 1 ]; then
       echo "aiur: listen stopped after streaming control RPC failure (exit ${status}); restart the command after correcting the daemon error" >&2
       return "$status"
     fi
+    [ "$attempt" -eq 5 ] && break
     echo "aiur: listen lost the daemon stream (exit ${status}); reconnecting in 2 seconds" >&2
     sleep 2
   done
+  echo "aiur: listen could not reconnect after 5 attempts; daemon may be unavailable" >&2
+  return 1
 }
 
 cmd_executor_wait() {

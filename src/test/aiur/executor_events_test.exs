@@ -61,7 +61,7 @@ defmodule Aiur.ExecutorEventsTest do
              ExecutorEvents.replay(ExecutorEvents.subscriptions(), ExecutorEvents.last_seen_event_id())
   end
 
-  test "replays a narrowed per-ticket topic without including other ticket events" do
+  test "listener persists its pattern cursor and does not redeliver after reconnect" do
     path = StatePaths.journal_path()
     File.mkdir_p!(Path.dirname(path))
     state_path = StatePaths.subscriptions_path()
@@ -71,18 +71,33 @@ defmodule Aiur.ExecutorEventsTest do
     File.write!(path, Jason.encode!(%{"id" => second_id, "topic" => "ticket.3029.agent.paused"}) <> "\n", [:append])
 
     JsonStore.write!(state_path, %{
-      "subscribed_to" => [
-        %{"topic" => "ticket.3028.#", "reason" => "manual:executor", "subscription_created_at_event_id" => 0},
-        %{"topic" => "ticket.3029.#", "reason" => "manual:executor", "subscription_created_at_event_id" => 0}
-      ],
+      "subscribed_to" => [%{"topic" => "ticket.3028.#", "reason" => "manual:executor", "subscription_created_at_event_id" => 0, "last_seen_event_id" => 0}],
       "last_seen_event_id" => nil
     })
 
-    assert {:ok, [selected]} = ExecutorEvents.replay(["ticket.3028.#"], 0)
-    assert selected["id"] == first_id
-    assert selected["topic"] == "ticket.3028.agent.paused"
-    assert {:ok, events} = ExecutorEvents.replay(["ticket.3028.#"], 0)
-    refute Enum.any?(events, &(&1["id"] == second_id))
+    {:ok, output} = StringIO.open("")
+    listener = spawn_listener(output)
+    on_exit(fn -> if Process.alive?(listener), do: Process.exit(listener, :kill) end)
+
+    assert eventually(fn -> "ticket.3028.#" in Exchange.bindings_for(listener) end)
+    assert eventually(fn -> String.contains?(elem(StringIO.contents(output), 1), ~s("wake_id":#{first_id})) end)
+    assert Enum.any?(ExecutorEvents.subscription_entries(), &(&1["topic"] == "ticket.3028.#" and &1["last_seen_event_id"] == first_id))
+    Process.exit(listener, :kill)
+    Process.sleep(10)
+
+    {:ok, reconnected_output} = StringIO.open("")
+    reconnected = spawn_listener(reconnected_output)
+    on_exit(fn -> if Process.alive?(reconnected), do: Process.exit(reconnected, :kill) end)
+    assert eventually(fn -> "ticket.3028.#" in Exchange.bindings_for(reconnected) end)
+    Process.sleep(30)
+    refute String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{first_id}))
+    refute second_id == first_id
+  end
+
+  defp spawn_listener(output) do
+    listener = spawn(fn -> ExecutorEvents.listen(topic: "ticket.3028.#") end)
+    Process.group_leader(listener, output)
+    listener
   end
 
   test "rejects GitHub-sourced executor events" do

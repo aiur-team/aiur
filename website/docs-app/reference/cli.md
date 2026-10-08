@@ -285,7 +285,7 @@ If `executor-answer` says a field is outside Executor scope, use `aiur executor-
 
 A stopped daemon is reported separately with the command needed to start it; a live but silent or unreachable daemon reports the attempted decision ID, expected version, and daemon endpoint so the same call can be diagnosed without guessing.
 
-| `aiur listen` | Streams persisted-pattern events after the saved cursor, then live events as one JSON line per event. The stream reconnects after a daemon restart and resumes from its durable cursor. | `aiur listen` |
+| `aiur listen` | Streams the `executor.#` pattern by default as one JSON line per event. The stream reconnects after a daemon restart and resumes from its durable cursor; use `--ticket` or `--topic` to follow one narrower pattern. Reconnect is attempted up to five times. | `aiur listen` |
 | `aiur listen --ticket <id>` | Shorthand for `--topic 'ticket.<id>.#'`. Each wake line includes `wake_id`, `topic`, `ticket`, and `pr_number` (null when unavailable). Re-arm this command after resuming from an operator pause. | `aiur listen --ticket 3028` |
 | `aiur listen --topic '<pattern>'` | Accepts a topic pattern only when every event it can match is inside the reviewed Executor bindings. Narrowing patterns such as `ticket.3028.#` are accepted; widening patterns are refused with the allowed bindings listed. | `aiur listen --topic 'ticket.3028.#'` |
 | `aiur executor-listen` | Deprecated alias for `aiur listen`, retained for one release. | `aiur executor-listen --ticket 3028` |
