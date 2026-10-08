@@ -6,7 +6,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
-  alias AiurWeb.BuildOrder.{ContextRuntime, RouteState, Runtime}
+  alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, PackOverlay, RouteState, Runtime}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderBreakdown
   alias Phoenix.LiveView.Socket
@@ -73,14 +73,19 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   end
 
   @spec accept_projection(Socket.t(), Snapshot.t()) :: Socket.t()
-  def accept_projection(socket, %Snapshot{scope: :catalog} = snapshot) do
+  def accept_projection(socket, snapshot) do
+    snapshot = if socket.assigns.source == DataSource, do: PackOverlay.snapshot(snapshot), else: snapshot
+    accept_source_projection(socket, snapshot)
+  end
+
+  defp accept_source_projection(socket, %Snapshot{scope: :catalog} = snapshot) do
     case accept_authority(socket, snapshot) do
       {:ok, socket} -> put_catalog(socket, snapshot)
       :ignored -> socket
     end
   end
 
-  def accept_projection(socket, %Snapshot{} = snapshot) do
+  defp accept_source_projection(socket, %Snapshot{} = snapshot) do
     case accept_authority(socket, snapshot) do
       {:ok, socket} -> put_selected(socket, snapshot)
       :ignored -> socket

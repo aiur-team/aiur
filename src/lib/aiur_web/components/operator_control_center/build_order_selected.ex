@@ -6,10 +6,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.Diagnostic
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
-  alias AiurWeb.BuildOrder.RouteState
+  alias AiurWeb.BuildOrder.{RouteState, Truncation}
   alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderStatus, BuildOrderUsage}
 
   attr(:route_state, :any, required: true)
+  attr(:collapsed_epics, :list, default: [])
   attr(:model, :any, default: nil)
   attr(:adhoc, :any, default: nil)
   attr(:now, :any, required: true)
@@ -41,6 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     ~H"""
     <section class="bo-surface" aria-labelledby="build-order-details-title">
       <h2 id="build-order-details-title" class="sr-only">Build Order details</h2>
+      <p :if={truncation_notice(@route_state)} class="bo-state-card" role="status">{truncation_notice(@route_state)}</p>
       <div :if={@graph_failure} class="bo-state-card bo-error-state" role={@graph_failure.role}>
         <h3>{@graph_failure.title}</h3>
         <p>{@graph_failure.message}</p>
@@ -79,6 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       <div :if={@show_panes?} class="bo-selected-summary">
         <p :if={root_title(@snapshot)} class="bo-selected-lede">{root_title(@snapshot)}</p>
         <p :if={membership_warning(@snapshot)} class="bo-state-card" role="status">{membership_warning(@snapshot)}</p>
+        <p :if={github_warning(@snapshot)} class="bo-state-card" role="status">{github_warning(@snapshot)}</p>
         <p :if={status_warning(@snapshot)} class="bo-state-card" role="status">{status_warning(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
@@ -109,6 +112,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           provider_generation={positive_generation(@snapshot)}
           dom_generation={max(RouteState.dom_generation(@route_state), 1)}
           model={@model}
+          pack_metadata={pack_metadata(@snapshot)}
+          collapsed_epics={@collapsed_epics}
           adhoc={@adhoc}
           saved_as_of={@saved_as_of}
           saved_plan?={@saved_plan?}
@@ -144,6 +149,25 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   # One upstream read fault degrades the whole page. State it once, name the
   # specific code the provider actually reported, and hand the operator a prompt
   # that already carries what an agent needs to start.
+  defp pack_metadata(%Snapshot{data: %SelectedRoot{pack_metadata: metadata}}), do: metadata
+  defp pack_metadata(_snapshot), do: %{}
+
+  defp truncation_notice(route_state) do
+    identity = RouteState.selected_identity(route_state)
+
+    case RouteState.catalog_snapshot(route_state) do
+      %Snapshot{data: %{entries: roots}} ->
+        root = Enum.find(roots, &same_locator?(&1.identity, identity))
+        Truncation.notice(root)
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp same_locator?(%{owner: owner, repository: repository, identifier: number}, %{owner: owner, repository: repository, identifier: number}), do: true
+  defp same_locator?(_left, _right), do: false
+
   defp graph_failure(model, route_state) do
     case failure_kind(model, RouteState.status(route_state)) do
       nil ->
@@ -372,6 +396,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     do: "Current-run membership is stale. The plan is readable, but live execution state may have changed."
 
   defp membership_warning(_snapshot), do: nil
+
+  defp github_warning(%Snapshot{github_health: %{state: state, observed_at: observed_at}}) when state != :healthy do
+    observed = if match?(%DateTime{}, observed_at), do: " Last observed #{DateTime.to_iso8601(observed_at)}.", else: " Observation time is unknown."
+    "GitHub issue graph is #{state}. Showing the readable pack and its observed ticket statuses; cached GitHub states are not current." <> observed
+  end
+
+  defp github_warning(_snapshot), do: nil
 
   defp status_warning(%Snapshot{status_health: %{state: :unavailable}}),
     do: "Ticket status is unavailable. The plan is readable, but completion is unresolved where no status was observed."

@@ -155,14 +155,14 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await expect(page.locator('#selected-build-order-graph [data-bo-card]')).toHaveCount(1)
 
     // The read-only route never mutates. Context navigation and the shell's
-    // sidebar collapse toggle are the only permitted phx-clicks — neither writes
+    // epic/sidebar collapse toggles are the only permitted phx-clicks — neither writes
     // data; `toggle-nav` flips a per-session view preference held in assigns.
     // Anything else appearing here means a real mutation reached a read-only
     // route, which is what this assertion exists to catch.
     // `toggle-global-pause` is shell chrome, not a route action: it lives in the
     // sidebar on every route, mutates daemon-wide provisioning rather than any
     // Build Order data, and is disabled unless the dashboard is writable.
-    const readOnlyEvents = ['open-ticket-context', 'toggle-nav', 'toggle-global-pause']
+    const readOnlyEvents = ['open-ticket-context', 'toggle-build-order-epic', 'toggle-nav', 'toggle-global-pause']
     const mutationEvents = await page.locator('[phx-click]').evaluateAll((elements) =>
       elements.map((element) => element.getAttribute('phx-click')).filter(Boolean)
     )
