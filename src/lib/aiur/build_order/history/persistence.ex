@@ -19,14 +19,23 @@ defmodule Aiur.BuildOrder.History.Persistence do
   end
 
   defp load_regular(path, repository) do
-    with {:ok, contents} <- File.read(path), {:ok, record} <- Jason.decode(contents) do
-      case decode(record, repository) do
-        {:ok, _data} = result -> result
-        {:error, reason} when reason in [:version_unsupported, :repository_mismatch] -> {:error, reason}
-        _ -> corrupt(path)
-      end
-    else
-      _ -> corrupt(path)
+    case File.read(path) do
+      {:ok, contents} -> decode_contents(path, contents, repository)
+      {:error, _reason} -> {:error, :state_dir_unavailable}
+    end
+  end
+
+  defp decode_contents(path, contents, repository) do
+    case Jason.decode(contents) do
+      {:ok, record} ->
+        case decode(record, repository) do
+          {:ok, _data} = result -> result
+          {:error, reason} when reason in [:version_unsupported, :repository_mismatch] -> {:error, reason}
+          _ -> corrupt(path)
+        end
+
+      {:error, _reason} ->
+        corrupt(path)
     end
   end
 

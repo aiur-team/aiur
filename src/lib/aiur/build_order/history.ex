@@ -33,7 +33,11 @@ defmodule Aiur.BuildOrder.History do
   def checkpoint(key, opts \\ [])
 
   def checkpoint(key, opts) when key in [:backfill, :closed_since] do
-    read(opts, fn table -> {:ok, Map.fetch!(:ets.lookup_element(table, :__checkpoints__, 2), key)} end) |> read_result()
+    read(opts, fn table ->
+      health = :ets.lookup_element(table, :__health__, 2)
+      if writable?(health), do: {:ok, Map.fetch!(:ets.lookup_element(table, :__checkpoints__, 2), key)}, else: {:error, health}
+    end)
+    |> read_result()
   end
 
   def checkpoint(_key, _opts), do: {:error, :unknown_checkpoint}
@@ -212,7 +216,7 @@ defmodule Aiur.BuildOrder.History do
 
   defp table(pid) when is_pid(pid) do
     case Process.info(pid, :dictionary) do
-      {:dictionary, dictionary} -> Keyword.fetch!(dictionary, :build_history_table)
+      {:dictionary, dictionary} -> Keyword.get(dictionary, :build_history_table)
       nil -> raise ArgumentError, "history process is not running"
     end
   end

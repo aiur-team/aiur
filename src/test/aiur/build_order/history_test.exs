@@ -339,6 +339,11 @@ defmodule Aiur.BuildOrder.HistoryTest do
     assert row(opts).label_events == [label]
     assert row(opts).sub_issues_added == [added]
     assert row(opts).sources == [:backfill, :webhook]
+    earlier = %{label | label: "feature:earlier", at: DateTime.add(@t, -60)}
+    earlier_added = %{added | at: DateTime.add(@t, -60)}
+    History.apply([event(%{label_events: [earlier], sub_issues_added: [earlier_added]}, 1, DateTime.add(@t, 1))], opts)
+    assert row(opts).label_events == [earlier, label]
+    assert row(opts).sub_issues_added == [earlier_added, added]
     assert {:error, {:invalid_event, 0, _}} = History.apply([event(%{blocked_by: [%{ref | number: 0}]})], opts)
   end
 
@@ -372,6 +377,9 @@ defmodule Aiur.BuildOrder.HistoryTest do
     lifecycle = %Lifecycle{state: :closed, state_reason: :completed}
     History.apply([event(%{lifecycle: lifecycle}, 1, DateTime.add(@t, -1))], opts)
     assert row(opts).lifecycle == lifecycle
+    History.apply([event(%{updated_at: @t}, 2)], opts)
+    History.apply([event(%{updated_at: DateTime.add(@t, -1), lifecycle: lifecycle}, 2, DateTime.add(@t, 60))], opts)
+    assert row(opts, 2).lifecycle == lifecycle
   end
 
   test "failed flush during rebuilding still accepts recovery writes", %{dir: dir, path: path, opts: opts} do
@@ -389,6 +397,18 @@ defmodule Aiur.BuildOrder.HistoryTest do
     assert :ok = History.mark_complete(opts)
     assert row(opts).number == 1
     assert File.read!(target) == "unchanged"
+  end
+
+  test "unreadable regular files remain untouched", %{dir: dir, path: path, opts: opts} do
+    write(path, record())
+    File.chmod!(path, 0o000)
+    start(dir)
+    assert History.health(opts).failure == :state_dir_unavailable
+    assert {:error, :state_dir_unavailable} = History.apply([event()], opts)
+    stop_supervised!(@name)
+    File.chmod!(path, 0o600)
+    assert Jason.decode!(File.read!(path)) == record()
+    assert Path.wildcard(path <> ".corrupt-*") == []
   end
 
   test "V26 non-parent exit leaves store alive", %{dir: dir, opts: opts} do
