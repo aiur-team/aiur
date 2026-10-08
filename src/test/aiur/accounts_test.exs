@@ -375,6 +375,17 @@ defmodule Aiur.AccountsTest do
     refute output =~ "oauthToken"
   end
 
+  test "accounts keeps harness-generic listing and filters the requested backend" do
+    :ok = Accounts.register("codex", "work", nil)
+
+    output = capture_io(fn -> assert :ok = AccountsCLI.accounts(true, "codex") end)
+    [json] = String.split(output, "\n", trim: true)
+    rows = Jason.decode!(json)
+
+    assert Enum.any?(rows, &(&1["name"] == "work" and &1["harness"] == "codex"))
+    assert Enum.all?(rows, &(&1["harness"] == "codex"))
+  end
+
   test "accounts json renders daemon snapshot percentages without requesting usage", %{home: home} do
     File.mkdir_p!(Path.join(home, ".claude"))
     File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
@@ -448,7 +459,7 @@ defmodule Aiur.AccountsTest do
     File.mkdir_p!(Path.join(home, ".claude"))
     File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
 
-    output = capture_io(fn -> assert :ok = Aiur.AccountsCLI.accounts(true, fn _names -> %{} end) end)
+    output = capture_io(fn -> assert :ok = Aiur.AccountsCLI.accounts(true) end)
     assert output =~ "dev@example.com"
     assert output =~ ~s("freshness":"daemon_not_running")
     assert output =~ ~s("weekly_percent":null)

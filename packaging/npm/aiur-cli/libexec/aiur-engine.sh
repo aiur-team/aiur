@@ -2666,12 +2666,24 @@ cmd_usage() {
 }
 
 cmd_accounts() {
-  local json_arg=false
-  [ "$#" -le 1 ] || die "accounts accepts only --json"
-  if [ "$#" -eq 1 ]; then
-    [ "$1" = "--json" ] || die "accounts accepts only --json"
-    json_arg=true
-  fi
+  local json_arg=false harness="" arg encoded expression
+  for arg in "$@"; do
+    case "$arg" in
+      --json)
+        [ "$json_arg" = false ] || die "accounts accepts --json only once"
+        json_arg=true
+        ;;
+      --all)
+        ;;
+      -*)
+        die "accounts accepts an optional harness and --json"
+        ;;
+      *)
+        [ -z "$harness" ] || die "accounts accepts only one harness"
+        harness="$arg"
+        ;;
+    esac
+  done
 
   resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
@@ -2681,7 +2693,13 @@ cmd_accounts() {
     # It never makes a provider request.
     run_local_cli accounts "$@"
   else
-    run_control_rpc "Aiur.AgentControlCLI.accounts(json: $json_arg)"
+    if [ -n "$harness" ]; then
+      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
+      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+    else
+      expression="Aiur.AgentControlCLI.accounts($json_arg)"
+    fi
+    run_control_rpc "$expression"
   fi
 }
 

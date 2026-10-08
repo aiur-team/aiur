@@ -2330,10 +2330,10 @@ defmodule Aiur.AgentControlCLI do
   end
 
   @doc false
-  @spec accounts(boolean()) :: :ok
-  def accounts(json) do
+  @spec accounts(boolean(), String.t() | nil) :: :ok
+  def accounts(json, harness \\ nil) do
     guarded("accounts", fn ->
-      AccountsCLI.accounts(json, &UsageReadings.snapshot("claude", &1))
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
       exit_marker(0)
     end)
   end

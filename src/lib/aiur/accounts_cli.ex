@@ -5,7 +5,7 @@ defmodule Aiur.AccountsCLI do
   alias Aiur.Accounts.Shims.{Claude, Codex}
 
   @spec accounts(boolean(), String.t() | nil) :: :ok | {:error, term()}
-  def accounts(json, harness \\ nil), do: render_accounts(json, harness, %{}, false)
+  def accounts(json, harness \\ nil)
 
   @doc false
   @spec accounts(boolean(), ([String.t()] -> map())) :: :ok
@@ -13,10 +13,25 @@ defmodule Aiur.AccountsCLI do
     render_accounts(json, nil, snapshot_fun, true)
   end
 
+  def accounts(json, harness), do: render_accounts(json, harness, %{}, false)
+
+  @doc false
+  @spec accounts(boolean(), String.t() | nil, ([String.t()] -> map())) :: :ok
+  def accounts(json, harness, snapshot_fun) when is_function(snapshot_fun, 1) do
+    render_accounts(json, harness, snapshot_fun, true)
+  end
+
   defp render_accounts(json, harness, snapshot_fun, daemon_available?) do
     accounts = Accounts.list(harness)
     claude_names = accounts |> Enum.filter(&(&1.harness == "claude")) |> Enum.map(& &1.name)
-    snapshots = if is_function(snapshot_fun, 1), do: snapshot_fun.(claude_names), else: snapshot_fun
+
+    snapshots =
+      if is_function(snapshot_fun, 1) do
+        if claude_names == [], do: %{}, else: snapshot_fun.(claude_names)
+      else
+        snapshot_fun
+      end
+
     rows = Enum.map(accounts, &account_row(&1, snapshots, daemon_available?))
 
     if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
@@ -168,6 +183,7 @@ defmodule Aiur.AccountsCLI do
 
   defp freshness(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp freshness(_reason), do: "unavailable"
+
   defp percent(windows, id) do
     case Enum.find(windows, &(&1.window == id)) do
       %{used_percent: percent} -> percent
