@@ -55,11 +55,12 @@ shared [dictated-input note](dictated-input.md).
   has the page map.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
-- Branch freshness is your responsibility. Before handing the PR to CI or
-  human review, and again after rework, fetch its configured base and ensure
-  the current remote base head is an ancestor of your exact PR head. Integrate
-  or re-cut and resolve semantic drift yourself; the Executor and reviewers do
-  not update stale code for you.
+- Integration safety is your responsibility. Before CI or human-review
+  handoff, assess the exact PR head against its configured base. Harmless
+  staleness passes; conflicts or changed-file overlap require integration,
+  at most once per handoff. After new-head CI, another unsafe base change
+  requires an Executor alert rather than another merge/CI cycle. Follow the
+  assessment and durable attempt record in `dev-loop.md`.
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of

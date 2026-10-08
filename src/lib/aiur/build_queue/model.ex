@@ -85,8 +85,8 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Latch do
     @moduledoc "A durable attention keyed by cause and subject."
     @enforce_keys [:key, :opened_at_ms]
-    defstruct @enforce_keys
-    @type t :: %__MODULE__{key: {term(), term()}, opened_at_ms: non_neg_integer()}
+    defstruct @enforce_keys ++ [emitted?: false]
+    @type t :: %__MODULE__{key: {term(), term()}, opened_at_ms: non_neg_integer(), emitted?: boolean()}
   end
 
   @type t :: %{queues: [Queue.t()], items: [Item.t()], edges: [Edge.t()], intents: [Intent.t()], latches: [Latch.t()]}
