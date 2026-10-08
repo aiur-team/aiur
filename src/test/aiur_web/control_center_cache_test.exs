@@ -110,9 +110,9 @@ defmodule AiurWeb.ControlCenterCacheTest do
       end
     end
 
-    first = Task.async(fn -> ControlCenterCache.fetch(cache, :key, 0, loader) end)
+    first = Task.async(fn -> ControlCenterCache.fetch(cache, :key, 60_000, loader) end)
     assert_receive {:started, loader_pid}, 500
-    second = Task.async(fn -> ControlCenterCache.fetch(cache, :key, 0, loader) end)
+    second = Task.async(fn -> ControlCenterCache.fetch(cache, :key, 60_000, loader) end)
     # A barrier on the second caller proves its request reached the cache before release.
     assert Task.yield(second, 50) == nil
     assert length(:sys.get_state(cache).loads.key.waiters) == 2
@@ -157,5 +157,44 @@ defmodule AiurWeb.ControlCenterCacheTest do
 
     assert Process.alive?(cache)
     assert ControlCenterCache.fetch(cache, :key, 0, fn -> %{value: :recovered} end) == %{value: :recovered}
+  end
+
+  test "event and forced reloads read after invalidation and cannot be overwritten by an older load" do
+    for mode <- [:event, :fresh] do
+      cache = start_supervised!({ControlCenterCache, name: nil}, id: {ControlCenterCache, mode})
+      value = :atomics.new(1, [])
+      :atomics.put(value, 1, 1)
+      parent = self()
+
+      loader = fn ->
+        version = :atomics.get(value, 1)
+        send(parent, {:version_read, version, self()})
+
+        receive do
+          :release -> %{version: version}
+        after
+          5_000 -> %{version: version}
+        end
+      end
+
+      old = Task.async(fn -> ControlCenterCache.fetch(cache, :key, 60_000, loader) end)
+      assert_receive {:version_read, 1, old_loader}, 500
+      :atomics.put(value, 1, 2)
+
+      reload =
+        Task.async(fn ->
+          case mode do
+            :event -> ControlCenterCache.fetch_event(cache, :key, {:decision_changed, "d", 2}, loader)
+            :fresh -> ControlCenterCache.fetch(cache, :key, 0, loader)
+          end
+        end)
+
+      assert_receive {:version_read, 2, new_loader}, 500
+      send(new_loader, :release)
+      assert Task.await(reload) == %{version: 2}
+      send(old_loader, :release)
+      assert Task.await(old) == %{version: 1}
+      assert ControlCenterCache.fetch(cache, :key, 60_000, fn -> flunk("new payload was not cached") end) == %{version: 2}
+    end
   end
 end

@@ -1,8 +1,9 @@
 defmodule AiurWeb.ControlCenterCache do
   @moduledoc """
   Briefly caches the expensive Operator Control Center payload. Loaders run in
-  monitored tasks; callers for the same key share a load without blocking other
-  keys. Provider events also refresh the ordinary TTL entry. Retained entries
+  monitored tasks; ordinary reads and identical provider events share loads.
+  Forced reads and distinct events read anew without blocking other keys.
+  Provider events also refresh the ordinary TTL entry. Retained entries
   are bounded because keys may include provider incarnations.
   """
 
@@ -69,19 +70,21 @@ defmodule AiurWeb.ControlCenterCache do
         {:reply, payload, state}
 
       _entry ->
+        load_key = if max_age_ms == 0, do: make_ref(), else: entry_key
+
         load =
-          case Map.get(state.loads, key) do
+          case Map.get(state.loads, load_key) do
             nil ->
               task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, loader)
               timer = Process.send_after(self(), {:load_timeout, task.ref}, @load_timeout_ms)
-              %{task: task, timer: timer, waiters: [], entry_keys: []}
+              %{task: task, timer: timer, key: key, load_order: System.unique_integer([:monotonic, :positive]), waiters: [], entry_keys: []}
 
             pending ->
               pending
           end
 
         load = %{load | waiters: [from | load.waiters], entry_keys: Enum.uniq([key, entry_key | load.entry_keys])}
-        {:noreply, put_in(state, [:loads, key], load)}
+        {:noreply, put_in(state, [:loads, load_key], load)}
     end
   end
 
@@ -90,25 +93,25 @@ defmodule AiurWeb.ControlCenterCache do
       nil ->
         state
 
-      {key, load} ->
+      {load_key, load} ->
         Process.cancel_timer(load.timer)
         Process.exit(load.task.pid, :kill)
         Process.demonitor(ref, [:flush])
-        {payload, entries} = load_result(result, key, load.entry_keys, state.entries)
+        {payload, entries} = load_result(result, load, state.entries)
         Enum.each(load.waiters, &GenServer.reply(&1, payload))
-        %{state | entries: entries, loads: Map.delete(state.loads, key)}
+        %{state | entries: entries, loads: Map.delete(state.loads, load_key)}
     end
   end
 
-  defp load_result({:ok, payload}, _key, entry_keys, entries) do
-    entry = cache_entry(payload)
-    entries = Enum.reduce(entry_keys, entries, &Map.put(&2, &1, entry))
+  defp load_result({:ok, payload}, load, entries) do
+    entry = cache_entry(payload, load.load_order)
+    entries = Enum.reduce(load.entry_keys, entries, &put_newer_entry(&2, &1, entry))
     {payload, bound_entries(entries)}
   end
 
-  defp load_result({:error, reason}, key, _entry_keys, entries) do
+  defp load_result({:error, reason}, load, entries) do
     payload =
-      case Map.get(entries, key) do
+      case Map.get(entries, load.key) do
         %{payload: payload} -> Map.put(payload, :stale, true)
         nil -> unavailable(reason)
       end
@@ -118,10 +121,18 @@ defmodule AiurWeb.ControlCenterCache do
 
   defp unavailable(reason), do: %{stale: true, error: {:cache_unavailable, reason}}
 
-  defp cache_entry(payload) do
+  # Completion order cannot let a pre-event read overwrite a newer refresh.
+  defp put_newer_entry(entries, key, entry) do
+    case Map.get(entries, key) do
+      %{load_order: order} when order > entry.load_order -> entries
+      _entry -> Map.put(entries, key, entry)
+    end
+  end
+
+  defp cache_entry(payload, load_order) do
     %{
       loaded_at_ms: System.monotonic_time(:millisecond),
-      load_order: System.unique_integer([:monotonic, :positive]),
+      load_order: load_order,
       payload: payload
     }
   end
