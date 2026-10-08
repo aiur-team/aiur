@@ -1,0 +1,7 @@
+# rule	target_module	reason
+R-declared	Aiur.AgentChat	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
+R-declared	Aiur.AgentEventFeed	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
+R-declared	Aiur.Alerts	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
+R-declared	Aiur.Claude.HookEvents	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
+R-declared	Aiur.Orchestrator	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
+R-declared	Aiur.PaneManager	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
