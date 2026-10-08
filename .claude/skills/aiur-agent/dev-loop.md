@@ -187,6 +187,12 @@ focused test runner, test-tree paths and CI gate at each step.
    collect the sibling `test/aiur/github_client_test.exs`. A large green
    directory-scoped run does not prove those root-level files ran.
 5. Fix every verification failure from the scoped local gate before continuing.
+   When any Markdown file under `website/docs-app/` changes (including nested
+   pages), run `node scripts/check-docs-prose.mjs` from the repository root
+   before pushing. It shares the Website / guards paragraph check and rejects
+   prose paragraphs over 360 characters without installing dependencies or
+   starting a browser. Split dense paragraphs before pushing.
+
    Do not loop on unrelated suite flakes. Use the target repository's required
    CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
    PR-opening on a clean full-suite `mix test` run: CI runs the full `make ci`.
