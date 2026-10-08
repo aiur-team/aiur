@@ -26,6 +26,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
   # and the cadence question could not be answered from the ranking (#2084).
   defp caller(query) do
     case GraphQLCost.operation_name(query) do
+      "AiurBuildOrderHistoryBackfill" -> :build_order_history_backfill
+      "AiurBuildOrderHistoryBackfillBlockedBy" -> :build_order_history_backfill
       "AiurBuildOrderCatalog" -> :build_order_catalog
       "AiurBuildOrderSelectedRoot" -> :build_order_selected_root
       _other -> :build_order_graph
@@ -40,6 +42,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
     }
   end
 
+  defp observe_failure(state, %{body: body} = response), do: %{state | rate_limit: Map.merge(observed_rate_limit(state, response), query_cost(body, state.rate_limit))}
   defp observe_failure(state, response), do: %{state | rate_limit: observed_rate_limit(state, response)}
   defp observed_rate_limit(state, response), do: Map.merge(state.rate_limit, Errors.rate_limit_observation(response))
 

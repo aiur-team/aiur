@@ -462,6 +462,7 @@ defmodule Aiur.Application do
       Aiur.Claude.Telemetry,
       # Durable closed-ticket history starts before its feeds (MP-E8 C4-T02/T03).
       Aiur.BuildOrder.History,
+      {Aiur.BuildOrder.History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)},
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},

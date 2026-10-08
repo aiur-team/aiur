@@ -40,7 +40,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     * `:pause_reason` — the running entry's `paused_reason` atom, if any
     * `:work_state` — the running entry's `control.status` (`:working` /
       `:paused` / `:sleeping` / `:deactivated`)
-    * `:open_decision_count` — unresolved ticket attentions requiring input
+    * `:open_decision_count` — open blocking ticket Commands
     * `:stale_for_seconds` — seconds since last observed agent activity
     * `:stall_timeout_seconds` — `Config.agent_stall_timeout_ms/0` in seconds
   """
@@ -235,7 +235,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
-  defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
+  defp agent_requested_human?(reason), do: reason == :input_required
 
   defp provider_limited?(%{pause_reason: :usage_limit_exhausted, work_state: :paused}), do: true
   defp provider_limited?(_attrs), do: false

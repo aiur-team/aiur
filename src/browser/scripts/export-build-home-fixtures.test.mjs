@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, readFileSync, writeFileSync, appendFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, cpSync, readFileSync, writeFileSync, appendFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -127,6 +127,34 @@ test('deterministic', t => {
   const a = exportTo(t), b = exportTo(t);
   for (const f of readdirSync(a)) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
 });
+test('trailing slash design paths preserve exported files and checks', t => {
+  assert.deepEqual(buildAll({ designDir: `${designDir}/` }), buildAll({ designDir }));
+  // Existing CLI normalization is a control; the exported API assertion guards the fix.
+  const dir = exportTo(t);
+  const before = readFileSync(join(dir, 'manifest.json'), 'utf8');
+  assert.equal(run(['--out', dir, '--design', `${designDir}/`, '--check']).status, 0);
+  assert.equal(run(['--out', dir, '--design', `${designDir}/`]).status, 0);
+  assert.equal(readFileSync(join(dir, 'manifest.json'), 'utf8'), before);
+});
+test('check rejects changed non-JS design assets', t => {
+  const dir = exportTo(t);
+  const copy = join(dir, 'design-source');
+  cpSync(designDir, copy, { recursive: true });
+  assert.equal(run(['--out', dir, '--check']).status, 0);
+  appendFileSync(join(copy, 'assets/aiur-logo.png'), 'drift');
+  const result = run(['--out', dir, '--check']);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /design file assets\/aiur-logo.png changed/);
+});
 test('no DST inside the fixtures (future re-import guard)', () => {
   assert.deepEqual(JSON.parse(files['manifest.json']).utc_offsets_min, [-420]);
+});
+
+test('export rejects symlink design assets', t => {
+  const dir = temp(t);
+  cpSync(designDir, dir, { recursive: true });
+  symlinkSync(join(dir, 'assets/aiur-logo.png'), join(dir, 'assets/linked-logo.png'));
+  const result = run(['--out', join(dir, 'export'), '--design', dir]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /design source contains a symlink/);
 });

@@ -19,6 +19,14 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   @repository_url "https://api.github.com/repos/owner/repo"
   @max_age_ms :timer.minutes(15)
 
+  setup_all do
+    # Keep the live poller out of the process-owned double until fixture cleanup.
+    orchestrator = Process.whereis(Orchestrator)
+    :ok = :sys.suspend(orchestrator)
+    on_exit(fn -> :ok = :sys.resume(orchestrator) end)
+    :ok
+  end
+
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
 
@@ -262,16 +270,18 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
     assert blocked_by_reads() == ["14"]
 
-    age_resource(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"), :full_body_at_ms)
+    blocker_key = ResourceStore.key(:issue, "owner", "repo", "#{@blocker}")
+    age_resource(blocker_key, :full_body_at_ms)
+    [{^blocker_key, entry}] = :ets.lookup(ResourceStore.Table, blocker_key)
+    old_body_at_ms = entry.full_body_at_ms
 
-    # Aiur relabels #53 and refreshes the edges: both entries have a new
-    # `fetched_at_ms`, but #53's `"state"` is still older than the bound.
+    # Only the state is aged; the label and edge writes must not renew it.
     WriteThrough.issue_labels(@blocker, [%{"name" => "sym:rework"}])
     edges_key = ResourceStore.key(:issue_blocked_by, "owner", "repo", "14")
     ResourceStore.put_resource(edges_key, ResourceStore.data(edges_key), source: :webhook)
 
-    assert %{"labels" => [%{"name" => "sym:rework"}]} =
-             ResourceStore.data(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"))
+    assert {:ok, %{data: %{"labels" => [%{"name" => "sym:rework"}]}, full_body_at_ms: ^old_body_at_ms}} =
+             ResourceStore.fetch(blocker_key)
 
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
     assert blocked_by_reads() == ["14"]
