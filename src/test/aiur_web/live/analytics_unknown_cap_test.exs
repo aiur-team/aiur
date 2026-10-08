@@ -59,6 +59,11 @@ defmodule AiurWeb.AnalyticsUnknownCapTest do
     assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
 
+  defp build_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+  end
+
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)
   defp reset_env(key, value), do: Application.put_env(:aiur, key, value)
 end
