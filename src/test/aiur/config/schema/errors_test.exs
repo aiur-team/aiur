@@ -55,6 +55,12 @@ defmodule Aiur.Config.Schema.ErrorsTest do
     end
   end
 
+  test "flattens a list of child error maps with the entry index" do
+    errors = %{build_order: %{epics: [%{}, %{icon: ["is invalid"]}]}}
+    assert Errors.flatten_errors(errors) == ["build_order.epics.1.icon is invalid"]
+    assert Errors.flatten_errors(%{a: ["x"]}) == ["a x"]
+  end
+
   describe "format_errors/1 (via Schema.parse)" do
     test "produces dotted-path error strings for nested changesets" do
       alias Aiur.Config.Schema
