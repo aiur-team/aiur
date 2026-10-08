@@ -91,8 +91,8 @@ def load_manifest(root):
     if len(ids) != len(set(ids)):
         raise InvalidManifest('/components: duplicate component id')
     for index, component in enumerate(manifest['components']):
-        for edge in ('requires', 'optional'):
-            for target in component[edge]:
+        for edge in ('requires', 'optional', 'shared_with'):
+            for target in component.get(edge, []):
                 if target not in ids:
                     raise InvalidManifest(f'/components/{index}/{edge}: unknown component {target}')
         for pattern in component['paths']:
@@ -260,6 +260,38 @@ def check_references(root, manifest, file_owners, baseline):
     return bool(violations.keys() - allowed)
 
 
+def declaration_ownership(root, manifest):
+    # Keep these literal matchers aligned with check-config-docs.py.
+    config = (root / 'src/lib/aiur/config/schema.ex').read_text()
+    sections = re.findall(r"^\s*embeds_(?:one|many)\(\s*:([a-zA-Z0-9_]+)\s*,\s*[A-Za-z0-9_.]+", config, re.MULTILINE)
+    fields = re.findall(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", config, re.MULTILINE)
+    env = re.findall(r'^\s*\{"([A-Z][A-Z0-9_]+)",',
+                     (root / 'src/lib/aiur/env/schema.ex').read_text(), re.MULTILINE)
+    state = re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b',
+                       (root / 'src/lib/aiur/config/paths.ex').read_text(), re.MULTILINE)
+    inventories = {'config': sections + fields, 'env': env, 'state': state}
+    for kind, names in inventories.items():
+        if not names or (kind == 'config' and not sections):
+            raise InvalidManifest(f'O-{kind}: matcher is broken, not the schema (zero matches)')
+    problems = []
+    for kind, names in inventories.items():
+        owners = {}
+        for component in manifest['components']:
+            for name in component['owns'][kind]:
+                owners.setdefault(name, []).append(component['id'])
+        noun = {'config': 'section/field', 'env': 'env var', 'state': 'state path'}[kind]
+        for name in sorted(set(names) | owners.keys()):
+            assigned = owners.get(name, [])
+            if name not in names:
+                problems.append((f'O-{kind}', f"{noun} '{name}' is stale ({', '.join(assigned)})"))
+            elif not assigned:
+                problems.append((f'O-{kind}', f"{noun} '{name}' has no owner"))
+            elif len(assigned) > 1:
+                problems.append((f'O-{kind}', f"{noun} '{name}' owned twice: {', '.join(assigned)}"))
+    return problems, {'sections': len(sections), 'fields': len(fields),
+                      'env vars': len(env), 'state paths': len(state)}
+
+
 def format_manifest(manifest):
     """One component block with inline arrays, keeping the manifest reviewable."""
     ordered = dict(manifest)
@@ -305,6 +337,10 @@ def main():
         if args.format:
             (root / 'components.json').write_text(format_manifest(manifest))
         problems, counts, file_owners = ownership(manifest, files)
+        declaration_counts = {}
+        if args.rules != 'elixir':
+            declaration_problems, declaration_counts = declaration_ownership(root, manifest)
+            problems.extend(declaration_problems)
         for path, reason in problems:
             print(f'components: {path}: {reason}')
         if problems:
@@ -315,6 +351,8 @@ def main():
         print(f'components: components.json: {error}', file=sys.stderr)
         return 2
     print(f'components: all {sum(counts.values())} source files owned')
+    if declaration_counts:
+        print('components: ' + ', '.join(f'{count} {kind}' for kind, count in declaration_counts.items()) + ' owned once')
     for owner, count in counts.items():
         print(f'components: {owner}: {count} files')
     return 0

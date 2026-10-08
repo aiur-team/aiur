@@ -24,13 +24,21 @@ def component(cid, paths):
                 requires=[], optional=[], owns={k: [] for k in ('config', 'env', 'state', 'capabilities')}, prior=[])
 
 
-def check(name, components, files, code=0, messages=(), change=None, git=False, format=False):
+def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None):
     if selected and name not in selected:
         return
     ran.add(name)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copyfile(repo / 'components.schema.json', root / 'components.schema.json')
+        components = json.loads(json.dumps(components))
+        if declarations is None:
+            declarations = {
+                'src/lib/aiur/config/schema.ex': '    embeds_one(:fixture, Fixture)\n    field(:scalar, :integer)\n',
+                'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
+                'src/lib/aiur/config/paths.ex': '  def fixture_dir, do: "/fixture"\n'}
+            components[0]['paths'].extend(declarations)
+            components[0]['owns'].update(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'], state=['fixture_dir'])
         manifest = dict(manifest_version=1, components=components)
         if change:
             change(manifest)
@@ -39,9 +47,13 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             path = root / file
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch()
+        for file, content in declarations.items():
+            path = root / file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
         if git:
             subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
-            subprocess.run(['git', '-C', str(root), 'add', '--', *files], check=True)
+            subprocess.run(['git', '-C', str(root), 'add', '--', *files, *declarations], check=True)
             (root / 'src/lib/untracked.ex').touch()
         import os
         env = dict(os.environ, AIUR_COMPONENTS_ROOT=str(root))
@@ -63,14 +75,14 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
 
 check('owned_once_passes', [component('a', ['src/lib/a/**']), component('b', ['packages/b/**'])],
       ['src/lib/a/a.ex', 'src/lib/a/nested/b.ex', 'packages/b/package.json'],
-      messages=('all 3 source files owned', 'a: 2 files', 'b: 1 files'))
+      messages=('all 6 source files owned', 'a: 5 files', 'b: 1 files'))
 check('unowned_file_fails', [component('a', ['src/lib/a.ex'])],
       ['src/lib/a.ex', 'src/lib/unowned.ex'], 1, ('src/lib/unowned.ex: unowned file', 'nearest glob a: src/lib/a.ex'))
 check('ambiguous_owner_fails', [component('a', ['src/lib/x/*.ex']), component('b', ['src/lib/x/*.ex'])],
       ['src/lib/x/file.ex'], 1, ('src/lib/x/file.ex: ambiguous ownership: a, b',))
 check('more_specific_glob_wins', [component('a', ['src/lib/aiur/orchestrator/**']),
                                 component('b', ['src/lib/aiur/orchestrator/comment_polling*.ex'])],
-      ['src/lib/aiur/orchestrator/comment_polling.ex'], messages=('a: 0 files', 'b: 1 files'))
+      ['src/lib/aiur/orchestrator/comment_polling.ex'], messages=('a: 3 files', 'b: 1 files'))
 check('stale_glob_fails', [component('a', ['src/lib/missing/**'])], [], 1, ('src/lib/missing/**: stale path (a)',))
 check('schema_violation_exits_2', [dict(component('a', []), layer=7)], [], 2, ('/components/0/layer',))
 check('facade_star_requires_pending', [dict(component('a', []), facades=['*'])], [], 2,
@@ -80,15 +92,15 @@ check('facade_star_with_pending_passes', [dict(component('a', ['src/lib/a.ex']),
 check('single_star_stays_in_segment', [component('a', ['src/lib/x/*.ex'])],
       ['src/lib/x/a.ex', 'src/lib/x/nested/a.ex'], 1, ('src/lib/x/nested/a.ex: unowned file',))
 check('double_star_matches_zero_depth', [component('a', ['src/lib/**/*.ex'])],
-      ['src/lib/a.ex', 'src/lib/nested/a.ex'], messages=('a: 2 files',))
+      ['src/lib/a.ex', 'src/lib/nested/a.ex'], messages=('a: 5 files',))
 check('same_component_overlap_passes', [component('a', ['src/lib/x/*.ex', 'src/lib/x/*a.ex'])], ['src/lib/x/a.ex'])
 check('fallback_excludes_build_outputs', [component('a', ['src/lib/a.ex'])],
       ['src/lib/a.ex', 'packages/x/node_modules/a.js', 'src/lib/_build/a.ex', 'packages/x/dist/a.js', 'src/lib/deps/a.ex'],
-      messages=('all 1 source files owned',))
+      messages=('all 4 source files owned',))
 check('git_uses_tracked_files', [component('a', ['src/lib/a.ex'])], ['src/lib/a.ex'],
-      messages=('all 1 source files owned',), git=True)
+      messages=('all 4 source files owned',), git=True)
 check('outside_roots_can_have_paths', [component('a', ['src/lib/a.ex', 'website/docs/**'])],
-      ['src/lib/a.ex', 'website/docs/readme.md'], messages=('all 1 source files owned',))
+      ['src/lib/a.ex', 'website/docs/readme.md'], messages=('all 4 source files owned',))
 check('format_is_deterministic', [component('z', ['src/lib/z.ex']), component('a', ['src/lib/a.ex'])],
       ['src/lib/z.ex', 'src/lib/a.ex'], format=True)
 check('unknown_component_key_fails', [dict(component('a', []), extra=True)], [], 2, ('/components/0/extra',))
@@ -108,6 +120,40 @@ check('required_property_fails', [component('a', [])], [], 2, ('/components/0/na
 check('empty_name_fails', [dict(component('a', []), name='')], [], 2, ('/components/0/name: empty string',))
 check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])], ['src/lib/a.ex'], 2,
       ('/components/0/paths: duplicate items',))
+declarations = {
+    'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
+    'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
+    'src/lib/aiur/config/paths.ex': '  def fixture_dir, do: "/fixture"\n  defp private_path, do: "/private"\n  def repo_name, do: "repo"\n'}
+owner = component('a', list(declarations))
+owner['owns'].update(config=['tracker', 'debug'], env=['AIUR_FIXTURE'], state=['fixture_dir'])
+check('declarations_owned_once_passes', [owner], [], declarations=declarations,
+      messages=('1 sections, 1 fields, 1 env vars, 1 state paths owned once',))
+for kind, name in [('config', 'tracker'), ('config', 'debug'), ('env', 'AIUR_FIXTURE'), ('state', 'fixture_dir')]:
+    check(f'{name}_without_owner_fails', [owner], [], 1, (f"'{name}' has no owner",),
+          change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].remove(n), declarations=declarations)
+    second = component('b', [])
+    second['owns'][kind] = [name]
+    check(f'{name}_owned_twice_fails', [owner, second], [], 1, (f"'{name}' owned twice: a, b",), declarations=declarations)
+    check(f'{name}_stale_owner_fails', [owner], [], 1, ('is stale (a)',),
+          change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].append('STALE' if k == 'env' else 'stale_path'), declarations=declarations)
+for kind, file in [('config', 'src/lib/aiur/config/schema.ex'), ('env', 'src/lib/aiur/env/schema.ex'), ('state', 'src/lib/aiur/config/paths.ex')]:
+    check(f'zero_{kind}_matches_is_broken_matcher', [owner], [], 2,
+          (f'O-{kind}: matcher is broken, not the schema',), declarations=dict(declarations, **{file: '# no declarations'}))
+check('new_section_without_owner_fails', [owner], [], 1, ("'extra' has no owner",),
+      declarations=dict(declarations, **{'src/lib/aiur/config/schema.ex': declarations['src/lib/aiur/config/schema.ex'] + '    embeds_one(:extra, Extra)\n'}))
+check('new_env_without_owner_fails', [owner], [], 1, ("'AIUR_NEW' has no owner",),
+      declarations=dict(declarations, **{'src/lib/aiur/env/schema.ex': declarations['src/lib/aiur/env/schema.ex'] + '    {"AIUR_NEW", type: :string}\n'}))
+check('unknown_shared_component_fails', [dict(owner, shared_with=['absent'])], [], 2,
+      ('unknown component absent',), declarations=declarations)
+for kind, name in [('config', 'bad.section'), ('env', 'lowercase'), ('state', 'repo_name')]:
+    check(f'invalid_{kind}_format_fails', [owner], [], 2, ('invalid string',),
+          change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].append(n), declarations=declarations)
+if not selected or 'real_tree_passes' in selected:
+    ran.add('real_tree_passes')
+    result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '21 sections, 7 fields, 70 env vars, 13 state paths owned once' in result.stdout
+    print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
     with tempfile.TemporaryDirectory() as directory:
@@ -138,7 +184,7 @@ else:
                 (root / 'src/lib/a.ex').write_text(source)
             if change:
                 change(root)
-            command = [sys.executable, str(checker), '--require-elixir', *args]
+            command = [sys.executable, str(checker), '--rules', 'elixir', '--require-elixir', *args]
             result = subprocess.run(command, env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)),
                                     capture_output=True, text=True)
             output = result.stdout + result.stderr
