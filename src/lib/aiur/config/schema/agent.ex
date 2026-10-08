@@ -91,12 +91,9 @@ defmodule Aiur.Config.Schema.Rtk do
 
   @primary_key false
   embedded_schema do
-    # Opt-in. rtk compresses shell output before an agent reads it, which is an
-    # optimization rather than a correctness fix, and its saving is strongly
-    # command-dependent (measured on this repo: `ls -la src/lib/aiur` 12724 ->
-    # 1044 bytes, but `git log --oneline -30` 2033 -> 2033 bytes, i.e. nothing).
-    # A tool that rewrites every command an agent runs is a real behaviour
-    # change, so it stays off until an operator asks for it.
+    # Controls whether the analytics panel reports host-level rtk output
+    # savings. This does not enable or disable a host-wide rtk hook; the
+    # operator owns that hook and must configure it to exclude `gh`.
     field(:enabled, :boolean, default: false)
   end
 
