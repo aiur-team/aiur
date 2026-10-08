@@ -805,9 +805,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
       candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "in-progress", selected_backend: "codex"}
 
-      # `worker` is true while a worker runs the ticket. The fake dispatcher
-      # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
-      # then, and reports each answer the worker receives.
+      # The fake dispatcher refuses delivery until the runner starts a worker.
       worker = start_supervised!({Agent, fn -> false end})
 
       dispatcher = fn decision, _opts ->
@@ -862,14 +860,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       id = decision.decision_id
 
-      # The run that filed the Command has ended, and the ticket is held.
       assert {:ok, cached_holds} = Aiur.DecisionStore.blocked_ticket_ids(store)
       held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4, blocked_ticket_ids: cached_holds})
       assert held.dispatch_declines[ticket_id] == :blocked_on_decision
       refute Map.has_key?(held.running, ticket_id)
 
-      # The answer arrives a minute later, when no worker runs the ticket: the
-      # first delivery and the whole retry ladder fail.
       assert {:ok, %{status: :accepted}} =
                Aiur.DecisionStore.answer(
                  id,
@@ -881,15 +876,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       for _attempt <- 1..4, do: assert_receive({:no_worker, ^id}, 1_000)
       refute_receive {:no_worker, ^id}, 100
 
-      # One poll dispatches the ticket, and its new worker receives the answer once.
       resumed = poll.(held)
       assert_receive {:agent_runner_run, ^ticket_id}, 1_000
       assert Map.has_key?(resumed.running, ticket_id)
       refute Map.has_key?(resumed.dispatch_declines, ticket_id)
 
-      # The spawn posts the redelivery to the Orchestrator (this process) and
-      # does not reach the store during the poll. The Orchestrator handles it
-      # next, with the new running entry in its state.
       assert_received {:deliver_pending_answers, ^ticket_id, ^store} = message
       refute_received {:no_worker, ^id}
       assert :ok = Dispatcher.handle_pending_answer_delivery(message)
