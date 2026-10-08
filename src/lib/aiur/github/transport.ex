@@ -444,14 +444,8 @@ defmodule Aiur.GitHub.Transport do
   # the deadline must cover the whole request including retries. It is a
   # backstop against a wedge, not the primary latency bound.
   #
-  # A read issued *by the Orchestrator* is bounded far tighter. The Orchestrator
-  # still calls GitHub inline from its poll cycle (`Dispatcher.run_poll_cycle/1`),
-  # and while it waits for this reply it answers nothing — agent completions and
-  # `aiur message`/`pause`/`resume`, which still route through its mailbox, wait
-  # with it. The general 60s backstop is twelve times the CLI's 5s control budget,
-  # so that wait is capped nearer the budget instead. It is not the budget itself:
-  # killing a read that is legitimately retrying through a secondary rate limit
-  # would stop dispatch entirely, so it allows one retry cycle above it (#1837).
+  # Preserve the tighter deadline for any direct orchestrator request. Poll and
+  # control I/O now runs outside that owner, using the ordinary request deadline.
   @spec request_deadline_ms(map()) :: pos_integer()
   def request_deadline_ms(request) do
     case Application.get_env(:aiur, :github_request_deadline_ms) do
