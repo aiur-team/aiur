@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
   alias Aiur.ModelAvailability
-  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
+  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth, TrackerTasks}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   test "successful validation clears a previous decline in both execution modes" do
@@ -32,7 +32,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       applied =
         if owner do
           receive_barrier({ref, result})
-          {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+          {:handled, applied} = TrackerTasks.result(pending, ref, result)
           applied
         else
           pending
@@ -61,12 +61,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     receive_barrier({:held_dispatch, worker})
     assert {:noreply, waiting} = Dispatcher.run_poll_cycle(pending)
     assert waiting.tracker_tasks == pending.tracker_tasks
-    refute Aiur.Orchestrator.TrackerTasks.running?(waiting, :dispatch_poll)
+    refute TrackerTasks.running?(waiting, :dispatch_poll)
     assert is_reference(waiting.tick_timer_ref)
     Process.cancel_timer(waiting.tick_timer_ref)
     send(worker, :release)
     receive_barrier({ref, result})
-    assert {:handled, final} = Aiur.Orchestrator.TrackerTasks.result(waiting, ref, result)
+    assert {:handled, final} = TrackerTasks.result(waiting, ref, result)
     assert final.tracker_tasks == %{}
   end
 
@@ -85,15 +85,15 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       )
 
     receive_barrier({:validation_started, "async-high", high_worker})
-    assert Aiur.Orchestrator.TrackerTasks.running?(pending, {:dispatch, high.id})
-    refute Aiur.Orchestrator.TrackerTasks.running?(pending, {:dispatch, low.id})
+    assert TrackerTasks.running?(pending, {:dispatch, high.id})
+    refute TrackerTasks.running?(pending, {:dispatch, low.id})
     send(high_worker, :release)
     receive_barrier({ref, result})
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+    {:handled, next} = TrackerTasks.result(pending, ref, result)
     receive_barrier({:validation_started, "async-low", low_worker})
     send(low_worker, :release)
     receive_barrier({ref, result})
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(next, ref, result)
+    {:handled, next} = TrackerTasks.result(next, ref, result)
     assert next.tracker_tasks == %{}
   end
 
@@ -114,7 +114,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     receive_barrier({:validation_started, worker})
     send(worker, :release)
     receive_barrier({ref, result})
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
+    {:handled, next} = TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
     assert next.running == %{}
     assert next.globally_paused
     assert next.tracker_tasks == %{}
@@ -129,14 +129,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         issue_fetcher: fn _ -> {:error, :controlled_failure} end,
         blocked_by_hydrator: fn value -> {:ok, value} end,
         dispatch_result_fun: fn current ->
-          refute Aiur.Orchestrator.TrackerTasks.issue_pending?(current, issue.id)
+          refute TrackerTasks.issue_pending?(current, issue.id)
           send(owner, :completion_applied)
           %{current | globally_paused: true}
         end
       )
 
     receive_barrier({ref, result})
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+    {:handled, next} = TrackerTasks.result(pending, ref, result)
     receive_barrier(:completion_applied)
     assert next.globally_paused
   end
@@ -152,7 +152,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       receive_barrier({ref, result})
-      {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+      {:handled, next} = TrackerTasks.result(pending, ref, result)
       assert next.dispatch_declines[issue.id] == reason
       assert next.observed_error_alerts == MapSet.new()
     end

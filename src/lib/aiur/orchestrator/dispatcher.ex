@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.Dispatcher do
   @moduledoc """
   Dispatch execution: choose loop, revalidation, thrash breaker, worker spawn.
-  All functions execute inside the orchestrator GenServer process.
+  Tracker work executes outside the owner; guarded results apply inside it.
   """
 
   require Logger

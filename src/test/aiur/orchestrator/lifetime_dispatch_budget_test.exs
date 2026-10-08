@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Workflow
 
   @issue_id "issue-lifetime"
@@ -639,7 +640,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     send(worker, :release)
     receive_barrier({ref, result})
     current = update_in(pending.dispatch_recovery.codex_thrash_budget[@issue_id], &Map.put(&1, :alert_emitted, true))
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(current, ref, result)
+    {:handled, next} = TrackerTasks.result(current, ref, result)
     assert thrash_budget(next)[@issue_id].durable_latch_applied
     assert thrash_budget(next)[@issue_id].alert_emitted
 
@@ -648,7 +649,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     send(worker, :release)
     receive_barrier({ref, result})
     reset = with_thrash_budget(pending, %{@issue_id => %{lifetime: 0}})
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(reset, ref, result)
+    {:handled, next} = TrackerTasks.result(reset, ref, result)
     assert thrash_budget(next)[@issue_id] == %{lifetime: 0}
   end
 
