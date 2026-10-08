@@ -26,6 +26,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
   # and the cadence question could not be answered from the ranking (#2084).
   defp caller(query) do
     case GraphQLCost.operation_name(query) do
+      "AiurBuildOrderHistoryBackfill" -> :build_order_history_backfill
+      "AiurBuildOrderHistoryBackfillBlockedBy" -> :build_order_history_backfill
       "AiurBuildOrderCatalog" -> :build_order_catalog
       "AiurBuildOrderSelectedRoot" -> :build_order_selected_root
       _other -> :build_order_graph
