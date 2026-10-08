@@ -73,6 +73,10 @@ account. Usage-aware selection currently applies to Claude and Codex.
 
 When a resumable Claude REPL session reaches its account's usage limit, Aiur
 selects another configured Claude account using the same `account_selection` rule.
+Only these resumable `claude-repl` sessions can hand off. Headless `claude`
+sessions use the aiur-claude app-server, whose in-memory thread map cannot be
+recreated from a moved transcript: `thread/start` cannot seed a prior session.
+Those sessions keep waiting for the current account to reset.
 
 If one is available, Aiur moves the inactive session transcript and related
 session artifacts to that profile. It then resumes from the original working
