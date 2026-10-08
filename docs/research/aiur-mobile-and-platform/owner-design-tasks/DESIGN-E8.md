@@ -4,7 +4,7 @@ feature: MP-E8 Continuous build history
 owner: Kevin
 tool: Claude Design (prototype)
 status: design delivered in Claude Design; awaiting Kevin's go to plan and implement, plus his side-by-side sign-off
-blocks: all MP-E8 implementation tickets (not yet written), and MP-E1-C8 (its dashboard view is folded into MP-E8)
+blocks: all 76 MP-E8 tickets (bucket-2-platform/MP-E8/tickets/README.md), and MP-E1-C8 (superseded by MP-E8, CR-E8-1)
 decisions: ../bucket-2-platform/MP-E8/decisions.md (E8-D1..D14, E8-R1)
 research: ../bucket-2-platform/MP-E8/baseline.md, options.md, questions.md
 ---
@@ -89,3 +89,35 @@ research: ../bucket-2-platform/MP-E8/baseline.md, options.md, questions.md
 - Kevin explicitly approves it.
 - The coordinator then writes the MP-E8 plan and tickets from the prototype, updates MP-E1 (C8 folded in, wave 0b) and the sequencing, and adds the tickets to the dependency graph. Each ticket cites the prototype screens it implements.
 - No MP-E8 implementation ticket is marked ready before this approval.
+
+## Sign-off items added by the planning pass (2026-10-07)
+
+The plan ([../bucket-2-platform/MP-E8/plan.md](../bucket-2-platform/MP-E8/plan.md)) found states and
+choices the design does not show. Each has a default the tickets follow. Kevin
+approves or replaces each one in the side-by-side sign-off (MP-E8-C12-T08).
+
+| ID | Item | Default until answered | Tickets |
+| --- | --- | --- | --- |
+| S-1 | The shell, tokens and Gruvbox palette apply to every page, including hiding `#decisions-banner` and the page header on every page (Commands attention moves to the nav count) (OQ-E8-1) | Yes, app-wide | C2-T01, C2-T02 |
+| S-2 | Khala nav item (OQ-E8-2) | Not shown | C2-T02 |
+| S-3 | Dependency-chain hover is on only with `?trees=1`; no visible control | As designed | C9-T11 |
+| S-4 | Agent-state glyph on the logo is empty in the design | Screen-reader label only; no visible glyph | C9-T06 |
+| S-5 | Gantt card for a past ticket whose start is unknown | End-anchored minimum-height card, "start unknown" tooltip | C4-T04, C9-T09 |
+| S-6 | Conversation of a past ticket whose transcript was not retained | Issue view plus a one-line "Conversation not retained" note in `.bm-cue` style | C11-T03 |
+| S-7 | Composer states for a failed send and an unknown outcome | Draft kept; a one-line state under the input in the design's muted/bad tones | C11-T06 |
+| S-8 | Where an epic or feature change shows with its source (agent, human, backfill), how an unconfirmed classification looks, and where it is confirmed (item 10) | Not on the board or modal; visible through `aiur epic` / `aiur feature show --json`. C13-T03 waits | C13-T03, C11-T04 |
+| S-9 | "Queue unavailable" / "history unavailable" copy (distinct from empty) | Same `.bd-mk.empty` marker with "unavailable" copy and the age | C9-T13 |
+| S-10 | Modal for a `?ticket=` id that does not exist | Modal frame with "Ticket not found" in the header area | C11-T01 |
+| S-11 | Microphone button when voice is not configured | Disabled, with a reason in its title | C11-T09 |
+| S-12 | Keyboard focus rings and the forced-colours fallback (not in the design) | `:focus-visible` ring in the accent token, keyboard only; dashed outline for dimmed cards under forced colours | C12-T05 |
+| S-13 | Logo for a model the design does not include (muse, openrouter, unknown) | The `.ax-mono` letter circle, sized to each logo slot | C8-T01, C9-T06, C9-T12, C10-T02, C11-T01 |
+| S-14 | "Add to queue": disabled, pending, failed and success states | Design button look; disabled with a reason in its title; pending disables it; on success the diff moves the row | C11-T02 |
+| S-15 | Loading older conversation entries at the top of the log | A one-line `.cv-end`-style "Loading earlier…" row | C11-T03 |
+| S-16 | "Reconnect" in progress or failed | Button disabled with "Reconnecting…"; on failure the banner stays | C8-T03 |
+| S-17 | Look of a `not_planned` closure (E8-R1), collapsed by default | `failed` swatch family in the muted tone, label "Not planned" | C10-T02, C9-T05 |
+
+Also for confirmation: every planner decision in plan §10 (items 1–28), in
+particular the Units fields and CI state the modal omits (OQ-E8-5, conditional
+ticket C11-T10), no type filter (OQ-E8-4), the Build Order panes retiring
+(OQ-E8-9), the demo-only controls dropped (item 5), and sending to a parked agent
+(OQ-E8-10).

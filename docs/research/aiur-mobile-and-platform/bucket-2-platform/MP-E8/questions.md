@@ -84,3 +84,42 @@ Each question gives the options and a research recommendation.
   `UnitsRow`. The controls become shared `dashboard-ui` components (§5).
 - **"Not queued"** = open, not a queue item, and no active agent state.
   `agent:todo` outside a queue counts as planned (§3.3).
+
+## 10. Questions from the 2026-10-07 planning pass (OQ-E8-n)
+
+Kevin was away. Each question has the default that tickets follow until he
+answers. The defaults are also listed in [plan.md §10](plan.md#10-decisions-made-without-the-owner).
+
+1. **OQ-E8-1. Does the design's shell and token change apply to every page?** The
+   design restyles the top bar, adds a cog menu, a draggable sidenav, new tokens
+   and the Gruvbox palette as the default. That changes Commands, Analytics and
+   Streamdeck too. Default: yes, app-wide, because the design file is the whole
+   dashboard. Tickets: MP-E8-C2-T01, C2-T02.
+2. **OQ-E8-2. Add the Khala nav item?** The design's sidenav has one; the product
+   has no Khala page. Default: no item until a Khala page exists. Ticket: C2-T02.
+3. **OQ-E8-3. Keep a hidden `/units` route for one release as a rollback?**
+   Default: yes. Ticket: C12-T01.
+4. **OQ-E8-4. Ticket-type filter.** DESIGN-E8 item 7 lists it; the design has no
+   "type" group (`FKEYS`, J:300). Default: follow the design, no type filter.
+   Ticket: C10-T02.
+5. **OQ-E8-5. Units fields the modal header does not show.** Runtime, turns,
+   tokens/context, priority, resume reason, CI state and the Remote Control link
+   are on the Units table today and are not in the design. E8-D5/D8 say the Units
+   columns move into the modal. Default: follow the newer design and add none.
+   If yes, the conditional ticket C11-T10 adds them. Tickets: C11-T01, C11-T10.
+6. **OQ-E8-6. How does a real feature get its hue?** The design assigns hues by
+   hand (`addF`, J:118). Default: a stable hash of the slug into the design's
+   unused hue range, overridable in `aiur feature create --hue`. Ticket: C6-T01.
+7. **OQ-E8-7. Planned estimate source.** The design table `[1,2,4,7,11]` hours by
+   complexity, or the historical median by complexity. Default: the design table.
+   Ticket: C7-T03.
+8. **OQ-E8-8. The models counter button** ("4 models") cycles demo sets in the
+   design. Default: show the real count, not clickable, same look. Ticket:
+   C10-T04.
+9. **OQ-E8-9. Retire the Build Order Breakdown, Analytics and Usage panes?** The
+   design does not have them. Default: keep `/build-orders` reachable without nav
+   until you confirm. Ticket: C12-T02.
+10. **OQ-E8-10. Should messaging a parked agent resume it?** On main, a plain
+    message resumes any paused agent when a slot is free, including one parked on
+    its account limit (#2742), which then hits the limit again. Default: keep
+    main's behaviour; no orchestrator change. Ticket: C11-T06.
