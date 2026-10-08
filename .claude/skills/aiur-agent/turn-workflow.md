@@ -1,8 +1,9 @@
 # Running a turn
 
-When a repository runs only a fast gate on drafts, mark completed, self-reviewed
-work ready **before** entering `agent:ci-wait`, so the full suite can start.
-A draft fast-gate pass is never a full CI pass.
+In every repository, mark completed, self-reviewed work ready **before**
+entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
+Only the full required-check set passing on the current head SHA permits
+`agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
 
 ## Label lifecycle
 
@@ -62,16 +63,17 @@ in the workpad rather than falling back to raw label edits.
    re-cut and resolve semantic drift yourself; do not leave stale-code updates
    for the Executor or reviewers.
 10. When implementation and draft-PR self-review are complete and only CI
-    remains, move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and end
-    the turn. The daemon owns
-    continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
+    remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
+    draft, then move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and
+    end the turn. The daemon owns continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
-11. On a delivered CI pass, recheck current-base ancestry. If the base moved,
+11. On a delivered full required-check pass for the current head SHA, verify
+    the PR is ready and recheck current-base ancestry. If the base moved,
     update and validate your branch and return to `agent:ci-wait`; otherwise
-    mark the PR ready and move the issue to `agent:human-review`. Use
-    `aiur_set_ticket_state` for that move: the daemon's CI-pass handoff has
+    move the issue to `agent:human-review`. Use `aiur_set_ticket_state` for that
+    move: the daemon's CI-pass handoff has
     already relabelled the ticket `agent:in-progress`, so a hand-written
     `--remove-label agent:ci-wait` removes nothing and strands the pair.
 12. Move the issue to `Done` only when the issue explicitly says the agent should

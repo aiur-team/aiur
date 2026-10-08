@@ -956,6 +956,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.topic == "ticket.#{identifier}.ci.rewake"
       assert event.source == :system
       assert event.message =~ "Check CI once"
+      assert event.message =~ "Drafts never pass CI in any repository"
+      assert event.message =~ "mark completed, self-reviewed work ready before waiting"
+      assert event.message =~ "Before agent:human-review, require the full required-check set to pass on the current head SHA"
+      assert event.message =~ "green or skipped gh pr checks aggregate alone is not a full pass"
       assert event.message =~ "return to agent:ci-wait"
     end
 

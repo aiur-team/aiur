@@ -539,7 +539,9 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft
 pushes run only `changes`, `lint`, and `build`. After self-review, the agent
 marks completed work ready to trigger the full suite, then `agent:ci-wait`
-releases the turn and dispatch slot. A draft's fast gate cannot approve its
+releases the turn and dispatch slot.
+
+A draft's fast gate cannot approve its
 head. Aiur waits for successful required checks from the configured integrations
 on the current head before returning the agent for `agent:human-review`.
 Missing or skipped required checks remain pending. The agent **never self-merges**.

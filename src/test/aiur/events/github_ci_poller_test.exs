@@ -907,7 +907,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [
                 # `draft?` is pinned here on purpose. It is read off the listing
                 # entry (`pr_draft?/1`), never off the PATCH response, so a
-                # fixture losing `"draft" => not Agent.get(fresh_ci?, & &1)` would otherwise flip this to
+                # fixture losing the draft flag would otherwise flip this to
                 # false with every assertion still green.
                 %{
                   decision: :pending,

@@ -30,10 +30,14 @@ The development `scripts/aiurdev --test` and `--test3` harnesses still read GitH
 
 Each CI poll reads the configured base branch's active rules and classic branch
 protection once for the batch, then requires every required check on the current
-PR head from its configured integration. A failed required-check lookup keeps a
-green aggregate pending; missing and skipped required checks cannot pass. The
-two reads are attributed to `ci_required_checks` and bypass the shared read
-cache because they govern a CI verdict. Draft PRs remain pending even when
+PR head from its configured integration.
+
+A failed required-check lookup keeps a
+green aggregate pending; missing and skipped required checks cannot pass.
+The two reads are attributed to `ci_required_checks` and bypass the shared read
+cache because they govern a CI verdict.
+
+Draft PRs remain pending even when
 their fast gate is green. Completed work must be marked ready before CI wait so
 `ready_for_review` can start the full suite.
 

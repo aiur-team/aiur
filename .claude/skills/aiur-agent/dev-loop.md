@@ -1,8 +1,9 @@
 # Dev loop
 
-When a repository runs only a fast gate on drafts, mark completed, self-reviewed
-work ready **before** entering `agent:ci-wait`, so the full suite can start.
-A draft fast-gate pass is never a full CI pass.
+In every repository, mark completed, self-reviewed work ready **before**
+entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
+Only the full required-check set passing on the current head SHA permits
+`agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
 
 ## Branch
 
@@ -326,14 +327,16 @@ focused test runner, test-tree paths and CI gate at each step.
 13. Recheck current-base ancestry after fixes. If the base moved, integrate it,
     rerun the scoped gate, and push before continuing.
 14. If you still believe the work is complete and correct and only CI remains,
-    keep the PR as a draft, move the ticket with
-    `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
+    mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
+    move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
-    - **Passed:** fetch the configured base once. If its current remote head is
-      still an ancestor of the tested PR head, trust the delivered result without re-polling,
-      mark the PR ready for review, emit the required 100% progress sample, and
+    - **Passed:** require the full required-check set to have passed on the
+      current head SHA and verify the PR is ready. Fetch the configured base once.
+      If its current remote head is still an ancestor of the tested PR head,
+      trust the delivered result without re-polling, emit the required 100%
+      progress sample, and
       move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
       Use that tool, never `gh issue edit --remove-label agent:ci-wait
       --add-label agent:human-review`: the daemon's CI-pass handoff already
@@ -345,10 +348,12 @@ focused test runner, test-tree paths and CI gate at each step.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
       repair loop.
-16. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
-    follow the pass or failure path; if it is still pending, return to
-    `agent:ci-wait` (`aiur_set_ticket_state`) and end the turn without polling
-    again.
+16. On a CI re-wake timeout, check CI exactly once. Drafts never pass: mark
+    completed, self-reviewed work ready before waiting again. A green or skipped
+    `gh pr checks` aggregate alone is not a full pass; verify the full
+    required-check set passed on the current head SHA before following the pass
+    path. Follow the failure path for failures; otherwise return to
+    `agent:ci-wait` (`aiur_set_ticket_state`) and end the turn without polling again.
 
 Do **not** self-merge. Always await user review after marking the PR ready.
 
