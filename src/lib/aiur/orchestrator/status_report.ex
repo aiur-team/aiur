@@ -1237,7 +1237,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp idle_reason(:workspace_ownership_waiting, identifier, _fallback) do
     case HoldStatus.for_ticket(identifier) do
-      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, generation, proof}
+      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, identifier, generation, proof}
       nil -> :workspace_ownership_waiting
     end
   end
