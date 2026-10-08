@@ -136,8 +136,9 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
       assert_received :ci_issue_fetch
-      Process.sleep(50)
-      assert [^wake] = ExecutorWakeInbox.pending()
+      _ = :sys.get_state(Aiur.ExecutorListener.CIHandoffTest)
+      :ok = ExecutorWakeInbox.acknowledge([wake])
+      assert :timeout = ExecutorWakeInbox.wait(0)
     end
 
     test "seeds existing human-review issues on the first CI poll without waking" do
