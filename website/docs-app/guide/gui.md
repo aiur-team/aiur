@@ -67,8 +67,10 @@ Each page renders a durable concept whose detail lives in Concepts.
 
 Normal releases include discovered state-node planning packs on `/build-orders`
 and `/build-orders/:root_number`. Pack members without GitHub issues appear as
-drafts; promoted members use live issue state when available. Pack workstreams
-name the epic columns, and pack phases name the rows, including phase zero.
+drafts; promoted members use live issue state when available.
+
+Pack workstreams name the epic columns, and pack phases name the rows, including
+phase zero.
 Click an epic heading to collapse or expand its cards; counts remain visible.
 External gates appear in an expandable list above the graph.
 
