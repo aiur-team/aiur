@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.History.Merge do
   alias Aiur.BuildOrder.History.Row
   @earliest [:in_progress_at, :dispatched_at]
   @latest [:last_closed_at, :close_observed_at, :reopened_at, :merged_at]
+  @signals @earliest ++ @latest ++ [:label_events, :sub_issues_added]
   @last [:start, :start_source, :end, :end_source, :clamped, :agent_model, :agent_effort]
 
   @spec merge(Row.t() | nil, Row.event()) :: {:changed, Row.t()} | :unchanged
@@ -18,10 +19,10 @@ defmodule Aiur.BuildOrder.History.Merge do
   defp value(:pr_number, value, row, event, late?, _newer?) do
     winner = value(:merged_at, Map.get(event.fields, :merged_at, :unknown), row, event, late?, false)
     incoming = Map.get(event.fields, :merged_at, :unknown)
-    if (row.pr_number == :unknown or not late?) and winner == incoming and (winner != row.merged_at or row.pr_number == :unknown), do: value, else: row.pr_number
+    if winner == incoming and (winner != row.merged_at or row.pr_number == :unknown), do: value, else: row.pr_number
   end
 
-  defp value(key, value, row, _event, true, _newer?) when key != :dispatched_at,
+  defp value(key, value, row, _event, true, _newer?) when key not in @signals,
     do: if(unknown?(Map.fetch!(row, key)), do: value, else: Map.fetch!(row, key))
 
   defp value(key, value, row, _event, _late?, _newer?) when key in @earliest, do: extreme(Map.fetch!(row, key), value, :earliest)
@@ -69,7 +70,11 @@ defmodule Aiur.BuildOrder.History.Merge do
 
   defp union(key, old, incoming) do
     (if(old == :unknown, do: [], else: old) ++ incoming)
+    |> prefer_known_actor(key)
     |> Enum.uniq_by(fn item -> if key == :label_events, do: {item.label, item.action, DateTime.to_unix(item.at, :microsecond)}, else: {item.ref, DateTime.to_unix(item.at, :microsecond)} end)
     |> Enum.sort_by(&DateTime.to_unix(&1.at, :microsecond))
   end
+
+  defp prefer_known_actor(events, :label_events), do: Enum.sort_by(events, &(&1.actor == :unknown))
+  defp prefer_known_actor(events, _key), do: events
 end

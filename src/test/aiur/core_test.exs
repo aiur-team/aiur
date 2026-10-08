@@ -2,6 +2,7 @@ defmodule Aiur.CoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, LifecycleFence, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
@@ -19,6 +20,11 @@ defmodule Aiur.CoreTest do
     def fetch_issues_by_states(_states), do: {:ok, []}
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
     def hydrate_blocked_by(issue), do: {:ok, issue}
+  end
+
+  defmodule CheckpointNoPollClient do
+    def fetch_issues_by_states(_states, _opts \\ []), do: {:ok, []}
+    def fetch_candidate_issues, do: raise("queue-only checkpoint fixture must not poll the tracker")
   end
 
   defp stop_test_orchestrator(pid) when is_pid(pid) do
@@ -2972,20 +2978,32 @@ defmodule Aiur.CoreTest do
         max_turns: 2
       )
 
-      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      previous_client = Application.fetch_env(:aiur, :linear_client_module)
+      Application.put_env(:aiur, :linear_client_module, CheckpointNoPollClient)
 
       on_exit(fn ->
-        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        case previous_client do
+          {:ok, client} -> Application.put_env(:aiur, :linear_client_module, client)
+          :error -> Application.delete_env(:aiur, :linear_client_module)
+        end
       end)
 
+      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
+      # Keep this checkpoint fixture independent of live tracker polling.
+      orchestrator_pid = start_supervised!({Orchestrator, name: orchestrator_name, initial_poll?: false})
+
+      test_pid = self()
+
       :sys.replace_state(orchestrator_pid, fn state ->
-        {queue_store, _item} =
+        {queue_store, item} =
           Aiur.AgentQueue.operator_message("MT-250", "focus on auth first")
           |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
+        send(test_pid, {:checkpoint_queue_item, item.id})
         %{state | queue_store: queue_store}
       end)
+
+      assert_received {:checkpoint_queue_item, request_id}
 
       issue = %Issue{
         id: "issue-checkpoint-queue",
@@ -3002,6 +3020,20 @@ defmodule Aiur.CoreTest do
                  issue,
                  nil,
                  orchestrator: orchestrator_name,
+                 run_turn: fn session, prompt, turn_issue, opts ->
+                   on_message = Keyword.fetch!(opts, :on_message)
+
+                   observe_completion = fn event ->
+                     if event.event == :turn_completed and get_in(event, [:payload, "params", "turn", "id"]) == "turn-checkpoint-main" do
+                       assert {:ok, :pending} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
+                       send(test_pid, :checkpoint_deferred_until_completion)
+                     end
+
+                     on_message.(event)
+                   end
+
+                   Aiur.CodingAgent.run_turn(session, prompt, turn_issue, Keyword.put(opts, :on_message, observe_completion))
+                 end,
                  issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
                )
 
@@ -3018,10 +3050,18 @@ defmodule Aiur.CoreTest do
           |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         end)
 
+      assert_received :checkpoint_deferred_until_completion
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "focus on auth first"
+      assert {:ok, :consumed} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
       assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-250")
+
+      assert Exchange.bindings_for(orchestrator_pid) != []
+      assert :ok = stop_supervised(Orchestrator)
+      assert Process.whereis(orchestrator_name) == nil
+      :sys.get_state(Exchange)
+      assert Exchange.bindings_for(orchestrator_pid) == []
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)

@@ -460,12 +460,8 @@ defmodule Aiur.GitHub.Issues do
     authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
   end
 
-  # The orchestrator's conditional open-issue poll (`?state=open&per_page=100`
-  # is unfiltered, so this sees every open issue) partitions rather than
-  # discards: zero- and multi-`agent:*`-label tickets are returned alongside
-  # the authorized dispatch candidates so the orchestrator's repair pass can
-  # heal them. Every other non-dispatchable open ticket (terminal/error
-  # labels) is dropped exactly as before (#2420).
+  # Keep fresh non-dispatchable workflow states as evidence for next-poll label repair.
+  # Only dispatchable candidates go through authorization; terminal tickets remain excluded.
   defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
     {dispatchable, rest} =
       Enum.split_with(issues, fn issue ->
@@ -474,7 +470,12 @@ defmodule Aiur.GitHub.Issues do
       end)
 
     authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
-    healable = rest |> Enum.filter(&degenerate_state_labels?/1) |> TestTicketScope.filter_issues()
+
+    healable =
+      rest
+      |> Enum.filter(&(degenerate_state_labels?(&1) or &1.state in ~w(ci-wait human-review error)))
+      |> TestTicketScope.filter_issues()
+
     authorized ++ healable
   end
 

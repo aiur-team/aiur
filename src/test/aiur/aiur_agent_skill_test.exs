@@ -644,7 +644,10 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "affected tests only"
     assert source =~ "mix test --max-cases 4"
     refute source =~ "mix credo --strict"
-    assert source =~ "Do not run Credo locally"
+    assert source =~ "mise exec -- mix lint"
+    assert source =~ "python3 scripts/check-bare-assert-receive.py"
+    refute source =~ "Do not run Credo locally"
+    refute source =~ "Credo belongs to CI"
     assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
     refute source =~ "mix dialyzer"
 
@@ -657,6 +660,15 @@ defmodule Aiur.AiurAgentSkillTest do
 
     assert dev_loop =~
              "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
+  end
+
+  test "shared prompt requires both local checks before PR handoff" do
+    source = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
+
+    assert source =~ "before marking the PR ready or handing off to CI/review"
+    assert source =~ "From `src/`: `mise exec -- mix lint`"
+    assert source =~ "From the repository root: `python3 scripts/check-bare-assert-receive.py`"
+    assert source =~ "run both required checks and fix any failures"
   end
 
   test "unrelated CI flakes never become ticket dependencies" do
@@ -672,7 +684,7 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "agent prompt delegates Credo to CI after inspecting lint settings" do
+  test "agent prompt requires local lint checks after inspecting lint settings" do
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
 
     assert repo_prompt =~ "before writing code read `src/.formatter.exs`"
@@ -683,7 +695,9 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "affected tests only"
     assert repo_prompt =~ "mix test --max-cases 4"
     refute repo_prompt =~ "mix credo --strict"
-    assert repo_prompt =~ "Do not run Credo locally"
+    assert repo_prompt =~ "mise exec -- mix lint"
+    assert repo_prompt =~ "python3 scripts/check-bare-assert-receive.py"
+    refute repo_prompt =~ "Do not run Credo locally"
     assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"
