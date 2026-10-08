@@ -5,6 +5,7 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
 
   setup context do
     if context[:stopped_slot_registry] do
+      ensure_slot_registry!()
       :ok = Supervisor.terminate_child(Aiur.Supervisor, SlotRegistry.registry_name())
       on_exit(fn -> ensure_slot_registry!() end)
       assert Process.whereis(SlotRegistry.registry_name()) == nil
