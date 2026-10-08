@@ -3,7 +3,12 @@ defmodule Aiur.BuildQueue.Ordering do
 
   alias Aiur.BuildQueue.Model.{Edge, Item}
 
-  @doc "Counts distinct reachable open members, excluding the starting issue itself."
+  @doc """
+  Counts distinct reachable open members, excluding the starting issue itself.
+
+  Pass issue IDs with confirmed `open?: true` that remain queue members.
+  Closed, removed and unknown-open-state members are excluded from this set.
+  """
   @spec downstream_open([Edge.t()], Enumerable.t()) :: %{String.t() => non_neg_integer()}
   def downstream_open(edges, open_items) do
     open = MapSet.new(open_items)
@@ -16,11 +21,11 @@ defmodule Aiur.BuildQueue.Ordering do
     end)
   end
 
-  @doc "Orders by downstream count, supplied priority rank, position, age, then issue number."
+  @doc "Orders by downstream count, supplied priority rank, position, age, then string issue ID (matching dispatch)."
   @spec rank(Item.t(), non_neg_integer(), 1..5, DateTime.t() | nil) :: tuple()
   def rank(item, downstream, priority, created_at) do
     {downstream_rank, position} = hint(item, downstream)
-    {downstream_rank, priority, position, created_at_key(created_at), String.to_integer(item.issue_id)}
+    {downstream_rank, priority, position, created_at_key(created_at), item.issue_id}
   end
 
   @doc "Dispatch hint; build-order items have no position and use zero."

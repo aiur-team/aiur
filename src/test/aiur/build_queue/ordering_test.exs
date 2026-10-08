@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.OrderingTest do
     assert Ordering.downstream_open(edges, ~w(1 2 3)) == %{"1" => 2, "2" => 2, "3" => 0}
   end
 
-  test "rank orders downstream, priority, position, microsecond age and numeric issue number" do
+  test "rank orders downstream, priority, position, microsecond age and string issue ID" do
     old = ~U[2026-10-07 00:00:00.000001Z]
     new = ~U[2026-10-07 00:00:00.000002Z]
 
@@ -34,13 +34,13 @@ defmodule Aiur.BuildQueue.OrderingTest do
     ]
 
     sorted = Enum.sort_by(candidates, fn {item, count, priority, time} -> Ordering.rank(item, count, priority, time) end)
-    assert Enum.map(sorted, fn {item, _, _, _} -> item.issue_id end) == ~w(6 5 4 3 2 10)
+    assert Enum.map(sorted, fn {item, _, _, _} -> item.issue_id end) == ~w(6 5 4 3 10 2)
   end
 
   test "build-order nil positions use zero and missing creation times sort last" do
     old = ~U[2026-10-07 00:00:00Z]
     assert Ordering.hint(item("12", nil), 3) == {-3, 0}
-    assert Ordering.rank(item("12", nil), 3, 5, old) == {-3, 5, 0, DateTime.to_unix(old, :microsecond), 12}
+    assert Ordering.rank(item("12", nil), 3, 5, old) == {-3, 5, 0, DateTime.to_unix(old, :microsecond), "12"}
     assert Ordering.rank(item("12", nil), 3, 5, nil) > Ordering.rank(item("12", nil), 3, 5, old)
   end
 
