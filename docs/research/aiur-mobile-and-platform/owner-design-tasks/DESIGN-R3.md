@@ -2,7 +2,7 @@
 design_task: DESIGN-R3
 feature_id: MP-R3
 owner: Kevin
-status: open (awaiting explicit approval)
+status: approved by the Executor 2026-10-08 per EXECUTOR-APPROVALS.md (Kevin may revise)
 blocks: [MP-R3-C1-T01, MP-R3-C2-T01]
 blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R3 (waived entries excluded). Earlier wording: every MP-R3 implementation ticket (MP-R3-C1-T01..T02, MP-R3-C2-T01..T02)"
 base_main_sha: 45a290e3
@@ -23,13 +23,13 @@ written approval.
 MP-R3 adds guard tests and a docs clarification. It changes no runtime
 behaviour.
 
-- [ ] **No user-facing change is intended.** These all stay identical:
+- [x] (Executor, 2026-10-08) **No user-facing change is intended.** These all stay identical:
   - the dashboard bind default (`127.0.0.1`);
   - the precedence `--host` > `server.host` > `AIUR_DEFAULT_DASHBOARD_HOST`;
   - the credential guard;
   - every error and warning message in `Aiur.HttpServer`;
   - the launcher's `Dashboard:` line.
-- [ ] **No new config key.** There is no `server.tailscale` key and no
+- [x] (Executor, 2026-10-08) **No new config key.** There is no `server.tailscale` key and no
   exposure profile. Your private tailnet setup stays exactly as it is: an
   explicit `server.host` plus dashboard credentials.
 
@@ -39,13 +39,13 @@ behaviour.
    (`0.0.0.0`) the Basic Auth password travels in cleartext.
    - Recommended: document a warning only (plan § 5).
    - Alternative: open a Bucket 2 TLS or exposure-profile feature.
-   - Choose: [ ] warning only  [ ] open a Bucket 2 feature.
+   - Choose: [x] warning only (Executor, 2026-10-08)  [ ] open a Bucket 2 feature.
 2. **Historical Draft spec banner.** `docs/voice-mode/spec.md` treats Tailscale
    as the access path.
    - Recommended: **leave historical specs untouched**, because they are dated
      records; the current docs pages carry the correction.
    - Choose: [ ] add a one-line "Tailscale is one supported network" banner
-     [ ] leave historical specs untouched.
+     [x] leave historical specs untouched (Executor, 2026-10-08).
 
 ## 3. Copy to approve (docs only)
 
@@ -68,7 +68,7 @@ names no HTTPS method, so it does not pre-empt DESIGN-N2 §transport:
 Evidence: `http_server.ex:64,147`; `conversation-voice-controller.js:18-19`; MDN
 `getUserMedia` secure-context note (accessed 2026-10-06).
 
-- [ ] Both paragraphs approved as written, or with edits: ______
+- [x] (Executor, 2026-10-08) Both paragraphs approved as written, subject to the 360-char prose guard.
 
 ## 4. States
 

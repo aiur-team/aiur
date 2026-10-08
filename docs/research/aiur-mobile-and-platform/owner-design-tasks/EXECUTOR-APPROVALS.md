@@ -9,6 +9,7 @@
   suggests. The Executor does not adopt a user-visible visual design that the doc
   gives to Kevin without a recommendation. Those items are in "Still Kevin's" at
   the end of this file.
+- **Checkboxes:** each DESIGN-Rx.md has its adopted boxes ticked and marked "(Executor, 2026-10-08)", and its `status:` line says it is approved by the Executor. Unticked boxes are options not adopted, or items in "Still Kevin's".
 - **Kevin may revise any item at any time.** A revision from Kevin replaces the
   matching line here.
 
@@ -83,8 +84,8 @@ Decided by the Executor earlier today for #3371; included as-is.
 | §1.1-§1.3 | Confirmed: no change for a configured key, no change for a missing key (copy word-for-word), key setup UX unchanged. | Package move only. |
 | §2 copy | Proposed copy approved as written: dashboard "Voice input isn't installed in this Aiur. Typed messages work as usual."; deck "Voice isn't installed in this Aiur"; reply code `not_installed`; Units credits row hidden. | Clear, short, matches existing tone. |
 | §2 hidden/disabled | "Recommendation: (b) disabled with reason" for every surface. | Matches the pack-wide rule (DESIGN-N1 §3 item 5, DESIGN-N5 §1); keeps MP-R5 independent of MP-E5. |
-| §3.1 | "include (recommended)": default npm install includes the voice package; the key is the opt-in. | No extra install step. |
-| §3.2 | "delete (recommended)": delete the unwired sidecar TTS file. | Unused; would need a key in the sidecar. |
+| §3.1 | Decided by the Executor earlier today (#3458): "include (recommended)": default npm install includes the voice package; the key is the opt-in. | No extra install step. |
+| §3.2 | Decided by the Executor earlier today (#3458): "delete (recommended)": delete the unwired sidecar TTS file. | Unused; would need a key in the sidecar. |
 
 ## DESIGN-R6 (MP-R6: Stream Deck split)
 

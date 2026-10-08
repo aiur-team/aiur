@@ -2,7 +2,7 @@
 design_task: DESIGN-R4
 feature_id: MP-R4
 owner: Kevin
-status: open (awaiting explicit approval)
+status: approved by the Executor 2026-10-08 per EXECUTOR-APPROVALS.md (Kevin may revise)
 blocks: [MP-R4-C1-T01]
 blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R4 (waived entries excluded). Earlier wording: MP-R4-C1-T01..T02"
 base_main_sha: 45a290e3
@@ -20,25 +20,25 @@ explicit written approval.
 
 ## 1. What this gate confirms
 
-- [ ] **No user-facing change is intended.** Everything below stays as it is:
+- [x] (Executor, 2026-10-08) **No user-facing change is intended.** Everything below stays as it is:
   - the webhook route (`/api/v1/github/webhook`) and its behaviour;
   - the `webhooks.*` keys and `AIUR_GITHUB_WEBHOOK_SECRET`;
   - the per-repo delivery-mode output in the CLI;
   - the attention texts.
-- [ ] **Your `hooks.aiur.dev` tunnel is unchanged.** It stays path-scoped to
+- [x] (Executor, 2026-10-08) **Your `hooks.aiur.dev` tunnel is unchanged.** It stays path-scoped to
   the webhook, with a catch-all 404. It will not carry mobile, dashboard or
   push traffic.
-- [ ] **Relay configuration UX: none added.** Ingress (tunnel, domain) stays
+- [x] (Executor, 2026-10-08) **Relay configuration UX: none added.** Ingress (tunnel, domain) stays
   operator infrastructure outside Aiur. Configuration stays `webhooks.repos`
   plus the secret env var. Aiur does not start, manage or detect tunnels. If
   you want a guided setup (for example, an `aiur init` step that prints the
   tunnel ingress snippet), that is a Bucket 2 request: tick here and it is
-  filed separately. [ ]
+  filed separately. [ ] (not requested; Executor, 2026-10-08)
 
 ## 2. Decisions needing your input
 
 1. Keep the `hooks.aiur.dev` tunnel purely for GitHub webhooks.
-   [ ] yes (recommended)  [ ] no: explain ______
+   [x] yes (recommended) (Executor, 2026-10-08)  [ ] no: explain ______
 2. **Forwarded to [DESIGN-N4 D-8](DESIGN-N4.md#3-decisions-that-need-kevin)
    (OQ-N4-1, publisher and default relay operator); answer there.** Self-hosted
    daemons cannot hold Apple or Google push credentials for a published app
@@ -47,7 +47,7 @@ explicit written approval.
    hosted relay; self-built apps only; personal accounts) and recommends
    organisation accounts with a hosted relay. This gate records only that you
    have seen the constraint; that relay never uses `hooks.aiur.dev` (item 1).
-   [ ] seen
+   [x] seen (Executor, 2026-10-08)
 
 ## 3. Copy to approve (docs only)
 
@@ -62,7 +62,7 @@ This is the § Cloudflare tunnel boundary addition to `website/docs-app/apis/git
 Cloudflare edge certificates "secure the encrypted connection between your visitors and
 Cloudflare", https://developers.cloudflare.com/ssl/edge-certificates/, accessed 2026-10-06.)
 
-- [ ] Approved, or edits: ______
+- [x] (Executor, 2026-10-08) Approved as written.
 
 ## 4. States
 
