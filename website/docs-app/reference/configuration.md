@@ -749,6 +749,18 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
 
+## build_queue
+
+Build queue configuration for GitHub workflows; Linear is unsupported, and the queue reconciler is delivered separately.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. |
+| `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
+| `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
+| `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
+| `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for a merged PR whose issue remains open; 60..86400. |
+
 ## build_order
 
 | Key | Type | Default | Controls |
