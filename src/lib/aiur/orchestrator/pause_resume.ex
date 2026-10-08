@@ -3,11 +3,10 @@ defmodule Aiur.Orchestrator.PauseResume do
   Owns the pause, resume, and reactivation state machine for running agents.
   All functions execute inside the orchestrator GenServer process.
   """
-
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
-  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
+  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.GithubBudgetPause
@@ -24,7 +23,6 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry.Lifecycle
   require Logger
-
   # Attribution marker for agents held by the global pause switch, distinct
   # from every per-agent pause reason. Unpause resumes only these entries, so
   # an operator's individual pause is never overridden. See `Aiur.Orchestrator.GlobalPause`.
@@ -2576,7 +2574,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp clear_pause_override(%Issue{} = issue) do
     label = pause_override_label()
 
-    case Tracker.remove_label(issue.identifier, label) do
+    case TicketTransition.write_marker(issue.identifier, :remove, label, writer: :pause_resume) do
       :ok ->
         {:ok,
          issue
@@ -2608,7 +2606,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp perform_tracker_io(:revalidate_completed, [issue]),
     do: Dispatcher.revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, DispatchPolicy.terminal_state_set())
 
-  defp perform_tracker_io(function, args), do: apply(Tracker, function, args)
+  defp perform_tracker_io(:update_issue_state, [id, state]), do: TicketTransition.write_state(id, state, writer: :pause_resume)
+  defp perform_tracker_io(:remove_label, [id, label]), do: TicketTransition.write_marker(id, :remove, label, writer: :pause_resume)
 
   defp control_caller_work(action, identifier, fun) do
     {:ok, fun.()}

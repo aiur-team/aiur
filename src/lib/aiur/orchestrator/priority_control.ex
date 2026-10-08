@@ -7,9 +7,8 @@ defmodule Aiur.Orchestrator.PriorityControl do
   the orchestrator immediately refreshes its in-memory copies so the dashboard
   and dispatch policy observe the same priority before the next poll.
   """
-
-  alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{State, StatusReport, TrackerTasks}
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{State, StatusReport, TicketTransition, TrackerTasks}
 
   @prioritized_label "priority:1"
 
@@ -145,7 +144,7 @@ defmodule Aiur.Orchestrator.PriorityControl do
   end
 
   defp remove_priority_labels(issue_id, labels, opts) do
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+    remove_label = Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :priority_control))
 
     Enum.reduce_while(labels, :ok, fn label, :ok ->
       case remove_label.(issue_id, label) do
@@ -156,7 +155,7 @@ defmodule Aiur.Orchestrator.PriorityControl do
   end
 
   defp add_label(issue_id, label, opts) do
-    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+    add_label = Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :priority_control))
     add_label.(issue_id, label)
   end
 

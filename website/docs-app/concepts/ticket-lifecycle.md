@@ -111,6 +111,8 @@ at once** denies dispatch. A poll-time repair heals the pair to its winner
 Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
 raw label edits.
 
+`Aiur.Orchestrator.TicketTransition` owns daemon, agent-tool, dashboard and CLI label writes, recording the caller and outcome in logs and telemetry. The tracker remains authoritative; this owner adds no retries or deduplication.
+
 An agent cannot safely name the label to remove. The orchestrator writes state
 transitions too, so the label the agent last saw may already be gone by the
 time its command runs — the removal then no-ops and leaves the pair behind.

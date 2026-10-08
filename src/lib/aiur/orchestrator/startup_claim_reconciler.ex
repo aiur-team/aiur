@@ -17,9 +17,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   """
 
   require Logger
-
-  alias Aiur.{Alerts, Config, Issue, Tracker}
-  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
+  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.StartupClaimReconciler.BootMarker
 
   @max_release_attempts 3
@@ -176,7 +175,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
-        Tracker.update_issue_state(identifier, state_name, expected_state: expected_state)
+        TicketTransition.write_state(identifier, state_name, writer: :startup_claim_reconciler, expected_state: expected_state)
       end)
 
     case update_issue_state_fun.(issue.identifier, todo_state, issue.state) do
@@ -314,7 +313,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   end
 
   defp write_orphan_release(identifier, target, expected, {}) do
-    Tracker.update_issue_state(identifier, target, expected_state: expected)
+    TicketTransition.write_state(identifier, target, writer: :startup_claim_reconciler, expected_state: expected)
   end
 
   defp release_orphan_tracker_claim({issue, todo_state, update}) do

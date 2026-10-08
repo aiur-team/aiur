@@ -18,14 +18,13 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     DecisionAttention,
     DecisionStore,
     EventPublicationLog,
-    Issue,
-    Tracker
+    Issue
   }
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
 
@@ -69,11 +68,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
       unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
       # The tracker writer behind `aiur_set_ticket_state` (#2805). It goes
-      # through the same `Tracker.update_issue_state/2` the daemon uses, which
+      # through the same `TicketTransition.write_state/3` the daemon uses, which
       # re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &Tracker.update_issue_state/2)
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool))
     }
 
     event_handlers = %{

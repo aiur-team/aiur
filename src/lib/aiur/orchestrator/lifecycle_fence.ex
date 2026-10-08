@@ -9,13 +9,11 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   """
 
   require Logger
-
   alias Aiur.AgentQueueItem
   alias Aiur.Config
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, Reconciler, ReviewFreshness, State, TrackerTasks}
+  alias Aiur.Orchestrator.{DispatchPolicy, Reconciler, ReviewFreshness, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
-  alias Aiur.Tracker
 
   @pr_anchored_state "pr-watch"
 
@@ -359,7 +357,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       state,
       {:lifecycle_restore, issue.id},
       fn ->
-        Tracker.update_issue_state(issue_key, authoritative_state, expected_state: actual_state)
+        TicketTransition.write_state(issue_key, authoritative_state, writer: :lifecycle_fence, expected_state: actual_state)
       end,
       fn current, result ->
         if Reconciler.issue_input(current, issue.id) == input do
