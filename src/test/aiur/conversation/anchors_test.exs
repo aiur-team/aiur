@@ -34,7 +34,7 @@ defmodule Aiur.Conversation.AnchorsTest do
   test "emit and consumed twins have distinct identities" do
     assert Anchors.event_identity("emit", 7) == {:bus, "emit", 7}
     assert Anchors.event_identity("consumed", 7) == {:bus, "consumed", 7}
-    assert Anchors.event_identity(nil, 7) == {:bus, "emit", 7}
+    assert Anchors.event_identity(nil, 7) == {:bus, nil, 7}
   end
 
   test "instants are compared parsed, not lexically" do
@@ -46,9 +46,11 @@ defmodule Aiur.Conversation.AnchorsTest do
   end
 
   test "with no events, the origin holds every entry" do
-    entries = [%{timestamp: "2026-01-01T10:00:00Z"}, %{timestamp: nil}]
+    dated = %{timestamp: "2026-01-01T10:00:00Z"}
+    missing = %{timestamp: nil}
+    entries = [dated, missing]
 
-    assert [%{id: :origin, timestamp: "2026-01-01T10:00:00Z", entries: ^entries}] =
+    assert [%{id: :origin, timestamp: "2026-01-01T10:00:00Z", entries: [^missing, ^dated]}] =
              [] |> Anchors.with_origin(entries) |> Anchors.at_or_before(entries)
   end
 
@@ -56,7 +58,7 @@ defmodule Aiur.Conversation.AnchorsTest do
     event = %{id: :event, timestamp: ~U[2026-01-01 10:00:00Z]}
     entry = %{timestamp: "2026-01-01T09:00:00Z"}
     assert Anchors.origin_id() == :origin
-    assert Anchors.with_origin([event], [entry]) == [%{id: :origin, timestamp: entry.timestamp}, event]
+    assert Anchors.with_origin([event], [entry]) == [%{id: :origin, timestamp: "2026-01-01 10:00:00Z"}, event]
     assert Anchors.with_origin([], []) == [%{id: :origin, timestamp: nil}]
   end
 

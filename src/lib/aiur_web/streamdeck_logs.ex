@@ -263,7 +263,7 @@ defmodule AiurWeb.StreamdeckLogs do
 
   defp bus_event(row) do
     %{
-      id: Anchors.event_identity(value(row, :kind), value(row, :id)),
+      id: Anchors.event_identity(value(row, :kind, "emit"), value(row, :id)),
       badge: direction(value(row, :badge, "EMIT")),
       label: value(row, :label, "Event"),
       body: summary(value(row, :label, "Event"), value(row, :body, "")),

@@ -14,6 +14,11 @@ defmodule Aiur.AgentEventFeedTest do
     %{identifier: "event-feed-#{System.unique_integer([:positive])}"}
   end
 
+  test "projection defaults an absent event kind and preserves explicit nil and false kinds" do
+    logs = StreamdeckLogs.project(%{events: [%{id: 1}, %{id: 2, kind: nil}, %{id: 3, kind: false}]})
+    assert Enum.map(logs.events, & &1.id) == [:origin, {:bus, "emit", 1}, {:bus, nil, 2}, {:bus, false, 3}]
+  end
+
   test "badge vocabulary covers every produced badge" do
     roles = ~w(command tool user assistant system reasoning alert unknown)
     kinds = ~w(emit consumed emit_alert self other)

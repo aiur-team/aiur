@@ -11,8 +11,8 @@ defmodule Aiur.Conversation.Anchors do
   @origin_id :origin
 
   # Published and consumed twins share an event ID but remain separate anchors.
-  @spec event_identity(String.t() | nil, term()) :: {:bus, String.t(), term()}
-  def event_identity(kind, id), do: {:bus, kind || "emit", id}
+  @spec event_identity(term(), term()) :: {:bus, term(), term()}
+  def event_identity(kind, id), do: {:bus, kind, id}
 
   @spec origin_id() :: :origin
   def origin_id, do: @origin_id
