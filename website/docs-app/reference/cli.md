@@ -142,6 +142,10 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur cleanup-stale` | Lists and reaps stale manual-smoke processes and sockets. | `aiur cleanup-stale` |
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 
+Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.
+
+If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
+
 If the daemon does not answer `aiur message` in time, the command prints `outcome unknown`, the send's message id and the exact retry command, and exits 124. The daemon may still queue the message. Check the ticket log first: a queued message is logged with the tag `queued item=N`.
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
@@ -334,6 +338,10 @@ under `--json`.
 | `69` | Contention on the shared claim: the cross-process claims lock was still held after its bounded retry, or the claim moved to another consumer before the batch could be acknowledged. Nothing was consumed and the cursor did not move, so the same call is safe to retry. |
 | `1` | Daemon or store failure — an unreadable wake ledger, or a claims store that cannot be written. Retrying repeats it. |
 | `64` | Invalid usage. |
+
+If lease renewal detects that this consumer lost ownership during a wait, the
+wait continues as an observer and leaves the shared cursor untouched. Ownership
+loss discovered only when acknowledging still returns `69`.
 
 The `69` diagnostic reports the retry bounds actually spent, read from the live
 configuration: by default the claims lock is retried every 25ms for 5 seconds,

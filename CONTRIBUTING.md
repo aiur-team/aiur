@@ -290,9 +290,20 @@ rewriting; it is intentionally not an automatic replacement.
 
 Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
 to one component in `components.json`. Add new source paths and update moved
-paths in the same PR. The required lint job runs `python3 scripts/check-components.py`;
+paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
+toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
 unowned files, equally specific competing owners and stale globs fail the check.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
+
+Every root config section and scalar field, env schema name, and public
+`Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
+owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
+as a new declaration; stale and duplicate ownership also fail lint.
+`shared_with` records collaborating components without assigning another owner.
+
+RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
+struct at compile time and `check-config-docs.py` reads those lines. Ownership
+is manifest data; it does not generate or move section modules.
 
 The gate is `make ci` from `src/` (build, `fmt-check`, `lint`, `coverage`,
 `regression`, `dialyzer`). The equivalent dev-loop commands are:
