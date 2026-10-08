@@ -2409,6 +2409,46 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 
+  test "busy handle_info leaves reset-budget and resume outcomes unknown", %{orchestrator: original} do
+    issue = %Issue{id: "issue-49", identifier: "repo#49", state: "in-progress", title: "Budget reset"}
+    :ok = DispatchBudgetStore.put_lifetime(issue.id, 40)
+    state = :sys.get_state(original)
+    state = %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}, last_polled_issues: %{issue.id => issue}}
+    state = put_in(state.dispatch_recovery.codex_thrash_budget[issue.id], %{lifetime: 40, count: 0})
+    previous_timeout = Application.get_env(:aiur, :control_api_call_timeout_ms)
+    Application.put_env(:aiur, :control_api_call_timeout_ms, 20)
+    Process.unregister(Orchestrator)
+    busy = start_supervised!({__MODULE__.BusyOrchestrator, state})
+
+    try do
+      :ok = SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
+      send(busy, {:block, self()})
+      receive_barrier(:blocked)
+
+      for {command, description} <- [
+            {fn -> AgentControlCLI.reset_budget(["49", "49"]) end, "reset lifetime dispatch budget for #49"},
+            {fn -> AgentControlCLI.resume(["44"]) end, "resume #44"}
+          ] do
+        output = capture_io(command)
+        assert output =~ "outcome unknown for #{description}"
+        assert output =~ "may still apply"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+        refute output =~ "failed to"
+      end
+
+      assert {:ok, 40} = DispatchBudgetStore.lifetime(issue.id)
+      send(busy, :release)
+      :sys.get_state(busy)
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(issue.id)
+    after
+      send(busy, :release)
+      stop_supervised!(__MODULE__.BusyOrchestrator)
+      Process.register(original, Orchestrator)
+      SnapshotStore.forget(Orchestrator)
+      if previous_timeout, do: Application.put_env(:aiur, :control_api_call_timeout_ms, previous_timeout), else: Application.delete_env(:aiur, :control_api_call_timeout_ms)
+    end
+  end
+
   describe "global pause switch" do
     test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
@@ -2568,7 +2608,8 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+    assert output =~ "outcome unknown for resume #44"
+    refute output =~ "failed to resume"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -4506,4 +4547,21 @@ defmodule Aiur.AgentControlCLITest do
       refute output =~ "#46 ci-wait · needs review/merge"
     end
   end
+end
+
+defmodule Aiur.AgentControlCLITest.BusyOrchestrator do
+  use GenServer
+
+  def start_link(state), do: GenServer.start_link(__MODULE__, state, name: Aiur.Orchestrator)
+  @impl true
+  def init(state), do: {:ok, state}
+  @impl true
+  def handle_info({:block, parent}, state) do
+    send(parent, :blocked)
+    receive do: (:release -> {:noreply, state})
+  end
+
+  def handle_info(message, state), do: Aiur.Orchestrator.handle_info(message, state)
+  @impl true
+  def handle_call(request, from, state), do: Aiur.Orchestrator.handle_call(request, from, state)
 end

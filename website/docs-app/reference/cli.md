@@ -146,6 +146,10 @@ Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason,
 
 The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation. Existing `waiting_reason` atoms remain compatible.
 
+Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.
+
+If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
+
 If the daemon does not answer `aiur message` in time, the command prints `outcome unknown`, the send's message id and the exact retry command, and exits 124. The daemon may still queue the message. Check the ticket log first: a queued message is logged with the tag `queued item=N`.
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
