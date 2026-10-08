@@ -391,6 +391,7 @@ defmodule Aiur.Application do
       Aiur.GitHub.AgentCacheBridge,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
+      if(recording?, do: Aiur.BuildProgress),
       # Per-repo delivery mode. Starts before anything that polls or receives
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
