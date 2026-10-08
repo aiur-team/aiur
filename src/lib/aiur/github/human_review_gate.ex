@@ -98,7 +98,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
          {:ok, pr_files} <- changed_paths(comparison),
          {:ok, upstream} <- compare(context, head, base_sha),
          {:ok, upstream_files} <- upstream_paths(upstream),
-         {:ok, mergeable?} <- current_mergeability(context, pr_number, base, base_sha, head) do
+         {:ok, mergeable?} <- current_mergeability(context, pr_number, base, head) do
       if mergeable? and MapSet.disjoint?(pr_files, upstream_files) do
         :ok
       else
@@ -129,11 +129,11 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp add_changed_path(_file, _paths), do: {:halt, {:error, :review_base_ancestry_unavailable}}
 
-  defp current_mergeability(context, pr_number, base, base_sha, head) do
+  defp current_mergeability(context, pr_number, base, head) do
     query = """
     query AiurHumanReviewMergeability($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
-        pullRequest(number: $number) { headRefOid baseRefOid baseRefName mergeable }
+        pullRequest(number: $number) { headRefOid baseRefName mergeable }
       }
     }
     """
@@ -142,10 +142,12 @@ defmodule Aiur.GitHub.HumanReviewGate do
     variables = %{"owner" => owner, "name" => name, "number" => pr_number}
 
     case Transport.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
-      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefOid" => ^base_sha, "baseRefName" => ^base, "mergeable" => "MERGEABLE"}}}}} ->
+      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status}}}}}
+      when status in ["MERGEABLE", "UNKNOWN"] ->
+        # The pinned REST comparisons establish disjoint paths; UNKNOWN supplies no conflict signal.
         {:ok, true}
 
-      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefOid" => ^base_sha, "baseRefName" => ^base, "mergeable" => "CONFLICTING"}}}}} ->
+      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => "CONFLICTING"}}}}} ->
         {:ok, false}
 
       {:ok, _body} ->

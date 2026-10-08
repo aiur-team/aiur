@@ -706,16 +706,20 @@ every request a determined agent could make.
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
 Human-review state writes compare the open PR with the configured base. Stale
-heads also require a fresh GraphQL `mergeable` verdict.
+heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
 
-The configured `tracker.base_branch` and exact PR head are pinned to SHAs for the
-assessment. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
+Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
+for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
 changes in both directions; rename checks include old and new paths.
 
 A stale head passes when it has no conflicts and no changed-file overlap with
 the base since their merge base. Conflicts or overlap return `stale_review_base`.
-Unknown mergeability, mismatched SHAs, unreadable comparisons or a file list
-reaching GitHub's 300-file cap block the write rather than assume safety.
+GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability;
+those observations permit disjoint paths. A matching head's `CONFLICTING` verdict
+blocks the write.
+
+Mismatched heads or base branches, malformed observations,
+unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
 Comparisons are attributed to `human_review_base_ancestry` and always contact
 GitHub: base movement can change the verdict without changing the PR. These

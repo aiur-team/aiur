@@ -210,6 +210,22 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       end
     end
 
+    test "a lagging GraphQL baseRefOid does not block a disjoint head against the REST base tip" do
+      detail = Map.put(mergeability(), "baseRefOid", "old-base")
+      request_fun = stale_request_fun("diverged", [%{"filename" => "feature.ex"}], [%{"filename" => "upstream.ex"}], detail, true)
+
+      assert :ok = Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
+      assert_receive :label_written, 1000
+    end
+
+    test "UNKNOWN mergeability allows a disjoint head without a conflict signal" do
+      detail = Map.put(mergeability(nil), "baseRefOid", "old-base")
+      request_fun = stale_request_fun("diverged", [%{"filename" => "feature.ex"}], [%{"filename" => "upstream.ex"}], detail, true)
+
+      assert :ok = Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
+      assert_receive :label_written, 1000
+    end
+
     test "overlap refuses labels and returns one actionable worker packet" do
       request_fun = stale_request_fun("diverged", [%{"filename" => "shared.ex"}], [%{"filename" => "shared.ex"}], mergeability())
 
@@ -245,7 +261,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       end
     end
 
-    test "truncated or malformed file lists and unknown or mismatched mergeability fail closed" do
+    test "truncated or malformed file lists and malformed or mismatched mergeability fail closed" do
       valid = [%{"filename" => "feature.ex"}]
       other = [%{"filename" => "upstream.ex"}]
       capped = List.duplicate(%{"filename" => "file.ex"}, 300)
@@ -262,10 +278,10 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
         {valid, [%{"filename" => "new.ex", "status" => "renamed", "previous_filename" => nil}], mergeability()},
         {valid, [%{"filename" => ""}], mergeability()},
         {[%{"filename" => "new.ex", "previous_filename" => 42}], other, mergeability()},
-        {valid, other, mergeability(nil)},
+        {valid, other, Map.put(mergeability(), "mergeable", nil)},
+        {valid, other, Map.put(mergeability(), "mergeable", "invalid")},
         {valid, other, Map.delete(mergeability(), "mergeable")},
         {valid, other, put_in(mergeability(), ["headRefOid"], "new-head")},
-        {valid, other, put_in(mergeability(), ["baseRefOid"], "moved-base")},
         {valid, other, put_in(mergeability(), ["baseRefName"], "other-base")}
       ]
 
@@ -429,7 +445,10 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
   end
 
   defp verify_uncached_mergeability(req) do
-    if mergeability_request?(req), do: assert({:no_cache, :unsafe_kind} == Policy.classify(req))
+    if mergeability_request?(req) do
+      assert {:no_cache, :unsafe_kind} == Policy.classify(req)
+      refute req.body["query"] =~ "baseRefOid"
+    end
   end
 
   defp verify_label_write(%{method: method, url: url}, allow?, parent) when method in [:post, :delete] and url != "https://api.github.com/graphql" do

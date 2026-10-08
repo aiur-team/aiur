@@ -117,8 +117,10 @@ passes when it has no conflicts and no changed-file overlap with base changes
 since the merge base. Rename checks include old and new paths.
 
 Conflicts or overlap leave labels unchanged and return an update instruction.
-Unknown mergeability, mismatched SHAs or incomplete comparison data also block
-the write. Harmless base movement needs no merge or CI rerun.
+Disjoint paths pass even while GitHub reports `UNKNOWN` mergeability or a lagging
+PR base SHA. Mismatched heads or base branches, malformed observations and
+incomplete comparison data block the write. Harmless base movement needs no
+merge or CI rerun.
 
 Workers assess integration safety before marking the PR ready and after CI.
 They integrate at most once per handoff, validate and push, keep the PR ready,
