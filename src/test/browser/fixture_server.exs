@@ -1415,6 +1415,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         requested_model: "gpt-5.6-terra",
         resolved_model: nil,
         effort: :high,
+        account: nil,
         complexity: 3,
         build_lane: "L2",
         reasons: reasons(:active, nil, nil, nil, nil),

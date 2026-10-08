@@ -1,10 +1,12 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
   alias Aiur.{
+    AccountsCLI,
     AgentChat,
     AlertFeed,
     AnalyticsCLI,
@@ -2366,6 +2368,15 @@ defmodule Aiur.AgentControlCLI do
       |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
       |> print_delivery_modes()
 
+      exit_marker(0)
+    end)
+  end
+
+  @doc false
+  @spec accounts(boolean(), String.t() | nil) :: :ok
+  def accounts(json, harness \\ nil) do
+    guarded("accounts", fn ->
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
       exit_marker(0)
     end)
   end
