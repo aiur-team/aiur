@@ -34,14 +34,18 @@ defmodule Aiur.Rtk do
   If the probe detects a rewrite, the report is withheld; the operator must
   correct the host rtk configuration to keep the GitHub quota guard intact.
 
+  Independently of `agent.rtk.enabled`, `check_host_hook/1` runs once at
+  daemon startup: it asks `rtk init --show` whether a hook is registered, runs
+  `rtk hook check` only when one is, and raises an informational alert when
+  the registered hook would rewrite `gh`.
+
   ## What this module does not do
 
   It never puts `rtk` on an agent's `PATH` and never installs or controls the
   hook. On a host where rtk is installed it is already reachable — the agent
-  `PATH` is
-  the daemon's with only release ERTS entries removed — so availability is not
-  the gap. It also carries no credential: nothing here reads or forwards
-  `GITHUB_TOKEN` (#2356).
+  `PATH` is the daemon's with only release ERTS entries removed — so
+  availability is not the gap. It also carries no credential: nothing here
+  reads or forwards `GITHUB_TOKEN` (#2356).
   """
 
   require Logger
@@ -54,6 +58,14 @@ defmodule Aiur.Rtk do
   # rtk prints the rewritten command when it would rewrite, and a line starting
   # with this when it would not.
   @no_rewrite_marker "No rewrite for:"
+  @hook_executable_marker "[ok] Hook:"
+  @hook_configured_marker "[ok] settings.json: RTK hook configured"
+  @no_hook_markers [
+    "Hook: not found",
+    "settings.json: not found",
+    "settings.json: empty",
+    "settings.json: exists but RTK hook not configured"
+  ]
 
   @probe_timeout_ms 5_000
 
@@ -101,6 +113,44 @@ defmodule Aiur.Rtk do
       admit(opts)
     else
       :disabled
+    end
+  end
+
+  @doc """
+  Checks whether the host RTK hook would rewrite governed agent `gh` calls.
+
+  This startup diagnostic is independent of `agent.rtk.enabled`: a hook
+  registered in the host's Claude settings applies to agents regardless of
+  Aiur's admission setting. It does no subprocess work when `rtk` is absent.
+  """
+  @spec check_host_hook(keyword()) ::
+          :ok | :absent | :no_hook | {:rewrites_gh, term()} | {:probe_failed, term()}
+  def check_host_hook(opts \\ []) do
+    rtk = Keyword.get_lazy(opts, :rtk_path, fn -> executable(opts) end)
+
+    case rtk do
+      nil ->
+        :absent
+
+      path ->
+        case hook_registration(path, opts) do
+          :registered ->
+            check_registered_hook(path, opts)
+
+          :no_hook ->
+            :no_hook
+
+          {:error, reason} ->
+            {:probe_failed, reason}
+        end
+    end
+  end
+
+  defp check_registered_hook(path, opts) do
+    case gh_rewrite_state(path, opts) do
+      :rewritten -> {:rewrites_gh, path}
+      :excluded -> :ok
+      {:error, reason} -> {:probe_failed, reason}
     end
   end
 
@@ -152,6 +202,26 @@ defmodule Aiur.Rtk do
           String.contains?(output, @no_rewrite_marker) -> :excluded
           String.contains?(output, "rtk #{@gh_probe}") -> :rewritten
           true -> {:error, {:unrecognized_probe_output, String.slice(output, 0, 200)}}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp hook_registration(rtk, opts) do
+    case run(rtk, ["init", "--show"], opts) do
+      {:ok, output} ->
+        cond do
+          String.contains?(output, @hook_executable_marker) and
+              String.contains?(output, @hook_configured_marker) ->
+            :registered
+
+          Enum.any?(@no_hook_markers, &String.contains?(output, &1)) ->
+            :no_hook
+
+          true ->
+            {:error, {:unrecognized_hook_status, String.slice(output, 0, 200)}}
         end
 
       other ->

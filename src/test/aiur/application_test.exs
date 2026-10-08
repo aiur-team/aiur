@@ -31,6 +31,12 @@ defmodule Aiur.ApplicationTest do
     assert :ok = AiurApp.stop(:any_state)
   end
 
+  test "runs the RTK host-hook check during application startup" do
+    source = File.read!(Path.expand("../../lib/aiur.ex", __DIR__))
+
+    assert source =~ "Aiur.RtkStartupCheck.run()"
+  end
+
   test "startup Funnel health check stays quiet while the reconciler owns the route" do
     settings =
       {:ok,
