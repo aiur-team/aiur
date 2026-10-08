@@ -367,6 +367,9 @@ defmodule Aiur.AgentRunner do
       end
 
     case result do
+      {:account_selection_wait, reset_at} when is_binary(reset_at) ->
+        pause_for_account_usage_wait(issue, codex_update_recipient, reset_at)
+
       {:before_run_failed, status, output, reason} ->
         pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason)
 
@@ -375,6 +378,52 @@ defmodule Aiur.AgentRunner do
 
       other ->
         other
+    end
+  end
+
+  @doc false
+  def pause_for_account_usage_wait(issue, codex_update_recipient, reset_at) do
+    Logger.info("Waiting for a configured Claude account usage reset for #{issue_context(issue)} reset_at=#{reset_at}")
+
+    MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+      kind: :usage_limit_exhausted,
+      reset_at: reset_at
+    })
+
+    wait_for_usage_reset_resume(issue, codex_update_recipient, reset_at)
+  end
+
+  defp wait_for_usage_reset_resume(issue, codex_update_recipient, reset_at) do
+    receive do
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :usage_limit_exhausted,
+          reset_at: reset_at,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_usage_reset_resume(issue, codex_update_recipient, reset_at)
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :usage_limit_exhausted,
+          reset_at: reset_at
+        })
+
+        wait_for_usage_reset_resume(issue, codex_update_recipient, reset_at)
+
+      {:resume_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working, %{
+          request_id: request_id,
+          generation: generation
+        })
+
+        :resume_after_before_run_pause
+
+      {:resume_agent, request_id} when is_integer(request_id) ->
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+        :resume_after_before_run_pause
     end
   end
 

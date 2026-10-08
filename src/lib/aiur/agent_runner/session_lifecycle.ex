@@ -205,24 +205,43 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # runner dies in the tiny interval before backend metadata arrives, the
     # guardian remains fail-closed rather than replacing the live provider's
     # workspace underneath it.
-    with_expected_provider(
-      Keyword.get(opts, :workspace_ownership),
-      if(is_nil(worker_host), do: :local, else: :remote),
-      fn ownership ->
-        start_expected_session(
-          workspace,
-          issue,
-          codex_update_recipient,
-          opts,
-          worker_host,
-          ownership,
-          session_context,
-          Keyword.get(opts, :session_start_fun, &CodingAgent.start_session/2)
+    case Keyword.get(session_opts, :account_selection_wait) do
+      reset_at when is_binary(reset_at) ->
+        Lifecycle.record(
+          issue.identifier,
+          lifecycle_attempt_id,
+          :agent_spinup,
+          :end,
+          %{
+            operation_id: "session",
+            backend: session_backend,
+            outcome: :paused,
+            reason_class: Lifecycle.reason_class(:usage_limit_exhausted)
+          }
         )
-      end,
-      issue,
-      session_context
-    )
+
+        {:account_selection_wait, reset_at}
+
+      nil ->
+        with_expected_provider(
+          Keyword.get(opts, :workspace_ownership),
+          if(is_nil(worker_host), do: :local, else: :remote),
+          fn ownership ->
+            start_expected_session(
+              workspace,
+              issue,
+              codex_update_recipient,
+              opts,
+              worker_host,
+              ownership,
+              session_context,
+              Keyword.get(opts, :session_start_fun, &CodingAgent.start_session/2)
+            )
+          end,
+          issue,
+          session_context
+        )
+    end
   end
 
   defp with_expected_provider(nil, _scope, start, _issue, _session_context), do: start.(nil)
@@ -715,39 +734,54 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp attach_selected_account(session_opts, backend, config, opts) do
-    candidates = configured_account_candidates(config, backend)
+    candidates = configured_account_candidates(config, backend, opts)
 
     if candidates == [] do
       session_opts
     else
-      usages = account_usages(backend, candidates, opts)
-      choose_account(session_opts, backend, candidates, config, usages)
+      {usages, reset_at} = account_usages(backend, candidates, opts)
+      choose_account(session_opts, backend, candidates, config, usages, reset_at)
     end
   end
 
-  defp configured_account_candidates(config, backend) do
+  defp configured_account_candidates(config, backend, opts) do
     names = Map.get(config.accounts || %{}, backend, [])
-    registered = MapSet.new(Accounts.list(backend), & &1.name)
+    list_accounts = Keyword.get(opts, :account_list_fun, &Accounts.list/1)
+    registered = MapSet.new(list_accounts.(backend), & &1.name)
     Enum.filter(names, &MapSet.member?(registered, &1))
   end
 
   defp account_usages("claude", candidates, opts) do
     polled = UsageReadings.snapshot("claude", candidates)
     fetch_usage = Keyword.get(opts, :account_usage_fetcher, &account_usage/1)
-    Map.new(candidates, &{&1, account_usage_reading(&1, polled, fetch_usage)})
+
+    readings = Map.new(candidates, &{&1, account_usage_reading(&1, polled, fetch_usage)})
+    usages = Map.new(readings, fn {name, {usage, _reset_at}} -> {name, usage} end)
+
+    reset_at =
+      readings
+      |> Enum.flat_map(fn {_name, {usage, reset}} -> if account_at_limit?(usage), do: [reset], else: [] end)
+      |> earliest_reset()
+
+    {usages, reset_at}
   end
 
-  defp account_usages(_backend, candidates, _opts), do: Map.new(candidates, &{&1, nil})
+  defp account_usages(_backend, candidates, _opts), do: {Map.new(candidates, &{&1, nil}), nil}
 
   defp account_usage_reading(name, polled, fetch_usage) do
     case Map.fetch(polled, name) do
-      {:ok, %{reading: %{windows: windows}}} -> usage_map(windows)
-      {:ok, _unavailable} -> nil
-      :error -> fetch_usage.(name)
+      {:ok, %{reading: %{windows: windows}}} -> {usage_map(windows), limited_window_reset(windows)}
+      {:ok, _unavailable} -> {nil, nil}
+      :error -> normalize_account_usage(fetch_usage.(name))
     end
   end
 
-  defp choose_account(session_opts, backend, candidates, config, usages) do
+  defp normalize_account_usage({:ok, %{windows: windows}, _metadata}), do: {usage_map(windows), limited_window_reset(windows)}
+  defp normalize_account_usage(%{windows: windows}), do: {usage_map(windows), limited_window_reset(windows)}
+  defp normalize_account_usage(usage) when is_map(usage), do: {usage, nil}
+  defp normalize_account_usage(_usage), do: {nil, nil}
+
+  defp choose_account(session_opts, backend, candidates, config, usages, reset_at) do
     mode = config.account_selection || "balance"
 
     case Accounts.select(backend, candidates, mode, usages) do
@@ -763,14 +797,18 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         |> Keyword.merge(account_name: name, account_selection_reason: reason, env: selected_env)
 
       {:error, reason} ->
-        Keyword.put(session_opts, :account_selection_error, reason)
+        if backend == "claude" and reason == :no_available_account and is_struct(reset_at, DateTime) do
+          Keyword.put(session_opts, :account_selection_wait, DateTime.to_iso8601(reset_at))
+        else
+          Keyword.put(session_opts, :account_selection_error, reason)
+        end
     end
   end
 
   defp account_usage(name) do
     case Accounts.usage("claude", name) do
-      {:ok, %{windows: windows}, _metadata} ->
-        usage_map(windows)
+      {:ok, %{windows: _windows}, _metadata} = result ->
+        result
 
       _unavailable ->
         nil
@@ -778,6 +816,24 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp usage_map(windows), do: Map.new(windows, fn window -> {window.window, window.used_percent} end)
+
+  defp account_at_limit?(usage) when is_map(usage),
+    do: Enum.any?(["seven_day", "five_hour"], &(is_number(usage[&1]) and usage[&1] >= 100))
+
+  defp account_at_limit?(_usage), do: false
+
+  defp limited_window_reset(windows) do
+    windows
+    |> Enum.filter(&(is_number(&1.used_percent) and &1.used_percent >= 100))
+    |> Enum.map(&Map.get(&1, :resets_at))
+    |> earliest_reset()
+  end
+
+  defp earliest_reset(resets) do
+    resets
+    |> Enum.filter(&match?(%DateTime{}, &1))
+    |> Enum.min_by(&DateTime.to_unix/1, fn -> nil end)
+  end
 
   # Mirror the full claude transcript into the opencode pane for an RC claude-repl
   # agent, so the pane and Remote Control channel are two views of one conversation.
