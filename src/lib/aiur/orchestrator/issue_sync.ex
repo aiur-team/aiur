@@ -673,14 +673,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     input = Reconciler.issue_input(state, issue.id)
 
     state =
-      TrackerTasks.run(state, {:label_heal, issue.id}, fn -> update_state_fun.(issue.identifier, target) end, fn current, result ->
-        if Reconciler.issue_input(current, issue.id) == input do
-          {_issue, current} = apply_heal.(issue, current, fn _identifier, _target -> result end)
-          Lifecycle.wake_tick(current)
-        else
-          Lifecycle.wake_tick(current)
-        end
-      end)
+      TrackerTasks.run(state, {:label_heal, issue.id}, fn -> write_label_heal({issue, target, update_state_fun}) end, fn arg1, arg2 -> apply_label_heal(arg1, arg2, {apply_heal, input, issue}) end)
 
     # Until the guarded write finishes, dispatch has no authoritative healed issue.
     {nil, state}
@@ -895,11 +888,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     disappearing_idle_issue_ids =
       previous_issues
       |> Map.keys()
-      |> Enum.reject(fn issue_id ->
-        Map.has_key?(current_issues, issue_id) or
-          Map.has_key?(state.running, issue_id) or
-          Map.has_key?(state.retry_attempts, issue_id)
-      end)
+      |> Enum.reject(fn arg1 -> idle_terminal_missing?(arg1, {current_issues, state}) end)
       |> Enum.sort()
 
     if TrackerTasks.owner?(state) and disappearing_idle_issue_ids != [] do
@@ -907,22 +896,20 @@ defmodule Aiur.Orchestrator.IssueSync do
       verification_ids = Enum.take(disappearing_idle_issue_ids, @idle_terminal_verification_batch_size)
 
       state =
-        TrackerTasks.run(state, :idle_terminal_verification, fn -> fetch_issue_states_fun.(verification_ids) end, fn current, result ->
-          eligible_ids = Enum.filter(verification_ids, &(Reconciler.issue_input(current, &1) == inputs[&1]))
-
-          pending_ids =
-            record_refreshed_terminal_membership(
-              eligible_ids,
-              fn _ids -> filter_terminal_result(result, eligible_ids) end,
-              observe_membership_fun,
-              terminal_states,
-              set_terminal_verification_pending_fun
+        TrackerTasks.run(
+          state,
+          :idle_terminal_verification,
+          fn ->
+            fetch_idle_terminal_states({fetch_issue_states_fun, verification_ids})
+          end,
+          fn arg1, arg2 ->
+            apply_idle_terminal_states(
+              arg1,
+              arg2,
+              {inputs, mark_reconciled_fun, observe_membership_fun, set_terminal_verification_pending_fun, terminal_states, verification_ids}
             )
-
-          retain_pending_terminal_verification(pending_ids, mark_reconciled_fun, set_terminal_verification_pending_fun)
-          resolved_ids = eligible_ids -- pending_ids
-          %{current | last_polled_issues: Map.drop(current.last_polled_issues, resolved_ids), released_claims: Map.drop(current.released_claims, resolved_ids)}
-        end)
+          end
+        )
 
       {state, Map.merge(current_issues, Map.take(previous_issues, disappearing_idle_issue_ids))}
     else
@@ -2487,5 +2474,72 @@ defmodule Aiur.Orchestrator.IssueSync do
           severity: "warning"
         )
     end
+  end
+
+  defp write_label_heal({issue, target, update_state_fun}) do
+    update_state_fun.(issue.identifier, target)
+  end
+
+  defp apply_label_heal(current, result, {apply_heal, input, issue}) do
+    if Reconciler.issue_input(current, issue.id) == input do
+      {_issue, current} = apply_heal.(issue, current, fn _identifier, _target -> result end)
+      Lifecycle.wake_tick(current)
+    else
+      Lifecycle.wake_tick(current)
+    end
+  end
+
+  defp idle_terminal_missing?(issue_id, {current_issues, state}) do
+    Map.has_key?(current_issues, issue_id) or
+      Map.has_key?(state.running, issue_id) or
+      Map.has_key?(state.retry_attempts, issue_id)
+  end
+
+  defp fetch_idle_terminal_states({fetch_issue_states_fun, verification_ids}) do
+    fetch_issue_states_fun.(verification_ids)
+  end
+
+  defp apply_idle_terminal_states(
+         current,
+         result,
+         {inputs, mark_reconciled_fun, observe_membership_fun, set_terminal_verification_pending_fun, terminal_states, verification_ids}
+       ) do
+    eligible_ids =
+      Enum.filter(verification_ids, &(Reconciler.issue_input(current, &1) == inputs[&1]))
+
+    pending_ids =
+      record_refreshed_terminal_membership(
+        eligible_ids,
+        fn arg1 ->
+          apply_idle_terminal_entry(
+            arg1,
+            {eligible_ids, result}
+          )
+        end,
+        observe_membership_fun,
+        terminal_states,
+        set_terminal_verification_pending_fun
+      )
+
+    retain_pending_terminal_verification(
+      pending_ids,
+      mark_reconciled_fun,
+      set_terminal_verification_pending_fun
+    )
+
+    resolved_ids = eligible_ids -- pending_ids
+
+    %{
+      current
+      | last_polled_issues: Map.drop(current.last_polled_issues, resolved_ids),
+        released_claims: Map.drop(current.released_claims, resolved_ids)
+    }
+  end
+
+  defp apply_idle_terminal_entry(
+         _ids,
+         {eligible_ids, result}
+       ) do
+    filter_terminal_result(result, eligible_ids)
   end
 end

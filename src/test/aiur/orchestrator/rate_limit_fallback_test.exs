@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{RateLimitFallback, State}
+  alias Aiur.Orchestrator.{RateLimitFallback, State, TrackerTasks}
 
   # Matches the test fixture's tracker.github.label_prefix ("agent").
   @marker_label "agent:rate-limit-fallback"
@@ -860,7 +860,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
     current = %{pending | running: %{"1" => replacement}, globally_paused: true}
     send(worker, :release)
     receive_barrier({task_ref, result})
-    {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
     assert applied.running["1"] == replacement
     assert applied.globally_paused
   end

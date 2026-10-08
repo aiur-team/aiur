@@ -1092,7 +1092,7 @@ defmodule Aiur.CoreTest do
     issue_id = "issue-exhausted"
     ref = make_ref()
     orchestrator_name = Module.concat(__MODULE__, :ExhaustedRetryOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
@@ -1121,12 +1121,10 @@ defmodule Aiur.CoreTest do
     log =
       capture_log(fn ->
         send(pid, {:DOWN, ref, :process, self(), {:turn_start_failed, :provider_rejected}})
-        # Synchronous barrier inside the capture window: `:sys.get_state/1`
-        # blocks until the orchestrator has fully handled the :DOWN (and emitted
-        # both its "giving up" warning and the retry_exhausted alert), so the log
-        # is captured deterministically. A bare `Process.sleep/1` raced the
-        # async alert emission under suite load and flaked (#589).
-        :sys.get_state(pid)
+
+        await_orchestrator_state(pid, fn state ->
+          Enum.all?(state.tracker_tasks, fn {_ref, job} -> job.key != {:retry_exhausted, issue_id} end)
+        end)
       end)
 
     state = :sys.get_state(pid)
@@ -1301,7 +1299,7 @@ defmodule Aiur.CoreTest do
       restore_env("GITHUB_TOKEN", previous_github_token)
     end)
 
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
@@ -1325,7 +1323,6 @@ defmodule Aiur.CoreTest do
     end)
 
     send(pid, {:DOWN, ref, :process, self(), :response_timeout})
-    Process.sleep(50)
 
     assert %{attempt: 1, retry_token: retry_token, error: "agent exited: :response_timeout"} =
              :sys.get_state(pid).retry_attempts[issue_id]
@@ -1333,22 +1330,19 @@ defmodule Aiur.CoreTest do
     log =
       capture_log(fn ->
         send(pid, {:retry_issue, issue_id, retry_token})
-        Process.sleep(50)
+        await_orchestrator_state(pid, &(get_in(&1.retry_attempts, [issue_id, :retry_poll_failures]) == 1))
 
         assert %{attempt: 1, retry_poll_failures: 1, retry_token: retry_token} =
                  :sys.get_state(pid).retry_attempts[issue_id]
 
         send(pid, {:retry_issue, issue_id, retry_token})
-        Process.sleep(50)
+        await_orchestrator_state(pid, &(get_in(&1.retry_attempts, [issue_id, :retry_poll_failures]) == 2))
 
         assert %{attempt: 1, retry_poll_failures: 2, retry_token: retry_token} =
                  :sys.get_state(pid).retry_attempts[issue_id]
 
         send(pid, {:retry_issue, issue_id, retry_token})
-        # Barrier: blocks until the third retry (exhaustion path) is fully
-        # handled, so the synchronous `[alert]` log line is emitted before
-        # capture_log flushes — deterministic vs. a fixed sleep.
-        _ = :sys.get_state(pid)
+        await_orchestrator_state(pid, &Map.has_key?(&1.released_claims, issue_id))
       end)
 
     state = :sys.get_state(pid)
@@ -2662,9 +2656,18 @@ defmodule Aiur.CoreTest do
                  body: "repair from replacement"
                })
 
+      assert_receive {:DOWN, ^old_ref, :process, ^old_worker, _reason}, 15_000
       refute Process.alive?(old_worker)
 
-      replacement = :sys.get_state(orchestrator_pid).running[issue.id]
+      state =
+        await_orchestrator_state(orchestrator_pid, fn state ->
+          case state.running[issue.id] do
+            %{pid: pid} when is_pid(pid) -> pid != old_worker
+            _ -> false
+          end
+        end)
+
+      replacement = state.running[issue.id]
       assert is_pid(replacement.pid)
       assert Process.alive?(replacement.pid)
       assert replacement.pid != old_worker

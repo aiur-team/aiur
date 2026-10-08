@@ -16,8 +16,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth, TrackerTasks}
 
   @recent_merge_persistence_retry_limit 3
 

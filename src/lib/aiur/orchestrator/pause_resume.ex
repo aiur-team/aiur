@@ -20,8 +20,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
-  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Orchestrator.TrackedSet
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry.Lifecycle
   require Logger
 
@@ -816,17 +816,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     issue = Map.get(running_entry, :issue)
 
     if is_struct(issue, Issue) and Issue.paused?(issue) do
-      run_running_effect(state, running_entry, :clear_pause, fn -> clear_pause_override(running_entry) end, fn current, entry, result ->
-        case result do
-          {:ok, cleared_entry} ->
-            cleared_entry = Map.put(entry, :issue, Map.fetch!(cleared_entry, :issue))
-            current = put_running_entry(current, issue.id, cleared_entry)
-            do_resume_running_issue(current, cleared_entry)
-
-          {:error, reason} ->
-            Logger.warning("Pause override clear failed: #{pause_log_context(entry)} reason=#{inspect(reason)}")
-            {{:error, {:pause_override_clear_failed, reason}}, current}
-        end
+      run_running_effect(state, running_entry, :clear_pause, fn -> fetch_resuming_issue({running_entry}) end, fn arg1, arg2, arg3 ->
+        apply_resuming_issue(arg1, arg2, arg3, {issue})
       end)
     else
       do_resume_running_issue(state, running_entry)
@@ -839,15 +830,8 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     if TrackerTasks.owner?(state) do
       next =
-        TrackerTasks.start(state, {key, issue_id}, fetch, fn current, result ->
-          entry = Map.get(current.running, issue_id)
-
-          if is_map(entry) and running_generation(entry) == generation do
-            {_reply, next} = apply_result.(current, entry, result)
-            next
-          else
-            current
-          end
+        TrackerTasks.start(state, {key, issue_id}, fetch, fn arg1, arg2 ->
+          apply_running_effect(arg1, arg2, {apply_result, generation, issue_id})
         end)
 
       {{:ok, :pending}, next}
@@ -2796,4 +2780,33 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   def put_running_control_status(%State{} = state, _issue_id, _status), do: state
+
+  defp fetch_resuming_issue({running_entry}) do
+    clear_pause_override(running_entry)
+  end
+
+  defp apply_resuming_issue(current, entry, result, {issue}) do
+    case result do
+      {:ok, cleared_entry} ->
+        cleared_entry = Map.put(entry, :issue, Map.fetch!(cleared_entry, :issue))
+        current = put_running_entry(current, issue.id, cleared_entry)
+        do_resume_running_issue(current, cleared_entry)
+
+      {:error, reason} ->
+        Logger.warning("Pause override clear failed: #{pause_log_context(entry)} reason=#{inspect(reason)}")
+
+        {{:error, {:pause_override_clear_failed, reason}}, current}
+    end
+  end
+
+  defp apply_running_effect(current, result, {apply_result, generation, issue_id}) do
+    entry = Map.get(current.running, issue_id)
+
+    if is_map(entry) and running_generation(entry) == generation do
+      {_reply, next} = apply_result.(current, entry, result)
+      next
+    else
+      current
+    end
+  end
 end

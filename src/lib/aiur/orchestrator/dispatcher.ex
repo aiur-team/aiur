@@ -63,20 +63,32 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp start_poll_cycle(state) do
-    if TrackerTasks.running?(state, :dispatch_poll) or TrackerTasks.running?(state, :ci_poll) do
-      {:noreply, state}
-    else
-      state = Lifecycle.refresh_runtime_config(state)
-      state = Reconciler.reconcile_running_lifecycle(state)
+    cond do
+      dispatch_chain_pending?(state) ->
+        {:noreply, Lifecycle.schedule_tick(state, 100)}
 
-      {:noreply,
-       TrackerTasks.start(state, :dispatch_poll, &TrackerHealth.tracker_preflight/0, fn current, result ->
-         case result do
-           :ok -> current |> clear_tracker_preflight_alert() |> start_poll_reads()
-           {:error, reason} -> current |> emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
-         end
-       end)}
+      TrackerTasks.running?(state, :dispatch_poll) or TrackerTasks.running?(state, :ci_poll) ->
+        {:noreply, state}
+
+      true ->
+        state = Lifecycle.refresh_runtime_config(state)
+        state = Reconciler.reconcile_running_lifecycle(state)
+
+        {:noreply,
+         TrackerTasks.start(state, :dispatch_poll, &TrackerHealth.tracker_preflight/0, fn current, result ->
+           case result do
+             :ok -> current |> clear_tracker_preflight_alert() |> start_poll_reads()
+             {:error, reason} -> current |> emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
+           end
+         end)}
     end
+  end
+
+  defp dispatch_chain_pending?(state) do
+    Enum.any?(state.tracker_tasks, fn
+      {_ref, %{key: {:dispatch, _id}}} -> true
+      _ -> false
+    end)
   end
 
   defp finish_poll_cycle(state) do
@@ -1069,11 +1081,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    if TrackerTasks.owner?(state) do
-      choose_issues_in_order(state, DispatchPolicy.sort_issues_for_dispatch(issues), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
-    else
-      choose_issues_sync(state, issues, opts, active_states, terminal_states, initial_dispatch_cycle?)
-    end
+    choose_issues_in_order(state, DispatchPolicy.sort_issues_for_dispatch(issues), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, _opts, _active, _terminal, _initial, _index), do: state
@@ -1084,8 +1092,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case decision do
       :dispatch ->
+        was_claimed? = MapSet.member?(state.claimed, issue.id)
+
         completion = fn current ->
-          next_index = maybe_schedule_startup_todo_alert(state, current, issue, index, initial)
+          next_index = maybe_schedule_startup_todo_alert(was_claimed?, current, issue, index, initial)
           choose_issues_in_order(current, rest, opts, active, terminal, initial, next_index)
         end
 
@@ -1094,37 +1104,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:skip, reason} ->
         state |> maybe_emit_dispatch_decline(issue, reason) |> choose_issues_in_order(rest, opts, active, terminal, initial, index)
     end
-  end
-
-  defp choose_issues_sync(state, issues, opts, active_states, terminal_states, initial_dispatch_cycle?) do
-    {state, _startup_todo_index} =
-      issues
-      |> DispatchPolicy.sort_issues_for_dispatch()
-      |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        {state_acc, decision} =
-          recover_orphaned_claim(state_acc, issue, active_states, terminal_states)
-
-        case decision do
-          :dispatch ->
-            next_state = dispatch_issue(state_acc, issue, nil, nil, opts)
-
-            startup_todo_index =
-              maybe_schedule_startup_todo_alert(
-                state_acc,
-                next_state,
-                issue,
-                startup_todo_index,
-                initial_dispatch_cycle?
-              )
-
-            {next_state, startup_todo_index}
-
-          {:skip, reason} ->
-            {maybe_emit_dispatch_decline(state_acc, issue, reason), startup_todo_index}
-        end
-      end)
-
-    state
   end
 
   defp recover_orphaned_claim(state, issue, active_states, terminal_states) do
@@ -1182,58 +1161,62 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
-    if TrackerTasks.owner?(state) do
-      start_dispatch_validation(state, issue, attempt, preferred_worker_host, opts)
-    else
-      dispatch_issue_sync(state, issue, attempt, preferred_worker_host, opts)
-    end
+    start_dispatch_validation(state, issue, attempt, preferred_worker_host, opts)
   end
 
   defp start_dispatch_validation(state, issue, attempt, preferred_worker_host, opts) do
-    fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
-    hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
-    terminal_states = DispatchPolicy.terminal_state_set()
     expected = dispatch_input(state, issue.id)
+    blocked_ids = state.blocked_ticket_ids
 
-    TrackerTasks.start(
+    TrackerTasks.run(
       state,
       {:dispatch, issue.id},
-      fn ->
-        case held_by_dependency_before_refresh(state, issue, opts) do
-          {:held, hydrated, _terminal_states} ->
-            {:held, hydrated}
-
-          :continue ->
-            case revalidate_issue_for_dispatch(issue, fetcher, terminal_states, opts) do
-              {:ok, refreshed} -> {:validated, refreshed, hydrator.(refreshed)}
-              other -> other
-            end
-        end
-      end,
+      fn -> fetch_dispatch_validation(blocked_ids, issue, opts) end,
       fn current, result ->
-        next =
-          cond do
-            dispatch_input(current, issue.id) != expected -> current
-            current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
-            true -> apply_dispatch_validation(current, issue, attempt, preferred_worker_host, opts, result)
-          end
-
+        next = apply_current_dispatch_validation(current, expected, issue, attempt, preferred_worker_host, opts, result)
         Keyword.get(opts, :dispatch_result_fun, &Function.identity/1).(next)
       end
     )
+  end
+
+  defp fetch_dispatch_validation(blocked_ids, issue, opts) do
+    case held_by_dependency_before_refresh(blocked_ids, issue, opts) do
+      {:held, hydrated, _terminal_states} -> {:held, hydrated}
+      :continue -> refresh_dispatch_validation(issue, opts)
+    end
+  end
+
+  defp refresh_dispatch_validation(issue, opts) do
+    fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+    hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
+
+    case revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
+      {:ok, refreshed} -> {:validated, refreshed, hydrator.(refreshed)}
+      other -> other
+    end
+  end
+
+  defp apply_current_dispatch_validation(current, expected, issue, attempt, host, opts, result) do
+    cond do
+      dispatch_input(current, issue.id) != expected -> current
+      current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+      true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
+    end
   end
 
   defp apply_dispatch_validation(state, _issue, attempt, host, opts, {:validated, refreshed, hydration}) do
     policy_state = %{state | claimed: MapSet.delete(state.claimed, refreshed.id), auto_resume: Map.delete(state.auto_resume, refreshed.id)}
 
     case DispatchPolicy.dispatch_decision(refreshed, policy_state) do
-      :dispatch -> dispatch_with_dependency_gate(state, refreshed, attempt, host, Keyword.put(opts, :blocked_by_hydrator, fn _ -> hydration end))
+      :dispatch -> state |> clear_dispatch_decline(refreshed) |> dispatch_with_dependency_gate(refreshed, attempt, host, Keyword.put(opts, :blocked_by_hydrator, fn _ -> hydration end))
       {:skip, reason} -> maybe_emit_dispatch_decline(state, refreshed, reason)
     end
   end
 
-  defp apply_dispatch_validation(state, _issue, _attempt, _host, _opts, {:held, hydrated}),
-    do: emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
+  defp apply_dispatch_validation(state, _issue, _attempt, _host, _opts, {:held, hydrated}) do
+    Logger.info("Skipping dispatch before refresh; #{State.issue_context(hydrated)} " <> DispatchPolicy.describe_dependency_hold(hydrated, DispatchPolicy.terminal_state_set()))
+    emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
+  end
 
   defp apply_dispatch_validation(state, issue, _attempt, _host, _opts, {:skip, :missing}),
     do: emit_dispatch_attempt_decline(state, issue, :missing_after_revalidation, false)
@@ -1260,21 +1243,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
      Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
-  defp dispatch_issue_sync(state, issue, attempt, preferred_worker_host, opts) do
-    case held_by_dependency_before_refresh(state, issue, opts) do
-      {:held, %Issue{} = hydrated, terminal_states} ->
-        Logger.info(
-          "Skipping dispatch before refresh; #{State.issue_context(hydrated)} " <>
-            DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
-        )
-
-        emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
-
-      :continue ->
-        refresh_and_dispatch_issue(state, issue, attempt, preferred_worker_host, opts)
-    end
-  end
-
   # A todo ticket held by an open dependency cannot dispatch whatever its
   # refreshed state says, so the dependency gate runs first and a held ticket
   # spends no `issue_by_id` refresh and no `dispatch_authorization` read. Before
@@ -1287,10 +1255,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # refreshes the issue and runs every gate again, fail-closed as before. The
   # gate needs the candidate to be `todo`, and the candidate's state is the
   # latest tracker poll's.
-  defp held_by_dependency_before_refresh(%State{} = state, %Issue{} = issue, opts) do
+  defp held_by_dependency_before_refresh(blocked_ids, %Issue{} = issue, opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
-    with false <- DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids),
+    with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
          true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
@@ -1301,38 +1269,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp held_by_dependency_before_refresh(_state, _issue, _opts), do: :continue
-
-  defp refresh_and_dispatch_issue(state, issue, attempt, preferred_worker_host, opts) do
-    issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
-
-    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set(), opts) do
-      {:ok, %Issue{} = refreshed_issue} ->
-        state
-        |> clear_dispatch_decline(refreshed_issue)
-        |> dispatch_with_dependency_gate(refreshed_issue, attempt, preferred_worker_host, opts)
-
-      {:skip, :missing} ->
-        Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
-
-        emit_dispatch_attempt_decline(state, issue, :missing_after_revalidation, false)
-
-      {:skip, %Issue{} = refreshed_issue} ->
-        Logger.info("Skipping stale dispatch after issue refresh: #{State.issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
-
-        reason =
-          case DispatchPolicy.dispatch_decision(refreshed_issue, state) do
-            {:skip, reason} -> {:stale_after_revalidation, reason}
-            :dispatch -> :stale_after_revalidation
-          end
-
-        emit_dispatch_attempt_decline(state, refreshed_issue, reason, false)
-
-      {:error, reason} ->
-        Logger.warning("Skipping dispatch; issue refresh failed for #{State.issue_context(issue)}: #{inspect(reason)}")
-
-        emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
-    end
-  end
 
   @doc false
   @spec dispatch_prevalidated_issue(State.t(), Issue.t()) ::
@@ -2494,14 +2430,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp maybe_schedule_startup_todo_alert(
-         previous_state,
+         was_claimed?,
          next_state,
          %Issue{} = issue,
          index,
          true
        ) do
     if DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
-         not MapSet.member?(previous_state.claimed, issue.id) and
+         not was_claimed? and
          MapSet.member?(next_state.claimed, issue.id) do
       delay_ms = index * 1_000
       worker_host = Orchestrator.running_worker_host(next_state, issue.id)
@@ -2514,7 +2450,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp maybe_schedule_startup_todo_alert(
-         _previous_state,
+         _was_claimed?,
          _next_state,
          _issue,
          index,
@@ -2612,22 +2548,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
           update_state_fun.(issue.identifier, "error")
         end,
         fn current, result ->
-          latest = Map.get(thrash_budget(current), issue.id, %{})
-
-          if Map.take(latest, [:tripped, :lifetime, :window_start_ms]) == Map.take(entry, [:tripped, :lifetime, :window_start_ms]) do
-            case result do
-              :ok -> apply_lifetime_latch_error_write(current, issue, latest)
-              {:error, reason} -> handle_lifetime_latch_write_failure(current, issue, latest, reason)
-            end
-          else
-            current
-          end
+          apply_current_lifetime_trip(current, issue, entry, result)
         end
       )
     else
       state
     end
   end
+
+  defp apply_current_lifetime_trip(current, issue, expected, result) do
+    latest = Map.get(thrash_budget(current), issue.id, %{})
+
+    if Map.take(latest, [:tripped, :lifetime, :window_start_ms]) == Map.take(expected, [:tripped, :lifetime, :window_start_ms]) do
+      apply_lifetime_trip_result(current, issue, latest, result)
+    else
+      current
+    end
+  end
+
+  defp apply_lifetime_trip_result(current, issue, latest, :ok), do: apply_lifetime_latch_error_write(current, issue, latest)
+  defp apply_lifetime_trip_result(current, issue, latest, {:error, reason}), do: handle_lifetime_latch_write_failure(current, issue, latest, reason)
 
   defp apply_lifetime_latch_error_write(%State{} = state, %Issue{} = issue, entry) do
     lifetime = Map.get(entry, :lifetime, 0)

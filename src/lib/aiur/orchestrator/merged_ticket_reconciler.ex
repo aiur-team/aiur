@@ -78,13 +78,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         TrackerTasks.run(
           state,
           {:merged_reconcile, issue.id},
-          fn -> merged_ticket_target(issue.identifier, opts) end,
-          fn current, result ->
-            if Reconciler.issue_input(current, issue.id) == input do
-              start_merged_transition(current, issue, merge, opts, result)
-            else
-              Lifecycle.wake_tick(current)
-            end
+          fn -> fetch_merged_ticket_state({issue, opts}) end,
+          fn arg1, arg2 ->
+            apply_merged_ticket_state(arg1, arg2, {input, issue, merge, opts})
           end
         )
 
@@ -528,4 +524,16 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
   defp blocked_reason(0), do: "; no dependent agents are waiting on it"
   defp blocked_reason(count), do: "; #{count} dependent agent(s) remain paused"
+
+  defp fetch_merged_ticket_state({issue, opts}) do
+    merged_ticket_target(issue.identifier, opts)
+  end
+
+  defp apply_merged_ticket_state(current, result, {input, issue, merge, opts}) do
+    if Reconciler.issue_input(current, issue.id) == input do
+      start_merged_transition(current, issue, merge, opts, result)
+    else
+      Lifecycle.wake_tick(current)
+    end
+  end
 end

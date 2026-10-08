@@ -12,6 +12,64 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
+  test "successful validation clears a previous decline in both execution modes" do
+    parent = self()
+    candidate = %{issue("decline-cleared") | selected_backend: "codex"}
+
+    for owner <- [nil, self()] do
+      state = %State{snapshot_key: owner, max_concurrent_agents: 4, effective_concurrent_agents: 4, dispatch_declines: %{candidate.id => :tracker_revalidation_failed}}
+
+      pending =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn _ -> {:ok, [candidate]} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end,
+          runner: fn dispatched, _, _ ->
+            send(parent, {:started, dispatched.id})
+            :ok
+          end
+        )
+
+      applied =
+        if owner do
+          receive_barrier({ref, result})
+          {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+          applied
+        else
+          pending
+        end
+
+      receive_barrier({:started, id})
+      assert id == candidate.id
+      assert Map.has_key?(applied.running, candidate.id)
+      refute Map.has_key?(applied.dispatch_declines, candidate.id)
+    end
+  end
+
+  test "a held candidate validation chain prevents another poll cycle" do
+    parent = self()
+    candidate = issue("held-chain")
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), effective_concurrent_agents: 4}, [candidate],
+        issue_fetcher: fn _ ->
+          send(parent, {:held_dispatch, self()})
+          receive do: (:release -> {:error, :controlled_failure})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    receive_barrier({:held_dispatch, worker})
+    assert {:noreply, waiting} = Dispatcher.run_poll_cycle(pending)
+    assert waiting.tracker_tasks == pending.tracker_tasks
+    refute Aiur.Orchestrator.TrackerTasks.running?(waiting, :dispatch_poll)
+    assert is_reference(waiting.tick_timer_ref)
+    Process.cancel_timer(waiting.tick_timer_ref)
+    send(worker, :release)
+    receive_barrier({ref, result})
+    assert {:handled, final} = Aiur.Orchestrator.TrackerTasks.result(waiting, ref, result)
+    assert final.tracker_tasks == %{}
+  end
+
   test "async candidate validation keeps dispatch priority order across slow reads" do
     owner = self()
     high = %Aiur.Issue{id: "async-high", identifier: "ASYNC-HIGH", title: "high", state: "Todo", priority: 1}

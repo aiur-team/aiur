@@ -156,20 +156,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       todo_state = lifecycle_state_name(opts, "todo", "todo")
 
       update =
-        Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-          Tracker.update_issue_state(identifier, target, expected_state: expected)
-        end)
+        Keyword.get(opts, :update_issue_state_fun, fn arg1, arg2, arg3 -> write_orphan_release(arg1, arg2, arg3, {}) end)
 
       current =
-        TrackerTasks.run(state, {:startup_release, issue.id}, fn -> update.(issue.identifier, todo_state, issue.state) end, fn current, result ->
-          if Reconciler.issue_input(current, issue.id) == input and not MapSet.member?(live_runtime_identifiers(current.running), issue.identifier) do
-            {status, current, refreshed} = release_orphaned_claim_sync(current, issue, Keyword.put(opts, :update_issue_state_fun, fn _id, _target, _expected -> result end))
-            current = if result == :ok, do: %{current | last_polled_issues: Map.put(current.last_polled_issues, issue.id, refreshed)}, else: current
-            current = if status == :retry, do: %{current | startup_claim_reconciliation_complete?: false}, else: current
-            Lifecycle.wake_tick(current)
-          else
-            Lifecycle.wake_tick(current)
-          end
+        TrackerTasks.run(state, {:startup_release, issue.id}, fn -> release_orphan_tracker_claim({issue, todo_state, update}) end, fn arg1, arg2 ->
+          apply_orphan_release(arg1, arg2, {input, issue, opts})
         end)
 
       {:retry, current, nil}
@@ -319,6 +310,44 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       :ok
     else
       BootMarker.claim(boot_id)
+    end
+  end
+
+  defp write_orphan_release(identifier, target, expected, {}) do
+    Tracker.update_issue_state(identifier, target, expected_state: expected)
+  end
+
+  defp release_orphan_tracker_claim({issue, todo_state, update}) do
+    update.(issue.identifier, todo_state, issue.state)
+  end
+
+  defp apply_orphan_release(current, result, {input, issue, opts}) do
+    if Reconciler.issue_input(current, issue.id) == input and
+         not MapSet.member?(live_runtime_identifiers(current.running), issue.identifier) do
+      {status, current, refreshed} =
+        release_orphaned_claim_sync(
+          current,
+          issue,
+          Keyword.put(opts, :update_issue_state_fun, fn _id, _target, _expected -> result end)
+        )
+
+      current =
+        if result == :ok do
+          %{current | last_polled_issues: Map.put(current.last_polled_issues, issue.id, refreshed)}
+        else
+          current
+        end
+
+      current =
+        if status == :retry do
+          %{current | startup_claim_reconciliation_complete?: false}
+        else
+          current
+        end
+
+      Lifecycle.wake_tick(current)
+    else
+      Lifecycle.wake_tick(current)
     end
   end
 end

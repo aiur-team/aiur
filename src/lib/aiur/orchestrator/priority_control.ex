@@ -41,56 +41,31 @@ defmodule Aiur.Orchestrator.PriorityControl do
 
   defp change_priority(state, identifier, target, opts) do
     case issue_by_identifier(state, identifier) do
-      {:ok, issue} ->
-        case Keyword.get(opts, :from) do
-          nil ->
-            case persist_priority(issue, target, opts) do
-              {:ok, result, updated_issue} ->
-                state = replace_issue(state, updated_issue)
-                :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(state)
-                {:reply, {:ok, result}, state}
+      {:ok, issue} -> change_issue_priority(state, issue, target, opts, Keyword.get(opts, :from))
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
 
-              {:error, _} = error ->
-                {:reply, error, state}
-            end
-
-          from ->
-            if TrackerTasks.running?(state, {:priority, issue.id}) do
-              {:reply, {:error, :priority_change_in_progress}, state}
-            else
-              next =
-                TrackerTasks.start(
-                  state,
-                  {:priority, issue.id},
-                  fn ->
-                    case persist_priority(issue, target, opts) do
-                      {:ok, result, changed} -> {:ok, result, changed.priority}
-                      error -> error
-                    end
-                  end,
-                  fn current, outcome ->
-                    {reply, current} =
-                      case outcome do
-                        {:ok, result, priority} ->
-                          current = apply_priority(current, issue.id, priority)
-                          :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(current)
-                          {{:ok, result}, current}
-
-                        {:error, _} = error ->
-                          {error, current}
-                      end
-
-                    GenServer.reply(from, reply)
-                    current
-                  end
-                )
-
-              {:noreply, next}
-            end
-        end
+  defp change_issue_priority(state, issue, target, opts, nil) do
+    case persist_priority(issue, target, opts) do
+      {:ok, result, updated_issue} ->
+        state = replace_issue(state, updated_issue)
+        :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(state)
+        {:reply, {:ok, result}, state}
 
       {:error, _} = error ->
         {:reply, error, state}
+    end
+  end
+
+  defp change_issue_priority(state, issue, target, opts, from) do
+    if TrackerTasks.running?(state, {:priority, issue.id}) do
+      {:reply, {:error, :priority_change_in_progress}, state}
+    else
+      next =
+        TrackerTasks.start(state, {:priority, issue.id}, fn -> persist_priority_change({issue, opts, target}) end, fn current, result -> apply_priority_change(current, result, {from, issue, opts}) end)
+
+      {:noreply, next}
     end
   end
 
@@ -222,5 +197,28 @@ defmodule Aiur.Orchestrator.PriorityControl do
   catch
     :exit, {:timeout, _} -> {:error, :timeout}
     :exit, _ -> {:error, :unavailable}
+  end
+
+  defp persist_priority_change({issue, opts, target}) do
+    case persist_priority(issue, target, opts) do
+      {:ok, result, changed} -> {:ok, result, changed.priority}
+      error -> error
+    end
+  end
+
+  defp apply_priority_change(current, outcome, {from, issue, opts}) do
+    {reply, current} =
+      case outcome do
+        {:ok, result, priority} ->
+          current = apply_priority(current, issue.id, priority)
+          :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(current)
+          {{:ok, result}, current}
+
+        {:error, _} = error ->
+          {error, current}
+      end
+
+    GenServer.reply(from, reply)
+    current
   end
 end

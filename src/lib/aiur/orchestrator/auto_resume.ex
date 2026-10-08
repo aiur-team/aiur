@@ -312,23 +312,10 @@ defmodule Aiur.Orchestrator.AutoResume do
   end
 
   defp restore_for_resume(state, issue_id, issue, entry, opts) do
-    update_fun = Keyword.get(opts, :update_state_fun, fn identifier, next_state -> Tracker.update_issue_state(identifier, next_state, expected_state: issue.state) end)
+    update_fun = Keyword.get(opts, :update_state_fun, fn arg1, arg2 -> restore_resume_state(arg1, arg2, {issue}) end)
 
-    TrackerTasks.run(state, {:auto_restore, issue_id}, fn -> update_fun.(issue.identifier, "todo") end, fn current, result ->
-      if Map.get(current.auto_resume, issue_id) == entry and Map.get(current.last_polled_issues, issue_id) == issue and resumable?(current, issue) do
-        case result do
-          :ok ->
-            refreshed = %{issue | state: "todo"}
-            current = %{current | last_polled_issues: Map.put(current.last_polled_issues, issue.id, refreshed)}
-            dispatch_resume(current, issue_id, refreshed, entry, opts)
-
-          {:error, reason} ->
-            Logger.warning("Transient auto-resume state restore failed for #{State.issue_context(issue)}: #{inspect(reason)}")
-            schedule(current, issue_id, entry.cause)
-        end
-      else
-        current
-      end
+    TrackerTasks.run(state, {:auto_restore, issue_id}, fn -> write_resume_state({issue, update_fun}) end, fn arg1, arg2 ->
+      apply_resume_restore(arg1, arg2, {entry, issue, issue_id, opts})
     end)
   end
 
@@ -347,11 +334,15 @@ defmodule Aiur.Orchestrator.AutoResume do
       :dispatch ->
         dispatch_fun =
           Keyword.get(opts, :dispatch_fun, fn current, ticket ->
-            Dispatcher.dispatch_issue(current, ticket, nil, nil, dispatch_result_fun: fn current -> finish_dispatch(current, ticket, entry) end)
+            dispatch_with_resume_completion(current, ticket, entry)
           end)
 
         state |> dispatch_fun.(issue) |> finish_dispatch(issue, entry)
     end
+  end
+
+  defp dispatch_with_resume_completion(state, issue, entry) do
+    Dispatcher.dispatch_issue(state, issue, nil, nil, dispatch_result_fun: fn current -> finish_dispatch(current, issue, entry) end)
   end
 
   @doc false
@@ -398,5 +389,37 @@ defmodule Aiur.Orchestrator.AutoResume do
       end
 
     now_ms + max(retry_after_ms, reset_after_ms)
+  end
+
+  defp restore_resume_state(identifier, next_state, {issue}) do
+    Tracker.update_issue_state(identifier, next_state, expected_state: issue.state)
+  end
+
+  defp write_resume_state({issue, update_fun}) do
+    update_fun.(issue.identifier, "todo")
+  end
+
+  defp apply_resume_restore(current, result, {entry, issue, issue_id, opts}) do
+    if Map.get(current.auto_resume, issue_id) == entry and
+         Map.get(current.last_polled_issues, issue_id) == issue and resumable?(current, issue) do
+      case result do
+        :ok ->
+          refreshed = %{issue | state: "todo"}
+
+          current = %{
+            current
+            | last_polled_issues: Map.put(current.last_polled_issues, issue.id, refreshed)
+          }
+
+          dispatch_resume(current, issue_id, refreshed, entry, opts)
+
+        {:error, reason} ->
+          Logger.warning("Transient auto-resume state restore failed for #{State.issue_context(issue)}: #{inspect(reason)}")
+
+          schedule(current, issue_id, entry.cause)
+      end
+    else
+      current
+    end
   end
 end

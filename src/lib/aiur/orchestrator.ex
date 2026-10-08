@@ -11,8 +11,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
-  alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC

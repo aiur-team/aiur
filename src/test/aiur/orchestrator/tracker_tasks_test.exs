@@ -27,6 +27,39 @@ defmodule Aiur.Orchestrator.TrackerTasksTest do
     assert TrackerTasks.result(next, ref, :fetched) == :unhandled
   end
 
+  test "coalesced callers retain distinct continuations in order" do
+    owner = self()
+
+    pending =
+      TrackerTasks.start(
+        %State{},
+        :dispatch,
+        fn ->
+          send(owner, {:started, self()})
+          receive do: (:release -> :fetched)
+        end,
+        fn current, :fetched -> %{current | poll_cycles_completed: 1} end
+      )
+
+    duplicate = TrackerTasks.start(pending, :dispatch, fn -> flunk("duplicate fetch") end, fn current, :fetched -> %{current | poll_cycles_completed: current.poll_cycles_completed + 1} end)
+    receive_barrier({:started, worker})
+    send(worker, :release)
+    receive_barrier({ref, :fetched})
+    {:handled, next} = TrackerTasks.result(duplicate, ref, :fetched)
+    assert next.poll_cycles_completed == 2
+    assert next.tracker_tasks == %{}
+  end
+
+  test "a reply already received at the deadline preserves its successful outcome" do
+    pending = TrackerTasks.start(%State{}, :write, fn -> :written end, fn current, :written -> %{current | globally_paused: true} end)
+    [ref] = Map.keys(pending.tracker_tasks)
+    receive_barrier({:DOWN, ^ref, :process, _worker, :normal})
+    next = TrackerTasks.timeout(pending, ref)
+    assert next.globally_paused
+    assert next.tracker_tasks == %{}
+    refute_received {^ref, :written}
+  end
+
   test "a worker crash clears only its job and reports failure" do
     apply_result = fn state, {:error, {:tracker_task_exit, :controlled_crash}} -> %{state | globally_paused: true} end
     pending = TrackerTasks.start(%State{}, :crash, fn -> exit(:controlled_crash) end, apply_result)

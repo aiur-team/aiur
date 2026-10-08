@@ -23,17 +23,12 @@ defmodule Aiur.Orchestrator.PrAnchored do
   def maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
     if pr_anchored_routing_enabled?() and CommentWake.trusted_comment_event?(event) and
          not CommentWake.benign_review_pass_comment?(event) do
-      TrackerTasks.run(state, {:pr_route, issue_number, make_ref()}, fn -> resolve_pr_anchored_unit(issue_number, event) end, fn current, result ->
-        case result do
-          {:ok, %Issue{} = pr_issue} ->
-            dispatch_pr_anchored_unit(current, pr_issue, source, event, attempt)
-
-          :legacy ->
-            CommentWake.maybe_transition_idle_issue_to_rework(current, issue_number, source, event, attempt)
-
-          _failure ->
-            current
-        end
+      TrackerTasks.run(state, {:pr_route, issue_number, make_ref()}, fn -> fetch_pr_anchored_unit({event, issue_number}) end, fn arg1, arg2 ->
+        apply_pr_anchored_unit(
+          arg1,
+          arg2,
+          {attempt, event, issue_number, source}
+        )
       end)
     else
       CommentWake.maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
@@ -287,29 +282,8 @@ defmodule Aiur.Orchestrator.PrAnchored do
   defp stop_closed_pr_anchored_entries(%State{} = state, entries, opts) do
     fetcher = pr_open_state_fetcher(opts)
 
-    Enum.reduce(entries, state, fn {issue_id, running_entry}, acc ->
-      pr_number = Map.get(running_entry, :identifier)
-
-      TrackerTasks.run(acc, {:pr_closed, issue_id}, fn -> fetcher.(pr_number) end, fn current, result ->
-        case {Map.get(current.running, issue_id), result} do
-          {entry, {:ok, nil}} ->
-            if TrackerTasks.same_runner?(entry, running_entry) do
-              Logger.warning("PR-anchored PR is no longer open; stopping: issue_id=#{issue_id} pr=#{pr_number}")
-              current = Orchestrator.terminate_running_issue(current, issue_id, false)
-              cleanup_pr_anchored_workspace(issue_id, entry)
-              current
-            else
-              current
-            end
-
-          {_entry, {:error, reason}} ->
-            Logger.warning("PR-anchored teardown deferred: issue_id=#{issue_id} reason=#{inspect(reason)}")
-            current
-
-          _ ->
-            current
-        end
-      end)
+    Enum.reduce(entries, state, fn arg1, arg2 ->
+      check_closed_pr_entry(arg1, arg2, {fetcher})
     end)
   end
 
@@ -338,5 +312,79 @@ defmodule Aiur.Orchestrator.PrAnchored do
     # as the ticket to re-check the lease before the delete.
     ticket = if is_binary(identifier), do: identifier, else: issue_id
     WorkspaceCleanup.start_terminal_workspace_cleanups([{ticket, issue_id, Map.get(running_entry, :worker_host)}])
+  end
+
+  defp fetch_pr_anchored_unit({event, issue_number}) do
+    resolve_pr_anchored_unit(issue_number, event)
+  end
+
+  defp apply_pr_anchored_unit(
+         current,
+         result,
+         {attempt, event, issue_number, source}
+       ) do
+    case result do
+      {:ok, %Issue{} = pr_issue} ->
+        dispatch_pr_anchored_unit(current, pr_issue, source, event, attempt)
+
+      :legacy ->
+        CommentWake.maybe_transition_idle_issue_to_rework(
+          current,
+          issue_number,
+          source,
+          event,
+          attempt
+        )
+
+      _failure ->
+        current
+    end
+  end
+
+  defp check_closed_pr_entry(
+         {issue_id, running_entry},
+         acc,
+         {fetcher}
+       ) do
+    pr_number = Map.get(running_entry, :identifier)
+
+    TrackerTasks.run(acc, {:pr_closed, issue_id}, fn -> fetch_open_pr({fetcher, pr_number}) end, fn arg1, arg2 ->
+      apply_closed_pr_entry(
+        arg1,
+        arg2,
+        {issue_id, pr_number, running_entry}
+      )
+    end)
+  end
+
+  defp fetch_open_pr({fetcher, pr_number}) do
+    fetcher.(pr_number)
+  end
+
+  defp apply_closed_pr_entry(
+         current,
+         result,
+         {issue_id, pr_number, running_entry}
+       ) do
+    case {Map.get(current.running, issue_id), result} do
+      {entry, {:ok, nil}} ->
+        if TrackerTasks.same_runner?(entry, running_entry) do
+          Logger.warning("PR-anchored PR is no longer open; stopping: issue_id=#{issue_id} pr=#{pr_number}")
+
+          current = Orchestrator.terminate_running_issue(current, issue_id, false)
+          cleanup_pr_anchored_workspace(issue_id, entry)
+          current
+        else
+          current
+        end
+
+      {_entry, {:error, reason}} ->
+        Logger.warning("PR-anchored teardown deferred: issue_id=#{issue_id} reason=#{inspect(reason)}")
+
+        current
+
+      _ ->
+        current
+    end
   end
 end

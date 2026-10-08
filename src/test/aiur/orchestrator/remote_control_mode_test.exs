@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.RemoteControlMode
+  alias Aiur.Orchestrator.{RemoteControlMode, TrackerTasks}
 
   test "remote control summary requires both the alias label and session URL" do
     issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:remote"]}
@@ -140,7 +140,7 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
     current = %{pending | running: %{issue.id => replacement}}
     send(worker, :release)
     receive_barrier({task_ref, result})
-    {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
     receive_barrier({^reply_ref, {:error, :stale_runner}})
     assert applied.running[issue.id] == replacement
   end

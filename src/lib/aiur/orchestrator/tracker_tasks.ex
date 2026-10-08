@@ -36,11 +36,11 @@ defmodule Aiur.Orchestrator.TrackerTasks do
   @spec start(State.t(), term(), (-> term()), (State.t(), term() -> State.t())) :: State.t()
   def start(%State{} = state, key, fetch, apply_result) do
     if running?(state, key) do
-      state
+      retain_completion(state, key, apply_result)
     else
       task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fetch)
-      timer = Process.send_after(self(), {:tracker_task_timeout, task.ref}, @timeout_ms)
-      job = %{task: task, key: key, timer: timer, apply: apply_result}
+      timer = task_timer(key, task.ref)
+      job = %{task: task, key: key, timer: timer, apply: [apply_result]}
       %{state | tracker_tasks: Map.put(state.tracker_tasks, task.ref, job)}
     end
   end
@@ -52,9 +52,10 @@ defmodule Aiur.Orchestrator.TrackerTasks do
         :unhandled
 
       {job, jobs} ->
-        Process.cancel_timer(job.timer)
+        cancel_timer(job.timer)
         Process.demonitor(ref, [:flush])
-        {:handled, job.apply.(%{state | tracker_tasks: jobs}, result)}
+        next = Enum.reduce(job.apply, %{state | tracker_tasks: jobs}, fn apply_result, current -> apply_result.(current, result) end)
+        {:handled, next}
     end
   end
 
@@ -68,8 +69,13 @@ defmodule Aiur.Orchestrator.TrackerTasks do
         state
 
       job ->
-        Task.shutdown(job.task, :brutal_kill)
-        {:handled, state} = result(state, ref, {:error, :tracker_task_timeout})
+        outcome =
+          case Task.shutdown(job.task, :brutal_kill) do
+            {:ok, value} -> value
+            _ -> {:error, :tracker_task_timeout}
+          end
+
+        {:handled, state} = result(state, ref, outcome)
         state
     end
   end
@@ -77,10 +83,26 @@ defmodule Aiur.Orchestrator.TrackerTasks do
   @spec stop(State.t()) :: :ok
   def stop(state) do
     Enum.each(state.tracker_tasks, fn {_ref, job} ->
-      Process.cancel_timer(job.timer)
+      cancel_timer(job.timer)
       Task.shutdown(job.task, :brutal_kill)
     end)
 
     :ok
   end
+
+  defp retain_completion(state, key, apply_result) do
+    jobs =
+      Map.new(state.tracker_tasks, fn {ref, job} ->
+        if job.key == key, do: {ref, %{job | apply: Enum.uniq(job.apply ++ [apply_result])}}, else: {ref, job}
+      end)
+
+    %{state | tracker_tasks: jobs}
+  end
+
+  # A paginated poll has transport deadlines per request, not an arbitrary batch deadline.
+  defp task_timer(:dispatch_poll, _ref), do: nil
+  defp task_timer(_key, ref), do: Process.send_after(self(), {:tracker_task_timeout, ref}, @timeout_ms)
+
+  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(timer), do: Process.cancel_timer(timer)
 end

@@ -112,23 +112,14 @@ defmodule Aiur.Orchestrator.PushRouting do
       state,
       {:dependency_hydration, blockee.id},
       fn ->
-        hydrate_blockee_blocked_by(blockee, blocked_by_hydrator)
+        hydrate_dependency_blockee({blocked_by_hydrator, blockee})
       end,
-      fn current, result ->
-        if Map.get(current.running, blockee.id) == expected do
-          case result do
-            {:ok, %Issue{} = hydrated} ->
-              case cleared_dependency_match(current, hydrated, blocker) do
-                {:ok, match} -> resume_cleared_dependency_blockee(current, match, hydrated, blocker, clearance)
-                :error -> current
-              end
-
-            _ ->
-              current
-          end
-        else
-          current
-        end
+      fn arg1, arg2 ->
+        apply_dependency_blockee(
+          arg1,
+          arg2,
+          {blockee, blocker, clearance, expected}
+        )
       end
     )
   end
@@ -169,29 +160,9 @@ defmodule Aiur.Orchestrator.PushRouting do
           state,
           :dependency_recheck,
           fn ->
-            with {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
-              blockees = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
-              hydrated = Map.new(blockees, fn {id, issue} -> {id, hydrate_blockee_blocked_by(issue, blocked_by_hydrator)} end)
-              {:ok, blockers, hydrated}
-            end
+            fetch_cleared_dependencies({blocked_by_hydrator, blocker_identifiers, fetch_issue_states_fun, polled_issues, state})
           end,
-          fn
-            current, {:ok, blockers, hydrated} ->
-              blockees =
-                Enum.reduce(hydrated, %{}, fn
-                  {id, {:ok, %Issue{} = issue}}, acc ->
-                    key = State.find_running_key_by_identifier(current.running, id)
-                    if Map.get(current.running, key) == Map.get(expected, key), do: Map.put(acc, id, issue), else: acc
-
-                  _, acc ->
-                    acc
-                end)
-
-              Enum.reduce(blockers, current, &resume_blockees_for_terminal_blocker(&1, &2, blockees, fn issue -> {:ok, issue} end))
-
-            current, _ ->
-              current
-          end
+          fn arg1, arg2 -> apply_cleared_dependencies(arg1, arg2, {expected}) end
         )
     end
   end
@@ -1111,5 +1082,93 @@ defmodule Aiur.Orchestrator.PushRouting do
       _ ->
         state
     end
+  end
+
+  defp hydrate_dependency_blockee({blocked_by_hydrator, blockee}) do
+    hydrate_blockee_blocked_by(blockee, blocked_by_hydrator)
+  end
+
+  defp apply_dependency_blockee(current, {:ok, %Issue{} = hydrated}, {blockee, blocker, clearance, expected}) do
+    if Map.get(current.running, blockee.id) == expected do
+      resume_matching_dependency(current, hydrated, blocker, clearance)
+    else
+      current
+    end
+  end
+
+  defp apply_dependency_blockee(current, _result, _context), do: current
+
+  defp resume_matching_dependency(current, hydrated, blocker, clearance) do
+    case cleared_dependency_match(current, hydrated, blocker) do
+      {:ok, match} -> resume_cleared_dependency_blockee(current, match, hydrated, blocker, clearance)
+      :error -> current
+    end
+  end
+
+  defp fetch_cleared_dependencies({blocked_by_hydrator, blocker_identifiers, fetch_issue_states_fun, polled_issues, state}) do
+    with {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
+      blockees = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
+
+      hydrated =
+        Map.new(blockees, fn arg1 ->
+          hydrate_dependency_entry(arg1, {blocked_by_hydrator})
+        end)
+
+      {:ok, blockers, hydrated}
+    end
+  end
+
+  defp apply_cleared_dependencies(
+         current,
+         {:ok, blockers, hydrated},
+         {expected}
+       ) do
+    blockees =
+      Enum.reduce(hydrated, %{}, fn arg1, arg2 ->
+        retain_current_dependency_entry(
+          arg1,
+          arg2,
+          {current, expected}
+        )
+      end)
+
+    Enum.reduce(
+      blockers,
+      current,
+      &resume_blockees_for_terminal_blocker(&1, &2, blockees, fn issue -> {:ok, issue} end)
+    )
+  end
+
+  defp apply_cleared_dependencies(current, _, {_expected}) do
+    current
+  end
+
+  defp hydrate_dependency_entry(
+         {id, issue},
+         {blocked_by_hydrator}
+       ) do
+    {id, hydrate_blockee_blocked_by(issue, blocked_by_hydrator)}
+  end
+
+  defp retain_current_dependency_entry(
+         {id, {:ok, %Issue{} = issue}},
+         acc,
+         {current, expected}
+       ) do
+    key = State.find_running_key_by_identifier(current.running, id)
+
+    if Map.get(current.running, key) == Map.get(expected, key) do
+      Map.put(acc, id, issue)
+    else
+      acc
+    end
+  end
+
+  defp retain_current_dependency_entry(
+         _,
+         acc,
+         {_current, _expected}
+       ) do
+    acc
   end
 end

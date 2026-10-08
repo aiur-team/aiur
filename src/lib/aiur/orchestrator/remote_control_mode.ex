@@ -124,22 +124,11 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
     if from = Keyword.get(opts, :from) do
       fetch = fn ->
-        case trust.(workspace, remote_control_trust_opts()) do
-          :ok ->
-            add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
-
-            case add_label.(Map.get(running_entry, :identifier), label) do
-              :ok -> :ok
-              {:error, reason} -> {:error, {:rc_label_failed, reason}}
-            end
-
-          {:error, reason} ->
-            {:error, {:rc_trust_failed, reason}}
-        end
+        trust_remote_workspace({label, opts, running_entry, trust, workspace})
       end
 
-      defer_remote_change(state, running_entry, from, fetch, fn current, entry ->
-        do_promote_to_remote(current, entry, relabeled, label, Keyword.put(opts, :add_label_fun, fn _, _ -> :ok end))
+      defer_remote_change(state, running_entry, from, fetch, fn arg1, arg2 ->
+        apply_remote_promotion(arg1, arg2, {label, opts, relabeled})
       end)
     else
       trust_and_promote(state, running_entry, relabeled, label, workspace, opts, trust)
@@ -207,17 +196,10 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   defp remove_remote_label_and_redispatch(state, running_entry, relabeled, label, opts) do
     if from = Keyword.get(opts, :from) do
-      fetch = fn ->
-        remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+      fetch = fn -> remove_remote_control_label({label, opts, running_entry}) end
 
-        case remove_label.(Map.get(running_entry, :identifier), label) do
-          :ok -> :ok
-          {:error, reason} -> {:error, {:rc_label_failed, reason}}
-        end
-      end
-
-      defer_remote_change(state, running_entry, from, fetch, fn current, entry ->
-        finish_demote(current, entry, relabeled, label, Keyword.put(opts, :remove_label_fun, fn _, _ -> :ok end))
+      defer_remote_change(state, running_entry, from, fetch, fn arg1, arg2 ->
+        apply_remote_demotion(arg1, arg2, {label, opts, relabeled})
       end)
     else
       finish_demote(state, running_entry, relabeled, label, opts)
@@ -228,21 +210,8 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     identifier = Map.get(running_entry, :identifier)
 
     next =
-      TrackerTasks.start(state, {:remote_control, identifier}, fetch, fn current, result ->
-        current_entry = State.find_running_by_identifier(current.running, identifier)
-
-        {reply, current} =
-          case result do
-            :ok ->
-              if TrackerTasks.same_runner?(current_entry, running_entry), do: complete.(current, current_entry), else: {{:error, :stale_runner}, current}
-
-            {:error, _} = error ->
-              {error, current}
-          end
-
-        GenServer.reply(from, reply)
-        StatusReport.notify_dashboard(current)
-        current
+      TrackerTasks.start(state, {:remote_control, identifier}, fetch, fn arg1, arg2 ->
+        apply_remote_control_change(arg1, arg2, {complete, from, identifier, running_entry})
       end)
 
     {:deferred, next}
@@ -420,5 +389,74 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     ReplAgent.reap_orphaned_panes()
   rescue
     _ -> :ok
+  end
+
+  defp trust_remote_workspace({label, opts, running_entry, trust, workspace}) do
+    case trust.(workspace, remote_control_trust_opts()) do
+      :ok ->
+        add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+
+        case add_label.(Map.get(running_entry, :identifier), label) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:rc_label_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:rc_trust_failed, reason}}
+    end
+  end
+
+  defp apply_remote_promotion(current, entry, {label, opts, relabeled}) do
+    do_promote_to_remote(
+      current,
+      entry,
+      relabeled,
+      label,
+      Keyword.put(opts, :add_label_fun, fn _, _ -> :ok end)
+    )
+  end
+
+  defp remove_remote_control_label({label, opts, running_entry}) do
+    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+
+    case remove_label.(Map.get(running_entry, :identifier), label) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:rc_label_failed, reason}}
+    end
+  end
+
+  defp apply_remote_demotion(current, entry, {label, opts, relabeled}) do
+    finish_demote(
+      current,
+      entry,
+      relabeled,
+      label,
+      Keyword.put(opts, :remove_label_fun, fn _, _ -> :ok end)
+    )
+  end
+
+  defp apply_remote_control_change(
+         current,
+         result,
+         {complete, from, identifier, running_entry}
+       ) do
+    current_entry = State.find_running_by_identifier(current.running, identifier)
+
+    {reply, current} =
+      case result do
+        :ok ->
+          if TrackerTasks.same_runner?(current_entry, running_entry) do
+            complete.(current, current_entry)
+          else
+            {{:error, :stale_runner}, current}
+          end
+
+        {:error, _} = error ->
+          {error, current}
+      end
+
+    GenServer.reply(from, reply)
+    StatusReport.notify_dashboard(current)
+    current
   end
 end

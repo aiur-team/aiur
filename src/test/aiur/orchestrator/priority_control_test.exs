@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State, TrackerTasks}
 
   test "prioritizing persists priority:1 and updates the dispatch snapshot" do
     state = state_for(issue(labels: ["agent:todo", "priority:3"], priority: 3))
@@ -151,7 +151,7 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
     current = %{pending | last_polled_issues: %{initial.id => refreshed}, running: %{initial.id => %{identifier: initial.identifier, issue: refreshed}}}
     send(worker, :release)
     receive_barrier({task_ref, result})
-    {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
     receive_barrier({^reply_ref, {:ok, :prioritized}})
     assert applied.last_polled_issues[initial.id].title == "Updated title"
     assert applied.last_polled_issues[initial.id].state == "rework"

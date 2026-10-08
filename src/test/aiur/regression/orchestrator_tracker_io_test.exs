@@ -2,7 +2,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
-  alias Aiur.Orchestrator.{OperatorMessages, PauseResume, SnapshotStore, StatusReport}
+  alias Aiur.GitHub.{Config, ReadCache, Transport}
+  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume, PriorityControl, SnapshotStore, StatusReport}
 
   defmodule SlowTracker do
     def fetch_candidate_issues do
@@ -119,6 +120,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   test "public controls, enqueue and runner claim finish while the poll is held", %{server: server, issue: issue, token: token} do
+    patterns = trace_handler_io(server)
     assert {:ok, seeded_id} = OperatorMessages.send_operator_message(server, issue.identifier, %{kind: :text, body: "seeded before poll"})
     state = :sys.get_state(server)
     :ok = SnapshotStore.publish(server, StatusReport.snapshot_payload(state), state)
@@ -160,6 +162,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     after
       Enum.each(tasks, fn {_name, task} -> Task.shutdown(task, :brutal_kill) end)
       send(tracker_pid, {:release_poll, token})
+      assert_no_handler_io(server, patterns)
     end
   end
 
@@ -183,7 +186,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     put_test_env(:tracker_io_test_result, {:ok, [issue]})
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-tracker-io-token")
-    cache_key = {Aiur.GitHub.Config, :resolved_token}
+    cache_key = {Config, :resolved_token}
     previous_cache = :persistent_term.get(cache_key, :unset)
     :persistent_term.erase(cache_key)
 
@@ -192,7 +195,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       if previous_cache == :unset, do: :persistent_term.erase(cache_key), else: :persistent_term.put(cache_key, previous_cache)
     end)
 
-    Aiur.GitHub.ReadCache.reset()
+    ReadCache.reset()
     owner = self()
     seen = start_supervised!({Agent, fn -> MapSet.new() end})
 
@@ -245,7 +248,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     :erlang.trace_pattern(pattern, true, [:local])
     :erlang.trace(server, true, [:call, {:tracer, self()}])
     on_exit(fn -> :erlang.trace_pattern(pattern, false, [:local]) end)
-    control = Task.async(fn -> Aiur.Orchestrator.PriorityControl.prioritize_agent(server, issue.identifier) end)
+    control = Task.async(fn -> PriorityControl.prioritize_agent(server, issue.identifier) end)
     receive_barrier({:label_write_started, ^token, writer})
     refute writer == server
     assert {:ok, _id} = OperatorMessages.send_operator_message(server, issue.identifier, %{kind: :text, body: "during label write"})
@@ -268,7 +271,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     on_exit(fn -> :erlang.trace_pattern(pattern, false, [:local]) end)
 
     :sys.replace_state(server, fn state ->
-      Aiur.Orchestrator.Dispatcher.dispatch_issue(%{state | effective_concurrent_agents: 4}, candidate, nil, nil,
+      Dispatcher.dispatch_issue(%{state | effective_concurrent_agents: 4}, candidate, nil, nil,
         dispatch_result_fun: fn current ->
           send(owner, {:dispatch_complete, current.dispatch_declines})
           current
@@ -306,6 +309,38 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     assert GenServer.stop(server) == :ok
     receive_barrier({:DOWN, ^monitor, :process, ^tracker, :killed})
     refute Process.alive?(tracker)
+  end
+
+  defp trace_handler_io(server) do
+    tracker_patterns =
+      Aiur.Tracker.behaviour_info(:callbacks)
+      |> Enum.reject(fn {function, _arity} -> function == :open_issue_labels end)
+      |> Enum.map(fn {function, arity} -> {Aiur.Tracker, function, arity} end)
+
+    patterns =
+      tracker_patterns ++
+        [
+          {Transport, :default_request_fun, :_},
+          {Aiur.GitHub.Tracker, :fetch_candidate_issues_conditional, :_},
+          {Aiur.GitHub.Tracker, :hydrate_blocked_by, :_},
+          {Aiur.Events.GithubFirehose, :poll, :_},
+          {Aiur.Events.GithubCIPoller, :poll, :_}
+        ]
+
+    Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
+    :erlang.trace(server, true, [:call, {:tracer, self()}])
+    patterns
+  end
+
+  defp assert_no_handler_io(server, patterns) do
+    delivery = :erlang.trace_delivered(server)
+    receive_barrier({:trace_delivered, ^server, ^delivery})
+    :erlang.trace(server, false, [:call])
+    Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
+
+    Enum.each(patterns, fn {module, function, _arity} ->
+      refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work"
+    end)
   end
 
   defp await_poll_finished(server) do
