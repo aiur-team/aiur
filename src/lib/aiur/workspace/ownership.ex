@@ -130,7 +130,7 @@ defmodule Aiur.Workspace.Ownership do
 
   def track_host_lock(_lease, _lock), do: {:error, :workspace_ownership_lost}
 
-  @spec release(lease(), registry()) :: :ok
+  @spec release(lease(), registry()) :: :ok | {:error, :release_timeout}
   def release(lease, registry \\ @registry)
   def release(%{guardian: guardian, generation: generation}, _registry) when is_pid(guardian), do: call(guardian, {:release, generation})
   def release(_lease, _registry), do: :ok
@@ -285,5 +285,5 @@ defmodule Aiur.Workspace.Ownership do
 
   defp timeout_result({:release_and_wait, _generation}), do: {:error, :workspace_ownership_lost}
   defp timeout_result({:release_with_provider_exit_proof, _generation}), do: {:error, :workspace_ownership_lost}
-  defp timeout_result(_message), do: :ok
+  defp timeout_result(_message), do: {:error, :release_timeout}
 end

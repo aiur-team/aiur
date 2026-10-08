@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   require Logger
 
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
           :waiting_for_human
@@ -30,6 +31,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :claim_released
           | :orphaned_claim
           | :stale_claim
+          | :workspace_retained
           | :workspace_ownership_waiting
           | :active
 
@@ -54,6 +56,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     orphaned_claim: "StartupClaimReconciler",
     stale_claim: "Reconciler",
     workspace_ownership_waiting: "Workspace.Ownership",
+    workspace_retained: "Workspace.Ownership",
     active: "AgentRunner"
   }
 
@@ -87,6 +90,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
 
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
+  defp evidence(:workspace_retained, facts), do: {facts[:workspace_retention][:cause], facts[:workspace_retention][:since]}
   defp evidence(:workspace_ownership_waiting, facts), do: {facts[:workspace_wait][:cause] || facts[:workspace_wait][:owner], facts[:workspace_wait][:since]}
   defp evidence(:unresponsive, facts), do: {:activity_timeout, facts[:last_codex_timestamp] || facts[:started_at]}
   defp evidence(:tracker_unavailable, facts), do: {facts[:dispatch_hold_reason], facts[:hold_since]}
@@ -120,6 +124,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
       released_at: monotonic_since(release[:released_at_ms], now),
       hold_since: monotonic_since(hold[:held_since_ms], now),
       hold_cause: hold[:detail] || hold[:signal],
+      workspace_retention: retained(row.identifier),
       workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
     }
   end
@@ -177,6 +182,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   def public_wait(_row), do: nil
 
+  defp retained(nil), do: nil
+  defp retained(identifier), do: Retention.for_ticket(identifier)
+
   @doc false
   @spec workspace_recovery?(map(), term(), term()) :: boolean()
   def workspace_recovery?(state, issue_id, identifier), do: not is_nil(workspace_wait(state, issue_id, identifier))
@@ -221,6 +229,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
+      Map.get(attrs, :workspace_retained?) -> :workspace_retained
       Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
       unresponsive?(attrs) -> :unresponsive
       # A duration-capped pause is one consistent state, never re-labelled by
@@ -344,6 +353,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
       # envelope. Release may require provider-exit proof, so it is not always
       # self-clearing. It outranks the tracker-state classifications below,
       # which would misreport the row as an orphaned or stale claim (#2810).
+      Keyword.get(opts, :workspace_retained?, false) ->
+        :workspace_retained
+
       Keyword.get(opts, :workspace_recovery?, false) ->
         :workspace_ownership_waiting
 

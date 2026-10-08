@@ -14,6 +14,7 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
     :orphaned_claim,
     :stale_claim,
     :workspace_ownership_waiting,
+    :workspace_retained,
     :tracker_unavailable,
     :backing_off,
     :unresponsive
