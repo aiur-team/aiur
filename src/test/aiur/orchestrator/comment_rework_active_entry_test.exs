@@ -27,8 +27,8 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, Issue}
-  alias Aiur.Orchestrator.{CommentWake, State}
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
+  alias Aiur.Orchestrator.{CommentWake, State}
 
   @issue_number "2814"
 
