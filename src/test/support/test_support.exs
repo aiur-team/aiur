@@ -264,11 +264,7 @@ defmodule Aiur.TestSupport do
         ]
 
       setup do
-        workflow_base =
-          Path.join(
-            System.tmp_dir!(),
-            "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
-          )
+        workflow_base = Application.fetch_env!(:aiur, :test_run_root)
 
         # `System.pid()` is what keeps this root private to *this* VM. Without it
         # two `mix test` runs on one host pick the same `workflow-<integer>` name

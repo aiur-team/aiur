@@ -16,10 +16,11 @@ defmodule Aiur.BuildOrder.PackStatus do
   of 50 within the configured cycle-wide planning-call budget. The result is
   merged into `status.json`; unrelated keys in that file (`state`,
   `completed_at`, operator annotations) are preserved. A failed, partial, or
-  budget-exhausted fetch leaves the affected projection untouched — a stale
-  completion fact is strictly better than silently reverting a merged ticket
-  to 0%. When demand exceeds one cycle's budget, later cycles rotate the first
-  repository and member chunk so later demand also receives capacity.
+  budget-exhausted fetch preserves unfetched members while successful batches
+  are written. A stale completion fact is strictly better than silently
+  reverting a merged ticket to 0%. When demand exceeds one cycle's budget, later
+  cycles rotate the first repository and member chunk so later demand also
+  receives capacity.
 
   It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
   cadence and asks this source to reconcile; `refresh/1` covers a real demand in
@@ -320,14 +321,17 @@ defmodule Aiur.BuildOrder.PackStatus do
   defp reconcile_fact(fact, fetched, state) do
     member_keys = Enum.map(fact.numbers, &Integer.to_string/1)
 
-    if Enum.all?(member_keys, &Map.has_key?(fetched.lifecycles, &1)) do
-      with {:ok, changed?} <- write_status(fact.path, Map.take(fetched.lifecycles, member_keys), state) do
-        {:ok, fact.path, changed?}
-      end
-    else
-      {:error, fetched.error || :incomplete_graphql_response}
+    lifecycles = Map.take(fetched.lifecycles, member_keys)
+
+    with {:ok, changed?} <- persist_lifecycles(fact.path, lifecycles, state) do
+      if map_size(lifecycles) == length(member_keys),
+        do: {:ok, fact.path, changed?},
+        else: {:error, fetched.error || :incomplete_graphql_response, changed?}
     end
   end
+
+  defp persist_lifecycles(_path, lifecycles, _state) when map_size(lifecycles) == 0, do: {:ok, false}
+  defp persist_lifecycles(path, lifecycles, state), do: write_status(path, lifecycles, state)
 
   defp rotate([], _offset), do: []
 
@@ -341,6 +345,7 @@ defmodule Aiur.BuildOrder.PackStatus do
       Enum.reduce(results, {[], false, []}, fn
         {:ok, nil, false}, acc -> acc
         {:ok, path, path_changed?}, {paths, changed?, errors} -> {[path | paths], changed? or path_changed?, errors}
+        {:error, reason, path_changed?}, {paths, changed?, errors} -> {paths, changed? or path_changed?, [reason | errors]}
         {:error, reason}, {paths, changed?, errors} -> {paths, changed?, [reason | errors]}
       end)
 

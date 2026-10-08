@@ -2935,6 +2935,102 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "captures a first rework head asynchronously before starting the runner" do
+      test_pid = self()
+      issue = %Issue{id: "rework-first", identifier: "repo#rework-first", state: "rework"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:rework_runner_started, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      fetcher = fn identifier ->
+        send(test_pid, {:rework_head_lookup_started, identifier, self()})
+
+        receive do
+          :finish_lookup -> {:ok, %{"head" => %{"sha" => "captured-head"}}}
+        end
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          1,
+          nil,
+          runner: runner,
+          rework_head_fetcher: fetcher
+        )
+
+      assert next_state.running[issue.id].rework_head_sha == :pending
+      assert_receive {:rework_head_lookup_started, "repo#rework-first", lookup_pid}, 1000
+      refute_receive {:rework_runner_started, _, _, _}, 20
+      send(lookup_pid, :finish_lookup)
+
+      assert_receive {:worker_runtime_info, issue_id, %{rework_head_sha: "captured-head"}}, 1000
+      assert issue_id == issue.id
+
+      assert_receive {:rework_runner_started, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "captured-head"
+
+      assert {:noreply, captured_state} =
+               State.handle_worker_runtime_info(
+                 next_state,
+                 issue.id,
+                 %{rework_head_sha: "captured-head"}
+               )
+
+      assert captured_state.running[issue.id].rework_head_sha == "captured-head"
+    end
+
+    test "preserves the original rework head on retry dispatch" do
+      test_pid = self()
+      issue = %Issue{id: "rework-retry", identifier: "repo#rework-retry", state: "rework"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:rework_retry_runner, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          2,
+          nil,
+          runner: runner,
+          rework_head_sha: "head-before-first-attempt"
+        )
+
+      assert_receive {:rework_retry_runner, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "head-before-first-attempt"
+      assert next_state.running[issue.id].rework_head_sha == "head-before-first-attempt"
+    end
+
+    test "captures a baseline PR head for a first active-state run" do
+      test_pid = self()
+      issue = %Issue{id: "active-first", identifier: "repo#active-first", state: "in-progress"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:active_first_runner, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          1,
+          nil,
+          runner: runner,
+          rework_head_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "existing-head"}}} end
+        )
+
+      assert_receive {:active_first_runner, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "existing-head"
+      assert next_state.running[issue.id].rework_head_sha in [:pending, "existing-head"]
+    end
+
     test "carries the current fallback fence rather than a stale redispatch snapshot" do
       issue = %Issue{id: "fallback-retry", identifier: "repo#fallback-retry", state: "todo", selected_backend: "claude"}
 
