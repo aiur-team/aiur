@@ -1,0 +1,15 @@
+[
+  {
+    "id": "demo-data-select",
+    "kind": "design-removal",
+    "selector": ".bd-exl",
+    "cells": {},
+    "reason": "Mock-only Demo data select; the product drops it",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/plan.md#10-decisions-made-without-the-owner item 5"
+    }
+  }
+]
