@@ -145,12 +145,12 @@ defmodule Aiur.Config.BuildOrderTest do
     Map.merge(%{"key" => "bugs", "label" => "Bugs", "hue" => 38, "icon" => "bug", "labels" => ["bug"]}, attrs)
   end
 
-  defp parse_epics(epics), do: Schema.parse(%{"build_order" => %{"epics" => epics}})
+  defp parse_general_epics(epics), do: Schema.parse(%{"build_order" => %{"general_epics" => epics}})
 
   test "defaults are the design's four general epics, in design order" do
     assert {:ok, settings} = Schema.parse(%{})
     # DESIGN-E8 GENERAL, design-source/assets/build.js:96.
-    assert Enum.map(settings.build_order.epics, &{&1.key, &1.label, &1.hue, &1.icon, &1.labels}) == [
+    assert Enum.map(settings.build_order.general_epics, &{&1.key, &1.label, &1.hue, &1.icon, &1.labels}) == [
              {"bugs", "Bugs", 38, "bug", ["bug"]},
              {"design", "Design", 312, "pen", ["design"]},
              {"infra", "Infra", 200, "server", ["refactor", "chore"]},
@@ -160,114 +160,118 @@ defmodule Aiur.Config.BuildOrderTest do
 
   test "defaults apply when the section exists without epics" do
     assert {:ok, settings} = Schema.parse(%{"build_order" => %{"graph_max_inflight" => 2}})
-    assert Enum.map(settings.build_order.epics, & &1.key) == ~w(bugs design infra docs)
+    assert Enum.map(settings.build_order.general_epics, & &1.key) == ~w(bugs design infra docs)
     assert settings.build_order.graph_max_inflight == 2
   end
 
-  test "epics null means the defaults" do
-    assert {:ok, settings} = parse_epics(nil)
-    assert Enum.map(settings.build_order.epics, & &1.key) == ~w(bugs design infra docs)
+  test "general_epics null means the defaults" do
+    assert {:ok, settings} = parse_general_epics(nil)
+    assert Enum.map(settings.build_order.general_epics, & &1.key) == ~w(bugs design infra docs)
   end
 
   test "guard: an empty list turns general epics off" do
-    assert {:ok, settings} = parse_epics([])
-    assert settings.build_order.epics == []
+    assert {:ok, settings} = parse_general_epics([])
+    assert settings.build_order.general_epics == []
   end
 
   test "a configured list replaces the defaults and keeps its order" do
-    assert {:ok, settings} = parse_epics([epic(%{"key" => "runtime", "labels" => []}), epic()])
-    assert Enum.map(settings.build_order.epics, & &1.key) == ["runtime", "bugs"]
-    assert hd(settings.build_order.epics).labels == []
+    assert {:ok, settings} = parse_general_epics([epic(%{"key" => "runtime", "labels" => []}), epic()])
+    assert Enum.map(settings.build_order.general_epics, & &1.key) == ["runtime", "bugs"]
+    assert hd(settings.build_order.general_epics).labels == []
   end
 
   test "an epic: matcher is refused with the parking reason" do
-    assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"labels" => ["  Epic:Bugs "]})])
-    assert message == "build_order.epics.0.labels must not use the epic: prefix; IssueSync treats epic:* labels as deliberate parking and stops healing those tickets"
+    assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"labels" => ["  Epic:Bugs "]})])
+    assert message == "build_order.general_epics.0.labels must not use the epic: prefix; IssueSync treats epic:* labels as deliberate parking and stops healing those tickets"
   end
 
   test "labels are trimmed, downcased and deduplicated" do
-    assert {:ok, settings} = parse_epics([epic(%{"labels" => [" Bug ", "bug", "BUG", " Refactor "]})])
-    assert hd(settings.build_order.epics).labels == ["bug", "refactor"]
+    assert {:ok, settings} = parse_general_epics([epic(%{"labels" => [" Bug ", "bug", "BUG", " Refactor "]})])
+    assert hd(settings.build_order.general_epics).labels == ["bug", "refactor"]
   end
 
   test "a label in two epics is refused" do
-    assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(), epic(%{"key" => "infra", "labels" => ["Bug"]})])
-    assert message == ~s(build_order.epics label "bug" is in both bugs and infra; a label can place a ticket in one epic only)
+    assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(), epic(%{"key" => "infra", "labels" => ["Bug"]})])
+    assert message == ~s(build_order.general_epics label "bug" is in both bugs and infra; a label can place a ticket in one epic only)
   end
 
   test "duplicate keys are refused" do
-    assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(), epic(%{"labels" => []})])
-    assert message == ~s(build_order.epics key "bugs" is used by more than one epic)
+    assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(), epic(%{"labels" => []})])
+    assert message == ~s(build_order.general_epics key "bugs" is used by more than one epic)
   end
 
   test "unsorted is reserved" do
-    assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"key" => "unsorted"})])
-    assert message == "build_order.epics.0.key is reserved for the column of tickets with no epic"
+    assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"key" => "unsorted"})])
+    assert message == "build_order.general_epics.0.key is reserved for the column of tickets with no epic"
   end
 
   test "key format" do
     for key <- ["Bugs", "-x", "a b"] do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"key" => key})])
-      assert message == "build_order.epics.0.key must be a lowercase identifier (letters, digits, dash, underscore)"
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"key" => key})])
+      assert message == "build_order.general_epics.0.key must be a lowercase identifier (letters, digits, dash, underscore)"
     end
   end
 
   test "hue bounds" do
     for {hue, reason} <- [{-1, "must be greater than or equal to 0"}, {360, "must be less than 360"}, {1.5, "is invalid"}] do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"hue" => hue})])
-      assert message == "build_order.epics.0.hue " <> reason
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"hue" => hue})])
+      assert message == "build_order.general_epics.0.hue " <> reason
     end
 
     for hue <- [0, 359] do
-      assert {:ok, settings} = parse_epics([epic(%{"hue" => hue})])
-      assert hd(settings.build_order.epics).hue == hue
+      assert {:ok, settings} = parse_general_epics([epic(%{"hue" => hue})])
+      assert hd(settings.build_order.general_epics).hue == hue
     end
   end
 
   test "icon must be a design general-epic icon" do
-    assert Schema.BuildOrderEpic.icons() == ~w(bug pen server docs)
+    assert Schema.GeneralEpic.icons() == ~w(bug pen server docs)
 
     for icon <- ~w(layers unsorted rocket) do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"icon" => icon})])
-      assert message == "build_order.epics.0.icon is invalid"
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"icon" => icon})])
+      assert message == "build_order.general_epics.0.icon is invalid"
     end
 
-    for icon <- Schema.BuildOrderEpic.icons() do
-      assert {:ok, settings} = parse_epics([epic(%{"icon" => icon})])
-      assert hd(settings.build_order.epics).icon == icon
+    for icon <- Schema.GeneralEpic.icons() do
+      assert {:ok, settings} = parse_general_epics([epic(%{"icon" => icon})])
+      assert hd(settings.build_order.general_epics).icon == icon
     end
   end
 
   test "required fields" do
     for field <- ~w(key label hue icon) do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics([Map.delete(epic(), field)])
-      assert message == "build_order.epics.0.#{field} can't be blank"
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([Map.delete(epic(), field)])
+      assert message == "build_order.general_epics.0.#{field} can't be blank"
     end
   end
 
   test "a blank label is refused" do
     for labels <- [["  "], [nil]] do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"labels" => labels})])
-      assert message == "build_order.epics.0.labels must not contain a blank label"
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"labels" => labels})])
+      assert message == "build_order.general_epics.0.labels must not contain a blank label"
     end
   end
 
   test "label control characters are refused" do
     for label <- ["Bugs" <> <<7>>, "Bugs" <> <<127>>] do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(%{"label" => label})])
-      assert message == "build_order.epics.0.label must not contain control characters"
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"label" => label})])
+      assert message == "build_order.general_epics.0.label must not contain control characters"
     end
   end
 
   test "invalid children retain their indexed errors despite duplicate keys" do
-    assert {:error, {:invalid_workflow_config, message}} = parse_epics([epic(), epic(%{"icon" => "rocket"})])
-    assert message == "build_order.epics.1.icon is invalid"
+    assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(), epic(%{"icon" => "rocket"})])
+    assert message == "build_order.general_epics.1.icon is invalid"
   end
 
   test "malformed epic lists and matcher arrays return config errors" do
-    for value <- ["bugs", ["bugs"], [%{"key" => "bugs", "label" => "Bugs", "hue" => 38, "icon" => "bug", "labels" => [1]}]] do
-      assert {:error, {:invalid_workflow_config, message}} = parse_epics(value)
-      assert message =~ "build_order.epics"
+    for {value, expected} <- [
+          {"bugs", "build_order.general_epics is invalid"},
+          {["bugs"], "build_order.general_epics is invalid"},
+          {[epic(%{"labels" => [1]})], "build_order.general_epics.0.labels is invalid"}
+        ] do
+      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics(value)
+      assert message == expected
     end
   end
 end

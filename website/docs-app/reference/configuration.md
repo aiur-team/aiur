@@ -776,20 +776,20 @@ Build queue configuration for GitHub workflows; Linear is unsupported, and the q
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
-| `build_order.epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
-| `build_order.epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
-| `build_order.epics.label` | string | required | Column header text, without control characters. |
-| `build_order.epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
-| `build_order.epics.hue` | integer | required | Colour hue, 0–359. |
-| `build_order.epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+| `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
+| `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
+| `build_order.general_epics.label` | string | required | Column header text, without control characters. |
+| `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
+| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
+| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
 
 ### General epics
 
-Omitting `build_order`, omitting `epics`, or setting `epics: null` uses these defaults:
+Omitting `build_order`, omitting `general_epics`, or setting `general_epics: null` uses these defaults:
 
 ```yaml
 build_order:
-  epics:
+  general_epics:
     - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
     - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
     - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }

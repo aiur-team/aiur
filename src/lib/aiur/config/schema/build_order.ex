@@ -5,7 +5,7 @@ defmodule Aiur.Config.Schema.BuildOrder do
 
   import Ecto.Changeset
 
-  alias Aiur.Config.Schema.BuildOrderEpic
+  alias Aiur.Config.Schema.GeneralEpic
 
   @default_epics [
     %{"key" => "bugs", "label" => "Bugs", "labels" => ["bug"], "hue" => 38, "icon" => "bug"},
@@ -47,13 +47,13 @@ defmodule Aiur.Config.Schema.BuildOrder do
     field(:graph_refresh_timeout_ms, :integer, default: 30_000)
     field(:graph_max_selected_roots, :integer, default: 32)
     field(:graph_max_inflight, :integer, default: 4)
-    embeds_many(:epics, BuildOrderEpic, on_replace: :delete)
+    embeds_many(:general_epics, GeneralEpic, on_replace: :delete)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     # Ecto forces embeds_many's struct default to [], so defaults go into attrs.
-    attrs = Map.put_new(attrs, "epics", @default_epics)
+    attrs = Map.put_new(attrs, "general_epics", @default_epics)
 
     schema
     |> cast(
@@ -85,12 +85,12 @@ defmodule Aiur.Config.Schema.BuildOrder do
     |> validate_number(:graph_max_selected_roots, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:graph_max_inflight, greater_than: 0, less_than_or_equal_to: 16)
     |> validate_labels_cadence()
-    |> cast_embed(:epics, with: &BuildOrderEpic.changeset/2)
+    |> cast_embed(:general_epics, with: &GeneralEpic.changeset/2)
     |> validate_unique_epics()
   end
 
   defp validate_unique_epics(changeset) do
-    case get_change(changeset, :epics) do
+    case get_change(changeset, :general_epics) do
       children when is_list(children) ->
         if Enum.all?(children, & &1.valid?),
           do: check_unique_epics(changeset, Enum.map(children, &apply_changes/1)),
@@ -106,7 +106,7 @@ defmodule Aiur.Config.Schema.BuildOrder do
 
     changeset =
       case duplicate_key do
-        {key, _count} -> add_error(changeset, :epics, "key #{inspect(key)} is used by more than one epic")
+        {key, _count} -> add_error(changeset, :general_epics, "key #{inspect(key)} is used by more than one epic")
         nil -> changeset
       end
 
@@ -115,7 +115,7 @@ defmodule Aiur.Config.Schema.BuildOrder do
     |> Enum.reduce_while({changeset, %{}}, fn {label, key}, {current, owners} ->
       case Map.fetch(owners, label) do
         {:ok, owner} ->
-          {:halt, {add_error(current, :epics, "label #{inspect(label)} is in both #{owner} and #{key}; a label can place a ticket in one epic only"), owners}}
+          {:halt, {add_error(current, :general_epics, "label #{inspect(label)} is in both #{owner} and #{key}; a label can place a ticket in one epic only"), owners}}
 
         :error ->
           {:cont, {current, Map.put(owners, label, key)}}

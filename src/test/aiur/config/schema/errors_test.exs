@@ -56,8 +56,8 @@ defmodule Aiur.Config.Schema.ErrorsTest do
   end
 
   test "flattens a list of child error maps with the entry index" do
-    errors = %{build_order: %{epics: [%{}, %{icon: ["is invalid"]}]}}
-    assert Errors.flatten_errors(errors) == ["build_order.epics.1.icon is invalid"]
+    errors = %{build_order: %{general_epics: [%{}, %{icon: ["is invalid"]}]}}
+    assert Errors.flatten_errors(errors) == ["build_order.general_epics.1.icon is invalid"]
     assert Errors.flatten_errors(%{a: ["x"]}) == ["a x"]
   end
 

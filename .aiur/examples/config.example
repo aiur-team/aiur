@@ -200,7 +200,7 @@ alerts:
 #   ticket_history_max_identities: 100        # 1..100; retained configured-repository ticket histories
 #   ticket_history_stale_after_ms: 60000      # 1..300000; floor for the typed-activity freshness window (the effective window is at least two poll intervals)
 #   # General epic columns; order matters; omit for these defaults, [] for none.
-#   epics:
+#   general_epics:
 #     - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
 #     - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
 #     - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }

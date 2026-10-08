@@ -1,4 +1,4 @@
-defmodule Aiur.Config.Schema.BuildOrderEpic do
+defmodule Aiur.Config.Schema.GeneralEpic do
   @moduledoc "One configured general epic, with normalized GitHub label matchers."
 
   use Ecto.Schema
