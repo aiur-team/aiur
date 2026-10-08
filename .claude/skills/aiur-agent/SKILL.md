@@ -74,6 +74,11 @@ shared [dictated-input note](dictated-input.md).
 - **Write a Command for a cold reader:** assume the operator has zero ticket
   context. Lead with the question, explain each option's consequence, name every
   referent, and state what happens without an answer.
+- **Non-blocking questions keep work moving.** Set `blocking: false` when an
+  answer is optional, record the question and raise its attention, then keep
+  working. Never emit `pause.request` or stop your turn for that question.
+  Only an open blocking Command can justify a question-related self-pause;
+  expired or moot Commands cannot hold the worker waiting for human input.
 
 ## What stays in the per-turn prompt (not here)
 

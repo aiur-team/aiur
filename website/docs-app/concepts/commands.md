@@ -25,6 +25,12 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 
 ## Authority and attention signals
 
+A question with `blocking: false` remains visible for an answer while the worker
+keeps working; it must not trigger a self-pause. Only open blocking Commands
+(including deferred Commands) count toward the decision-based `waiting_for_human`
+state. Expired and moot Commands do not hold that gate, even if an attention
+chip remains visible.
+
 Agents classify the action, not the subsystem around it. Routine,
 reversible operational choices should use `supervisor_allowed`; irreversible
 actions, spend, external publication, and product direction remain

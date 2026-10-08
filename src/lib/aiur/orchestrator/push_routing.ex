@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.{Alerts, Config, DecisionStore, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
@@ -55,21 +55,31 @@ defmodule Aiur.Orchestrator.PushRouting do
           true ->
             {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
 
-            {_reply, state} =
-              PauseResume.request_pause(
-                state,
-                running_entry,
-                Map.get(running_entry, :issue),
-                pause_reason
-              )
+            if nonblocking_question_pause?(identifier, pause_reason) do
+              state
+            else
+              {_reply, state} =
+                PauseResume.request_pause(
+                  state,
+                  running_entry,
+                  Map.get(running_entry, :issue),
+                  pause_reason
+                )
 
-            state
+              state
+            end
         end
 
       _ ->
         state
     end
   end
+
+  defp nonblocking_question_pause?(identifier, :agent_pause_request) do
+    DecisionStore.open_blocking_decision_ids([to_string(identifier)]) == {:ok, []}
+  end
+
+  defp nonblocking_question_pause?(_identifier, _pause_reason), do: false
 
   @doc false
   @spec recover_github_budget_pauses(State.t(), integer()) :: State.t()
