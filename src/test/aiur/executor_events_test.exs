@@ -290,9 +290,11 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("#")
     assert :ok = ExecutorEvents.subscribe("ticket.*.pr.opened")
     assert :ok = ExecutorEvents.subscribe("ticket.3028.#")
+    assert :ok = ExecutorEvents.subscribe("ticket.3028.ci.failed")
     assert :ok = ExecutorEvents.subscribe("ticket.*.pr.opened")
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("ticket.*.#")
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("ticket.3028.#.extra")
+    assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("system.*.capacity_starved")
   end
 
   test "listener delivers live events and advances the persisted cursor" do

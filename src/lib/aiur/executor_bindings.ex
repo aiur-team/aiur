@@ -70,14 +70,12 @@ defmodule Aiur.ExecutorBindings do
   end
 
   defp pattern_subset?([], []), do: true
-  defp pattern_subset?(["#"], ["#"]), do: true
-  defp pattern_subset?(["#" | _], ["#" | _]), do: false
-  defp pattern_subset?(["#" | _], _), do: false
   defp pattern_subset?(_, ["#" | _]), do: true
-  defp pattern_subset?([], _), do: false
+  defp pattern_subset?(["#" | _], _), do: false
+  defp pattern_subset?([], reviewed), do: Enum.all?(reviewed, &(&1 == "#"))
   defp pattern_subset?(_, []), do: false
   defp pattern_subset?(["*" | rest], ["*" | reviewed]), do: pattern_subset?(rest, reviewed)
-  defp pattern_subset?(["*" | rest], [literal | reviewed]) when literal not in ["*", "#"], do: pattern_subset?(rest, reviewed)
+  defp pattern_subset?(["*" | _], [literal | _]) when literal not in ["*", "#"], do: false
   defp pattern_subset?([literal | rest], ["*" | reviewed]) when literal not in ["*", "#"], do: pattern_subset?(rest, reviewed)
   defp pattern_subset?([literal | rest], [literal | reviewed]) when literal not in ["*", "#"], do: pattern_subset?(rest, reviewed)
   defp pattern_subset?(_, _), do: false
