@@ -66,7 +66,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     end
 
     assert {:ok, %{errors: [], results: [%{decision: :passed, head_sha: "current-sha", pr_number: 71}]}} =
-             GithubCIPoller.poll(["42"], request_fun: request_fun)
+             poll(["42"], request_fun: request_fun)
   end
 
   # The GraphQL batch carries draft + review decision alongside the checks so
@@ -95,9 +95,10 @@ defmodule Aiur.Events.GithubCIPollerTest do
     }
 
     assert {:ok, %{errors: [], results: [result]}} =
-             GithubCIPoller.poll(["42"], ci_batch: batch)
+             poll(["42"], ci_batch: batch)
 
-    assert result.decision == :passed
+    assert result.decision == :pending
+    assert result.pending_reason == :draft_pull_request
     assert result.draft? == true
     assert result.review_decision == "APPROVED"
   end
@@ -125,7 +126,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     }
 
     assert {:ok, %{errors: [], results: [%{draft?: false, review_decision: nil}]}} =
-             GithubCIPoller.poll(["42"], ci_batch: batch)
+             poll(["42"], ci_batch: batch)
   end
 
   test "carries the batched merge-queue recovery observation into the result" do
@@ -165,7 +166,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   merge_queue_entry: nil
                 }
               ]
-            }} = GithubCIPoller.poll(["42"], ci_batch: ci_batch, base_branch: "main")
+            }} = poll(["42"], ci_batch: ci_batch, base_branch: "main")
   end
 
   # #2310 — a target the batch displaced because a webhook delivery answered it
@@ -190,7 +191,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
       }
     }
 
-    assert {:ok, %{errors: [], results: [result]}} = GithubCIPoller.poll(["42"], ci_batch: ci_batch)
+    assert {:ok, %{errors: [], results: [result]}} = poll(["42"], ci_batch: ci_batch)
 
     assert result.delivered == true
     assert result.target == "42"
@@ -199,6 +200,28 @@ defmodule Aiur.Events.GithubCIPollerTest do
     refute Map.has_key?(result, :decision)
     refute Map.has_key?(result, :failures)
     refute Map.has_key?(result, :pending_reason)
+  end
+
+  test "ready PR requires every required check to run successfully on the current head" do
+    required = [%{name: "lint", app_id: 15_368}, %{name: "test", app_id: 15_368}]
+    lint = %{"name" => "lint", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}
+    test = %{lint | "name" => "test"}
+    pr = %{"number" => 71, "head" => pr_head("aiur/42", "current-head"), "base" => %{"ref" => "main"}, "draft" => false}
+
+    for checks <- [[lint], [lint, %{test | "conclusion" => "skipped"}], [lint, %{test | "app" => %{"id" => 1}}]] do
+      batch = %{"42" => %{pull_request: pr, check_runs: checks, commit_status: %{"statuses" => []}}}
+
+      assert {:ok, %{results: [%{decision: :pending, pending_reason: :required_checks_incomplete}]}} =
+               poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:ok, required} end)
+    end
+
+    batch = %{"42" => %{pull_request: pr, check_runs: [lint, test], commit_status: %{"statuses" => []}}}
+
+    assert {:ok, %{results: [%{decision: :passed, head_sha: "current-head"}]}} =
+             poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:ok, required} end)
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :required_checks_unavailable}]}} =
+             poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:error, :denied} end)
   end
 
   test "returns pending for no observed checks or in-progress work" do
@@ -234,7 +257,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
             %{
               errors: [],
               results: [%{decision: :pending, pending_reason: :open_pr_not_yet_visible}]
-            }} = GithubCIPoller.poll(["72"], request_fun: request_fun)
+            }} = poll(["72"], request_fun: request_fun)
   end
 
   test "reports a test-only check failure for agent judgment" do
@@ -447,7 +470,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                       head_sha: "partial-head"
                     }
                   ]
-                }} = GithubCIPoller.poll(["91"], request_fun: request_fun)
+                }} = poll(["91"], request_fun: request_fun)
       end)
 
     assert log =~ "head=partial-head decision=pending"
@@ -510,7 +533,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [%{decision: :passed, target: "42"}, %{decision: :pending, target: "43"}],
               errors: [error]
             }} =
-             GithubCIPoller.poll(["42", "43"], request_fun: request_fun)
+             poll(["42", "43"], request_fun: request_fun)
 
     assert {"43", {:github, :timeout, %{reason: :timeout}}} = error
   end
@@ -527,7 +550,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
             %{
               results: [%{decision: :pending, target: "42"}],
               errors: [{"42", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
-            }} = GithubCIPoller.poll(["42"], request_fun: request_fun)
+            }} = poll(["42"], request_fun: request_fun)
   end
 
   test "uses the current PR head on every poll after a re-push" do
@@ -568,10 +591,10 @@ defmodule Aiur.Events.GithubCIPollerTest do
     end
 
     assert {:ok, %{results: [%{decision: :passed, head_sha: "head-1"}]}} =
-             GithubCIPoller.poll(["77"], request_fun: request_fun)
+             poll(["77"], request_fun: request_fun)
 
     assert {:ok, %{results: [%{decision: :passed, head_sha: "head-2"}]}} =
-             GithubCIPoller.poll(["77"], request_fun: request_fun)
+             poll(["77"], request_fun: request_fun)
   end
 
   test "keeps CI pending when the head changes during an observation" do
@@ -611,7 +634,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [
                 %{decision: :pending, pending_reason: :head_changed, head_sha: "new-head"}
               ]
-            }} = GithubCIPoller.poll(["78"], request_fun: request_fun)
+            }} = poll(["78"], request_fun: request_fun)
   end
 
   test "repairs a base that changes while CI is being observed" do
@@ -670,7 +693,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   failures: [%{name: "pull request base branch", result: "repaired"}]
                 }
               ]
-            }} = GithubCIPoller.poll(["79"], request_fun: request_fun, base_branch: "main")
+            }} = poll(["79"], request_fun: request_fun, base_branch: "main")
 
     assert_receive {:base_repaired_during_observation, %{"base" => "main"}}, 1000
   end
@@ -712,7 +735,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     end
 
     assert {:ok, %{results: [%{decision: :failed, failures: [%{name: "test"}]}]}} =
-             GithubCIPoller.poll(["88"], request_fun: request_fun)
+             poll(["88"], request_fun: request_fun)
   end
 
   test "journals before repair and invalidates the confirmed response head after a concurrent push" do
@@ -780,7 +803,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   ]
                 }
               ]
-            }} = GithubCIPoller.poll(["1146"], request_fun: request_fun, base_branch: "main")
+            }} = poll(["1146"], request_fun: request_fun, base_branch: "main")
 
     assert_receive {:base_repaired, url, %{"base" => "main"}}, 1000
     assert String.ends_with?(url, "/repos/owner/repo/pulls/1144")
@@ -811,7 +834,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1144,
-                 "draft" => true,
+                 "draft" => not Agent.get(fresh_ci?, & &1),
                  "head" => pr_head("aiur/1146", "unchanged-head"),
                  "base" => %{"ref" => Agent.get(base, & &1)}
                }
@@ -871,7 +894,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 } = repaired
               ]
             }} =
-             GithubCIPoller.poll(["1146"],
+             poll(["1146"],
                request_fun: request_fun,
                base_branch: "main",
                system_time_fun: fn -> repair_time end
@@ -884,7 +907,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [
                 # `draft?` is pinned here on purpose. It is read off the listing
                 # entry (`pr_draft?/1`), never off the PATCH response, so a
-                # fixture losing `"draft" => true` would otherwise flip this to
+                # fixture losing the draft flag would otherwise flip this to
                 # false with every assertion still green.
                 %{
                   decision: :pending,
@@ -894,7 +917,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 }
               ]
             }} =
-             GithubCIPoller.poll(["1146"],
+             poll(["1146"],
                request_fun: request_fun,
                base_branch: "main",
                base_repair_invalidations: invalidations
@@ -909,11 +932,11 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   decision: :passed,
                   head_sha: "unchanged-head",
                   base_repair_revalidated: true,
-                  draft?: true
+                  draft?: false
                 }
               ]
             }} =
-             GithubCIPoller.poll(["1146"],
+             poll(["1146"],
                request_fun: request_fun,
                base_branch: "main",
                base_repair_invalidations: invalidations
@@ -969,7 +992,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     end
 
     poll = fn ->
-      GithubCIPoller.poll(["1146"],
+      poll(["1146"],
         request_fun: request_fun,
         base_branch: "main",
         base_repair_invalidations: invalidations
@@ -1032,7 +1055,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 }
               ]
             }} =
-             GithubCIPoller.poll(["1146"],
+             poll(["1146"],
                request_fun: request_fun,
                base_branch: "main",
                base_repair_journal_fun: journal_fun
@@ -1092,7 +1115,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 }
               ]
             }} =
-             GithubCIPoller.poll(["1146"],
+             poll(["1146"],
                request_fun: request_fun,
                base_branch: "main",
                base_repair_journal_fun: journal_fun
@@ -1152,7 +1175,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 }
               ]
             }} =
-             GithubCIPoller.poll(["1146"],
+             poll(["1146"],
                request_fun: stale_ci_request_fun,
                base_branch: "main",
                base_repair_invalidations: CIApprovalStore.load().base_repair_invalidations
@@ -1209,7 +1232,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   ]
                 }
               ]
-            }} = GithubCIPoller.poll(["1146"], request_fun: request_fun, base_branch: "main")
+            }} = poll(["1146"], request_fun: request_fun, base_branch: "main")
 
     assert_receive :base_repair_attempted, 1000
     assert excerpt =~ ~s(targets "v2")
@@ -1223,5 +1246,9 @@ defmodule Aiur.Events.GithubCIPollerTest do
       "sha" => sha,
       "repo" => %{"full_name" => "owner/repo"}
     }
+  end
+
+  defp poll(targets, opts) do
+    GithubCIPoller.poll(targets, Keyword.put_new(opts, :required_check_fetcher, fn _ -> {:ok, []} end))
   end
 end
