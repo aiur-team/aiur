@@ -18,11 +18,11 @@ on:
   # (#2397). Checks attach to the head commit either way.
   workflow_dispatch:
 
-# Main pushes share a group so newer commits supersede older main runs.
-# Initial PR runs share a group; other events and PR reruns stay independent.
+# Initial main pushes share a group so newer commits supersede older main runs.
+# Initial PR runs share a group; other events and all reruns stay independent.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1) || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
 
 # Job timeouts (#2461).
 #

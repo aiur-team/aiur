@@ -30,9 +30,12 @@ function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci') {
 
 const main = policy('push', 'refs/heads/main', 100);
 assert.equal(main.cancel, true, 'main pushes must cancel older running runs');
-for (const attempt of [1, 2]) {
-  assert.deepEqual(policy('push', 'refs/heads/main', 101, attempt), main,
-    'main pushes and reruns must share a cancelling group across run IDs');
+assert.deepEqual(policy('push', 'refs/heads/main', 101), main,
+  'initial main pushes must share a cancelling group across run IDs');
+for (const runId of [100, 101]) {
+  assert.deepEqual(policy('push', 'refs/heads/main', runId, 2), {
+    group: `ci-push-${runId}-2`, cancel: false,
+  }, 'rerunning an old main commit must not supersede the newest main run');
 }
 assert.notEqual(policy('push', 'refs/heads/main', 101, 1, 42, 'other').group, main.group,
   'main group must be scoped to this workflow');
