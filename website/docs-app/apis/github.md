@@ -252,8 +252,8 @@ later page.
 Only trust a `304` for a paginated read when the read was single-page (then
 page 1 *is* the list), or when the validator kept is the last page's rather
 than the first's. If neither is practical, do not make the read conditional:
-an unconditional read that is correct beats a conditional one that is quietly
-wrong.
+issue comments and PR changed files drain every page; single-list readers refuse
+a next page with `pagination_unexpected` rather than return a partial list.
 
 **Incomplete label provenance is retried.** A new issue can carry `agent:todo`
 before GitHub has indexed its `labeled` timeline event. Aiur does not cache a

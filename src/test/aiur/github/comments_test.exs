@@ -45,6 +45,46 @@ defmodule Aiur.GitHub.CommentsTest do
     end
   end
 
+  describe "fetch_classified_issue_comments/2" do
+    setup do
+      repo_root = Aiur.TestSupport.tmp_root!("classified-comments-codeowners")
+      File.mkdir_p!(Path.join(repo_root, ".github"))
+      File.write!(Path.join(repo_root, ".github/CODEOWNERS"), "* @owner\n")
+      on_exit(fn -> File.rm_rf!(repo_root) end)
+      %{repo_root: repo_root}
+    end
+
+    test "classifies all 150 comments across pages", %{repo_root: repo_root} do
+      comments = for id <- 1..150, do: %{"id" => id, "user" => %{"login" => "owner"}}
+
+      request_fun = fn %{url: url, caller: "classified_issue_comments"} ->
+        if String.contains?(url, "page=2") do
+          {:ok, %{status: 200, body: Enum.drop(comments, 100)}}
+        else
+          {:ok, %{status: 200, body: Enum.take(comments, 100), headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
+        end
+      end
+
+      assert {:ok, classified} = Comments.fetch_classified_issue_comments(3, request_fun: request_fun, repo_root: repo_root)
+      assert Enum.map(classified, & &1["id"]) == Enum.to_list(1..150)
+      assert Enum.all?(classified, &(&1.authoritative == true))
+    end
+
+    test "propagates a page-two hold without partial comments", %{repo_root: repo_root} do
+      hold = {:aiur, :locally_held, %{reason: :rate_limit}}
+
+      request_fun = fn %{url: url} ->
+        if String.contains?(url, "page=2") do
+          {:error, hold}
+        else
+          {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
+        end
+      end
+
+      assert {:error, ^hold} = Comments.fetch_classified_issue_comments(3, request_fun: request_fun, repo_root: repo_root)
+    end
+  end
+
   describe "fetch_issue_comments_conditional/2" do
     test "sends the saved ETag and treats 304 as a successful unchanged response" do
       request_fun = fn %{method: :get, etag: etag} = request ->
