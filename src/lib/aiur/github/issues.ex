@@ -379,6 +379,8 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp do_fetch_candidate_issues(opts) do
+    listed_from = DateTime.utc_now()
+
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       prefix = GitHub.Config.label_prefix()
@@ -387,13 +389,15 @@ defmodule Aiur.GitHub.Issues do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
       with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
-        record_open_issues(owner, repo, issues)
+        record_open_issues(owner, repo, issues, listed_from)
         {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
       end
     end
   end
 
   defp do_fetch_candidate_issues_conditional(cache, opts) do
+    listed_from = DateTime.utc_now()
+
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       ctx = %{
@@ -410,7 +414,7 @@ defmodule Aiur.GitHub.Issues do
 
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
-          record_open_issues(ctx.owner, ctx.repo, issues)
+          record_open_issues(ctx.owner, ctx.repo, issues, listed_from)
 
           candidates =
             filter_and_authorize_candidates_with_degenerate(
@@ -434,11 +438,12 @@ defmodule Aiur.GitHub.Issues do
   # Both listings are unfiltered and fully paginated, and they answer `{:ok, _}`
   # only when every page was read, so `issues` names every open issue. That is
   # the close signal the dispatch gate's blocker states use (#2714).
-  defp record_open_issues(owner, repo, issues) do
+  defp record_open_issues(owner, repo, issues, listed_from) do
     labels_by_id = Map.new(issues, &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
     OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id), labels_by_id)
     # Second producer for allowed-contributor intake (#2957).
     AllowedContributors.offer_open_issues(issues)
+    Aiur.BuildOrder.History.Feeder.offer_open_issues(owner, repo, issues, listed_from)
   end
 
   # GitHub reports `performed_via_github_app` (null when not App-created) on

@@ -282,6 +282,10 @@ defmodule Aiur.GitHub.IssuesTest do
   describe "fetch_candidate_issues/1" do
     test "complete paginated polls record all labels with no extra requests" do
       alias Aiur.GitHub.OpenIssueSnapshot
+      alias Aiur.BuildOrder.History.Feeder
+      Supervisor.terminate_child(Aiur.Supervisor, Feeder)
+      Process.register(self(), Feeder)
+      on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Feeder) end)
       OpenIssueSnapshot.reset()
       on_exit(fn -> OpenIssueSnapshot.reset() end)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
@@ -299,6 +303,10 @@ defmodule Aiur.GitHub.IssuesTest do
       request_fun = fn request ->
         send(parent, {:list_request, request.url})
 
+        if request.url == base_url do
+          send(parent, {:first_page_at, DateTime.utc_now()})
+        end
+
         cond do
           Map.has_key?(request, :etag) -> {:ok, %{status: 304, headers: []}}
           request.url == base_url -> {:ok, %{status: 200, headers: [{"etag", "page-one"}, {"link", "<#{second_url}>; rel=\"next\""}], body: [issue.(7)]}}
@@ -308,18 +316,36 @@ defmodule Aiur.GitHub.IssuesTest do
       end
 
       expected = Map.new(["7", "8"], &{&1, %{labels: ["agent:queued", "sym:done"], updated_at: ~U[2026-10-06 00:00:00Z]}})
+      before_request = DateTime.utc_now()
       assert {:ok, []} = Issues.fetch_candidate_issues(request_fun: request_fun)
+      assert_received {:"$gen_cast", {:open_listing, "owner", "repo", history_issues, listed_from}}
+      assert_received {:first_page_at, first_page_at}
+      assert DateTime.compare(listed_from, first_page_at) != :gt
+      assert Enum.map(history_issues, & &1.id) == ["7", "8"]
+      assert DateTime.compare(listed_from, before_request) != :lt
       assert_received {:open_issues_recorded, first_time}
+      assert DateTime.to_unix(listed_from, :millisecond) <= first_time
       assert {:ok, ^expected, ^first_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
       assert {:ok, [], cache} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+      assert_received {:"$gen_cast", {:open_listing, "owner", "repo", conditional_issues, conditional_from}}
+      assert Enum.map(conditional_issues, & &1.id) == ["7", "8"]
+      assert Enum.map(conditional_issues, & &1.labels) == Enum.map(history_issues, & &1.labels)
+      assert_received {:first_page_at, conditional_page_at}
+      assert DateTime.compare(conditional_from, conditional_page_at) != :gt
+      assert DateTime.compare(conditional_from, listed_from) != :lt
       assert_received {:open_issues_recorded, _}
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
       assert {:ok, [], _} = Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+      assert_received {:"$gen_cast", {:open_listing, "owner", "repo", cached_issues, cached_from}}
+      assert cached_issues == conditional_issues
+      assert_received {:first_page_at, cached_page_at}
+      assert DateTime.compare(cached_from, cached_page_at) != :gt
+      assert DateTime.compare(cached_from, conditional_from) != :lt
       assert_received {:open_issues_recorded, cached_time}
       assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       assert_received {:list_request, ^base_url}
@@ -331,6 +357,7 @@ defmodule Aiur.GitHub.IssuesTest do
       end
 
       assert {:error, _} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: failed_page)
+      refute_received {:"$gen_cast", {:open_listing, _, _, _, _}}
       assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       refute_received {:open_issues_recorded, _}
     end
