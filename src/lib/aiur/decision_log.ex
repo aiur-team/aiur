@@ -124,28 +124,76 @@ defmodule Aiur.DecisionLog do
   the global filesystem barrier.
   """
   @spec append(Path.t(), map()) :: :ok | {:error, term()}
-  def append(path, event) when is_binary(path) and is_map(event) do
-    with :ok <- reject_symlink(path) do
-      line = Jason.encode!(event) <> "\n"
-      existed_before? = File.exists?(path)
-
-      with {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
-        try do
-          with :ok <- :file.write(fd, line) do
-            case :file.sync(fd) do
-              :ok -> harden_first_create(path, existed_before?)
-              {:error, reason} -> {:error, reason}
-            end
-          end
-        after
-          :file.close(fd)
-        end
-      end
+  def append(path, event) do
+    case append(path, event, []) do
+      :accepted -> :ok
+      {_outcome, reason} -> {:error, reason}
     end
   end
 
-  defp harden_first_create(_path, true), do: :ok
-  defp harden_first_create(path, false), do: File.chmod(path, 0o600)
+  @doc "Classifies an append; injectable file operations implement write/2 and sync/1."
+  @spec append(Path.t(), map(), keyword()) :: :accepted | {:failed | :ambiguous, term()}
+  def append(path, event, opts) when is_binary(path) and is_map(event) do
+    with :ok <- reject_symlink(path),
+         {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
+      try do
+        append_record(fd, path, event, Keyword.get(opts, :file_ops, :file))
+      after
+        :file.close(fd)
+      end
+    else
+      {:error, reason} -> {:failed, reason}
+    end
+  end
+
+  defp append_record(fd, path, event, file_ops) do
+    with :ok <- file_ops.write(fd, Jason.encode!(event) <> "\n") do
+      with :ok <- file_ops.sync(fd),
+           :ok <- File.chmod(path, 0o600) do
+        :accepted
+      else
+        {:error, reason} -> {:ambiguous, reason}
+      end
+    else
+      {:error, reason} -> {:failed, reason}
+    end
+  end
+
+  @doc "Replays before retrying an uncertain append; corruption keeps its outcome ambiguous."
+  @spec reconcile_ambiguous(Path.t(), String.t() | integer()) :: :accepted | :failed | {:ambiguous, term()}
+  def reconcile_ambiguous(path, event_id), do: reconcile_ambiguous(path, event_id, &{:ok, &1})
+
+  @spec reconcile_ambiguous(Path.t(), String.t() | integer(), (map() -> {:ok, term()} | {:error, term()})) ::
+          :accepted | :failed | {:ambiguous, term()}
+  def reconcile_ambiguous(path, event_id, validator) do
+    case replay(path, validator) do
+      {:ok, records, nil} -> reconcile_records(path, records, event_id)
+      {:ok, _records, corruption} -> {:ambiguous, corruption}
+      {:error, reason} -> {:ambiguous, reason}
+    end
+  end
+
+  defp reconcile_records(path, records, event_id) do
+    if Enum.any?(records, &(Map.get(&1, :event_id, Map.get(&1, "event_id")) == event_id)) do
+      # Seeing bytes is insufficient: establish durability before accepting them.
+      case sync_reconciled_file(path) do
+        :ok -> :accepted
+        {:error, reason} -> {:ambiguous, reason}
+      end
+    else
+      :failed
+    end
+  end
+
+  defp sync_reconciled_file(path) do
+    with {:ok, fd} <- :file.open(path, [:read, :write, :binary, :raw]) do
+      try do
+        :file.sync(fd)
+      after
+        :file.close(fd)
+      end
+    end
+  end
 
   @doc """
   Replays `path`: returns the validated prefix of decoded records — via
