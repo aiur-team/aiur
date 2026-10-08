@@ -784,9 +784,12 @@ defmodule Aiur.Orchestrator do
       when is_binary(pane_id),
       do: Interrupts.pane_interrupt_by_pane_id_call(state, pane_id)
 
+  def handle_call({:tracker_control_result, action, identifier, stage, result}, _from, state),
+    do: PauseResume.tracker_control_call(state, action, identifier, stage, result)
+
   def handle_call({:resume_agent, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: PauseResume.resume_issue_call(state, issue_identifier)
+      do: PauseResume.tracker_control_call(state, :resume, issue_identifier)
 
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
@@ -794,7 +797,7 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:resume_agent_with_receipt, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: PauseResume.resume_issue_with_receipt_call(state, issue_identifier)
+      do: PauseResume.tracker_control_call(state, :resume_with_receipt, issue_identifier)
 
   def handle_call({:resume_agent_with_receipt, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
@@ -814,7 +817,7 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:reset_dispatch_budget, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: PauseResume.reset_dispatch_budget_call(state, issue_identifier)
+      do: PauseResume.tracker_control_call(state, :reset_budget, issue_identifier)
 
   def handle_call({:reset_dispatch_budget, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
