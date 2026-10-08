@@ -125,6 +125,20 @@ not fail a build on line count alone.
   of a giant ships tests for what it extracts, or CI fails the coverage gate
   at its 85% threshold. No change may add a module to `ignore_modules`.
 
+## CI gate
+
+Draft pull requests run `changes`, `lint`, and `build`. The existing path
+classifier only identifies docs-only changes; it does not select affected tests.
+Mark completed work ready for review **before** entering `agent:ci-wait`.
+`ready_for_review` starts the full suite, as do pushes to ready PRs, merge queue
+candidates, integration-branch pushes, and manual workflow dispatches.
+
+A draft's fast gate does not approve its head for human review. Aiur waits for
+the current head's full required-check set, including the configured check
+integrations; missing or skipped required checks remain pending. Ready docs-only
+PRs retain the existing step shortcuts, which publish successful required checks.
+The merge ruleset declaration and its drift guard remain unchanged.
+
 ## Error handling
 
 - **Name your errors.** Return structured, matchable error values
