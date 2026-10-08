@@ -11,6 +11,8 @@ related_plan: ../bucket-1-refactor/MP-R2/plan.md
 related_contract: ../contracts/events-and-replay.md
 ---
 
+Executor decisions recorded in [EXECUTOR-APPROVALS.md](EXECUTOR-APPROVALS.md) (2026-10-08).
+
 # DESIGN-R2 — Kevin: confirm the event bus refactor changes nothing you see, and approve the two configuration/operator surfaces it adds
 
 **Implementation of MP-R2 is blocked until this task is approved.** Research

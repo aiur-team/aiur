@@ -10,6 +10,8 @@ date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R3/plan.md
 ---
 
+Executor decisions recorded in [EXECUTOR-APPROVALS.md](EXECUTOR-APPROVALS.md) (2026-10-08).
+
 # DESIGN-R3 — Kevin: confirm that optional Tailscale changes nothing you see
 
 **MP-R3 implementation is blocked until this task is approved.** Research and

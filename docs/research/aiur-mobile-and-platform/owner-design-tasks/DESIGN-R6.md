@@ -11,6 +11,8 @@ related_plan: ../bucket-1-refactor/MP-R6/plan.md
 linked_design_tasks: DESIGN-E4 (conversation layout and event navigation; anchors are reused there)
 ---
 
+Executor decisions recorded in [EXECUTOR-APPROVALS.md](EXECUTOR-APPROVALS.md) (2026-10-08).
+
 # DESIGN-R6 — Kevin: confirm that the Stream Deck split changes nothing you see
 
 **MP-R6 implementation is blocked until this task is approved.** Research and

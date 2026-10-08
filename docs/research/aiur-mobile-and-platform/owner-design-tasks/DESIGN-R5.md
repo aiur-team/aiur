@@ -11,6 +11,8 @@ related_plan: ../bucket-1-refactor/MP-R5/plan.md
 linked_design_tasks: DESIGN-E5, DESIGN-E6 (voice controls and conversational mode; not decided here)
 ---
 
+Executor decisions recorded in [EXECUTOR-APPROVALS.md](EXECUTOR-APPROVALS.md) (2026-10-08).
+
 # DESIGN-R5 — Kevin: confirm that the voice package changes nothing you see, and approve key setup and "not installed" copy
 
 **MP-R5 implementation is blocked until this task is approved.** Research and

@@ -10,6 +10,8 @@ date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R4/plan.md
 ---
 
+Executor decisions recorded in [EXECUTOR-APPROVALS.md](EXECUTOR-APPROVALS.md) (2026-10-08).
+
 # DESIGN-R4 — Kevin: confirm that the hooks.aiur.dev relay stays a webhook-only tunnel, and approve the relay configuration surface
 
 **MP-R4 implementation is blocked until this task is approved.** Research and

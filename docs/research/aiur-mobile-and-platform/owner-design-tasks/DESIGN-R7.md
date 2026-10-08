@@ -11,6 +11,8 @@ related_plan: ../bucket-1-refactor/MP-R7/plan.md
 linked_design_tasks: DESIGN-E7 (listener-mode selector; the first user-visible use of the adapter's capabilities)
 ---
 
+Executor decisions recorded in [EXECUTOR-APPROVALS.md](EXECUTOR-APPROVALS.md) (2026-10-08).
+
 # DESIGN-R7 — Kevin: confirm that the harness-adapter extraction changes nothing you see
 
 **MP-R7 implementation is blocked until this task is approved.** Research and
