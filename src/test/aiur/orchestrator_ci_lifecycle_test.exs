@@ -5,7 +5,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CiLifecycle, State}
+  alias Aiur.Orchestrator.{CiLifecycle, IssueSync, State}
 
   defmodule RecordingGitHubClient do
     @recipient_key {__MODULE__, :recipient}
@@ -106,19 +106,57 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         draft_stall_alert_loader: fn -> MapSet.new() end
       ]
 
-      state = %State{last_polled_issues: %{previous.id => previous}}
-      first = CiLifecycle.poll_github_ci(state, opts)
+      state = %State{
+        last_polled_issues: %{previous.id => previous},
+        human_review_observed_ids: MapSet.new()
+      }
+
+      candidate_poll =
+        IssueSync.sync_polled_issue_state(
+          state,
+          [],
+          fn _ids -> {:ok, [current]} end,
+          fn _identity, _lifecycle -> :ok end,
+          MapSet.new(["done"]),
+          fn _ -> :ok end,
+          fn _identity, _pending? -> :ok end
+        )
+
+      assert candidate_poll.last_polled_issues == %{}
+
+      first = CiLifecycle.poll_github_ci(candidate_poll, opts)
       assert_received :ci_issue_fetch
-      assert first.last_polled_issues[current.id] == current
+      assert MapSet.member?(first.human_review_observed_ids, current.id)
 
       assert {:ok, [wake]} = ExecutorWakeInbox.wait(500)
       assert wake["topic"] == "ticket.#{current.identifier}.agent.handoff.human_review"
       assert wake["pr_number"] == 3022
       assert wake["head_sha"] == sha
+      assert first.last_polled_issues == %{}
 
       _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
       assert_received :ci_issue_fetch
       assert [^wake] = ExecutorWakeInbox.pending()
+    end
+
+    test "seeds existing human-review issues on the first CI poll without waking" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffBootTest})
+      on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+
+      current = issue(unique_identifier("human-review-at-boot"), "human-review")
+
+      opts = [
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [current]} end,
+        ci_poller: fn _targets, _opts -> {:ok, %{results: [], errors: []}} end,
+        parked_ready_alert_loader: fn -> MapSet.new() end,
+        draft_stall_alert_loader: fn -> MapSet.new() end
+      ]
+
+      first = CiLifecycle.poll_github_ci(%State{}, opts)
+      assert MapSet.member?(first.human_review_observed_ids, current.id)
+      assert ExecutorWakeInbox.wait(50) == :timeout
     end
 
     test "a delivered (displaced) result is inert: no transition, no cache projection" do

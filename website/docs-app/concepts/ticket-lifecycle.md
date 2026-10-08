@@ -577,6 +577,11 @@ Grouped by channel:
 | `ticket.*.pr.opened` | `pr:auto` |
 | `ticket.*.pr.merged` | `pr:auto` |
 | `ticket.*.pr.ready_for_review` | `pr:auto` |
+
+**handoff** — agent-to-Executor review transitions:
+
+| Pattern | Channel |
+| --- | --- |
 | `ticket.*.agent.handoff.human_review` | `handoff:auto` |
 
 **rework**:

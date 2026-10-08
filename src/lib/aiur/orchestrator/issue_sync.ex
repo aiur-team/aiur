@@ -42,31 +42,30 @@ defmodule Aiur.Orchestrator.IssueSync do
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
   def observe_human_review_handoffs(%State{} = state, issues) when is_list(issues) do
-    Enum.reduce(issues, state, &observe_human_review_handoff/2)
-  end
+    current_ids = MapSet.new(for %Issue{state: state_name, id: id} <- issues, DispatchPolicy.state_slug(state_name) == "human-review", do: id)
 
-  defp observe_human_review_handoff(%Issue{state: current_state} = issue, state) do
-    if DispatchPolicy.state_slug(current_state) == "human-review" do
-      maybe_publish_human_review_handoff(issue, state)
-      |> resolve_observed_error_transition_alert(issue)
-      |> put_in([Access.key!(:last_polled_issues), issue.id], issue)
+    if is_nil(state.human_review_observed_ids) do
+      %{state | human_review_observed_ids: current_ids}
     else
-      state
+      new_ids = MapSet.difference(current_ids, state.human_review_observed_ids)
+      state = publish_new_human_review_handoffs(state, issues, new_ids)
+      %{state | human_review_observed_ids: current_ids}
     end
   end
 
-  defp observe_human_review_handoff(_other, state), do: state
+  defp publish_new_human_review_handoffs(state, issues, new_ids) do
+    Enum.reduce(issues, state, fn
+      %Issue{id: id} = issue, state_acc ->
+        if MapSet.member?(new_ids, id) do
+          publish_human_review_handoff(issue)
+          resolve_observed_error_transition_alert(state_acc, issue)
+        else
+          state_acc
+        end
 
-  defp maybe_publish_human_review_handoff(issue, state) do
-    previous_issue = Map.get(state.last_polled_issues, issue.id)
-    previous_state = previous_issue && DispatchPolicy.state_slug(previous_issue.state)
-    previously_observed_error? = MapSet.member?(state.observed_error_alerts, issue.id)
-
-    if (previous_state && previous_state != "human-review") || previously_observed_error? do
-      publish_human_review_handoff(issue)
-    end
-
-    state
+      _issue, state_acc ->
+        state_acc
+    end)
   end
 
   @doc """
