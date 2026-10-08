@@ -31,9 +31,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Snapshot do
           data: data(),
           health: ProviderHealth.t(),
           membership_health: ProviderHealth.t() | nil,
-          status_health: ProviderHealth.t() | nil
+          status_health: ProviderHealth.t() | nil,
+          github_health: ProviderHealth.t() | nil,
+          pack_overlay?: boolean()
         }
 
   @enforce_keys [:scope, :repository, :generation, :health]
-  defstruct [:scope, :repository, :generation, :data, :health, :membership_health, :status_health, authority_epoch: :unknown]
+  defstruct [:scope, :repository, :generation, :data, :health, :membership_health, :status_health, :github_health, pack_overlay?: false, authority_epoch: :unknown]
 end
