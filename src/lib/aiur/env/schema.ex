@@ -232,7 +232,8 @@ defmodule Aiur.Env.Schema do
     {"ERL_EPMD_ADDRESS", type: :string, validate: false, example: false, group: :ambient, purpose: "epmd bind address for distribution."},
     {"GIT_AUTHOR_EMAIL", type: :string, validate: false, example: false, group: :ambient, purpose: "Author email for commits made by agents."},
     {"GIT_AUTHOR_NAME", type: :string, validate: false, example: false, group: :ambient, purpose: "Author name for commits made by agents."},
-    {"CI", type: :string, validate: false, example: false, group: :ambient, purpose: "CI runner signal; suppresses the update notifier."}
+    {"CI", type: :string, validate: false, example: false, group: :ambient, purpose: "CI runner signal; suppresses the update notifier."},
+    {"CLAUDE_CONFIG_DIR", type: :path, validate: false, example: false, group: :ambient, purpose: "Claude CLI profile directory inherited by account-routed sessions."}
   ]
 
   # NimbleOptions.validate!/2 returns the declaration as a keyword list with
