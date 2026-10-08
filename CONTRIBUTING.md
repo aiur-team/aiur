@@ -48,8 +48,15 @@ untrusted input.
   work; concrete modules stay thin; dependencies point one direction
   (concrete → base, never back).
 
-These are guiding targets, not a lint rule — they inform review, and CI does
-not fail a build on line count alone.
+Aim for 200 lines and give a cohesion reason above that target. The required
+`workflow security` job rejects new text paths over 500 lines and growth of
+paths already over 500, comparing Git blobs against the event's base commit.
+Existing oversized files may stay unchanged or shrink; renames and copies to
+new paths must fit the limit. Text becoming binary is rejected. Binary files
+are otherwise skipped, and symlinks are reported without following them.
+Lines are LF bytes plus a non-empty unterminated final line (CRLF counts once).
+Run `python3 scripts/check-file-size.py --base <commit>` locally; without
+`--base`, it uses the merge base with `origin/main`.
 
 ## Reuse before invention
 
