@@ -21,6 +21,25 @@ def validate(value, schema, document, pointer=''):
     def reject(reason):
         raise InvalidManifest(f'{pointer or "/"}: {reason}')
 
+    for child in schema.get('allOf', []):
+        validate(value, child, document, pointer)
+    if 'oneOf' in schema:
+        matches = 0
+        for child in schema['oneOf']:
+            try:
+                validate(value, child, document, pointer)
+                matches += 1
+            except InvalidManifest:
+                pass
+        if matches != 1:
+            reject('expected exactly one alternative')
+    if 'not' in schema:
+        try:
+            validate(value, schema['not'], document, pointer)
+        except InvalidManifest:
+            pass
+        else:
+            reject('forbidden public copy')
     if '$ref' in schema:
         target = document
         for part in schema['$ref'].removeprefix('#/').split('/'):
@@ -52,6 +71,8 @@ def validate(value, schema, document, pointer=''):
     if isinstance(value, list):
         if len(value) < schema.get('minItems', 0):
             reject('too few items')
+        if len(value) > schema.get('maxItems', len(value)):
+            reject('too many items')
         if schema.get('uniqueItems') and len({json.dumps(v, sort_keys=True) for v in value}) != len(value):
             reject('duplicate items')
         for index, child in enumerate(value):
@@ -69,6 +90,8 @@ def validate(value, schema, document, pointer=''):
     if isinstance(value, str):
         if len(value) < schema.get('minLength', 0):
             reject('empty string')
+        if len(value) > schema.get('maxLength', len(value)):
+            reject('string too long')
         if 'pattern' in schema and not re.search(schema['pattern'], value):
             reject('invalid string')
     if type(value) is int:
@@ -85,7 +108,14 @@ def validate(value, schema, document, pointer=''):
 def load_manifest(root):
     document = json.loads((root / 'components.schema.json').read_text())
     manifest = json.loads((root / 'components.json').read_text())
-    validate(manifest, document, document)
+    try:
+        validate(manifest, document, document)
+    except InvalidManifest as error:
+        match = re.match(r'/(components|features)/(\d+)/', str(error))
+        if match:
+            entry = manifest[match[1]][int(match[2])]
+            raise InvalidManifest(f'{entry.get("id", "unnamed")}: {error}') from error
+        raise
     ids = [c['id'] for c in manifest['components']]
     if len(ids) != len(set(ids)):
         raise InvalidManifest('/components: duplicate component id')
@@ -97,7 +127,45 @@ def load_manifest(root):
         for pattern in component['paths']:
             if pattern.startswith('/') or any(p in ('', '.', '..') for p in pattern.split('/')) or '\\' in pattern:
                 raise InvalidManifest(f'/components/{index}/paths: expected repository-relative glob')
+    validate_features(manifest)
+    validate_public_metadata(manifest, document)
     return manifest
+
+
+def validate_public_metadata(manifest, document):
+    forbidden = document['$defs']['publicCopy']['not']['pattern']
+    # Env names intentionally include TOKEN/PASSWORD; source paths and facades are private.
+    for entry in manifest['components'] + manifest['features']:
+        values = entry.get('docs', []) + list(entry.get('install', {}).values())
+        values += entry.get('capabilities', []) + entry.get('config', [])
+        if entry.get('shipped_in'):
+            values.append(entry['shipped_in'])
+        for value in values:
+            if re.search(forbidden.replace(r'|[/\\]', ''), value):
+                raise InvalidManifest(f'{entry["id"]}: forbidden public metadata')
+
+
+def validate_features(manifest):
+    components = {c['id']: c for c in manifest['components']}
+    features = manifest['features']
+    ids = [f['id'] for f in features]
+    if len(ids) != len(set(ids)):
+        raise InvalidManifest('/features: duplicate feature id')
+    for feature in features:
+        fid = feature['id']
+        if not feature['extends'] and not feature['adds']:
+            raise InvalidManifest(f'{fid}: extends/adds must name a component')
+        for target in feature['extends'] + feature['adds']:
+            if target not in components:
+                raise InvalidManifest(f'{fid}: unknown component {target}')
+        for target in feature['adds']:
+            if components[target]['status'] != 'planned':
+                raise InvalidManifest(f'{fid}: adds {target} must be planned')
+    for component in components.values():
+        if component['status'] != 'planned' or component['added_by'].startswith('MP-R'):
+            continue
+        if not any(f['id'] == component['added_by'] and component['id'] in f['adds'] for f in features):
+            raise InvalidManifest(f'{component["id"]}: missing from {component["added_by"]} adds')
 
 
 def source_files(root):
@@ -204,6 +272,13 @@ def format_manifest(manifest):
     ordered['components'] = sorted(manifest['components'], key=lambda c: (c['layer'], c['id']))
     lines = ['{']
     for key, value in ordered.items():
+        if key == 'features':
+            lines.append('  "features": [')
+            lines.extend('    ' + json.dumps(f, ensure_ascii=False) + ',' for f in value)
+            if value:
+                lines[-1] = lines[-1].removesuffix(',')
+            lines.append('  ],')
+            continue
         if key != 'components':
             lines.append(f'  {json.dumps(key)}: {json.dumps(value, ensure_ascii=False)},')
             continue
@@ -211,8 +286,9 @@ def format_manifest(manifest):
         for component in value:
             lines.append('    {')
             groups = [('id', 'name', 'layer', 'kind'), ('paths',),
-                      ('facades', 'facade_pending'), ('requires', 'optional'),
-                      ('owns',), ('prior',)]
+                      ('facades', 'facade_pending'), ('requires', 'optional', 'dependency_kind'),
+                      ('owns',), ('prior',), ('summary', 'status'),
+                      ('install', 'capabilities', 'config', 'env', 'docs', 'added_by')]
             used = {field for group in groups for field in group}
             groups.extend((field,) for field in component if field not in used)
             for group in groups:
