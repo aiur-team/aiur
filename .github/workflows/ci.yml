@@ -24,50 +24,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1) || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
 
-# Job timeouts (#2461).
-#
-# Every job declares an explicit `timeout-minutes`. Without one, GitHub's
-# 6-hour default applies and a hung job — e.g. `coverage (3/4)` in run
-# 32778536520 on PR #2459, stuck 49+ minutes on runner congestion with no
-# automatic recovery — blocks its PR indefinitely with no signal beyond the
-# job sitting `in_progress`.
-#
-# Values are per job, not a single global ceiling: a number generous enough
-# for the slowest job would be useless for the fastest. They were derived on
-# 2026-08-24 from the `started_at`→`completed_at` span of 10 successful runs
-# of this workflow (runs 32786021793, 32785247929, 32784244468, 32783855503,
-# 32778536520, 32778181574, 32778043989, 32780961076, 32780225293,
-# 32779697220 on aiur-team/aiur):
-#
-#   job                    observed max   timeout-minutes
-#   workflow security         ~0.4 min              5
-#   merge ruleset drift       ~0.3 min              5
-#   analytics                 ~0.3 min              5
-#   build                     ~2.0 min             10
-#   lint                      ~3.1 min             15
-#   coverage (1/4..4/4)       ~7.9 min (shard 1)   30
-#   coverage (aggregate)      ~3.0 min             15
-#   quarantined tests         ~2.1 min             15
-#   test                      ~0.5 min             10
-#   dialyzer                  ~2.7 min             15
-#   browser harness           ~8.1 min             30
-#   streamdeck                ~1.5 min             10
-#   layout release smoke      ~2.5 min             20
-#
-# Rule: 3-4x the observed max duration, rounded up to a 5-minute step, with a
-# 5-minute floor. The fastest guard jobs get a 5-minute ceiling (≈12x the
-# observed max) so a hang there is caught quickly rather than after hours. The
-# slowest shard (coverage partition 1, ~8 min) and the browser harness (~8
-# min) drive the 30-minute ceiling, which would have killed the observed hang
-# at ~30 minutes instead of the default six hours while leaving 3.7x headroom
-# over the slowest legitimate run. layout release smoke gets a wider margin
-# (20 vs its ~2.5-min observed max) because it is the only job that installs
-# Chromium and assembles a production release, so a cold-cache run is
-# legitimately slower than the warm-cache sample above.
-#
-# Re-derive from recent runs if a job's profile changes rather than re-guessing:
-#   gh api "repos/aiur-team/aiur/actions/workflows/ci.yml/runs?per_page=30&status=completed"
-# then compare each job's `started_at`/`completed_at` span.
+# Job timeouts (#2461): 3-4x observed duration, rounded to five minutes.
+# Re-measure completed job spans when profiles change. Release smoke has
+# extra headroom for cold Chromium installs and release assembly.
 
 jobs:
   # Drafts run only changes, lint and build. Job-level skips on drafts are
@@ -155,6 +114,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
@@ -184,6 +145,8 @@ jobs:
         run: make test-rename-preflight
       - name: Test config documentation guard
         run: bash scripts/test-check-config-docs.sh
+      - name: Test component manifest guard
+        run: bash scripts/test-check-components.sh
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
@@ -196,6 +159,29 @@ jobs:
         run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
+
+      - name: Test file size gate
+        run: bash scripts/test-check-file-size.sh
+      - name: File size gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) base="$PR_BASE" ;;
+            merge_group) base="$MERGE_BASE" ;;
+            push)
+              base="$PUSH_BEFORE"
+              if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
+            workflow_dispatch)
+              upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo origin/main)"
+              base="$(git merge-base HEAD "$upstream")" ;;
+            *) echo "Unsupported file size gate event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$base"
+          python3 scripts/check-file-size.py --base "$base"
 
   merge-ruleset-drift:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
@@ -270,6 +256,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
+      - name: Every source file belongs to one component
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: python3 scripts/check-components.py
       # Same rationale as check-config-docs: a drift gate nobody has to
       # satisfy guards nothing, so the env example guard lives in the required
       # lint job and runs on every PR. .env.example is generated from the env

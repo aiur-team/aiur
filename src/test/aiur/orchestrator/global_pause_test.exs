@@ -267,7 +267,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       state = base_state(globally_paused: true, running: %{id => paused_entry(id, :global_pause)})
 
       assert {:reply, {:error, :globally_paused}, ^state} =
-               PauseResume.resume_issue_call(state, id)
+               PauseResume.tracker_control_call(state, :resume, id)
 
       assert {:reply, {:error, :globally_paused}, ^state} =
                PauseResume.request_control_call(state, id, :resume, 7)
