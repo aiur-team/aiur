@@ -21,6 +21,20 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
       assert_received {:health_alert, ^failure}
     end
 
+    test "probes a tailnet-only bound host rather than assuming loopback" do
+      assert {:ok, 4_000} =
+               BuildOrderFunnelHealth.check(check_opts(4_000, funnel_status(4_000), bound_host: "100.89.1.2"))
+
+      assert_received {:http_request, "http://100.89.1.2:4000/build-orders/1", 5_000}
+    end
+
+    test "maps wildcard binds to loopback for the local health probe" do
+      assert {:ok, 4_000} =
+               BuildOrderFunnelHealth.check(check_opts(4_000, funnel_status(4_000), bound_host: "::"))
+
+      assert_received {:http_request, "http://127.0.0.1:4000/build-orders/1", 5_000}
+    end
+
     test "keeps a failed tailscale exit as an unknown cause with its exit status" do
       runner = fn "/fake/tailscale", ["funnel", "status", "--json"], 5_000 -> {"denied", 2} end
       failure = %{cause: :unknown, reasons: [{:tailscale_exit, 2}]}
@@ -38,7 +52,7 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
 
     test "keeps invalid Tailscale JSON separate from a genuine target mismatch" do
       runner = fn _executable, _args, _timeout -> {"{broken", 0} end
-      failure = %{cause: :unknown, reasons: [:invalid_funnel_status_json]}
+      failure = %{cause: :unknown, reasons: [:invalid_status_json]}
 
       assert {:error, ^failure} =
                BuildOrderFunnelHealth.check(
@@ -57,7 +71,7 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
         "Web" => %{"dashboard.example.ts.net:443" => %{"Handlers" => %{}}}
       }
 
-      assert {:error, %{cause: :unknown, reasons: [:root_proxy_handler_missing]}} =
+      assert {:error, %{cause: :unknown, reasons: [:funnel_443_root_proxy_missing]}} =
                BuildOrderFunnelHealth.funnel_target_status(status, 4_000)
     end
 
@@ -99,6 +113,7 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
   defp check_opts(port, status, extra \\ []) do
     defaults = [
       bound_port: port,
+      bound_host: "127.0.0.1",
       http_client: fn url, timeout ->
         send(self(), {:http_request, url, timeout})
         {:ok, %Req.Response{status: 401}}
