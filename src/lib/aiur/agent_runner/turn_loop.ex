@@ -208,12 +208,16 @@ defmodule Aiur.AgentRunner.TurnLoop do
         end
 
         Aiur.AgentRunner.write_pause_log(workspace, worker_host)
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, handoff_pause_payload(app_session, workspace, pause_payload))
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} = error ->
         settle_turn_error(turn_context, backend, reason, error)
     end
+  end
+
+  defp handoff_pause_payload(session, cwd, payload) do
+    Map.merge(payload, %{session_id: Map.get(session, :thread_id), account_name: Map.get(session, :account_name), cwd: cwd})
   end
 
   @doc false

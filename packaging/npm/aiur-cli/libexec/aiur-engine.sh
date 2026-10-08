@@ -450,6 +450,9 @@ usage() {
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
+       aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
+       aiur accounts [<harness>] [--json]  list registered accounts
+       aiur logout <harness> <name> [--purge]  remove a backend account
        aiur --bg [--no-dashboard] [--executor] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
@@ -520,6 +523,47 @@ run_init() {
   write_argv "$@"
   export AIUR_ARGV_FILE="$argv_file"
   exec "${release_cmd[@]}"
+}
+
+run_local_cli() {
+  resolve_release
+  build_init_cmd
+  init_argv_file
+  write_argv "$@"
+  export AIUR_ARGV_FILE="$argv_file"
+  exec "${release_cmd[@]}"
+}
+
+run_claude_login() {
+  resolve_release
+  local profile_dir
+  build_init_cmd
+  init_argv_file
+  write_argv "__login_prepare" "${@:2}"
+  export AIUR_ARGV_FILE="$argv_file"
+  profile_dir="$("${release_cmd[@]}")" || return $?
+  [ -n "$profile_dir" ] || { echo "aiur: account profile directory is unavailable" >&2; return 1; }
+  exec env "CLAUDE_CONFIG_DIR=$profile_dir" claude
+}
+
+run_account_login() {
+  local harness="$2"
+  case "$harness" in
+    kimi|deepseek|openrouter) run_local_cli "$@"; return $? ;;
+  esac
+  resolve_release
+  local profile_dir
+  build_init_cmd
+  init_argv_file
+  write_argv "__login_prepare" "$harness" "${@:3}"
+  export AIUR_ARGV_FILE="$argv_file"
+  profile_dir="$("${release_cmd[@]}")" || return $?
+  [ -n "$profile_dir" ] || { echo "aiur: account profile directory is unavailable" >&2; return 1; }
+  case "$harness" in
+    claude) exec env "CLAUDE_CONFIG_DIR=$profile_dir" claude ;;
+    codex) exec env "CODEX_HOME=$profile_dir" codex ;;
+    *) echo "aiur: unsupported account harness: $harness" >&2; return 64 ;;
+  esac
 }
 
 # --- one-shot: --todo (control RPC; requires a running daemon) ----------------
@@ -2621,6 +2665,44 @@ cmd_usage() {
   run_control_rpc "Aiur.AgentControlCLI.usage()"
 }
 
+cmd_accounts() {
+  local json_arg=false harness="" arg encoded expression
+  for arg in "$@"; do
+    case "$arg" in
+      --json)
+        [ "$json_arg" = false ] || die "accounts accepts --json only once"
+        json_arg=true
+        ;;
+      --all)
+        ;;
+      -*)
+        die "accounts accepts an optional harness and --json"
+        ;;
+      *)
+        [ -z "$harness" ] || die "accounts accepts only one harness"
+        harness="$arg"
+        ;;
+    esac
+  done
+
+  resolve_release || return $?
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    # The local one-shot CLI renders the identity and marks usage unavailable.
+    # It never makes a provider request.
+    run_local_cli accounts "$@"
+  else
+    if [ -n "$harness" ]; then
+      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
+      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+    else
+      expression="Aiur.AgentControlCLI.accounts($json_arg)"
+    fi
+    run_control_rpc "$expression"
+  fi
+}
+
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -4093,6 +4175,16 @@ aiur_engine_main() {
       ;;
     init)
       run_init "$@"
+      ;;
+    login)
+      run_account_login "$@"
+      ;;
+    accounts)
+      shift
+      cmd_accounts "$@"
+      ;;
+    logout)
+      run_local_cli "$@"
       ;;
     findings)
       run_findings "$@"

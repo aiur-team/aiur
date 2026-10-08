@@ -76,17 +76,28 @@ defmodule Aiur.Claude.UsageApi do
   """
   @spec fetch(keyword()) :: {:ok, reading()} | {:error, atom()}
   def fetch(opts \\ []) do
+    case fetch_with_metadata(opts) do
+      {:ok, reading, _metadata} -> {:ok, reading}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec fetch_with_metadata(keyword()) :: {:ok, reading(), %{freshness: :fresh | :cached, observed_at: DateTime.t()}} | {:error, atom()}
+  def fetch_with_metadata(opts \\ []) do
     now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
 
-    case cached(now_ms) do
-      {:ok, _reading} = hit -> hit
-      :miss -> fetch_and_cache(opts, now_ms)
+    case cached(now_ms, cache_key(opts)) do
+      {:ok, reading} -> {:ok, reading, %{freshness: :cached, observed_at: cached_observed_at(cache_key(opts), now_ms)}}
+      :miss -> fetch_with_observation(opts, now_ms)
     end
   end
 
   @doc "Drop the cached reading. For tests and for a forced refresh."
   @spec reset_cache() :: :ok
   def reset_cache, do: :persistent_term.erase(@cache_key) && :ok
+
+  @spec reset_cache(term()) :: :ok
+  def reset_cache(key), do: :persistent_term.erase({__MODULE__, :reading, key}) && :ok
 
   defp fetch_and_cache(opts, now_ms) do
     result =
@@ -99,30 +110,54 @@ defmodule Aiur.Claude.UsageApi do
     result
   end
 
+  defp fetch_with_observation(opts, now_ms) do
+    result = fetch_and_cache(opts, now_ms)
+
+    case result do
+      {:ok, reading} -> {:ok, reading, %{freshness: :fresh, observed_at: DateTime.from_unix!(div(now_ms, 1_000), :second)}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp cached_observed_at(key, now_ms) do
+    case :persistent_term.get(key, nil) do
+      %{observed_at_ms: observed_at_ms} -> DateTime.from_unix!(div(observed_at_ms, 1_000), :second)
+      _missing -> DateTime.from_unix!(div(now_ms, 1_000), :second)
+    end
+  end
+
   # The endpoint is tight enough that two calls in quick succession earn a 429,
   # and a 429 yields no reading at all — so an eager caller ends up with
   # strictly less data than a patient one. Hold a successful reading for the
   # operator's configured cadence, and after a 429 keep serving the last good
   # value rather than asking again immediately.
-  defp cached(now_ms) do
-    case :persistent_term.get(@cache_key, nil) do
+  defp cached(now_ms, key) do
+    case :persistent_term.get(key, nil) do
       %{reading: {:ok, _} = reading, fresh_until: until} when until > now_ms -> reading
       _stale_or_absent -> :miss
     end
   end
 
   defp put_cache({:ok, _reading} = result, now_ms, opts) do
-    :persistent_term.put(@cache_key, %{reading: result, fresh_until: now_ms + ttl_ms(opts)})
+    :persistent_term.put(cache_key(opts), %{reading: result, observed_at_ms: now_ms, fresh_until: now_ms + ttl_ms(opts)})
   end
 
-  defp put_cache({:error, :rate_limited}, now_ms, _opts) do
+  defp put_cache({:error, :rate_limited}, now_ms, opts) do
     # Keep any previous good reading, but stop asking for a while.
-    previous = :persistent_term.get(@cache_key, %{})
+    key = cache_key(opts)
+    previous = :persistent_term.get(key, %{})
     reading = Map.get(previous, :reading, {:error, :rate_limited})
-    :persistent_term.put(@cache_key, %{reading: reading, fresh_until: now_ms + @rate_limited_backoff_ms})
+    :persistent_term.put(key, %{reading: reading, observed_at_ms: Map.get(previous, :observed_at_ms, now_ms), fresh_until: now_ms + @rate_limited_backoff_ms})
   end
 
   defp put_cache(_error, _now_ms, _opts), do: :ok
+
+  defp cache_key(opts) do
+    case Keyword.get(opts, :cache_key) do
+      nil -> @cache_key
+      key -> {__MODULE__, :reading, key}
+    end
+  end
 
   defp ttl_ms(opts) do
     case Keyword.get(opts, :ttl_ms) do

@@ -5,6 +5,30 @@ defmodule Aiur.Config.SchemaTest do
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Polling, StringOrMap}
 
+  describe "Claude account configuration" do
+    test "defaults to legacy single-account behavior and accepts selection modes" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.accounts == %{}
+      assert defaults.agent.account_selection == "balance"
+
+      assert {:ok, configured} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "accounts" => %{"claude" => ["default", "max"]},
+                   "account_selection" => "priority"
+                 }
+               })
+
+      assert configured.agent.accounts["claude"] == ["default", "max"]
+      assert configured.agent.account_selection == "priority"
+    end
+
+    test "rejects malformed account lists and unknown selection modes" do
+      assert {:error, _} = Schema.parse(%{"agent" => %{"accounts" => %{"claude" => "max"}}})
+      assert {:error, _} = Schema.parse(%{"agent" => %{"account_selection" => "random"}})
+    end
+  end
+
   describe "agent Mix scheduler cap" do
     test "defaults to four and accepts an explicit override" do
       assert {:ok, defaults} = Schema.parse(%{})
