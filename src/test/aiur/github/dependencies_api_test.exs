@@ -33,8 +33,8 @@ defmodule Aiur.GitHub.DependenciesApiTest do
 
   test "a stale blocked-by read cannot roll back a newer webhook edge list" do
     key = ResourceStore.key(:issue_blocked_by, "owner", "repo", 5)
-    newer = [%{"id" => 80001, "number" => 80, "updated_at" => "2026-10-07T11:00:00Z"}]
-    older = [%{"id" => 90001, "number" => 90, "updated_at" => "2026-10-07T10:00:00Z"}]
+    newer = [%{"id" => 80_001, "number" => 80, "updated_at" => "2026-10-07T11:00:00Z"}]
+    older = [%{"id" => 90_001, "number" => 90, "updated_at" => "2026-10-07T10:00:00Z"}]
 
     request = fn _ ->
       ResourceStore.put_resource(key, newer, version: "2026-10-07T11:00:00Z", etag: "new", source: :webhook)
