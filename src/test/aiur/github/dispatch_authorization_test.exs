@@ -9,6 +9,21 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     :ok
   end
 
+  test "queued + todo is not contradictory" do
+    issue =
+      Aiur.GitHub.Issues.normalize_issue(
+        %{"number" => 42, "title" => "Queued", "state" => "open", "labels" => [%{"name" => "agent:todo"}, %{"name" => "agent:queued"}]},
+        "owner",
+        "repo",
+        "agent"
+      )
+
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+    authorized = authorize_with_events(issue, events, ["trusted"])
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
+  end
+
   # Regression: an allowlisted creator used to short-circuit authorization with
   # no label check at all. Agents file issues with the same credential, so that
   # let an agent create a ticket, label it, and dispatch it with no human in the
