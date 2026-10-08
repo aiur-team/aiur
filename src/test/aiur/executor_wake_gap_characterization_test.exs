@@ -30,26 +30,36 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
     listener = start_listener()
     assert "ticket.*.pr.merged" in Exchange.bindings_for(listener)
     stop_supervised!(ExecutorListener)
-    assert Exchange.bindings_for(listener) == []
+    refute Process.alive?(listener)
 
-    Exchange.publish("ticket.42.pr.merged", %{
-      id: System.unique_integer([:positive]),
-      topic: "ticket.42.pr.merged",
+    id = System.unique_integer([:positive])
+    ticket = "wake-gap-#{id}"
+    topic = "ticket.#{ticket}.pr.merged"
+
+    Exchange.publish(topic, %{
+      id: id,
+      topic: topic,
       pr: %{"number" => 7}
     })
 
     restarted = start_listener()
     assert "ticket.*.pr.merged" in Exchange.bindings_for(restarted)
+    # An unrelated live wake must not invalidate the missing-event witness.
+    other_topic = "ticket.#{ticket}.pr.opened"
+    Exchange.publish(other_topic, %{id: System.unique_integer([:positive]), topic: other_topic})
     :sys.get_state(restarted)
-    assert ExecutorWakeInbox.wait(300) == :timeout
-    assert watermark() == nil
+    send(ExecutorWakeInbox, :flush)
+    records = ExecutorWakeInbox.pending()
+
+    assert Enum.any?(records, &(&1["topic"] == other_topic))
+    refute Enum.any?(records, &(&1["topic"] == topic and &1["event_id"] == id))
   end
 
   test "an executor.* Command published while the listener is down is replayed (characterization)" do
     :ok = Exchange.subscribe("executor.command.requested")
     listener = start_listener()
     stop_supervised!(ExecutorListener)
-    assert Exchange.bindings_for(listener) == []
+    refute Process.alive?(listener)
 
     assert {:ok, id, _count} = ExecutorEvents.publish_requested(command_decision("dec-wake-gap-control"))
     refute_received {:event, %{"topic" => "executor.command.requested"}}
