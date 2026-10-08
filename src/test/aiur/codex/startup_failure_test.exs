@@ -79,7 +79,7 @@ defmodule Aiur.Codex.StartupFailureTest do
   test "failed pruning preserves old records and still appends the newest" do
     path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.failed-prune.startup-failures.ndjson")
     File.mkdir_p!(Path.dirname(path))
-    previous = Enum.map_join(1..50, "", &"{\"attempt_id\":\"attempt-#{&1}\"}\n")
+    previous = Enum.map_join(1..50, "", &~s({"attempt_id":"attempt-#{&1}"}\n))
     File.write!(path, previous)
     directory = Path.dirname(path)
     mode = Bitwise.band(File.stat!(directory).mode, 0o777)

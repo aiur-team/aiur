@@ -51,17 +51,14 @@ defmodule Aiur.Codex.StartupFailure do
 
   defp prune_records(path) do
     # ponytail: rewrite these small records; use streaming if the 50-record limit grows.
-    with {:ok, body} <- File.read(path) do
-      records = String.split(body, "\n", trim: true)
-
-      if length(records) >= 50 do
-        case Aiur.Fs.atomic_write(path, records |> Enum.take(-49) |> Enum.map(&(&1 <> "\n")), mode: 0o600, fsync: true) do
-          :ok -> :ok
-          {:error, reason} -> Logger.warning("Could not prune startup failures: #{inspect(reason)}")
-        end
-      end
+    with {:ok, body} <- File.read(path),
+         records = String.split(body, "\n", trim: true),
+         true <- length(records) >= 50,
+         :ok <- Aiur.Fs.atomic_write(path, records |> Enum.take(-49) |> Enum.map(&(&1 <> "\n")), mode: 0o600, fsync: true) do
+      :ok
     else
-      {:error, reason} -> Logger.warning("Could not read startup failures for pruning: #{inspect(reason)}")
+      false -> :ok
+      {:error, reason} -> Logger.warning("Could not prune startup failures: #{inspect(reason)}")
     end
 
     :ok
