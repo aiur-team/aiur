@@ -63,7 +63,7 @@ defmodule Aiur.Accounts do
   @spec usage(String.t(), String.t()) :: term()
   def usage(harness, name) do
     case account(harness, name) do
-      {:ok, %{profile_dir: dir}} ->
+      {:ok, %{profile_dir: dir}} when is_binary(dir) ->
         shim_usage(shim!(harness), dir)
 
       {:ok, %{api_key_env: _env_name}} ->
