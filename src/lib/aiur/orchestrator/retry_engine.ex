@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.GitHub.Errors
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
@@ -623,9 +624,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               # does not round-trip it — the retry path reclassifies the failure
               # it sees at dispatch time rather than trusting stale metadata.
               delay_type: metadata[:delay_type],
-              local_budget_hold: metadata[:local_budget_hold],
-              open_pr_fetcher: metadata[:open_pr_fetcher],
-              commit_ci_status_fetcher: metadata[:commit_ci_status_fetcher]
+              local_budget_hold: metadata[:local_budget_hold]
             })
       }
     end
@@ -680,9 +679,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           priority: Map.get(retry_entry, :priority),
           issue_state: Map.get(retry_entry, :issue_state),
           terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false),
-          rework_head_sha: Map.get(retry_entry, :rework_head_sha),
-          open_pr_fetcher: Map.get(retry_entry, :open_pr_fetcher),
-          commit_ci_status_fetcher: Map.get(retry_entry, :commit_ci_status_fetcher)
+          rework_head_sha: Map.get(retry_entry, :rework_head_sha)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -935,46 +932,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   def move_exhausted_issue_to_error_state(_issue_id, _identifier, _exhaustion_reason), do: :ok
 
-  defp rework_handoff_state(identifier, original_head, metadata)
-       when is_binary(original_head) and original_head != "" do
-    fetcher = Map.get(metadata, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+  defp rework_handoff_state(identifier, original_head, metadata) do
+    opts = [
+      open_pr_fetcher: Map.get(metadata, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1),
+      commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &Aiur.GitHub.Client.fetch_commit_ci_status/1)
+    ]
 
-    with {:ok, %{"head" => %{"sha" => current_head}}} <- fetcher.(identifier),
-         true <- is_binary(current_head) and current_head != "" and current_head != original_head do
-      {:ok, ci_handoff_state(current_head, metadata)}
-    else
-      {:error, _reason} -> {:ok, "human-review"}
-      _ -> :none
-    end
-  end
-
-  defp rework_handoff_state(identifier, :lookup_failed, metadata) do
-    fetcher = Map.get(metadata, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
-
-    case fetcher.(identifier) do
-      {:ok, %{"head" => %{"sha" => current_head}}} when is_binary(current_head) and current_head != "" ->
-        {:ok, ci_handoff_state(current_head, metadata)}
-
-      {:error, _reason} ->
-        {:ok, "human-review"}
-
-      _ ->
-        :none
-    end
-  end
-
-  defp rework_handoff_state(_identifier, _original_head, _metadata), do: :none
-
-  defp ci_handoff_state(head_sha, metadata) do
-    fetcher = Map.get(metadata, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
-
-    case fetcher.(head_sha) do
-      {:ok, %{check_runs: runs, commit_status: status}} ->
-        pending_runs? = Enum.any?(runs, &(&1["status"] in ["in_progress", "queued"]))
-        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
-
-      _ ->
-        "ci-wait"
+    case ReworkGate.stopped_agent_handoff(identifier, original_head, opts) do
+      {:handoff, state_name} -> {:ok, state_name}
+      :none -> :none
     end
   end
 

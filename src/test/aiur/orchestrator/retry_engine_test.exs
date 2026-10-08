@@ -378,6 +378,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert retry.tracker_identity == identity
       assert retry.priority == 1
       assert retry.issue_state == "in-progress"
+      refute Map.has_key?(retry, :open_pr_fetcher)
+      refute Map.has_key?(retry, :commit_ci_status_fetcher)
       Process.cancel_timer(retry.timer_ref)
     end
 
@@ -1151,6 +1153,23 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       })
 
       assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 200
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
+    end
+
+    test "a nil baseline with an open PR on retry exhaustion hands off to CI wait" do
+      memory_tracker_for_retry()
+      identifier = "MT-REWORK-NIL-BASELINE"
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-rework-nil-baseline", Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: no-op continuation",
+        rework_head_sha: nil,
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "existing-head"}}} end,
+        commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [%{"status" => "pending"}], commit_status: %{}}} end,
+        delay_type: :failure
+      })
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "ci-wait"}, 200
       refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
     end
 

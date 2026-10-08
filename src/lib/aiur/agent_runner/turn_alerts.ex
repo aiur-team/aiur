@@ -97,7 +97,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   exactly the `Logger.info`-only pattern. The alert is ticket-scoped and
   needs-attention, so it lands in the alert ledger and the central
   `alerts.ndjson` and shows on the Executor's alert feed. A run that reached
-  the bound without a pushed PR head moves the ticket to `agent:error`.
+  no-op bound keeps its current state except verified rework with no push.
   """
   @spec emit_noop_turn_bound_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def emit_noop_turn_bound_alert(%Issue{} = issue, workspace, worker_host, details) do
@@ -109,7 +109,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     message =
       "Stopped the agent continuation loop on #{issue.identifier} after #{consecutive} consecutive turn(s) " <>
         "that changed nothing (cap #{cap}, last turn ##{turn_number}). Unchanged across those turns: #{unchanged}. " <>
-        "The ticket moved to agent:#{issue.state} because this run had no pushed PR head. " <>
+        "No new PR head was detected. Current state: agent:#{issue.state}. " <>
         "Review the agent's result before redispatching."
 
     Alerts.emit_system(
@@ -120,7 +120,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       message: message,
       reason: message,
       needs_attention: true,
-      severity: "warning"
+      severity: "info"
     )
 
     :ok
@@ -130,7 +130,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   @spec emit_rework_handoff_alert(Issue.t(), Path.t() | nil, String.t() | nil, String.t()) :: :ok
   def emit_rework_handoff_alert(%Issue{} = issue, workspace, worker_host, state) do
     message =
-      "Agent stopped without handing off after pushing rework for #{issue.identifier}; moved the ticket to agent:#{state}."
+      "Agent stopped after pushing work for #{issue.identifier}; moved the ticket to agent:#{state}."
 
     Alerts.emit_system(
       "ticket.#{issue.identifier}.agent.rework_handoff",

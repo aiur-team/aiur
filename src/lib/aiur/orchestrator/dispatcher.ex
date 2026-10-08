@@ -2517,16 +2517,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
       })
     end
 
-    rework? = DispatchPolicy.normalize_issue_state(issue.state) == "rework"
     supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
-    rework_head_sha = if rework?, do: supplied_rework_head_sha || :pending, else: nil
+    rework_head_sha = supplied_rework_head_sha || :pending
 
     runner_context = %{
       attempt: attempt,
       worker_host: worker_host,
       worker_generation: worker_generation,
       lifecycle_attempt_id: lifecycle_attempt_id,
-      rework?: rework?,
       rework_head_sha: rework_head_sha
     }
 
@@ -2600,8 +2598,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp start_runner_task(issue, runner, recipient, context, opts) do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-      rework_head_sha = capture_rework_head(issue, context.rework?, context.rework_head_sha, opts)
-      maybe_report_rework_head(recipient, issue, context.rework?, rework_head_sha)
+      rework_head_sha = capture_rework_head(issue, context.rework_head_sha, opts)
+      maybe_report_rework_head(recipient, issue, rework_head_sha)
 
       runner.(issue, recipient,
         attempt: context.attempt,
@@ -2617,10 +2615,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  defp capture_rework_head(_issue, false, initial_head, _opts), do: initial_head
-  defp capture_rework_head(_issue, true, initial_head, _opts) when initial_head != :pending, do: initial_head
+  defp capture_rework_head(_issue, initial_head, _opts) when initial_head != :pending, do: initial_head
 
-  defp capture_rework_head(issue, true, :pending, opts) do
+  defp capture_rework_head(issue, :pending, opts) do
     fetcher = Keyword.get(opts, :rework_head_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
 
     case fetcher.(issue.identifier) do
@@ -2630,10 +2627,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp maybe_report_rework_head(recipient, issue, true, rework_head_sha),
+  defp maybe_report_rework_head(recipient, issue, rework_head_sha) when is_pid(recipient),
     do: send(recipient, {:worker_runtime_info, issue.id, %{rework_head_sha: rework_head_sha}})
 
-  defp maybe_report_rework_head(_recipient, _issue, false, _rework_head_sha), do: :ok
+  defp maybe_report_rework_head(_recipient, _issue, _rework_head_sha), do: :ok
 
   # An agent that files a blocking Command ends its run, so the answer usually
   # arrives when no worker runs the ticket and its delivery fails (#2713). The

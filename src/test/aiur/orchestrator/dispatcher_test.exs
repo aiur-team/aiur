@@ -3007,6 +3007,30 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert next_state.running[issue.id].rework_head_sha == "head-before-first-attempt"
     end
 
+    test "captures a baseline PR head for a first active-state run" do
+      test_pid = self()
+      issue = %Issue{id: "active-first", identifier: "repo#active-first", state: "in-progress"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:active_first_runner, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          1,
+          nil,
+          runner: runner,
+          rework_head_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "existing-head"}}} end
+        )
+
+      assert_receive {:active_first_runner, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "existing-head"
+      assert next_state.running[issue.id].rework_head_sha in [:pending, "existing-head"]
+    end
+
     test "carries the current fallback fence rather than a stale redispatch snapshot" do
       issue = %Issue{id: "fallback-retry", identifier: "repo#fallback-retry", state: "todo", selected_backend: "claude"}
 
