@@ -120,16 +120,17 @@ defmodule Aiur.ExecutorEvents do
   @spec listen(keyword()) :: no_return()
   def listen(opts \\ []) do
     topic = Keyword.get(opts, :topic, @default_topic)
+    patterns = [topic]
     :ok = subscribe(topic)
-    patterns = subscriptions()
+    cursor = if String.starts_with?(topic, "executor."), do: last_seen_event_id() || 0, else: subscription_cursor(topic)
 
     try do
       Enum.each(patterns, &Exchange.subscribe/1)
 
-      case replay(patterns, last_seen_event_id()) do
+      case replay(patterns, cursor) do
         {:ok, events} ->
-          Enum.each(events, &deliver/1)
-          receive_events(patterns)
+          Enum.each(events, &deliver(&1, topic))
+          receive_events(patterns, topic)
 
         {:error, reason} ->
           raise "Executor event journal is unavailable: #{inspect(reason)}"
@@ -153,26 +154,28 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  defp receive_events(patterns) do
+  defp receive_events(patterns, cursor_topic) do
     receive do
       {:event, event} ->
         topic = Map.get(event, :topic) || Map.get(event, "topic")
 
         if matches_any?(patterns, topic) do
-          deliver(event)
+          if not is_integer(event_id(event)) or event_id(event) > listener_cursor(cursor_topic) do
+            deliver(event, cursor_topic)
+          end
         end
 
-        receive_events(patterns)
+        receive_events(patterns, cursor_topic)
     end
   end
 
-  defp deliver(event) do
+  defp deliver(event, cursor_topic) do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
 
     if is_binary(topic) and String.starts_with?(topic, "executor.") do
       deliver_executor_event(event)
     else
-      deliver_wake_event(event)
+      deliver_wake_event(event, cursor_topic)
     end
   end
 
@@ -185,10 +188,14 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  defp deliver_wake_event(event) do
+  defp deliver_wake_event(event, cursor_topic) do
     case ExecutorWakeProjection.project(event) do
-      {:ok, record} -> IO.puts(Jason.encode!(record))
-      :ignore -> :ok
+      {:ok, record} ->
+        IO.puts(Jason.encode!(record))
+        advance_subscription_cursor(cursor_topic, record["wake_id"])
+
+      :ignore ->
+        :ok
     end
   end
 
@@ -250,6 +257,32 @@ defmodule Aiur.ExecutorEvents do
   end
 
   defp advance_cursor(_id), do: :ok
+
+  defp subscription_cursor(topic) do
+    state = subscription_state()
+    entry = Enum.find(state["subscribed_to"], &(&1["topic"] == topic))
+    Map.get(entry || %{}, "last_seen_event_id", 0)
+  end
+
+  defp listener_cursor(topic) do
+    if String.starts_with?(topic, "executor."), do: last_seen_event_id() || 0, else: subscription_cursor(topic)
+  end
+
+  defp event_id(event), do: Map.get(event, :id) || Map.get(event, "id")
+
+  defp advance_subscription_cursor(topic, id) when is_binary(topic) and is_integer(id) do
+    state = subscription_state()
+
+    subscriptions =
+      Enum.map(state["subscribed_to"], fn
+        %{"topic" => ^topic} = entry -> Map.put(entry, "last_seen_event_id", max(Map.get(entry, "last_seen_event_id", 0), id))
+        entry -> entry
+      end)
+
+    persist_subscription_state(%{state | "subscribed_to" => subscriptions})
+  end
+
+  defp advance_subscription_cursor(_topic, _id), do: :ok
 
   @doc false
   @spec validate_syntax(String.t()) :: :ok | {:error, :invalid_topic}
@@ -495,7 +528,8 @@ defmodule Aiur.ExecutorEvents do
         %{
           "topic" => entry["topic"] || entry[:topic],
           "reason" => entry["reason"] || entry[:reason] || "manual:legacy",
-          "subscription_created_at_event_id" => entry["subscription_created_at_event_id"] || entry[:subscription_created_at_event_id] || 0
+          "subscription_created_at_event_id" => entry["subscription_created_at_event_id"] || entry[:subscription_created_at_event_id] || 0,
+          "last_seen_event_id" => entry["last_seen_event_id"] || entry[:last_seen_event_id] || 0
         }
     end)
   end
