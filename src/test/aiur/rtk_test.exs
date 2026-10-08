@@ -3,6 +3,7 @@ defmodule Aiur.RtkTest do
 
   alias Aiur.Rtk
 
+  @repo_root Path.expand("../../..", __DIR__)
   @rtk "/usr/bin/rtk"
 
   # Stands in for the rtk executable. `responses` maps an argv list to the
@@ -151,5 +152,31 @@ defmodule Aiur.RtkTest do
     test "fails closed when the config cannot be read" do
       refute Rtk.enabled?({:error, :broken})
     end
+  end
+
+  test "the config flag only controls reporting and dispatch has no rtk gate" do
+    schema = File.read!(Path.join(@repo_root, "src/lib/aiur/config/schema/agent.ex"))
+    rtk_module = File.read!(Path.join(@repo_root, "src/lib/aiur/rtk.ex"))
+
+    assert schema =~ "Controls whether the analytics panel reports host-level rtk output"
+    refute schema =~ "Opt-in. rtk compresses shell output"
+
+    assert rtk_module =~ "This module reports rtk status and recorded savings"
+    assert rtk_module =~ "does not enforce `agent.rtk.enabled` at dispatch"
+    refute rtk_module =~ "Admission gate and savings reader"
+    refute rtk_module =~ "Refusing to enable it"
+
+    call_sites =
+      @repo_root
+      |> Path.join("src/lib/**/*.ex")
+      |> Path.wildcard()
+      |> Enum.filter(fn path ->
+        path not in [
+          Path.join(@repo_root, "src/lib/aiur/rtk.ex"),
+          Path.join(@repo_root, "src/lib/aiur_web/live/analytics_live.ex")
+        ] and String.contains?(File.read!(path), "Aiur.Rtk")
+      end)
+
+    assert call_sites == [], "Aiur.Rtk is referenced outside its module and the analytics panel: #{inspect(call_sites)}"
   end
 end
