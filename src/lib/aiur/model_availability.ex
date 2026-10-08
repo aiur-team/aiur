@@ -304,8 +304,8 @@ defmodule Aiur.ModelAvailability do
 
   # An explicit limit (a usage-limit refusal) that follows the previous one
   # within the repeat window extends the streak; the second and later ones set
-  # an exponential hold, capped at the unknown-reset ttl. Window-only
-  # observations leave the streak and the hold alone.
+  # an exponential hold, capped at the unknown-reset ttl. A positive window
+  # observation that confirms recovery starts the next refusal as a new streak.
   defp record_limit_streak(entry, existing, %{"limited" => true}, now, opts) do
     streak = if repeat_limit?(existing, now), do: Map.get(existing, "limit_streak", 1) + 1, else: 1
     base = Keyword.get(opts, :backoff_base_seconds, @backoff_base_seconds)
@@ -320,7 +320,13 @@ defmodule Aiur.ModelAvailability do
     end
   end
 
-  defp record_limit_streak(entry, _existing, _normalized, _now, _opts), do: entry
+  defp record_limit_streak(entry, _existing, normalized, now, _opts) do
+    if positive_observation?(normalized) and not limited?(entry, now) do
+      Map.drop(entry, ["limit_streak", "backoff_until"])
+    else
+      entry
+    end
+  end
 
   defp repeat_limit?(%{"limit_streak" => streak} = existing, now) when is_integer(streak) and streak > 0 do
     reset_disproved?(existing, now) and
