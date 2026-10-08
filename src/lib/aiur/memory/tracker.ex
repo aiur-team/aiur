@@ -7,6 +7,12 @@ defmodule Aiur.Memory.Tracker do
 
   alias Aiur.Issue
 
+  @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
+  def open_issue_labels(_max_age_ms) do
+    labels = Map.new(issue_entries(), &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
+    {:ok, labels, System.system_time(:millisecond)}
+  end
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: "memory"
 
