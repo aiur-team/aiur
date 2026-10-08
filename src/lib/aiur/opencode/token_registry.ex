@@ -11,6 +11,10 @@ defmodule Aiur.Opencode.TokenRegistry do
   at issuance or through trusted slot attachment. Routing still comes from the request body's `model` field,
   but the bridge must check that identifier against the token's scope.
 
+  Trusted grants persist until token deletion, including when session ensure
+  fails or an identifier detaches. A rebuilt token retains the slot's attached
+  identifiers as its initial scope.
+
   ## Generation counter (slot serve restart overlap)
 
   Each token entry carries its slot, generation and allowed identifiers.
