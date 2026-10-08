@@ -15,11 +15,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   @spec with_time_domain(map(), term()) :: map()
   def with_time_domain(%{} = model, domain) do
     case normalize_time_domain(model, domain) do
-      nil ->
-        model
-
-      {t0, t1} ->
-        with_exact_time_domain(model, {t0, t1})
+      nil -> model
+      {t0, t1} -> with_exact_time_domain(model, {t0, t1})
     end
   end
 
@@ -116,8 +113,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     %{series: series, window: %{start_ms: t0, end_ms: t1} = window, cap: cap, kpis: %{peak_conc: peak}} = model
     h = 220
     {ml, mr, mt, mb} = {30, 14, 16, 26}
-    pw = @w - ml - mr
-    ph = h - mt - mb
+    {pw, ph} = {@w - ml - mr, h - mt - mb}
     vmax = max(cap || 0, peak) |> max(1)
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
@@ -514,11 +510,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     out |> Enum.reverse() |> Enum.join()
   end
 
-  defp poly([{x, y} | rest]) do
-    "M #{r2(x)},#{r2(y)} " <> Enum.map_join(rest, " ", fn {a, b} -> "L #{r2(a)},#{r2(b)}" end) <> " Z"
-  end
-
   defp poly([]), do: ""
+  defp poly(pts), do: line(pts) <> " Z"
 
   defp line([{x, y} | rest]) do
     "M #{r2(x)},#{r2(y)} " <> Enum.map_join(rest, " ", fn {a, b} -> "L #{r2(a)},#{r2(b)}" end)

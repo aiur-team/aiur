@@ -6632,9 +6632,7 @@ defmodule AiurWeb.DashboardLiveTest do
   defp cached_payloads_fresh?(cache, max_age_ms) do
     now_ms = System.monotonic_time(:millisecond)
 
-    cache
-    |> :sys.get_state()
-    |> Map.fetch!(:entries)
+    :sys.get_state(cache).entries
     |> Map.values()
     |> Enum.all?(&(now_ms - &1.loaded_at_ms < max_age_ms))
   end

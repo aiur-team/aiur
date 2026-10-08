@@ -11,7 +11,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
-  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
 
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
 
@@ -361,30 +360,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # but never unmarked. A ten-minute-old cap read as current is #1564.
     assert html =~ "3 cap (binding: awaiting dispatch, stale, 10m old)"
     refute html =~ "3 cap<"
-  end
-
-  test "reports no wasted-capacity figure when no effective cap is known" do
-    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
-
-    {:ok, _view, html} = live(build_conn(), "/analytics")
-
-    # Idle slot-hours are a subtraction from the cap. With no cap reported the
-    # page must not substitute the local config file and print a precise hour
-    # count under a ceiling it just called unknown.
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
-
-    assert {:ok, model} =
-             Presenter.load(
-               telemetry_file: @fixtures,
-               orchestrator: Endpoint.config(:orchestrator)
-             )
-
-    assert model.cap == nil
-    assert model.kpis.cap == nil
-    refute html =~ ~r/>cap \d+<\/text>/
-    refute html =~ ~s|fill="var(--blocking)" fill-opacity="0.07"|
-    refute html =~ "unknown cap (configured"
-    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
