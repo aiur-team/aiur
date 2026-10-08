@@ -14,6 +14,7 @@ defmodule AiurWeb.StaticAssets do
     aiur-dom-svg-layout
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
+    build-home
     build-order-grid-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
