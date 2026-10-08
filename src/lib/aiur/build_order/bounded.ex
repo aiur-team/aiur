@@ -167,6 +167,22 @@ defmodule Aiur.BuildOrder.Bounded do
 
   def chat_route_for(_value, _identity), do: :error
 
+  @doc "Validates a planning document route for the selected repository and member."
+  @spec planning_document_route_for(term(), term()) :: {:ok, String.t()} | :error
+  def planning_document_route_for(value, %{owner: owner, repository: repository, identifier: identifier}) do
+    with {:ok, {owner, repository}} <- github_repository_components(owner, repository),
+         {:ok, identifier} <- github_issue_identifier(identifier),
+         {:ok, value, %URI{path: path, query: nil, fragment: nil}} <- destination_route(value),
+         ["", "build-order-documents", ^owner, ^repository, root, ^identifier] <- String.split(path, "/"),
+         {:ok, _root} <- github_issue_identifier(root) do
+      {:ok, value}
+    else
+      _ -> :error
+    end
+  end
+
+  def planning_document_route_for(_value, _identity), do: :error
+
   @doc "Validates a canonical Commands detail route or its legacy Decisions equivalent."
   @spec commands_route(term()) :: {:ok, String.t()} | :error
   def commands_route(value) do
