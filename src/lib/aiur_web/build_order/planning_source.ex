@@ -23,8 +23,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Member, Metadata, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.TicketDetail.Sanitizer
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
@@ -48,7 +49,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
            end),
          ticket when is_map(ticket) <- Enum.find(pack.tickets, &(ticket_identity(pack, &1).identifier == member_number)),
          body when is_binary(body) <- draft_body(ticket.document_path, Path.dirname(pack.path)),
-         {:ok, sanitized} <- Aiur.BuildOrder.TicketDetail.Sanitizer.sanitize(body, 64_000) do
+         {:ok, sanitized} <- Sanitizer.sanitize(body, 64_000) do
       {:ok, sanitized}
     else
       _missing -> :error
@@ -253,7 +254,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp pack_metadata(member, ticket) do
-    metadata = Aiur.BuildOrder.Metadata.parse(pack_labels(ticket))
+    metadata = Metadata.parse(pack_labels(ticket))
     metadata = if is_integer(ticket.phase) and ticket.phase >= 0, do: %{metadata | phase: ticket.phase, warnings: Enum.reject(metadata.warnings, &(&1.code == :invalid_phase))}, else: metadata
     %{member | metadata: metadata}
   end

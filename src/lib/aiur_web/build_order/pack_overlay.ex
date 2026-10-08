@@ -39,8 +39,6 @@ defmodule AiurWeb.BuildOrder.PackOverlay do
   defp merge_catalog(%Snapshot{} = live, planning),
     do: %{planning | pack_overlay?: true, authority_epoch: live.authority_epoch, generation: generation(live) + generation(planning)}
 
-  defp merge_catalog(_live, planning), do: planning
-
   defp merge_selected({:ok, %Snapshot{} = live}, %Snapshot{data: nil} = planning),
     do: {:ok, %{live | generation: generation(live) + generation(planning), pack_overlay?: true}}
 

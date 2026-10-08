@@ -174,18 +174,18 @@ defmodule AiurWeb.BuildOrderLive do
 
   @impl true
   def handle_event("toggle-build-order-epic", %{"lane" => lane}, socket) do
-    case socket.assigns.model do
-      %{nodes: nodes} ->
-        if Enum.any?(nodes, &(&1.plan.lane == lane)) do
-          lanes = socket.assigns.collapsed_epics
-          lanes = if lane in lanes, do: List.delete(lanes, lane), else: [lane | lanes]
-          {:noreply, assign(socket, :collapsed_epics, lanes)}
-        else
-          {:noreply, socket}
-        end
+    nodes =
+      case socket.assigns.model do
+        %{nodes: nodes} -> nodes
+        _loading -> []
+      end
 
-      _loading ->
-        {:noreply, socket}
+    if Enum.any?(nodes, &(&1.plan.lane == lane)) do
+      lanes = socket.assigns.collapsed_epics
+      lanes = if lane in lanes, do: List.delete(lanes, lane), else: [lane | lanes]
+      {:noreply, assign(socket, :collapsed_epics, lanes)}
+    else
+      {:noreply, socket}
     end
   end
 

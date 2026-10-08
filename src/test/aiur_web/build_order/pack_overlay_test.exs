@@ -2,10 +2,11 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
   use ExUnit.Case, async: false
 
   import Phoenix.LiveViewTest
-  alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.GitHub.Config
   alias Aiur.TrackerIdentity
-  alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, PackOverlay, RouteState, SourceRuntime}
+  alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, PackOverlay, RouteState, SourceRuntime, Truncation}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderGridModel}
 
@@ -114,7 +115,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     socket = SourceRuntime.accept_projection(socket, selected)
     assert length(socket.assigns.model.nodes) == 2
     member = hd(selected.data.members)
-    next = %{selected | generation: 4, data: %{selected.data | members: [%{member | lifecycle: Aiur.BuildOrder.Lifecycle.from_github("OPEN", nil)}]}}
+    next = %{selected | generation: 4, data: %{selected.data | members: [%{member | lifecycle: Lifecycle.from_github("OPEN", nil)}]}}
     socket = SourceRuntime.accept_projection(socket, next)
     snapshot = RouteState.selected_snapshot(socket.assigns.route_state)
     assert length(snapshot.data.members) == 2
@@ -168,7 +169,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
   end
 
   test "distinct packs sharing a live root remain ambiguous", %{path: path, pack: pack, catalog: catalog} do
-    repository = Aiur.GitHub.Config.repo()
+    repository = Config.repo()
     [owner, repo] = String.split(repository, "/")
     {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I_99", "number" => 99}, {owner, repo}, {owner, repo})
     other = path <> ".second"
@@ -192,7 +193,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     snapshot = PackOverlay.catalog(%{catalog | data: %{catalog.data | entries: [root]}})
     [merged] = snapshot.data.entries
     assert merged.member_count == 2
-    assert AiurWeb.BuildOrder.Truncation.notice(merged) =~ "100 of 501"
+    assert Truncation.notice(merged) =~ "100 of 501"
   end
 
   defp render_graph(snapshot, model, collapsed \\ []) do

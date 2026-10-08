@@ -13,7 +13,8 @@ defmodule AiurWeb.BuildOrder.DataSource do
   """
 
   alias Aiur.AgentPubSub
-  alias Aiur.BuildOrder.{AdHocSource, GraphProjection, TicketDetailCoordinator, TicketHistoryProvider}
+  alias Aiur.BuildOrder.{AdHocSource, GraphProjection, PackStatus, TicketDetailCoordinator, TicketHistoryProvider}
+  alias Aiur.CurrentRunMembership
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
@@ -92,8 +93,8 @@ defmodule AiurWeb.BuildOrder.DataSource do
     with :ok <- call(dependency(opts, :ticket_activity, TicketActivity), :subscribe, []),
          :ok <- call(dependency(opts, :agent_pubsub, AgentPubSub), :subscribe_running, []),
          :ok <- call(dependency(opts, :adhoc_source, AdHocSource), :subscribe, []),
-         :ok <- Aiur.CurrentRunMembership.subscribe(),
-         do: Aiur.BuildOrder.PackStatus.subscribe()
+         :ok <- CurrentRunMembership.subscribe(),
+         do: PackStatus.subscribe()
   end
 
   @spec load_sources(keyword()) :: %{activity: term(), execution: term(), adhoc: term()}

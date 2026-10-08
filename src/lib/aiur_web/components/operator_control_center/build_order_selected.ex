@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.Diagnostic
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
-  alias AiurWeb.BuildOrder.RouteState
+  alias AiurWeb.BuildOrder.{RouteState, Truncation}
   alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderStatus, BuildOrderUsage}
 
   attr(:route_state, :any, required: true)
@@ -158,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     case RouteState.catalog_snapshot(route_state) do
       %Snapshot{data: %{entries: roots}} ->
         root = Enum.find(roots, &same_locator?(&1.identity, identity))
-        AiurWeb.BuildOrder.Truncation.notice(root)
+        Truncation.notice(root)
 
       _missing ->
         nil
