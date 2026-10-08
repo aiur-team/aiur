@@ -20,9 +20,11 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator
 
-  @issue_number "2337"
+  @issue_number "2817"
 
   defp base_state do
     %State{
@@ -69,24 +71,37 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
     }
   end
 
-  # The shape the poll/webhook pipes publish: a live CHANGES_REQUESTED review
-  # against the current head (not stale, not an APPROVED pull request), by a
-  # CODEOWNERS-trusted author.
-  defp changes_requested_review_event(issue) do
-    %{
-      author_trusted?: true,
-      comment: %{
+  # Begin with GitHub's webhook payload and pass it through the same pure
+  # normalizer used by webhook deliveries. Trust is added after normalization
+  # because production stamps it from CODEOWNERS before publishing the event.
+  defp changes_requested_review_event do
+    payload = %{
+      "action" => "submitted",
+      "repository" => %{"full_name" => "aiur-team/aiur"},
+      "sender" => %{"login" => "its-everdred"},
+      "review" => %{
+        "id" => 5_424_656_936,
+        "user" => %{"login" => "its-everdred"},
         "state" => "CHANGES_REQUESTED",
         "body" => "please fix the ranking test",
         "submitted_at" => "2026-08-22T21:30:00Z"
       },
-      pull_request: %{
+      "pull_request" => %{
+        "number" => 2936,
+        "head" => %{"ref" => "aiur/2817-review-transition"},
         "review_decision" => "CHANGES_REQUESTED",
         "head_committed_at" => "2026-08-22T20:00:00Z"
-      },
-      issue_state_fetcher: fn _ids -> {:ok, [issue]} end,
-      open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 2337}} end
+      }
     }
+
+    assert {:publish, [{topic, normalized, _opts}]} =
+             Normalizer.normalize("pull_request_review", payload, repo: "aiur-team/aiur")
+
+    normalized
+    |> Map.put(:topic, topic)
+    |> Map.put(:author_trusted?, true)
+    |> Map.put(:issue_state_fetcher, fn _ids -> {:ok, [human_review_issue()]} end)
+    |> Map.put(:open_pr_fetcher, fn _issue_key -> {:ok, %{"number" => 2936}} end)
   end
 
   test "a CHANGES_REQUESTED review moves a human-review ticket to rework" do
@@ -96,12 +111,11 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
     Application.put_env(:aiur, :memory_tracker_recipient, self())
 
     state = base_state()
-    issue = human_review_issue()
-    event = changes_requested_review_event(issue)
+    event = changes_requested_review_event()
 
     log =
       capture_log(fn ->
-        CommentWake.maybe_transition_idle_issue_to_rework(state, @issue_number, :pr_review, event, 1)
+        assert {:noreply, _state} = Orchestrator.handle_info({:event, event}, state)
       end)
 
     # The rework write is a real tracker mutation, not just a routed event.
@@ -109,6 +123,8 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
     refute log =~ "ignored for idle issue"
     refute log =~ ":no_open_pr"
     refute log =~ ":stale_review"
+    assert log =~ "trusted changes-requested comment wake entered: ticket=#{@issue_number}"
+    assert log =~ "comment_id=5424656936 route=idle_candidate"
   end
 
   test "an APPROVED review does not move a human-review ticket to rework" do
@@ -118,10 +134,9 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
     Application.put_env(:aiur, :memory_tracker_recipient, self())
 
     state = base_state()
-    issue = human_review_issue()
 
     event =
-      changes_requested_review_event(issue)
+      changes_requested_review_event()
       |> Map.put(:comment, %{"state" => "APPROVED", "body" => "nice work", "submitted_at" => "2026-08-22T21:30:00Z"})
       |> Map.put(:pull_request, %{"review_decision" => "APPROVED", "head_committed_at" => "2026-08-22T20:00:00Z"})
 

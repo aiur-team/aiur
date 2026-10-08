@@ -102,6 +102,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
       topic: "ticket.#{@issue_number}.pr.review_comment",
       author_trusted?: true,
       comment: %{
+        "id" => 5_424_650_936,
         "state" => "CHANGES_REQUESTED",
         "body" => "two blockers before this can merge",
         "submitted_at" => "2026-09-26T04:09:44Z"
@@ -160,6 +161,100 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
 
     # …and the retry writes the label the operator used to write by hand.
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+  end
+
+  test "records trusted formal review arrival with the running-entry shape" do
+    issue = human_review_issue()
+
+    event =
+      changes_requested_review_event(issue, %{})
+      |> Map.update!(:comment, &Map.put(&1, "body", "private reviewer text"))
+
+    log =
+      capture_log(fn ->
+        CommentWake.maybe_reactivate_on_comment(
+          base_state(completed_running_entry()),
+          @issue_number,
+          :pr_review,
+          event
+        )
+      end)
+
+    assert log =~
+             "trusted changes-requested comment wake entered: ticket=#{@issue_number} comment_id=5424650936 route=running_entry running_status=:completed attempt_id=\"ticket-2814:test\""
+
+    refute log =~ "private reviewer text"
+  end
+
+  # Future guard: this trust-gate behavior already passes on main; retain it to
+  # protect formal review routing across the CI-wait transition.
+  test "future guard: a trusted changes-requested review moves a ci-wait ticket to rework" do
+    issue = %Issue{human_review_issue() | state: "ci-wait", labels: ["agent:ci-wait"]}
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    event =
+      changes_requested_review_event(issue, %{
+        pull_request: %{"review_decision" => "CHANGES_REQUESTED"},
+        open_pr_fetcher: fn issue_key ->
+          send(self(), {:open_pr_lookup, issue_key})
+          {:ok, %{"number" => 337, "head" => %{"sha" => "52617e7"}}}
+        end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      })
+
+    CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
+
+    assert_receive {:open_pr_lookup, @issue_number}, 2_000
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+  end
+
+  test "same-head review refusal records a lifecycle point before refusing the state write" do
+    test_pid = self()
+
+    state = %{
+      base_state(completed_running_entry())
+      | rework_attempts: %{{@issue_number, "52617e7"} => State.rework_attempt_limit()}
+    }
+
+    event = %{
+      topic: "ticket.#{@issue_number}.pr.review_comment",
+      author_trusted?: true,
+      comment: %{"id" => 5_424_650_936, "state" => "COMMENTED", "body" => "please fix"},
+      pull_request: %{"review_decision" => "REVIEW_REQUIRED"},
+      open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 337, "head" => %{"sha" => "52617e7"}}} end,
+      unresolved_threads_fetcher: fn _pr -> {:ok, [%{"isResolved" => false}]} end,
+      comment_update_issue_state_fun: fn _issue, _state ->
+        send(self(), {:unexpected_state_write, @issue_number})
+        :ok
+      end,
+      lifecycle_recorder: fn kind, attributes, _opts -> send(test_pid, {:lifecycle, kind, attributes}) end
+    }
+
+    CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
+
+    assert_receive {:lifecycle, :lifecycle, attributes}, 1_000
+    assert attributes.event == "comment_wake_skipped"
+    assert attributes.outcome == "skipped"
+    assert attributes.reason_class == "rework_attempt_limit_reached"
+    assert attributes.author_trusted
+    assert attributes.source_id == "comment:5424650936"
+    refute Map.has_key?(attributes, :body)
+    refute_receive {:unexpected_state_write, @issue_number}, 0
+  end
+
+  # Future guard: untrusted reviews are already refused on main; preserve the
+  # explicit authorization regression check.
+  test "future guard: an untrusted changes-requested review remains rejected" do
+    issue = human_review_issue()
+    event = changes_requested_review_event(issue, %{author_trusted?: false})
+
+    state = base_state(completed_running_entry())
+
+    capture_log(fn ->
+      assert CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event) == state
+    end)
+
+    refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 0
   end
 
   test "a refused changes-requested review on a completed running entry raises attention" do

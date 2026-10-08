@@ -39,7 +39,10 @@ defmodule Aiur.Orchestrator.CommentWake do
           pos_integer()
         ) :: State.t()
   def maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
-    case State.find_running_by_identifier(state.running, issue_number) do
+    running_entry = State.find_running_by_identifier(state.running, to_string(issue_number))
+    log_review_wake_entry(issue_number, event, running_entry)
+
+    case running_entry do
       # An already-running entry (PR-anchored or legacy) resumes its SAME
       # session — a follow-up comment on a PR-anchored agent's PR resolves here
       # (identifier == to_string(pr#)) and never re-dispatches.
@@ -48,6 +51,26 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       _ ->
         PrAnchored.maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
+    end
+  end
+
+  # `comment_received` is recorded when a GitHub event is published, before
+  # Exchange delivery. Keep a correlated, body-free breadcrumb at the
+  # orchestrator entry point so a published review can be distinguished from
+  # one that actually reached the running-entry lookup (#2817).
+  defp log_review_wake_entry(issue_number, event, running_entry) do
+    if trusted_comment_event?(event) and changes_requested_review?(event) do
+      comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+      comment_id = if is_map(comment), do: Map.get(comment, :id) || Map.get(comment, "id")
+      route = if is_map(running_entry), do: "running_entry", else: "idle_candidate"
+      control_status = get_in(running_entry || %{}, [:control, :status])
+      attempt_id = Map.get(running_entry || %{}, :telemetry_attempt_id)
+
+      Logger.info(
+        "trusted changes-requested comment wake entered: ticket=#{issue_number} " <>
+          "comment_id=#{inspect(comment_id)} route=#{route} " <>
+          "running_status=#{inspect(control_status)} attempt_id=#{inspect(attempt_id)}"
+      )
     end
   end
 
@@ -599,6 +622,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     case idle_rework_decision(state, issue_number, event) do
       {:skip, reason} ->
+        record_comment_wake_skip(issue_number, nil, source, event, reason)
         emit_idle_comment_refusal(issue_number, reason)
 
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
@@ -640,6 +664,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             |> seed_idle_comment_wake_event(issue_number, event)
 
           {{:skip, reason}, state} ->
+            record_comment_wake_skip(issue_number, nil, source, event, reason)
             emit_idle_comment_refusal(issue_number, reason)
 
             Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
@@ -809,9 +834,25 @@ defmodule Aiur.Orchestrator.CommentWake do
   defp protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt) do
     cond do
       not trusted_comment_event?(event) ->
+        record_comment_wake_skip(
+          issue_number,
+          Map.get(running_entry, :telemetry_attempt_id),
+          source,
+          event,
+          :untrusted_author
+        )
+
         state
 
       benign_review_pass_comment?(event) ->
+        record_comment_wake_skip(
+          issue_number,
+          Map.get(running_entry, :telemetry_attempt_id),
+          source,
+          event,
+          :benign_review_pass_comment
+        )
+
         state
 
       true ->
@@ -860,7 +901,14 @@ defmodule Aiur.Orchestrator.CommentWake do
             schedule_comment_rework_retry(protected_state, issue_number, source, event, attempt, reason)
 
           {{:skip, reason}, _state} ->
-            refuse_active_comment_rework(protected_state, issue_number, source, event, reason)
+            refuse_active_comment_rework(
+              protected_state,
+              issue_number,
+              source,
+              event,
+              reason,
+              Map.get(running_entry, :telemetry_attempt_id)
+            )
         end
     end
   end
@@ -879,8 +927,9 @@ defmodule Aiur.Orchestrator.CommentWake do
   # construction a reviewer asked for a change and the ticket did not move, the
   # review will never be delivered again, and an operator is the only thing that
   # can release it.
-  defp refuse_active_comment_rework(%State{} = state, issue_number, source, event, reason) do
+  defp refuse_active_comment_rework(%State{} = state, issue_number, source, event, reason, attempt_id) do
     context = "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+    record_comment_wake_skip(issue_number, attempt_id, source, event, reason)
 
     if changes_requested_review?(event) do
       Logger.warning("#{source} refused rework for a changes-requested review: #{context}")
@@ -971,11 +1020,13 @@ defmodule Aiur.Orchestrator.CommentWake do
     cond do
       not retryable_comment_rework_failure?(reason) ->
         Logger.warning("#{source} rework transition failed permanently: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
+        record_comment_wake_skip(issue_number, nil, source, event, {:permanent_failure, reason})
 
         state
 
       attempt >= max_attempts ->
         Logger.warning("#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
+        record_comment_wake_skip(issue_number, nil, source, event, {:retry_exhausted, reason})
 
         state
 
@@ -1164,6 +1215,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         dispatch_reworked_comment_issue(state, issue)
 
       {:skip, reason} ->
+        record_comment_wake_skip(identifier, nil, :pr_review, event, reason)
         Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
         Orchestrator.schedule_poll_cycle_start()
@@ -1311,7 +1363,7 @@ defmodule Aiur.Orchestrator.CommentWake do
            Map.get(running_entry, :telemetry_attempt_id)
          ) do
       {:ok, state} ->
-        revalidate_comment_reactivation(state, running_entry, issue_number, source)
+        revalidate_comment_reactivation(state, running_entry, issue_number, source, event: event)
 
       {{:skip, reason}, state} ->
         # A skipped *label write* is not automatically a skipped *wake*. The
@@ -1342,8 +1394,19 @@ defmodule Aiur.Orchestrator.CommentWake do
 
           state
           |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
-          |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
+          |> revalidate_comment_reactivation(running_entry, issue_number, source,
+            require_state: "rework",
+            event: event
+          )
         else
+          record_comment_wake_skip(
+            issue_number,
+            Map.get(running_entry, :telemetry_attempt_id),
+            source,
+            event,
+            reason
+          )
+
           Alerts.emit_custom(
             "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue",
             "Comment on inactive issue #{issue_number} was ignored (#{inspect(reason)})",
@@ -1426,10 +1489,10 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   # A rework-attempt bound for the comment path: the same head SHA must not
   # re-enter `agent:rework` indefinitely (#2422). When a head has already been
-  # routed to rework `State.rework_attempt_limit/0` times without moving, the
-  # next routing is a stuck condition — raise attention once and stop instead
-  # of looping. `head_sha` is nil when the PR context cannot be read; the bound
-  # then fails open (the rework write proceeds, exactly as before #2422).
+  # routed to rework `State.rework_attempt_limit/0` times without moving, a
+  # sticky or non-review routing signal is a stuck condition — raise attention
+  # once and stop instead of looping. `head_sha` is nil when PR context cannot be read; the bound then
+  # fails open (the rework write proceeds, exactly as before #2422).
   defp write_bounded_comment_rework(
          %State{} = state,
          issue_key,
@@ -1497,6 +1560,30 @@ defmodule Aiur.Orchestrator.CommentWake do
       state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"
       _other -> false
     end
+  end
+
+  # Every terminal gate refusal gets a body-free lifecycle point so a delivered
+  # comment can be followed through the reason it did not change ticket state.
+  # The source id joins this point to the original `comment_received` anchor.
+  defp record_comment_wake_skip(ticket, attempt_id, source, event, reason) do
+    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+    comment_id = if is_map(comment), do: Map.get(comment, :id) || Map.get(comment, "id")
+
+    source_id = if not is_nil(comment_id), do: "comment:#{comment_id}"
+
+    metadata = %{
+      source: source,
+      source_id: source_id,
+      comment_id: comment_id,
+      author_trusted: trusted_comment_event?(event),
+      outcome: :skipped,
+      reason_class: Lifecycle.reason_class(reason)
+    }
+
+    recorder = Map.get(event, :lifecycle_recorder)
+    opts = if is_function(recorder, 3), do: [recorder: recorder], else: []
+
+    Lifecycle.record(to_string(ticket), attempt_id, :comment_wake_skipped, :point, metadata, opts)
   end
 
   defp comment_review_state(event) do
@@ -1586,14 +1673,23 @@ defmodule Aiur.Orchestrator.CommentWake do
   defp wake_without_rework_write?(:no_unresolved_review_threads), do: true
   defp wake_without_rework_write?(_reason), do: false
 
-  defp revalidate_comment_reactivation(state, running_entry, issue_number, source, opts \\ []) do
+  defp revalidate_comment_reactivation(state, running_entry, issue_number, source, opts) do
     context = comment_reactivation_context(running_entry, issue_number)
+    event = Keyword.get(opts, :event, %{})
 
     case fetch_current_reactivation_issue(running_entry) do
       {:ok, %Issue{} = refreshed_issue} ->
         reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
+        record_comment_wake_skip(
+          issue_number,
+          Map.get(running_entry, :telemetry_attempt_id),
+          source,
+          event,
+          reason
+        )
+
         Alerts.emit_custom(
           "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue_reactivation",
           "Reactivation for inactive issue #{issue_number} was ignored (#{inspect(reason)})",
@@ -1658,6 +1754,14 @@ defmodule Aiur.Orchestrator.CommentWake do
         if DispatchPolicy.normalize_issue_state(refreshed_issue.state) == required do
           reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source, wrote_rework?: false)
         else
+          record_comment_wake_skip(
+            issue_number,
+            Map.get(running_entry, :telemetry_attempt_id),
+            source,
+            Keyword.get(opts, :event, %{}),
+            {:state_not_rework, refreshed_issue.state}
+          )
+
           Logger.info(
             "#{source} wake without rework write skipped; issue is not #{required}: " <>
               "#{comment_reactivation_context(running_entry, issue_number)} state=#{inspect(refreshed_issue.state)}"
