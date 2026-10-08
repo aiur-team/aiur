@@ -368,6 +368,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       issue_id: issue_id,
       identifier: identifier,
       owner: owner,
+      since: DateTime.utc_now(),
       worker_host: value_from(running, retry, :worker_host),
       retry_attempt: Map.get(running || %{}, :retry_attempt) || Map.get(retry, :attempt),
       prior_work: value_from(running, retry, :prior_work) == true,
@@ -378,9 +379,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp value_from(running, retry, key), do: Map.get(running || %{}, key) || Map.get(retry, key)
 
-  # The runner's initial subscription can release before its contention notice
-  # reaches the orchestrator. Subscribe again only after the row exists, then
-  # store the acknowledged guardian generation that is allowed to release it.
+  # Subscribe after installing the row to catch releases racing the initial contention notice.
   defp synchronize_workspace_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
 
   # The caller already knows the exact generation and subscribes on its own,
