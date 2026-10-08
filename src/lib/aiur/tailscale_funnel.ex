@@ -219,9 +219,6 @@ defmodule Aiur.TailscaleFunnel do
     end
   end
 
-  defp probe_error_cause(%Req.TransportError{reason: reason}) when reason in [:econnrefused, :connection_refused],
-    do: :connection_refused
-
   defp probe_error_cause(_reason), do: :unknown
 
   defp probe_http_target(url, timeout) do
