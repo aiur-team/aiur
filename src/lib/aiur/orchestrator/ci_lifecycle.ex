@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     AgentTeardown,
     DispatchPolicy,
     HumanReview,
+    IssueSync,
     LifecycleFence,
     OperatorMessages,
     PauseResume,
@@ -465,7 +466,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp apply_ci_poll(state, {:ok, issues, cache, observation}, generations, baseline, opts) do
     state = if Keyword.has_key?(opts, :ci_issue_fetcher), do: state, else: put_issue_list_cache(state, cache)
-    state = prune_ci_lifecycle_state(state, issues, opts, baseline)
+    state = state |> prune_ci_lifecycle_state(issues, opts, baseline) |> IssueSync.observe_human_review_handoffs(issues)
 
     current_issues =
       Enum.filter(issues, fn issue ->
