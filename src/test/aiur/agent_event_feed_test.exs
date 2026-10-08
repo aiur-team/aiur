@@ -14,6 +14,7 @@ defmodule Aiur.AgentEventFeedTest do
     %{identifier: "event-feed-#{System.unique_integer([:positive])}"}
   end
 
+  # Characterization guard: the deck already preserves explicit nil/false kinds.
   test "projection defaults an absent event kind and preserves explicit nil and false kinds" do
     logs = StreamdeckLogs.project(%{events: [%{id: 1}, %{id: 2, kind: nil}, %{id: 3, kind: false}]})
     assert Enum.map(logs.events, & &1.id) == [:origin, {:bus, "emit", 1}, {:bus, nil, 2}, {:bus, false, 3}]
