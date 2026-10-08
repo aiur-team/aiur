@@ -297,6 +297,17 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     refute_received {:trace, ^server, :call, {Aiur.Tracker, :fetch_issue_states_by_ids, _args}}
   end
 
+  test "orchestrator shutdown reaps a held tracker task", %{server: server, token: token} do
+    send(server, :run_poll_cycle)
+    receive_barrier({:poll_started, ^token, tracker})
+    refute tracker == server
+    monitor = Process.monitor(tracker)
+    on_exit(fn -> if Process.alive?(tracker), do: Process.exit(tracker, :kill) end)
+    assert GenServer.stop(server) == :ok
+    receive_barrier({:DOWN, ^monitor, :process, ^tracker, :killed})
+    refute Process.alive?(tracker)
+  end
+
   defp await_poll_finished(server) do
     receive_barrier({:poll_state_changed, _payload})
     state = :sys.get_state(server)

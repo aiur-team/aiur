@@ -1,6 +1,7 @@
 ---
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: planned-with-blockers
+artifact_readiness: implementation-ready
+execution: code
 issue: 3213
 ---
 
@@ -32,8 +33,9 @@ Inspected `origin/research/refactor-findings` on 2026-10-08:
 - `U-units/tickets/U4-T01.md` owns pause containment; U4-T02 owns condition-driven
   continuation. Neither removes orchestrator tracker I/O.
 - #3190 / PR #3191 owns caller-side resume/reset-budget reads and writes plus
-  short current-state apply transitions. Declared blocker: consume its actual
-  pushed API only after explicit readiness or merge, without duplicating it.
+  short current-state apply transitions. Consumed validated branch
+  `aiur/3190-reset-budget-and-resume` at `926b949f4` after explicit readiness.
+  PR #3191 should merge first; this PR targets the authoritative `main`.
 - #3203 / PR #3207 owns late-claim message-loss protection. Keep that protection;
   mailbox responsiveness does not make a timed-out claim safe by itself.
 
@@ -87,7 +89,9 @@ orchestrator and public APIs with a barrier-controlled Linear double. Seed a
 message through the public enqueue API before the poll, hold candidate fetching,
 then issue status/resume/reset/enqueue/claim. Release only after the assertions;
 assert exact queue item identity/text and durable budget reset, not just timing.
-The tracker process must differ from the orchestrator. No HTTP or live tickets.
+The tracker process must differ from the orchestrator. GitHub stages use
+`Req.Test` transport doubles; no live network or tickets. Additional real-owner
+tests cover a successful new dispatch, deferred priority writes and shutdown.
 
 Additional tests belong beside affected modules:
 
@@ -121,3 +125,11 @@ Internal refactoring needs no user docs unless an existing documented behavior
 changes. Update `website/docs-app/apis/github.md` if polling order/cadence,
 cache behavior, or write semantics change. Preserve full acceptance; do not
 present a candidate-only extraction as the structural fix.
+
+## Completed local validation
+
+The 45 directly related test files passed: 1,174 tests, zero failures. Compile
+with warnings as errors, formatting and public specs passed. All 36 new tests
+are checked against deliberately reverted production behavior in isolated
+worktrees, with only the intended production file dirty. Full CI remains the
+final gate; manual CLI sandbox resets are prohibited in this agent workspace.
