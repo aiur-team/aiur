@@ -1291,10 +1291,10 @@ defmodule Aiur.Orchestrator.CommentWake do
     event
     |> rework_open_pr_opts()
     |> maybe_put_threads_fetcher(event)
-    |> Keyword.put(:changes_requested_review?, changes_requested_review?(event))
+    |> Keyword.put(:blocking_review_submission?, blocking_review_submission?(event))
   end
 
-  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # A `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review with no inline comments
   # opens no review thread, so #2422's unresolved-thread read reports nothing
   # and the ticket never leaves `agent:human-review` (#2473). The review
   # submission *is* the outstanding finding, so it is handed to the gate as an
@@ -1321,6 +1321,29 @@ defmodule Aiur.Orchestrator.CommentWake do
   # pipes the event through `rework_open_pr_opts/1` first, which reads it with
   # `Map.get/2`, so a non-map event raises there before reaching this function —
   # the same reason the two sibling helpers below carry no such clause either.
+  defp blocking_review_submission?(event) do
+    case {comment_review_state(event), comment_body(event)} do
+      {state, body} when is_binary(state) ->
+        String.upcase(state) == "CHANGES_REQUESTED" or
+          (String.upcase(state) == "COMMENTED" and blocking_review_body?(body))
+
+      _other ->
+        false
+    end
+  end
+
+  # A body-only comment needs an explicit change signal; clean review summaries
+  # must not bypass the unresolved-thread gate merely because they have prose.
+  defp blocking_review_body?(body) when is_binary(body) do
+    body = String.trim(body)
+
+    not String.match?(body, ~r/\b(?:no (?:blockers|blocking (?:findings|issues))|all blockers (?:addressed|resolved))\b/i) and
+      (String.match?(body, ~r/^(?:\s*\#{1,6})?\s*(?:blocking(?: findings| issues)?|blockers?|must fix|changes required)\s*:/im) or
+         String.match?(body, ~r/\b(?:update|rebase|merge|fix)\b[^\n.!?]*\bbefore merge\b/i))
+  end
+
+  defp blocking_review_body?(_body), do: false
+
   defp changes_requested_review?(event) do
     case comment_review_state(event) do
       state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"
@@ -1653,12 +1676,12 @@ defmodule Aiur.Orchestrator.CommentWake do
         # back and an Executor had to send `aiurdev message` by hand (#2601).
         #
         # Scope, precisely — this branch is NOT the #2601 review path. A
-        # body-only `CHANGES_REQUESTED` review carries
-        # `changes_requested_review?: true` into the gate, which answers
+        # body-only blocking review submission carries
+        # `blocking_review_submission?: true` into the gate, which answers
         # `{:ok, :rework}` via #2473's `no_thread_verdict/1` and takes the
         # ordinary write-then-reactivate branch above. What lands here is every
-        # *other* trusted comment on a rework ticket whose threads are clear: a
-        # PR conversation comment, or a `COMMENTED` review with a body. Waking
+        # *other* trusted comment on a rework ticket whose threads are clear:
+        # a PR conversation comment. Waking
         # on those is the intent (#2601's third acceptance criterion), so N
         # distinct trusted comments produce N wakes by design — an operator
         # asking for something twice should be heard twice. What stops that

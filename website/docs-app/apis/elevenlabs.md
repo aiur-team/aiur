@@ -11,6 +11,18 @@ Aiur uses ElevenLabs for Stream Deck and Dashboard voice input, and for spoken D
 
 Aiur holds the credential and makes every ElevenLabs call; neither the Stream Deck sidecar nor the browser ever receives it.
 
+## Who does what
+
+| Stage | Responsibility |
+| --- | --- |
+| Capture | The browser captures through an AudioWorklet; the Stream Deck sidecar uses `parec`. Both stream 16 kHz mono PCM16 audio only while the mic is held or recording is active. |
+| Transport | Audio reaches Aiur over authenticated sockets: `/voice` requires a writable Dashboard session and CSRF proof; `/streamdeck` requires the sidecar token. |
+| Transcription | Aiur's daemon opens the ElevenLabs realtime session with its own key. Microphone audio and the returned text pass through ElevenLabs. |
+| Delivery | Dictated text returns to the Dashboard composer or Stream Deck buffer for review. It reaches the selected agent only when you press Send. |
+| Retention | Aiur writes no microphone audio to disk or logs. Sent text becomes an ordinary chat message. |
+
+Interactive voice chat on the Dashboard sends each finished utterance to the agent without a Send press.
+
 ## API key permissions
 
 | Permission | Needed for | Why |
@@ -47,9 +59,11 @@ The meter can remain unchanged after heavy dictation because it reads the text-t
 
 ## Privacy and secret handling
 
+Voice transcription is cloud processing: while you dictate, your audio and the returned text pass through ElevenLabs; a private network (Tailscale) or loopback-only Dashboard does not change that.
+
 | State | Data path |
 | --- | --- |
-| Dictation held open | Microphone audio goes to ElevenLabs and the returned text goes to the selected agent. |
+| Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer or deck buffer until you press Send. |
 | Dictation released | Capture stops; there is no always-on listener or wake word. |
 | Key absent | No ElevenLabs connection opens and no audio leaves the machine. |
 | Agent process | `ELEVENLABS_API_KEY` is scrubbed from coding-agent environments and never logged. |

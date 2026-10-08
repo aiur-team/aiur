@@ -34,9 +34,19 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     end
   end
 
+  # The slow-tracker cases share the production control budget. Each short
+  # Orchestrator step still fsyncs the control-lifecycle and dispatch-budget
+  # stores, and on a loaded host one step took more than 2.5 s, so a shorter
+  # budget made the final step time out. Each tracker barrier holds the tracker
+  # call for longer than the budget, so a handler that blocks on the tracker
+  # still times out inside the hold.
+  @control_budget_ms 5_000
+  @tracker_hold_ms @control_budget_ms + 1_000
+  @probe_timeout_ms 15_000
+
   setup do
     pid = Process.whereis(Orchestrator)
-    original_state = :sys.get_state(pid)
+    original_state = :sys.get_state(pid, @probe_timeout_ms)
 
     # Control queries read the SnapshotStore read model first, keyed by the
     # shared registered name, so a projection an earlier module published would
@@ -46,7 +56,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
 
     # Poll reads run in tracker tasks. A poll an earlier case started can still
     # be held by that case's slow tracker double; its late result would apply in
-    # the owner during this case and stall the 100 ms control budget. Freeze
+    # the owner during this case and stall the control budget. Freeze
     # polling and cancel in-flight tracker work before each case.
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
@@ -194,7 +204,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   defp use_slow_tracker! do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", max_concurrent_agents: 4, max_dispatches_per_ticket: 10)
 
-    for {key, value} <- [github_client_module: SlowTrackerClient, slow_control_tracker_owner: self(), control_api_call_timeout_ms: 100] do
+    for {key, value} <- [github_client_module: SlowTrackerClient, slow_control_tracker_owner: self(), control_api_call_timeout_ms: @control_budget_ms] do
       previous = Application.get_env(:aiur, key)
       Application.put_env(:aiur, key, value)
 
@@ -208,11 +218,11 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   defp assert_tracker_does_not_hold_control(task, orchestrator) do
     # Hold the real tracker call beyond the control budget, then exercise the
     # mailbox rather than accepting a cached status projection as responsiveness.
-    assert Task.yield(task, 200) == nil
+    assert Task.yield(task, @tracker_hold_ms) == nil
     # Coverage instrumentation may delay scheduling; the tracker barrier stays
     # held for longer than either probe, so a blocking handler still fails.
-    assert is_map(:sys.get_state(orchestrator, 5_000))
-    assert is_list(Orchestrator.status(Orchestrator, 5_000))
+    assert is_map(:sys.get_state(orchestrator, @probe_timeout_ms))
+    assert is_list(Orchestrator.status(Orchestrator, @probe_timeout_ms))
   end
 
   describe "slow tracker control commands" do

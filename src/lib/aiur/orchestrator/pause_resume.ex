@@ -116,79 +116,6 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
 
-  @doc false
-  @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
-  def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    if TrackerTasks.owner?(state) do
-      run_control_effect(state, :reset_budget, issue_identifier)
-    else
-      reset_dispatch_budget_sync(state, issue_identifier)
-    end
-  end
-
-  def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  defp reset_dispatch_budget_sync(state, issue_identifier) do
-    case resolve_reset_issue(state, issue_identifier) do
-      {:ok, issue, state} ->
-        issue_id = issue.id
-        alert_issue_id = if is_binary(issue_id), do: issue_id, else: issue_identifier
-        was_latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue_id))
-        {state, reset_result} = Dispatcher.reset_lifetime_budget(state, issue_id)
-        reply_for_reset(state, issue, alert_issue_id, issue_identifier, was_latched?, reset_result)
-
-      {:error, reason, state} ->
-        emit_reset_failure_alert(reset_alert_issue_id(state, issue_identifier), issue_identifier, reason)
-        {:reply, {:error, reason}, state}
-    end
-  end
-
-  @doc false
-  # Retained for the async surface (the orchestrator's cast handler). The
-  # apply — including the completion/failure alert, which must fire on apply,
-  # not on enqueue — lives in `reset_dispatch_budget_call/2`, so both the
-  # synchronous CLI path and this cast path acknowledge identically.
-  @spec reset_dispatch_budget_cast(State.t(), String.t()) :: State.t()
-  def reset_dispatch_budget_cast(%State{} = state, issue_identifier) do
-    case reset_dispatch_budget_call(state, issue_identifier) do
-      {:reply, _result, next_state} -> next_state
-    end
-  end
-
-  # Resolves the issue a lifetime-budget reset targets. `reset-budget` must
-  # work even when the latched ticket is not in the polled set: a ticket left
-  # in `agent:error` (a non-active state) is dropped from `last_polled_issues`
-  # by the disappearing-issue reconciliation, so the in-memory lookup alone
-  # would resolve a real latched ticket as `:unknown_issue` and the reset
-  # would silently no-op while the CLI reported success (#2435). Fall back to
-  # a direct tracker fetch so the durable latch is cleared for any open ticket,
-  # whether or not it is currently polled.
-  defp resolve_reset_issue(%State{} = state, issue_identifier) do
-    case find_issue_id_by_identifier(state, issue_identifier) do
-      {:ok, issue_id} ->
-        {:ok, Map.get(state.last_polled_issues, issue_id), state}
-
-      {:error, :unknown_issue} ->
-        fetch_reset_issue(state, issue_identifier)
-    end
-  end
-
-  defp fetch_reset_issue(%State{} = state, issue_identifier) do
-    case Tracker.fetch_issue_states_by_ids([issue_identifier]) do
-      {:ok, [%Issue{} = issue | _]} ->
-        state = %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, issue)}
-        {:ok, issue, state}
-
-      {:ok, []} ->
-        {:error, :unknown_issue, state}
-
-      {:error, reason} ->
-        {:error, {:tracker_refresh_failed, reason}, state}
-    end
-  end
-
   defp reset_alert_issue_id(%State{} = state, issue_identifier) do
     case find_issue_id_by_identifier(state, issue_identifier) do
       {:ok, issue_id} -> issue_id
@@ -196,23 +123,14 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp reply_for_reset(state, issue, alert_issue_id, issue_identifier, was_latched?, :ok) do
-    case restore_latched_error_state(state, issue, was_latched?) do
-      {:ok, state} ->
-        Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
-        emit_reset_success_alert(alert_issue_id, issue_identifier)
-        StatusReport.notify_dashboard(state)
-        {:reply, {:ok, :reset}, state}
-
-      {:error, reason} ->
-        Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
-
-        emit_reset_failure_alert(alert_issue_id, issue_identifier, {:state_restore_failed, reason})
-        {:reply, {:error, {:state_restore_failed, reason}}, state}
-    end
+  defp reply_for_reset(state, issue, alert_issue_id, issue_identifier, :ok) do
+    Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
+    emit_reset_success_alert(alert_issue_id, issue_identifier)
+    StatusReport.notify_dashboard(state)
+    {:reply, {:ok, :reset}, state}
   end
 
-  defp reply_for_reset(state, _issue, alert_issue_id, issue_identifier, _was_latched?, {:error, reason}) do
+  defp reply_for_reset(state, _issue, alert_issue_id, issue_identifier, {:error, reason}) do
     Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
 
     emit_reset_failure_alert(alert_issue_id, issue_identifier, {:budget_reset_failed, reason})
@@ -242,33 +160,6 @@ defmodule Aiur.Orchestrator.PauseResume do
       event_source: :system
     )
   end
-
-  # A lifetime-latched ticket is durably moved to `agent:error` when it trips
-  # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
-  # so clearing the budget alone leaves the ticket undispatchable. Restore a
-  # latched error ticket to `todo` (the "pick it up again" state) so
-  # `reset-budget` actually returns it to the board (#1453 review P2c).
-  #
-  # The restore deliberately writes `todo`, never `rework`: a lifetime dispatch
-  # latch is an exhaustion of retry budget, not a reviewer's rejection, so a
-  # `rework` verdict would be a lie — and on a ticket with no open PR it would
-  # strand the ticket in a state nothing selects (#2075).
-  defp restore_latched_error_state(state, %Issue{state: tracker_state} = issue, true) do
-    if DispatchPolicy.normalize_issue_state(tracker_state) == "error" and is_binary(issue.identifier) do
-      case Tracker.update_issue_state(issue.identifier, "todo") do
-        :ok ->
-          refreshed = %{issue | state: "todo"}
-          {:ok, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      {:ok, state}
-    end
-  end
-
-  defp restore_latched_error_state(state, _issue, _was_latched?), do: {:ok, state}
 
   defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
     case Enum.find(state.last_polled_issues, fn
@@ -337,7 +228,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       :ok ->
         # A poll or another control may have updated the issue while the write ran.
         state = if state.last_polled_issues[issue.id] == issue, do: put_in(state.last_polled_issues[issue.id], %{issue | state: "todo"}), else: state
-        reply_for_reset(state, issue, issue.id, identifier, false, :ok)
+        reply_for_reset(state, issue, issue.id, identifier, :ok)
 
       {:error, reason} ->
         emit_reset_failure_alert(issue.id, identifier, {:state_restore_failed, reason})
@@ -345,6 +236,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
+  # Global-hold-wins: while the daemon is globally paused, an individual resume
+  # cannot override the single switch. Unpause the daemon to resume agents.
   defp tracker_control_step(%State{globally_paused: true} = state, action, _identifier, _stage, _result)
        when action in [:resume, :resume_with_receipt],
        do: {:reply, {:error, :globally_paused}, state}
@@ -459,6 +352,16 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
+  # A lifetime-latched ticket is durably moved to `agent:error` when it trips
+  # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
+  # so clearing the budget alone leaves the ticket undispatchable. Restore a
+  # latched error ticket to `todo` (the "pick it up again" state) so
+  # `reset-budget` actually returns it to the board (#1453 review P2c).
+  #
+  # The restore deliberately writes `todo`, never `rework`: a lifetime dispatch
+  # latch is an exhaustion of retry budget, not a reviewer's rejection, so a
+  # `rework` verdict would be a lie — and on a ticket with no open PR it would
+  # strand the ticket in a state nothing selects (#2075).
   defp reset_resolved_issue(state, identifier, issue) do
     latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id))
     {state, result} = Dispatcher.reset_lifetime_budget(state, issue.id)
@@ -466,7 +369,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     if result == :ok and latched? and DispatchPolicy.normalize_issue_state(issue.state) == "error" do
       tracker_io(state, :reset_budget, identifier, {:restored, issue}, :update_issue_state, [issue.identifier, "todo"])
     else
-      reply_for_reset(state, issue, issue.id, identifier, false, result)
+      reply_for_reset(state, issue, issue.id, identifier, result)
     end
   end
 
@@ -494,28 +397,6 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp tracker_refresh_error({:ok, []}, missing), do: missing
   defp tracker_refresh_error({:error, reason}, _missing), do: {:tracker_refresh_failed, reason}
   defp tracker_refresh_error(_result, _missing), do: {:tracker_refresh_failed, :invalid_tracker_issue}
-
-  @spec resume_issue_call(State.t(), String.t()) :: {:reply, term(), State.t()}
-  # Global-hold-wins: while the daemon is globally paused, an individual resume
-  # cannot override the single switch. Unpause the daemon to resume agents.
-  def resume_issue_call(%State{globally_paused: true} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    {:reply, {:error, :globally_paused}, state}
-  end
-
-  def resume_issue_call(%State{} = state, issue_identifier) do
-    guard_control_call(state, :resume, issue_identifier, fn ->
-      {reply, state} = resume_issue(state, issue_identifier)
-      StatusReport.notify_dashboard(state)
-      {:reply, reply, state}
-    end)
-  end
-
-  @spec resume_issue_with_receipt_call(State.t(), String.t()) :: {:reply, term(), State.t()}
-  def resume_issue_with_receipt_call(%State{} = state, issue_identifier) do
-    {:reply, reply, state} = resume_issue_call(state, issue_identifier)
-    {:reply, attach_resume_receipt(reply, state, issue_identifier), state}
-  end
 
   defp attach_resume_receipt({:ok, :resumed} = reply, state, issue_identifier) do
     with %{issue: %{id: issue_id}} <- State.find_running_by_identifier(state.running, issue_identifier),

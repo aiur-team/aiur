@@ -309,7 +309,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
         persist_ci_lifecycle_state(%{
           state
-          | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}
+          | ci_lifecycle:
+              state.ci_lifecycle
+              |> Map.put(:approved_heads, approved_heads)
+              |> Map.update(:passed_heads, %{}, &Map.delete(&1, target))
         })
 
       _ ->
@@ -324,7 +327,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       CIApprovalStore.save(
         state.ci_lifecycle.approved_heads,
         state.ci_lifecycle.test_failure_heads,
-        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{}),
+        Map.get(state.ci_lifecycle, :passed_heads, %{})
       )
 
     state
@@ -1284,26 +1288,25 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Human review is a terminal operator disposition for the head under review,
-  # including inherited CI failures the operator explicitly dismissed before the
-  # handoff. A CI poll may retain a ci-wait issue snapshot captured before the
-  # human-review label is written, so the persisted approved head is also
-  # authoritative when the tracker projection is stale. Only a failure on a head
-  # review has not seen supersedes that disposition.
+  # Legacy anchors also include operator-dismissed failures. Only a recorded CI
+  # pass proves that a same-head failure in human-review is new repair work.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
-    # Returning a PR to draft withdraws the review handoff, even when its head is unchanged.
-    Map.get(result, :draft?) != true and
-      (ci_head_approved?(state, issue, result) or
-         (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result)))
-  end
+    target = ci_target_for_issue(issue)
+    approved_head = Map.get(state.ci_lifecycle.approved_heads, target)
+    passed_head = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> Map.get(target)
+    observed_head = Map.get(result, :head_sha)
 
-  defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
-    case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
-      {reviewed_head, observed_head} when is_binary(reviewed_head) and is_binary(observed_head) ->
-        reviewed_head != observed_head
-
-      _ ->
+    cond do
+      Map.get(result, :draft?) == true ->
         false
+
+      HumanReview.human_review_state?(effective_ci_state(issue)) ->
+        is_nil(approved_head) or
+          (ci_head_approved?(state, issue, result) and
+             (is_nil(passed_head) or passed_head != observed_head))
+
+      true ->
+        ci_head_approved?(state, issue, result)
     end
   end
 
@@ -1321,12 +1324,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     )
   end
 
-  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha})
+  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha} = result)
        when is_binary(head_sha) and head_sha != "" do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
         approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
-        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
+        ci_lifecycle = Map.put(state.ci_lifecycle, :approved_heads, approved_heads)
+
+        ci_lifecycle =
+          if Map.get(result, :decision) == :passed do
+            Map.update(ci_lifecycle, :passed_heads, %{target => head_sha}, &Map.put(&1, target, head_sha))
+          else
+            ci_lifecycle
+          end
+
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
 
       _ ->
         state
@@ -1381,6 +1393,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> Enum.filter(&is_binary/1)
 
     approved_heads = prune_ci_map(state.ci_lifecycle.approved_heads, targets, baseline.approved_heads)
+    passed_heads = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> prune_ci_map(targets, Map.get(baseline, :passed_heads, %{}))
     test_failure_heads = prune_ci_map(state.ci_lifecycle.test_failure_heads, targets, baseline.test_failure_heads)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
 
@@ -1400,6 +1413,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> resolve_departed_parked_ready_alerts(targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
+         passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
          poll_cache == existing_poll_cache do
       state
@@ -1407,6 +1421,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_lifecycle =
         state.ci_lifecycle
         |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:passed_heads, passed_heads)
         |> Map.put(:test_failure_heads, test_failure_heads)
         |> Map.put(:poll_cache, poll_cache)
 

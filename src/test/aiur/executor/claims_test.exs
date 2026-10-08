@@ -34,6 +34,56 @@ defmodule Aiur.Executor.ClaimsTest do
     assert {:ok, %{"id" => "agent-b", "role" => "owner"}} = Claims.claim("agent-b", opts)
   end
 
+  test "takeover demotes the expired owner and renewal stays read-only", %{opts: opts} do
+    past = DateTime.add(DateTime.utc_now(), -2 * Claims.lease_ttl_ms(), :millisecond)
+    {:ok, _} = Claims.claim("agent-a", Keyword.put(opts, :now, past))
+    assert {:ok, %{"id" => "agent-b", "role" => "owner"}} = Claims.claim("agent-b", opts)
+    assert Enum.find(Claims.entries(opts), &(&1["id"] == "agent-a"))["role"] == "observer"
+    assert {:ok, %{"role" => "observer"}} = Claims.renew("agent-a", opts)
+    assert {:error, {:not_owner, %{"id" => "agent-b"}}} = Claims.record_acknowledgement("agent-a", 1, opts)
+    assert Enum.count(Claims.entries(opts), &(&1["role"] == "owner" and Claims.live?(&1, DateTime.utc_now()))) == 1
+  end
+
+  test "expired legacy owner cannot renew while a successor owns the stream", %{opts: opts} do
+    past = DateTime.add(DateTime.utc_now(), -2 * Claims.lease_ttl_ms(), :millisecond)
+    {:ok, expired} = Claims.claim("agent-a", Keyword.put(opts, :now, past))
+    {:ok, successor} = Claims.claim("agent-b", opts)
+    Aiur.JsonStore.write!(opts[:path], %{"consumers" => %{"agent-a" => expired, "agent-b" => successor}})
+    assert {:error, :not_owner} = Claims.renew("agent-a", opts)
+    assert Enum.find(Claims.entries(opts), &(&1["id"] == "agent-a")) == expired
+    assert {:ok, ^successor} = Claims.owner(opts)
+  end
+
+  test "observer renewal extends its lease (compatibility guard)", %{opts: opts} do
+    now = DateTime.utc_now()
+    {:ok, observer} = Claims.observe("observer", Keyword.put(opts, :now, now))
+    {:ok, _} = Claims.claim("owner", Keyword.put(opts, :now, now))
+    assert {:ok, renewed} = Claims.renew("observer", Keyword.put(opts, :now, DateTime.add(now, 1)))
+    assert renewed["role"] == "observer"
+    assert renewed["lease_expires_at"] > observer["lease_expires_at"]
+  end
+
+  @tag capture_log: true
+  test "legacy acknowledgement and revoke select latest claim then id", %{opts: opts} do
+    now = DateTime.utc_now()
+    {:ok, older} = Claims.claim("agent-z", Keyword.put(opts, :now, now))
+    newer = older |> Map.put("id", "agent-a") |> Map.put("claimed_at", DateTime.to_iso8601(DateTime.add(now, 1)))
+
+    for candidate <- [newer, Map.put(newer, "claimed_at", older["claimed_at"])] do
+      winner = if candidate["claimed_at"] == older["claimed_at"], do: "agent-z", else: "agent-a"
+      loser = if winner == "agent-z", do: "agent-a", else: "agent-z"
+
+      for _ <- 1..20 do
+        Aiur.JsonStore.write!(opts[:path], %{"consumers" => %{"agent-z" => older, "agent-a" => candidate}})
+        assert {:ok, %{"id" => ^winner}} = Claims.owner(opts)
+        assert {:error, {:not_owner, %{"id" => ^winner}}} = Claims.record_acknowledgement(loser, 1, opts)
+        assert {:ok, %{"id" => ^winner, "cursor_at_last_ack" => 2}} = Claims.record_acknowledgement(winner, 2, opts)
+        assert {:error, :not_owner} = Claims.revoke(loser, opts)
+        assert {:ok, %{"id" => ^winner, "role" => "revoked"}} = Claims.revoke(winner, opts)
+      end
+    end
+  end
+
   test "revoking a live owner is explicit and must name that owner", %{opts: opts} do
     {:ok, _entry} = Claims.claim("agent-a", opts)
 

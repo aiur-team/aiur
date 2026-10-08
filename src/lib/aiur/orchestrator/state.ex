@@ -28,6 +28,8 @@ defmodule Aiur.Orchestrator.State do
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
+            optional(:sample_id) => reference() | integer() | nil,
+            optional(:sampled_at_ms) => integer() | nil,
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()
@@ -69,6 +71,7 @@ defmodule Aiur.Orchestrator.State do
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
+            passed_heads: map(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
@@ -239,6 +242,7 @@ defmodule Aiur.Orchestrator.State do
     human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
+      passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},

@@ -247,6 +247,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     %{
       approved_heads: %{},
+      passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: poll_cache,
