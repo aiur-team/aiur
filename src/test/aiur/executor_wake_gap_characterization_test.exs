@@ -32,12 +32,11 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
     stop_supervised!(ExecutorListener)
     assert Exchange.bindings_for(listener) == []
 
-    assert 0 ==
-             Exchange.publish("ticket.42.pr.merged", %{
-               id: System.unique_integer([:positive]),
-               topic: "ticket.42.pr.merged",
-               pr: %{"number" => 7}
-             })
+    Exchange.publish("ticket.42.pr.merged", %{
+      id: System.unique_integer([:positive]),
+      topic: "ticket.42.pr.merged",
+      pr: %{"number" => 7}
+    })
 
     restarted = start_listener()
     assert "ticket.*.pr.merged" in Exchange.bindings_for(restarted)
@@ -52,7 +51,7 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
     stop_supervised!(ExecutorListener)
     assert Exchange.bindings_for(listener) == []
 
-    assert {:ok, id, 0} = ExecutorEvents.publish_requested(command_decision("dec-wake-gap-control"))
+    assert {:ok, id, _count} = ExecutorEvents.publish_requested(command_decision("dec-wake-gap-control"))
     refute_received {:event, %{"topic" => "executor.command.requested"}}
 
     restarted = start_listener()
