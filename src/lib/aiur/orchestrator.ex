@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator do
 
   alias Aiur.{Alerts, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
+  alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
@@ -713,6 +714,10 @@ defmodule Aiur.Orchestrator do
 
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
+
+  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
+    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  end
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 
