@@ -1315,7 +1315,7 @@ defmodule Aiur.AgentControlCLI do
         |> Enum.reject(&(&1 == ""))
         |> Enum.map(&reset_budget_one/1)
 
-      exit_marker(if Enum.any?(results, &match?({:error, _}, &1)), do: 1, else: 0)
+      exit_marker(results |> Enum.map(&control_result_exit_code/1) |> Enum.max(fn -> 0 end))
     end)
   end
 
@@ -3295,6 +3295,16 @@ defmodule Aiur.AgentControlCLI do
 
   defp not_running_message do
     "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+  end
+
+  # A GenServer.call timeout does not cancel a mutation already in the mailbox.
+  defp print_failure(action, status, :timeout) when action in [:resume, :reset_budget] do
+    operation = if action == :resume, do: "resume", else: "reset lifetime dispatch budget for"
+
+    control_error(
+      "aiur: outcome unknown for #{operation} #{display_identifier(status)}: the orchestrator did not answer in time " <>
+        "and may still apply the request. Check the ticket status and log before retrying."
+    )
   end
 
   defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do
