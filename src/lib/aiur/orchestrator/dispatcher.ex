@@ -190,7 +190,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
         |> dispatch_fun.()
 
       {:error, reason, state} ->
-        TrackerHealth.log_tracker_preflight_error(reason)
         emit_tracker_preflight_alert(state, reason)
     end
   end
@@ -819,6 +818,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()
   def emit_tracker_preflight_alert(%State{} = state, reason) do
+    TrackerHealth.log_tracker_preflight_error(reason)
     state = put_tracker_preflight_hold(state, reason)
 
     case tracker_preflight_alert_context(reason) do
