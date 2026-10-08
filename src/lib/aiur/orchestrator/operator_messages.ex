@@ -136,29 +136,29 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec claim_next_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item(server, issue_identifier) when is_binary(issue_identifier),
-    do: queue_api_call(server, {:claim_next_queue_item, issue_identifier})
+    do: queue_api_call(server, {:claim_next_queue_item, issue_identifier}, :infinity)
 
   @spec claim_next_checkpoint_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_checkpoint_queue_item(server, issue_identifier)
       when is_binary(issue_identifier),
-      do: queue_api_call(server, {:claim_next_checkpoint_queue_item, issue_identifier})
+      do: queue_api_call(server, {:claim_next_checkpoint_queue_item, issue_identifier}, :infinity)
 
   @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_blocker_critical_events_digest(server, issue_identifier)
       when is_binary(issue_identifier),
-      do: queue_api_call(server, {:claim_blocker_critical_events_digest, issue_identifier})
+      do: queue_api_call(server, {:claim_blocker_critical_events_digest, issue_identifier}, :infinity)
 
   @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, issue_identifier)
       when is_binary(issue_identifier),
-      do: queue_api_call(server, {:claim_next_operator_queue_item, issue_identifier})
+      do: queue_api_call(server, {:claim_next_operator_queue_item, issue_identifier}, :infinity)
 
   @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_operator_response(server, identifier, command) when is_binary(command) and command != "" do
-    queue_api_call(server, {:claim_operator_response, identifier, command})
+    queue_api_call(server, {:claim_operator_response, identifier, command}, :infinity)
   end
 
   @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
@@ -1096,8 +1096,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     :exit, _ -> {:error, :unavailable}
   end
 
-  defp queue_api_call(server, request) do
-    GenServer.call(server, request, 5_000)
+  # A timed-out claim can still mark an item delivered after its caller abandoned the receipt.
+  defp queue_api_call(server, request, timeout \\ 5_000) do
+    GenServer.call(server, request, timeout)
   catch
     :exit, _ -> {:error, :unavailable}
   end

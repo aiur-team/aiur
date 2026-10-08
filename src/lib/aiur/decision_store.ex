@@ -472,6 +472,16 @@ defmodule Aiur.DecisionStore do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
+  @doc "Returns whether an optional agent question, with no open blocking Command, explains a ticket's self-pause."
+  @spec nonblocking_question_pause?(String.t(), GenServer.server(), timeout()) ::
+          {:ok, boolean()} | {:error, :store_unavailable}
+  def nonblocking_question_pause?(ticket_identifier, server \\ __MODULE__, timeout \\ 100)
+      when is_binary(ticket_identifier) do
+    GenServer.call(server, {:nonblocking_question_pause, ticket_identifier}, timeout)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
   @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
   @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
   def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
@@ -1088,6 +1098,16 @@ defmodule Aiur.DecisionStore do
         |> Enum.sort()
 
       {:reply, {:ok, ids}, state}
+    else
+      {:reply, {:error, :store_unavailable}, state}
+    end
+  end
+
+  def handle_call({:nonblocking_question_pause, ticket_identifier}, _from, state) do
+    if readable?(state.health) do
+      decisions = Enum.filter(Map.values(state.current), &(&1.ticket.identifier == ticket_identifier))
+      suppress? = Enum.any?(decisions, &open_nonblocking_agent_question?/1) and not Enum.any?(decisions, &open_blocking_command?/1)
+      {:reply, {:ok, suppress?}, state}
     else
       {:reply, {:error, :store_unavailable}, state}
     end
@@ -1806,6 +1826,17 @@ defmodule Aiur.DecisionStore do
        do: true
 
   defp open_blocking_command?(%Decision{}), do: false
+
+  defp open_nonblocking_agent_question?(%Decision{
+         decision_status: status,
+         blocking: false,
+         kind: kind,
+         source: %{agent_id: agent_id}
+       })
+       when status in [:open, :deferred] and kind != "legacy_attention" and is_binary(agent_id) and agent_id != "",
+       do: true
+
+  defp open_nonblocking_agent_question?(%Decision{}), do: false
 
   defp persist_dismissal(decision, actor, state) do
     case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
