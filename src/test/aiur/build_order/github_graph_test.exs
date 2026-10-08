@@ -6,7 +6,18 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   alias Aiur.BuildOrder.GitHubGraph.Queries
   alias Aiur.BuildOrder.GitHubGraph.TestAdapter, as: GitHubGraph
 
+  alias AiurWeb.BuildOrder.Truncation
+
   @repository {"owner", "repo"}
+
+  test "a root beyond the selected read budget reports the truncated catalog count" do
+    root = root(1)
+    members = Enum.map(2..101, &catalog_member/1)
+    node = Map.put(root, "subIssues", connection(members, 501, has_next?: true, cursor: "more"))
+    assert {:ok, %{candidate: %{entries: [entry]}}} = GitHubGraph.fetch_catalog(base_opts(catalog_response([node], 1)))
+    assert Truncation.notice(entry) =~ "100 of 501 members"
+    assert {:error, %{error: :member_overflow}} = GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [], 501, has_next?: true, cursor: "more")))
+  end
 
   test "keeps a malformed catalog root visible while valid siblings remain selectable" do
     valid = root(1)
