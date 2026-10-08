@@ -3,7 +3,7 @@ defmodule Aiur.Init.ClaudeAdapter do
 
   alias Aiur.{CodingAgent, Config}
 
-  @min_version "1.1.0"
+  @min_version "1.2.0"
   @release_fallback "github:aiur-team/aiur-claude#v#{@min_version}"
   @command_timeout_ms 60_000
 

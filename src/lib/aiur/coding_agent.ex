@@ -1015,10 +1015,10 @@ defmodule Aiur.CodingAgent do
   Whether a backend can resume a prior agent thread across an aiur restart
   (reattach to the same session rather than cold-start a new conversation).
   Wired today for codex (app-server `thread/resume` against its on-disk
-  rollout) and `claude-repl` (the REPL `--resume`s the on-disk transcript
-  jsonl). The headless `claude` backend's external app-server keeps an
-  in-memory-only thread map and exposes no disk-resume seed, so it — and any
-  unknown backend — is not resumable and degrades to a clean start.
+  rollout), `claude-repl` (the REPL `--resume`s the on-disk transcript
+  jsonl), and headless `claude` (aiur-claude rebuilds its in-memory wrapper
+  from the session id and resumes the CLI transcript on the next turn).
+  Unknown backends are not resumable and degrade to a clean start.
   """
   @spec resumable?(backend()) :: boolean()
   def resumable?(backend) do

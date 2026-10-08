@@ -97,6 +97,36 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert advertised_tool_names == expected_tool_names
   end
 
+  test "headless Claude resumes the requested session id before continuing its turn" do
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_resume")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_resuming_app_server(frames, "session-3040")
+    )
+
+    issue = %{id: 1, identifier: "test:resume", title: "resume"}
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace, resume_thread_id: "session-3040")
+    assert session.thread_id == "session-3040"
+    assert session.resumed
+    assert {:ok, result} = ClaudeAgent.run_turn(session, "continue", issue)
+    assert result.result == :turn_completed
+    ClaudeAgent.stop_session(session)
+
+    frames = frames |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    resume = Enum.find(frames, &(&1["method"] == "thread/resume"))
+    turn = Enum.find(frames, &(&1["method"] == "turn/start"))
+    assert resume["params"]["threadId"] == "session-3040"
+    assert turn["params"]["threadId"] == "session-3040"
+    refute Enum.any?(frames, &(&1["method"] == "thread/start"))
+  end
+
   test "rate-limit notifications ingest through the Claude meter adapter and log only a redacted marker" do
     root = Aiur.TestSupport.tmp_root!("aiur_claude_meter")
     workspace = Path.join(root, "agent-1")
@@ -631,6 +661,20 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "case \"$line\" in " <>
       "*'\"initialize\"'*) echo '#{init}' ;; " <>
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_resuming_app_server(frames, session_id) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"#{session_id}"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/resume\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; " <>
       "esac; done"
   end

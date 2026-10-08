@@ -604,16 +604,12 @@ defmodule Aiur.CodingAgentTest do
       refute CodingAgent.remote_worker?("opencode")
     end
 
-    test "resumable? is true for codex and claude-repl, false for headless claude" do
-      # codex app-server exposes thread/resume against an on-disk rollout, and the
-      # claude REPL drives the `claude` CLI directly so it can `--resume` the
-      # on-disk transcript jsonl — both rejoin a prior session after a restart.
-      # The headless claude app-server only rehydrates an in-memory thread map
-      # (lost on restart) and exposes no disk-resume seed, so it degrades to a
-      # clean start (#378/#613).
+    test "resumable? is true for codex and both Claude backends" do
+      # Codex resumes its on-disk rollout; both Claude transports resume the
+      # on-disk transcript jsonl across app restarts.
       assert CodingAgent.resumable?("codex")
       assert CodingAgent.resumable?("claude-repl")
-      refute CodingAgent.resumable?("claude")
+      assert CodingAgent.resumable?("claude")
     end
 
     test "resumable? is false for an unknown backend" do

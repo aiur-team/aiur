@@ -75,11 +75,14 @@ defmodule Aiur.Claude.CodingAgent do
         provider_meter_failure_recorder: Keyword.get(opts, :provider_meter_failure_recorder, &Aiur.ProviderMeters.record_failure/1)
       }
 
-      case do_start_session(port, expanded_workspace) do
+      resume_thread_id = Keyword.get(opts, :resume_thread_id)
+
+      case do_start_session(port, expanded_workspace, resume_thread_id) do
         {:ok, thread_id} ->
           {:ok,
            Map.merge(lifecycle_session, %{
              thread_id: thread_id,
+             resumed: is_binary(resume_thread_id) and thread_id == resume_thread_id,
              workspace: expanded_workspace,
              model: model,
              clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
@@ -226,10 +229,45 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp do_start_session(port, workspace) do
+  defp do_start_session(port, workspace, resume_thread_id) do
     case send_initialize(port) do
-      :ok -> start_thread(port, workspace)
+      :ok -> start_or_resume_thread(port, workspace, resume_thread_id)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp start_or_resume_thread(port, workspace, resume_thread_id) when is_binary(resume_thread_id) do
+    case resume_thread(port, workspace, resume_thread_id) do
+      {:ok, ^resume_thread_id} ->
+        {:ok, resume_thread_id}
+
+      {:ok, other_thread_id} ->
+        Logger.warning("Claude thread/resume returned a different thread id (requested=#{resume_thread_id} got=#{other_thread_id}); treating as a clean start")
+        start_thread(port, workspace)
+
+      {:error, reason} ->
+        Logger.warning("Claude thread/resume failed for thread_id=#{resume_thread_id} (#{inspect(reason)}); falling back to a clean thread/start")
+        start_thread(port, workspace)
+    end
+  end
+
+  defp start_or_resume_thread(port, workspace, _resume_thread_id), do: start_thread(port, workspace)
+
+  defp resume_thread(port, workspace, resume_thread_id) do
+    send_frame(port, %{
+      "method" => "thread/resume",
+      "id" => @thread_start_id,
+      "params" => %{
+        "threadId" => resume_thread_id,
+        "cwd" => Path.expand(workspace),
+        "permissionMode" => Aiur.Claude.Config.permission_mode(),
+        "dynamicTools" => DynamicTool.tool_specs()
+      }
+    })
+
+    case await_response(port, @thread_start_id) do
+      {:ok, %{"thread" => %{"id" => thread_id}}} -> {:ok, thread_id}
+      other -> other
     end
   end
 

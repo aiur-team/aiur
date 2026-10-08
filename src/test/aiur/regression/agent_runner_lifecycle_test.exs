@@ -339,7 +339,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "resume_thread_id gates on backend resumability and local worker" do
       assert "t9" = AgentRunner.resume_thread_id("codex", nil, {:ok, %{thread_id: "t9"}})
-      assert nil == AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "t9"}})
+      assert "t9" == AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "t9"}})
       assert nil == AgentRunner.resume_thread_id("codex", "remote-host", {:ok, %{thread_id: "t9"}})
       assert nil == AgentRunner.resume_thread_id("codex", nil, :none)
     end
@@ -347,7 +347,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
     test "resumable?/1 per backend" do
       assert CodingAgent.resumable?("codex")
       assert CodingAgent.resumable?("claude-repl")
-      refute CodingAgent.resumable?("claude")
+      assert CodingAgent.resumable?("claude")
       refute CodingAgent.resumable?("no-such-backend")
     end
 
@@ -359,11 +359,13 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       assert :skip = AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "s1"}, %{})
     end
 
-    test "session_handle_to_save skips non-resumable, remote, and id-less sessions" do
+    test "session_handle_to_save persists resumable and skips remote or id-less sessions" do
       assert {:ok, %{backend: "codex", thread_id: "t1"}} =
                AgentRunner.session_handle_to_save(%{backend: "codex", thread_id: "t1"}, nil)
 
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "t1"}, nil)
+      assert {:ok, %{backend: "claude", thread_id: "t1"}} =
+               AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "t1"}, nil)
+
       assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex", thread_id: "t1"}, "remote-host")
       assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
     end

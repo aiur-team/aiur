@@ -36,7 +36,7 @@ defmodule Aiur.Init.AgentCliTest do
 
   describe "min_claude_version/0" do
     test "is the first adapter release that serves dynamicTools" do
-      assert ClaudeAdapter.min_version() == "1.1.0"
+      assert ClaudeAdapter.min_version() == "1.2.0"
     end
   end
 
@@ -64,10 +64,10 @@ defmodule Aiur.Init.AgentCliTest do
   describe "classify_claude_install/1" do
     test "classifies missing, satisfying, outdated, and unreadable installs" do
       assert ClaudeAdapter.classify(:missing) == :missing
-      assert ClaudeAdapter.classify({:ok, "1.1.0"}) == {:satisfying, "1.1.0"}
+      assert ClaudeAdapter.classify({:ok, "1.2.0"}) == {:satisfying, "1.2.0"}
       assert ClaudeAdapter.classify({:ok, "2.0.0"}) == {:satisfying, "2.0.0"}
       assert ClaudeAdapter.classify({:ok, "1.0.9"}) == {:outdated, "1.0.9"}
-      assert ClaudeAdapter.classify({:ok, "1.1.0-rc.1"}) == {:outdated, "1.1.0-rc.1"}
+      assert ClaudeAdapter.classify({:ok, "1.2.0-rc.1"}) == {:outdated, "1.2.0-rc.1"}
 
       assert ClaudeAdapter.classify({:ok, "nightly"}) ==
                {:unknown, "unparseable version: nightly"}
@@ -83,8 +83,8 @@ defmodule Aiur.Init.AgentCliTest do
     end
 
     test "uses the reviewed immutable release when npm is old, unreadable, or unavailable" do
-      fallback = "github:aiur-team/aiur-claude#v1.1.0"
-      assert ClaudeAdapter.install_spec({:ok, "1.0.0"}) == fallback
+      fallback = "github:aiur-team/aiur-claude#v1.2.0"
+      assert ClaudeAdapter.install_spec({:ok, "1.1.9"}) == fallback
       assert ClaudeAdapter.install_spec({:ok, "latest"}) == fallback
       assert ClaudeAdapter.install_spec({:error, "registry offline"}) == fallback
     end
@@ -150,9 +150,9 @@ defmodule Aiur.Init.AgentCliTest do
         })
 
       assert {:error, message} = AgentCli.check_agent_clis(test_io(), deps, ["claude"])
-      assert_received {:install, "github:aiur-team/aiur-claude#v1.1.0"}
+      assert_received {:install, "github:aiur-team/aiur-claude#v1.2.0"}
       assert message =~ "installed aiur-claude 1.0.0"
-      assert message =~ "requires 1.1.0 or newer"
+      assert message =~ "requires 1.2.0 or newer"
     end
 
     test "a missing post-install adapter is terminal" do

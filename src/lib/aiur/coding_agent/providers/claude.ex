@@ -32,13 +32,9 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # The headless `bash -c` wrapper does not exec; report its os pid so
       # brutal-kill teardown can tree-reap the reparented claude/node children.
       runtime_report: :headless_wrapper,
-      # Headless claude runs through the external `aiur-claude` app-server,
-      # whose thread map is in-memory only (lost on restart) and whose
-      # `thread/start` exposes no way to seed a prior session id. aiur can't
-      # inject a disk `--resume` without an app-server protocol change, so the
-      # headless backend stays a clean start. Resume on the REPL transport
-      # (`claude-repl`), which drives the `claude` CLI directly, instead.
-      resumable: false,
+      # aiur-claude's thread/resume restores the wrapper around the durable
+      # Claude CLI transcript under the selected CLAUDE_CONFIG_DIR.
+      resumable: true,
       models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
       # `claude --model` resolves `opus`/`sonnet`/`haiku` to the newest
       # version in that family itself, so the generic tags above are passed
