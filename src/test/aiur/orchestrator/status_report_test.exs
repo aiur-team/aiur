@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CapacityBinding, SnapshotStore, State, StatusReport}
+  alias Aiur.Orchestrator.{CapacityBinding, SnapshotStore, State, StatusReason, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
@@ -240,10 +240,12 @@ defmodule Aiur.Orchestrator.StatusReportTest do
         %{identifier => envelope}
       )
 
-    assert [%{waiting_reason: :workspace_ownership_waiting, reason: {:workspace_ownership_waiting, generation, :not_recorded}}] =
+    assert [%{waiting_reason: :workspace_ownership_waiting, reason: {:workspace_ownership_waiting, ^identifier, generation, :not_recorded}} = status] =
              StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
 
     assert generation == lease.generation
+    assert StatusReason.render(status.reason) =~ "workspace ownership held (generation #{generation})"
+    assert StatusReason.render(status.reason) =~ "unknown provider; exit proof not recorded"
   end
 
   test "after the startup pass an idle in-progress claim reads as stale, never awaiting-dispatch" do
