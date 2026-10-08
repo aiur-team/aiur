@@ -2983,7 +2983,7 @@ defmodule Aiur.CoreTest do
       end)
 
       orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
-      # A live tracker poll can block queue RPCs until the runner treats their timeout as an empty queue.
+      # Keep this checkpoint fixture independent of live tracker polling.
       orchestrator_pid = start_supervised!({Orchestrator, name: orchestrator_name, initial_poll?: false})
 
       test_pid = self()
