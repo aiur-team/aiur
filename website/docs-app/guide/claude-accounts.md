@@ -69,6 +69,27 @@ agent:
 five-hour utilization to break ties. `priority` uses the first configured
 account. Usage-aware selection currently applies to Claude and Codex.
 
+## Continue a session after a usage limit
+
+When a resumable Claude REPL session reaches its account's usage limit, Aiur
+selects another configured Claude account using the same `account_selection` rule.
+
+Only these resumable `claude-repl` sessions can hand off. Headless `claude`
+sessions use the aiur-claude app-server, whose in-memory thread map cannot be
+recreated from a moved transcript: `thread/start` cannot seed a prior session.
+Those sessions keep waiting for the current account to reset.
+
+If one is available, Aiur moves the inactive session transcript and related
+session artifacts to that profile. It then resumes from the original working
+directory under the new account, and status shows the account now running the
+session.
+
+If no other configured account has room, Aiur keeps the existing
+wait-for-reset behavior.
+
+The combined Claude usage bar gives every account an equal-width segment and
+reports the average weekly utilization. Each account's utilization and
+freshness remain visible in its label and tooltip.
 API-key accounts have unavailable usage, so use `priority` when those backends
 have multiple keys. The chosen account stays fixed for that ticket's session.
 
