@@ -7,7 +7,7 @@ defmodule Aiur.BuildOrder.Metadata do
   @max_labels 100
 
   @type complexity :: 1..5 | :unknown
-  @type phase :: pos_integer() | :unphased
+  @type phase :: non_neg_integer() | :unphased
   @type lane :: String.t() | :unassigned
   @type t :: %__MODULE__{
           complexity: complexity(),
