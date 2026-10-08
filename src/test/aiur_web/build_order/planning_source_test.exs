@@ -342,7 +342,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
 
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
+    assert grid.overall_completion == %{progress: 60, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.columns, &(&1.lane == "runtime")).completion.progress == 100
     assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
     assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
@@ -541,10 +541,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert snapshot.status_health.failure == :pack_status_incomplete
 
     [root] = snapshot.data.entries
-    # One of two resolved, and that one is complete. The percentage is the rate
-    # over resolved tickets — unknowns are excluded from the denominator, never
-    # counted as incomplete — and `progress_resolved_count` says what it is of.
-    assert root.progress == 100
+    # One of two resolved and complete: 50% is the lower bound over both members.
+    assert root.progress == 50
     assert root.progress_resolution == :partial
     assert root.progress_resolved_count == 1
     assert root.member_count == 2
@@ -557,7 +555,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
     # The grid agrees with the catalog root: the open member with no activity reading is unresolved, not a resolved 0%.
-    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
+    assert grid.overall_completion == %{progress: 60, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
     assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
   end

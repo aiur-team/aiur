@@ -189,13 +189,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     })
   end
 
-  # Completion is resolved per ticket and can fail for any subset of a pack.
-  # An empty pack is genuinely 0% of nothing; a pack where nothing resolves is
-  # `:unresolved` and must never be reported as a number. In between, the
-  # percentage is the completion rate over the tickets that *did* resolve, and
-  # `resolved_count` carries the coverage so the surface can say what the
-  # number is actually of. Unknown tickets are excluded from the denominator
-  # rather than counted as incomplete.
+  # Partial completion is a lower bound over the whole pack. Coverage remains
+  # explicit, and a pack with no resolved members still has no numeric reading.
   defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
 
   defp progress(%{tickets: tickets} = pack, membership) do
@@ -208,10 +203,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %{percent: nil, resolution: :unresolved, resolved_count: 0}
 
       resolved_count == length(tickets) ->
-        %{percent: round(completed_count / resolved_count * 100), resolution: :resolved, resolved_count: resolved_count}
+        %{percent: round(completed_count / length(tickets) * 100), resolution: :resolved, resolved_count: resolved_count}
 
       true ->
-        %{percent: round(completed_count / resolved_count * 100), resolution: :partial, resolved_count: resolved_count}
+        %{percent: round(completed_count / length(tickets) * 100), resolution: :partial, resolved_count: resolved_count}
     end
   end
 

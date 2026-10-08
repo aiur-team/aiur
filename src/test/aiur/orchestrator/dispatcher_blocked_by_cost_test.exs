@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @blocker 53
   @repository_url "https://api.github.com/repos/owner/repo"
+  @max_age_ms :timer.minutes(15)
 
   setup_all do
     # Keep the live poller out of the process-owned double until fixture cleanup.
@@ -42,6 +43,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)
     Application.put_env(:aiur, :github_budget_enabled?, false)
+    Application.put_env(:aiur, :blocked_by_max_age_ms, @max_age_ms)
     :persistent_term.erase(@token_cache_key)
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
@@ -121,7 +123,6 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   end
 
   test "a blocker whose :issue record is older than the bound forces one re-read, which refreshes it" do
-    Application.put_env(:aiur, :blocked_by_max_age_ms, 100)
     stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
 
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
@@ -130,7 +131,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
     assert blocked_by_reads() == []
 
-    Process.sleep(150)
+    age_resource(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"), :full_body_at_ms)
 
     # The edges are fresh again (an `issue_dependencies` webhook re-deposited
     # them), so only the blocker's aged `:issue` record can force this read.
@@ -148,14 +149,13 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   # The fail-closed bound. The held edge list is empty and fresh, so within the
   # bound it is served; a blocker then added on GitHub's side, with no Aiur write
   # and no webhook delivery, must hold the dependent once the list is older than
-  # `BoundedBlockedBy.max_age_ms/0` (15 minutes by default; 100 ms here).
+  # `BoundedBlockedBy.max_age_ms/0` (15 minutes).
   test "a blocker added on GitHub's side with no Aiur write holds dispatch once the edge list is older than the bound" do
-    Application.put_env(:aiur, :blocked_by_max_age_ms, 100)
-
-    ResourceStore.put_resource(ResourceStore.key(:issue_blocked_by, "owner", "repo", "14"), [], source: :fetch)
+    edges_key = ResourceStore.key(:issue_blocked_by, "owner", "repo", "14")
+    ResourceStore.put_resource(edges_key, [], source: :fetch)
     stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:todo"}])] end)
 
-    Process.sleep(150)
+    age_resource(edges_key, :fetched_at_ms)
 
     state = run_pass(candidate("14"))
 
@@ -265,16 +265,15 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   end
 
   test "a label write does not make a blocker's old state look fresh" do
-    Application.put_env(:aiur, :blocked_by_max_age_ms, 100)
     stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
 
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
     assert blocked_by_reads() == ["14"]
 
     blocker_key = ResourceStore.key(:issue, "owner", "repo", "#{@blocker}")
+    age_resource(blocker_key, :full_body_at_ms)
     [{^blocker_key, entry}] = :ets.lookup(ResourceStore.Table, blocker_key)
-    old_body_at_ms = entry.full_body_at_ms - 1_000
-    :ets.insert(ResourceStore.Table, {blocker_key, %{entry | full_body_at_ms: old_body_at_ms}})
+    old_body_at_ms = entry.full_body_at_ms
 
     # Only the state is aged; the label and edge writes must not renew it.
     WriteThrough.issue_labels(@blocker, [%{"name" => "sym:rework"}])
@@ -539,6 +538,12 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  # Age only the fact under test; ordinary dispatch passes retain a wide freshness window.
+  defp age_resource(key, field) do
+    [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+    :ets.insert(ResourceStore.Table, {key, Map.update!(entry, field, &(&1 - @max_age_ms - 1))})
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
