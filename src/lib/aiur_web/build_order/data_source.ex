@@ -17,6 +17,7 @@ defmodule AiurWeb.BuildOrder.DataSource do
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.PackOverlay
 
   @callback catalog() :: term()
   @callback subscribe_catalog() :: :ok | {:error, term()}
@@ -36,7 +37,7 @@ defmodule AiurWeb.BuildOrder.DataSource do
   @callback load_context(TrackerIdentity.t()) :: %{detail: term(), history: term()}
 
   @spec catalog(keyword()) :: term()
-  def catalog(opts \\ []), do: call(dependency(opts, :graph_projection, GraphProjection), :catalog, [])
+  def catalog(opts \\ []), do: call(dependency(opts, :graph_projection, GraphProjection), :catalog, []) |> PackOverlay.catalog()
 
   @spec subscribe_catalog(keyword()) :: :ok | {:error, term()}
   def subscribe_catalog(opts \\ []),
@@ -60,11 +61,19 @@ defmodule AiurWeb.BuildOrder.DataSource do
 
   @spec selected(TrackerIdentity.t(), keyword()) :: term()
   def selected(identity, opts \\ []),
-    do: call(dependency(opts, :graph_projection, GraphProjection), :selected, [identity])
+    do: PackOverlay.selected(identity, call(dependency(opts, :graph_projection, GraphProjection), :selected, [identity]))
 
   @spec demand(TrackerIdentity.t(), keyword()) :: term()
-  def demand(identity, opts \\ []),
-    do: call(dependency(opts, :graph_projection, GraphProjection), :demand, [identity])
+  def demand(identity, opts \\ []) do
+    projection = dependency(opts, :graph_projection, GraphProjection)
+    live = call(projection, :demand, [identity])
+    merged = PackOverlay.selected(identity, live)
+    if cold_pack?(live, merged), do: call(projection, :refresh, [identity])
+    merged
+  end
+
+  defp cold_pack?({:ok, %{data: nil}}, {:ok, %{data: data}}), do: not is_nil(data)
+  defp cold_pack?(_live, _merged), do: false
 
   @spec refresh(TrackerIdentity.t(), keyword()) :: term()
   def refresh(identity, opts \\ []),
@@ -82,7 +91,9 @@ defmodule AiurWeb.BuildOrder.DataSource do
   def subscribe_sources(opts \\ []) do
     with :ok <- call(dependency(opts, :ticket_activity, TicketActivity), :subscribe, []),
          :ok <- call(dependency(opts, :agent_pubsub, AgentPubSub), :subscribe_running, []),
-         do: call(dependency(opts, :adhoc_source, AdHocSource), :subscribe, [])
+         :ok <- call(dependency(opts, :adhoc_source, AdHocSource), :subscribe, []),
+         :ok <- Aiur.CurrentRunMembership.subscribe(),
+         do: Aiur.BuildOrder.PackStatus.subscribe()
   end
 
   @spec load_sources(keyword()) :: %{activity: term(), execution: term(), adhoc: term()}

@@ -63,6 +63,24 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 
+### Read a Build Order program
+
+Normal releases include discovered state-node planning packs on `/build-orders`
+and `/build-orders/:root_number`. Pack members without GitHub issues appear as
+drafts; promoted members use live issue state when available. Pack workstreams
+name the epic columns, and pack phases name the rows, including phase zero.
+Click an epic heading to collapse or expand its cards; counts remain visible.
+External gates appear in an expandable list above the graph.
+
+A bounded GitHub catalog preview reports how many members were read out of the
+reported total when truncated. The selected GitHub read also remains bounded;
+an installed planning pack supplies its full membership. Missing live membership
+or ticket status remains explicit even when the plan is readable.
+
+Open a draft card to read its local document. Descriptions longer than 4,000
+bytes show a sanitized preview and a **Full document** link to the authenticated
+pack document, or the issue for promoted tickets. Documents are read-only.
+
 ### Read fleet and build pressure
 
 Analytics records fleet and build-gate whole-host sources alongside daemon process

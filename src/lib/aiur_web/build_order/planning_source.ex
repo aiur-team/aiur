@@ -14,7 +14,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   hydrated from the daemon's current-run membership projection; pre-ticket packs
   remain planning-only.
 
-  This is read-only demo/planning tooling — it never writes to GitHub. Point it
+  Production DataSource merges these local plans with supervised GitHub reads.
+  This source is read-only — it never writes to GitHub. Point it
   at a pack with `:build_order_planning_pack` (an app-relative priv path).
   """
 
@@ -37,6 +38,22 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
   @pack_source_precedence_description "workspace > state > environment > configured > explicit"
   @active_membership_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]
+
+  @doc "Resolve a pack member document without accepting a filesystem path from the request."
+  @spec document(String.t(), String.t(), String.t(), String.t()) :: {:ok, String.t()} | :error
+  def document(owner, repository, root_number, member_number) do
+    with pack when is_map(pack) <-
+           Enum.find(load_packs(include_drafts?: true), fn pack ->
+             pack.repository == {owner, repository} and to_string(pack.root_number) == root_number
+           end),
+         ticket when is_map(ticket) <- Enum.find(pack.tickets, &(ticket_identity(pack, &1).identifier == member_number)),
+         body when is_binary(body) <- draft_body(ticket.document_path, Path.dirname(pack.path)),
+         {:ok, sanitized} <- Aiur.BuildOrder.TicketDetail.Sanitizer.sanitize(body, 64_000) do
+      {:ok, sanitized}
+    else
+      _missing -> :error
+    end
+  end
 
   # --- catalog ---------------------------------------------------------------
 
@@ -87,7 +104,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           repository: pack.repository,
           generation: source_generation,
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed)),
+          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed), pack_metadata: pack.metadata),
           health: provider_health,
           membership_health: membership_health(membership),
           status_health: status_health
@@ -221,7 +238,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         identity: identity,
         title: ticket.title,
         url: if(is_integer(ticket.number), do: issue_url(identity), else: nil),
-        document_url: ticket.document_url,
+        document_url: if(is_nil(ticket.number), do: document_url(pack, identity), else: ticket.document_url),
         document_path: ticket.document_path,
         draft_body: ticket.draft_body,
         icon: ticket.icon,
@@ -231,7 +248,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         labels: labels(ticket, identity, membership),
         dependencies: dependencies
       })
+      |> pack_metadata(ticket)
     end)
+  end
+
+  defp pack_metadata(member, ticket) do
+    metadata = Aiur.BuildOrder.Metadata.parse(pack_labels(ticket))
+    metadata = if is_integer(ticket.phase) and ticket.phase >= 0, do: %{metadata | phase: ticket.phase, warnings: Enum.reject(metadata.warnings, &(&1.code == :invalid_phase))}, else: metadata
+    %{member | metadata: metadata}
+  end
+
+  defp document_url(pack, identity) do
+    {owner, repository} = pack.repository
+    "/build-order-documents/#{owner}/#{repository}/#{pack.root_number}/#{identity.identifier}"
   end
 
   defp planning_dependency(identity, endpoint, %{number: number}) when is_integer(number),
@@ -634,6 +663,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           completed: declared_completed? or status_completed?(status),
           completed_at: status_completed_at(status),
           status: status,
+          metadata: Map.take(json, ["workstreams", "phases", "external_gates"]),
           materialized?: Enum.any?(tickets, &is_integer(&1.number)),
           tickets: tickets
         }
@@ -817,19 +847,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     pack_dir = Path.expand(pack_dir)
     document = Path.expand(path, pack_dir)
 
-    if document_inside_pack?(document, pack_dir) do
-      case File.read(document) do
-        {:ok, body} when byte_size(body) in 1..64_000 -> body
-        _missing_or_invalid -> nil
-      end
+    with {:ok, %{candidate: canonical}} <- Aiur.PathSafety.contained?(pack_dir, document),
+         {:ok, body} when byte_size(body) in 1..64_000 <- File.read(canonical) do
+      body
+    else
+      _missing_or_invalid -> nil
     end
   end
 
   defp draft_body(_path, _pack_dir), do: nil
-
-  defp document_inside_pack?(document, pack_dir) do
-    document == pack_dir or String.starts_with?(document, pack_dir <> "/")
-  end
 
   defp status(path) do
     path
