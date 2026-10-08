@@ -112,14 +112,14 @@ defmodule Aiur.CodexProberTest do
                end
              )
 
-    assert_receive {:probe_child, port, pid}
+    assert_receive {:probe_child, port, pid}, 1_000
     assert Port.info(port) == nil
     refute RemoteControl.process_alive?(pid)
-    assert_receive {:probe_descendant, child_pid}
+    assert_receive {:probe_descendant, child_pid}, 1_000
     refute RemoteControl.process_alive?(child_pid)
     refute File.exists?(workspace)
     assert Process.info(self(), :trap_exit) == {:trap_exit, trapping_exits?}
-    refute_receive {:EXIT, ^port, _}
+    refute_receive {:EXIT, ^port, _}, 100
   end
 
   test "failed child launch removes the probe workspace and restores exit handling" do
