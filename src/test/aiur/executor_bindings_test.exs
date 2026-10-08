@@ -25,11 +25,18 @@ defmodule Aiur.ExecutorBindingsTest do
     refute ExecutorBindings.allowlisted?("ticket.7.issue.commented")
   end
 
+  test "the Executor listens for human-review handoff wakes" do
+    pattern = "ticket.*.agent.handoff.human_review"
+    assert pattern in ExecutorBindings.patterns()
+    assert ExecutorBindings.allowlisted?("ticket.42.agent.handoff.human_review")
+  end
+
   test "allowlist accepts exact instances but rejects broader candidate wildcards" do
     assert ExecutorBindings.allowlisted?("ticket.42.pr.opened")
     assert ExecutorBindings.allowlisted?("ticket.*.pr.opened")
     assert ExecutorBindings.allowlisted?("executor.#")
     assert ExecutorBindings.allowlisted?("executor.notice.*")
+    assert ExecutorBindings.allowlisted?("ticket.3028.agent.attention.*")
 
     refute ExecutorBindings.allowlisted?("ticket.#.pr.opened")
     refute ExecutorBindings.allowlisted?("ticket.*.#")

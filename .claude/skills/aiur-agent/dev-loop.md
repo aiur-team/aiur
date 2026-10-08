@@ -372,6 +372,13 @@ focused test runner, test-tree paths and CI gate at each step.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
       repair loop.
+      If the only failure is a flaky test unrelated to your change, file the
+      flake as its own ticket with the CI run id (or link its existing ticket).
+      NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
+      A flaky test blocks CI, not the ticket's implementation. State in the PR
+      that the only failure is the known flake, link the flake ticket and CI run,
+      then hand back to the Executor without declaring a dependency or pausing
+      for the flake fix. Keep the full required-check gate for human review.
 16. On a CI re-wake timeout, check CI exactly once. Drafts never pass: mark
     completed, self-reviewed work ready before waiting again. A green or skipped
     `gh pr checks` aggregate alone is not a full pass; verify the full

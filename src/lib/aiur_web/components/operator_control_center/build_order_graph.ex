@@ -17,6 +17,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   attr(:root_id, :string, required: true)
   attr(:provider_generation, :integer, required: true)
   attr(:dom_generation, :integer, required: true)
+  attr(:pack_metadata, :map, default: %{})
+  attr(:collapsed_epics, :list, default: [])
   attr(:model, :any, default: nil)
   attr(:adhoc, :any, default: nil)
   attr(:saved_as_of, :any, default: nil)
@@ -28,8 +30,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc)
 
     cells = Enum.group_by(grid.cards, &{&1.lane, &1.phase})
-    columns = Enum.map(grid.columns, &with_html_progress/1)
-    waves = Enum.map(grid.waves, &with_html_progress/1)
+    columns = Enum.map(grid.columns, &(&1 |> with_html_progress() |> named_group(assigns.pack_metadata, "workstreams", "id", &1.lane)))
+    waves = Enum.map(grid.waves, &(&1 |> with_html_progress() |> named_group(assigns.pack_metadata, "phases", "phase", &1.phase)))
 
     assigns =
       assigns
@@ -41,6 +43,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       |> assign(:core_waves, Enum.filter(waves, & &1.core?))
       |> assign(:overall_progress, html_progress(grid.overall_completion))
       |> assign(:planning?, grid.planning?)
+      |> assign(:gates, groups(assigns.pack_metadata, "external_gates"))
 
     ~H"""
     <section
@@ -87,6 +90,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         </div>
       </div>
 
+      <details :if={@gates != []} class="bo-state-card">
+        <summary>External gates ({length(@gates)})</summary>
+        <ul>
+          <li :for={gate <- @gates}>
+            <strong>{Map.get(gate, "title") || Map.get(gate, "id")}</strong>
+            <span :if={Map.get(gate, "owner")}> · {Map.get(gate, "owner")}</span>
+            <span :if={Map.get(gate, "blocks")}> · blocks {Map.get(gate, "blocks")}</span>
+            <p :if={Map.get(gate, "resolution_criteria")}>{Map.get(gate, "resolution_criteria")}</p>
+          </li>
+        </ul>
+      </details>
       <div class="bo-grid-toolbar">
         <ul :if={@planning?} class="bo-grid-legend" aria-label="Graph legend">
           <li><span class="bo-legend-swatch is-planned" aria-hidden="true"></span>planned</li>
@@ -115,7 +129,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
               <div class="bo-grid-corner" role="columnheader" aria-hidden="true"></div>
               <div :for={col <- @columns} class="bo-epic" role="columnheader" data-progress-freshness={col.core? && col.progress_view.freshness}>
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
-                <span class="bo-epic-label">{col.label}</span>
+                <button type="button" class="bo-epic-label" phx-click="toggle-build-order-epic" phx-value-lane={col.lane} aria-expanded={to_string(col.lane not in @collapsed_epics)} aria-label={"#{if col.lane in @collapsed_epics, do: "Expand", else: "Collapse"} #{col.label}"}>
+                  {col.label}
+                </button>
                 <span class="bo-epic-count">{col.count}</span>
                 <span :if={col.core? and not @planning?} class="bo-epic-count" data-progress-freshness={col.progress_view.freshness} title={col.progress_view.title} aria-label={col.progress_view.aria_label}>{col.progress_view.label}</span>
                 <span :if={col.core? and not @planning? and col.progress_view.note} class="bo-epic-note">{col.progress_view.note}</span>
@@ -131,7 +147,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
                 </div>
                 <div :for={col <- @columns} class="bo-cell" role="gridcell">
                   <.build_order_card
-                    :for={card <- Map.get(@cells, {col.lane, wave.phase}, [])}
+                    :for={card <- visible_cards(@cells, col.lane, wave.phase, @collapsed_epics)}
                     card={card}
                     model={@model}
                   />
@@ -154,7 +170,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     """
   end
 
+  defp visible_cards(cells, lane, phase, collapsed) do
+    if lane in collapsed, do: [], else: Map.get(cells, {lane, phase}, [])
+  end
+
+  defp groups(metadata, key), do: metadata |> Map.get(key, []) |> List.wrap() |> Enum.filter(&is_map/1)
+
+  defp named_group(group, metadata, collection, key, value) do
+    case Enum.find(groups(metadata, collection), &(Map.get(&1, key) == value)) do
+      %{"title" => title} when is_binary(title) -> %{group | label: title}
+      _missing -> group
+    end
+  end
+
   attr(:card, :map, required: true)
+  attr(:pack_metadata, :map, default: %{})
+  attr(:collapsed_epics, :list, default: [])
   attr(:model, :any, default: nil)
 
   defp build_order_card(assigns) do

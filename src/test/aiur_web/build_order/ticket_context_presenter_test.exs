@@ -164,7 +164,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     refute inspect(context) =~ "/home/private"
   end
 
-  test "fails closed on oversized descriptions and makes unsafe or incomplete CTAs unavailable" do
+  test "previews oversized descriptions and makes unsafe or incomplete CTAs unavailable" do
     identity = identity()
     oversized = String.duplicate("description ", 1_000)
     detail = detail_state(identity, description: oversized)
@@ -176,7 +176,9 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
         %{kind: :commands, available?: true, href: "/\\evil.example/commands"}
       ])
 
-    assert context.description == nil
+    assert byte_size(context.description) == 4_000
+    assert context.description == binary_part(oversized, 0, 4_000)
+    assert context.description_truncated?
     assert Enum.map(context.capabilities, & &1.label) == ["Issue", "Chat", "Commands"]
     assert Enum.all?(context.capabilities, &(!&1.available? and is_nil(&1.href)))
     assert Enum.all?(context.capabilities, &(is_binary(&1.reason) and &1.reason != ""))
