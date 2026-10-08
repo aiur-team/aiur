@@ -160,7 +160,6 @@ export async function compareParityPixels(pair, { name, region, fullPage = false
   await pair.design.bringToFront()
   const png = await captureStable(design, { ...opts, mask: designMask })
   await pair.product.bringToFront()
-  await captureStable(product, { ...opts, mask: productMask })
   checkPage(pair.design)
   checkPage(pair.product)
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })

@@ -57,8 +57,10 @@ for (const region of [undefined, '.bd-now']) {
   })
 }
 test('mutation: palette swap fails', async ({ browser }) => {
-  const pair = await designPair(browser)
-  await pair.product.evaluate(() => { document.documentElement.dataset.palette = 'aiur' })
+  const other = { ...cell, palette: 'aiur' }
+  const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }
+  await openDesign(pair.design, cell)
+  await openDesign(pair.product, other)
   // Exercise the pixel comparator independently of the palette guard.
   await pixelFailure(pair, { name: 'palette' }, compareParityPixels)
 })
