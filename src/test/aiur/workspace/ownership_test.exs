@@ -1469,5 +1469,13 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert hash_identifier_output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
+  test "workspace recovery passes through non-numeric ticket identifiers" do
+    output = capture_io(fn -> AgentControlCLI.recover_workspace("ENG-123", 7) end)
+
+    assert output =~ "workspace ownership hold not found"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    refute output =~ "invalid ticket identifier"
+  end
+
   defp telemetry_events(telemetry), do: Agent.get(telemetry, &Enum.reverse/1)
 end

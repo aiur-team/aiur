@@ -1367,9 +1367,9 @@ defmodule Aiur.AgentControlCLI do
   defp recovery_failure_reason({:error, reason}), do: reason
 
   defp workspace_recovery_ticket_key(ticket) do
-    case Regex.run(~r/^(?:[^#]+\/[^#]+)?#?(\d+)$/, ticket) do
+    case Regex.run(~r/^(?:[^#\/]+\/[^#\/]+#|#)(\d+)$/, ticket) do
       [_, issue_number] -> issue_number
-      _ -> nil
+      _ -> ticket
     end
   end
 
