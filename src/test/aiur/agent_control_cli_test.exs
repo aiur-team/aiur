@@ -3553,7 +3553,8 @@ defmodule Aiur.AgentControlCLITest do
       # while `agents` said working for both.
       :ok = SubscriptionStore.attach("repo#52")
       :ok = SubscriptionStore.add_attention("repo#52", "github-credential-missing")
-      assert {:ok, _} = DecisionStore.request(%{"question" => "Provide the missing credential?", "blocking" => true}, ticket: %{identifier: "repo#52"})
+      assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Provide the missing credential?", "blocking" => true}, ticket: %{identifier: "repo#52"})
+      on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
       on_exit(fn -> SubscriptionStore.stop("repo#52") end)
 
       working_rework = fn issue_id, identifier ->
@@ -3600,7 +3601,8 @@ defmodule Aiur.AgentControlCLITest do
       for identifier <- ["repo#46", "repo#47"] do
         :ok = SubscriptionStore.attach(identifier)
         :ok = SubscriptionStore.add_attention(identifier, "github-credential-missing")
-        assert {:ok, _} = DecisionStore.request(%{"question" => "Provide the missing credential?", "blocking" => true}, ticket: %{identifier: identifier})
+        assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Provide the missing credential?", "blocking" => true}, ticket: %{identifier: identifier})
+        on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
         on_exit(fn -> SubscriptionStore.stop(identifier) end)
       end
 
