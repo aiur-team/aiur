@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.MonotonicDepositTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.{ResourceFetch, ResourceStore, WriteThrough}
 
   @older "2026-10-07T10:00:00Z"
@@ -105,7 +106,7 @@ defmodule Aiur.GitHub.MonotonicDepositTest do
       end
 
       assert {:ok, %{errors: []}} =
-               Aiur.Events.GithubCommentsPoller.poll(["1"],
+               GithubCommentsPoller.poll(["1"],
                  repo: "owner/repo",
                  token: "test-token",
                  request_fun: request

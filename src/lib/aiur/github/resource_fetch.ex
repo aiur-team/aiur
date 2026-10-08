@@ -220,7 +220,7 @@ defmodule Aiur.GitHub.ResourceFetch do
     entry = %{data: data, version: version, fetched_at_ms: now}
 
     case result do
-      :ok -> {:ok, data, %{outcome: :fetched, version: version, fetched_at_ms: now, etag: etag, spent?: true}}
+      result when result in [:ok, {:error, :invalid_key}] -> {:ok, data, %{outcome: :fetched, version: version, fetched_at_ms: now, etag: etag, spent?: true}}
       {:ok, :superseded} -> superseded(key, entry, etag, true)
       {:error, _reason} = error -> error
     end
