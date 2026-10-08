@@ -964,11 +964,12 @@ defmodule AiurWeb.StreamdeckLive do
   defp provider_segment(descriptor, usage) do
     provider = Atom.to_string(descriptor.provider)
     meter = Map.get(usage, provider)
+    summary_label = if is_map(meter), do: get_value(meter, "summary_label"), else: nil
 
     %{
       kind: :provider,
       provider: provider,
-      label: Enum.join(Enum.filter([descriptor.label, get_value(meter, "summary_label")], &is_binary/1), " · "),
+      label: Enum.join(Enum.filter([descriptor.label, summary_label], &is_binary/1), " · "),
       logo: descriptor.logo,
       observed?: observed_provider?(meter),
       meters: [provider_meter("session", "Session", meter), provider_meter("weekly", "Weekly", meter)]

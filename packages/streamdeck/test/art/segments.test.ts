@@ -622,6 +622,13 @@ describe("provider panel (three or more)", () => {
     expect(drew(ink, "Session 19%")).toBeDefined();
   });
 
+  it("paints the account summary beside its percentage in the wide panel", () => {
+    const row = { ...providerRow("claude", session(94)), summaryLabel: "worst of 2 accounts" };
+    const { ink } = render(wide([row, providerRow("codex", session(19)), providerRow("deepseek", session(55))]), 400);
+    expect(row.model.session?.usedPercent).toBe(94);
+    expect(drew(ink, "Session 94% · worst of 2")).toBeDefined();
+  });
+
   it("keeps every row and the scroll label inside the panel", () => {
     const rows = Array.from({ length: VISIBLE_PROVIDER_ROWS }, (_, index) => providerRow(`p${index}`, session(index * 10)));
     const { pixels } = render(wide(rows, { total: 9, hasAbove: true, hasBelow: true }), 400);
