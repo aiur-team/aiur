@@ -54,6 +54,40 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
     refute inspect(Map.drop(resolved, [:api_key])) =~ "account-secret"
   end
 
+  test "adapter uses the selected account key for its request", %{workspace: workspace} do
+    home = Path.join(System.tmp_dir!(), "aiur-api-account-adapter-#{System.unique_integer([:positive])}")
+    env_path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(env_path))
+    File.write!(env_path, "DEEPSEEK_API_KEY__WORK=selected-secret\nDEEPSEEK_API_KEY=default-secret\n")
+    previous = System.get_env("HOME")
+    System.put_env("HOME", home)
+
+    on_exit(fn ->
+      if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
+      File.rm_rf!(home)
+    end)
+
+    parent = self()
+
+    request_fun = fn request ->
+      send(parent, {:request, request})
+      response(%{"id" => "selected-key", "choices" => [%{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "ok"}}]})
+    end
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "deepseek",
+               instance: %{instance([]) | api_key_env: "DEEPSEEK_API_KEY"},
+               account_name: "work",
+               request_fun: request_fun
+             )
+
+    assert {:ok, %{result: :turn_completed}} = CodingAgent.run_turn(session, "Use selected key", issue(), [])
+    assert_receive {:request, request}, 1000
+    assert request.headers["authorization"] == "Bearer selected-secret"
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
   test "completes a tool loop, replays reasoning content, and drains an operator message", %{workspace: workspace} do
     parent = self()
 

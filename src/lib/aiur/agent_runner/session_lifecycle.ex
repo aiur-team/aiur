@@ -750,12 +750,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
         selected_env = if backend in ["claude", "codex"], do: Accounts.profile_env(backend, name), else: []
         selected_env = if backend == "claude-repl", do: Accounts.profile_env("claude", name), else: selected_env
+        account_opts = if backend in ["kimi", "deepseek", "openrouter"], do: [account_name: name], else: []
 
-        Keyword.merge(session_opts,
-          account_name: name,
-          account_selection_reason: reason,
-          env: selected_env
-        )
+        session_opts
+        |> Keyword.merge(account_opts)
+        |> Keyword.merge(account_name: name, account_selection_reason: reason, env: selected_env)
 
       {:error, reason} ->
         Keyword.put(session_opts, :account_selection_error, reason)

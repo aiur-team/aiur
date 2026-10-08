@@ -16,11 +16,13 @@ defmodule Aiur.OpenAICompat.Config do
          {:ok, runtime_config} <- backend_config(backend, opts),
          config <- merge_runtime_config(instance, runtime_config),
          {:ok, config} <- validate(config),
-         {:ok, api_key} <- fetch_api_key(config.api_key_env, opts),
+         account_name = Keyword.get(opts, :account_name),
+         {:ok, api_key} <- fetch_api_key(config.api_key_env, account_name, opts),
          {:ok, model} <- resolve_model(config, opts) do
       {:ok,
        config
        |> Map.put(:backend, backend)
+       |> Map.put(:account_name, account_name)
        |> Map.put(:api_key, api_key)
        |> Map.put(:model, model)
        |> Map.put(:request_fun, Keyword.get(opts, :request_fun, &request/1))}
@@ -86,10 +88,10 @@ defmodule Aiur.OpenAICompat.Config do
   defp valid_required?(config, :transport), do: Map.get(config, :transport) in [:chat_completions, :responses]
   defp valid_required?(config, key), do: is_binary(Map.get(config, key)) and String.trim(Map.fetch!(config, key)) != ""
 
-  defp fetch_api_key(env_name, opts) do
+  defp fetch_api_key(env_name, account_name, opts) do
     fetcher =
       Keyword.get(opts, :api_key_fetcher, fn key ->
-        account_api_key(env_name, opts) || account_api_key_from_file(env_name, opts) || System.get_env(key)
+        account_api_key(env_name, opts) || account_api_key_from_file(env_name, account_name) || System.get_env(key)
       end)
 
     case fetcher.(env_name) do
@@ -105,8 +107,7 @@ defmodule Aiur.OpenAICompat.Config do
     end
   end
 
-  defp account_api_key_from_file(env_name, opts) do
-    selected_name = Keyword.get(opts, :account_name)
+  defp account_api_key_from_file(env_name, selected_name) do
     selected_key = if is_binary(selected_name), do: env_name <> "__" <> String.upcase(selected_name), else: env_name
     path = Path.join(System.get_env("HOME") || Path.expand("~"), ".aiur/.env")
 
