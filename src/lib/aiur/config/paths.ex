@@ -65,6 +65,14 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
+  @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_queue_dir do
+    with {:ok, root} <- decision_state_dir() do
+      {:ok, Path.join(root, "build-queue")}
+    end
+  end
+
   @doc """
   Resolves the daemon-private current-run membership state directory.
 

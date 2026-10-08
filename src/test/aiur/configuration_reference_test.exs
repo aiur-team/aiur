@@ -28,7 +28,8 @@ defmodule Aiur.ConfigurationReferenceTest do
     {"decisions", Schema.Decisions},
     {"server", Schema.Server},
     {"opencode", Schema.Opencode},
-    {"build_order", Schema.BuildOrder}
+    {"build_order", Schema.BuildOrder},
+    {"build_queue", Schema.BuildQueue}
   ]
 
   # These rows describe defaults resolved outside the schema struct, such as
@@ -48,6 +49,7 @@ defmodule Aiur.ConfigurationReferenceTest do
     agent.rate_limit_primary
     alerts.alerts_file
     server.host
+    build_queue.observation_max_age_seconds
     build_order.ticket_detail_freshness_ms
     build_order.graph_catalog_refresh_ms
     build_order.graph_catalog_labels_refresh_ms
