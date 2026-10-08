@@ -978,10 +978,6 @@ defmodule Aiur.Orchestrator do
     do: State.note_agent_activity(state, identifier)
 
   @impl true
-  def handle_cast({:reset_dispatch_budget, issue_identifier}, state)
-      when is_binary(issue_identifier),
-      do: {:noreply, PauseResume.reset_dispatch_budget_cast(state, issue_identifier)}
-
   def handle_cast({:note_agent_activity, identifier}, state) do
     {:noreply, note_agent_activity_state(state, identifier)}
   end
