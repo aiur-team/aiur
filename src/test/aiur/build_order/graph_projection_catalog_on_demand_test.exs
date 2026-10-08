@@ -19,6 +19,8 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   #     zero — the bound is delivery latency (#2313), not the `0` cadence.
   use ExUnit.Case, async: false
 
+  import Aiur.TestSupport, only: [receive_barrier: 1]
+
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
@@ -92,9 +94,8 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
     reader = await_reader(:catalog)
     finish(reader, {:error, :transport})
 
-    # Synchronous barrier: the catalog call queues behind the reader-result
-    # message, so once it answers the failure handler has run.
-    GraphProjection.catalog(projection)
+    # The failure broadcast confirms the reader result was processed.
+    receive_barrier({:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog, health: %{failure: :transport}}}})
 
     state = :sys.get_state(projection)
     # The failed read kept a retry deadline...
