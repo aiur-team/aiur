@@ -22,10 +22,11 @@ aiur login claude work --dir "$HOME/Claude-work"
 
 Claude profiles link shared settings, instructions, plugins, skills, and
 project memory. Claude identity files, transcripts, sessions, history, remote
-settings, and policy limits stay private. Codex profiles link only
-`config.toml` and `skills`; `auth.json` and state databases are never shared.
-The existing `~/.claude` and `~/.codex` directories remain the `default`
-accounts and are not copied or moved.
+settings, and policy limits stay private.
+
+Codex profiles link only `config.toml` and `skills`; `auth.json` and state
+databases are never shared. The existing `~/.claude` and `~/.codex` directories
+remain the `default` accounts and are not copied or moved.
 
 For API-key backends, add a named key to `~/.aiur/.env`, for example
 `DEEPSEEK_API_KEY__WORK=...`, then register the account with `aiur login`:
