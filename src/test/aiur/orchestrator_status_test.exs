@@ -3,7 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, DecisionStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
@@ -2765,6 +2765,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.add_attention(identifier, "operator-decision")
+    assert {:ok, _} = DecisionStore.request(%{"question" => "Which acceptance boundary applies?", "blocking" => true}, ticket: %{identifier: identifier})
     [{store_pid, 1}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
 
     entry =

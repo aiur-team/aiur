@@ -53,25 +53,22 @@ defmodule Aiur.Orchestrator.PushRouting do
             state
 
           true ->
-            {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
-
-            if nonblocking_question_pause?(identifier, pause_reason, event) do
-              state
-            else
-              {_reply, state} =
-                PauseResume.request_pause(
-                  state,
-                  running_entry,
-                  Map.get(running_entry, :issue),
-                  pause_reason
-                )
-
-              state
-            end
+            request_agent_pause(state, running_entry, identifier, event)
         end
 
       _ ->
         state
+    end
+  end
+
+  defp request_agent_pause(state, running_entry, identifier, event) do
+    {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
+
+    if nonblocking_question_pause?(identifier, pause_reason, event) do
+      state
+    else
+      {_reply, state} = PauseResume.request_pause(state, running_entry, Map.get(running_entry, :issue), pause_reason)
+      state
     end
   end
 
