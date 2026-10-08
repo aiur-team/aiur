@@ -3,6 +3,7 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ProviderMeters.CLI
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.{
     AccountsCLI,
@@ -1327,6 +1328,48 @@ defmodule Aiur.AgentControlCLI do
       {:error, reason} ->
         print_failure(:reset_budget, %{identifier: target, issue_id: target}, reason)
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Releases one workspace ownership generation after the daemon verifies
+  independent local provider-exit proof. The caller must name the generation
+  shown by status so a stale recovery command cannot release a replacement.
+  """
+  @spec recover_workspace(String.t(), pos_integer()) :: :ok
+  def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
+    guarded("workspace-recover", fn ->
+      ticket_key = workspace_recovery_ticket_key(ticket)
+      result = Ownership.release_if_held_with_exit_proof(ticket_key, generation)
+      status = %{identifier: ticket, issue_id: ticket}
+
+      report_workspace_recovery(result, ticket, generation, status)
+    end)
+  end
+
+  defp report_workspace_recovery(:ok, ticket, generation, _status) do
+    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+    exit_marker(0)
+  end
+
+  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status) do
+    IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
+    exit_marker(1)
+  end
+
+  defp report_workspace_recovery(result, _ticket, _generation, status) do
+    reason = if result == :not_found, do: :not_found, else: recovery_failure_reason(result)
+    print_failure(:workspace_recover, status, reason)
+    exit_marker(1)
+  end
+
+  defp recovery_failure_reason(:not_held_for_reaping), do: :not_held_for_reaping
+  defp recovery_failure_reason({:error, reason}), do: reason
+
+  defp workspace_recovery_ticket_key(ticket) do
+    case Regex.run(~r/^(?:[^#\/]+\/[^#\/]+#|#)(\d+)$/, ticket) do
+      [_, issue_number] -> issue_number
+      _ -> ticket
     end
   end
 
@@ -3468,6 +3511,8 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
+        not_found: "workspace ownership hold not found",
+        invalid_ticket_identifier: "invalid ticket identifier",
         orchestrator_unavailable: "orchestrator unavailable",
         timeout: "orchestrator timed out",
         unknown_issue: "unknown issue",

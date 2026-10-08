@@ -31,8 +31,9 @@ defmodule Aiur.GitHub.Labels do
   @watch_suffix "watch"
   @paused_suffix "paused"
   @parked_suffix "parked"
+  @queued_suffix "queued"
   @rate_limit_fallback_suffix "rate-limit-fallback"
-  @marker_suffixes [@watch_suffix, @paused_suffix, @parked_suffix, @rate_limit_fallback_suffix]
+  @marker_suffixes [@watch_suffix, @paused_suffix, @parked_suffix, @queued_suffix, @rate_limit_fallback_suffix]
 
   @type request :: %{
           method: :post,
@@ -66,6 +67,10 @@ defmodule Aiur.GitHub.Labels do
   @doc "The explicit operator-held marker label, given the prefix (e.g. `agent:parked`)."
   @spec parked_labels(String.t()) :: [String.t()]
   def parked_labels(prefix), do: ["#{prefix}:#{@parked_suffix}"]
+
+  @doc "The build-queue marker label, given the prefix (e.g. `agent:queued`)."
+  @spec queued_labels(String.t()) :: [String.t()]
+  def queued_labels(prefix), do: ["#{prefix}:#{@queued_suffix}"]
 
   @doc "The marker that records ownership of an automatic usage-limit fallback."
   @spec rate_limit_fallback_marker_labels(String.t()) :: [String.t()]
@@ -139,6 +144,7 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("watch"), do: "aiur watches this PR for comments"
   defp state_description("paused"), do: "suppress aiur work while preserving state"
   defp state_description("parked"), do: "operator-held: no dispatch, no comment-driven rework"
+  defp state_description("queued"), do: "in the build queue; not yet ready"
   defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
