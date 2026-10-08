@@ -21,7 +21,10 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
       blocked_ticket_ids: MapSet.new(["blocked"])
     }
 
+    before_observation = DateTime.utc_now()
     input = StatusReport.snapshot_input(state)
+    assert DateTime.compare(input.status_observed_at, before_observation) in [:eq, :gt]
+    assert DateTime.compare(input.status_observed_at, DateTime.utc_now()) in [:eq, :lt]
 
     for key <- [:orphaned_agent_reap_count, :startup_claim_reconciliation_complete?, :dispatch_capacity_sample, :claimed, :model_fallback_waiting, :blocked_ticket_ids] do
       assert Map.fetch!(input, key) == Map.fetch!(state, key)
@@ -59,8 +62,10 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
   test "successful tracker observations survive failed cycles and paused idle rows retain their age" do
     issue = %Issue{id: "idle", identifier: "idle", state: "todo", title: "Idle", paused: true, labels: ["agent:paused"]}
+    before_observation = DateTime.utc_now()
     synced = IssueSync.sync_polled_issue_state(%State{}, [issue], fn _ -> {:ok, []} end, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
-    assert %DateTime{} = synced.tracker_observations[issue.id]
+    assert DateTime.compare(synced.tracker_observations[issue.id], before_observation) in [:eq, :gt]
+    assert DateTime.compare(synced.tracker_observations[issue.id], DateTime.utc_now()) in [:eq, :lt]
     observed = DateTime.add(synced.tracker_observations[issue.id], -60, :second)
     state = %{synced | tracker_observations: %{issue.id => observed}, last_dispatch_poll_at_ms: System.monotonic_time(:millisecond)}
     input = StatusReport.snapshot_input(state)
