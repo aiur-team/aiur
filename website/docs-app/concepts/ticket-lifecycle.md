@@ -119,6 +119,22 @@ The tool takes only the target state and makes it the sole `agent:*` state
 label, from the issue Aiur re-reads at write time
 (`GitHub.IssueState.swap_labels/4`).
 
+For `human-review`, the GitHub writer checks the exact PR head against current
+`tracker.base_branch`, in addition to clearing review threads. A stale head
+passes when it has no conflicts and no changed-file overlap with base changes
+since the merge base. Rename checks include old and new paths.
+
+Conflicts or overlap leave labels unchanged and return an update instruction.
+Disjoint paths pass even while GitHub reports `UNKNOWN` mergeability or a lagging
+PR base SHA. Mismatched heads or base branches, malformed observations and
+incomplete comparison data block the write. Harmless base movement needs no
+merge or CI rerun.
+
+Workers assess integration safety before marking the PR ready and after CI.
+They integrate at most once per handoff, validate and push, keep the PR ready,
+then await new-head CI in `ci-wait`. Another unsafe base change after that
+integration requires an Executor alert rather than another merge/CI cycle.
+
 When a pair does form, the heal prefers the label that arrived *since* the
 orchestrator's own claim over the claim itself — whenever the orchestrator can
 identify its claim, from its running entry or the previous poll.

@@ -58,10 +58,11 @@ in the workpad rather than falling back to raw label edits.
    `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-code-review`.
 8. Smaller asks may skip brainstorm, plan, or review when the extra step would
    be overhead, but err on the side of using these skills when in doubt.
-9. Before CI or review handoff, fetch the configured integration base and make
-   its current remote head an ancestor of your exact PR head. Integrate or
-   re-cut and resolve semantic drift yourself; do not leave stale-code updates
-   for the Executor or reviewers.
+9. Before CI or review handoff, assess the exact PR head against the configured
+   base using `dev-loop.md`'s integration checklist. Harmless staleness passes;
+   conflicts or changed-file overlap require integration, at most once per
+   handoff. Record the attempt in the workpad; unavailable assessments block
+   handoff rather than imply safety.
 10. When implementation and draft-PR self-review are complete and only CI
     remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
     draft, then move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and
@@ -70,9 +71,11 @@ in the workpad rather than falling back to raw label edits.
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
 11. On a delivered full required-check pass for the current head SHA, verify
-    the PR is ready and recheck current-base ancestry. If the base moved,
-    update and validate your branch and return to `agent:ci-wait`; otherwise
-    move the issue to `agent:human-review`. Use `aiur_set_ticket_state` for that
+    the PR is ready and assess current-base integration safety. No overlap or
+    conflicts permits `agent:human-review` even if the head is stale. If unsafe,
+    integrate once and await new-head CI in `agent:ci-wait`; if already
+    integrated for this handoff, alert the Executor instead of repeating the
+    merge/CI cycle. Use `aiur_set_ticket_state` for that
     move: the daemon's CI-pass handoff has
     already relabelled the ticket `agent:in-progress`, so a hand-written
     `--remove-label agent:ci-wait` removes nothing and strands the pair.

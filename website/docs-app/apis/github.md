@@ -711,6 +711,31 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
+Human-review state writes compare the open PR with the configured base. Stale
+heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+
+Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
+for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
+changes in both directions; rename checks include old and new paths.
+
+A stale head passes when it has no conflicts and no changed-file overlap with
+the base since their merge base. Conflicts or overlap return `stale_review_base`.
+GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability;
+those observations permit disjoint paths. A matching head's `CONFLICTING` verdict
+blocks the write.
+
+Mismatched heads or base branches, malformed observations,
+unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
+
+Comparisons are attributed to `human_review_base_ancestry` and always contact
+GitHub: base movement can change the verdict without changing the PR. These
+reads add cost; this change claims no quota saving.
+
+For the next 10 handoffs after rollout, record the tested PR head, observed base
+SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
+separately from harmless stale heads; the earlier 3-of-8 stale-base count is
+context, not an equivalent baseline for this narrower measure.
+
 ## Changes Aiur makes itself
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
