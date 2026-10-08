@@ -44,9 +44,15 @@ Events are signals; consumers follow validated references or correlation fields 
 | `ticket.<id>.ci.passed` | Terminal CI passed. |
 | `ticket.<id>.ci.failed` | Terminal CI failed. |
 
-Progress milestones use current, resolved or partially resolved facts. Only the highest crossed threshold (25%, 50%, 75% or 100%) is announced per observation. Durable latches prevent repeats within a scope generation after restart; unreadable or unwritable latch storage suppresses milestones. The events carry `milestone`, `percent` and `generation` attributes.
+Progress milestones use current, resolved or partially resolved facts. Only the highest crossed threshold (25%, 50%, 75% or 100%) is announced per observation.
 
-Internal consumers can read `Aiur.BuildProgress.facts/1` for all scopes (`:all`) or one scope. `subscribe/0` subscribes to Phoenix PubSub topic `build_progress`, carrying `{:build_progress_changed, fact}` when percent, resolution, freshness or generation changes, including decreases. Facts remain readable and signals continue when milestone storage is unavailable. This internal signal is separate from the topic exchange.
+Durable latches prevent repeats within a scope generation after restart; unreadable or unwritable latch storage suppresses milestones. The events carry `milestone`, `percent` and `generation` attributes.
+
+Internal consumers can read `Aiur.BuildProgress.facts/1` for all scopes (`:all`) or one scope.
+
+`subscribe/0` subscribes to Phoenix PubSub topic `build_progress`, carrying `{:build_progress_changed, fact}` when percent, resolution, freshness or generation changes, including decreases.
+
+Facts remain readable and signals continue when milestone storage is unavailable. This internal signal is separate from the topic exchange.
 
 ## Automatic subscriptions
 
