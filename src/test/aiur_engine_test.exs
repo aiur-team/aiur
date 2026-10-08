@@ -1578,6 +1578,30 @@ printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
     refute out =~ "GenServer"
   end
 
+  test "listen accepts ticket shorthand, keeps executor-listen alias, and refuses widening patterns" do
+    {ticket, 0} =
+      run_sourced_engine(
+        ~s|run_control_stream() { echo "RPC:$1"; return 0; }
+cmd_listen --ticket 3028|,
+        []
+      )
+
+    assert ticket =~ ~s|executor_listen(topic: Base.decode64!("dGlja2V0LjMwMjguIw=="), ticket: "3028")|
+
+    {alias_output, 0} =
+      run_sourced_engine(
+        ~s|run_control_stream() { echo "RPC:$1"; return 0; }
+aiur_engine_main executor-listen --topic 'ticket.3028.#'|,
+        []
+      )
+
+    assert alias_output =~ "executor_listen(topic:"
+
+    {widened, 64} = run_sourced_engine(~s|cmd_listen --topic 'ticket.*.#'|, [])
+    assert widened =~ "widens beyond reviewed Executor bindings"
+    assert widened =~ "ticket.*.ci.passed"
+  end
+
   test "executor-wait dispatches a bounded RPC and validates timeout usage" do
     {out, 0} =
       run_sourced_engine(

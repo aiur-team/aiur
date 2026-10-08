@@ -58,6 +58,28 @@ defmodule Aiur.ExecutorEventsTest do
              ExecutorEvents.replay(ExecutorEvents.subscriptions(), ExecutorEvents.last_seen_event_id())
   end
 
+  test "replays a narrowed per-ticket topic without including other ticket events" do
+    path = StatePaths.journal_path()
+    File.mkdir_p!(Path.dirname(path))
+    state_path = StatePaths.subscriptions_path()
+    first_id = 701
+    second_id = 702
+    File.write!(path, Jason.encode!(%{"id" => first_id, "topic" => "ticket.3028.agent.paused"}) <> "\n")
+    File.write!(path, Jason.encode!(%{"id" => second_id, "topic" => "ticket.3029.agent.paused"}) <> "\n", [:append])
+
+    JsonStore.write!(state_path, %{
+      "subscribed_to" => [
+        %{"topic" => "ticket.3028.#", "reason" => "manual:executor", "subscription_created_at_event_id" => 0},
+        %{"topic" => "ticket.3029.#", "reason" => "manual:executor", "subscription_created_at_event_id" => 0}
+      ],
+      "last_seen_event_id" => nil
+    })
+
+    assert {:ok, [selected]} = ExecutorEvents.replay(["ticket.3028.#"], 0)
+    assert selected["id"] == first_id
+    assert selected["topic"] == "ticket.3028.agent.paused"
+  end
+
   test "rejects GitHub-sourced executor events" do
     assert {:error, :executor_namespace_rejects_github_source} =
              ExecutorEvents.publish("executor.notify.untrusted", %{message: "nope"}, source: :github)
@@ -262,7 +284,10 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:error, :invalid_topic} = ExecutorEvents.publish("ticket.42.agent.decision.requested", %{message: "nope"})
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("#")
     assert :ok = ExecutorEvents.subscribe("ticket.*.pr.opened")
+    assert :ok = ExecutorEvents.subscribe("ticket.3028.#")
+    assert :ok = ExecutorEvents.subscribe("ticket.*.pr.opened")
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("ticket.*.#")
+    assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("ticket.3028.#.extra")
   end
 
   test "listener delivers live events and advances the persisted cursor" do
