@@ -419,7 +419,25 @@ test("Claude login prepares a profile and hands its exact path to the interactiv
 
   expect(result.status).toBe(0);
   expect(readFileSync(receivedEnv, "utf8")).toBe(profileDir);
-  expect(readFileSync(captureFile, "utf8")).toContain(`__login_prepare\nmax\n--dir\n${profileDir}`);
+  expect(readFileSync(captureFile, "utf8")).toContain(`__login_prepare\nclaude\nmax\n--dir\n${profileDir}`);
+});
+
+test("API-key login registers through the local CLI without starting an interactive harness", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const result = spawnSync("bash", [launcher, "login", "deepseek", "work"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      PATH: process.env.PATH,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("ELIXIR_ARGS:");
+  expect(readFileSync(captureFile, "utf8")).toContain("ARGV_FILE:login");
+  expect(readFileSync(captureFile, "utf8")).toContain("DEEPSEEK_API_KEY:");
 });
 
 function setupBackgroundLauncher() {

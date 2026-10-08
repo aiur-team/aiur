@@ -736,7 +736,17 @@ defmodule Aiur.AgentRunner.QueueDrain do
           SessionLifecycle.session_worker_host(app_session)
         )
 
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
+        MessageHandler.send_control_state(
+          codex_update_recipient,
+          issue,
+          :paused,
+          Map.merge(pause_payload, %{
+            session_id: Map.get(app_session, :thread_id),
+            account_name: Map.get(app_session, :account_name),
+            cwd: SessionLifecycle.session_workspace(app_session)
+          })
+        )
+
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient, opts)
 
       {:error, {:turn_start_failed, reason}} when reason in [:response_timeout, :turn_timeout] ->
