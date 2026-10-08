@@ -48,6 +48,16 @@ account that is below both limits. Unavailable usage is never treated as zero
 and ranks after known readings. The chosen account stays fixed for that ticket's
 session.
 
+## Continue a session after a usage limit
+
+When a resumable Claude REPL session reaches its account's usage limit, Aiur
+selects another configured Claude account using the same `account_selection`
+rule. If one is available, Aiur moves the inactive session transcript and
+related session artifacts to that profile, then resumes from the original
+working directory under the new account. Status shows the account now running
+the session. If no other configured account has room, Aiur keeps the existing
+wait-for-reset behavior.
+
 The combined Claude usage bar gives every account an equal-width segment and
 reports the average weekly utilization. Each account's utilization and
 freshness remain visible in its label and tooltip.

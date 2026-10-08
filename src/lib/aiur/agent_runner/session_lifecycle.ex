@@ -675,7 +675,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # starting a fresh conversation that re-discovers the work (issue #378).
     # Only a resumable, local backend with a persisted handle qualifies; any
     # miss degrades silently to a clean start.
-    resume_thread_id = SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
+    resume_thread_id = Keyword.get(opts, :resume_thread_id) || SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
 
     session_opts =
       [
@@ -695,6 +695,18 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp maybe_put_claude_account(session_opts, backend, opts) when backend in ["claude", "claude-repl"] do
+    case Keyword.get(opts, :account_name) do
+      name when is_binary(name) ->
+        Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env("claude", name))
+
+      _ ->
+        select_claude_account(session_opts, opts)
+    end
+  end
+
+  defp maybe_put_claude_account(session_opts, _backend, _opts), do: session_opts
+
+  defp select_claude_account(session_opts, opts) do
     config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
     candidates = configured_claude_candidates(config)
 
@@ -705,8 +717,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       attach_selected_claude_account(session_opts, candidates, config, usages)
     end
   end
-
-  defp maybe_put_claude_account(session_opts, _backend, _opts), do: session_opts
 
   defp configured_claude_candidates(config) do
     names = Map.get(config.accounts || %{}, "claude", [])
