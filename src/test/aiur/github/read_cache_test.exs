@@ -69,6 +69,12 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("some_new_caller", ci_document()))
     end
 
+    test "live CI required-check policy is fetched again rather than cached" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/branches/main/protection") |> Map.put(:caller, "ci_required_checks")
+      assert 2 = counted_fetches(request)
+      assert %{refused: %{unsafe_kind: 2}} = Metrics.snapshot()
+    end
+
     test "does not cache review state or merge gating" do
       for selection <- ["reviewDecision", "mergeStateStatus", "mergeable", "reviewThreads(first: 10) { nodes { id } }"] do
         request = graphql("issue_relationships", "query Q { repository(owner: $o, name: $n) { #{selection} } }")
