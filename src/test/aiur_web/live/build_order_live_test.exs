@@ -183,6 +183,27 @@ defmodule AiurWeb.BuildOrderLiveTest do
     %{source: source, first: first, second: second}
   end
 
+  test "epic collapse removes cards and expand restores them", %{source: source, first: first} do
+    selected = selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member(7)])
+    :ok = FakeDataSource.put_selected(source, selected)
+    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert has_element?(view, "[data-bo-card]")
+    view |> element("button[phx-value-lane='dashboard-ui']") |> render_click()
+    refute has_element?(view, "[data-bo-card]")
+    assert has_element?(view, "button[phx-value-lane='dashboard-ui'][aria-expanded='false']")
+    view |> element("button[phx-value-lane='dashboard-ui']") |> render_click()
+    assert has_element?(view, "[data-bo-card]")
+  end
+
+  test "a root beyond the read budget displays the truncated count when its selected graph is unavailable", %{source: source, first: first} do
+    root = %{root(first, "Large root") | member_count: 501, github_member_count: 501, member_read_count: 100}
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot([root], 1, :healthy))
+    :ok = FakeDataSource.put_selected(source, selected_snapshot(first, nil, 1, :unavailable, failure: :member_overflow))
+    {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    assert html =~ "GitHub graph truncated: 100 of 501 members"
+    refute has_element?(view, "[data-bo-card]")
+  end
+
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
