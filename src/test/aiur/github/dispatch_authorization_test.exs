@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentPubSub, AlertFeed, Issue}
-  alias Aiur.GitHub.{DispatchAuthorization, ReadCache}
+  alias Aiur.GitHub.{DispatchAuthorization, Issues, ReadCache}
 
   setup do
     DispatchAuthorization.clear_cache()
@@ -11,7 +11,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
   test "queued + todo is not contradictory" do
     issue =
-      Aiur.GitHub.Issues.normalize_issue(
+      Issues.normalize_issue(
         %{"number" => 42, "title" => "Queued", "state" => "open", "labels" => [%{"name" => "agent:todo"}, %{"name" => "agent:queued"}]},
         "owner",
         "repo",
