@@ -652,6 +652,13 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "Re-run the scoped local pre-PR verification gate"
   end
 
+  test "agent dev loop requires the local prose guard before pushing docs changes" do
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
+
+    assert dev_loop =~
+             "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
+  end
+
   test "agent prompt delegates Credo to CI after inspecting lint settings" do
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
 
