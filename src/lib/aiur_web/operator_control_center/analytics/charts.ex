@@ -118,25 +118,32 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     {ml, mr, mt, mb} = {30, 14, 16, 26}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = max(cap, peak) |> max(1)
+    vmax = max(cap || 0, peak) |> max(1)
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
     pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.conc)} end)
-    cap_y = r2(yf.(cap))
-    band_top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(cap)} end)
-    band_bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(min(s.conc, cap))} end) |> Enum.reverse()
 
     inner =
-      ~s|<path d="#{poly(band_top ++ band_bot)}" fill="var(--blocking)" fill-opacity="0.07"/>| <>
+      capacity_band(series, cap, xf, yf, ml, mr) <>
         ~s|<path d="#{step_area(pts, mt + ph)}" fill="var(--accent)" fill-opacity="0.16"/>| <>
         ~s|<path d="#{step_line(pts)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>| <>
-        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2"/>| <>
-        text(ml + 2, cap_y - 4, "cap #{cap}", fill: "var(--attention)") <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
     time_svg(@w, h, inner, "Concurrency against the cap", {t0, t1, ml, @w - mr, mt, mt + ph})
+  end
+
+  defp capacity_band(_series, nil, _xf, _yf, _ml, _mr), do: ""
+
+  defp capacity_band(series, cap, xf, yf, ml, mr) do
+    cap_y = r2(yf.(cap))
+    band_top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(cap)} end)
+    band_bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(min(s.conc, cap))} end) |> Enum.reverse()
+
+    ~s|<path d="#{poly(band_top ++ band_bot)}" fill="var(--blocking)" fill-opacity="0.07"/>| <>
+      ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2"/>| <>
+      text(ml + 2, cap_y - 4, "cap #{cap}", fill: "var(--attention)")
   end
 
   @doc "Fleet-wide occupied-agent and build pressure with an aligned oldest-wait lane."

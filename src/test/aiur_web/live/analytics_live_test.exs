@@ -11,6 +11,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
+  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
 
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
 
@@ -371,6 +372,17 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # page must not substitute the local config file and print a precise hour
     # count under a ceiling it just called unknown.
     assert html =~ ~r/\d+ at run end \/ unknown cap</
+
+    assert {:ok, model} =
+             Presenter.load(
+               telemetry_file: @fixtures,
+               orchestrator: Endpoint.config(:orchestrator)
+             )
+
+    assert model.cap == nil
+    assert model.kpis.cap == nil
+    refute html =~ ~r/>cap \d+<\/text>/
+    refute html =~ ~s|fill="var(--blocking)" fill-opacity="0.07"|
     refute html =~ "unknown cap (configured"
     assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
