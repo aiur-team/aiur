@@ -283,7 +283,7 @@
     },
     {
       "id": "tui", "name": "tmux agent list, pane manager, opencode chat panes", "layer": 4, "kind": "optional",
-      "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
+      "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/events/debug_log.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["orchestration", "projections", "harness-adapters"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
