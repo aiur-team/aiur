@@ -3,13 +3,18 @@ gate: DESIGN-E8
 feature: MP-E8 Continuous build history
 owner: Kevin
 tool: Claude Design (prototype)
-status: open — Kevin is designing; MP-E8 planning waits for the prototype
+status: design delivered in Claude Design; awaiting Kevin's go to plan and implement, plus his side-by-side sign-off
 blocks: all MP-E8 implementation tickets (not yet written), and MP-E1-C8 (its dashboard view is folded into MP-E8)
 decisions: ../bucket-2-platform/MP-E8/decisions.md (E8-D1..D14, E8-R1)
 research: ../bucket-2-platform/MP-E8/baseline.md, options.md, questions.md
 ---
 
 # DESIGN-E8: Kevin designs and approves the continuous build history page
+
+> **Design delivered (2026-10-08):** https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Dashboard.html
+> It is the specification for MP-E8 and must be recreated **pixel-perfect**: every UI and UX element, the chat modal with its preview sidebar, the live pane's top-to-bottom transition, every filter and visualization mode, and the background noise in the live view.
+> Read [../bucket-2-platform/MP-E8/claude-design-source-of-truth.md](../bucket-2-platform/MP-E8/claude-design-source-of-truth.md) first.
+
 
 **Implementation is blocked until Kevin approves this design.** The prototype is built in Claude Design. MP-E8 planning and ticket research start from the approved prototype, so the plan follows the design and not the other way round.
 

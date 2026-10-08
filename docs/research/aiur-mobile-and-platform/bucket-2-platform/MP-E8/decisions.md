@@ -1,5 +1,10 @@
 # MP-E8 Continuous build history: operator decisions
 
+> **Design delivered (2026-10-08):** https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Dashboard.html
+> It is the specification for MP-E8 and must be recreated **pixel-perfect**: every UI and UX element, the chat modal with its preview sidebar, the live pane's top-to-bottom transition, every filter and visualization mode, and the background noise in the live view.
+> Read [claude-design-source-of-truth.md](claude-design-source-of-truth.md) first.
+
+
 The operator, Kevin, settled these during the MP-E8 brainstorm on 2026-10-06.
 
 | ID | Decision |
