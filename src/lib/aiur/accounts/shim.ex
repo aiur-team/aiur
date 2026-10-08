@@ -7,4 +7,5 @@ defmodule Aiur.Accounts.Shim do
   @callback login_command(Path.t()) :: {String.t(), [String.t()]}
   @callback identity(Path.t() | nil) :: map()
   @callback usage(Path.t() | nil) :: term()
+  @callback profile_root() :: Path.t()
 end

@@ -688,39 +688,52 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         attempt_id: Keyword.get(opts, :telemetry_attempt_id)
       ]
       |> maybe_put_rc_name(rc?, issue)
-      |> maybe_put_claude_account(session_backend, opts)
+      |> maybe_put_account(session_backend, config_for_accounts(opts), opts)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     {session_backend, rc?, session_opts}
   end
 
-  defp maybe_put_claude_account(session_opts, backend, opts) when backend in ["claude", "claude-repl"] do
-    config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
-    candidates = configured_claude_candidates(config)
+  defp config_for_accounts(opts), do: Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+
+  defp maybe_put_account(session_opts, backend, config, opts) do
+    account_backend = if backend == "claude-repl", do: "claude", else: backend
+
+    case Accounts.capability(account_backend) do
+      {:ok, %{multi: :available, supported: true}} ->
+        attach_selected_account(session_opts, account_backend, config, opts)
+
+      _ ->
+        session_opts
+    end
+  end
+
+  defp attach_selected_account(session_opts, backend, config, opts) do
+    candidates = configured_account_candidates(config, backend)
 
     if candidates == [] do
       session_opts
     else
-      usages = claude_account_usages(candidates, opts)
-      attach_selected_claude_account(session_opts, candidates, config, usages)
+      usages = account_usages(backend, candidates, opts)
+      choose_account(session_opts, backend, candidates, config, usages)
     end
   end
 
-  defp maybe_put_claude_account(session_opts, _backend, _opts), do: session_opts
-
-  defp configured_claude_candidates(config) do
-    names = Map.get(config.accounts || %{}, "claude", [])
-    registered = MapSet.new(Accounts.list("claude"), & &1.name)
+  defp configured_account_candidates(config, backend) do
+    names = Map.get(config.accounts || %{}, backend, [])
+    registered = MapSet.new(Accounts.list(backend), & &1.name)
     Enum.filter(names, &MapSet.member?(registered, &1))
   end
 
-  defp claude_account_usages(candidates, opts) do
+  defp account_usages("claude", candidates, opts) do
     polled = UsageReadings.snapshot("claude", candidates)
     fetch_usage = Keyword.get(opts, :account_usage_fetcher, &account_usage/1)
-    Map.new(candidates, &{&1, claude_account_usage(&1, polled, fetch_usage)})
+    Map.new(candidates, &{&1, account_usage_reading(&1, polled, fetch_usage)})
   end
 
-  defp claude_account_usage(name, polled, fetch_usage) do
+  defp account_usages(_backend, candidates, _opts), do: Map.new(candidates, &{&1, nil})
+
+  defp account_usage_reading(name, polled, fetch_usage) do
     case Map.fetch(polled, name) do
       {:ok, %{reading: %{windows: windows}}} -> usage_map(windows)
       {:ok, _unavailable} -> nil
@@ -728,18 +741,20 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     end
   end
 
-  defp attach_selected_claude_account(session_opts, candidates, config, usages) do
+  defp choose_account(session_opts, backend, candidates, config, usages) do
     mode = config.account_selection || "balance"
 
-    case Accounts.select("claude", candidates, mode, usages) do
+    case Accounts.select(backend, candidates, mode, usages) do
       {:ok, name} ->
         reason = if is_map(usages[name]) and is_number(usages[name]["seven_day"]), do: nil, else: "usage unavailable"
 
-        Keyword.merge(session_opts,
-          account_name: name,
-          account_selection_reason: reason,
-          env: Accounts.profile_env("claude", name)
-        )
+        selected_env = if backend in ["claude", "codex"], do: Accounts.profile_env(backend, name), else: []
+        selected_env = if backend == "claude-repl", do: Accounts.profile_env("claude", name), else: selected_env
+        account_opts = if backend in ["kimi", "deepseek", "openrouter"], do: [account_name: name], else: []
+
+        session_opts
+        |> Keyword.merge(account_opts)
+        |> Keyword.merge(account_name: name, account_selection_reason: reason, env: selected_env)
 
       {:error, reason} ->
         Keyword.put(session_opts, :account_selection_error, reason)

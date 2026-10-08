@@ -351,12 +351,15 @@ defmodule Aiur.AgentEnvironmentTest do
   # from a file the daemon writes and injects it only into a governed call.
   test "scrub_shell_command clears provider API keys and the raw GitHub credential" do
     command =
-      AgentEnvironment.scrub_shell_command("env | grep -E '^(DEEPSEEK_API_KEY|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN)=' | sort")
+      AgentEnvironment.scrub_shell_command(
+        "env | grep -E '^(DEEPSEEK_API_KEY|DEEPSEEK_API_KEY__WORK|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN)=' | sort"
+      )
 
     {output, 0} =
       System.cmd("bash", ["-lc", command],
         env: [
           {"DEEPSEEK_API_KEY", "deepseek-secret"},
+          {"DEEPSEEK_API_KEY__WORK", "named-deepseek-secret"},
           {"OPENROUTER_API_KEY", "openrouter-secret"},
           {"OPENROUTER_MANAGEMENT_KEY", "management-secret"},
           {"GITHUB_TOKEN", "tracker-token"},
