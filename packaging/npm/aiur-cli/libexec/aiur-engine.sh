@@ -476,6 +476,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
+       aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
        aiur executor-roster [--json]  list Executor consumers with their liveness evidence
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
@@ -2751,6 +2752,16 @@ cmd_reset_budget() {
   run_control_rpc "$expression"
 }
 
+# Requires the operator to name the exact ticket and generation shown by
+# status. The daemon independently verifies the recorded boot proof.
+cmd_workspace_recover() {
+  [ "$#" -eq 2 ] || { echo "aiur: workspace-recover expects a ticket identifier and generation (e.g. aiur workspace-recover ENG-123 7)" >&2; exit 64; }
+  local ticket="$1" generation="$2" encoded
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: workspace-recover generation must be a positive integer" >&2; exit 64; }
+  encoded="$(printf '%s' "$ticket" | base64 | tr -d '\n')"
+  run_control_rpc "Aiur.AgentControlCLI.recover_workspace(Base.decode64!(\"$encoded\"), $generation)"
+}
+
 # `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
@@ -4336,6 +4347,10 @@ aiur_engine_main() {
     reset-budget)
       shift
       cmd_reset_budget "$@"
+      ;;
+    workspace-recover)
+      shift
+      cmd_workspace_recover "$@"
       ;;
     message)
       shift

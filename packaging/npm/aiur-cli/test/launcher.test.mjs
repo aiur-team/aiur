@@ -824,6 +824,29 @@ test("bare pause/resume flip the global switch; targeted forms stay per-agent", 
   expect(capture).toContain('Aiur.AgentControlCLI.resume(["44"])');
 });
 
+test("workspace-recover safely encodes the ticket and validates its generation", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  const recovered = runControl(launcher, releaseDir, env, ["workspace-recover", "org/repo#44", "7"]);
+  expect(recovered.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.recover_workspace(Base.decode64!("b3JnL3JlcG8jNDQ="), 7)',
+  );
+
+  for (const args of [
+    ["workspace-recover", "org/repo#44"],
+    ["workspace-recover", "org/repo#44", "0"],
+    ["workspace-recover", "org/repo#44", "7;System.halt()"],
+  ]) {
+    rmSync(captureFile, { force: true });
+    const result = runControl(launcher, releaseDir, env, args);
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("workspace-recover");
+    expect(existsSync(captureFile)).toBe(false);
+  }
+});
+
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(launcher, releaseDir, {
