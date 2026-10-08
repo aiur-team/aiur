@@ -363,6 +363,7 @@ defmodule Aiur.Orchestrator.State do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+          |> maybe_put_runtime_value(:rework_head_sha, runtime_info[:rework_head_sha])
           |> maybe_put_live_conversation(runtime_info[:live_conversation])
 
         if updated_running_entry == running_entry do

@@ -214,7 +214,7 @@ defmodule Aiur.BuildOrdersCLITest do
     # The aggregate is the same projection, so a pack whose members cannot all
     # be resolved never renders as a confident percentage.
     assert envelope["data"]["graph"]["completion"] == %{
-             "progress" => 100,
+             "progress" => 33,
              "progress_resolution" => "partial",
              "progress_resolved_count" => 1,
              "progress_stale_count" => 0,
@@ -222,7 +222,7 @@ defmodule Aiur.BuildOrdersCLITest do
            }
 
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", source: Source, now: @captured_at) end)
-    assert output =~ "Build Order (completion 100% partial (1/3 resolved))"
+    assert output =~ "Build Order (completion 33% partial (1/3 resolved))"
     assert output =~ "Completion: 100%;"
     assert output =~ "Completion: unresolved;"
     assert output =~ "blocked by 2 (blocking)"
@@ -277,7 +277,7 @@ defmodule Aiur.BuildOrdersCLITest do
 
     # Members 1 (merged, 100) and 2 (last known, 80) resolve; 3 is unresolved.
     assert envelope["data"]["graph"]["completion"] == %{
-             "progress" => 90,
+             "progress" => 60,
              "progress_resolution" => "partial",
              "progress_resolved_count" => 2,
              "progress_stale_count" => 1,
@@ -289,7 +289,7 @@ defmodule Aiur.BuildOrdersCLITest do
     assert wave_two["completion"]["stale_count"] == 1
 
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", source: Source, now: @captured_at) end)
-    assert output =~ "Build Order (completion 90% partial (2/3 resolved) (last known 12m ago))"
+    assert output =~ "Build Order (completion 60% partial (2/3 resolved) (last known 12m ago))"
     assert output =~ "Completion: 80% (last known 12m ago);"
   end
 
