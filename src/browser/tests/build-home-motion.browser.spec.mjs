@@ -17,6 +17,7 @@ test('clock probe: product connects and patches with preinstalled clock', async 
   } finally { await context.close() }
 })
 
+// Future regression guard for the installed Clock API and unchanged design scroll curve.
 test('clock probe: design scroll advances one frame', async ({ browser }) => {
   const context = await browser.newContext(parityContextOptions(cell))
   try {
@@ -42,7 +43,7 @@ test('clock probe: design scroll advances one frame', async ({ browser }) => {
 })
 
 // Independent checks remain runnable while #3116 supplies the product fixture route.
-import { compareRecords, domState, pausedAnimations } from '../support/build-home-motion.mjs'
+import { compareRecords, domState, pausedAnimations, scrollFrames } from '../support/build-home-motion.mjs'
 
 const record = value => ({ name: 'probe', samples: [{ scrollTop: value }], dom: { nodes: [] } })
 const motionEntry = { id: 'probe-motion', kind: 'motion', path: 'probe.samples[*].scrollTop', approval: { status: 'pending-sign-off' } }
@@ -101,4 +102,13 @@ test('harness self-check: missing input and measurement fail', async ({ page }) 
   await page.setContent('<div id="motion"></div>')
   await expect(pausedAnimations(page, '#motion', { trigger: '.bd-zb' })).rejects.toThrow('unreachable input: .bd-zb')
   await expect(pausedAnimations(page, '.missing')).rejects.toThrow('unreachable measurement: .missing')
+})
+
+
+test('harness self-check: scroll frames advance timers and measure each position', async ({ page }) => {
+  await page.clock.install({ time: FIXTURE_META.now - 1000 })
+  await page.clock.pauseAt(FIXTURE_META.now)
+  await page.setContent('<div id="bd-vp" style="height:20px;overflow:auto"><div style="height:1000px"></div></div>')
+  await page.evaluate(() => setInterval(() => document.querySelector('#bd-vp').scrollTop++, 16))
+  expect(await scrollFrames(page, { from: 50, frames: 2 })).toEqual([{ scrollTop: 51 }, { scrollTop: 52 }])
 })
