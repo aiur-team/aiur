@@ -138,8 +138,9 @@ if with_node:
             ('aiur-contracts must be declared',),
             extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}',
                    'packages/aiur-contracts/src/z.js': ''})
-    imports('declared_npm_and_builtins_pass', 'import "@scope/dep/subpath"; import "node:fs"; require("fs/promises");',
+    imports('declared_npm_and_builtins_pass', 'import "@scope/dep/subpath"; import "node:fs"; import "node:test"; require("fs/promises");',
             dependencies={'@scope/dep': '*'})
+    imports('bare_prefix_only_builtin_fails', 'import "test";', 1, ('undeclared npm dependency test',))
     imports('unknown_node_builtin_fails', 'import "node:made-up";', 1, ('undeclared npm dependency',))
     for name, source in {
         'export_into_src_fails': 'export * from "../../../src/lib/foo.js";',

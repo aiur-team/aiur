@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { builtinModules, createRequire } from 'node:module';
+import { isBuiltin, createRequire } from 'node:module';
 import ts from 'typescript';
 
 const root = fs.realpathSync(process.argv[2]);
-const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')));
 const excluded = new Set(['node_modules', 'dist', '_build', 'deps', '.git']);
 const extensions = /\.(ts|tsx|mts|cts|js|mjs)$/;
 
@@ -18,7 +17,7 @@ function* sources(directory) {
 }
 
 function resolve(specifier, file) {
-  if (builtins.has(specifier.replace(/^node:/, ''))) return '<builtin>';
+  if (isBuiltin(specifier)) return '<builtin>';
   const resolved = ts.resolveModuleName(specifier, file, {
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     resolveJsonModule: true,
