@@ -36,8 +36,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, TicketTransition, WaitingReason}
-  alias Aiur.SystemLoad
-  alias Aiur.Tracker
+  alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   # One age shape wherever a stale surface appears — reuse #1814's renderer
   # rather than adding a second one for the CLI.

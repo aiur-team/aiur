@@ -109,17 +109,15 @@ at once** denies dispatch. A poll-time repair heals the pair to its winner
 (`agent:todo` wins).
 
 Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
-raw label edits.
-
-`Aiur.Orchestrator.TicketTransition` owns daemon, agent-tool, dashboard and CLI label writes, recording the caller and outcome in logs and telemetry. The tracker remains authoritative; this owner adds no retries or deduplication.
+raw label edits. `Aiur.Orchestrator.TicketTransition` owns daemon, agent-tool,
+dashboard and CLI label writes, recording the caller and outcome in logs and telemetry.
 
 An agent cannot safely name the label to remove. The orchestrator writes state
 transitions too, so the label the agent last saw may already be gone by the
 time its command runs — the removal then no-ops and leaves the pair behind.
 
 The tool takes only the target state and makes it the sole `agent:*` state
-label, from the issue Aiur re-reads at write time
-(`GitHub.IssueState.swap_labels/4`).
+label, from the issue Aiur re-reads at write time (`GitHub.IssueState.swap_labels/4`).
 
 For `human-review`, the GitHub writer checks the exact PR head against current
 `tracker.base_branch`, in addition to clearing review threads. A stale head
