@@ -77,7 +77,7 @@ defmodule Aiur.GitHub.CommentsTest do
         if String.contains?(url, "page=2") do
           {:error, hold}
         else
-          {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
+          {:ok, %{status: 200, body: [%{"id" => 1, "user" => %{"login" => "owner"}}], headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
         end
       end
 
