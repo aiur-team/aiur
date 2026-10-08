@@ -7,7 +7,33 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
   import ExUnit.CaptureLog
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{HumanReview, State}
+  alias Aiur.{AgentQueueStore}
+  alias Aiur.Orchestrator.{HumanReview, LifecycleFence, OperatorMessages, State, TrackerTasks}
+
+  test "a message queued during ready verification preserves its running provider" do
+    owner = self()
+
+    setup_verifier(fn _ ->
+      send(owner, {:verification_started, self()})
+      receive do: (:release -> :ok)
+    end)
+
+    issue = human_review_issue()
+    runner = spawn(fn -> receive do: (:stop -> :ok) end)
+    on_exit(fn -> send(runner, :stop) end)
+    entry = %{issue: issue, identifier: issue.identifier, pid: runner, ref: make_ref(), control: %{status: :working, generation: 1}}
+    state = %State{snapshot_key: self(), running: %{issue.id => entry}, queue_store: AgentQueueStore.new()}
+    pending = HumanReview.maybe_deactivate_human_review_issue(state, issue)
+    receive_barrier({:verification_started, worker})
+    {:reply, {:ok, message_id}, current} = OperatorMessages.send_operator_message_call(pending, issue.identifier, %{kind: :text, body: "continue working"})
+    assert LifecycleFence.handoff_blocked?(current, issue)
+    send(worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(current, ref, result)
+    assert next.running[issue.id] == current.running[issue.id]
+    assert Process.alive?(runner)
+    assert AgentQueueStore.get(next.queue_store, message_id).status == :pending
+  end
 
   test "recognizes the human review state" do
     assert HumanReview.human_review_state?("human-review")

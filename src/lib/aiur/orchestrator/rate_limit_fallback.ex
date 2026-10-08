@@ -489,7 +489,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
         case result do
           :ok ->
-            if same_runner?(entry, context.running_entry) do
+            if TrackerTasks.same_runner?(entry, context.running_entry) do
               Logger.info("Rate-limit fallback #{transition} labels persisted; re-dispatching: #{log_context(entry, context.issue)}")
               redispatch(current, entry, context.relabeled, context.opts)
             else
@@ -508,13 +508,6 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
     {next, true}
   end
-
-  defp same_runner?(current, expected) when is_map(current) and is_map(expected) do
-    Map.take(current, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue]) ==
-      Map.take(expected, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue])
-  end
-
-  defp same_runner?(_, _), do: false
 
   defp log_transition_failure(transition, running_entry, issue, reason, rollback) do
     Logger.error(

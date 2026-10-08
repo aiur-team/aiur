@@ -389,6 +389,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   @doc false
+  @spec start_poll(State.t(), (State.t() -> State.t()), keyword()) :: State.t()
   def start_poll(%State{} = state, continue, opts \\ []) do
     if Config.tracker_kind() == "github" and not within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
       launch_ci_poll(state, opts, continue, &TrackerTasks.start/4)

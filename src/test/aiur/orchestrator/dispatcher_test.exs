@@ -26,15 +26,15 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         blocked_by_hydrator: fn value -> {:ok, value} end
       )
 
-    assert_receive {:validation_started, "async-high", high_worker}
+    receive_barrier({:validation_started, "async-high", high_worker})
     assert Aiur.Orchestrator.TrackerTasks.running?(pending, {:dispatch, high.id})
     refute Aiur.Orchestrator.TrackerTasks.running?(pending, {:dispatch, low.id})
     send(high_worker, :release)
-    assert_receive {ref, result}
+    receive_barrier({ref, result})
     {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
-    assert_receive {:validation_started, "async-low", low_worker}
+    receive_barrier({:validation_started, "async-low", low_worker})
     send(low_worker, :release)
-    assert_receive {ref, result}
+    receive_barrier({ref, result})
     {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(next, ref, result)
     assert next.tracker_tasks == %{}
   end
@@ -53,9 +53,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         runner: fn _, _, _ -> flunk("dispatch started during global pause") end
       )
 
-    assert_receive {:validation_started, worker}
+    receive_barrier({:validation_started, worker})
     send(worker, :release)
-    assert_receive {ref, result}
+    receive_barrier({ref, result})
     {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
     assert next.running == %{}
     assert next.globally_paused
@@ -77,10 +77,25 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end
       )
 
-    assert_receive {ref, result}
+    receive_barrier({ref, result})
     {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
-    assert_receive :completion_applied
+    receive_barrier(:completion_applied)
     assert next.globally_paused
+  end
+
+  test "async revalidation records ordinary skips without tracker error attention" do
+    issue = %Aiur.Issue{id: "async-missing", identifier: "ASYNC-MISSING", title: "missing", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+        issue_fetcher: fn _ -> {:ok, []} end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    receive_barrier({ref, result})
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+    assert next.dispatch_declines[issue.id] == :missing_after_revalidation
+    assert next.observed_error_alerts == MapSet.new()
   end
 
   defmodule CandidateFetchFailureLinearClient do

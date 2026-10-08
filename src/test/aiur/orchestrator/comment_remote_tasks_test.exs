@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CommentWake, State, TrackerTasks}
@@ -29,10 +30,10 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
     started = System.monotonic_time(:millisecond)
     pending = CommentWake.maybe_transition_idle_issue_to_rework(state, "42", :comment, event, 1)
     assert System.monotonic_time(:millisecond) - started < 500
-    assert_receive {:fetching, worker}, 1_000
+    receive_barrier({:fetching, worker})
     refute worker == self()
     send(worker, :release)
-    assert_receive {ref, result}, 1_000
+    receive_barrier({ref, result})
     {:handled, applied} = TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
     assert applied.globally_paused
     assert applied.tracker_tasks == %{}
@@ -62,12 +63,12 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
         terminate_running_issue_fun: fn _, _, _ -> flunk("replacement runner was terminated") end
       )
 
-    assert_receive {:writing, worker}, 1_000
+    receive_barrier({:writing, worker})
     refute worker == self()
     replacement = %{original | session_id: "replacement"}
     current = %{pending | running: %{issue.id => replacement}, globally_paused: true}
     send(worker, :release)
-    assert_receive {ref, result}, 1_000
+    receive_barrier({ref, result})
     {:handled, applied} = TrackerTasks.result(current, ref, result)
     assert applied.running[issue.id] == replacement
     assert applied.globally_paused
@@ -97,7 +98,7 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
     first = CommentWake.maybe_transition_idle_issue_to_rework(state, "42", :comment, event, 1)
     first = apply_only_task(first)
     first = apply_only_task(first)
-    assert_receive {:rework_writer, worker}, 1_000
+    receive_barrier({:rework_writer, worker})
     second_event = %{event | comment: %{"body" => "another finding", "id" => 2}}
     second = CommentWake.maybe_transition_idle_issue_to_rework(first, "42", :comment, second_event, 1)
     read_ref = Enum.find_value(second.tracker_tasks, fn {ref, job} -> if match?({:comment_idle, _, _, _}, job.key), do: ref end)
@@ -105,7 +106,7 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
     gate_ref = Enum.find_value(second.tracker_tasks, fn {ref, job} -> if match?({:comment_gate, _, _, _}, job.key), do: ref end)
     second = apply_task(second, gate_ref)
     assert map_size(second.comment_rework_retries) == 1
-    refute_receive {:rework_writer, _}, 20
+    refute_received {:rework_writer, _}
     second = CommentWake.cancel_comment_rework_retries(second)
     send(worker, :release)
     TrackerTasks.stop(second)
@@ -117,7 +118,7 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
   end
 
   defp apply_task(state, ref) do
-    assert_receive {^ref, result}, 1_000
+    receive_barrier({^ref, result})
     {:handled, state} = TrackerTasks.result(state, ref, result)
     state
   end

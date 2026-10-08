@@ -634,18 +634,18 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     end
 
     pending = Dispatcher.persist_lifetime_trip(state, issue, write)
-    assert_receive {:latch_writer, worker}
+    receive_barrier({:latch_writer, worker})
     send(worker, :release)
-    assert_receive {ref, result}
+    receive_barrier({ref, result})
     current = update_in(pending.dispatch_recovery.codex_thrash_budget[@issue_id], &Map.put(&1, :alert_emitted, true))
     {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(current, ref, result)
     assert thrash_budget(next)[@issue_id].durable_latch_applied
     assert thrash_budget(next)[@issue_id].alert_emitted
 
     pending = Dispatcher.persist_lifetime_trip(state, issue, write)
-    assert_receive {:latch_writer, worker}
+    receive_barrier({:latch_writer, worker})
     send(worker, :release)
-    assert_receive {ref, result}
+    receive_barrier({ref, result})
     reset = with_thrash_budget(pending, %{@issue_id => %{lifetime: 0}})
     {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(reset, ref, result)
     assert thrash_budget(next)[@issue_id] == %{lifetime: 0}

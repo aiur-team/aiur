@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.RemoteControlModeTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.RemoteControlMode
@@ -130,19 +131,19 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
                teardown_fun: fn _, _ -> flunk("replacement runner was torn down") end
              )
 
-    assert_receive {:rc_writer, worker}, 1_000
+    receive_barrier({:rc_writer, worker})
 
     assert {:reply, {:error, :remote_control_change_in_progress}, ^pending} =
              RemoteControlMode.set_remote_control_call(pending, issue.identifier, false, from: {parent, make_ref()})
 
     refute worker == self()
-    refute_receive {^reply_ref, _}, 20
+    refute_received {^reply_ref, _}
     replacement = %{entry | session_id: "replacement"}
     current = %{pending | running: %{issue.id => replacement}}
     send(worker, :release)
-    assert_receive {task_ref, result}, 1_000
+    receive_barrier({task_ref, result})
     {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
-    assert_receive {^reply_ref, {:error, :stale_runner}}, 1_000
+    receive_barrier({^reply_ref, {:error, :stale_runner}})
     assert applied.running[issue.id] == replacement
   end
 

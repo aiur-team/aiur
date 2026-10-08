@@ -34,6 +34,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   @spec set_remote_control_call(State.t(), String.t(), boolean()) ::
           {:reply, term(), State.t()}
+  @spec set_remote_control_call(State.t(), String.t(), boolean(), keyword()) :: {:reply, term(), State.t()} | {:noreply, State.t()}
   def set_remote_control_call(%State{} = state, issue_identifier, on?, opts \\ []) do
     if Keyword.has_key?(opts, :from) and TrackerTasks.running?(state, {:remote_control, issue_identifier}) do
       {:reply, {:error, :remote_control_change_in_progress}, state}
@@ -46,6 +47,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   @spec ensure_remote_control_trust_call(State.t(), String.t()) ::
           {:reply, term(), State.t()}
+  @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil) :: {:reply, term(), State.t()} | {:noreply, State.t()}
   def ensure_remote_control_trust_call(%State{} = state, workspace, from \\ nil)
       when is_binary(workspace) do
     if is_nil(from) do
@@ -232,7 +234,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
         {reply, current} =
           case result do
             :ok ->
-              if same_runner?(current_entry, running_entry), do: complete.(current, current_entry), else: {{:error, :stale_runner}, current}
+              if TrackerTasks.same_runner?(current_entry, running_entry), do: complete.(current, current_entry), else: {{:error, :stale_runner}, current}
 
             {:error, _} = error ->
               {error, current}
@@ -245,13 +247,6 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
     {:deferred, next}
   end
-
-  defp same_runner?(current, expected) when is_map(current) and is_map(expected) do
-    Map.take(current, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue]) ==
-      Map.take(expected, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue])
-  end
-
-  defp same_runner?(_, _), do: false
 
   defp finish_demote(state, running_entry, relabeled, label, opts) do
     remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)

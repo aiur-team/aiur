@@ -110,7 +110,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       fn current, outcome ->
         case outcome do
           {"done", :ok} ->
-            if same_runner?(State.find_running_by_identifier(current.running, identifier), entry) do
+            if TrackerTasks.same_runner?(State.find_running_by_identifier(current.running, identifier), entry) do
               current
               |> complete_merged_issue(identifier, clear_session_handle_fun, observe_membership_fun, terminate_running_issue_fun, mark_reconciled_fun, set_terminal_verification_pending_fun)
               |> resume_blockees_fun.(to_string(identifier))
@@ -1372,7 +1372,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     entry = State.find_running_by_identifier(state.running, telemetry_ticket)
 
     TrackerTasks.run(state, {:comment_gate, issue_key, source, make_ref()}, fn -> comment_rework_gate(issue_key, event) end, fn current, result ->
-      if same_runner?(State.find_running_by_identifier(current.running, telemetry_ticket), entry) do
+      if TrackerTasks.same_runner?(State.find_running_by_identifier(current.running, telemetry_ticket), entry) do
         apply_comment_gate(current, issue_key, telemetry_ticket, source, event, attempt_id, attempt, result, entry, continuation)
       else
         current
@@ -1410,7 +1410,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           case ReworkGate.verify_rework_attempt(state, identifier, head_sha, rework_attempt_alert_opts(event)) do
             {:ok, state} ->
               TrackerTasks.run(state, {:comment_write, issue_key, source, make_ref()}, fn -> write_comment_rework(issue_key, ticket, source, event, attempt_id) end, fn current, written ->
-                if same_runner?(State.find_running_by_identifier(current.running, ticket), entry) do
+                if TrackerTasks.same_runner?(State.find_running_by_identifier(current.running, ticket), entry) do
                   case written do
                     :ok -> continuation.({:ok, State.bump_rework_attempt(current, identifier, head_sha)})
                     {:error, _} = error -> continuation.({error, current})
@@ -1567,7 +1567,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   defp revalidate_comment_reactivation(state, running_entry, issue_number, source, opts \\ []) do
     TrackerTasks.run(state, {:comment_revalidate, issue_number, make_ref()}, fn -> fetch_current_reactivation_issue(running_entry) end, fn current, result ->
-      if same_runner?(State.find_running_by_identifier(current.running, issue_number), running_entry) do
+      if TrackerTasks.same_runner?(State.find_running_by_identifier(current.running, issue_number), running_entry) do
         apply_comment_reactivation(current, State.find_running_by_identifier(current.running, issue_number), issue_number, source, opts, result)
       else
         current
@@ -1704,12 +1704,4 @@ defmodule Aiur.Orchestrator.CommentWake do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     "issue_id=#{issue_id} issue_identifier=#{issue_number}"
   end
-
-  defp same_runner?(current, expected) when is_map(current) and is_map(expected) do
-    Map.take(current, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue]) ==
-      Map.take(expected, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue])
-  end
-
-  defp same_runner?(nil, nil), do: true
-  defp same_runner?(_, _), do: false
 end

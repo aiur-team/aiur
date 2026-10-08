@@ -1490,6 +1490,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   @doc false
+  @spec ensure_active_retry_started(State.t(), Issue.t(), pos_integer() | nil, map(), keyword()) :: State.t()
   def ensure_active_retry_started(state, issue, attempt, metadata, opts) do
     if live_running_entry?(Map.get(state.running, issue.id)) or
          Map.has_key?(state.retry_attempts, issue.id) or TrackerTasks.issue_pending?(state, issue.id) do

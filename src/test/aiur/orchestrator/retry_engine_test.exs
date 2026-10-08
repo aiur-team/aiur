@@ -42,12 +42,12 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                dispatch_fun: fn _, _, _, _, _ -> flunk("released claim must not dispatch") end
              )
 
-    assert_receive {:retry_fetch_started, worker}
+    receive_barrier({:retry_fetch_started, worker})
     assert worker != self()
     ref = next.tracker_tasks |> Map.keys() |> hd()
     current = %{next | claimed: MapSet.new(["other-ticket"])}
     send(worker, :finish_retry_fetch)
-    assert_receive {^ref, result}
+    receive_barrier({^ref, result})
     assert {:handled, applied} = TrackerTasks.result(current, ref, result)
     assert applied.claimed == MapSet.new(["other-ticket"])
     assert applied.running == %{}

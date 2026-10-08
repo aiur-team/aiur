@@ -10,11 +10,17 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       send(owner, {:poll_started, token, self()})
 
       receive do
-        {:release_poll, ^token} -> {:error, :controlled_poll_failure}
-      after
-        10_000 -> {:error, :test_barrier_expired}
+        {:release_poll, ^token} -> Application.get_env(:aiur, :tracker_io_test_result, {:error, :controlled_poll_failure})
       end
     end
+
+    def add_label(_id, _label) do
+      {owner, token} = Application.fetch_env!(:aiur, :tracker_io_test_barrier)
+      send(owner, {:label_write_started, token, self()})
+      receive do: ({:release_write, ^token} -> :ok)
+    end
+
+    def remove_label(_id, _label), do: :ok
 
     def fetch_issue_states_by_ids(_ids),
       do: {:ok, [Application.fetch_env!(:aiur, :tracker_io_test_issue)]}
@@ -38,6 +44,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     :ok = DispatchBudgetStore.put_lifetime(issue.id, 3)
 
     server = start_supervised!({Orchestrator, initial_poll?: false})
+    :ok = Aiur.AgentPubSub.subscribe_poll_state()
+
     worker = spawn(fn -> receive do: (:stop -> :ok) end)
 
     :sys.replace_state(server, fn state ->
@@ -82,7 +90,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
     send(server, :run_poll_cycle)
-    assert_receive {:poll_started, ^token, tracker_pid}, 2_000
+    receive_barrier({:poll_started, ^token, tracker_pid})
 
     try do
       refute tracker_pid == server, "the tracker is executing in the orchestrator handler"
@@ -90,10 +98,13 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       send(tracker_pid, {:release_poll, token})
       await_poll_finished(server)
       delivery = :erlang.trace_delivered(server)
-      assert_receive {:trace_delivered, ^server, ^delivery}, 1_000
+      receive_barrier({:trace_delivered, ^server, ^delivery})
       :erlang.trace(server, false, [:call])
       Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
-      refute_receive {:trace, ^server, :call, _remote_call}, 0, "an orchestrator handler performed remote work"
+
+      Enum.each(patterns, fn {module, function, _arity} ->
+        refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work"
+      end)
     end
   end
 
@@ -102,7 +113,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     state = :sys.get_state(server)
     :ok = SnapshotStore.publish(server, StatusReport.snapshot_payload(state), state)
     send(server, :run_poll_cycle)
-    assert_receive {:poll_started, ^token, tracker_pid}, 2_000
+    receive_barrier({:poll_started, ^token, tracker_pid})
 
     calls = [
       status: fn -> Orchestrator.fleet_view(server, 200, fleet_rows?: true) end,
@@ -139,22 +150,107 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     after
       Enum.each(tasks, fn {_name, task} -> Task.shutdown(task, :brutal_kill) end)
       send(tracker_pid, {:release_poll, token})
-      await_poll_finished(server)
     end
   end
 
-  defp await_poll_finished(server, attempts \\ 200)
-  defp await_poll_finished(_server, 0), do: flunk("poll did not finish")
+  test "a successful candidate poll applies after the owner handled concurrent calls", %{server: server, issue: issue, token: token} do
+    put_test_env(:tracker_io_test_result, {:ok, [issue]})
+    send(server, :run_poll_cycle)
+    receive_barrier({:poll_started, ^token, tracker_pid})
+    refute tracker_pid == server
+    assert {:ok, :already_running} = PauseResume.resume_agent(server, issue.identifier)
+    send(tracker_pid, {:release_poll, token})
+    state = await_poll_finished(server)
+    assert state.last_polled_issues[issue.id] == issue
+    assert Map.has_key?(state.running, issue.id)
+  end
 
-  defp await_poll_finished(server, attempts) do
-    state = :sys.get_state(server)
+  test "GitHub firehose and CI reads leave real handlers responsive", %{server: server, issue: issue, token: token} do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent", max_concurrent_agents: 4)
+    put_test_env(:github_client_module, SlowTracker)
+    put_test_env(:github_transport_test_options, plug: {Req.Test, __MODULE__})
+    put_test_env(:github_budget_enabled?, false)
+    put_test_env(:tracker_io_test_result, {:ok, [issue]})
+    previous_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-tracker-io-token")
+    cache_key = {Aiur.GitHub.Config, :resolved_token}
+    previous_cache = :persistent_term.get(cache_key, :unset)
+    :persistent_term.erase(cache_key)
 
-    if state.poll_cycles_completed > 0 and state.tracker_tasks == %{} do
-      state
-    else
-      Process.sleep(10)
-      await_poll_finished(server, attempts - 1)
+    on_exit(fn ->
+      if previous_token, do: System.put_env("GITHUB_TOKEN", previous_token), else: System.delete_env("GITHUB_TOKEN")
+      if previous_cache == :unset, do: :persistent_term.erase(cache_key), else: :persistent_term.put(cache_key, previous_cache)
+    end)
+
+    Aiur.GitHub.ReadCache.reset()
+    owner = self()
+    seen = start_supervised!({Agent, fn -> MapSet.new() end})
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      stage =
+        cond do
+          String.ends_with?(conn.request_path, "/events") -> :firehose
+          String.ends_with?(conn.request_path, "/issues") -> :ci_targets
+          true -> :other
+        end
+
+      hold? = Agent.get_and_update(seen, fn done -> {stage != :other and not MapSet.member?(done, stage), MapSet.put(done, stage)} end)
+
+      if hold? do
+        send(owner, {:github_stage_started, stage, self()})
+        receive do: (:release -> :ok)
+      end
+
+      Req.Test.json(conn, [])
+    end)
+
+    Req.Test.allow(__MODULE__, self(), server)
+    patterns = [{Aiur.Events.GithubFirehose, :poll, :_}, {Aiur.Events.GithubCIPoller, :poll, :_}, {Aiur.Tracker, :fetch_candidate_issues, :_}]
+    Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
+    :erlang.trace(server, true, [:call, {:tracer, self()}])
+    on_exit(fn -> Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local])) end)
+    send(server, :run_poll_cycle)
+
+    for stage <- [:firehose, :ci_targets] do
+      receive_barrier({:github_stage_started, ^stage, worker})
+      refute worker == server
+      assert {:ok, _id} = OperatorMessages.send_operator_message(server, issue.identifier, %{kind: :text, body: "during #{stage}"})
+      send(worker, :release)
     end
+
+    receive_barrier({:poll_started, ^token, candidate_worker})
+    refute candidate_worker == server
+    send(candidate_worker, {:release_poll, token})
+    state = await_poll_finished(server)
+    assert state.last_polled_issues[issue.id] == issue
+    delivery = :erlang.trace_delivered(server)
+    receive_barrier({:trace_delivered, ^server, ^delivery})
+    Enum.each(patterns, fn {module, function, _} -> refute_received {:trace, ^server, :call, {^module, ^function, _args}} end)
+  end
+
+  test "a converted control handler cannot call tracker writes in the owner", %{server: server, issue: issue, token: token} do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent")
+    put_test_env(:github_client_module, SlowTracker)
+    pattern = {Aiur.Tracker, :add_label, :_}
+    :erlang.trace_pattern(pattern, true, [:local])
+    :erlang.trace(server, true, [:call, {:tracer, self()}])
+    on_exit(fn -> :erlang.trace_pattern(pattern, false, [:local]) end)
+    control = Task.async(fn -> Aiur.Orchestrator.PriorityControl.prioritize_agent(server, issue.identifier) end)
+    receive_barrier({:label_write_started, ^token, writer})
+    refute writer == server
+    assert {:ok, _id} = OperatorMessages.send_operator_message(server, issue.identifier, %{kind: :text, body: "during label write"})
+    send(writer, {:release_write, token})
+    assert Task.await(control) == {:ok, :prioritized}
+    assert :sys.get_state(server).running[issue.id].issue.priority == 1
+    delivery = :erlang.trace_delivered(server)
+    receive_barrier({:trace_delivered, ^server, ^delivery})
+    refute_received {:trace, ^server, :call, {Aiur.Tracker, :add_label, _args}}
+  end
+
+  defp await_poll_finished(server) do
+    receive_barrier({:poll_state_changed, _payload})
+    state = :sys.get_state(server)
+    if state.poll_cycles_completed > 0, do: state, else: await_poll_finished(server)
   end
 
   defp put_test_env(key, value) do

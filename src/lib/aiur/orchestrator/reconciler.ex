@@ -109,6 +109,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   @doc false
+  @spec issue_input(State.t(), String.t()) :: tuple()
   def issue_input(state, issue_id) do
     entry = Map.get(state.running, issue_id)
     runtime = if is_map(entry), do: Map.take(entry, [:pid, :ref, :control, :lifecycle_fence, :issue]), else: entry

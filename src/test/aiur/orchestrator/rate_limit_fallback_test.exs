@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{RateLimitFallback, State}
@@ -855,12 +856,12 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         )
       )
 
-    assert_receive {:fallback_writer, worker}, 1_000
+    receive_barrier({:fallback_writer, worker})
     refute worker == self()
     replacement = Map.put(state.running["1"], :session_id, "replacement")
     current = %{pending | running: %{"1" => replacement}, globally_paused: true}
     send(worker, :release)
-    assert_receive {task_ref, result}, 1_000
+    receive_barrier({task_ref, result})
     {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
     assert applied.running["1"] == replacement
     assert applied.globally_paused
@@ -934,7 +935,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   defp assert_label_ops(expected) do
     actual =
       Enum.map(expected, fn _operation ->
-        assert_receive {:label_op, operation}, 1000
+        receive_barrier({:label_op, operation})
         operation
       end)
 

@@ -310,13 +310,13 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
           dispatch_fun: fn _current, _issue -> flunk("newer pause must suppress restore dispatch") end
         )
 
-      assert_receive {:restore_started, worker}
+      receive_barrier({:restore_started, worker})
       assert worker != self()
       ref = next.tracker_tasks |> Map.keys() |> hd()
       paused = issue(%{paused: true, labels: ["agent:paused"]})
       current = %{next | last_polled_issues: %{@issue_id => paused}, claimed: MapSet.new(["other-ticket"])}
       send(worker, :finish_restore)
-      assert_receive {^ref, result}
+      receive_barrier({^ref, result})
       assert {:handled, applied} = TrackerTasks.result(current, ref, result)
       assert applied.last_polled_issues[@issue_id] == paused
       assert applied.claimed == MapSet.new(["other-ticket"])
@@ -347,13 +347,13 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
           end
         )
 
-      assert_receive {:dispatch_validation_started, worker}
+      receive_barrier({:dispatch_validation_started, worker})
       assert next.auto_resume[@issue_id] == entry
       again = AutoResume.maybe_resume(next, System.monotonic_time(:millisecond), dispatch_fun: fn _, _ -> flunk("validation already pending") end)
       assert again.auto_resume[@issue_id] == entry
       ref = next.tracker_tasks |> Map.keys() |> hd()
       send(worker, :finish_validation)
-      assert_receive {^ref, result}
+      receive_barrier({^ref, result})
       assert {:handled, applied} = TrackerTasks.result(again, ref, result)
       assert MapSet.member?(applied.claimed, @issue_id)
     end

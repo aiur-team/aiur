@@ -21,11 +21,11 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
       )
 
     assert TrackerTasks.running?(pending, :startup_workspace_cleanup)
-    assert_receive {:io_waiting, worker}
+    receive_barrier({:io_waiting, worker})
     current = %{pending | completed: MapSet.new(["current-owner"])}
     send(worker, :release)
     next = finish_task(current)
-    assert_receive :todo_cleanup_finished
+    receive_barrier(:todo_cleanup_finished)
     assert next.completed == MapSet.new(["current-owner"])
     refute TrackerTasks.running?(next, :startup_workspace_cleanup)
   end
@@ -43,7 +43,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
       end)
 
     assert map_size(pending.tracker_tasks) == 1
-    assert_receive {:io_waiting, worker}
+    receive_barrier({:io_waiting, worker})
     assert worker != self()
     replacement = put_in(pending.running[issue.id].control.generation, 2)
     send(worker, :release)
@@ -73,7 +73,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
 
     assert pending.last_polled_issues[issue.id] == issue
     assert TrackerTasks.running?(pending, :idle_terminal_verification)
-    assert_receive {:io_waiting, worker}
+    receive_barrier({:io_waiting, worker})
     entry = %{identifier: issue.identifier, issue: issue, pid: self(), control: %{generation: 2}}
     send(worker, :release)
     next = finish_task(%{pending | running: %{issue.id => entry}})
@@ -95,10 +95,10 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
 
     assert candidates == []
     assert map_size(pending.tracker_tasks) == 1
-    assert_receive {:io_waiting, worker}
+    receive_barrier({:io_waiting, worker})
     send(worker, :release)
     next = finish_task(%{pending | completed: MapSet.new(["unrelated-completion"])})
-    assert_receive {:written, "3213", "todo"}
+    receive_barrier({:written, "3213", "todo"})
     assert next.last_polled_issues[issue.id].state_labels == ["todo"]
     assert MapSet.member?(next.completed, "unrelated-completion")
   end
@@ -120,7 +120,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
       )
 
     assert candidates == []
-    assert_receive {:io_waiting, worker}
+    receive_barrier({:io_waiting, worker})
     entry = %{identifier: issue.identifier, issue: issue, pid: self(), control: %{generation: 2}}
     current = %{pending | running: %{issue.id => entry}}
     send(worker, :release)
@@ -144,7 +144,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     ]
 
     {pending, []} = StartupClaimReconciler.reconcile(owned_state(), [issue], Keyword.put(opts, :read_boot_marker_fun, fn -> {:ok, nil} end))
-    assert_receive {:io_waiting, worker}
+    receive_barrier({:io_waiting, worker})
     continuing_opts = Keyword.put(opts, :read_boot_marker_fun, fn -> {:ok, Aiur.Boot.run_id()} end)
     {observed, []} = StartupClaimReconciler.reconcile(pending, [issue], continuing_opts)
     send(worker, :release)
@@ -153,7 +153,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     assert failed.startup_claim_reconciliation_failures[issue.identifier].attempts == 1
     {retrying, []} = StartupClaimReconciler.reconcile(failed, [issue], continuing_opts)
     assert TrackerTasks.running?(retrying, {:startup_release, issue.id})
-    assert_receive {:io_waiting, retry_worker}
+    receive_barrier({:io_waiting, retry_worker})
     send(retry_worker, :release)
     retried = finish_task(retrying)
     assert retried.startup_claim_reconciliation_failures[issue.identifier].attempts == 2
@@ -199,14 +199,14 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
       )
 
     assert candidates == []
-    refute_receive {:announced, _topic}
-    assert_receive {:io_waiting, worker}
+    refute_received {:announced, _topic}
+    receive_barrier({:io_waiting, worker})
     send(worker, :release)
     writing = finish_task(pending)
     assert TrackerTasks.running?(writing, {:merged_reconcile, issue.id})
     next = finish_task(writing)
-    assert_receive {:written, "3213", "human-review", "in-progress"}
-    assert_receive {:announced, "ticket.3213.dependency.merged_pr_remaining_open"}
+    receive_barrier({:written, "3213", "human-review", "in-progress"})
+    receive_barrier({:announced, "ticket.3213.dependency.merged_pr_remaining_open"})
     assert MapSet.member?(next.merged_ticket_reconciliations, {"3213", "merge"})
   end
 
@@ -217,13 +217,11 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
 
     receive do
       :release -> :ok
-    after
-      1_000 -> :ok
     end
   end
 
   defp finish_task(state) do
-    assert_receive {ref, result} when is_reference(ref), 2_000
+    receive_barrier({ref, result})
     assert {:handled, next} = TrackerTasks.result(state, ref, result)
     next
   end

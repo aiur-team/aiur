@@ -54,8 +54,12 @@ defmodule Aiur.Orchestrator.CommandScan do
           {scanned.github_command_scan_since, Map.take(scanned.github_comment_etags, [:command_scan_review, :command_scan_issue])}
         end,
         fn
-          current, {since, etags} -> %{current | github_command_scan_since: since, github_comment_etags: Map.merge(current.github_comment_etags, etags)}
-          current, _failure -> current
+          current, {since, etags} when is_map(etags) ->
+            %{current | github_command_scan_since: since, github_comment_etags: Map.merge(current.github_comment_etags, etags)}
+
+          current, failure ->
+            Logger.warning("PR command scan task failed: #{inspect(failure)}")
+            current
         end
       )
     else

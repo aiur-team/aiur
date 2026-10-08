@@ -119,14 +119,14 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           alert_loader: fn -> [] end
         )
 
-      assert_receive {:ci_fetch_started, worker}
+      receive_barrier({:ci_fetch_started, worker})
       assert worker != self()
       ref = next.tracker_tasks |> Map.keys() |> hd()
       current = %{next | running: %{}, claimed: MapSet.new(["concurrent-claim"]), ci_lifecycle: %{next.ci_lifecycle | approved_heads: %{"concurrent-ticket" => "concurrent-head"}}}
       send(worker, :finish_ci_fetch)
-      assert_receive {^ref, result}
+      receive_barrier({^ref, result})
       assert {:handled, applied} = TrackerTasks.result(current, ref, result)
-      assert_receive :ci_poll_continued
+      receive_barrier(:ci_poll_continued)
       assert applied.running == %{}
       assert applied.claimed == MapSet.new(["concurrent-claim"])
       assert applied.ci_lifecycle.approved_heads["concurrent-ticket"] == "concurrent-head"
@@ -145,13 +145,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       state = %{running_state(ticket, self(), :paused, paused_reason: :ci_wait) | snapshot_key: {:global, name}}
 
       next = CiLifecycle.transition_ci_ticket(state, ticket, "ci-wait")
-      assert_receive {:ci_transition_started, worker, issue_id, "ci-wait", opts}
+      receive_barrier({:ci_transition_started, worker, issue_id, "ci-wait", opts})
       assert worker != self()
       assert issue_id == ticket.id
       assert opts == [expected_state: "human-review"]
       ref = next.tracker_tasks |> Map.keys() |> hd()
       send(worker, :finish_ci_transition)
-      assert_receive {^ref, result}
+      receive_barrier({^ref, result})
       assert {:handled, applied} = TrackerTasks.result(%{next | running: %{}}, ref, result)
       assert applied.running == %{}
       assert applied.tracker_tasks == %{}

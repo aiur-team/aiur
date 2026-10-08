@@ -1235,6 +1235,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp apply_dispatch_validation(state, _issue, _attempt, _host, _opts, {:held, hydrated}),
     do: emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
 
+  defp apply_dispatch_validation(state, issue, _attempt, _host, _opts, {:skip, :missing}),
+    do: emit_dispatch_attempt_decline(state, issue, :missing_after_revalidation, false)
+
+  defp apply_dispatch_validation(state, _issue, _attempt, _host, _opts, {:skip, %Issue{} = refreshed}) do
+    reason =
+      case DispatchPolicy.dispatch_decision(refreshed, state) do
+        {:skip, reason} -> {:stale_after_revalidation, reason}
+        :dispatch -> :stale_after_revalidation
+      end
+
+    emit_dispatch_attempt_decline(state, refreshed, reason, false)
+  end
+
   defp apply_dispatch_validation(state, issue, _attempt, _host, _opts, result) do
     Logger.warning("Asynchronous dispatch validation declined: #{State.issue_context(issue)} result=#{inspect(result)}")
     emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)

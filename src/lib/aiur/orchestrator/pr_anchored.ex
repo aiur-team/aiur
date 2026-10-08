@@ -293,7 +293,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
       TrackerTasks.run(acc, {:pr_closed, issue_id}, fn -> fetcher.(pr_number) end, fn current, result ->
         case {Map.get(current.running, issue_id), result} do
           {entry, {:ok, nil}} ->
-            if same_runner?(entry, running_entry) do
+            if TrackerTasks.same_runner?(entry, running_entry) do
               Logger.warning("PR-anchored PR is no longer open; stopping: issue_id=#{issue_id} pr=#{pr_number}")
               current = Orchestrator.terminate_running_issue(current, issue_id, false)
               cleanup_pr_anchored_workspace(issue_id, entry)
@@ -339,12 +339,4 @@ defmodule Aiur.Orchestrator.PrAnchored do
     ticket = if is_binary(identifier), do: identifier, else: issue_id
     WorkspaceCleanup.start_terminal_workspace_cleanups([{ticket, issue_id, Map.get(running_entry, :worker_host)}])
   end
-
-  defp same_runner?(current, expected) when is_map(current) and is_map(expected) do
-    Map.take(current, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue]) ==
-      Map.take(expected, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue])
-  end
-
-  defp same_runner?(nil, nil), do: true
-  defp same_runner?(_, _), do: false
 end

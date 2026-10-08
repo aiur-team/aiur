@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State, TrackerTasks, LifecycleFence}
   alias Aiur.RunTelemetry.Lifecycle
 
   @doc false
@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.HumanReview do
     entry = Map.get(state.running, issue.id)
 
     TrackerTasks.run(state, {:human_review_verify, issue.id}, fn -> verify_human_review_ready(issue) end, fn current, result ->
-      if same_runner?(Map.get(current.running, issue.id), entry) do
+      if TrackerTasks.same_runner?(Map.get(current.running, issue.id), entry) and not LifecycleFence.handoff_blocked?(current, issue) do
         apply_verification(current, issue, opts, result)
       else
         current
@@ -119,7 +119,7 @@ defmodule Aiur.Orchestrator.HumanReview do
     entry = Map.get(state.running, issue.id)
 
     TrackerTasks.run(state, {:human_review_pr, issue.id}, fn -> ReworkGate.open_pr(issue_key, rework_opts) end, fn current, result ->
-      if same_runner?(Map.get(current.running, issue.id), entry) do
+      if TrackerTasks.same_runner?(Map.get(current.running, issue.id), entry) and not LifecycleFence.handoff_blocked?(current, issue) do
         apply_rejection(current, issue, issue_key, rework_opts, reason, result)
       else
         current
@@ -186,9 +186,9 @@ defmodule Aiur.Orchestrator.HumanReview do
 
     entry = Map.get(state.running, issue.id)
 
-    TrackerTasks.run(state, {:human_review_write, issue.id}, fn -> Tracker.update_issue_state(to_string(issue_key), target_state) end, fn
+    TrackerTasks.run(state, {:human_review_write, issue.id}, fn -> Tracker.update_issue_state(to_string(issue_key), target_state, expected_state: issue.state) end, fn
       current, :ok ->
-        if same_runner?(Map.get(current.running, issue.id), entry) do
+        if TrackerTasks.same_runner?(Map.get(current.running, issue.id), entry) and not LifecycleFence.handoff_blocked?(current, issue) do
           current = Reconciler.maybe_reactivate_or_refresh(current, %{issue | state: target_state})
           if is_function(on_success, 1), do: on_success.(current), else: current
         else
@@ -205,12 +205,4 @@ defmodule Aiur.Orchestrator.HumanReview do
   defp github_client_module do
     Application.get_env(:aiur, :github_client_module, GitHubClient)
   end
-
-  defp same_runner?(current, expected) when is_map(current) and is_map(expected) do
-    Map.take(current, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue]) ==
-      Map.take(expected, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue])
-  end
-
-  defp same_runner?(nil, nil), do: true
-  defp same_runner?(_, _), do: false
 end

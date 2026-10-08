@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.PriorityControlTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State}
@@ -141,19 +142,19 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
                notify_dashboard_fun: fn _ -> :ok end
              )
 
-    assert_receive {:priority_writer, worker}, 1_000
+    receive_barrier({:priority_writer, worker})
 
     assert {:reply, {:error, :priority_change_in_progress}, ^pending} =
              PriorityControl.deprioritize_agent_call(pending, "1577", from: {parent, make_ref()})
 
     refute worker == self()
-    refute_receive {^reply_ref, _}, 20
+    refute_received {^reply_ref, _}
     refreshed = %{initial | title: "Updated title", state: "rework", labels: ["agent:rework", "model:claude"]}
     current = %{pending | last_polled_issues: %{initial.id => refreshed}, running: %{initial.id => %{identifier: initial.identifier, issue: refreshed}}}
     send(worker, :release)
-    assert_receive {task_ref, result}, 1_000
+    receive_barrier({task_ref, result})
     {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
-    assert_receive {^reply_ref, {:ok, :prioritized}}, 1_000
+    receive_barrier({^reply_ref, {:ok, :prioritized}})
     assert applied.last_polled_issues[initial.id].title == "Updated title"
     assert applied.last_polled_issues[initial.id].state == "rework"
     assert applied.running[initial.id].issue.labels == ["agent:rework", "model:claude", "priority:1"]

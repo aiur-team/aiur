@@ -355,6 +355,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   end
 
   @doc false
+  @spec finish_dispatch(State.t(), Issue.t(), map()) :: State.t()
   def finish_dispatch(state, issue, entry) do
     cond do
       Map.get(state.auto_resume, issue.id) != entry ->

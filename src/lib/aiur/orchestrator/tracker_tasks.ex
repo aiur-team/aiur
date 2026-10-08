@@ -5,6 +5,15 @@ defmodule Aiur.Orchestrator.TrackerTasks do
 
   @timeout_ms 120_000
 
+  @spec same_runner?(map() | nil, map() | nil) :: boolean()
+  def same_runner?(current, expected) when is_map(current) and is_map(expected) do
+    fields = [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :issue]
+    Map.take(current, fields) == Map.take(expected, fields)
+  end
+
+  def same_runner?(nil, nil), do: true
+  def same_runner?(_, _), do: false
+
   @spec owner?(State.t()) :: boolean()
   def owner?(state), do: not is_nil(state.snapshot_key) and GenServer.whereis(state.snapshot_key) == self()
 
