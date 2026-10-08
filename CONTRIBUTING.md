@@ -127,6 +127,7 @@ not fail a build on line count alone.
   ID, failed/passed attempts, and seeds (null when the log has no seed).
   The job summary shows the count and test names. Download these artifacts to
   count recurrence; they use GitHub's repository artifact retention policy.
+  Ledger and artifact errors are non-blocking so they cannot fail a passing shard.
   This records observations without relaxing the coverage gate or automatically
   quarantining tests. Runner loss before upload and failures without a parseable
   ExUnit test name cannot be recorded.

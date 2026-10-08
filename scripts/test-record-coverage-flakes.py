@@ -38,6 +38,7 @@ class CoverageFlakesTest(unittest.TestCase):
                          "passed_attempt": 2, "passed_seed": 99}]
             self.assertEqual(run(2, "success", root / "passed"), expected)
             self.assertIn("1 failure → rerun-pass", (root / "summary.md").read_text())
+            self.assertIn("Coverage flake ledger (shard 4)\n", (root / "summary.md").read_text())
             for key, other in (("GITHUB_SHA", "other"), ("GITHUB_RUN_ID", "456"),
                                ("MIX_TEST_PARTITION", "2")):
                 original = env[key]
@@ -61,6 +62,7 @@ class CoverageFlakesTest(unittest.TestCase):
         self.assertIn("name: shard-flake-evidence-${{ matrix.partition }}-${{ github.run_attempt }}", shard)
         for name in ("Download previous shard attempts", "Record coverage flake ledger", "Upload coverage flake evidence"):
             step = shard.split(f"      - name: {name}\n")[1].split("      - name:")[0]
+            self.assertIn("continue-on-error: true", step)
             self.assertIn("always()", step)
             self.assertIn("needs.changes.outputs.docs_only != 'true'", step)
         self.assertIn("run: python3 scripts/test-record-coverage-flakes.py", workflow)

@@ -47,7 +47,7 @@ def record(log, outcome, previous, output, summary):
     (output / "attempt.json").write_text(json.dumps(current, indent=2) + "\n")
     (output / "flakes.ndjson").write_text("".join(json.dumps(row) + "\n" for row in rows))
     with summary.open("a") as handle:
-        handle.write(f"\n### Coverage flake ledger (shard {current['shard']}/4)\n\n")
+        handle.write(f"\n### Coverage flake ledger (shard {current['shard']})\n\n")
         handle.write(f"{len(rows)} failure → rerun-pass observations for this run and SHA. "
                      "See the shard-flake-evidence artifact for seeds and attempts.\n")
         for row in rows:
