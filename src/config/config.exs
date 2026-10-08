@@ -27,6 +27,11 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  # Install before app boot: accidental tracker/provider calls must never dial
+  # public hosts. Tests opt in per request with a fake :plug/:adapter, or
+  # adapter: Req.Finch for explicitly tagged live-provider checks.
+  config :req, :default_options, adapter: Aiur.TestHTTPGuard
+
   # Library code must never register real pids/panes into the reaper during
   # unit tests — a draining sweep would kill live host processes. Reaper
   # tests force-enable this against their own dedicated instances.
