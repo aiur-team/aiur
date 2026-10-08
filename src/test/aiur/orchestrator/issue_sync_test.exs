@@ -2516,6 +2516,39 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert alert["reason"] =~ "left as-is"
     end
 
+    test "the next label poll resolves a persisted missing-label alert after restart" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      for target <- ~w(in-progress rework ci-wait human-review error) do
+        recovered = %{issue("recovered-#{target}", target) | state_labels: [target]}
+        topic = "ticket.#{recovered.identifier}.agent.attention.state-label-missing-no-evidence"
+        resolved_topic = "#{topic}.resolved"
+        :ok = Exchange.subscribe(resolved_topic)
+        write_central_attention!(topic)
+        assert AlertFeed.active_ticket_attention?(topic)
+
+        update = fn _, _ -> flunk("this observation needs no label write") end
+        missing = %{recovered | state: nil, state_labels: []}
+        {state, [^missing]} = IssueSync.reconcile_contradictory_state_labels(%State{}, [missing], update)
+        assert AlertFeed.active_ticket_attention?(topic)
+        refute_received {:event, %{topic: ^resolved_topic}}
+
+        {state, [observed]} = IssueSync.reconcile_contradictory_state_labels(state, [recovered], update)
+        assert observed.state == target
+        assert_received {:event, %{topic: ^resolved_topic}}
+        refute AlertFeed.active_ticket_attention?(topic)
+
+        IssueSync.reconcile_contradictory_state_labels(state, [recovered], update)
+        mailbox_barrier()
+        refute_received {:event, %{topic: ^resolved_topic}}
+      end
+    end
+
     test "leaves a deliberately parked zero-label ticket alone" do
       # `needs-triage`, `human:todo`, and `Epic:` containers carry no `agent:*`
       # state label on purpose; dispatching them would reverse deliberate
