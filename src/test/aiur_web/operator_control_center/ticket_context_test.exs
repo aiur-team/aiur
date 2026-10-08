@@ -4,10 +4,54 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.TicketContextPresenter
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, LogEntry, View}
   alias AiurWeb.OperatorControlCenter.TicketContext
 
   @observed_at ~U[2026-07-16 12:00:00Z]
+
+  test "long draft bodies render a sanitized UTF-8 preview and full document link" do
+    draft = %{identity() | provider_id: "PLAN_draft"}
+    body = "Draft introduction\n" <> String.duplicate("é", 1_986) <> "\npassword=never-show-this\n" <> String.duplicate("remaining text ", 100)
+
+    view = %{
+      context()
+      | identity: draft,
+        description: body,
+        capabilities: [
+          %Capability{kind: :document, label: "Planning doc", available?: true, external?: false, href: "/build-order-documents/owner/repo/9900/42"}
+        ]
+    }
+
+    html = render_component(&TicketContext.ticket_context/1, %{id: "draft-context", context: view})
+    normalized = TicketContextPresenter.normalize_view(view)
+    assert String.valid?(normalized.description)
+    assert byte_size(normalized.description) <= 4_000
+    assert normalized.description_truncated?
+    assert normalized.description =~ "Draft introduction"
+    refute normalized.description =~ "never-show-this"
+    assert html =~ "Draft introduction"
+    assert html =~ "Description truncated to a preview."
+    assert html =~ "Full document"
+    assert html =~ ~s(href="/build-order-documents/owner/repo/9900/42")
+    refute html =~ "never-show-this"
+    refute html =~ "remaining text"
+  end
+
+  test "future regression guard: draft document links must match the selected member and repository" do
+    for href <- [
+          "/build-order-documents/other/repo/9900/42",
+          "/build-order-documents/owner/repo/9900/43",
+          "/build-order-documents/owner/repo/09900/42",
+          "/build-order-documents/owner/repo/9900/42?unsafe=1",
+          "/build-order-documents/owner/repo/9900/42#fragment"
+        ] do
+      view = %{context() | capabilities: [%Capability{kind: :document, label: "Planning doc", available?: true, external?: false, href: href}]}
+      [capability] = TicketContextPresenter.normalize_view(view).capabilities
+      refute capability.available?
+      assert capability.href == nil
+    end
+  end
 
   test "renders a semantic, navigation-only ticket dialog with bounded Logs" do
     html =
