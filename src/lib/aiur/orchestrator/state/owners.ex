@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     running_issue_cache: :core,
     github_connectivity: :core,
     github_poll_delays: :core,
+    tracker_tasks: :core,
     queued_demand_hints: :core,
     waiting_for_human_episodes: :core,
     tracker_preflight_alert_signature: :core,
@@ -114,7 +115,7 @@ defmodule Aiur.Orchestrator.State.Owners do
   }
 
   @members %{
-    core: [Aiur.Orchestrator, Aiur.Orchestrator.IssueSync, Aiur.Orchestrator.TrackerHealth, Aiur.Orchestrator.SnapshotPublisher, Aiur.Orchestrator.SnapshotStore],
+    core: [Aiur.Orchestrator, Aiur.Orchestrator.IssueSync, Aiur.Orchestrator.TrackerHealth, Aiur.Orchestrator.TrackerTasks, Aiur.Orchestrator.SnapshotPublisher, Aiur.Orchestrator.SnapshotStore],
     dispatch: [Aiur.Orchestrator.Dispatcher, Aiur.Orchestrator.DispatchOutcome, Aiur.Orchestrator.DispatchPolicy, Aiur.Orchestrator.CapacityBinding, Aiur.Orchestrator.Slots],
     lifecycle: [
       Aiur.Orchestrator.Lifecycle,
