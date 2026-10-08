@@ -69,13 +69,17 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
 
-## Dependencies
+## Queue attentions
 
 Queue attentions add two default Executor bindings: `ticket.*.queue.attention.#`
 (`attention:auto`) and `system.queue.attention.#` (`dispatch:auto`). Both include
-the `.resolved` events that clear an attention. Queue latches survive restarts;
-the attention API retains failed durable emissions for retry by reconciliation. Queue bus payloads carry
+the `.resolved` events that clear an attention.
+
+Queue latches survive restarts; the attention API retains failed durable
+emissions for retry by reconciliation. Queue bus payloads carry
 allowlisted references and attributes; human-readable copy stays in the local alert feed.
+
+## Dependencies
 
 | Step | Contract |
 | --- | --- |

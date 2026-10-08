@@ -5,6 +5,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
   alias Aiur.BuildQueue.{Attention, Store}
   alias Aiur.BuildQueue.Model.{Edge, Latch}
   alias Aiur.Events.Exchange
+  alias Aiur.Events.Publisher
 
   @topic "ticket.12.queue.attention.prerequisite_failed"
   @payload %{prerequisite: "12", blocked: ["13", "14"], cause: :not_planned}
@@ -145,13 +146,13 @@ defmodule Aiur.BuildQueue.AttentionTest do
   end
 
   test "blocked queue subjects reach the Executor even outside the dispatch tracked set" do
-    previous = :persistent_term.get({Aiur.Events.Publisher, :tracked_fn}, nil)
+    previous = :persistent_term.get({Publisher, :tracked_fn}, nil)
 
     on_exit(fn ->
-      if previous, do: Aiur.Events.Publisher.set_tracked_fn(previous), else: :persistent_term.erase({Aiur.Events.Publisher, :tracked_fn})
+      if previous, do: Publisher.set_tracked_fn(previous), else: :persistent_term.erase({Publisher, :tracked_fn})
     end)
 
-    Aiur.Events.Publisher.set_tracked_fn(fn _ -> false end)
+    Publisher.set_tracked_fn(fn _ -> false end)
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
     assert_received {:event, %{topic: @topic}}
     assert :ok = Attention.resolve(:prerequisite_failed, "12")

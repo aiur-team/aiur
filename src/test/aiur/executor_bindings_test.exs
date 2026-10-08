@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorBindingsTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Topic
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
@@ -37,7 +38,7 @@ defmodule Aiur.ExecutorBindingsTest do
           {"dispatch:auto", "system.queue.attention.inputs_unavailable"}
         ] do
       assert Enum.any?(ExecutorBindings.defaults(), fn {pattern, channel} ->
-               channel == reason and Aiur.Events.Topic.matches?(pattern, topic) and Aiur.Events.Topic.matches?(pattern, topic <> ".resolved")
+               channel == reason and Topic.matches?(pattern, topic) and Topic.matches?(pattern, topic <> ".resolved")
              end)
 
       assert ExecutorBindings.allowlisted?(topic <> ".resolved")
