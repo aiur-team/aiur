@@ -5,8 +5,20 @@ defmodule Aiur.AccountsCLI do
   alias Aiur.Accounts.Shims.{Claude, Codex}
 
   @spec accounts(boolean(), String.t() | nil) :: :ok | {:error, term()}
-  def accounts(json, harness \\ nil) do
-    rows = Enum.map(Accounts.list(harness), &account_row/1)
+  def accounts(json, harness \\ nil), do: render_accounts(json, harness, %{}, false)
+
+  @doc false
+  @spec accounts(boolean(), ([String.t()] -> map())) :: :ok
+  def accounts(json, snapshot_fun) when is_function(snapshot_fun, 1) do
+    render_accounts(json, nil, snapshot_fun, true)
+  end
+
+  defp render_accounts(json, harness, snapshot_fun, daemon_available?) do
+    accounts = Accounts.list(harness)
+    claude_names = accounts |> Enum.filter(&(&1.harness == "claude")) |> Enum.map(& &1.name)
+    snapshots = if is_function(snapshot_fun, 1), do: snapshot_fun.(claude_names), else: snapshot_fun
+    rows = Enum.map(accounts, &account_row(&1, snapshots, daemon_available?))
+
     if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
     :ok
   end
@@ -90,11 +102,15 @@ defmodule Aiur.AccountsCLI do
     if String.ends_with?(dir, "/"), do: {:error, :trailing_slash_in_dir}, else: :ok
   end
 
-  defp account_row(%{name: name, harness: harness, profile_dir: dir}) do
+  defp account_row(%{name: name, harness: harness, api_key_env: _env_name}, _snapshots, _daemon_available?) do
+    %{name: name, harness: harness, identity: nil, usage: "usage unavailable", observed_at: nil, age_ms: nil}
+  end
+
+  defp account_row(%{name: name, harness: harness, profile_dir: dir}, snapshots, daemon_available?) do
     identity = identity(harness, dir)
 
-    case Accounts.usage(harness, name) do
-      {:ok, reading, metadata} ->
+    case snapshot_for(harness, name, snapshots, daemon_available?) do
+      {:ok, reading, observed_at, freshness} ->
         %{
           name: name,
           harness: harness,
@@ -104,39 +120,51 @@ defmodule Aiur.AccountsCLI do
           identity: identity,
           weekly_percent: percent(reading.windows, "seven_day"),
           five_hour_percent: percent(reading.windows, "five_hour"),
-          freshness: Atom.to_string(metadata.freshness),
-          observed_at: DateTime.to_iso8601(metadata.observed_at),
-          age_ms: max(DateTime.diff(DateTime.utc_now(), metadata.observed_at, :millisecond), 0)
+          freshness: Atom.to_string(freshness),
+          observed_at: DateTime.to_iso8601(observed_at),
+          age_ms: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
         }
 
       {:error, reason} ->
-        %{
-          name: name,
-          harness: harness,
-          email: identity["email"],
-          org: identity["organization"] || identity["orgName"],
-          seat_tier: identity["seatTier"] || identity["subscriptionType"],
-          identity: identity,
-          weekly_percent: nil,
-          five_hour_percent: nil,
-          freshness: freshness(reason),
-          observed_at: nil,
-          age_ms: nil
-        }
+        usage_unavailable_row(name, harness, identity, freshness(reason))
     end
-  end
-
-  defp account_row(%{name: name, harness: harness, api_key_env: _env_name}) do
-    %{name: name, harness: harness, identity: nil, usage: "usage unavailable", observed_at: nil, age_ms: nil}
-  end
-
-  defp account_row(%{name: _name, harness: _harness} = account) do
-    account_row(Map.put(account, :profile_dir, nil))
   end
 
   defp identity("claude", dir), do: Claude.identity(dir)
   defp identity("codex", dir), do: Codex.identity(dir)
   defp identity(_harness, _dir), do: %{}
+
+  defp snapshot_for("claude", name, snapshots, daemon_available?) do
+    case snapshots do
+      %{^name => %{reading: reading, observed_at: observed_at, freshness: freshness}} when is_map(reading) ->
+        {:ok, reading, observed_at, freshness}
+
+      %{^name => %{freshness: :unavailable, reason: reason}} ->
+        {:error, reason}
+
+      _missing ->
+        {:error, if(daemon_available?, do: :usage_not_observed, else: :daemon_not_running)}
+    end
+  end
+
+  defp snapshot_for(_harness, _name, _snapshots, true), do: {:error, :usage_not_polled}
+  defp snapshot_for(_harness, _name, _snapshots, false), do: {:error, :daemon_not_running}
+
+  defp usage_unavailable_row(name, harness, identity, freshness) do
+    %{
+      name: name,
+      harness: harness,
+      email: identity["email"],
+      org: identity["organization"] || identity["orgName"],
+      seat_tier: identity["seatTier"] || identity["subscriptionType"],
+      identity: identity,
+      weekly_percent: nil,
+      five_hour_percent: nil,
+      freshness: freshness,
+      observed_at: nil,
+      age_ms: nil
+    }
+  end
 
   defp freshness(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp freshness(_reason), do: "unavailable"
