@@ -60,7 +60,7 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
     assert_received {:event, %{"topic" => "executor.command.requested", "message" => message}}
     assert message =~ "dec-wake-gap-control"
     assert state.watermark >= id
-    assert watermark() >= id
+    assert is_integer(watermark()) and watermark() >= id
   end
 
   defp start_listener do
