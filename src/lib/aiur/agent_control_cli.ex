@@ -1340,7 +1340,7 @@ defmodule Aiur.AgentControlCLI do
   def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
     guarded("workspace-recover", fn ->
       ticket_key = workspace_recovery_ticket_key(ticket)
-      result = if ticket_key, do: Ownership.release_if_held_with_exit_proof(ticket_key, generation), else: {:error, :invalid_ticket_identifier}
+      result = Ownership.release_if_held_with_exit_proof(ticket_key, generation)
       status = %{identifier: ticket, issue_id: ticket}
 
       report_workspace_recovery(result, ticket, generation, status)
