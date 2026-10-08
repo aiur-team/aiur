@@ -70,11 +70,14 @@ defmodule Aiur.Orchestrator.IssueSync do
           {State.t(), list()}
   def reconcile_contradictory_state_labels(%State{} = state, issues, update_state_fun)
       when is_list(issues) and is_function(update_state_fun, 2) do
+    state = %{state | active_attention_topics: active_attention_topics()}
     previous_tickets = state.contradictory_state_label_tickets
     now_ms = System.monotonic_time(:millisecond)
 
     {healed_issues, state} =
       Enum.reduce(issues, {[], state}, fn issue, {acc, state_acc} ->
+        state_acc = resolve_missing_state_label_alert(issue, state_acc)
+
         case issue do
           %Issue{state_labels: [_, _ | _] = state_labels} = issue ->
             {healed_issue, state_acc} =
@@ -519,6 +522,27 @@ defmodule Aiur.Orchestrator.IssueSync do
       )
     end
   end
+
+  defp resolve_missing_state_label_alert(%Issue{state_labels: [_ | _]} = issue, %State{} = state) do
+    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
+
+    if active_attention?(state, topic) do
+      case Alerts.emit_system("#{topic}.resolved",
+             issue: issue.identifier,
+             reason: "Tracker observation confirms a lifecycle label exists again.",
+             needs_attention: false,
+             severity: "info",
+             central: true
+           ) do
+        :ok -> %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
+        {:error, _reason} -> state
+      end
+    else
+      state
+    end
+  end
+
+  defp resolve_missing_state_label_alert(_issue, state), do: state
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
     Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",

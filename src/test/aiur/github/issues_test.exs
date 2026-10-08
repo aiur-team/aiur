@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
   alias Aiur.{GitHub.Client, GitHub.DispatchAuthorization, GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+  alias Aiur.Orchestrator.{IssueSync, State}
 
   # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
   # run: it answers `304` to anything carrying a validator — its ETag tracks the
@@ -456,7 +457,7 @@ defmodule Aiur.GitHub.IssuesTest do
         number = System.unique_integer([:positive])
         identifier = to_string(number)
         previous = %Issue{id: identifier, identifier: identifier, state: "in-progress", state_labels: ["in-progress"]}
-        state = %Aiur.Orchestrator.State{last_polled_issues: %{identifier => previous}}
+        state = %State{last_polled_issues: %{identifier => previous}}
         {:ok, reads} = Agent.start_link(fn -> 0 end)
 
         request_fun = fn request ->
@@ -474,7 +475,7 @@ defmodule Aiur.GitHub.IssuesTest do
         end
 
         sync = fn state, issues ->
-          Aiur.Orchestrator.IssueSync.sync_polled_issue_state(
+          IssueSync.sync_polled_issue_state(
             state,
             issues,
             fn ids -> flunk("unexpected per-issue fetch: #{inspect(ids)}") end,
@@ -501,7 +502,7 @@ defmodule Aiur.GitHub.IssuesTest do
         parent = self()
 
         {_, [healed]} =
-          Aiur.Orchestrator.IssueSync.reconcile_contradictory_state_labels(state, [missing], fn id, restored ->
+          IssueSync.reconcile_contradictory_state_labels(state, [missing], fn id, restored ->
             send(parent, {:heal, id, restored})
             :ok
           end)
