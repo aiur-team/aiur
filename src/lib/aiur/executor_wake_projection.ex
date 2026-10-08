@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorWakeProjection do
   @moduledoc false
 
-  @actions ~w(opened ready_for_review closed merged synchronize push passed failed paused parked_ready)
+  @actions ~w(opened ready_for_review closed merged synchronize push passed failed paused parked_ready human_review)
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
   @sha ~r/\A[0-9a-fA-F]{7,64}\z/
 
@@ -21,7 +21,7 @@ defmodule Aiur.ExecutorWakeProjection do
          "topic_class" => topic_class(topic),
          "event_id" => typed_id(value(event, :id)),
          "ticket" => ticket_from_topic(topic),
-         "pr_number" => positive_integer(value(pr, :number) || value(event, :pr_number)),
+         "pr_number" => positive_integer(value(pr, :number) || value(event, :pr_number) || value(event, :pull_request_number)),
          "head_sha" => valid_sha(value(head, :sha) || value(event, :head_sha) || value(event, :sha)),
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
@@ -61,6 +61,7 @@ defmodule Aiur.ExecutorWakeProjection do
     case String.split(rest, ".") do
       [_ticket, "branch", "push"] -> "push"
       [_ticket, "ci", outcome] when outcome in ["passed", "failed"] -> outcome
+      [_ticket, "agent", "handoff", "human_review"] -> "human_review"
       _ -> nil
     end
   end

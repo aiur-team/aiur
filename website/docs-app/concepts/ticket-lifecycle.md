@@ -561,7 +561,7 @@ in [GitHub](/apis/github); this page does not duplicate them.
 
 If the run was started with `/aiur-run`, the Executor agent is subscribed to PR
 events and spins up a background agent for code review. `Aiur.ExecutorBindings`
-reconciles a compile-time set of exactly **24** default bindings
+reconciles a compile-time set of exactly **28** default bindings
 (`src/lib/aiur/executor_bindings.ex:7-32`), each with its delivery channel.
 Grouped by channel:
 
@@ -591,6 +591,12 @@ Grouped by channel:
 | `ticket.*.pr.merged` | `pr:auto` |
 | `ticket.*.pr.ready_for_review` | `pr:auto` |
 
+**handoff** — agent-to-Executor review transitions:
+
+| Pattern | Channel |
+| --- | --- |
+| `ticket.*.agent.handoff.human_review` | `handoff:auto` |
+
 **rework**:
 
 | Pattern | Channel |
@@ -616,6 +622,11 @@ Grouped by channel:
 
 `ExecutorBindings.allowlisted?/1` (`:41-45`) governs what an Executor may
 additionally bind beyond this fixed set.
+
+The daemon observes handoffs through its CI lifecycle poll, which includes
+`human-review` even when that state is absent from `tracker.active_states`.
+Executor-made label moves also wake when observed. A move that happens while the
+daemon is down cannot produce a transition wake.
 
 ## Step 7 — Review comments wake the agent
 
