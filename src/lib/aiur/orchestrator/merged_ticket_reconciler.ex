@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   """
 
   alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore, Tracker}
-  alias Aiur.Orchestrator.{CommentWake, PushRouting, ReworkGate, State}
+  alias Aiur.Orchestrator.{CommentWake, Lifecycle, PushRouting, Reconciler, ReworkGate, State, TrackerTasks}
 
   require Logger
 
@@ -71,6 +71,58 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   def reconcile(%State{} = state, _issues, _opts), do: {state, []}
 
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
+    if TrackerTasks.owner?(state) do
+      input = Reconciler.issue_input(state, issue.id)
+
+      state =
+        TrackerTasks.run(
+          state,
+          {:merged_reconcile, issue.id},
+          fn -> fetch_merged_ticket_state({issue, opts}) end,
+          fn arg1, arg2 ->
+            apply_merged_ticket_state(arg1, arg2, {input, issue, merge, opts})
+          end
+        )
+
+      {state, retained}
+    else
+      reconcile_merged_ticket_sync(state, issue, merge, opts, retained)
+    end
+  end
+
+  defp reconcile_merged_ticket(state, issue, _merge, _opts, retained), do: {state, [issue | retained]}
+
+  defp start_merged_transition(state, issue, merge, opts, {:ok, target}) do
+    input = Reconciler.issue_input(state, issue.id)
+
+    update =
+      Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
+        Tracker.update_issue_state(identifier, target, expected_state: expected)
+      end)
+
+    TrackerTasks.run(state, {:merged_reconcile, issue.id}, fn -> update.(issue.identifier, target, issue.state) end, fn current, result ->
+      if Reconciler.issue_input(current, issue.id) == input do
+        apply_merged_result(current, issue, merge, opts, {:transition, target, result})
+      else
+        Lifecycle.wake_tick(current)
+      end
+    end)
+  end
+
+  defp start_merged_transition(state, issue, merge, opts, {:error, reason}), do: emit_failed_alert(state, issue, merge, reason, opts)
+
+  defp apply_merged_result(state, issue, merge, opts, {:transition, target, result}) do
+    opts = Keyword.put(opts, :update_issue_state_fun, fn _identifier, _target, _expected -> result end)
+
+    {state, _retained} =
+      if target == "done",
+        do: reconcile_merged_ticket_to_done(state, issue, merge, opts, []),
+        else: reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
+
+    if result == :ok, do: Lifecycle.wake_tick(state), else: state
+  end
+
+  defp reconcile_merged_ticket_sync(state, %Issue{} = issue, merge, opts, retained) do
     case merged_ticket_target(issue.identifier, opts) do
       {:ok, "done"} ->
         reconcile_merged_ticket_to_done(state, issue, merge, opts, retained)
@@ -86,8 +138,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         {state, [issue | retained]}
     end
   end
-
-  defp reconcile_merged_ticket(state, issue, _merge, _opts, retained), do: {state, [issue | retained]}
 
   # The merge closed the ticket's last open PR: no other PR remains, so the
   # legacy one-PR-per-ticket terminal path holds exactly as before.
@@ -474,4 +524,16 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
   defp blocked_reason(0), do: "; no dependent agents are waiting on it"
   defp blocked_reason(count), do: "; #{count} dependent agent(s) remain paused"
+
+  defp fetch_merged_ticket_state({issue, opts}) do
+    merged_ticket_target(issue.identifier, opts)
+  end
+
+  defp apply_merged_ticket_state(current, result, {input, issue, merge, opts}) do
+    if Reconciler.issue_input(current, issue.id) == input do
+      start_merged_transition(current, issue, merge, opts, result)
+    else
+      Lifecycle.wake_tick(current)
+    end
+  end
 end
