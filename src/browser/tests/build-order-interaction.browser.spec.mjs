@@ -161,13 +161,13 @@ test('cards stay keyboard-openable and dependency highlight pins without mutatio
     await expect(dialog).toHaveCount(0)
 
     // No interaction ever introduces a mutation: still only context navigation
-    // and the shell's sidebar collapse toggle. Neither writes data — `toggle-nav`
+    // and epic/sidebar collapse toggles. These do not write data — `toggle-nav`
     // flips a per-session view preference held in assigns. Any other event here
     // means a real mutation reached this route.
     // `toggle-global-pause` is shell chrome present on every route: it mutates
     // daemon-wide provisioning, not Build Order data, and is disabled unless
     // the dashboard is writable.
-    const readOnlyEvents = ['open-ticket-context', 'toggle-nav', 'toggle-global-pause']
+    const readOnlyEvents = ['open-ticket-context', 'toggle-build-order-epic', 'toggle-nav', 'toggle-global-pause']
     const clicks = await page.locator('[phx-click]').evaluateAll((els) => els.map((el) => el.getAttribute('phx-click')))
     expect(clicks.every((event) => readOnlyEvents.includes(event))).toBe(true)
     await expect(page.locator('form')).toHaveCount(0)
