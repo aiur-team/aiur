@@ -79,7 +79,11 @@ defmodule Aiur.BuildQueue.Codec do
 
   defp validate_positions(error), do: error
 
-  defp decode_records(records, module, fields, path) when is_list(records) do
+  defp decode_records(records, module, fields, path) do
+    if proper_list?(records), do: decode_list(records, module, fields, path), else: invalid(path)
+  end
+
+  defp decode_list(records, module, fields, path) do
     records
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {record, index}, {:ok, acc} ->
@@ -91,7 +95,9 @@ defmodule Aiur.BuildQueue.Codec do
     |> reverse_records()
   end
 
-  defp decode_records(_, _, _, path), do: invalid(path)
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | tail]), do: proper_list?(tail)
+  defp proper_list?(_), do: false
   defp reverse_records({:ok, records}), do: {:ok, Enum.reverse(records)}
   defp reverse_records(error), do: error
 
@@ -129,7 +135,7 @@ defmodule Aiur.BuildQueue.Codec do
   defp decode_value(value, :nonnegative) when is_integer(value) and value >= 0, do: {:ok, value}
   defp decode_value(value, :queue_id) when is_binary(value), do: if(Regex.match?(~r/\Aq-[0-9a-f]{4}\z/, value), do: {:ok, value}, else: :error)
   defp decode_value(value, :issue_id) when is_binary(value), do: if(Regex.match?(~r/\A[1-9][0-9]*\z/, value), do: {:ok, value}, else: :error)
-  defp decode_value(value, :strings) when is_list(value), do: if(Enum.all?(value, &(is_binary(&1) and &1 != "")), do: {:ok, value}, else: :error)
+  defp decode_value(value, :strings) when is_list(value), do: if(proper_list?(value) and Enum.all?(value, &(is_binary(&1) and &1 != "")), do: {:ok, value}, else: :error)
 
   defp decode_value(value, :datetime) when is_binary(value) do
     case DateTime.from_iso8601(value) do

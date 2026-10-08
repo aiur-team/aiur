@@ -13,13 +13,20 @@ defmodule Aiur.BuildQueue.ModelTest do
             hold <- member_of([nil, :operator, :external]),
             override <- member_of([nil, :manual_promotion]),
             outcome <- member_of([nil, :ok, {:error, {:denied, %{status: 403}}}]),
-            count <- integer(0..4)
+            count <- integer(2..4)
           ) do
       document = document()
       item = %{hd(document.items) | issue_id: to_string(issue), position: position, hold: hold, override: override}
       edge = %{hd(document.edges) | source: source}
       intent = %{hd(document.intents) | action: action, outcome: outcome}
-      document = %{document | items: List.duplicate(item, count), edges: List.duplicate(edge, count), intents: List.duplicate(intent, count)}
+
+      document = %{
+        document
+        | items: Enum.map(1..count, &%{item | issue_id: to_string(issue + &1), position: position + &1}),
+          edges: Enum.map(1..count, &%{edge | dependent: to_string(issue + &1)}),
+          intents: Enum.map(1..count, &%{intent | id: "intent-#{&1}"})
+      }
+
       assert {:ok, ^document} = document |> Model.encode() |> Jason.encode!() |> Jason.decode!() |> Model.decode()
     end
   end
@@ -126,6 +133,15 @@ defmodule Aiur.BuildQueue.ModelTest do
     end
 
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
+  end
+
+  test "rejects improper lists without raising" do
+    for collection <- ~w(queues items edges intents latches) do
+      assert Model.decode(Map.put(encoded(), collection, [%{} | :bad])) == {:error, {:invalid, [collection]}}
+    end
+
+    bad_labels = put_in(encoded(), ["intents", Access.at(0), "target_labels"], ["agent:todo" | :bad])
+    assert Model.decode(bad_labels) == {:error, {:invalid, ["intents", 0, "target_labels"]}}
   end
 
   defp encoded, do: Model.encode(document())
