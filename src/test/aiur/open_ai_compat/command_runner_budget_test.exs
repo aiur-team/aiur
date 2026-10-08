@@ -5,6 +5,22 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
   alias Aiur.GitHub.Budget
   alias Aiur.OpenAICompat.CommandRunner
 
+  @bwrap_skip_reason (case System.find_executable("bwrap") do
+                        nil ->
+                          "bubblewrap is not installed; real sandbox environment witness unavailable"
+
+                        executable ->
+                          case System.cmd(executable, ["--unshare-all", "--share-net", "--ro-bind", "/", "/", "--", "/bin/true"], stderr_to_stdout: true) do
+                            {_, 0} ->
+                              false
+
+                            {output, _} ->
+                              if String.contains?(output, ["Creating new namespace failed", "No permissions to create new namespace"]),
+                                do: "bubblewrap user namespaces unavailable: #{String.trim(output)}",
+                                else: false
+                          end
+                      end)
+
   setup do
     if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
       start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
@@ -79,6 +95,23 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     refute "host-gh-token-sentinel" in args
 
     assert ["--setenv", "AIUR_GITHUB_CREDENTIAL_FILE", AgentGitHubGuard.agent_token_path()] in Enum.chunk_every(args, 3, 1, :discard)
+  end
+
+  # Future regression guard for the already-merged environment repair (#2845).
+  # ponytail: CI has no bubblewrap install; add that infrastructure when this witness must gate every run.
+  @tag :bwrap
+  @tag skip: @bwrap_skip_reason
+  test "sandbox child sees no GitHub credential names", %{workspace: workspace} do
+    names = ~w(GITHUB_TOKEN GH_TOKEN GITHUB_APP_PRIVATE_KEY)
+    previous = Map.new(names, &{&1, System.get_env(&1)})
+    on_exit(fn -> for {name, value} <- previous, do: restore_env(name, value) end)
+    for name <- names, do: System.put_env(name, "ghp_test_#{name}")
+
+    assert %{"success" => true, "exit_code" => 0, "output" => output} = CommandRunner.run(workspace, "env")
+    child_env = output |> String.split("\n", trim: true) |> Map.new(&List.to_tuple(String.split(&1, "=", parts: 2)))
+
+    for name <- names, do: refute(Map.has_key?(child_env, name))
+    assert child_env["AIUR_GITHUB_CREDENTIAL_FILE"] == AgentGitHubGuard.agent_token_path()
   end
 
   test "a real sandbox writes to the host-shared budget database", %{workspace: workspace, budget: budget} do
