@@ -90,7 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         <dl class="bo-summary-grid" aria-label="Build Order graph summary">
           <div><dt>Members</dt><dd>{metric(@model.summary, @model.summary.members)}</dd></div>
           <div><dt>Dependencies</dt><dd>{metric(@model.summary, @model.summary.edges)}</dd></div>
-          <div><dt>External</dt><dd>{metric(@model.summary, @model.summary.external_edges)}</dd></div>
+          <div><dt>{external_label(@snapshot)}</dt><dd>{external_count(@snapshot, @model.summary)}</dd></div>
           <div><dt>Lanes</dt><dd>{metric(@model.summary, map_size(@model.summary.lanes))}</dd></div>
           <div><dt>Waves</dt><dd>{metric(@model.summary, map_size(@model.summary.phases))}</dd></div>
         </dl>
@@ -330,6 +330,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   # from the underlying root data.
   defp strip_bo_prefix(title) do
     String.replace(title, ~r/^BO\s*:\s*/i, "", global: false)
+  end
+
+  defp external_label(snapshot) do
+    if Map.has_key?(pack_metadata(snapshot), "external_gates"), do: "External gates", else: "External dependencies"
+  end
+
+  defp external_count(snapshot, summary) do
+    case Map.fetch(pack_metadata(snapshot), "external_gates") do
+      {:ok, gates} -> gates |> List.wrap() |> Enum.count(&is_map/1)
+      :error -> metric(summary, summary.external_edges)
+    end
   end
 
   # An unresolved graph has no counts to show. Rendering the zeros of an empty

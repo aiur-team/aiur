@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   alias Aiur.BuildOrder.{PackPaths, PackStatus, ProviderHealth}
   alias Aiur.GitHub.Config
   alias Aiur.RepoBase
-  alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
+  alias AiurWeb.BuildOrder.{PackOverlay, PlanningSource, RouteState}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
@@ -383,6 +383,44 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     refute File.read!(retained_path) == retained
   end
 
+  test "budget-limited cycles resolve pack tickets from two roots by issue number", context do
+    pack = Jason.decode!(@pack)
+
+    tickets =
+      Enum.map(1..72, fn i ->
+        hd(pack["tickets"]) |> Map.put("id", "SECOND-#{i}") |> Map.put("ticket", 5000 + i)
+      end)
+
+    pack = Map.put(pack, "tickets", [hd(pack["tickets"]) | tickets])
+    File.write!(context.pack_path, Jason.encode!(pack))
+    Application.put_env(:aiur, :build_order_planning_pack, context.pack_path)
+    on_exit(fn -> Application.delete_env(:aiur, :build_order_planning_pack) end)
+
+    request_fun = fn %{body: %{"query" => query}} ->
+      refute query =~ "subIssues"
+
+      issues =
+        Map.new(query_numbers(query), fn number ->
+          {"i#{number}", %{"number" => number, "state" => "CLOSED", "stateReason" => "COMPLETED"}}
+        end)
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller = start_pack_poller([context.pack_path], request_fun, planning_call_budget: 1)
+    assert {:error, _} = PackStatus.refresh_sync(poller)
+    assert map_size(context_members(context.pack_path)) == 50
+    assert {:error, _} = PackStatus.refresh_sync(poller)
+    [root] = PlanningSource.catalog().data.entries
+    {:ok, snapshot} = PlanningSource.selected(root.identity)
+    # The selected root's GitHub graph contains only 4101; 5001..5072 belong
+    # to a second root and must be hydrated from their issue-number status facts.
+    primary_graph = %{snapshot | data: %{snapshot.data | members: Enum.filter(snapshot.data.members, &(&1.identity.identifier == "4101"))}}
+    {:ok, combined} = PackOverlay.selected(root.identity, {:ok, primary_graph})
+    assert length(combined.data.members) == 73
+    assert Enum.all?(combined.data.members, &(&1.lifecycle.state == :closed and &1.lifecycle.state_reason == :completed))
+  end
+
   test "deduplicates overlapping members across packs in one repository", context do
     base = Path.dirname(Path.dirname(context.pack_path))
     first = write_pack(base, "dedupe-first", "acme/widgets", [1, 2])
@@ -433,10 +471,10 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     refute_receive {:repository_query, _variables, _number}, 100
   end
 
-  test "an invalid lifecycle in the second chunk preserves the projection", context do
+  test "an invalid second chunk preserves its old state while committing the valid first chunk", context do
     tickets = Enum.map(1..51, &%{"ticket" => &1})
     File.write!(context.pack_path, Jason.encode!(%{"repository" => "acme/widgets", "tickets" => tickets}))
-    previous = ~s({"members":{"1":"completed"}})
+    previous = ~s({"members":{"51":"completed"}})
     File.write!(context.status_path, previous)
 
     request_fun = fn %{method: :post, body: %{"query" => query}} ->
@@ -454,7 +492,10 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     poller = start_poller(context.pack_path, request_fun)
 
     assert {:error, {:pack_refresh_failed, [incomplete_graphql_response: ["51"]]}} = PackStatus.refresh_sync(poller)
-    assert File.read!(context.status_path) == previous
+    members = context_members(context.pack_path)
+    assert members["51"] == "completed"
+    assert members["1"]["lifecycle"] == "open"
+    assert map_size(members) == 51
   end
 
   test "a first-chunk failure halts later requests and preserves the projection", context do
