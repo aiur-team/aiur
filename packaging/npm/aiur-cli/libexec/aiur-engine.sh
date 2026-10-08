@@ -3243,6 +3243,8 @@ cmd_watch() {
   fi
 }
 
+listen_clock() { printf '%s' "$SECONDS"; }
+
 cmd_listen() {
   local topic="executor.#" ticket="" arg
   while [ "$#" -gt 0 ]; do
@@ -3268,17 +3270,22 @@ cmd_listen() {
   # A stream that stayed up 30s had a live connection, so losing it starts a
   # new outage. Each outage gets a bounded backoff totalling ~10 minutes, long
   # enough to outlast a normal `aiur restart`.
+  # ponytail: attempt duration stands in for "connected"; a wedged daemon whose
+  # RPC hangs 30s+ before failing keeps the listener retrying past the budget.
+  # Upgrade to a listener-ready signal if that case shows up in practice.
   local waited=0 delay=2 started status
   while :; do
-    started=$SECONDS
+    started="$(listen_clock)"
     status=0
-    run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))" || status=$?
+    # Subshell: a `die` inside (e.g. the release dir missing mid-rebuild during
+    # `aiurdev restart`) fails this attempt with exit 1 instead of the listener.
+    (run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))") || status=$?
     [ "$status" -eq 0 ] && return 0
     if [ "$status" -ne 1 ] || [ "${AIUR_LISTEN_RECONNECT:-1}" -ne 1 ]; then
       echo "aiur: listen stopped after streaming control RPC failure (exit ${status}); restart the command after correcting the daemon error" >&2
       return "$status"
     fi
-    if [ $((SECONDS - started)) -ge 30 ]; then
+    if [ $(($(listen_clock) - started)) -ge 30 ]; then
       waited=0
       delay=2
     fi

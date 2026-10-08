@@ -1635,16 +1635,32 @@ aiur_engine_main listen --ticket 3028|,
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { return 0; }
-stream_count=0
-run_control_stream() { stream_count=$((stream_count + 1)); SECONDS=$((SECONDS + 40)); [ "$stream_count" -ge 30 ] && return 0; return 1; }
+state="$(mktemp -d)"; echo 0 > "$state/streams"; echo 0 > "$state/clock"
+listen_clock() { cat "$state/clock"; }
+run_control_stream() { n=$(( $(cat "$state/streams") + 1 )); echo "$n" > "$state/streams"; echo $(( $(cat "$state/clock") + 40 )) > "$state/clock"; [ "$n" -ge 30 ] && return 0; return 1; }
 sleep() { echo "SLEEP:$1"; }
-aiur_engine_main listen --ticket 3028|,
+aiur_engine_main listen --ticket 3028; rc=$?; rm -rf "$state"; exit "$rc"|,
         []
       )
 
     delays = ~r/SLEEP:(\d+)/ |> Regex.scan(out) |> Enum.map(fn [_, d] -> String.to_integer(d) end)
     assert delays == List.duplicate(2, 29), out
     refute out =~ "could not reconnect"
+  end
+
+  test "listen retries when an attempt dies, as during an in-place dev rebuild" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+marker="$(mktemp)"; rm -f "$marker"
+run_control_stream() { [ -e "$marker" ] && return 0; touch "$marker"; die "AIUR_RELEASE_DIR does not exist: /gone"; }
+sleep() { echo "SLEEP:$1"; }
+aiur_engine_main listen --ticket 3028; rc=$?; rm -f "$marker"; exit "$rc"|,
+        []
+      )
+
+    assert out =~ "AIUR_RELEASE_DIR does not exist"
+    assert out =~ "SLEEP:2", out
   end
 
   test "listen stops without retrying on a stream exit status other than 1" do
