@@ -127,6 +127,7 @@ class PlanRefreshTest(unittest.TestCase):
         self.assertIn('| PR-02 | `src/{a,shift}.ex` | partly moved |', output)
         self.assertIn('| PR-03 | `src/delete.ex` | deleted |', output)
         self.assertIn('| events-and-replay | frozen | abc | 2026-10-08 |', output)
+        self.assertIn('| identity-and-capabilities | unavailable | unavailable | unavailable |', output)
         self.assertIn('| T2 | — | — | WEB | NO-LONGER-OVERSIZED |', output)
 
     def test_component_map_most_specific_segment_globs(self):

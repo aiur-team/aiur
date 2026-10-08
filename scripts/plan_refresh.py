@@ -225,7 +225,8 @@ def report(repo, before, after, documents, ledger):
         contracts.append((contract, *(meta.get(k, 'unavailable') for k in ('status', 'base_main_sha', 'date'))))
     output = [f'# Plan refresh: {before} → {after}', '',
               '## Summary counts', '', f'{len(moves)} file moves; {len(citations)} citations; ' +
-              ', '.join(f'{key}: {value}' for key, value in sorted(counts.items())), '']
+              (', '.join(f'{key}: {value}' for key, value in sorted(counts.items())) or 'no citations'),
+              f'{len(rows)} migration rows; {len(sizes)} size-owner outcomes.', '']
 
     def table(title, headers, data):
         output.extend([f'## {title}', '', '| ' + ' | '.join(headers) + ' |',
