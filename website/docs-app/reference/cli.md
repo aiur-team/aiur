@@ -335,6 +335,10 @@ under `--json`.
 | `1` | Daemon or store failure — an unreadable wake ledger, or a claims store that cannot be written. Retrying repeats it. |
 | `64` | Invalid usage. |
 
+If lease renewal detects that this consumer lost ownership during a wait, the
+wait continues as an observer and leaves the shared cursor untouched. Ownership
+loss discovered only when acknowledging still returns `69`.
+
 The `69` diagnostic reports the retry bounds actually spent, read from the live
 configuration: by default the claims lock is retried every 25ms for 5 seconds,
 and a lock older than 60 seconds is broken as stale.

@@ -486,7 +486,8 @@ defmodule Aiur.AgentControlCLI do
     renewer = start_lease_renewer(consumer_id)
 
     try do
-      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?, timeout_ms)
+      result = ExecutorWakeInbox.wait(timeout_ms)
+      executor_wait_result(result, consumer_id, renewed_wait_role(role, renewer), json?, timeout_ms)
     after
       stop_lease_renewer(renewer)
     end
@@ -512,13 +513,34 @@ defmodule Aiur.AgentControlCLI do
 
   defp start_lease_renewer(consumer_id) do
     interval = max(div(Claims.lease_ttl_ms(), 3), 1_000)
-    spawn_link(fn -> renew_lease_forever(consumer_id, interval) end)
+    waiter = self()
+    spawn_link(fn -> renew_lease_forever(consumer_id, interval, waiter) end)
   end
 
-  defp renew_lease_forever(consumer_id, interval) do
-    Process.sleep(interval)
-    _ = Claims.renew(consumer_id)
-    renew_lease_forever(consumer_id, interval)
+  defp renew_lease_forever(consumer_id, interval, waiter) do
+    receive do
+      :renew -> :ok
+    after
+      interval -> :ok
+    end
+
+    case Claims.renew(consumer_id) do
+      {:error, :not_owner} -> send(waiter, {:executor_ownership_lost, self()})
+      {:ok, %{"role" => role}} when role != "owner" -> send(waiter, {:executor_ownership_lost, self()})
+      _ -> :ok
+    end
+
+    renew_lease_forever(consumer_id, interval, waiter)
+  end
+
+  defp renewed_wait_role(role, renewer) do
+    receive do
+      {:executor_ownership_lost, ^renewer} ->
+        if role == :owner, do: control_error("aiur: this consumer is not the live owner of the wake stream; continuing as observer")
+        :observer
+    after
+      0 -> role
+    end
   end
 
   defp stop_lease_renewer(pid) do
