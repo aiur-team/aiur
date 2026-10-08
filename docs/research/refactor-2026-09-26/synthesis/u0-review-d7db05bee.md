@@ -81,6 +81,8 @@ assert dict(pairs) == corpus['source_id_to_finding']
 
 The executed scratch validator also resolved every anchor at the pin and rejected missing-row, duplicate-source-ID and swapped-mapping negative controls. Documentation/data checks passed; no product code or tests changed. `python3 scripts/check-bare-assert-receive.py` passed across 928 test files. `mise exec -- mix lint` passed the specs check but failed the existing `persist_page` complexity violation at `src/lib/aiur/build_order/history/backfill.ex:247`, tracked in [#3430](https://github.com/aiur-team/aiur/issues/3430). This is an inherited lint failure, not a test flake or a dependency of this review. Full CI remains required before human-review handoff. No runtime/TUI behavior was exercised by this research-only ticket.
 
+Handoff recheck after integrating `main` at `1cf10771d203dfa97130b0887899b388824c7093`: `mise exec -- mix lint` passes specs and Credo (2,078 source files, no issues), and the receive-timeout check passes across 929 test files. The merged backfill refactor clears this review's local lint gate; the implementation review pin and overlay remain unchanged. Mapping/anchor validation and its negative controls pass again.
+
 ## Sign-off
 
 Executor sign-off: [2026-10-08 approval](https://github.com/aiur-team/aiur/issues/3255#issuecomment-6065858720), confirmed by the selected `signoff` answer to `dec_6e160f5dce7a0d1b`. The Executor independently checked the corpus hash, mappings, dispositions, changed-path membership, repair ancestry and ten code spot checks. The issue text's `agents-01..03` IDs are absent from the canonical corpus; that ticket-text error does not add findings or change the preserved source mapping.
