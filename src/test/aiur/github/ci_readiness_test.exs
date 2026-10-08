@@ -21,7 +21,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
       assert caller == "ci_required_checks"
 
       if String.contains?(url, "/rules/branches/release%2Fnext") do
-        {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "full", "integration_id" => 15368}]}}]}}
+        {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "full", "integration_id" => 15_368}]}}]}}
       else
         assert String.ends_with?(url, "/branches/release%2Fnext/protection")
         {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["legacy"]}}}}
@@ -29,7 +29,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
     end
 
     assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", request_fun: request_fun)
-    assert Enum.sort_by(checks, & &1.name) == [%{name: "full", app_id: 15368}, %{name: "legacy", app_id: nil}]
+    assert Enum.sort_by(checks, & &1.name) == [%{name: "full", app_id: 15_368}, %{name: "legacy", app_id: nil}]
     assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 

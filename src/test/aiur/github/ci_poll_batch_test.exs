@@ -59,7 +59,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              }
            } = batch.pull_request
 
-    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15368}}] = batch.check_runs
+    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
 
@@ -595,7 +595,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                       "conclusion" => "SUCCESS",
                       "startedAt" => "2026-07-30T12:00:00Z",
                       "completedAt" => "2026-07-30T12:01:00Z",
-                      "checkSuite" => %{"id" => "suite-501", "app" => %{"databaseId" => 15368}},
+                      "checkSuite" => %{"id" => "suite-501", "app" => %{"databaseId" => 15_368}},
                       "output" => %{"summary" => "green", "text" => ""}
                     },
                     %{

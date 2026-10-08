@@ -203,8 +203,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
   end
 
   test "ready PR requires every required check to run successfully on the current head" do
-    required = [%{name: "lint", app_id: 15368}, %{name: "test", app_id: 15368}]
-    lint = %{"name" => "lint", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15368}}
+    required = [%{name: "lint", app_id: 15_368}, %{name: "test", app_id: 15_368}]
+    lint = %{"name" => "lint", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}
     test = %{lint | "name" => "test"}
     pr = %{"number" => 71, "head" => pr_head("aiur/42", "current-head"), "base" => %{"ref" => "main"}, "draft" => false}
 
