@@ -185,7 +185,9 @@ defmodule Aiur.Orchestrator.IssueSync do
   # A live owner, an in-flight claim, a pending retry, or a scheduled transient
   # resume means the ticket has someone (or something) responsible for it, so a
   # missing live agent is not a strand.
-  defp owned_or_scheduled?(%State{} = state, issue_id) do
+  @doc false
+  @spec owned_or_scheduled?(State.t(), String.t()) :: boolean()
+  def owned_or_scheduled?(%State{} = state, issue_id) do
     Map.has_key?(state.running, issue_id) or
       MapSet.member?(state.claimed, issue_id) or
       Map.has_key?(state.retry_attempts, issue_id) or
