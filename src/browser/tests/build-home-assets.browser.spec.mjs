@@ -18,6 +18,7 @@ async function mount(page) {
     window.ctx = { el: document.createElement('div'), pushEvent() {}, handleEvent() {} }
     window.hook = window.AiurBuildHome.createLiveViewHook()
     window.hook.mounted.call(window.ctx)
+    for (const name of ['beforeUpdate', 'updated', 'disconnected', 'reconnected']) window.hook[name].call(window.ctx)
     return window.ctx.el.dataset.buildHomeHook
   })
 }
@@ -36,6 +37,7 @@ test('B1: fixture registration, stub health and every callback preserve context'
   await page.route('**/build-home/hook.js', route => route.fulfill({ contentType: 'text/javascript', body: spyModule }))
   expect(await mount(page)).toBe('loading')
   await expect.poll(() => health(page)).toBe('mounted')
+  expect(await page.evaluate(() => window.calls)).toEqual([['mounted', true, true, true]])
   await page.evaluate(names => [...names.filter(name => name !== 'mounted' && name !== 'destroyed'), 'destroyed'].forEach(name => window.hook[name].call(window.ctx)), callbacks)
   expect(await page.evaluate(() => window.calls)).toEqual(['mounted', 'beforeUpdate', 'updated', 'disconnected', 'reconnected', 'destroyed'].map(name => [name, true, true, true]))
   expect(await page.evaluate(() => window.ctx.__buildHome)).toBeNull()
