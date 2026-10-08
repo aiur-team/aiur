@@ -1,22 +1,26 @@
 defmodule Aiur.Rtk do
   @moduledoc """
-  Admission gate and savings reader for `rtk`, the CLI output-compression proxy.
+  Status probe and savings reader for `rtk`, the CLI output-compression proxy.
+
+  This module reports rtk status and recorded savings; it does not control
+  hook activation.
 
   rtk wraps a shell command and filters its output before an agent reads it
   (`git status` -> `rtk git status`). It is an optimization, never a
-  correctness fix, so it is opt-in behind `agent.rtk.enabled` and off by
-  default.
+  correctness fix. `agent.rtk.enabled` controls whether the analytics page
+  reports host-level rtk savings; it does not opt dispatched agents into rtk.
 
-  ## Why an admission gate rather than a plain flag
+  ## The host hook is operator-owned
 
   rtk ships a Claude Code `PreToolUse` hook that rewrites *every* bash command
   an agent runs, `gh` included. `gh` in an agent workspace is not the real
   `gh`: it is `priv/github_quota_guard.sh`, the wrapper that meters GitHub
   spend, stamps agent comment markers, and validates that a filed ticket
   carries a dispatch disposition. Anything that reshapes an agent's `gh` calls
-  is therefore reshaping the governance path, so this module refuses to enable
-  rtk at all unless the host's rtk configuration excludes `gh` from rewriting
-  (`[hooks] exclude_commands = ["gh"]`).
+  is therefore reshaping the governance path. The operator must configure the
+  host's rtk hook to exclude `gh` (`[hooks] exclude_commands = ["gh"]`). A
+  host-wide hook applies to every agent that loads it, regardless of
+  `agent.rtk.enabled`.
 
   The check is a behavioural probe, not a config-file parse: `rtk hook check`
   is rtk's own dry-run of its rewriter, so it answers the question actually at
@@ -24,15 +28,17 @@ defmodule Aiur.Rtk do
   future rtk that changes where or how exclusions are spelled still gets
   classified correctly.
 
-  Refusing is the deliberate behaviour. Silently enabling rtk with `gh`
-  rewriting live would put an unaudited transform in front of the budget
-  guard, and a compression saving is never worth an ungoverned credential
-  path.
+  This module probes whether the hook would rewrite `gh` and reports that
+  result with the savings panel. It does not install, enable, disable, or
+  neutralize the hook, and does not enforce `agent.rtk.enabled` at dispatch.
+  If the probe detects a rewrite, the report is withheld; the operator must
+  correct the host rtk configuration to keep the GitHub quota guard intact.
 
   ## What this module does not do
 
-  It never puts `rtk` on an agent's `PATH` and never installs the hook. On a
-  host where rtk is installed it is already reachable — the agent `PATH` is
+  It never puts `rtk` on an agent's `PATH` and never installs or controls the
+  hook. On a host where rtk is installed it is already reachable — the agent
+  `PATH` is
   the daemon's with only release ERTS entries removed — so availability is not
   the gap. It also carries no credential: nothing here reads or forwards
   `GITHUB_TOKEN` (#2356).
@@ -67,9 +73,9 @@ defmodule Aiur.Rtk do
         }
 
   @doc """
-  Whether the operator asked for rtk. Fails closed: a config that cannot be
-  read leaves rtk off, because enabling a command rewriter is never the safe
-  reading of a broken config.
+  Whether the operator enabled rtk reporting in the analytics panel. A config
+  that cannot be read leaves reporting off. This setting does not control a
+  host-wide rtk hook.
   """
   @spec enabled?() :: boolean()
   @spec enabled?(term()) :: boolean()
@@ -81,11 +87,13 @@ defmodule Aiur.Rtk do
   end
 
   @doc """
-  Resolve rtk's admission state.
+  Report rtk's status for the analytics panel.
 
-  Returns `{:ok, version}` only when rtk is enabled, installed, and its hook
-  demonstrably leaves `gh` alone. Every other outcome is a distinct reason so
-  a caller can say which one happened rather than collapsing them to "off".
+  Returns `{:ok, version}` when reporting is enabled, rtk is installed, and
+  its hook demonstrably leaves `gh` alone. A `:refused` result means the panel
+  withholds savings because the probe sees a `gh` rewrite; it does not prevent
+  the host hook from running. Other outcomes remain distinct so the panel can
+  report why savings are unavailable.
   """
   @spec status(keyword()) :: status()
   def status(opts \\ []) do
@@ -108,9 +116,9 @@ defmodule Aiur.Rtk do
         else
           :rewritten ->
             Logger.warning(
-              "rtk is enabled but its hook would rewrite `#{@gh_probe}`. Refusing to enable it: " <>
+              "rtk's hook would rewrite `#{@gh_probe}`. The analytics panel will withhold savings: " <>
                 "rewriting `gh` reshapes the calls the GitHub quota guard governs. " <>
-                ~s(Add `exclude_commands = ["gh"]` under `[hooks]` in rtk's config, then retry.)
+                ~s(Configure the host rtk hook with exclude_commands = ["gh"] under [hooks].)
             )
 
             {:refused, :gh_rewrite_not_excluded}
@@ -131,7 +139,8 @@ defmodule Aiur.Rtk do
 
   # `rtk hook check` reports "would rewrite" as exit 0 and "no rewrite" as exit
   # 1, so a non-zero status here is a verdict rather than a failure and status
-  # 1 has to be admitted. The verdict is then read from stdout: exit 1 is also
+  # 1 is an expected probe verdict. The verdict is then read from stdout: exit
+  # 1 is also
   # what a genuinely broken invocation returns, and only the marker line
   # distinguishes "rtk considered this and declined to rewrite" from "rtk could
   # not answer". Absent the marker the state is unknown, and unknown is
