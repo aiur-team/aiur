@@ -29,9 +29,9 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 | `aiur build-orders [<root>]` | The same projection in a terminal. |
 | `--json` | Machine-readable Build Order rows. |
 
-The catalog's **Tickets completed** percentage counts accepted completions among tickets whose lifecycle is resolved. Partial coverage appears alongside the percentage.
+The catalog's **Tickets completed** percentage counts accepted completions over all members. With partial lifecycle coverage, the percentage is a lower bound and the resolved count appears alongside it.
 
-In a selected Build Order, **Estimated work progress** combines reported work estimates using member complexity weights. It can advance before any ticket is complete. Last-known estimates show their age; unavailable measurements remain unknown.
+In a selected Build Order, **Estimated work progress** combines reported work estimates using member complexity weights. It can advance before any ticket is complete. Last-known estimates show their age; unavailable member measurements remain unknown. Partial aggregates divide known work by the weight of all members, so unresolved members cannot inflate the percentage. The External gates summary counts the same pack gates listed above the graph; graphs without pack gates show External dependencies instead.
 
 Open a member's context to use **Read chat** when that member has a readable conversation in the current run. This opens the same conversation drawer as Units and does not resume the worker.
 
