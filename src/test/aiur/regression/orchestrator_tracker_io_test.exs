@@ -2,8 +2,25 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
-  alias Aiur.GitHub.{Config, ReadCache, Transport}
+  alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
   alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
+
+  # Handlers answer inside the production control budget. A short owner step
+  # still fsyncs its durable stores, which took seconds on a loaded host, so a
+  # tighter budget timed out without any tracker work in the owner. The tracker
+  # barriers in these cases are held until released, so a handler that blocks
+  # on the tracker still never answers.
+  @control_budget_ms 5_000
+  @answer_ms @control_budget_ms + 1_000
+
+  # The live wedge held the owner in `fetch_timeline` under
+  # `authorize_label_applier`, so the guard traces dispatch authorization
+  # directly, not only through the tracker callbacks that reach it.
+  @dispatch_authorization_patterns [
+    {DispatchAuthorization, :authorize, :_},
+    {DispatchAuthorization, :authorize_label_applier, :_},
+    {DispatchAuthorization, :fetch_timeline, :_}
+  ]
 
   defmodule SlowTracker do
     def fetch_candidate_issues do
@@ -40,7 +57,23 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
           :ok
       end
 
-      {:ok, [Application.fetch_env!(:aiur, :tracker_io_test_issue)]}
+      issue = Application.fetch_env!(:aiur, :tracker_io_test_issue)
+      {:ok, [maybe_authorize(issue, Application.get_env(:aiur, :tracker_io_test_authorization))]}
+    end
+
+    # The GitHub client authorizes every revalidated issue with a timeline read
+    # (`Aiur.GitHub.Issues` -> `DispatchAuthorization.authorize/5`). This stands
+    # in for that read so a case can hold it and see which process runs it.
+    defp maybe_authorize(issue, nil), do: issue
+
+    defp maybe_authorize(issue, {owner, token}) do
+      request_fun = fn _request ->
+        send(owner, {:timeline_read_started, token, self()})
+        receive do: ({:release_timeline, ^token} -> {:ok, %{status: 200, body: [], headers: []}})
+      end
+
+      _verdict = DispatchAuthorization.authorize(issue, "owner", "repo", "agent", request_fun: request_fun, token: "test-token")
+      issue
     end
 
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
@@ -62,8 +95,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   setup do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear", max_concurrent_agents: 4)
     put_test_env(:linear_client_module, SlowTracker)
-    put_test_env(:control_api_call_timeout_ms, 200)
-    put_test_env(:operator_message_call_timeout_ms, 200)
+    put_test_env(:control_api_call_timeout_ms, @control_budget_ms)
+    put_test_env(:operator_message_call_timeout_ms, @control_budget_ms)
 
     token = make_ref()
     put_test_env(:tracker_io_test_barrier, {self(), token})
@@ -104,19 +137,20 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   test "candidate tracker work runs outside the orchestrator", %{server: server, token: token} do
-    patterns = [
-      {Aiur.Tracker, :fetch_candidate_issues, :_},
-      {Aiur.Tracker, :fetch_issues_by_states, :_},
-      {Aiur.Tracker, :fetch_issue_states_by_ids, :_},
-      {Aiur.Tracker, :fetch_issue_states_by_ids_conditional, :_},
-      {Aiur.Tracker, :update_issue_state, :_},
-      {Aiur.Tracker, :add_label, :_},
-      {Aiur.Tracker, :remove_label, :_},
-      {Aiur.GitHub.Tracker, :fetch_candidate_issues_conditional, :_},
-      {Aiur.GitHub.Tracker, :hydrate_blocked_by, :_},
-      {Aiur.Events.GithubFirehose, :poll, :_},
-      {Aiur.Events.GithubCIPoller, :poll, :_}
-    ]
+    patterns =
+      [
+        {Aiur.Tracker, :fetch_candidate_issues, :_},
+        {Aiur.Tracker, :fetch_issues_by_states, :_},
+        {Aiur.Tracker, :fetch_issue_states_by_ids, :_},
+        {Aiur.Tracker, :fetch_issue_states_by_ids_conditional, :_},
+        {Aiur.Tracker, :update_issue_state, :_},
+        {Aiur.Tracker, :add_label, :_},
+        {Aiur.Tracker, :remove_label, :_},
+        {Aiur.GitHub.Tracker, :fetch_candidate_issues_conditional, :_},
+        {Aiur.GitHub.Tracker, :hydrate_blocked_by, :_},
+        {Aiur.Events.GithubFirehose, :poll, :_},
+        {Aiur.Events.GithubCIPoller, :poll, :_}
+      ] ++ @dispatch_authorization_patterns
 
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
@@ -163,7 +197,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
     try do
       refute tracker_pid == server
-      assert {:ok, _snapshot, _freshness} = Orchestrator.fleet_view(server, 200, fleet_rows?: true)
+      assert {:ok, _snapshot, _freshness} = Orchestrator.fleet_view(server, @control_budget_ms, fleet_rows?: true)
     after
       send(tracker_pid, {:release_handoff, token})
       Task.await(scheduling)
@@ -182,7 +216,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     receive_barrier({:poll_started, ^token, tracker_pid})
 
     calls = [
-      status: fn -> Orchestrator.fleet_view(server, 200, fleet_rows?: true) end,
+      status: fn -> Orchestrator.fleet_view(server, @control_budget_ms, fleet_rows?: true) end,
       resume: fn -> PauseResume.resume_agent(server, issue.identifier) end,
       reset: fn -> PauseResume.reset_dispatch_budget(server, issue.identifier) end,
       message: fn -> OperatorMessages.send_operator_message(server, issue.identifier, %{kind: :text, body: "sent during poll", message_id: "during-poll-3213"}) end,
@@ -195,7 +229,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       results =
         tasks
         |> Enum.map(&elem(&1, 1))
-        |> Task.yield_many(1_000)
+        |> Task.yield_many(@answer_ms)
         |> Enum.map(fn {task, result} -> {task.ref, result} end)
         |> Map.new()
 
@@ -232,7 +266,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       set_max_agents: fn -> Orchestrator.set_max_concurrent_agents(server, 3) end,
       adjust_max_agents: fn -> Orchestrator.adjust_max_concurrent_agents(server, 1) end,
       max_agents: fn -> Orchestrator.max_concurrent_agents(server) end,
-      global_pause_status: fn -> GlobalPause.global_pause_status(server, 1_000) end,
+      global_pause_status: fn -> GlobalPause.global_pause_status(server, @control_budget_ms) end,
       global_pause: fn -> GlobalPause.set_global_pause(server, true, "tracker-io-test") end,
       global_resume: fn -> GlobalPause.set_global_pause(server, false, "tracker-io-test") end,
       pause: fn -> PauseResume.pause_agent(server, id) end,
@@ -253,7 +287,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       # Sequential calls: each control's own caller-side tracker step finishes before the next control starts.
       Enum.each(controls, fn {name, fun} ->
         task = Task.async(fun)
-        reply = Task.yield(task, 1_000) || Task.shutdown(task, :brutal_kill)
+        reply = Task.yield(task, @answer_ms) || Task.shutdown(task, :brutal_kill)
         assert {:ok, result} = reply, "#{name} did not answer while the poll was held"
         refute result == {:error, :timeout}, "#{name} timed out while the poll was held"
       end)
@@ -397,6 +431,42 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     refute_received {:trace, ^server, :call, {Aiur.Tracker, :fetch_issue_states_by_ids, _args}}
   end
 
+  test "dispatch-time authorization reads the timeline outside the owner", %{server: server, token: token} do
+    candidate = %Issue{id: "auth-3213", identifier: "AUTH-3213", title: "authorize", state: "Todo", state_labels: ["agent:todo"]}
+    put_test_env(:tracker_io_test_issue, candidate)
+    put_test_env(:tracker_io_test_authorization, {self(), token})
+    DispatchAuthorization.clear_cache()
+    owner = self()
+    patterns = [{Aiur.Tracker, :fetch_issue_states_by_ids, :_} | @dispatch_authorization_patterns]
+    Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
+    :erlang.trace(server, true, [:call, {:tracer, self()}])
+    on_exit(fn -> Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local])) end)
+
+    :sys.replace_state(server, fn state ->
+      Dispatcher.dispatch_issue(%{state | effective_concurrent_agents: 4}, candidate, nil, nil,
+        dispatch_result_fun: fn current ->
+          send(owner, :dispatch_complete)
+          current
+        end,
+        runner: fn _dispatched, _, _ ->
+          send(owner, {:auth_runner_started, self()})
+          receive do: (:stop -> :ok)
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+    end)
+
+    receive_barrier({:timeline_read_started, ^token, reader})
+    refute reader == server, "dispatch authorization read the timeline in the orchestrator"
+    # The owner still answers a control while the timeline read is held.
+    assert is_list(Orchestrator.status(server, @control_budget_ms))
+    send(reader, {:release_timeline, token})
+    receive_barrier(:dispatch_complete)
+    receive_barrier({:auth_runner_started, runner})
+    on_exit(fn -> send(runner, :stop) end)
+    assert_no_handler_io(server, patterns)
+  end
+
   test "orchestrator shutdown reaps a held tracker task", %{server: server, token: token} do
     send(server, :run_poll_cycle)
     receive_barrier({:poll_started, ^token, tracker})
@@ -422,7 +492,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
           {Aiur.GitHub.Tracker, :hydrate_blocked_by, :_},
           {Aiur.Events.GithubFirehose, :poll, :_},
           {Aiur.Events.GithubCIPoller, :poll, :_}
-        ]
+        ] ++ @dispatch_authorization_patterns
 
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
