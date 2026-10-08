@@ -53,6 +53,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> ContextRuntime.initialize(request_epoch)
       |> UsageRuntime.initialize()
       |> AnalyticsRuntime.initialize()
+      |> assign(:collapsed_epics, [])
       |> assign(:time_domain, nil)
       |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
@@ -84,6 +85,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> SourceRuntime.assign_model()
       |> UsageRuntime.sync_scope()
       |> AnalyticsRuntime.sync_scope()
+      |> assign(:collapsed_epics, [])
       |> assign(:time_domain, nil)
 
     {:noreply, socket}
@@ -168,6 +170,23 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_async({:build_order_analytics, key}, {:exit, _reason}, socket) do
     {:noreply, AnalyticsRuntime.failed(socket, key)}
+  end
+
+  @impl true
+  def handle_event("toggle-build-order-epic", %{"lane" => lane}, socket) do
+    nodes =
+      case socket.assigns.model do
+        %{nodes: nodes} -> nodes
+        _loading -> []
+      end
+
+    if Enum.any?(nodes, &(&1.plan.lane == lane)) do
+      lanes = socket.assigns.collapsed_epics
+      lanes = if lane in lanes, do: List.delete(lanes, lane), else: [lane | lanes]
+      {:noreply, assign(socket, :collapsed_epics, lanes)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -266,6 +285,7 @@ defmodule AiurWeb.BuildOrderLive do
         <BuildOrderSelected.build_order_selected
           :if={RouteState.route(@route_state) == :selected}
           route_state={@route_state}
+          collapsed_epics={@collapsed_epics}
           model={@model}
           adhoc={@adhoc_overlay}
           now={@now}
