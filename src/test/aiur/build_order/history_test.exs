@@ -167,7 +167,7 @@ defmodule Aiur.BuildOrder.HistoryTest do
     History.subscribe()
     assert {:ok, %{generation: g, changed: [1]}} = History.apply([event()], opts)
     assert {:ok, %{generation: ^g, changed: []}} = History.apply([event()], opts)
-    assert_receive {:build_order_history_changed, %{generation: ^g, changed: [1]}}
+    Aiur.TestSupport.receive_barrier({:build_order_history_changed, %{generation: ^g, changed: [1]}})
     refute_received {:build_order_history_changed, _}
   end
 
@@ -259,7 +259,7 @@ defmodule Aiur.BuildOrder.HistoryTest do
     before = History.health(opts).generation
     assert {:ok, %{generation: g, changed: [3, 5]}} = History.apply([event(%{}, 5), event(%{}, 3)], opts)
     assert g == before + 1
-    assert_receive {:build_order_history_changed, %{generation: ^g, changed: [3, 5], health: %ProviderHealth{observed_at: @t}}}
+    Aiur.TestSupport.receive_barrier({:build_order_history_changed, %{generation: ^g, changed: [3, 5], health: %ProviderHealth{observed_at: @t}}})
     History.apply([], opts ++ [checkpoint: {:closed_since, %{"at" => "today"}}])
     assert History.health(opts).generation == g
     refute_received {:build_order_history_changed, _}
