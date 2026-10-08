@@ -2201,6 +2201,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       do: {:tracker_state_not_resumable, DispatchPolicy.normalize_issue_state(issue.state)}
 
   def resume_decline_reason(:dependency, _issue, _state, _opts), do: :waiting_for_dependencies
+  def resume_decline_reason(:build_queue_hold, _issue, _state, _opts), do: :build_queue_hold
 
   # An open blocking Decision holds dispatch until it is answered; an operator
   # resume does not override it, exactly as it does not override a dependency.
