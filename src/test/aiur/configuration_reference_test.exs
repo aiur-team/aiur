@@ -110,6 +110,7 @@ defmodule Aiur.ConfigurationReferenceTest do
     assert row =~ "does not enforce this setting at agent dispatch"
     assert row =~ "A host-wide rtk hook applies to every agent regardless of this setting"
     assert row =~ "but cannot disable the hook"
+    assert row =~ "At daemon startup Aiur also checks the host hook, independent of this setting"
     assert row =~ ~s(`exclude_commands = ["gh"]`)
     refute row =~ "Aiur refuses to admit rtk"
   end

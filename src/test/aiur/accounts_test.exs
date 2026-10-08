@@ -1,5 +1,5 @@
 defmodule Aiur.AccountsTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   import ExUnit.CaptureIO
 
@@ -16,7 +16,7 @@ defmodule Aiur.AccountsTest do
 
   setup do
     UsageReadings.reset()
-    home = Path.join(System.tmp_dir!(), "aiur-accounts-#{System.unique_integer([:positive])}")
+    home = Aiur.TestSupport.tmp_root!("aiur-accounts")
     File.mkdir_p!(home)
     previous = System.get_env("HOME")
     System.put_env("HOME", home)
@@ -105,7 +105,27 @@ defmodule Aiur.AccountsTest do
     refute File.exists?(Path.join(profile, "auth.json"))
     assert %{"account_id" => "acct-123", "email" => "codex@example.com"} = CodexAccounts.identity(source)
     refute inspect(CodexAccounts.identity(profile)) =~ "secret-token"
-    assert is_tuple(Accounts.usage("codex", "work"))
+
+    # Exercise the child environment, not just the profile_env/2 return value.
+    script = Path.join(home, "profile-probe.sh")
+    pid_path = Path.join(home, "profile-probe.pid")
+
+    File.write!(script, """
+    test "$CODEX_HOME" = #{Aiur.Shell.escape(profile)} || exit 1
+    test ! -e "$CODEX_HOME/auth.json" || exit 2
+    printf '%s' "$$" > #{Aiur.Shell.escape(pid_path)}
+    while IFS= read -r line; do
+      case "$line" in
+        *'"method":"initialize"'*) printf '%s\\n' '{"id":1,"result":{}}' ;;
+        *'"method":"account/rateLimits/read"'*) printf '%s\\n' '{"id":4,"result":{"rateLimits":{"primary":{"usedPercent":8}}}}' ;;
+      esac
+    done
+    """)
+
+    write_workflow_file!(Application.fetch_env!(:aiur, :workflow_file_path), codex_command: "bash " <> Aiur.Shell.escape(script))
+    assert {:ok, %{"primary" => %{"usedPercent" => 8}}} = Accounts.usage("codex", "work")
+    refute RemoteControl.process_alive?(pid_path |> File.read!() |> String.to_integer())
+    assert Path.wildcard(Path.join(Config.workspace_root(), "codex-usage-probe-*")) == []
   end
 
   test "API key account registry stores named env key, never the value", %{home: home} do
