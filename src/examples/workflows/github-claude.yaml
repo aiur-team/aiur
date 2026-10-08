@@ -111,3 +111,11 @@ agent:
 claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md
+
+# Build queue (GitHub only; defaults shown).
+# build_queue:
+#   enabled: true
+#   reconcile_interval_seconds: 60      # 10..3600 seconds
+#   max_writes_per_minute: 20           # 1..60 writes
+#   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
+#   merged_open_grace_seconds: 600      # 60..86400 seconds
