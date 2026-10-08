@@ -37,6 +37,19 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     end
 
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
+
+    def graphql(_query, variables) do
+      {owner, _token} = Application.fetch_env!(:aiur, :tracker_io_test_barrier)
+      if variables[:stateName], do: send(owner, {:handoff_state_lookup, variables.stateName})
+
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{"state" => %{"name" => "In Progress"}, "team" => %{"states" => %{"nodes" => [%{"id" => "review-state"}]}}},
+           "issueUpdate" => %{"success" => true}
+         }
+       }}
+    end
   end
 
   setup do
@@ -149,6 +162,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       Task.await(scheduling)
       await_orchestrator_state(server, &(map_size(&1.tracker_tasks) == 0))
     end
+
+    assert_received {:handoff_state_lookup, "human-review"}
   end
 
   test "public controls, enqueue and runner claim finish while the poll is held", %{server: server, issue: issue, token: token} do
