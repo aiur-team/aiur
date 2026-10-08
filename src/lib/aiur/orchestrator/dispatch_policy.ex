@@ -478,34 +478,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          load,
          %{schedulers: schedulers} = options
        ) do
-    cond do
-      cold_start_seed?(last_decrease_ms, options) ->
-        next =
-          seed_cold_start(
-            effective,
-            options.cpu_headroom,
-            schedulers,
-            options.used_slots,
-            options.static_limit
-          )
+    if load <= options.target * schedulers and fast_recovery?(last_decrease_ms, options) do
+      {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
+      {next, next_decrease_ms, options.bootstrap_complete?}
+    else
+      {next, next_decrease_ms} =
+        adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
 
-        {next, last_decrease_ms, true}
-
-      fast_recovery?(last_decrease_ms, options) ->
-        {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
-        {next, next_decrease_ms, options.bootstrap_complete?}
-
-      true ->
-        {next, next_decrease_ms} =
-          adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
-
-        {next, next_decrease_ms, options.bootstrap_complete?}
+      {next, next_decrease_ms, true}
     end
-  end
-
-  defp cold_start_seed?(last_decrease_ms, options) do
-    not options.bootstrap_complete? and is_nil(last_decrease_ms) and
-      options.queued_work? and clear_cpu_headroom?(options.cpu_headroom)
   end
 
   defp fast_recovery?(last_decrease_ms, options) do
@@ -520,7 +501,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          %{target: target, schedulers: schedulers} = options
        )
        when load <= target * schedulers do
-    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
+    ramp_step = if options.bootstrap_complete?, do: options.ramp_step, else: 1
+    {min(effective + ramp_step, options.static_limit), last_decrease_ms}
   end
 
   defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do
@@ -552,11 +534,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp clear_cpu_headroom?(_headroom), do: false
-
-  defp seed_cold_start(effective, headroom, schedulers, used_slots, static_limit) do
-    reclaimable_slots = max(floor(reclaimable_cpu_percent(headroom) * schedulers / 100), 1)
-    max(effective, min(used_slots + reclaimable_slots, static_limit))
-  end
 
   defp fast_ramp(effective, last_decrease_ms, static_limit) do
     next = min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
