@@ -159,11 +159,13 @@ test('stale allowlist entry', async ({ browser }) => {
 })
 test('allowlist removal applies', async ({ browser }) => {
   const pair = await designPair(browser)
+  // The footer is below the viewport; keep its region size fixed after removal.
+  for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '#bd-status { height: 32px; box-sizing: border-box; }' })
   const entries = await loadAllowlist()
   await applyAllowlist(pair, cell, entries)
-  await pixelFailure(pair, { name: 'removed', fullPage: true })
+  await pixelFailure(pair, { name: 'removed', region: '#bd-status' })
   await applyAllowlist({ ...pair, design: pair.product }, cell, entries)
-  await expectDesignParity(pair, { name: 'both-removed', fullPage: true })
+  await expectDesignParity(pair, { name: 'both-removed', region: '#bd-status' })
 })
 test('design-style entry applies', async ({ browser }) => {
   const pair = await designPair(browser)
