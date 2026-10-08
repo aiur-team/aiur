@@ -112,28 +112,25 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       assert row(projection.phases, 1).last_known == %{count: 0, observed_at: nil}
     end
 
-    # The disagreement the review caught: equal-complexity known 80 plus a
-    # member with no reading must be 80% partial (1/2 resolved) here exactly as
-    # it is on the graph above — not a 40% mean that counts the missing one
-    # as zero.
-    test "a member with no reading reduces coverage instead of dragging the row to a lower mean" do
+    # Missing work stays unknown; the aggregate is a lower bound over both members.
+    test "a member with no reading keeps denominator weight and reduces coverage" do
       activity = activity_snapshot([activity(identity(1), 80)])
       model = model([m(1, phase: 1, lane: "runtime", cx: 3), m(2, phase: 1, lane: "runtime", cx: 3)], activity: activity)
 
       projection = BuildOrderBreakdown.projection(model)
       phase = row(projection.phases, 1)
 
-      assert phase.progress == 80
+      assert phase.progress == 40
       assert phase.completion.progress_resolution == :partial
       assert phase.completion.progress_resolved_count == 1
       assert phase.completion.member_count == 2
-      assert phase.progress_view.label == "80% partial"
+      assert phase.progress_view.label == "40% partial"
       assert phase.progress_view.coverage == "1/2 resolved"
 
       html = render_breakdown(model)
-      assert html =~ ~s(data-breakdown-progress="80")
+      assert html =~ ~s(data-breakdown-progress="40")
       assert html =~ ~s(data-breakdown-resolution="partial")
-      assert html =~ "80% partial"
+      assert html =~ "40% partial"
     end
 
     # A fresh activity row whose progress field has unknown freshness is not a
@@ -220,15 +217,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       refute html =~ "bo-breakdown-row-last-known"
     end
 
-    test "weights members without usable points equally and still excludes the unresolved one from the rate" do
+    test "weights members without usable points equally including unresolved denominator weight" do
       activity = activity_snapshot([activity(identity(2), 40)])
       model = model([bare(1, ["phase:1", "build-lane:runtime"]), bare(2, ["phase:1", "build-lane:runtime"])], activity: activity)
 
       projection = BuildOrderBreakdown.projection(model)
 
       assert row(projection.phases, 1).points == 0
-      # Member 1 has no reading, so it reduces coverage rather than halving the rate.
-      assert row(projection.phases, 1).progress == 40
+      # Member 1 has no reading, so known work is a lower bound over both members.
+      assert row(projection.phases, 1).progress == 20
       assert row(projection.phases, 1).completion.progress_resolution == :partial
     end
 

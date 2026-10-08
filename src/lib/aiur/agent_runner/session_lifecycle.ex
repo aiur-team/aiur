@@ -745,7 +745,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp configured_account_candidates(config, backend, opts) do
-    names = Map.get(config.accounts || %{}, backend, [])
+    names = Map.get(config, :accounts) || %{}
+    names = Map.get(names, backend, [])
     list_accounts = Keyword.get(opts, :account_list_fun, &Accounts.list/1)
     registered = MapSet.new(list_accounts.(backend), & &1.name)
     Enum.filter(names, &MapSet.member?(registered, &1))
