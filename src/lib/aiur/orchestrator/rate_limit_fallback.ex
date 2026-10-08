@@ -19,8 +19,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
   alias Aiur.Init.AgentCli
 
   alias Aiur.Orchestrator.{
@@ -165,17 +165,25 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp account_handoff_ready?(entry, opts) do
     session = Map.get(entry, :usage_limit_session, %{})
-    config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
-    source = Map.get(session, :account_name)
-    candidates = configured_claude_accounts(config, opts) |> Enum.reject(&(&1 == source))
-    usages = account_usages(candidates, opts)
 
-    State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :usage_limit_exhausted and
-      Map.get(entry, :account_handoff_attempted) != true and Map.get(session, :backend) == "claude-repl" and
-      is_binary(source) and is_binary(session[:session_id]) and is_binary(session[:cwd]) and
+    if handoff_candidate?(entry, session) do
+      config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+      source = session.account_name
+      candidates = configured_claude_accounts(config, opts) |> Enum.reject(&(&1 == source))
+      usages = account_usages(candidates, opts)
+
       match?({:ok, _}, Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages))
+    else
+      false
+    end
   rescue
     _ -> false
+  end
+
+  defp handoff_candidate?(entry, session) do
+    State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :usage_limit_exhausted and
+      Map.get(entry, :account_handoff_attempted) != true and Map.get(session, :backend) == "claude-repl" and
+      is_binary(session[:account_name]) and is_binary(session[:session_id]) and is_binary(session[:cwd])
   end
 
   defp configured_claude_accounts(config, opts) do

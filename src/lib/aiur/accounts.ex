@@ -99,6 +99,8 @@ defmodule Aiur.Accounts do
   end
 
   @doc "Moves a paused session's shim-declared artifacts between account profiles."
+  @spec move_session(String.t(), String.t(), String.t(), String.t(), Path.t(), keyword()) ::
+          :ok | {:error, term()}
   def move_session(harness, source_name, destination_name, session_id, cwd, opts \\ []) do
     with {:ok, source} <- account(harness, source_name),
          {:ok, destination} <- account(harness, destination_name),

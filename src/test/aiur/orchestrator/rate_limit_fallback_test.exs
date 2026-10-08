@@ -87,6 +87,30 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude") == :noop
     end
 
+    test "does not fetch account usage for a session that is not paused" do
+      entry = %{
+        control: %{status: :working},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      test_pid = self()
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn name ->
+          send(test_pid, {:account_usage_fetched, name})
+          nil
+        end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+      refute_received {:account_usage_fetched, _name}
+    end
+
     test "does nothing for a pause reason other than usage_limit_exhausted" do
       entry = %{control: %{status: :paused}, paused_reason: :operator_pause}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
