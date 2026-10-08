@@ -40,14 +40,39 @@ endorsement of the text.
 
 You open PRs as drafts by design, so a draft is the "still working" signal —
 never "done but unannounced". **When you consider the ticket's work complete,
-mark the PR ready for review (`gh pr ready`) before you flip the issue to
-`agent:human-review`.** A draft cannot auto-merge, and an approved, green PR
+mark the PR ready for review (`gh pr ready`) and verify it is no longer a draft
+before moving the issue to `agent:ci-wait`.** Drafts never pass CI in any
+repository. Move to `agent:human-review` only after the full required-check set
+passes on the current head SHA; a green or skipped `gh pr checks` aggregate
+alone is not a full pass. A draft cannot auto-merge, and an approved, green PR
 that is still a draft stalls the merge queue silently (#1974). The daemon now
 surfaces `DRAFT` in the Executor's queue and alerts on approved + green +
 draft, but that is a safety net for the failure, not a substitute for you
 delivering: leaving a finished PR as a draft means you have not delivered.
-If a turn ends in `agent:ci-wait` with the PR still a draft, marking it ready
-is the first step of the resume turn after the delivered CI pass.
+If a turn ends in `agent:ci-wait` with completed work still a draft, mark it
+ready as the first step of the resume turn, then wait for the full required
+checks on the current head SHA.
+
+### Local pre-handoff checks
+
+For changes in the Aiur repository, before marking the PR ready or handing
+off to CI/review, run both required checks and fix any failures:
+
+- From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
+- From the repository root: `python3 scripts/check-bare-assert-receive.py`.
+
+These checks supplement the scoped compile, format, and affected-test gate;
+CI still runs the authoritative full required-check set.
+
+### Unrelated CI flakes
+
+If the only failure is a flaky test unrelated to your change, file the
+flake as its own ticket with the CI run id (or link its existing ticket).
+NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
+A flaky test blocks CI, not the ticket's implementation. State in the PR
+that the only failure is the known flake, link the flake ticket and CI run,
+then hand back to the Executor without declaring a dependency or pausing
+for the flake fix. Keep the full required-check gate for human review.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 

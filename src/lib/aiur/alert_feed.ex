@@ -365,9 +365,9 @@ defmodule Aiur.AlertFeed do
         first_opened_at =
           previous
           |> List.first(%{})
-          |> Map.get("timestamp")
+          |> then(fn previous -> Map.get(previous, "first_seen_at") || Map.get(previous, "timestamp") end)
 
-        collapsed = Map.put(alert, "timestamp", first_opened_at || Map.get(alert, "timestamp"))
+        collapsed = Map.put(alert, "first_seen_at", first_opened_at || Map.get(alert, "timestamp"))
         [collapsed | remaining]
     end
   end
@@ -434,7 +434,7 @@ defmodule Aiur.AlertFeed do
             slug: slug,
             question: question,
             topic: topic,
-            source_created_at: parse_timestamp(Map.get(alert, "timestamp"))
+            source_created_at: parse_timestamp(Map.get(alert, "first_seen_at") || Map.get(alert, "timestamp"))
           }
         end
 

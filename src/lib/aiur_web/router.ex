@@ -52,9 +52,9 @@ defmodule AiurWeb.Router do
     plug(:require_custom_header)
   end
 
-  # Read-only gate for the dashboard's agent-write endpoints (Executor chat,
-  # refresh). Disabled by default until a deliberate dashboard parity pass —
-  # see issue #371. Re-enable via `observability.dashboard_writable` config.
+  # Gate the dashboard's agent-write endpoints (Executor chat, refresh, pause,
+  # resume). Writes are enabled by default; set
+  # `observability.dashboard_writable: false` to disable them.
   # The TUI's pane endpoints and the RC claude-hook are intentionally NOT
   # behind this gate (see the route scopes below).
   pipeline :require_writable do
@@ -148,8 +148,14 @@ defmodule AiurWeb.Router do
     end
   end
 
-  # Agent-write endpoints driven from the browser/API. Gated read-only by
-  # default (`:require_writable`) until the dashboard parity pass.
+  scope "/", AiurWeb do
+    pipe_through([:dashboard_auth, :secure_document])
+
+    get("/build-order-documents/:owner/:repository/:root_number/:member_number", PlanningDocumentController, :show)
+  end
+
+  # Agent-write endpoints driven from the browser/API. Writes are enabled by
+  # default; set `observability.dashboard_writable: false` to make them read-only.
   scope "/", AiurWeb do
     pipe_through([:dashboard_auth, :api_write, :require_writable])
 

@@ -40,12 +40,12 @@ never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy.ex:35,1001`).
 
 ### Markers are not states
 
-**`agent:paused` is not a state label.** Four suffixes are **markers**,
+**`agent:paused` is not a state label.** Five suffixes are **markers**,
 deliberately kept out of the state machine so the orchestrator never treats
 them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
 
 ```text
-watch  paused  parked  rate-limit-fallback
+watch  paused  parked  queued  rate-limit-fallback
 ```
 
 | Marker | Meaning |
@@ -53,6 +53,7 @@ watch  paused  parked  rate-limit-fallback
 | `agent:watch` | Opt-in PR-watch marker: Aiur watches a PR for comments. |
 | `agent:paused` | Per-issue pause override: suppress Aiur work while preserving the current state. |
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
+| `agent:queued` | Reserved for the build queue; not a state. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
 
 Markers **survive every state swap by design**: `IssueState` preserves any
@@ -76,6 +77,14 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
 | `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
+
+When the no-op turn bound or normal turn limit stops an agent, a newly opened or
+moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
+finishes, the ticket goes to `human-review`.
+
+At the no-op bound, verified rework with no new PR head becomes `error`. Other
+no-op-bound tickets keep their state and receive an alert. A normal turn limit
+leaves the state unchanged when no PR head moved.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
@@ -109,6 +118,22 @@ time its command runs — the removal then no-ops and leaves the pair behind.
 The tool takes only the target state and makes it the sole `agent:*` state
 label, from the issue Aiur re-reads at write time
 (`GitHub.IssueState.swap_labels/4`).
+
+For `human-review`, the GitHub writer checks the exact PR head against current
+`tracker.base_branch`, in addition to clearing review threads. A stale head
+passes when it has no conflicts and no changed-file overlap with base changes
+since the merge base. Rename checks include old and new paths.
+
+Conflicts or overlap leave labels unchanged and return an update instruction.
+Disjoint paths pass even while GitHub reports `UNKNOWN` mergeability or a lagging
+PR base SHA. Mismatched heads or base branches, malformed observations and
+incomplete comparison data block the write. Harmless base movement needs no
+merge or CI rerun.
+
+Workers assess integration safety before marking the PR ready and after CI.
+They integrate at most once per handoff, validate and push, keep the PR ready,
+then await new-head CI in `ci-wait`. Another unsafe base change after that
+integration requires an Executor alert rather than another merge/CI cycle.
 
 When a pair does form, the heal prefers the label that arrived *since* the
 orchestrator's own claim over the claim itself — whenever the orchestrator can
@@ -245,13 +270,18 @@ current state and denies `:missing_trigger_label` when there is none
   agent after an unverified relabel. Other ambiguous provenance failures emit
   the needs-attention alert `github.dispatch_authorization.ambiguous`.
 - A timeline Aiur cannot *read* is a different thing from a timeline that denies.
-  The provenance fetch is requested in `per_page=50` pages and refetched in
-  smaller ones when a page exceeds the response cap, so an unusually noisy
-  timeline no longer strands a ticket. If even the smallest page is too large the
-  ticket is **deferred** (never revoked), the log line carries
+  The provenance fetch starts with `per_page=50` pages and retries at
+  `per_page=20` when a page exceeds the response cap. Events are pruned to the
+  fields used for provenance before being held, dropping embedded source issue
+  bodies. If even the smallest page is too large the ticket is **deferred**
+  (never revoked), the log line carries
   `cause=transport_limit`, and the alert is
   `github.dispatch_authorization.timeline_unreadable` — an Aiur limit to raise,
   not a ticket to re-triage.
+- Repeated dispatch deferrals caused by other transient failures raise a
+  ticket-specific needs-attention alert after five consecutive checks. A later
+  verified or ambiguous authorization result clears that streak and resolves
+  the alert for that ticket; a single transient failure remains quiet.
 
 ## Step 2 — Aiur creates an agent, given the `aiur-agent` skill and a four-part prompt
 
@@ -530,11 +560,15 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 
 ## Step 5 — PR opened, agent pauses
 
-The agent opens a `Closes #<issue>` **draft** PR, then `agent:ci-wait` releases
-the turn and the dispatch slot while Aiur waits for terminal checks. The agent
-**never self-merges**; an approved, green PR that is still a draft stalls the
-merge queue, so the agent marks the PR ready before flipping to
-`agent:human-review`.
+The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft
+pushes run only `changes`, `lint`, and `build`. After self-review, the agent
+marks completed work ready to trigger the full suite, then `agent:ci-wait`
+releases the turn and dispatch slot.
+
+A draft's fast gate cannot approve its
+head. Aiur waits for successful required checks from the configured integrations
+on the current head before returning the agent for `agent:human-review`.
+Missing or skipped required checks remain pending. The agent **never self-merges**.
 
 GitHub mechanics — polling, webhooks, rate budgets, and CI observation — live
 in [GitHub](/apis/github); this page does not duplicate them.
@@ -543,7 +577,7 @@ in [GitHub](/apis/github); this page does not duplicate them.
 
 If the run was started with `/aiur-run`, the Executor agent is subscribed to PR
 events and spins up a background agent for code review. `Aiur.ExecutorBindings`
-reconciles a compile-time set of exactly **24** default bindings
+reconciles a compile-time set of exactly **28** default bindings
 (`src/lib/aiur/executor_bindings.ex:7-32`), each with its delivery channel.
 Grouped by channel:
 
@@ -573,6 +607,12 @@ Grouped by channel:
 | `ticket.*.pr.merged` | `pr:auto` |
 | `ticket.*.pr.ready_for_review` | `pr:auto` |
 
+**handoff** — agent-to-Executor review transitions:
+
+| Pattern | Channel |
+| --- | --- |
+| `ticket.*.agent.handoff.human_review` | `handoff:auto` |
+
 **rework**:
 
 | Pattern | Channel |
@@ -599,13 +639,32 @@ Grouped by channel:
 `ExecutorBindings.allowlisted?/1` (`:41-45`) governs what an Executor may
 additionally bind beyond this fixed set.
 
+The daemon observes handoffs through its CI lifecycle poll, which includes
+`human-review` even when that state is absent from `tracker.active_states`.
+Executor-made label moves also wake when observed. A move that happens while the
+daemon is down cannot produce a transition wake.
+
 ## Step 7 — Review comments wake the agent
 
 The agent is subscribed to its own issue comments and PR review comments and
 unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
-`pause_resume.ex`, `push_routing.ex`). Trusted feedback becomes a rework run;
-an operator comment directs the same agent.
+`pause_resume.ex`, `push_routing.ex`).
+
+Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
+`agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
+reviews without inline threads.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
+
+An operator comment directs the same agent.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)

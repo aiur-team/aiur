@@ -8,6 +8,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Aiur.Issue
   alias Aiur.Linear.Client
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy}
+  alias Aiur.Workspace.WipPreservation
   alias Ecto.Changeset
 
   test "workspace bootstrap can be implemented in after_create hook" do
@@ -408,7 +409,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "before_run holds dirty leftover workspaces for todo dispatches" do
+  test "before_run preserves and recreates dirty leftover workspaces for todo dispatches" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover")
 
     try do
@@ -422,17 +423,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-
-      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+      assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "before_run holds dirty leftover workspaces when retry still carries todo label" do
+  test "before_run preserves dirty leftover workspaces when retry still carries todo label" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-retry")
 
     try do
@@ -446,17 +443,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-
-      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+      assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "before_run dirty refresh refusal uses exit 65 rather than output wording" do
+  test "before_run stale recreation uses exit 65 rather than output wording" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-exit-code")
 
     try do
@@ -471,11 +464,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-
-      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+      assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
     after
       File.rm_rf(test_root)
     end
@@ -1906,7 +1895,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     # HttpServer.bound_port/0 reports the real port.
     assert config.server.port == 0
 
-    # Dashboard is read-only by default until the parity pass (#371).
+    # Dashboard writes are enabled by default for authenticated operators.
     assert config.observability.dashboard_writable == true
     assert Config.dashboard_writable?()
 
@@ -3526,6 +3515,21 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  defp assert_stale_refresh_saved!(workspace, identifier, trace_file, issue) do
+    assert :ok = Workspace.run_before_run_hook(workspace, issue)
+    assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+    assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+
+    assert [notice] = WipPreservation.pending_notices(workspace, identifier)
+    assert notice["action"] == "recreate the stale workspace"
+    assert notice["tracked_files"] == ["README.md"]
+
+    {prompt, [^notice]} = WipPreservation.with_pending_notices(workspace, identifier, "continue work")
+    assert prompt =~ notice["artifact_dir"]
+    assert prompt =~ "Restore with these commands"
+    assert Enum.any?(notice["restore_commands"], &String.contains?(&1, "git apply --binary"))
+  end
+
   defp bootstrap_dirty_refresh_workspace!(test_root, identifier, opts \\ []) do
     source_repo = Path.join(test_root, "source")
     remote_repo = Path.join(test_root, "remote.git")
@@ -3546,11 +3550,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
       tracker_kind: "memory",
       workspace_root: workspace_root,
       hook_after_create: """
+      PATH="/usr/bin:/bin:$PATH"
       git clone #{shell_quote(remote_repo)} .
       issue_id="$(basename "$PWD")"
       git checkout -b "aiur/${issue_id}" origin/main
       """,
       hook_before_run: """
+      PATH="/usr/bin:/bin:$PATH"
       printf 'attempt\\n' >> #{shell_quote(trace_file)}
       if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +

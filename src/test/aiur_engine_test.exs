@@ -589,6 +589,28 @@ printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
            ]
   end
 
+  test "dashboard defaults to loopback even with Tailscale and dashboard credentials" do
+    bin = Aiur.TestSupport.tmp_root!("aiur-dashboard-tailscale")
+    File.mkdir_p!(bin)
+    tailscale = Path.join(bin, "tailscale")
+    File.write!(tailscale, "#!/bin/sh\nprintf '100.64.0.42\\n'\n")
+    File.chmod!(tailscale, 0o755)
+    on_exit(fn -> File.rm_rf!(bin) end)
+
+    {host, 0} =
+      run_sourced_engine("default_dashboard_host", [
+        {"PATH", "#{bin}:#{System.get_env("PATH")}"},
+        {"AIUR_DASHBOARD_USERNAME", "tester"},
+        {"AIUR_DASHBOARD_PASSWORD", "test-password"},
+        {"AIUR_DEFAULT_DASHBOARD_HOST", nil}
+      ])
+
+    assert host == "127.0.0.1"
+
+    {override_host, 0} = run_sourced_engine("default_dashboard_host", [{"AIUR_DEFAULT_DASHBOARD_HOST", "0.0.0.0"}])
+    assert override_host == "0.0.0.0"
+  end
+
   test "run argv leaves dashboard host resolution to config unless explicitly overridden" do
     script = """
     print_run_argv() {
@@ -1556,6 +1578,106 @@ printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
     refute out =~ "GenServer"
   end
 
+  test "listen validates through daemon, supports alias, and rejects widening patterns" do
+    {ticket, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "VALIDATE:$1"; return 0; }
+run_control_stream() { echo "STREAM:$1"; return 0; }
+aiur_engine_main listen --ticket 3028|,
+        []
+      )
+
+    assert ticket =~ ~s|executor_listen_validate(Base.decode64!("dGlja2V0LjMwMjguIw=="))|
+    assert ticket =~ ~s|executor_listen(topic: Base.decode64!("dGlja2V0LjMwMjguIw=="))|
+
+    {alias_output, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+run_control_stream() { echo "STREAM:$1"; return 0; }
+aiur_engine_main executor-listen --topic 'ticket.3028.#'|,
+        []
+      )
+
+    assert alias_output =~ "executor_listen(topic:"
+
+    {widened, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "$1"; echo 'aiur: listen topic rejected (:binding_not_allowlisted); allowed bindings: executor.#, ticket.*.ci.passed'; return 64; }
+run_control_stream() { echo SHOULD_NOT_STREAM; return 0; }
+aiur_engine_main listen --topic 'ticket.*.#'|,
+        []
+      )
+
+    assert widened =~ "executor_listen_validate"
+    assert widened =~ "ticket.*.ci.passed"
+    refute widened =~ "SHOULD_NOT_STREAM"
+  end
+
+  test "listen backs off for about ten minutes of one outage, then stops" do
+    {out, 1} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+run_control_stream() { echo ATTEMPT; return 1; }
+sleep() { echo "SLEEP:$1"; }
+aiur_engine_main listen --ticket 3028|,
+        []
+      )
+
+    delays = ~r/SLEEP:(\d+)/ |> Regex.scan(out) |> Enum.map(fn [_, d] -> String.to_integer(d) end)
+    assert Enum.take(delays, 7) == [2, 4, 8, 16, 32, 60, 60], out
+    assert Enum.sum(delays) in 600..660, out
+    assert out =~ "could not reconnect within"
+  end
+
+  test "listen resets its outage budget after a stream that stayed connected" do
+    # Each stream lasts 40s before the daemon drops it; 30 such drops far exceed
+    # one outage budget, so only a per-connection reset reaches the clean exit.
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+state="$(mktemp -d)"; echo 0 > "$state/streams"; echo 0 > "$state/clock"
+listen_clock() { cat "$state/clock"; }
+run_control_stream() { n=$(( $(cat "$state/streams") + 1 )); echo "$n" > "$state/streams"; echo $(( $(cat "$state/clock") + 40 )) > "$state/clock"; [ "$n" -ge 30 ] && return 0; return 1; }
+sleep() { echo "SLEEP:$1"; }
+aiur_engine_main listen --ticket 3028; rc=$?; rm -rf "$state"; exit "$rc"|,
+        []
+      )
+
+    delays = ~r/SLEEP:(\d+)/ |> Regex.scan(out) |> Enum.map(fn [_, d] -> String.to_integer(d) end)
+    assert delays == List.duplicate(2, 29), out
+    refute out =~ "could not reconnect"
+  end
+
+  test "listen retries when an attempt dies, as during an in-place dev rebuild" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+marker="$(mktemp)"; rm -f "$marker"
+run_control_stream() { [ -e "$marker" ] && return 0; touch "$marker"; die "AIUR_RELEASE_DIR does not exist: /gone"; }
+sleep() { echo "SLEEP:$1"; }
+aiur_engine_main listen --ticket 3028; rc=$?; rm -f "$marker"; exit "$rc"|,
+        []
+      )
+
+    assert out =~ "AIUR_RELEASE_DIR does not exist"
+    assert out =~ "SLEEP:2", out
+  end
+
+  test "listen stops without retrying on a stream exit status other than 1" do
+    {out, 2} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+run_control_stream() { echo ATTEMPT; return 2; }
+sleep() { echo SLEPT; }
+aiur_engine_main listen --ticket 3028|,
+        []
+      )
+
+    assert length(Regex.scan(~r/ATTEMPT/, out)) == 1, out
+    refute out =~ "SLEPT"
+    assert out =~ "listen stopped after streaming control RPC failure (exit 2)"
+  end
+
   test "executor-wait dispatches a bounded RPC and validates timeout usage" do
     {out, 0} =
       run_sourced_engine(
@@ -1801,6 +1923,38 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     {out, code} = run_engine_real(["usage", "codex"], [{"AIUR_RELEASE_DIR", fake_release()}])
     assert code != 0
     assert out =~ "usage does not accept arguments"
+  end
+
+  test "accounts uses daemon control RPC when the daemon is reachable" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; run_local_cli() { printf 'LOCAL:%s\n' "$*"; }; cmd_accounts --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.accounts(true)"
+    refute out =~ "LOCAL:"
+  end
+
+  test "accounts falls back to local identity rendering when the daemon is down" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; run_local_cli() { printf 'LOCAL:%s\n' "$*"; }; cmd_accounts --json|,
+        []
+      )
+
+    assert out =~ "LOCAL:accounts --json"
+    refute out =~ "RPC:"
+  end
+
+  test "accounts preserves the requested harness through daemon control RPC" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; cmd_accounts codex --json|,
+        []
+      )
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.accounts(true, Base.decode64!("Y29kZXg="))|
   end
 
   test "status RPCs the status expression" do

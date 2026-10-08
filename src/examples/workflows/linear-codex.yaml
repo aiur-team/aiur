@@ -20,6 +20,8 @@ linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
 observability:
+  # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
+  # build_order_funnel_health_check: true
   # Set to false to disable run telemetry recording (Analytics page will be empty).
   # telemetry_enabled: true
   # Retain useful cross-session telemetry without splitting an individual boot.
@@ -27,6 +29,8 @@ observability:
   telemetry_retention_max_age_days: 30
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
+server:
+  tailscale_funnel: false
 polling:
   idle_widen_factor: 5.0
   # Per-class cadences override interval_seconds for one class (#2309). The
@@ -49,6 +53,8 @@ hooks:
     git status --short
 agent:
   priority: [codex]
+  # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
+  # account_selection: balance
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
@@ -59,3 +65,11 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: linear-codex.prompt.md
+
+# Build queue is unsupported on Linear; no queue label writes.
+# build_queue:
+#   enabled: true
+#   reconcile_interval_seconds: 60      # 10..3600 seconds
+#   max_writes_per_minute: 20           # 1..60 writes
+#   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
+#   merged_open_grace_seconds: 600      # 60..86400 seconds

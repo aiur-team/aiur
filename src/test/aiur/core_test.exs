@@ -2,6 +2,7 @@ defmodule Aiur.CoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, LifecycleFence, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
@@ -19,6 +20,11 @@ defmodule Aiur.CoreTest do
     def fetch_issues_by_states(_states), do: {:ok, []}
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
     def hydrate_blocked_by(issue), do: {:ok, issue}
+  end
+
+  defmodule CheckpointNoPollClient do
+    def fetch_issues_by_states(_states, _opts \\ []), do: {:ok, []}
+    def fetch_candidate_issues, do: raise("queue-only checkpoint fixture must not poll the tracker")
   end
 
   defp stop_test_orchestrator(pid) when is_pid(pid) do
@@ -834,6 +840,8 @@ defmodule Aiur.CoreTest do
       refute Map.has_key?(updated_state.running, issue_id)
       refute MapSet.member?(updated_state.claimed, issue_id)
       refute Process.alive?(agent_pid)
+      # The save and delete of a closed ticket's workspace run in a task (#2743).
+      assert_receive {:workspace_cleanup_finished, ^issue_identifier, :ok}, 10_000
       refute File.exists?(workspace)
     after
       File.rm_rf(test_root)
@@ -1368,13 +1376,17 @@ defmodule Aiur.CoreTest do
   test "stale retry timer messages do not consume newer retry entries" do
     issue_id = "issue-stale-retry"
     orchestrator_name = Module.concat(__MODULE__, :StaleRetryOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
     end)
 
+    :ok = :sys.suspend(pid)
     initial_state = :sys.get_state(pid)
+    assert is_nil(initial_state.tick_timer_ref)
+    assert is_nil(initial_state.tick_token)
+    refute initial_state.poll_check_in_progress
     current_retry_token = make_ref()
     stale_retry_token = make_ref()
 
@@ -1393,7 +1405,8 @@ defmodule Aiur.CoreTest do
     end)
 
     send(pid, {:retry_issue, issue_id, stale_retry_token})
-    Process.sleep(50)
+    # Hold the message until explicitly released; the state read below is the mailbox barrier.
+    :ok = :sys.resume(pid)
 
     assert %{
              attempt: 2,
@@ -1878,6 +1891,101 @@ defmodule Aiur.CoreTest do
       workspace = Path.join(repo_dir, workspace_name)
       assert File.exists?(workspace)
       assert File.exists?(Path.join(workspace, "README.md"))
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner sends before_run conflict filenames in the first turn/start input" do
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-conflict-prompt")
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+      identifier = "MT-CONFLICT-PROMPT-#{System.unique_integer([:positive])}"
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test\n")
+      {_, 0} = System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(trace_file)}
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        request_id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '{"id":%s,"result":{"thread":{"id":"thread-conflict-prompt"}}}\\n' "$request_id"
+            ;;
+          *'"method":"turn/start"'*)
+            printf '{"id":%s,"result":{"turn":{"id":"turn-conflict-prompt"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        hook_before_run: """
+        mkdir -p logs
+        printf '%s\\n' '## Conflicting files' '- lib/from-base.ex' > logs/before-run-merge-conflict.md
+        """,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      workspace = Path.join([workspace_root, "project", identifier])
+      File.mkdir_p!(workspace)
+      {_, 0} = System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      File.write!(Path.join(workspace, "README.md"), "# existing workspace\n")
+      {_, 0} = System.cmd("git", ["-C", workspace, "add", "README.md"])
+      {_, 0} = System.cmd("git", ["-C", workspace, "commit", "-m", "existing workspace"])
+
+      issue = %Issue{
+        id: "issue-conflict-prompt",
+        identifier: identifier,
+        title: "Resolve preflight merge conflict",
+        description: "The first provider turn must be told which files conflict.",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-CONFLICT-PROMPT",
+        labels: []
+      }
+
+      state_fetcher = fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+
+      assert File.read!(Path.join([workspace, "logs", "before-run-merge-conflict.md"])) =~ "lib/from-base.ex"
+
+      turn_start =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.find(&(&1["method"] == "turn/start"))
+
+      first_turn_text = get_in(turn_start, ["params", "input"]) |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+      assert first_turn_text =~ "- `lib/from-base.ex`"
     after
       File.rm_rf(test_root)
     end
@@ -2870,20 +2978,32 @@ defmodule Aiur.CoreTest do
         max_turns: 2
       )
 
-      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      previous_client = Application.fetch_env(:aiur, :linear_client_module)
+      Application.put_env(:aiur, :linear_client_module, CheckpointNoPollClient)
 
       on_exit(fn ->
-        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        case previous_client do
+          {:ok, client} -> Application.put_env(:aiur, :linear_client_module, client)
+          :error -> Application.delete_env(:aiur, :linear_client_module)
+        end
       end)
 
+      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
+      # Keep this checkpoint fixture independent of live tracker polling.
+      orchestrator_pid = start_supervised!({Orchestrator, name: orchestrator_name, initial_poll?: false})
+
+      test_pid = self()
+
       :sys.replace_state(orchestrator_pid, fn state ->
-        {queue_store, _item} =
+        {queue_store, item} =
           Aiur.AgentQueue.operator_message("MT-250", "focus on auth first")
           |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
+        send(test_pid, {:checkpoint_queue_item, item.id})
         %{state | queue_store: queue_store}
       end)
+
+      assert_received {:checkpoint_queue_item, request_id}
 
       issue = %Issue{
         id: "issue-checkpoint-queue",
@@ -2900,6 +3020,20 @@ defmodule Aiur.CoreTest do
                  issue,
                  nil,
                  orchestrator: orchestrator_name,
+                 run_turn: fn session, prompt, turn_issue, opts ->
+                   on_message = Keyword.fetch!(opts, :on_message)
+
+                   observe_completion = fn event ->
+                     if event.event == :turn_completed and get_in(event, [:payload, "params", "turn", "id"]) == "turn-checkpoint-main" do
+                       assert {:ok, :pending} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
+                       send(test_pid, :checkpoint_deferred_until_completion)
+                     end
+
+                     on_message.(event)
+                   end
+
+                   Aiur.CodingAgent.run_turn(session, prompt, turn_issue, Keyword.put(opts, :on_message, observe_completion))
+                 end,
                  issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
                )
 
@@ -2916,10 +3050,18 @@ defmodule Aiur.CoreTest do
           |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         end)
 
+      assert_received :checkpoint_deferred_until_completion
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "focus on auth first"
+      assert {:ok, :consumed} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
       assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-250")
+
+      assert Exchange.bindings_for(orchestrator_pid) != []
+      assert :ok = stop_supervised(Orchestrator)
+      assert Process.whereis(orchestrator_name) == nil
+      :sys.get_state(Exchange)
+      assert Exchange.bindings_for(orchestrator_pid) == []
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
@@ -3570,7 +3712,7 @@ defmodule Aiur.CoreTest do
       File.write!(codex_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
-      printf 'RUN\\n' >> "$trace_file"
+      printf 'RUN %s\\n' "$PWD" >> "$trace_file"
       count=0
 
       while IFS= read -r line; do
@@ -3650,7 +3792,15 @@ defmodule Aiur.CoreTest do
       assert :ok = Task.await(task, 2_000)
 
       trace = File.read!(trace_file)
-      assert length(String.split(trace, "RUN", trim: true)) == 1
+
+      run_workspaces =
+        trace
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "RUN "))
+        |> Enum.map(&String.replace_prefix(&1, "RUN ", ""))
+
+      agent_workspace = Path.join([workspace_root, "project", "MT-248"])
+      assert Enum.count(run_workspaces, &(&1 == agent_workspace)) == 1
       assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 2
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")

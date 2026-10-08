@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
-  alias Aiur.Events.SubscriptionStore
+  alias Aiur.DecisionStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CapacityBinding
@@ -209,6 +209,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :candidate_snapshot_fresh?,
       :dispatch_declines,
       :dispatch_hold,
+      :dispatch_selection_hold,
       # `agent_statuses/1` reads the codex thrash budget to explain why an idle
       # ticket is not dispatching. Projecting without it would fall back to the
       # struct default and render a confident wrong *reason* on every idle row.
@@ -217,6 +218,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :global_pause,
       :globally_paused,
       :last_polled_issues,
+      :last_dispatch_poll_at_ms,
       :load_envelope_state,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
@@ -245,6 +247,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     %{
       approved_heads: %{},
+      passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: poll_cache,
@@ -410,6 +413,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       },
       rate_limits: Map.get(state, :agent_rate_limits),
       polling: %{
+        last_dispatch_poll_age_ms: dispatch_poll_age_ms(state.last_dispatch_poll_at_ms, now_ms),
         checking?: state.poll_check_in_progress == true,
         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
         poll_interval_ms: state.poll_interval_ms,
@@ -420,6 +424,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       }
     }
   end
+
+  defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms), do: max(now_ms - last_ms, 0)
+  defp dispatch_poll_age_ms(_last_ms, _now_ms), do: nil
 
   defp capacity_hold_active?(%State{} = state) do
     match?(%{signal: _signal}, state.capacity_hold)
@@ -432,6 +439,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           held?: true,
           signal: signal,
           measured: measured,
+          detail: Map.get(hold, :detail),
           threshold: threshold,
           held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0),
           # How long the hold has lasted and how old its measurement is are
@@ -442,24 +450,19 @@ defmodule Aiur.Orchestrator.StatusReport do
         }
 
       _other ->
-        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0, sample_age_seconds: nil}
-    end
-  end
-
-  defp dispatch_hold_payload(%State{} = state, now_ms) do
-    case state.dispatch_hold do
-      %{reason: reason, detail: detail, held_since_ms: held_since_ms} ->
         %{
-          held?: true,
-          reason: reason,
-          detail: detail,
-          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+          held?: false,
+          signal: nil,
+          measured: nil,
+          detail: nil,
+          threshold: nil,
+          held_for_seconds: 0,
+          sample_age_seconds: nil
         }
-
-      _other ->
-        %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
     end
   end
+
+  defp dispatch_hold_payload(state, now_ms), do: Slots.dispatch_hold_status(state, now_ms)
 
   defp running_snapshot(
          %State{} = state,
@@ -502,6 +505,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       agent_output_tokens: Map.get(metadata, :agent_output_tokens, 0),
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
+      telemetry_attempt_id: Map.get(metadata, :telemetry_attempt_id),
       turn_count: Map.get(metadata, :turn_count, 0),
       turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,
@@ -677,7 +681,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       agent_family: CodingAgent.family_for(backend),
       requested_model: Map.get(execution, :requested_model),
       resolved_model: Map.get(execution, :resolved_model),
-      effort: Map.get(execution, :effort)
+      effort: Map.get(execution, :effort),
+      account: Map.get(execution, :account),
+      account_selection_reason: Map.get(execution, :account_selection_reason)
     }
     |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))
   end
@@ -719,9 +725,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp open_decision_count(identifier) when is_binary(identifier) do
-    case SubscriptionStore.open_attention_count_result(identifier) do
-      {:ok, count} -> {count, :available}
-      {:error, :unavailable} -> {0, :unavailable}
+    case DecisionStore.open_blocking_decision_ids([identifier], DecisionStore, 100) do
+      {:ok, ids} -> {length(ids), :available}
+      {:error, :store_unavailable} -> {0, :unavailable}
     end
   end
 
@@ -937,6 +943,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       runtime_seconds: State.effective_runtime_seconds(entry, now),
       turn_count: Map.get(entry, :turn_count, 0),
       context_usage: Map.get(entry, :context_usage),
+      telemetry_attempt_id: Map.get(entry, :telemetry_attempt_id),
       work_state: get_in(entry, [:control, :status]) || :working,
       pause_reason: Map.get(entry, :paused_reason),
       backend: entry_backend(entry),
@@ -1231,7 +1238,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp idle_reason(:workspace_ownership_waiting, identifier, _fallback) do
     case HoldStatus.for_ticket(identifier) do
-      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, generation, proof}
+      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, identifier, generation, proof}
       nil -> :workspace_ownership_waiting
     end
   end

@@ -43,7 +43,10 @@ defmodule Aiur.CLI do
     note: :string,
     json: :boolean,
     open: :boolean,
-    all: :boolean
+    all: :boolean,
+    dir: :string,
+    harness: :string,
+    purge: :boolean
   ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
@@ -54,7 +57,9 @@ defmodule Aiur.CLI do
           required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
           required(:set_server_host_override) => (String.t() | nil -> :ok | {:error, term()}),
           required(:ensure_all_started) => (-> ensure_started_result()),
-          optional(:configured_max_agents) => (-> pos_integer())
+          optional(:configured_max_agents) => (-> pos_integer()),
+          optional(:executor_mode?) => (-> boolean()),
+          optional(:check_daemon_gap) => (-> :ok)
         }
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -66,8 +71,28 @@ defmodule Aiur.CLI do
   defp dispatch({:todo, issue_ids, opts}), do: run_todo_command(issue_ids, opts)
   defp dispatch({:findings, opts}), do: run_findings_command(opts)
   defp dispatch({:asks, command}), do: run_asks_command(command)
+  defp dispatch({:accounts, json, harness}), do: command_result(Aiur.AccountsCLI.accounts(json, harness))
+  defp dispatch({:account_login, harness, name, dir}), do: command_result(Aiur.AccountsCLI.login(harness, name, dir))
+  defp dispatch({:account_login_prepare, harness, name, dir}), do: prepare_account_login(harness, name, dir)
+  defp dispatch({:account_logout, harness, name, purge}), do: command_result(Aiur.AccountsCLI.logout(harness, name, purge))
 
   defp dispatch({:error, message}), do: shutdown_with_error(message)
+
+  @spec command_result(:ok | {:error, term()}) :: no_return()
+  defp command_result(:ok), do: System.halt(0)
+  defp command_result({:error, reason}), do: shutdown_with_error("aiur: " <> to_string(reason))
+
+  @spec prepare_account_login(String.t(), String.t(), String.t() | nil) :: no_return()
+  defp prepare_account_login(harness, name, dir) do
+    case Aiur.AccountsCLI.prepare_login_result(harness, name, dir) do
+      {:ok, profile_dir} ->
+        IO.write(profile_dir)
+        System.halt(0)
+
+      {:error, reason} ->
+        shutdown_with_error("aiur: " <> to_string(reason))
+    end
+  end
 
   @doc false
   @spec version_line(String.t(), String.t() | nil) :: String.t()
@@ -153,6 +178,10 @@ defmodule Aiur.CLI do
           | {:findings, %{record: String.t(), repo: String.t()}}
           | {:findings, %{digest: true, scope: String.t() | nil}}
           | {:asks, Aiur.AsksCLI.command()}
+          | {:accounts, boolean(), String.t() | nil}
+          | {:account_login, String.t(), String.t(), String.t() | nil}
+          | {:account_login_prepare, String.t(), String.t(), String.t() | nil}
+          | {:account_logout, String.t(), String.t(), boolean()}
           | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
@@ -181,6 +210,28 @@ defmodule Aiur.CLI do
   defp evaluate_standard(opts, ["findings" | rest], _deps), do: evaluate_findings(opts, rest)
   defp evaluate_standard(opts, ["ask" | rest], _deps), do: evaluate_ask(opts, rest)
   defp evaluate_standard(opts, ["asks" | rest], _deps), do: evaluate_asks(opts, rest)
+
+  defp evaluate_standard(opts, ["accounts"], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 in [:json, :all])), do: {:accounts, opts[:json] || false, nil}, else: {:error, usage_message()}
+  end
+
+  defp evaluate_standard(opts, ["accounts", harness], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 in [:json, :all])), do: {:accounts, opts[:json] || false, harness}, else: {:error, usage_message()}
+  end
+
+  defp evaluate_standard(opts, ["login", harness, name], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 == :dir)), do: {:account_login, harness, name, opts[:dir]}, else: {:error, usage_message()}
+  end
+
+  defp evaluate_standard(opts, ["__login_prepare", harness, name], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 == :dir)),
+      do: {:account_login_prepare, harness, name, opts[:dir]},
+      else: {:error, usage_message()}
+  end
+
+  defp evaluate_standard(opts, ["logout", harness, name], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 == :purge)), do: {:account_logout, harness, name, opts[:purge] || false}, else: {:error, usage_message()}
+  end
 
   defp evaluate_standard(opts, [], deps) do
     evaluate_run(opts, Aiur.Workflow.detect_run_folder_config(), deps)
@@ -360,6 +411,14 @@ defmodule Aiur.CLI do
       :ok = deps.set_workflow_file_path.(expanded_path)
       IO.puts(:stderr, "__AIUR_CONFIG_PATH__:#{expanded_path}")
 
+      # This is deliberately a retrospective report on the next Executor boot,
+      # not a live monitor: the daemon cannot run a check while it is stopped.
+      executor_mode? = Map.get(deps, :executor_mode?, fn -> Application.get_env(:aiur, :executor_mode, false) end)
+
+      if executor_mode?.() do
+        Map.get(deps, :check_daemon_gap, &Aiur.DaemonHeartbeatChecker.check_and_alert!/0).()
+      end
+
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->
           warn_if_max_agents_exceeds_config(opts, deps)
@@ -387,7 +446,9 @@ defmodule Aiur.CLI do
       set_server_port_override: &set_server_port_override/1,
       set_server_host_override: &set_server_host_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
-      configured_max_agents: &Aiur.Config.max_concurrent_agents/0
+      configured_max_agents: &Aiur.Config.max_concurrent_agents/0,
+      executor_mode?: fn -> Application.get_env(:aiur, :executor_mode, false) end,
+      check_daemon_gap: &Aiur.DaemonHeartbeatChecker.check_and_alert!/0
     }
   end
 

@@ -5,6 +5,9 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.Accounts
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.Agent.UsageSnapshotService
   alias Aiur.AgentChat
 
   alias Aiur.AgentPubSub
@@ -171,6 +174,8 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:conversation_origin_id, nil)
       |> assign(:conversation_lifecycle, :active)
       |> assign(:conversation_snapshot, nil)
+      |> assign(:conversation_usage_snapshot, nil)
+      |> assign(:conversation_usage_error, nil)
       |> assign(:selected_decision_id, nil)
       |> assign(:selected_decision, nil)
       |> assign(:selected_decision_status, :none)
@@ -881,7 +886,23 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:usage_summary_announcement, nil)
       |> Map.put_new(:usage_summary_drill, nil)
       |> Map.put_new(:usage_summary_drill_trigger, nil)
-      |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
+      |> then(
+        &Map.put_new(
+          &1,
+          :provider_meters_view,
+          ProviderMetersPresenter.present(
+            financial_data_capability(&1),
+            %{},
+            UsageReadings.snapshot(
+              "claude",
+              case Accounts.configured_names() do
+                [] -> ["default"]
+                names -> names
+              end
+            )
+          )
+        )
+      )
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
@@ -1019,6 +1040,9 @@ defmodule AiurWeb.DashboardLive do
         writable={@writable}
         drafts={@drafts}
         errors={@chat_errors}
+        usage_snapshot={@conversation_usage_snapshot}
+        usage_error={@conversation_usage_error}
+        context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
@@ -1786,7 +1810,19 @@ defmodule AiurWeb.DashboardLive do
 
   defp apply_provider_meters(socket) do
     capability = financial_data_capability(socket.assigns)
-    view = ProviderMetersPresenter.present(capability, socket.assigns.provider_meter_snapshots)
+
+    view =
+      ProviderMetersPresenter.present(
+        capability,
+        socket.assigns.provider_meter_snapshots,
+        UsageReadings.snapshot(
+          "claude",
+          case Accounts.configured_names() do
+            [] -> ["default"]
+            names -> names
+          end
+        )
+      )
 
     socket
     |> assign(:provider_meters_view, view)
@@ -2131,6 +2167,23 @@ defmodule AiurWeb.DashboardLive do
 
   defp open_conversation(socket, row, token, handle, snapshot) do
     composer = agent_log_composer(socket.assigns.payload, row)
+    usage_opts = [ticket: Map.get(row, :identity)]
+    attempt_id = Map.get(row, :telemetry_attempt_id)
+    usage_opts = if is_binary(attempt_id), do: Keyword.put(usage_opts, :attempt_id, attempt_id), else: usage_opts
+
+    {usage_snapshot, usage_error} =
+      case Map.get(row, :identity) do
+        %TrackerIdentity{} = identity ->
+          usage_snapshot_fun = Endpoint.config(:usage_snapshot_fun) || (&UsageSnapshotService.current/2)
+
+          case usage_snapshot_fun.(identity.identifier || "current agent", usage_opts) do
+            {:ok, usage} -> {usage, nil}
+            {:error, reason} -> {nil, reason}
+          end
+
+        _missing_identity ->
+          {nil, :unable_to_resolve_scope}
+      end
 
     socket
     |> replace_conversation_subscription(handle)
@@ -2140,6 +2193,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, "units-conversation-#{token}")
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, snapshot)
+    |> assign(:conversation_usage_snapshot, usage_snapshot)
+    |> assign(:conversation_usage_error, usage_error)
     |> assign(:conversation_log, log_for_drawer(composer))
     |> assign(:agent_log_modal, composer)
     |> present_conversation()
@@ -2155,6 +2210,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, nil)
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, nil)
+    |> assign(:conversation_usage_snapshot, nil)
+    |> assign(:conversation_usage_error, nil)
     |> assign(:conversation_log, nil)
     |> assign(:agent_log_modal, nil)
   end

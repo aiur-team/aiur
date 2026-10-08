@@ -1,12 +1,27 @@
 defmodule Aiur.GitHub.DispatchAuthorizationTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentPubSub, Issue}
-  alias Aiur.GitHub.{DispatchAuthorization, ReadCache}
+  alias Aiur.{AgentPubSub, AlertFeed, Issue}
+  alias Aiur.GitHub.{DispatchAuthorization, Issues, ReadCache}
 
   setup do
     DispatchAuthorization.clear_cache()
     :ok
+  end
+
+  test "queued + todo is not contradictory" do
+    issue =
+      Issues.normalize_issue(
+        %{"number" => 42, "title" => "Queued", "state" => "open", "labels" => [%{"name" => "agent:todo"}, %{"name" => "agent:queued"}]},
+        "owner",
+        "repo",
+        "agent"
+      )
+
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+    authorized = authorize_with_events(issue, events, ["trusted"])
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
   end
 
   # Regression: an allowlisted creator used to short-circuit authorization with
@@ -849,6 +864,111 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
                    500
 
     refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 200
+  end
+
+  # Regression guard for the fetch behavior restored from main: a page-size
+  # retry must never reuse a validator issued for a different URL.
+  test "per-page ETags stay scoped to the page size after a truncation retry" do
+    parent = self()
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+
+    request_fun = fn %{url: url} = request ->
+      per_page = url |> query_value("per_page") |> String.to_integer()
+      send(parent, {:page_request, per_page, request[:etag]})
+
+      cond do
+        per_page == 50 ->
+          {:ok, %{status: 200, body: "", private: %{aiur_response_too_large: true}}}
+
+        request[:etag] == ~s("page-20-v1") ->
+          {:ok, %{status: 304, headers: []}}
+
+        true ->
+          {:ok, %{status: 200, body: events, headers: [{"etag", ~s("page-20-v1")}]}}
+      end
+    end
+
+    assert authorize_with_events(issue(), events, ["trusted"], request_fun: request_fun).dispatch_authorized?
+    assert_receive {:page_request, 50, nil}, 1000
+    assert_receive {:page_request, 20, nil}, 1000
+
+    next_issue = issue(updated_at: ~U[2026-01-02 00:00:00Z])
+    assert authorize_with_events(next_issue, events, ["trusted"], request_fun: request_fun).dispatch_authorized?
+    assert_receive {:page_request, 50, nil}, 1000
+    assert_receive {:page_request, 20, ~s("page-20-v1")}, 1000
+  end
+
+  test "prunes embedded source payloads before holding a timeline" do
+    source_body = String.duplicate("x", 300_000)
+    event = labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")
+    event = Map.put(event, "source", %{"issue" => %{"body" => source_body}})
+
+    assert authorize_with_events(issue(), [event], ["trusted"]).dispatch_authorized?
+
+    assert [{"42", %{events: [held_event]}}] = :ets.lookup(:aiur_github_dispatch_authorization_timelines, "42")
+    refute Map.has_key?(held_event, "source")
+    assert held_event["event"] == "labeled"
+    assert held_event["actor"]["login"] == "trusted"
+  end
+
+  test "persistent deferral alerts and resolves independently for each ticket" do
+    :ok = AgentPubSub.subscribe_agent("42")
+    issue_b = issue(id: "43", identifier: "43")
+    :ok = AgentPubSub.subscribe_agent("43")
+    unavailable = fn _request -> {:error, :timeout} end
+
+    for _ <- 1..4 do
+      refute authorize_with_events(issue(), [], ["trusted"], request_fun: unavailable).dispatch_authorized?
+      refute authorize_with_events(issue_b, [], ["trusted"], request_fun: unavailable).dispatch_authorized?
+      refute_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred"}}, 20
+      refute_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred"}}, 20
+    end
+
+    authorize_with_events(issue(), [], ["trusted"], request_fun: unavailable)
+    authorize_with_events(issue_b, [], ["trusted"], request_fun: unavailable)
+
+    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred", needs_attention: true, source_ticket_id: "42"}},
+                   1000
+
+    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred", needs_attention: true, source_ticket_id: "43"}},
+                   1000
+
+    assert active_deferral_topics() ==
+             MapSet.new([
+               "ticket.42.agent.attention.dispatch_authorization.deferred",
+               "ticket.43.agent.attention.dispatch_authorization.deferred"
+             ])
+
+    # A fetched timeline with missing label evidence is an ambiguous denial for
+    # this active ticket; that definitive result closes only its own alert.
+    active = issue(state: "in-progress")
+    denied = authorize_with_events(active, [], ["trusted"])
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :denied
+
+    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}},
+                   1000
+
+    refute_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred.resolved"}}, 50
+    assert active_deferral_topics() == MapSet.new(["ticket.43.agent.attention.dispatch_authorization.deferred"])
+
+    # Ticket 43 is independently cleared by verified label evidence.
+    authorized =
+      authorize_with_events(issue_b, [labeled_event(11, "agent:todo", "trusted", "2026-01-02T00:00:00Z")], ["trusted"])
+
+    assert authorized.dispatch_authorized?
+
+    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}},
+                   1000
+
+    assert active_deferral_topics() == MapSet.new()
+  end
+
+  defp active_deferral_topics do
+    AlertFeed.list(needs_attention: true)
+    |> Enum.map(& &1["topic"])
+    |> Enum.filter(&(is_binary(&1) and String.contains?(&1, "dispatch_authorization.deferred")))
+    |> MapSet.new()
   end
 
   defp fat_timeline(count, padding_bytes) do

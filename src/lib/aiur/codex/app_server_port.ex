@@ -54,7 +54,7 @@ defmodule Aiur.Codex.AppServerPort do
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil) ::
           {:ok, port()} | {:error, term()}
   def start_port(workspace, worker_host, model, effort),
-    do: start_port(workspace, worker_host, model, effort, fn _process_group_id -> :ok end)
+    do: start_port(workspace, worker_host, model, effort, fn _process_group_id -> :ok end, fn _provider -> :ok end, [])
 
   @doc false
   @spec start_port(
@@ -63,28 +63,58 @@ defmodule Aiur.Codex.AppServerPort do
           String.t() | nil,
           String.t() | nil,
           (integer() -> term()),
-          (map() -> term())
+          (map() -> term()),
+          keyword()
         ) :: {:ok, port()} | {:error, term()}
-  def start_port(workspace, worker_host, model, effort, on_process_group_started, on_provider_started)
-      when is_function(on_process_group_started, 1) and is_function(on_provider_started, 1) do
-    open_port(workspace, worker_host, model, effort, fn port ->
-      with :ok <- notify_provider_started(port, worker_host, on_provider_started) do
-        notify_process_group_started(port, worker_host, on_process_group_started)
-      end
-    end)
+  def start_port(workspace, worker_host, model, effort, on_process_group_started, on_provider_started, env)
+      when is_function(on_process_group_started, 1) and is_function(on_provider_started, 1) and is_list(env) do
+    open_port(
+      workspace,
+      worker_host,
+      model,
+      effort,
+      fn port ->
+        with :ok <- notify_provider_started(port, worker_host, on_provider_started) do
+          notify_process_group_started(port, worker_host, on_process_group_started)
+        end
+      end,
+      env
+    )
   end
 
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term())) ::
           {:ok, port()} | {:error, term()}
-  def start_port(workspace, nil, model, effort, on_process_group_started)
+  @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term()), (map() -> term())) ::
+          {:ok, port()} | {:error, term()}
+  @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
+          {:ok, port()} | {:error, term()}
+  @spec start_port(Path.t(), String.t(), String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
+          {:ok, port()} | {:error, term()}
+  @spec start_port(Path.t(), nil, String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
+          {:ok, port()} | {:error, term()}
+  def start_port(workspace, worker_host, model, effort, on_process_group_started)
+      when is_function(on_process_group_started, 1),
+      do: start_port(workspace, worker_host, model, effort, on_process_group_started, fn _provider -> :ok end, [])
+
+  @spec start_port(Path.t(), String.t(), String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
+          {:ok, port()} | {:error, term()}
+  def start_port(workspace, worker_host, model, effort, on_process_group_started, _env)
+      when is_binary(worker_host) and is_function(on_process_group_started, 1),
+      do: start_port_remote(workspace, worker_host, model, effort, on_process_group_started)
+
+  def start_port(workspace, nil, model, effort, on_process_group_started, env)
       when is_function(on_process_group_started, 1) do
-    Adapter.start_port(workspace, codex_command(model, effort), fn port ->
-      notify_process_group_started(port, nil, on_process_group_started)
-    end)
+    Adapter.start_port(
+      workspace,
+      codex_command(model, effort),
+      fn port ->
+        notify_process_group_started(port, nil, on_process_group_started)
+      end,
+      env: env
+    )
   end
 
-  def start_port(workspace, worker_host, model, effort, on_process_group_started)
-      when is_binary(worker_host) and is_function(on_process_group_started, 1) do
+  defp start_port_remote(workspace, worker_host, model, effort, on_process_group_started) do
     command = remote_launch_command(workspace, model, effort)
 
     with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
@@ -93,11 +123,11 @@ defmodule Aiur.Codex.AppServerPort do
     end
   end
 
-  defp open_port(workspace, nil, model, effort, on_port_started) when is_function(on_port_started, 1) do
-    Adapter.start_port(workspace, codex_command(model, effort), on_port_started)
+  defp open_port(workspace, nil, model, effort, on_port_started, env) when is_function(on_port_started, 1) do
+    Adapter.start_port(workspace, codex_command(model, effort), on_port_started, env: env)
   end
 
-  defp open_port(workspace, worker_host, model, effort, on_port_started)
+  defp open_port(workspace, worker_host, model, effort, on_port_started, _env)
        when is_binary(worker_host) and is_function(on_port_started, 1) do
     command = remote_launch_command(workspace, model, effort)
 
@@ -142,32 +172,31 @@ defmodule Aiur.Codex.AppServerPort do
 
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
-    case :erlang.port_info(port) do
-      :undefined ->
+    os_pid =
+      case :erlang.port_info(port, :os_pid) do
+        {:os_pid, pid} -> pid
+        _ -> nil
+      end
+
+    stop_port(port, os_pid)
+  end
+
+  @doc false
+  @spec stop_port(port(), pos_integer() | nil) :: :ok
+  def stop_port(port, os_pid) when is_port(port) do
+    # Retain the PID before IO: a broken pipe can close the port but leave its child alive.
+    if os_pid do
+      ProcessReaper.unregister({:os_pid, os_pid})
+      # Reap descendants while the root still anchors them, before closing its pipes.
+      RemoteControl.graceful_kill_tree(os_pid)
+    end
+
+    try do
+      Port.close(port)
+      :ok
+    rescue
+      ArgumentError ->
         :ok
-
-      _ ->
-        # Reap the descendant tree (node -> rust app-server) BEFORE closing the
-        # port. `Port.close` only kills the shell wrapper; its children would
-        # reparent to init and keep holding the global ~/.codex/state_5.sqlite
-        # lock, poisoning every subsequent codex agent. Collecting descendants
-        # must happen while the wrapper is still alive to anchor the pgrep walk.
-        case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} ->
-            ProcessReaper.unregister({:os_pid, os_pid})
-            RemoteControl.graceful_kill_tree(os_pid)
-
-          _ ->
-            :ok
-        end
-
-        try do
-          Port.close(port)
-          :ok
-        rescue
-          ArgumentError ->
-            :ok
-        end
     end
   end
 

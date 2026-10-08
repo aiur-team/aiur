@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   require Logger
 
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
 
@@ -247,15 +248,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # failing open when no limits are observed or there is nothing dispatchable.
   # Per-issue provider selection (`CodingAgent.select_for_dispatch/1`) still owns
   # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
-  @spec provider_gate([String.t()]) :: :dispatch | :hold
-  def provider_gate(backends) when is_list(backends) and backends != [] do
-    case ModelAvailability.first_available(backends) do
-      nil -> :hold
-      _backend -> :dispatch
+  # As a side effect, when we would hold due to all backends being limited,
+  # trigger probes for any stale limits to refresh the cached readings.
+  @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
+  def provider_gate(backends, opts \\ [])
+
+  def provider_gate(backends, opts) when is_list(backends) and backends != [] do
+    case ModelAvailability.first_available(backends, opts) do
+      nil ->
+        # All backends are limited; trigger probes for any stale limits
+        # This is a non-blocking side effect that happens in the background
+        ModelAvailability.probe_stale_limits(backends, opts)
+        :hold
+
+      _backend ->
+        :dispatch
     end
   end
 
-  def provider_gate(_backends), do: :dispatch
+  def provider_gate(_backends, _opts), do: :dispatch
 
   @doc false
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
@@ -344,8 +355,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            threshold: Map.get(build_status, :capacity)
          }}
 
-      queued_demand? and provider_gate(provider_backends) == :hold ->
-        {:hold, %{signal: :provider, measured: provider_backends, threshold: :all_usage_limited}}
+      queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
+        provider_opts = Map.get(probes, :provider_gate_opts, [])
+
+        {:hold,
+         %{
+           signal: :provider,
+           measured: provider_backends,
+           detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
+           threshold: :all_usage_limited
+         }}
 
       true ->
         :dispatch
@@ -610,10 +629,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def sort_issues_for_dispatch(issues) when is_list(issues) do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
-        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+        {downstream_rank, position} = Hints.sort_key(issue.id)
+        {downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 
       _ ->
-        {priority_rank(nil), issue_created_at_sort_key(nil), ""}
+        {0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
     end)
   end
 
@@ -652,6 +672,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :no_agent_work_state
           | :terminal_state
           | :dependency
+          | :build_queue_hold
           | :blocked_on_decision
           | :already_running
           | :auto_resume_pending
@@ -680,6 +701,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :no_agent_work_state,
     :terminal_state,
     :dependency,
+    :build_queue_hold,
     :blocked_on_decision,
     :already_running,
     :auto_resume_pending,
@@ -859,7 +881,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp dispatch_state_decision(
+  defp dispatch_state_decision(issue, state, terminal_states, blocked_ticket_ids) do
+    if Hints.held?(issue.id),
+      do: {:skip, :build_queue_hold},
+      else: dispatch_unheld_state_decision(issue, state, terminal_states, blocked_ticket_ids)
+  end
+
+  defp dispatch_unheld_state_decision(
          %Issue{} = issue,
          %State{} = state,
          terminal_states,

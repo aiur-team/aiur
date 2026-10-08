@@ -31,6 +31,33 @@ defmodule Aiur.ApplicationTest do
     assert :ok = AiurApp.stop(:any_state)
   end
 
+  test "runs the RTK host-hook check during application startup" do
+    source = File.read!(Path.expand("../../lib/aiur.ex", __DIR__))
+
+    assert source =~ "Aiur.RtkStartupCheck.run()"
+  end
+
+  test "startup Funnel health check stays quiet while the reconciler owns the route" do
+    settings =
+      {:ok,
+       %{
+         server: %{tailscale_funnel: true},
+         observability: %{build_order_funnel_health_check: true}
+       }}
+
+    refute AiurApp.build_order_funnel_health_check_startup?(settings, false)
+    refute AiurApp.build_order_funnel_health_check_startup?(settings, true)
+
+    health_only_settings =
+      {:ok,
+       %{
+         server: %{tailscale_funnel: false},
+         observability: %{build_order_funnel_health_check: true}
+       }}
+
+    assert AiurApp.build_order_funnel_health_check_startup?(health_only_settings, false)
+  end
+
   test "logs the resolved base branch exactly once at info level" do
     log = capture_log(fn -> assert :ok = AiurApp.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
 
@@ -128,6 +155,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.TicketActivity,
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
+      Aiur.DaemonHeartbeatWriter,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -139,6 +167,15 @@ defmodule Aiur.ApplicationTest do
         {mod, _opts} -> mod
         %{id: id} -> id
       end)
+    end
+
+    test "daemon heartbeat writer is supervised in interactive and headless run shapes" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        assert Aiur.DaemonHeartbeatWriter in modules(AiurApp.child_specs(opts))
+      end
     end
 
     test "interactive run starts the full UI stack" do
@@ -159,6 +196,38 @@ defmodule Aiur.ApplicationTest do
       headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
 
       assert length(headless) < length(interactive)
+    end
+
+    test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do
+      default = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
+      refute Aiur.TailscaleFunnel in modules(default)
+
+      enabled =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: true,
+          tailscale_funnel?: true
+        )
+
+      enabled_modules = modules(enabled)
+
+      dashboard_index = Enum.find_index(enabled_modules, &(&1 == Aiur.HttpServer))
+      funnel_index = Enum.find_index(enabled_modules, &(&1 == Aiur.TailscaleFunnel))
+
+      assert is_integer(dashboard_index)
+      assert is_integer(funnel_index)
+      assert dashboard_index < funnel_index
+
+      without_dashboard =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: false,
+          tailscale_funnel?: true
+        )
+
+      refute Aiur.TailscaleFunnel in modules(without_dashboard)
     end
 
     test "Executor recording is armed on every run, with or without --executor" do

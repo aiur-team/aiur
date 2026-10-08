@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -461,14 +461,20 @@ defmodule Aiur.Orchestrator.PauseResume do
   left untouched, preserving the operator's per-agent pause.
   """
   @spec resume_running_from_global(State.t()) :: State.t()
-  def resume_running_from_global(%State{} = state) do
+  @spec resume_running_from_global(State.t(), keyword()) :: State.t()
+  def resume_running_from_global(%State{} = state, opts \\ []) do
+    backends = Keyword.get(opts, :backends, DispatchPolicy.read_provider_backends())
+    ModelAvailability.probe_stale_limits(backends, opts)
+
     state.running
     |> Enum.filter(fn {_id, entry} -> globally_held?(state, entry) end)
     |> Enum.reduce(state, fn {_id, entry}, state ->
       if tracker_pause_override?(entry) do
         preserve_tracker_pause_after_global_hold(state, entry)
       else
-        {_reply, state} = resume_issue(state, Map.get(entry, :identifier))
+        {_reply, state} =
+          resume_issue_with_opts(state, Map.get(entry, :identifier), Keyword.put(opts, :probe_provider_limits?, false))
+
         state
       end
     end)
@@ -561,7 +567,14 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec resume_issue(State.t(), String.t()) ::
           {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
-  def resume_issue(%State{} = state, issue_identifier) do
+  def resume_issue(%State{} = state, issue_identifier), do: resume_issue_with_opts(state, issue_identifier, [])
+
+  defp resume_issue_with_opts(%State{} = state, issue_identifier, opts) do
+    if Keyword.get(opts, :probe_provider_limits?, true) do
+      backends = Keyword.get(opts, :backends, DispatchPolicy.read_provider_backends())
+      ModelAvailability.probe_stale_limits(backends, opts)
+    end
+
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         resume_running_issue(state, running_entry)
@@ -1014,6 +1027,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> State.apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
       |> maybe_put_worker_pause_reason(status, pause_reason)
       |> put_usage_limit_reset(status, pause_reason, pause_payload)
+      |> put_usage_limit_session(status, pause_reason, pause_payload)
       |> maybe_clear_control_owned_pause(request, status)
       |> maybe_clear_pending_pause_reason(request, status)
       |> maybe_clear_interrupted_turn(status)
@@ -1043,6 +1057,11 @@ defmodule Aiur.Orchestrator.PauseResume do
     do: Map.put(entry, :usage_limit_reset_at, reset)
 
   defp put_usage_limit_reset(entry, _status, _reason, _payload), do: Map.delete(entry, :usage_limit_reset_at)
+
+  defp put_usage_limit_session(entry, :paused, :usage_limit_exhausted, payload),
+    do: Map.put(entry, :usage_limit_session, Map.take(payload, [:session_id, :account_name, :cwd, :backend]))
+
+  defp put_usage_limit_session(entry, _status, _reason, _payload), do: entry
 
   defp maybe_clear_interrupted_turn(running_entry, :paused),
     do: Map.delete(running_entry, :interrupted_turn_observed_at)
@@ -2182,6 +2201,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       do: {:tracker_state_not_resumable, DispatchPolicy.normalize_issue_state(issue.state)}
 
   def resume_decline_reason(:dependency, _issue, _state, _opts), do: :waiting_for_dependencies
+  def resume_decline_reason(:build_queue_hold, _issue, _state, _opts), do: :build_queue_hold
 
   # An open blocking Decision holds dispatch until it is answered; an operator
   # resume does not override it, exactly as it does not override a dependency.

@@ -5,6 +5,10 @@ defmodule Aiur.Tracker do
 
   alias Aiur.{Config, TestTicketScope}
 
+  @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
+  @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
+
+  @callback open_issue_labels(pos_integer()) :: open_issue_labels_result()
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
@@ -26,10 +30,23 @@ defmodule Aiur.Tracker do
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks fetch_issue_states_by_ids_conditional: 2,
+  @optional_callbacks open_issue_labels: 1,
+                      fetch_issue_states_by_ids_conditional: 2,
                       update_issue_state: 3,
                       add_label: 2,
                       remove_label: 2
+
+  @doc "Reads open-issue labels already observed by the tracker, without a remote request."
+  @spec open_issue_labels(pos_integer()) :: open_issue_labels_result()
+  def open_issue_labels(max_age_ms) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :open_issue_labels, 1) do
+      tracker_adapter.open_issue_labels(max_age_ms)
+    else
+      {:error, :unsupported}
+    end
+  end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -82,7 +99,7 @@ defmodule Aiur.Tracker do
     adapter().update_issue_state(issue_id, state_name)
   end
 
-  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec update_issue_state(String.t(), String.t(), expected_state: String.t() | :none) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name, opts)
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     tracker_adapter = adapter()

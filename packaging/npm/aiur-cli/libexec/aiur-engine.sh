@@ -450,6 +450,9 @@ usage() {
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
+       aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
+       aiur accounts [<harness>] [--json]  list registered accounts
+       aiur logout <harness> <name> [--purge]  remove a backend account
        aiur --bg [--no-dashboard] [--executor] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
@@ -466,12 +469,14 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
-       aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
+       aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
+       aiur executor-listen [--topic <pattern>]  deprecated alias for listen
        aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
        aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
+       aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
        aiur executor-roster [--json]  list Executor consumers with their liveness evidence
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
@@ -520,6 +525,47 @@ run_init() {
   write_argv "$@"
   export AIUR_ARGV_FILE="$argv_file"
   exec "${release_cmd[@]}"
+}
+
+run_local_cli() {
+  resolve_release
+  build_init_cmd
+  init_argv_file
+  write_argv "$@"
+  export AIUR_ARGV_FILE="$argv_file"
+  exec "${release_cmd[@]}"
+}
+
+run_claude_login() {
+  resolve_release
+  local profile_dir
+  build_init_cmd
+  init_argv_file
+  write_argv "__login_prepare" "${@:2}"
+  export AIUR_ARGV_FILE="$argv_file"
+  profile_dir="$("${release_cmd[@]}")" || return $?
+  [ -n "$profile_dir" ] || { echo "aiur: account profile directory is unavailable" >&2; return 1; }
+  exec env "CLAUDE_CONFIG_DIR=$profile_dir" claude
+}
+
+run_account_login() {
+  local harness="$2"
+  case "$harness" in
+    kimi|deepseek|openrouter) run_local_cli "$@"; return $? ;;
+  esac
+  resolve_release
+  local profile_dir
+  build_init_cmd
+  init_argv_file
+  write_argv "__login_prepare" "$harness" "${@:3}"
+  export AIUR_ARGV_FILE="$argv_file"
+  profile_dir="$("${release_cmd[@]}")" || return $?
+  [ -n "$profile_dir" ] || { echo "aiur: account profile directory is unavailable" >&2; return 1; }
+  case "$harness" in
+    claude) exec env "CLAUDE_CONFIG_DIR=$profile_dir" claude ;;
+    codex) exec env "CODEX_HOME=$profile_dir" codex ;;
+    *) echo "aiur: unsupported account harness: $harness" >&2; return 64 ;;
+  esac
 }
 
 # --- one-shot: --todo (control RPC; requires a running daemon) ----------------
@@ -723,22 +769,10 @@ scrub_run_only_env() {
 }
 
 run_argv=()
-# Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
-# dashboard is reachable across the tailnet by default (when config omits it);
-# fall back to loopback when Tailscale is absent, or when dashboard credentials
-# are unset (a non-loopback bind requires them, so we stay on loopback rather
-# than refuse to start). The BEAM applies this below an explicit `server.host`,
-# while an explicit `--host` remains the highest-precedence value.
+# Default dashboard bind host. Remote access is an explicit operator choice.
+# The BEAM applies this below `server.host`; `--host` has highest precedence.
 default_dashboard_host() {
-  local ip=""
-  if command -v tailscale >/dev/null 2>&1; then
-    ip="$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
-  fi
-  if [ -n "$ip" ] && [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
-    printf '%s' "$ip"
-  else
-    printf '127.0.0.1'
-  fi
+  printf '%s' "${AIUR_DEFAULT_DASHBOARD_HOST:-127.0.0.1}"
 }
 
 build_run_argv() {
@@ -2633,6 +2667,44 @@ cmd_usage() {
   run_control_rpc "Aiur.AgentControlCLI.usage()"
 }
 
+cmd_accounts() {
+  local json_arg=false harness="" arg encoded expression
+  for arg in "$@"; do
+    case "$arg" in
+      --json)
+        [ "$json_arg" = false ] || die "accounts accepts --json only once"
+        json_arg=true
+        ;;
+      --all)
+        ;;
+      -*)
+        die "accounts accepts an optional harness and --json"
+        ;;
+      *)
+        [ -z "$harness" ] || die "accounts accepts only one harness"
+        harness="$arg"
+        ;;
+    esac
+  done
+
+  resolve_release || return $?
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    # The local one-shot CLI renders the identity and marks usage unavailable.
+    # It never makes a provider request.
+    run_local_cli accounts "$@"
+  else
+    if [ -n "$harness" ]; then
+      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
+      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+    else
+      expression="Aiur.AgentControlCLI.accounts($json_arg)"
+    fi
+    run_control_rpc "$expression"
+  fi
+}
+
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -2678,6 +2750,16 @@ cmd_reset_budget() {
   local expression
   expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
   run_control_rpc "$expression"
+}
+
+# Requires the operator to name the exact ticket and generation shown by
+# status. The daemon independently verifies the recorded boot proof.
+cmd_workspace_recover() {
+  [ "$#" -eq 2 ] || { echo "aiur: workspace-recover expects a ticket identifier and generation (e.g. aiur workspace-recover ENG-123 7)" >&2; exit 64; }
+  local ticket="$1" generation="$2" encoded
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: workspace-recover generation must be a positive integer" >&2; exit 64; }
+  encoded="$(printf '%s' "$ticket" | base64 | tr -d '\n')"
+  run_control_rpc "Aiur.AgentControlCLI.recover_workspace(Base.decode64!(\"$encoded\"), $generation)"
 }
 
 # `aiur message <issue> <text>` — deliver Executor text to one running agent.
@@ -3161,21 +3243,61 @@ cmd_watch() {
   fi
 }
 
-cmd_executor_listen() {
-  local topic="executor.#" arg
+listen_clock() { printf '%s' "$SECONDS"; }
+
+cmd_listen() {
+  local topic="executor.#" ticket="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --topic) shift; topic="${1:-}" ;;
       --topic=*) topic="${arg#--topic=}" ;;
-      *) echo "aiur: executor-listen accepts --topic <pattern>" >&2; exit 64 ;;
+      --ticket) shift; ticket="${1:-}" ;;
+      --ticket=*) ticket="${arg#--ticket=}" ;;
+      *) echo "aiur: listen accepts --topic <pattern> or --ticket <id>" >&2; exit 64 ;;
     esac
-    [ -n "$topic" ] || { echo "aiur: executor-listen requires a topic" >&2; exit 64; }
     shift
   done
+  if [ -n "$ticket" ]; then
+    [[ "$ticket" =~ ^[0-9]+$ ]] || { echo "aiur: listen --ticket expects a numeric ticket id" >&2; exit 64; }
+    [ "$topic" = "executor.#" ] || { echo "aiur: listen cannot combine --ticket and --topic" >&2; exit 64; }
+    topic="ticket.${ticket}.#"
+  fi
+  [ -n "$topic" ] || { echo "aiur: listen requires a topic" >&2; exit 64; }
   local encoded
   encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
-  run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))"
+  run_control_rpc "Aiur.AgentControlCLI.executor_listen_validate(Base.decode64!(\"$encoded\"))" || return $?
+  # A stream that stayed up 30s had a live connection, so losing it starts a
+  # new outage. Each outage gets a bounded backoff totalling ~10 minutes, long
+  # enough to outlast a normal `aiur restart`.
+  # ponytail: attempt duration stands in for "connected"; a wedged daemon whose
+  # RPC hangs 30s+ before failing keeps the listener retrying past the budget.
+  # Upgrade to a listener-ready signal if that case shows up in practice.
+  local waited=0 delay=2 started status
+  while :; do
+    started="$(listen_clock)"
+    status=0
+    # Subshell: a `die` inside (e.g. the release dir missing mid-rebuild during
+    # `aiurdev restart`) fails this attempt with exit 1 instead of the listener.
+    (run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))") || status=$?
+    [ "$status" -eq 0 ] && return 0
+    if [ "$status" -ne 1 ] || [ "${AIUR_LISTEN_RECONNECT:-1}" -ne 1 ]; then
+      echo "aiur: listen stopped after streaming control RPC failure (exit ${status}); restart the command after correcting the daemon error" >&2
+      return "$status"
+    fi
+    if [ $(($(listen_clock) - started)) -ge 30 ]; then
+      waited=0
+      delay=2
+    fi
+    if [ "$waited" -ge 600 ]; then
+      echo "aiur: listen could not reconnect within ${waited} seconds; daemon may be unavailable" >&2
+      return 1
+    fi
+    echo "aiur: listen lost the daemon stream (exit ${status}); reconnecting in ${delay} seconds" >&2
+    sleep "$delay"
+    waited=$((waited + delay))
+    delay=$((delay * 2 > 60 ? 60 : delay * 2))
+  done
 }
 
 cmd_executor_wait() {
@@ -4106,6 +4228,16 @@ aiur_engine_main() {
     init)
       run_init "$@"
       ;;
+    login)
+      run_account_login "$@"
+      ;;
+    accounts)
+      shift
+      cmd_accounts "$@"
+      ;;
+    logout)
+      run_local_cli "$@"
+      ;;
     findings)
       run_findings "$@"
       ;;
@@ -4175,9 +4307,9 @@ aiur_engine_main() {
       shift
       cmd_watch "$@"
       ;;
-    executor-listen)
+    listen|executor-listen)
       shift
-      cmd_executor_listen "$@"
+      cmd_listen "$@"
       ;;
     executor-wait)
       shift
@@ -4230,6 +4362,10 @@ aiur_engine_main() {
     reset-budget)
       shift
       cmd_reset_budget "$@"
+      ;;
+    workspace-recover)
+      shift
+      cmd_workspace_recover "$@"
       ;;
     message)
       shift

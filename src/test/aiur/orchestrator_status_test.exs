@@ -3,7 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, DecisionStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
@@ -773,6 +773,27 @@ defmodule Aiur.OrchestratorStatusTest do
            } = snapshot.capacity_hold
   end
 
+  test "provider capacity hold projects freshness details for status" do
+    detail = "codex=stale observed_at=2026-10-06T10:00:00Z next_probe=unknown"
+
+    snapshot =
+      %State{
+        capacity_hold: %{
+          signal: :provider,
+          measured: ["codex"],
+          detail: detail,
+          threshold: :all_usage_limited,
+          held_since_ms: System.monotonic_time(:millisecond),
+          alerted?: false
+        }
+      }
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity_hold.signal == :provider
+    assert snapshot.capacity_hold.detail == detail
+  end
+
   # How long the hold has lasted and how old its measurement is are independent:
   # a hold extended by a fresh probe keeps ageing while its figure does not. Only
   # the sample age says whether `measured` still describes the host (#2527).
@@ -1045,6 +1066,8 @@ defmodule Aiur.OrchestratorStatusTest do
 
       assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
+      # The sweep saves and deletes in one task, off the Orchestrator (#2743).
+      assert_receive {:workspace_cleanup_finished, "610", :ok}, 10_000
       refute File.exists?(terminal_workspace)
       assert :none == SessionHandle.load("610", "codex")
     after
@@ -2742,6 +2765,8 @@ defmodule Aiur.OrchestratorStatusTest do
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.add_attention(identifier, "operator-decision")
+    assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Which acceptance boundary applies?", "blocking" => true}, ticket: %{identifier: identifier})
+    on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
     [{store_pid, 1}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
 
     entry =

@@ -1,9 +1,12 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.ProviderMeters.CLI
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.{
+    AccountsCLI,
     AgentChat,
     AlertFeed,
     AnalyticsCLI,
@@ -12,6 +15,7 @@ defmodule Aiur.AgentControlCLI do
     BuildOrdersCLI,
     CommandsCLI,
     Config,
+    ExecutorBindings,
     ExecutorCommandCLI,
     ExecutorEvents,
     ExecutorListener,
@@ -222,8 +226,17 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_polling_status(polling) do
+    print_last_dispatch_poll(polling)
     print_polling_backoff(polling)
     print_class_intervals(polling)
+  end
+
+  defp print_last_dispatch_poll(polling) do
+    case CapacityBinding.dispatch_poll_status(polling) do
+      %{freshness: :never_polled} -> IO.puts("POLL last dispatch: never polled")
+      %{age_seconds: nil} -> IO.puts("POLL last dispatch: unavailable")
+      %{age_seconds: age, freshness: freshness} -> IO.puts("POLL last dispatch: #{age}s ago (#{freshness})")
+    end
   end
 
   defp print_polling_backoff(%{
@@ -419,6 +432,18 @@ defmodule Aiur.AgentControlCLI do
 
   @spec executor_listen(keyword()) :: no_return()
   def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  @spec executor_listen_validate(String.t()) :: no_return()
+  def executor_listen_validate(topic) do
+    case ExecutorEvents.validate_binding_topic(topic) do
+      :ok ->
+        exit_marker(0)
+
+      {:error, reason} ->
+        IO.puts(@error_marker <> "aiur: listen topic rejected (#{inspect(reason)}); allowed bindings: #{Enum.join(ExecutorBindings.patterns(), ", ")}")
+        exit_marker(64)
+    end
+  end
 
   @doc """
   Waits for Executor wake records, auto-claiming the stream when nobody holds
@@ -1319,6 +1344,48 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  @doc """
+  Releases one workspace ownership generation after the daemon verifies
+  independent local provider-exit proof. The caller must name the generation
+  shown by status so a stale recovery command cannot release a replacement.
+  """
+  @spec recover_workspace(String.t(), pos_integer()) :: :ok
+  def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
+    guarded("workspace-recover", fn ->
+      ticket_key = workspace_recovery_ticket_key(ticket)
+      result = Ownership.release_if_held_with_exit_proof(ticket_key, generation)
+      status = %{identifier: ticket, issue_id: ticket}
+
+      report_workspace_recovery(result, ticket, generation, status)
+    end)
+  end
+
+  defp report_workspace_recovery(:ok, ticket, generation, _status) do
+    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+    exit_marker(0)
+  end
+
+  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status) do
+    IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
+    exit_marker(1)
+  end
+
+  defp report_workspace_recovery(result, _ticket, _generation, status) do
+    reason = if result == :not_found, do: :not_found, else: recovery_failure_reason(result)
+    print_failure(:workspace_recover, status, reason)
+    exit_marker(1)
+  end
+
+  defp recovery_failure_reason(:not_held_for_reaping), do: :not_held_for_reaping
+  defp recovery_failure_reason({:error, reason}), do: reason
+
+  defp workspace_recovery_ticket_key(ticket) do
+    case Regex.run(~r/^(?:[^#\/]+\/[^#\/]+#|#)(\d+)$/, ticket) do
+      [_, issue_number] -> issue_number
+      _ -> ticket
+    end
+  end
+
   # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
   # single daemon-wide halt distinct from per-agent pause: it stops all
   # provisioning and holds every running agent, and unpause resumes only the
@@ -2112,6 +2179,15 @@ defmodule Aiur.AgentControlCLI do
     _error -> %{load: :unavailable, load_threshold: nil, schedulers: nil}
   end
 
+  defp capacity_binding_label({:tracker_preflight, hold}), do: "tracker preflight, reason=#{hold.detail} held=#{hold.held_for_seconds}s"
+
+  defp capacity_binding_label({:dispatch_selection, hold}),
+    do: "dispatch selection, reasons=#{inspect(hold.reasons)} candidates=#{hold.candidates}" <> admission_sample_age(hold)
+
+  defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
+
+  defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
+
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
@@ -2199,6 +2275,9 @@ defmodule Aiur.AgentControlCLI do
       :unavailable -> "github_quota, measurement unavailable"
     end
   end
+
+  defp admission_detail(%{signal: :provider, detail: detail}) when is_binary(detail),
+    do: "provider, #{detail}"
 
   defp admission_detail(%{signal: signal}), do: to_string(signal)
   defp admission_detail(_hold), do: "admission"
@@ -2302,6 +2381,15 @@ defmodule Aiur.AgentControlCLI do
       |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
       |> print_delivery_modes()
 
+      exit_marker(0)
+    end)
+  end
+
+  @doc false
+  @spec accounts(boolean(), String.t() | nil) :: :ok
+  def accounts(json, harness \\ nil) do
+    guarded("accounts", fn ->
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
       exit_marker(0)
     end)
   end
@@ -3436,6 +3524,8 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
+        not_found: "workspace ownership hold not found",
+        invalid_ticket_identifier: "invalid ticket identifier",
         orchestrator_unavailable: "orchestrator unavailable",
         timeout: "orchestrator timed out",
         unknown_issue: "unknown issue",

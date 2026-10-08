@@ -2,7 +2,7 @@ defmodule Aiur.DecisionAttentionTest do
   use Aiur.TestSupport
 
   alias Aiur.{AlertFeed, DecisionAttention, DecisionStore, Issue}
-  alias Aiur.Events.SubscriptionStore
+  alias Aiur.Events.{Exchange, SubscriptionStore}
 
   defp accepted_projection do
     fn _payload, _opts ->
@@ -50,6 +50,212 @@ defmodule Aiur.DecisionAttentionTest do
 
     send(pid, {:reask, {identifier, "scope-question"}})
     refute_receive {:decision_alert, _}, 100
+  end
+
+  test "answered operator decision resolves its attention on the next reminder" do
+    identifier = "DECISION-ANSWERED-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier}
+    dir = Aiur.TestSupport.tmp_root!("aiur-answered-attention")
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
+    test_pid = self()
+
+    {pid, name} =
+      start_attention(
+        decision_store: store,
+        decision_projector: fn payload, opts -> DecisionStore.project_attention(payload, opts, store) end,
+        alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end,
+        resolution_emitter: fn attention -> send(test_pid, {:decision_resolved, attention}) end
+      )
+
+    assert {:ok, %{decision: decision}} =
+             DecisionAttention.open_with_decision(name, issue, nil, nil, "operator-decision", "Which scope?", [])
+
+    receive_barrier({:decision_alert, %{slug: "operator-decision"}})
+
+    # Both open and deferred decisions still need an answer.
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    :sys.get_state(pid)
+    receive_barrier({:decision_alert, %{slug: "operator-decision"}})
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "test"}], store)
+    assert deferred.decision_status == :deferred
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    :sys.get_state(pid)
+    receive_barrier({:decision_alert, %{slug: "operator-decision"}})
+
+    assert {:ok, %{decision: other}} =
+             DecisionStore.project_attention(
+               %{"source_id" => "unrelated", "kind" => "scope", "question" => "Another ticket?", "blocking" => false, "options" => []},
+               [ticket: %{identifier: identifier <> "-OTHER"}, source: %{}, legacy_attention: %{slug: "operator-decision", topic: "ticket.#{identifier}-OTHER.agent.attention.operator-decision"}],
+               store
+             )
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "answer", "expected_version" => deferred.version, "custom_response" => "Use the current scope."},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
+    assert {:ok, %{decision_status: :open}} = DecisionStore.get(other.decision_id, store)
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    assert :sys.get_state(pid).attentions == %{}
+    receive_barrier({:decision_resolved, %{slug: "operator-decision"}})
+    assert SubscriptionStore.snapshot(identifier).open_attentions == []
+    refute_received {:decision_alert, _}
+
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    assert :sys.get_state(pid).attentions == %{}
+    refute_received {:decision_alert, _}
+  end
+
+  test "expires a stale main CI attention instead of re-raising it" do
+    identifier = "MAIN-CI-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Main CI observer"}
+    workspace = Aiur.TestSupport.tmp_root!("aiur-main-ci-attention")
+    topic = "ticket.#{identifier}.agent.attention.main-red"
+    resolved_topic = topic <> ".resolved"
+    opened_at = ~U[2026-09-26 12:24:57Z]
+    {:ok, clock} = Agent.start_link(fn -> opened_at end)
+
+    File.mkdir_p!(workspace)
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+
+    on_exit(fn ->
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      File.rm_rf!(workspace)
+    end)
+
+    {pid, name} =
+      start_attention(
+        now_fun: fn -> Agent.get(clock, & &1) end,
+        reask_interval_ms: 60_000,
+        condition_attention_ttl_ms: 60_000
+      )
+
+    assert :ok =
+             DecisionAttention.open(
+               name,
+               issue,
+               workspace,
+               nil,
+               "main-red",
+               "Main CI is red on the interfaces mirror test."
+             )
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+
+    Agent.update(clock, &DateTime.add(&1, 60, :second))
+    send(pid, {:reask, {identifier, "main-red"}})
+
+    assert_receive {:event, %{"needs_attention" => false, topic: ^resolved_topic}}, 1_000
+    assert :sys.get_state(pid).attentions == %{}
+
+    send(pid, {:reask, {identifier, "main-red"}})
+    assert :sys.get_state(pid).attentions == %{}
+    refute_received {:event, %{topic: ^topic}}
+  end
+
+  # Regression guard: condition-attention freshness follows the latest assertion.
+  test "a fresh main CI assertion restarts the expiry window" do
+    identifier = "MAIN-CI-REASSERT-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Main CI observer"}
+    workspace = Aiur.TestSupport.tmp_root!("aiur-main-ci-reassert")
+    topic = "ticket.#{identifier}.agent.attention.main-red"
+    resolved_topic = topic <> ".resolved"
+    opened_at = ~U[2026-09-26 12:24:57Z]
+    {:ok, clock} = Agent.start_link(fn -> opened_at end)
+
+    File.mkdir_p!(workspace)
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+
+    on_exit(fn ->
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      File.rm_rf!(workspace)
+    end)
+
+    {pid, name} =
+      start_attention(
+        now_fun: fn -> Agent.get(clock, & &1) end,
+        reask_interval_ms: 60_000,
+        condition_attention_ttl_ms: 60_000
+      )
+
+    assert :ok =
+             DecisionAttention.open(
+               name,
+               issue,
+               workspace,
+               nil,
+               "main-red",
+               "Main CI is still red."
+             )
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+
+    Agent.update(clock, &DateTime.add(&1, 45, :second))
+
+    assert :ok =
+             DecisionAttention.open(
+               name,
+               issue,
+               workspace,
+               nil,
+               "main-red",
+               "Main CI is still red."
+             )
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+
+    Agent.update(clock, &DateTime.add(&1, 30, :second))
+    send(pid, {:reask, {identifier, "main-red"}})
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+    refute_received {:event, %{"needs_attention" => false, topic: ^resolved_topic}}
+  end
+
+  test "does not restore a stale main CI attention after restart" do
+    identifier = "MAIN-CI-IMPORT-#{System.unique_integer([:positive])}"
+    slug = "main-ci-red-interfaces-mirror"
+    workspace = Aiur.TestSupport.tmp_root!("aiur-main-ci-import")
+    topic = "ticket.#{identifier}.agent.attention.#{slug}"
+    resolved_topic = topic <> ".resolved"
+    opened_at = ~U[2026-09-26 12:24:57Z]
+    now = DateTime.add(opened_at, 16, :minute)
+
+    File.mkdir_p!(workspace)
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+
+    on_exit(fn ->
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      File.rm_rf!(workspace)
+    end)
+
+    {pid, _name} =
+      start_attention(
+        now_fun: fn -> now end,
+        condition_attention_ttl_ms: 60_000,
+        attention_loader: fn ->
+          [
+            %{
+              identifier: identifier,
+              slug: slug,
+              question: "Main CI is red.",
+              topic: topic,
+              source_created_at: opened_at
+            }
+          ]
+        end
+      )
+
+    assert_receive {:event, %{"needs_attention" => false, topic: ^resolved_topic}}, 1_000
+    assert :sys.get_state(pid).attentions == %{}
+    refute_received {:event, %{topic: ^topic}}
   end
 
   test "writes a needs-attention alert with the operator question" do

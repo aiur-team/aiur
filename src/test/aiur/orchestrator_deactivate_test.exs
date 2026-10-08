@@ -487,6 +487,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert CIApprovalStore.load() == %{
                approved_heads: %{},
+               passed_heads: %{},
                test_failure_heads: %{},
                base_repair_invalidations: %{}
              }
@@ -930,6 +931,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert CIApprovalStore.load() == %{
                approved_heads: %{},
+               passed_heads: %{},
                test_failure_heads: %{},
                base_repair_invalidations: %{}
              }
@@ -1766,6 +1768,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
         refute Map.has_key?(updated_state.running, issue_id)
         refute MapSet.member?(updated_state.claimed, issue_id)
         refute Process.alive?(agent_pid)
+        # The save and delete of a closed ticket's workspace run in a task (#2743).
+        assert_receive {:workspace_cleanup_finished, ^issue_identifier, :ok}, 10_000
         refute File.exists?(workspace)
         assert :none == SessionHandle.load(issue_identifier, "codex")
       after
@@ -2685,7 +2689,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     # Executor sent `aiurdev message` by hand.
     #
     # The review is body-only, so it opens no review thread and the
-    # unresolved-thread read reports nothing — #2473's `changes_requested_review?`
+    # unresolved-thread read reports nothing — #2473's `blocking_review_submission?`
     # signal is what carries it through the gate.
     #
     # This is CHARACTERIZATION, not a guard: it hands the event straight to the
@@ -3793,7 +3797,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
@@ -3857,7 +3861,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"63" => "2026-06-24T11:59:59Z"}
@@ -3957,7 +3961,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [human_review_issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end
         )
 
       assert next.github_comments_since == %{
@@ -4022,7 +4026,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 2,
           max_concurrency: 1
         )
@@ -4095,7 +4099,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
@@ -4158,7 +4162,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end,
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
         )
 
@@ -4218,7 +4222,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 1,
           max_concurrency: 1
         )
@@ -4301,7 +4305,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [human_review_issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end,
           max_concurrency: 1
         )
 
@@ -4364,7 +4368,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:error, :tracker_down} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:error, :tracker_down} end
         )
 
       assert next.github_comments_since == "2026-06-24T11:00:00Z"
@@ -4747,7 +4751,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
         )
 
@@ -4822,7 +4826,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           repo: "owner/repo",
           request_fun: request_fun,
           max_concurrency: 1,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [healthy_pr, flaky_pr]} end
         )
 
@@ -4884,7 +4888,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             request_fun: request_fun,
             max_concurrency: 1,
             watch_comment_target_limit: 2,
-            review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+            review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
             watch_pull_request_fetcher: fn "agent:watch" ->
               {:ok, open_prs ++ [merged_pr, closed_pr]}
             end
@@ -4931,7 +4935,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn _label ->
             send(parent, :unexpected_watch_fetch)
             {:ok, []}
@@ -7313,7 +7317,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
         {:DOWN, ^ref, :process, ^agent_pid, :killed} -> :ok
       end
 
-      # The pr-<pr#> workspace is gone — no orphan left behind.
+      # The pr-<pr#> workspace is gone — no orphan left behind. The save and
+      # delete run in a task (#2743).
+      assert_receive {:workspace_cleanup_finished, "pr-77", :ok}, 10_000
       refute File.exists?(pr_workspace)
     end
 

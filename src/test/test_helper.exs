@@ -54,6 +54,13 @@ real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 # the change under test. Run one with `mix test --only external`.
 ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
 
+Code.require_file("support/test_tmp.exs", __DIR__)
+
+test_run_root =
+  Aiur.TestTmp.start!(Path.join(System.tmp_dir!(), "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"))
+
+Application.put_env(:aiur, :test_run_root, test_run_root)
+
 ExUnit.after_suite(fn _result ->
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
   # recreate the counter file after this — a small leftover under the
@@ -67,6 +74,7 @@ Code.require_file("support/muse_fixture.exs", __DIR__)
 Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
 Code.require_file("support/claude_meter_test_support.exs", __DIR__)
 Code.require_file("support/build_order_github_graph_test_adapter.ex", __DIR__)
+Code.require_file("support/history_backfill_fixture.ex", __DIR__)
 Code.require_file("support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("support/usage_ledger_support.ex", __DIR__)
 Code.require_file("support/usage_aggregate_support.ex", __DIR__)

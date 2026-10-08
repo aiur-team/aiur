@@ -435,7 +435,8 @@ defmodule Aiur.GitHub.Issues do
   # only when every page was read, so `issues` names every open issue. That is
   # the close signal the dispatch gate's blocker states use (#2714).
   defp record_open_issues(owner, repo, issues) do
-    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
+    labels_by_id = Map.new(issues, &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
+    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id), labels_by_id)
     # Second producer for allowed-contributor intake (#2957).
     AllowedContributors.offer_open_issues(issues)
   end
@@ -459,12 +460,8 @@ defmodule Aiur.GitHub.Issues do
     authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
   end
 
-  # The orchestrator's conditional open-issue poll (`?state=open&per_page=100`
-  # is unfiltered, so this sees every open issue) partitions rather than
-  # discards: zero- and multi-`agent:*`-label tickets are returned alongside
-  # the authorized dispatch candidates so the orchestrator's repair pass can
-  # heal them. Every other non-dispatchable open ticket (terminal/error
-  # labels) is dropped exactly as before (#2420).
+  # Keep fresh non-dispatchable workflow states as evidence for next-poll label repair.
+  # Only dispatchable candidates go through authorization; terminal tickets remain excluded.
   defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
     {dispatchable, rest} =
       Enum.split_with(issues, fn issue ->
@@ -473,7 +470,12 @@ defmodule Aiur.GitHub.Issues do
       end)
 
     authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
-    healable = rest |> Enum.filter(&degenerate_state_labels?/1) |> TestTicketScope.filter_issues()
+
+    healable =
+      rest
+      |> Enum.filter(&(degenerate_state_labels?(&1) or &1.state in ~w(ci-wait human-review error)))
+      |> TestTicketScope.filter_issues()
+
     authorized ++ healable
   end
 
@@ -1010,6 +1012,7 @@ defmodule Aiur.GitHub.Issues do
       dispatch_authorization: :deferred,
       paused: paused_label?(label_names, prefix),
       parked: parked_label?(label_names, prefix),
+      queued: queued_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
@@ -1199,6 +1202,14 @@ defmodule Aiur.GitHub.Issues do
 
     Enum.any?(label_names, fn name ->
       normalize_label_name(name) == parked_label
+    end)
+  end
+
+  defp queued_label?(label_names, prefix) when is_list(label_names) do
+    queued_label = normalize_label_name("#{prefix}:queued")
+
+    Enum.any?(label_names, fn name ->
+      normalize_label_name(name) == queued_label
     end)
   end
 

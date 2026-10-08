@@ -69,6 +69,15 @@ defmodule AiurWeb.PresenterTest do
         agent_input_tokens: 910_011,
         agent_output_tokens: 910_012,
         agent_total_tokens: 910_023,
+        telemetry_attempt_id: "attempt-ci-wait",
+        context_usage: %{
+          session_id: "private-session",
+          used_tokens: 1200,
+          window_tokens: 4000,
+          used_percent: 30.0,
+          pressure: :warning,
+          view_cursor: "private-cursor"
+        },
         live_conversation: %{
           generation_handle: conversation_handle,
           state: :known_empty,
@@ -176,6 +185,8 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
     assert running_row.tracker_identity == tracker_identity("MT-700")
+    refute Map.has_key?(running_row, :telemetry_attempt_id)
+    refute Map.has_key?(running_row, :context_usage)
     assert running_row.backend == "codex"
     assert running_row.agent_family == "codex"
     assert running_row.requested_model == "gpt-5.6-terra"
@@ -242,7 +253,7 @@ defmodule AiurWeb.PresenterTest do
     assert {:error, :issue_not_found} = Presenter.issue_payload(identifier, orchestrator_name, 1_000)
   end
 
-  test "open_decision_count reuses the existing SubscriptionStore open-attentions count" do
+  test "open_decision_count uses blocking Commands rather than attention chips" do
     orchestrator_name = Module.concat(__MODULE__, :DecisionCountOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -255,6 +266,13 @@ defmodule AiurWeb.PresenterTest do
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.add_attention(identifier, "needs-review")
+    :ok = SubscriptionStore.add_attention(identifier, "optional-question")
+
+    assert {:ok, _} =
+             Aiur.DecisionStore.request(%{"question" => "Which release should ship?", "blocking" => true},
+               ticket: %{identifier: identifier},
+               source: %{agent_id: "worker", session_id: "session", event_id: nil}
+             )
 
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-decision" => running_entry("issue-decision", identifier, :working)}}
@@ -507,7 +525,7 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.waiting_reason == :run_paused
   end
 
-  test "open decision count names an unattached SubscriptionStore as unavailable" do
+  test "open decision count is available without an attached SubscriptionStore" do
     orchestrator_name = Module.concat(__MODULE__, :UnavailableDecisionCountOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -528,7 +546,7 @@ defmodule AiurWeb.PresenterTest do
 
     assert [running_row] = payload.running
     assert running_row.open_decision_count == 0
-    assert running_row.open_decision_count_health == :unavailable
+    assert running_row.open_decision_count_health == :available
   end
 
   test "durable history and outcomes remain visible when the orchestrator is unavailable" do

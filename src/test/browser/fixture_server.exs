@@ -35,8 +35,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
         <script defer src="/assets/sortable-table-hook.js"></script>
+        <script defer src="/build-home/loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
+        <link rel="stylesheet" href="/build-home/home.css" />
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
@@ -96,6 +98,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurSortableTableHook) {
               window.BrowserHarnessHooks.SortableTable = window.AiurSortableTableHook;
+            }
+
+            if (window.AiurBuildHome) {
+              window.BrowserHarnessHooks.BuildHome = window.AiurBuildHome.createLiveViewHook();
             }
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
@@ -1415,6 +1421,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         requested_model: "gpt-5.6-terra",
         resolved_model: nil,
         effort: :high,
+        account: nil,
         complexity: 3,
         build_lane: "L2",
         reasons: reasons(:active, nil, nil, nil, nil),

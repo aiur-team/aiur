@@ -208,6 +208,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert log =~ "ignored for idle issue"
       assert log =~ ":unlabeled_issue"
+      assert log =~ "ticket.1944.agent.attention.comment_wake_idle_issue"
     end
 
     test "does not route a trusted comment on an explicitly parked ticket even with an active label" do
@@ -519,15 +520,15 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     end
 
     # The #2473 signal is scoped to a changes-requested review. An APPROVED or
-    # COMMENTED review with no unresolved threads keeps #2422's refusal, so the
+    # blank COMMENTED review with no unresolved threads keeps #2422's refusal, so the
     # fix cannot reopen the rework loop it closed.
-    test "keeps refusing rework for a non-changes-requested review with zero review threads" do
+    test "keeps refusing rework for approved, dismissed or blank commented reviews with zero threads" do
       state = base_state()
 
       for review_state <- ["APPROVED", "COMMENTED", "DISMISSED"] do
         event = %{
           author_trusted?: true,
-          comment: %{"body" => "looks good", "state" => review_state},
+          comment: %{"body" => "  ", "state" => review_state},
           issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
           open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
           unresolved_threads_fetcher: fn _pr -> {:ok, []} end

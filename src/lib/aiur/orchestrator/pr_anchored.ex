@@ -6,10 +6,10 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue, TicketBranch, Workspace}
+  alias Aiur.{Alerts, Config, Issue, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State}
+  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, WorkspaceCleanup}
 
   @pr_anchored_state "pr-watch"
 
@@ -143,17 +143,40 @@ defmodule Aiur.Orchestrator.PrAnchored do
     cond do
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
         Logger.info("#{source} PR-anchored dispatch skipped; already running/claimed: pr=#{issue.identifier}")
+        emit_pr_anchored_dispatch_refusal(issue, :already_running)
 
         state
 
       Slots.available_slots(state) <= 0 ->
         Logger.info("#{source} PR-anchored dispatch deferred; agent cap full: pr=#{issue.identifier}")
+        emit_pr_anchored_dispatch_refusal(issue, :agent_cap_full)
 
         state
 
       true ->
         admit_pr_anchored_unit(state, issue, source, event, attempt)
     end
+  end
+
+  defp emit_pr_anchored_dispatch_refusal(%Issue{} = issue, cause) do
+    {message, remedy} =
+      case cause do
+        :already_running ->
+          {"PR comment was not routed because its PR agent is already running or claimed", "send the comment to that agent's session or retry after it finishes"}
+
+        :agent_cap_full ->
+          {"PR comment was deferred because the agent capacity is full", "free an agent slot and retry the PR comment"}
+      end
+
+    Alerts.emit_custom(
+      "ticket.#{issue.identifier}.agent.attention.pr_anchored_dispatch_#{cause}",
+      "#{message} (PR ##{issue.identifier})",
+      issue: to_string(issue.identifier),
+      reason: "Trusted PR input was not routed (#{cause}). Remedy: #{remedy}.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
+    )
   end
 
   # `maybe_choose_under_load/4` runs the choose-fun only when the admission gate
@@ -308,7 +331,11 @@ defmodule Aiur.Orchestrator.PrAnchored do
     # start_agent_session persisted under), not the pr-<pr#> running key;
     # without this, a reopened PR would --resume the finished thread now that
     # claude-repl is resumable (#613).
-    Orchestrator.clear_session_handle(Map.get(running_entry, :identifier))
-    Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
+    identifier = Map.get(running_entry, :identifier)
+    Orchestrator.clear_session_handle(identifier)
+    # The workspace lease is keyed by the identifier, so the cleanup names it
+    # as the ticket to re-check the lease before the delete.
+    ticket = if is_binary(identifier), do: identifier, else: issue_id
+    WorkspaceCleanup.start_terminal_workspace_cleanups([{ticket, issue_id, Map.get(running_entry, :worker_host)}])
   end
 end

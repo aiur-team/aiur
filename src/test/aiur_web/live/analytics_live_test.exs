@@ -358,7 +358,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     # The stale snapshot still renders — that is the SnapshotStore contract —
     # but never unmarked. A ten-minute-old cap read as current is #1564.
-    assert html =~ "3 cap (stale, 10m old)"
+    assert html =~ "3 cap (binding: awaiting dispatch, stale, 10m old)"
     refute html =~ "3 cap<"
   end
 
@@ -474,7 +474,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Build Order #77, latest run"
     # The Build Order strip renders the same effective cap as the run strip;
     # without this the whole Build Order cap path is uncovered.
-    assert html =~ "now / 3 cap (session 8, configured 16)"
+    assert html =~ "now / 3 cap (binding: awaiting dispatch, session 8, configured 16)"
     refute html =~ "now / 16 cap"
     assert html =~ ">#941<"
     refute html =~ ">#942<"
@@ -1093,8 +1093,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     test "says rtk is off rather than showing an empty chart" do
       html = render_rtk_panel(enabled?: false)
 
-      assert html =~ "Output compression is off"
+      assert html =~ "Savings reporting is off"
       assert html =~ "agent.rtk.enabled"
+      assert html =~ "this does not control a host-wide hook"
       # The class name also appears in the page's inlined stylesheet, so the
       # assertion has to look for the rendered element, not the string.
       refute html =~ ~s(class="an-rtk-val")
@@ -1109,10 +1110,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
       refute html =~ ~s(class="an-rtk-val")
     end
 
-    # The operator has to be able to see *why* an enabled rtk is reporting
-    # nothing, and "held back to protect the gh guard" is a different fact from
-    # "not installed".
-    test "names the gh-guard refusal on the page" do
+    # The operator has to be able to see that the probe detected a risky
+    # host-wide hook; the report does not disable or block that hook.
+    test "reports a gh rewrite without implying the hook was disabled" do
       opts = [
         enabled?: true,
         rtk_path: "/usr/bin/rtk",
@@ -1125,8 +1125,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
       html = render_rtk_panel(opts)
 
-      assert html =~ "rtk is enabled but held back"
+      assert html =~ "rtk gh rewrite detected"
       assert html =~ "would rewrite"
+      assert html =~ "applies regardless of `agent.rtk.enabled`"
+      assert html =~ "this report does not disable the hook"
       # The class name also appears in the page's inlined stylesheet, so the
       # assertion has to look for the rendered element, not the string.
       refute html =~ ~s(class="an-rtk-val")

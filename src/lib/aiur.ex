@@ -48,6 +48,9 @@ defmodule Aiur.Application do
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    # Write the initial heartbeat file so the Executor can detect daemon downtime.
+    # Best-effort: heartbeat write failure must not crash boot.
+    Aiur.DaemonHeartbeat.write!()
     Aiur.Shutdown.record_workspace_root()
     Aiur.Shutdown.record_alert_ledger_path()
     install_signal_handlers()
@@ -60,6 +63,7 @@ defmodule Aiur.Application do
     _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
     Budget.warn_metering_unavailable()
+    Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -76,6 +80,7 @@ defmodule Aiur.Application do
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,
+          tailscale_funnel?: configured_tailscale_funnel?(settings),
           telemetry?: telemetry?
         )
 
@@ -105,7 +110,14 @@ defmodule Aiur.Application do
         children ++ [supervision_health_child(children)],
         name: Aiur.Supervisor
       )
-      |> tap(fn _ -> start_upgrade_check() end)
+      |> tap(fn
+        {:ok, _supervisor} ->
+          start_upgrade_check()
+          start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
+
+        _error ->
+          :ok
+      end)
     end
   end
 
@@ -133,6 +145,25 @@ defmodule Aiur.Application do
     end
 
     :ok
+  end
+
+  defp start_build_order_funnel_check(true) do
+    if Application.get_env(:aiur, :env) != :test and
+         is_integer(Aiur.HttpServer.bound_port()) do
+      Task.start(&Aiur.BuildOrderFunnelHealth.check/0)
+    end
+
+    :ok
+  end
+
+  defp start_build_order_funnel_check(false), do: :ok
+
+  @doc false
+  @spec build_order_funnel_health_check_startup?(term(), boolean()) :: boolean()
+  def build_order_funnel_health_check_startup?(settings, no_dashboard?) do
+    not no_dashboard? and
+      Aiur.Config.build_order_funnel_health_check_enabled?(settings) and
+      not match?({:ok, %{server: %{tailscale_funnel: true}}}, settings)
   end
 
   @doc false
@@ -242,6 +273,7 @@ defmodule Aiur.Application do
     interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
+    tailscale_funnel? = Keyword.get_lazy(opts, :tailscale_funnel?, &AiurConfig.server_tailscale_funnel?/0)
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
@@ -346,6 +378,7 @@ defmodule Aiur.Application do
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
       Aiur.GitHub.BrokerTimeout,
+      Aiur.GitHub.BudgetBroker,
       # The ElevenLabs account credit quota, read on its own schedule. Absent an
       # API key it observes nothing at all, so an unconfigured account costs a
       # boot-time config read and never a request.
@@ -427,6 +460,9 @@ defmodule Aiur.Application do
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.
       Aiur.Claude.Telemetry,
+      # Durable closed-ticket history starts before its feeds (MP-E8 C4-T02/T03).
+      Aiur.BuildOrder.History,
+      {Aiur.BuildOrder.History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)},
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
@@ -446,6 +482,7 @@ defmodule Aiur.Application do
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
+      Aiur.DaemonHeartbeatWriter,
       Aiur.Logs.Retention,
       # The daemon-resident Executor recording path is armed on EVERY run, with
       # or without `--executor`. Recording is the only part that cannot be added
@@ -460,9 +497,7 @@ defmodule Aiur.Application do
       executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
-      if(dashboard?, do: AiurWeb.ControlCenterCache),
-      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
-      if(dashboard?, do: Aiur.HttpServer),
+      dashboard_children(dashboard?, tailscale_funnel?),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
@@ -479,6 +514,9 @@ defmodule Aiur.Application do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
   end
+
+  defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
+  defp configured_tailscale_funnel?(_settings), do: false
 
   defp supervision_health_child(children) do
     {Aiur.SupervisionHealth, supervisor: Aiur.Supervisor, expected_children: children}
@@ -501,6 +539,15 @@ defmodule Aiur.Application do
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
+
+  defp dashboard_children(dashboard?, tailscale_funnel?) do
+    [
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
+      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
+      if(dashboard?, do: Aiur.HttpServer),
+      if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel)
+    ]
+  end
 
   @impl true
   def prep_stop(state) do

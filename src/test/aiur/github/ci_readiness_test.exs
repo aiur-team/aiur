@@ -16,6 +16,47 @@ defmodule Aiur.GitHub.CiReadinessTest do
         - run: true
   """
 
+  test "reads live ruleset and classic required check identities" do
+    request_fun = fn %{url: url, caller: caller} ->
+      assert caller == "ci_required_checks"
+
+      if String.contains?(url, "/rules/branches/release%2Fnext") do
+        {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "full", "integration_id" => 15_368}]}}]}}
+      else
+        assert String.ends_with?(url, "/branches/release%2Fnext/protection")
+        {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["legacy"]}}}}
+      end
+    end
+
+    assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", request_fun: request_fun)
+    assert Enum.sort_by(checks, & &1.name) == [%{name: "full", app_id: 15_368}, %{name: "legacy", app_id: nil}]
+    assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
+  end
+
+  test "draft workflow runs three fast jobs and produces every required check when ready" do
+    root = Path.expand("../../../..", __DIR__)
+    workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
+    parsed = YamlElixir.read_from_string!(workflow)
+    assert parsed["on"]["pull_request"]["types"] == ~w(opened synchronize reopened ready_for_review)
+    assert Map.has_key?(parsed["on"], "merge_group")
+    assert "main" in parsed["on"]["push"]["branches"]
+    gate = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+
+    for {id, job} <- parsed["jobs"] do
+      if id in ~w(changes lint build) do
+        refute String.contains?(Map.get(job, "if", ""), "pull_request.draft")
+      else
+        assert job["if"] in ["${{ #{gate} }}", "${{ always() && (#{gate}) }}", "${{ !cancelled() && (#{gate}) }}"]
+      end
+    end
+
+    declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
+    checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
+    readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)
+    assert readiness.ready?
+    assert length(readiness.required_checks) == 13
+  end
+
   test "reports a repository without a pull request workflow" do
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/push.yml", "on:\n  push:\n"}], ["ci / required"])
 
@@ -179,7 +220,11 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "accepts the unconfigured pull request trigger emitted by the scaffold" do
-    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", CiReadiness.scaffold()}], ["ci / required"]).ready?
+    scaffold = CiReadiness.scaffold()
+
+    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", scaffold}], ["ci / required"]).ready?
+    assert scaffold =~ "exit 1"
+    refute scaffold =~ "exit 0"
   end
 
   test "does not treat a workflow excluded from the base branch as a PR workflow" do
@@ -298,25 +343,45 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
   end
 
-  test "reports a missing configured base branch after confirming repository access" do
+  test "regression guard: reports a missing configured base branch only after establishing repository visibility" do
     parent = self()
 
     request_fun = fn %{url: url} ->
-      send(parent, {:readiness_url, url})
+      send(parent, {:requested, url})
 
-      cond do
-        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
-        url =~ "/branches/develop" -> {:ok, %{status: 404, body: %{}}}
-        true -> flunk("unexpected URL: #{url}")
+      if String.ends_with?(url, "/repos/owner/repo") do
+        {:ok, %{status: 200, body: %{"default_branch" => "main"}}}
+      else
+        assert url =~ "/branches/develop"
+        {:ok, %{status: 404, body: %{}}}
       end
     end
 
     assert {:ok, %{ready?: false, issues: [:base_branch_missing]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
 
-    assert_receive {:readiness_url, "https://api.github.com/repos/owner/repo"}, 1000
-    assert_receive {:readiness_url, branch_url}, 1000
+    assert_receive {:requested, repo_url}, 1000
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+    assert_receive {:requested, branch_url}, 1000
     assert branch_url =~ "/branches/develop"
+    refute_receive {:requested, _url}, 100
+  end
+
+  test "regression guard: classifies repository HTTP 403 as access failure without probing the branch" do
+    parent = self()
+
+    request_fun = fn %{url: url} ->
+      send(parent, {:requested, url})
+      assert String.ends_with?(url, "/repos/owner/repo")
+      {:ok, %{status: 403, body: %{}}}
+    end
+
+    assert {:error, {:github, :http, %{status: 403}}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+
+    assert_receive {:requested, repo_url}, 1000
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+    refute_receive {:requested, _url}, 100
   end
 
   test "reports org repository authorization when the repository 404s before requesting its branch" do

@@ -1093,6 +1093,11 @@ defmodule Aiur.Config do
     end
   end
 
+  @spec server_tailscale_funnel?() :: boolean()
+  def server_tailscale_funnel? do
+    settings!().server.tailscale_funnel == true
+  end
+
   @spec observability_enabled?() :: boolean()
   def observability_enabled? do
     settings!().observability.dashboard_enabled
@@ -1105,6 +1110,15 @@ defmodule Aiur.Config do
     case settings do
       {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
+    end
+  end
+
+  @doc "Whether startup should verify the persisted Tailscale Funnel target."
+  @spec build_order_funnel_health_check_enabled?(term()) :: boolean()
+  def build_order_funnel_health_check_enabled?(settings \\ settings_uncached()) do
+    case settings do
+      {:ok, %{observability: %{build_order_funnel_health_check: enabled?}}} -> enabled?
+      _other -> false
     end
   end
 
@@ -1123,8 +1137,8 @@ defmodule Aiur.Config do
     end
   end
 
-  # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
-  # default until a deliberate dashboard parity pass — see issue #371.
+  # Whether the dashboard may drive agents (Executor chat, pause). Writes are
+  # enabled by default; set observability.dashboard_writable: false to disable.
   @spec dashboard_writable?() :: boolean()
   def dashboard_writable? do
     settings!().observability.dashboard_writable
@@ -1151,6 +1165,15 @@ defmodule Aiur.Config do
   @spec observability_render_interval_ms() :: pos_integer()
   def observability_render_interval_ms do
     settings!().observability.render_interval_ms
+  end
+
+  @doc """
+  Heartbeat staleness threshold in milliseconds for daemon downtime detection.
+  Defaults to 3,600,000 (1 hour).
+  """
+  @spec daemon_heartbeat_stale_ms() :: pos_integer()
+  def daemon_heartbeat_stale_ms do
+    settings!().monitoring.daemon_heartbeat_stale_ms
   end
 
   @doc """

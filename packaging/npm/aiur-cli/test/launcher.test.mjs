@@ -61,6 +61,7 @@ function setupPackage({
       'echo "ARGS:$*" >>"$AIUR_TEST_OUT"',
       'echo "RELEASE_DIR:$AIUR_RELEASE_DIR" >>"$AIUR_TEST_OUT"',
       'echo "TMUX_CONF:$AIUR_TMUX_CONF" >>"$AIUR_TEST_OUT"',
+      'if [ "${AIUR_TEST_CAPTURE_OPENCODE:-}" = 1 ]; then echo "OPENCODE_VERSION:$(opencode --version)" >>"$AIUR_TEST_OUT"; fi',
       'exit "${AIUR_TEST_EXIT:-0}"',
       "",
     ].join("\n"),
@@ -191,7 +192,7 @@ test("opencode absent warns but still runs the launcher", () => {
   // host PATH is not picked up, while bash/env stay available for the launcher.
   const result = runShim({ fakeBin, env: { PATH: `${fakeBin}:/usr/bin:/bin` } });
   expect(result.status).toBe(0);
-  expect(result.stderr).toContain("opencode was not found");
+  expect(result.stderr).toContain("opencode@1.17.10 is unavailable");
 });
 
 // bun/pnpm/yarn skip the npm postinstall, so the launcher must provision
@@ -246,6 +247,113 @@ test("--version skips tmux preflight and still execs the launcher", () => {
   expect(capture).toContain("ARGS:--version");
 });
 
+const nonLaunchCommands = [
+  "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
+  "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+  "build-orders", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
+  "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
+  "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
+  "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
+  "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
+];
+
+for (const command of nonLaunchCommands) {
+  // init and --version already bypassed preflight; retain them as future guards.
+  const guard = ["init", "--version"].includes(command) ? " (future-regression guard)" : "";
+  test(`non-launch ${command} never probes or provisions interactive tools${guard}`, () => {
+    const { fakeBin } = setupPackage();
+    for (const tool of ["tmux", "opencode", "npm"]) {
+      const executable = path.join(fakeBin, tool);
+      writeFileSync(executable, `#!/bin/bash\necho '${tool}:$*' >>"$AIUR_TEST_OUT"\nexit 1\n`);
+      chmodSync(executable, 0o755);
+    }
+    const result = runShim({
+      args: [command, "--format", "records"], fakeBin,
+      env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_TMUX_INSTALL: "", AIUR_SKIP_OPENCODE_INSTALL: "" },
+    });
+    expect(result.status).toBe(0);
+    const capture = readFileSync(captureFile, "utf8");
+    expect(capture).toContain(`ARGS:${command} --format records`);
+    for (const tool of ["tmux", "opencode", "npm"]) expect(capture).not.toContain(`${tool}:`);
+  });
+}
+
+// Deliberate future-regression guard: these launch forms already preflight on main.
+for (const args of [[], ["run"], ["restart"], ["--bg"], ["--host", "localhost"], ["--pause"]]) {
+  test(`launch ${JSON.stringify(args)} retains interactive tool preflight`, () => {
+    const { fakeBin } = setupPackage({ tmuxVersion: "2.9" });
+    const result = runShim({ args, fakeBin });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("too old");
+    expect(existsSync(captureFile)).toBe(false);
+  });
+}
+
+test("existing config path retains preflight (future-regression guard)", () => {
+  const { fakeBin } = setupPackage({ tmuxVersion: "2.9" });
+  const config = path.join(root, "config.yaml");
+  writeFileSync(config, "");
+  const result = runShim({ args: [config], fakeBin });
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("too old");
+});
+
+function setupShadowedPin({ installed = false, installFails = false } = {}) {
+  const { fakeBin } = setupPackage();
+  writeFileSync(path.join(fakeBin, "opencode"), '#!/bin/bash\necho "9.9.9"\n');
+  const prefix = path.join(root, "npm global prefix");
+  const globalBin = path.join(prefix, "bin");
+  mkdirSync(globalBin, { recursive: true });
+  const pinned = path.join(globalBin, "opencode");
+  if (installed) {
+    writeFileSync(pinned, '#!/bin/bash\necho "1.17.10"\n');
+    chmodSync(pinned, 0o755);
+  }
+  const npm = path.join(fakeBin, "npm");
+  writeFileSync(npm, [
+    "#!/bin/bash",
+    'echo "NPM:$*" >>"$AIUR_TEST_OUT"',
+    `if [ "$1" = prefix ]; then printf '%s\\n' '${prefix}'; exit 0; fi`,
+    `if [ "$1" = install ]; then`,
+    installFails ? "  exit 1" : `  printf '#!/bin/bash\\necho 1.17.10\\n' > '${pinned}'`,
+    installFails ? "" : `  chmod +x '${pinned}'`,
+    "  exit 0",
+    "fi",
+    "exit 1",
+  ].join("\n"));
+  chmodSync(npm, 0o755);
+  return { fakeBin, globalBin };
+}
+
+for (const installed of [false, true]) {
+  test(`selects shadowed npm-global pin ${installed ? "without reinstalling" : "after installing"}`, () => {
+    const { fakeBin } = setupShadowedPin({ installed });
+    const result = runShim({
+      fakeBin,
+      env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_OPENCODE_INSTALL: "", AIUR_TEST_CAPTURE_OPENCODE: "1" },
+    });
+    expect(result.status).toBe(0);
+    const capture = readFileSync(captureFile, "utf8");
+    expect(capture).toContain("OPENCODE_VERSION:1.17.10");
+    if (installed) expect(capture).not.toContain("NPM:install");
+    else expect(capture).toContain("NPM:install -g opencode-ai@1.17.10");
+    expect(result.stderr).not.toContain("feature needs");
+  });
+}
+
+test("failed pin install remains non-fatal with an accurate pinned manual hint", () => {
+  const { fakeBin } = setupShadowedPin({ installFails: true });
+  const result = runShim({
+    fakeBin,
+    env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_OPENCODE_INSTALL: "" },
+  });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("opencode@1.17.10 is unavailable");
+  expect(result.stderr).toContain("npm install -g opencode-ai@1.17.10");
+  expect(result.stderr).toContain("PATH");
+  expect(result.stderr).not.toContain("opencode was not found");
+});
+
 // Builds a minimal fake OTP release whose `elixir` records its argv, so the
 // REAL launcher's init routing can be exercised end to end.
 function setupRealLauncher() {
@@ -277,6 +385,7 @@ function setupRealLauncher() {
       'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "MOONSHOT_API_KEY:${MOONSHOT_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'if [ -n "${AIUR_TEST_PROFILE:-}" ]; then printf "%s" "$AIUR_TEST_PROFILE"; fi',
       "exit 0",
       "",
     ].join("\n"),
@@ -285,6 +394,51 @@ function setupRealLauncher() {
 
   return { launcher, releaseDir };
 }
+
+test("Claude login prepares a profile and hands its exact path to the interactive command", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const fakeBin = path.join(root, "login-bin");
+  const profileDir = path.join(root, "accounts", "max");
+  const receivedEnv = path.join(root, "claude-config-dir");
+  mkdirSync(fakeBin, { recursive: true });
+  const claude = path.join(fakeBin, "claude");
+  writeFileSync(claude, '#!/usr/bin/env bash\nprintf "%s" "$CLAUDE_CONFIG_DIR" > "$AIUR_LOGIN_ENV_CAPTURE"\n');
+  chmodSync(claude, 0o755);
+
+  const result = spawnSync("bash", [launcher, "login", "claude", "max", "--dir", profileDir], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_TEST_PROFILE: profileDir,
+      AIUR_LOGIN_ENV_CAPTURE: receivedEnv,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(receivedEnv, "utf8")).toBe(profileDir);
+  expect(readFileSync(captureFile, "utf8")).toContain(`__login_prepare\nclaude\nmax\n--dir\n${profileDir}`);
+});
+
+test("API-key login registers through the local CLI without starting an interactive harness", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const result = spawnSync("bash", [launcher, "login", "deepseek", "work"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      PATH: process.env.PATH,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("ELIXIR_ARGS:");
+  expect(readFileSync(captureFile, "utf8")).toContain("ARGV_FILE:login");
+  expect(readFileSync(captureFile, "utf8")).toContain("DEEPSEEK_API_KEY:");
+});
 
 function setupBackgroundLauncher() {
   const { launcher, releaseDir } = setupRealLauncher();
@@ -554,7 +708,7 @@ test("background start reclaims stale tmux session state before creating a new s
   expect(capture).toContain("has-session");
   expect(capture).toContain("kill-server");
   expect(capture).toContain("new-session");
-});
+}, 15000);
 
 test("background start records its headless surface when no tmux session exists", () => {
   const { result, stateDir } = runBackgroundLauncher({ existingSession: false, controlReady: true });
@@ -668,6 +822,29 @@ test("bare pause/resume flip the global switch; targeted forms stay per-agent", 
   expect(capture).toContain("Aiur.AgentControlCLI.resume_global()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
   expect(capture).toContain('Aiur.AgentControlCLI.resume(["44"])');
+});
+
+test("workspace-recover safely encodes the ticket and validates its generation", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  const recovered = runControl(launcher, releaseDir, env, ["workspace-recover", "org/repo#44", "7"]);
+  expect(recovered.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.recover_workspace(Base.decode64!("b3JnL3JlcG8jNDQ="), 7)',
+  );
+
+  for (const args of [
+    ["workspace-recover", "org/repo#44"],
+    ["workspace-recover", "org/repo#44", "0"],
+    ["workspace-recover", "org/repo#44", "7;System.halt()"],
+  ]) {
+    rmSync(captureFile, { force: true });
+    const result = runControl(launcher, releaseDir, env, args);
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("workspace-recover");
+    expect(existsSync(captureFile)).toBe(false);
+  }
 });
 
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
@@ -898,7 +1075,7 @@ test("control rpc timeouts terminate stuck helpers and report an unknown outcome
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
-});
+}, 15000);
 
 // The timeout budget must be a ceiling, never a floor. A watchdog that holds the
 // caller's stdout keeps the pipe open for its whole sleep, so a capturing caller

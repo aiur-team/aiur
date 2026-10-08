@@ -65,8 +65,10 @@ defmodule Aiur.Orchestrator.State do
           startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
+          human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
+            passed_heads: map(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
@@ -85,6 +87,7 @@ defmodule Aiur.Orchestrator.State do
           waiting_for_human_episodes: %{optional(String.t()) => %{since: DateTime.t(), alerted?: boolean()}},
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
+          dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
             load: number() | :unavailable,
@@ -233,8 +236,10 @@ defmodule Aiur.Orchestrator.State do
     dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
+    human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
+      passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},
@@ -253,6 +258,7 @@ defmodule Aiur.Orchestrator.State do
     waiting_for_human_episodes: %{},
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
+    dispatch_selection_hold: nil,
     dispatch_declines: %{},
     dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
@@ -359,6 +365,7 @@ defmodule Aiur.Orchestrator.State do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+          |> maybe_put_runtime_value(:rework_head_sha, runtime_info[:rework_head_sha])
           |> maybe_put_live_conversation(runtime_info[:live_conversation])
 
         if updated_running_entry == running_entry do
@@ -454,7 +461,9 @@ defmodule Aiur.Orchestrator.State do
           backend: backend,
           requested_model: optional_runtime_string(info[:requested_model]),
           resolved_model: nil,
-          effort: optional_runtime_string(info[:effort])
+          effort: optional_runtime_string(info[:effort]),
+          account: optional_runtime_string(info[:account]),
+          account_selection_reason: optional_runtime_string(info[:account_selection_reason])
         }
 
         {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}

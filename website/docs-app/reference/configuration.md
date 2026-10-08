@@ -29,7 +29,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
-| `debug` | boolean | false | Enables file logging without the CLI debug flag. |
+| `debug` | boolean | false | Enables debug-level file logging without the CLI debug flag; background runs already retain normal-level logs. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
@@ -173,6 +173,12 @@ Freshness thresholds follow this cadence. You do not set them separately.
   dispatchable tickets keeps the base interval so work is not left waiting
   behind a backed-off sweep (#2138).
 
+## monitoring
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
+
 ## webhooks
 
 | Key | Type | Default | Controls |
@@ -186,11 +192,19 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 ## workspace
 
+The `wip_*` keys bound the save of uncommitted work described in [Saved uncommitted work](/reference/cli#saved-uncommitted-work).
+
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `workspace.root` | string path | tmp `aiur_workspaces` | Root for agent workspaces. |
 | `workspace.bootstrap_image` | string | nil | Docker image for warm build-cache seeding. |
 | `workspace.bootstrap_image_pull` | boolean | false | Pulls the bootstrap image before seeding. |
+| `workspace.wip_max_bytes` | integer | 52428800 | Cap in bytes of one save of uncommitted work (50 MiB). Untracked files past it are skipped; the tracked patch is always kept. |
+| `workspace.wip_max_file_bytes` | integer | 10485760 | An untracked file larger than this (10 MiB) is skipped in a save. |
+| `workspace.wip_max_dir_files` | integer | 10000 | An untracked directory with more files than this, or a nested repository, is skipped whole. |
+| `workspace.wip_command_timeout_ms` | integer | 60000 | Time limit of each `git` and `tar` command of a save. A timeout keeps the workspace, except for a closed ticket. |
+| `workspace.wip_retention_bytes` | integer | 2147483648 | Cap in bytes of all of `wip-preserved/` (2 GiB). Closed tickets' saves are pruned first. |
+| `workspace.wip_retention_days` | integer | 14 | Saves older than this are pruned. The newest save of an open ticket is never pruned. |
 
 ## worker
 
@@ -204,6 +218,8 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
+| `agent.accounts` | map | `%{}` | Machine-local account names enabled per harness, for example `{claude: [default, max]}`. The list is priority order; absent or empty keeps the existing single-account behavior. Claude and Codex use isolated profile directories; Kimi, DeepSeek, and OpenRouter use named API keys; Muse is unsupported. See [accounts by backend](/guide/claude-accounts). |
+| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
 | `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
@@ -216,13 +232,13 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
 | `agent.build_gate_retain_seconds` | integer | 120 | Maximum post-command window the lease holder keeps a slot after the wrapped command exits, gated on a descendant still consuming CPU. The holder releases the moment the retained tree goes idle, so this bounds only a genuinely-busy descendant (a runaway build), not an adopted idle daemon; `0` disables the courtesy. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
-| `agent.rtk.enabled` | boolean | false | Opts agents into [rtk](https://github.com/rtk-ai/rtk) output compression, and turns on the Agent output compression panel on the analytics page. Off by default: rtk rewrites the commands an agent runs, which is a behaviour change rather than a correctness fix, and its saving is strongly command-dependent (measured here: `ls -la src/lib/aiur` 12724 → 1044 bytes; `git log --oneline -30` 2033 → 2033 bytes, i.e. none). Enabling it is not sufficient on its own — Aiur refuses to admit rtk unless the host's rtk config also carries `exclude_commands = ["gh"]` under `[hooks]`, because rtk's hook otherwise rewrites `gh` and `gh` in an agent workspace is the GitHub quota guard. The refusal is reported on the analytics page and in the daemon log. |
+| `agent.rtk.enabled` | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. At daemon startup Aiur also checks the host hook, independent of this setting, and raises an informational alert when it would rewrite `gh`. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
-| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. A productive turn resets the count; 0 disables the bound. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; verified rework with no pushed head becomes `agent:error`; otherwise the current label is kept. A productive turn resets the count; 0 disables the bound. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
@@ -636,15 +652,16 @@ environment-variable equivalents; the check also stays silent in CI runs.
 
 Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
 
-This optional section backs Stream Deck voice input, Dashboard dictation, and interactive spoken replies; omitting it uses the defaults below.
+This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
+| `elevenlabs.enabled` | boolean | true | Enables ElevenLabs voice features. Set false to keep an explicit declined setup choice and suppress configured or environment-provided credentials. Existing configs without this key remain enabled. |
 | `elevenlabs.api_key` | string or nil | nil | ElevenLabs credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. Speech input needs Speech to Text permission; spoken replies also need Text to Speech permission. |
 | `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
 | `elevenlabs.voice_id` | string or nil | nil | Stock or owned ElevenLabs voice used for Dashboard interactive conversation replies. Find the identifier in **My Voices**; Aiur does not clone or manage voices. |
 
-`ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
+`ELEVENLABS_API_KEY` is the environment variable for the credential. When `elevenlabs.enabled` is true, an explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. `enabled: false` suppresses both sources. An environment variable set to the empty string resolves to no key.
 
 The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
@@ -655,7 +672,8 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; use the launch-time `--no-dashboard` flag to suppress the listener in foreground or background mode. |
-| `observability.dashboard_writable` | boolean | true | Enables dashboard write paths. A dashboard bound beyond loopback refuses to start without both dashboard basic-auth environment variables; a loopback listener binds without them and fails closed (see below). |
+| `observability.dashboard_writable` | boolean | true | Enables dashboard write paths. Set to `false` to disable them. A dashboard bound beyond loopback refuses to start without both dashboard basic-auth environment variables; a loopback listener binds without them and fails closed (see below). |
+| `observability.build_order_funnel_health_check` | boolean | false | Opts into one bounded startup check of the local Build Order endpoint and configured Tailscale Funnel HTTPS 443 target. Leave disabled when Funnel serves another purpose. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
 | `observability.telemetry_enabled` | boolean | true | Records run telemetry for analytics. |
@@ -666,6 +684,16 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`.
 
 A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
+
+When `observability.build_order_funnel_health_check` is enabled, Aiur checks the configured dashboard bind address at `/build-orders/1` and reads `tailscale funnel status --json` once after dashboard startup. Both command timeouts are five seconds, and timed-out Tailscale processes are terminated.
+
+The one-time check is suppressed when `server.tailscale_funnel: true`. The reconciler reports Funnel health after its initial and periodic attempts, so the startup check cannot alert before reconciliation runs.
+
+HTTP 200, redirects 301/302/304/307/308, and 401 (authentication required) count as reachable. Other statuses, including 201, 204, and 303, do not.
+
+A stale proxy target raises `system.build_order_funnel.target_mismatch`; an unreachable endpoint raises `system.build_order_funnel.target_unreachable`; and an endpoint timeout raises `system.build_order_funnel.target_timeout`.
+
+An unavailable or unparseable Tailscale status raises `system.build_order_funnel.health_check_error`. Tailscale is not detected or queried unless this setting is explicitly enabled.
 
 The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential. Generate it with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local).
 
@@ -686,8 +714,25 @@ These policy keys never grant transport access by themselves. The supervisor API
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
+| `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 
 When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+
+Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
+
+Before changing a different target, Aiur probes that target's `/build-orders/1`. Any HTTP response makes the reconciler leave the route unchanged and raise `system.build_order_funnel.target_mismatch`.
+
+Only a connection-refused probe counts as stale and permits an update. Timeouts, TLS failures, and other probe errors leave the route unchanged and raise `system.build_order_funnel.health_check_error` with cause `unknown`. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target.
+
+Enable this on only one Aiur daemon per node. A second daemon with this key enabled can repoint the route while the owning dashboard restarts and its old target refuses connections.
+
+When `server.tailscale_funnel` is enabled, the reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
+
+A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
+
+Aiur does not enable Funnel or create a route. The dashboard's existing authentication remains in place, and the route supports HTTP and WebSocket traffic.
+
+The target probe is a bounded liveness check, not proof of daemon identity or route ownership. A live stale service requires operator intervention. Aiur does not restart, stop, or otherwise manage the Tailscale daemon.
 
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 
@@ -704,6 +749,18 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
 
+## build_queue
+
+Build queue configuration for GitHub workflows; Linear is unsupported, and the queue reconciler is delivered separately.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. |
+| `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
+| `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
+| `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
+| `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for a merged PR whose issue remains open; 60..86400. |
+
 ## build_order
 
 | Key | Type | Default | Controls |
@@ -719,6 +776,29 @@ The durable repository Executor state also records every daemon start and stop i
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
+| `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
+| `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
+| `build_order.general_epics.label` | string | required | Column header text, without control characters. |
+| `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
+| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
+| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+
+### General epics
+
+Omitting `build_order`, omitting `general_epics`, or setting `general_epics: null` uses these defaults:
+
+```yaml
+build_order:
+  general_epics:
+    - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
+    - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
+    - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }
+    - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
+```
+
+A configured list replaces all four defaults and keeps its order. Matchers within an entry are normalized; sharing a matcher across entries is a config error. For a ticket carrying different matched labels, config order defines which general epic wins. `enhancement` has no default matcher; add it to an epic if your repository uses it for that work.
+
+These settings define the epic catalogue for the build history home page; its resolver and rendering are delivered separately.
 
 ### Two removed keys
 

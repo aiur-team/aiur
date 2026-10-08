@@ -1,15 +1,21 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
+  alias Aiur.{AgentQueueStore, CIApprovalStore, ExecutorListener, ExecutorWakeInbox, Orchestrator, PollCadence, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{CiLifecycle, State}
+  alias Aiur.GitHub.ResourceStore
+  alias Aiur.Orchestrator.{CiLifecycle, IssueSync, State}
 
   defmodule RecordingGitHubClient do
+    alias Aiur.GitHub.IssueState
+
     @recipient_key {__MODULE__, :recipient}
     @update_result_key {__MODULE__, :update_result}
     @issues_key {__MODULE__, :issues}
+    @request_key {__MODULE__, :request}
+
+    def request_with(fun), do: Process.put(@request_key, fun)
 
     def record_to(pid), do: Process.put(@recipient_key, pid)
     def return(result), do: Process.put(@update_result_key, result)
@@ -34,7 +40,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       case recipient() do
         recipient when is_pid(recipient) ->
           send(recipient, {:label_removed, issue_id, label})
-          Process.get(@update_result_key, :ok)
+
+          case Process.get(@request_key) do
+            nil -> Process.get(@update_result_key, :ok)
+            request_fun -> IssueState.remove_label(issue_id, label, request_fun: request_fun)
+          end
 
         _other ->
           {:error, :unscoped_test_call}
@@ -45,7 +55,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       case recipient() do
         recipient when is_pid(recipient) ->
           send(recipient, {:tracker_update, issue_id, state_name, opts})
-          Process.get(@update_result_key, :ok)
+
+          case Process.get(@request_key) do
+            nil -> Process.get(@update_result_key, :ok)
+            request_fun -> IssueState.update_issue_state(issue_id, state_name, Keyword.put(opts, :request_fun, request_fun))
+          end
 
         _other ->
           {:error, :unscoped_test_call}
@@ -82,6 +96,115 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "observes human-review handoffs outside active states and records one Executor wake" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffTest})
+      on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+
+      previous = issue(unique_identifier("human-review-handoff"), "rework")
+      current = %{previous | state: "human-review"}
+      sha = String.duplicate("e", 40)
+      key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
+      :ok = ResourceStore.put_resource(key, %{"number" => 3022, "head" => %{"sha" => sha}})
+      parent = self()
+
+      opts = [
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] ->
+          send(parent, :ci_issue_fetch)
+          {:ok, [current]}
+        end,
+        ci_poller: fn _targets, _opts -> {:ok, %{results: [], errors: []}} end,
+        parked_ready_alert_loader: fn -> MapSet.new() end,
+        draft_stall_alert_loader: fn -> MapSet.new() end
+      ]
+
+      state = %State{
+        last_polled_issues: %{previous.id => previous},
+        human_review_observed_ids: MapSet.new()
+      }
+
+      candidate_poll =
+        IssueSync.sync_polled_issue_state(
+          state,
+          [],
+          fn _ids -> {:ok, [current]} end,
+          fn _identity, _lifecycle -> :ok end,
+          MapSet.new(["done"]),
+          fn _ -> :ok end,
+          fn _identity, _pending? -> :ok end
+        )
+
+      assert candidate_poll.last_polled_issues == %{}
+
+      first = CiLifecycle.poll_github_ci(candidate_poll, opts)
+      assert_received :ci_issue_fetch
+      assert MapSet.member?(first.human_review_observed_ids, current.id)
+
+      assert {:ok, [wake]} = ExecutorWakeInbox.wait(500)
+      assert wake["topic"] == "ticket.#{current.identifier}.agent.handoff.human_review"
+      assert wake["pr_number"] == 3022
+      assert wake["head_sha"] == sha
+      assert first.last_polled_issues == %{}
+
+      _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
+      assert_received :ci_issue_fetch
+      _ = :sys.get_state(Aiur.ExecutorListener.CIHandoffTest)
+      :ok = ExecutorWakeInbox.acknowledge([wake])
+      assert :timeout = ExecutorWakeInbox.wait(0)
+    end
+
+    test "seeds existing human-review issues on the first CI poll without waking" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffBootTest})
+      on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+
+      current = issue(unique_identifier("human-review-at-boot"), "human-review")
+
+      opts = [
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [current]} end,
+        ci_poller: fn _targets, _opts -> {:ok, %{results: [], errors: []}} end,
+        parked_ready_alert_loader: fn -> MapSet.new() end,
+        draft_stall_alert_loader: fn -> MapSet.new() end
+      ]
+
+      first = CiLifecycle.poll_github_ci(%State{}, opts)
+      assert MapSet.member?(first.human_review_observed_ids, current.id)
+      assert ExecutorWakeInbox.wait(50) == :timeout
+    end
+
+    test "draft fast gate never promotes ci-wait; ready full checks do" do
+      identifier = unique_identifier("draft-fast-gate")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "ci-wait")
+      required = [%{name: "lint", app_id: nil}, %{name: "test", app_id: nil}]
+      check = %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+      pr = %{"number" => 71, "head" => %{"sha" => "head-71"}, "base" => %{"ref" => "main"}, "draft" => true}
+
+      opts = [
+        ci_issue_fetcher: fn _ -> {:ok, [ticket]} end,
+        required_check_fetcher: fn _ -> {:ok, required} end,
+        draft_stall_alert_loader: fn -> MapSet.new() end,
+        parked_ready_alert_loader: fn -> MapSet.new() end
+      ]
+
+      batch = %{identifier => %{pull_request: pr, check_runs: [check], commit_status: %{"statuses" => []}}}
+      next = CiLifecycle.poll_github_ci(%State{}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
+      refute_received {:tracker_update, ^identifier, _, _}
+      assert next.ci_lifecycle.approved_heads == %{}
+
+      batch = put_in(batch, [identifier, :pull_request, "draft"], false)
+      next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
+      refute_received {:tracker_update, ^identifier, _, _}
+      assert next.ci_lifecycle.approved_heads == %{}
+
+      batch = put_in(batch, [identifier, :check_runs], [check, %{check | "name" => "test"}])
+      next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
+      assert_received {:tracker_update, ^identifier, "in-progress", _}
+      assert next.ci_lifecycle.approved_heads[identifier] == "head-71"
+    end
+
     test "a delivered (displaced) result is inert: no transition, no cache projection" do
       identifier = unique_identifier("ci-delivered-inert")
       issue = issue(identifier, "ci-wait")
@@ -155,6 +278,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_batch_fetcher: fn [_target], _opts -> {:error, {:github, :rate_limited, %{status: 429}}} end,
           request_fun: request_fun,
+          required_check_fetcher: fn _ -> {:ok, []} end,
           token: "test-gh-token",
           parked_ready_alert_loader: fn -> MapSet.new() end,
           draft_stall_alert_loader: fn -> MapSet.new() end
@@ -361,10 +485,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       # The pair resolves to human-review, so the review disposition is kept and
-      # the stale `ci-wait` marker is removed directly — the ticket must end with
+      # the shared state owner reasserts review and clears ci-wait, leaving
       # exactly one state label (#2366).
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
-      assert_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
+      assert_received {:recorded, _position, {:tracker_update, ^identifier, "human-review", [expected_state: "human-review"]}}
       assert next.running[identifier].issue.state == "human-review"
     end
 
@@ -638,37 +762,88 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.message =~ "CI failed: lint, coverage"
     end
 
-    test "a replayed CI failure for the reviewed head keeps the ticket in human review" do
-      identifier = unique_identifier("ci-replay-human-review")
-      recorder = start_recorder()
+    test "a head that actually passed CI reworks on a later failure after handoff and reload" do
+      identifier = unique_identifier("ci-failed-human-review")
+      topic = "ticket.#{identifier}.ci.failed"
+      recorder = start_recorder(topic)
       issue = issue(identifier, "human-review")
 
-      state =
-        issue
-        |> running_state(recorder, :paused, paused_reason: :ci_wait)
-        |> with_approved_head(identifier, "reviewed-head")
+      waiting = %{issue | state: "ci-wait"}
+      passed = poll_ci(running_state(waiting, recorder, :paused, paused_reason: :ci_wait), waiting, %{decision: :passed, head_sha: "reviewed-head", pr_number: 99})
+      assert passed.running[identifier].issue.state == "in-progress"
+      assert CIApprovalStore.load().passed_heads == %{identifier => "reviewed-head"}
 
-      failure = %{
-        decision: :failed,
-        head_sha: "reviewed-head",
-        pr_number: 99,
-        failures: [%{name: "lint", result: "failure", excerpt: "inherited lint failure"}]
-      }
+      # The agent's review handoff and a daemon restart follow the real CI pass.
+      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+      state = %{state | ci_lifecycle: Map.merge(state.ci_lifecycle, CIApprovalStore.load())}
 
-      # Each Aiur restart re-delivers the same historical result for the same
-      # head; none of them may override the operator-approved handoff.
-      next = Enum.reduce(1..3, state, fn _replay, acc -> poll_ci(acc, issue, failure) end)
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "reviewed-head",
+          pr_number: 99,
+          failures: [%{name: "lint", result: "failure", excerpt: "lint failed after handoff"}]
+        })
+
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
-      assert next.running[identifier].issue.state == "human-review"
-      assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
+      assert_received {:recorded, _position, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}
+      assert_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, _position, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, _position, {:resume_agent, _request_id, 101}}
+      assert next.running[identifier].issue.state == "rework"
+      assert next.ci_lifecycle.approved_heads == %{}
+      assert next.ci_lifecycle.passed_heads == %{}
+      assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
+      assert event.failure_excerpt == "lint failed after handoff"
+    end
+
+    test "red CI on a draft in ci-wait without a worker leaves exactly rework" do
+      identifier = to_string(System.unique_integer([:positive]))
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+      start_recorder()
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+      previous_token = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
+      :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, "test-token")
+
+      on_exit(fn ->
+        if previous_token == :unset,
+          do: :persistent_term.erase({Aiur.GitHub.Config, :resolved_token}),
+          else: :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, previous_token)
+      end)
+
+      labels = :ets.new(:ci_labels, [:set, :private])
+      :ets.insert(labels, {:labels, ["agent:ci-wait"]})
+
+      RecordingGitHubClient.request_with(fn request ->
+        [{:labels, current}] = :ets.lookup(labels, :labels)
+
+        next =
+          case request.method do
+            :get -> current
+            :post -> Enum.uniq(current ++ request.body["labels"])
+            :delete -> List.delete(current, request.url |> String.split("/") |> List.last() |> URI.decode())
+          end
+
+        :ets.insert(labels, {:labels, next})
+        if request.method != :get, do: assert(next != [], "state writes must never leave zero labels")
+        body = Enum.map(next, &%{"name" => &1})
+        {:ok, %{status: 200, body: if(request.method == :get, do: %{"state" => "open", "labels" => body}, else: body)}}
+      end)
+
+      state = with_approved_head(%State{}, identifier, "reviewed-head")
+      assert state.running == %{}
+      next = poll_ci(state, issue, %{decision: :failed, draft?: true, head_sha: "reviewed-head", pr_number: 3095, failures: [%{name: "lint", result: "failure"}]})
+
+      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework"]}]
+      assert next.ci_lifecycle.approved_heads == %{}
     end
 
     test "a stale ci-wait projection cannot rework the persisted approved head" do
       identifier = unique_identifier("ci-stale-approved-head")
       recorder = start_recorder()
-      issue = issue(identifier, "ci-wait")
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
 
       :ok = CIApprovalStore.save(%{identifier => "reviewed-head"}, %{})
 
@@ -690,6 +865,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      refute_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
       assert next.running[identifier].issue.state == "ci-wait"
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
     end
@@ -719,29 +895,60 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.ci_lifecycle.approved_heads == %{}
     end
 
-    test "a CI failure observed after a dismissed-failure handoff anchors the reviewed head" do
+    test "inherited human-review failures stay dismissed across repeated polls and a restart" do
       identifier = unique_identifier("ci-dismissed-human-review")
       recorder = start_recorder()
       issue = issue(identifier, "human-review")
-
-      # The #99 shape: CI never passed, the operator dismissed the inherited
-      # failures, and the agent flipped the label, so no head was ever approved.
       state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+
+      result = %{
+        decision: :failed,
+        head_sha: "dismissed-head",
+        pr_number: 99,
+        failures: [%{name: "coverage", result: "failure"}]
+      }
+
+      first = poll_ci(state, issue, result)
+      assert first.ci_lifecycle.approved_heads == %{identifier => "dismissed-head"}
+      assert first.ci_lifecycle.passed_heads == %{}
+      repeated = poll_ci(first, issue, result)
+      persisted = CIApprovalStore.load()
+      assert persisted.approved_heads == %{identifier => "dismissed-head"}
+      assert persisted.passed_heads == %{}
+      restarted = %{state | ci_lifecycle: Map.merge(state.ci_lifecycle, persisted)}
+      after_restart = poll_ci(restarted, issue, result)
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      assert repeated.running[identifier].issue.state == "human-review"
+      assert after_restart.running[identifier].issue.state == "human-review"
+
+      changed = poll_ci(after_restart, issue, %{result | head_sha: "new-head"})
+      sync_recorder(recorder)
+      assert_received {:recorded, _position, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}
+      assert changed.running[identifier].issue.state == "rework"
+    end
+
+    test "legacy persisted review anchors are conservatively held until a real pass" do
+      identifier = unique_identifier("ci-legacy-dismissal")
+      recorder = start_recorder()
+      issue = issue(identifier, "human-review")
+      File.write!(CIApprovalStore.path_for(), Jason.encode!(%{"approved_heads" => %{identifier => "legacy-head"}}))
+      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+      state = %{state | ci_lifecycle: Map.merge(state.ci_lifecycle, CIApprovalStore.load())}
 
       next =
         poll_ci(state, issue, %{
           decision: :failed,
-          head_sha: "dismissed-head",
+          head_sha: "legacy-head",
           pr_number: 99,
-          failures: [%{name: "coverage", result: "failure"}]
+          failures: [%{name: "lint", result: "failure"}]
         })
 
       sync_recorder(recorder)
-
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
       assert next.running[identifier].issue.state == "human-review"
-      assert next.ci_lifecycle.approved_heads == %{identifier => "dismissed-head"}
-      assert CIApprovalStore.load().approved_heads == %{identifier => "dismissed-head"}
+      assert next.ci_lifecycle.passed_heads == %{}
     end
 
     test "a CI failure on a head review has not seen still moves the ticket to rework" do
@@ -924,6 +1131,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.topic == "ticket.#{identifier}.ci.rewake"
       assert event.source == :system
       assert event.message =~ "Check CI once"
+      assert event.message =~ "Drafts never pass CI in any repository"
+      assert event.message =~ "mark completed, self-reviewed work ready before waiting"
+      assert event.message =~ "Before agent:human-review, require the full required-check set to pass on the current head SHA"
+      assert event.message =~ "green or skipped gh pr checks aggregate alone is not a full pass"
       assert event.message =~ "return to agent:ci-wait"
     end
 

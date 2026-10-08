@@ -9,11 +9,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource`.
   Because every downstream surface (RouteState, presenter, caches) joins on a
   GitHub `TrackerIdentity`, planning tickets are given a provisional identity
-  keyed by their numeric ticket id. Packs with materialized GitHub mappings are
+  keyed by a digest of their build order and full draft id.
+  Packs with materialized GitHub mappings are
   hydrated from the daemon's current-run membership projection; pre-ticket packs
   remain planning-only.
 
-  This is read-only demo/planning tooling — it never writes to GitHub. Point it
+  Production DataSource merges these local plans with supervised GitHub reads.
+  This source is read-only — it never writes to GitHub. Point it
   at a pack with `:build_order_planning_pack` (an app-relative priv path).
   """
 
@@ -21,8 +23,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Member, Metadata, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.TicketDetail.Sanitizer
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
@@ -36,6 +39,22 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
   @pack_source_precedence_description "workspace > state > environment > configured > explicit"
   @active_membership_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]
+
+  @doc "Resolve a pack member document without accepting a filesystem path from the request."
+  @spec document(String.t(), String.t(), String.t(), String.t()) :: {:ok, String.t()} | :error
+  def document(owner, repository, root_number, member_number) do
+    with pack when is_map(pack) <-
+           Enum.find(load_packs(include_drafts?: true), fn pack ->
+             pack.repository == {owner, repository} and to_string(pack.root_number) == root_number
+           end),
+         ticket when is_map(ticket) <- Enum.find(pack.tickets, &(ticket_identity(pack, &1).identifier == member_number)),
+         body when is_binary(body) <- draft_body(ticket.document_path, Path.dirname(pack.path)),
+         {:ok, sanitized} <- Sanitizer.sanitize(body, 64_000) do
+      {:ok, sanitized}
+    else
+      _missing -> :error
+    end
+  end
 
   # --- catalog ---------------------------------------------------------------
 
@@ -86,7 +105,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           repository: pack.repository,
           generation: source_generation,
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed)),
+          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed), pack_metadata: pack.metadata),
           health: provider_health,
           membership_health: membership_health(membership),
           status_health: status_health
@@ -170,13 +189,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     })
   end
 
-  # Completion is resolved per ticket and can fail for any subset of a pack.
-  # An empty pack is genuinely 0% of nothing; a pack where nothing resolves is
-  # `:unresolved` and must never be reported as a number. In between, the
-  # percentage is the completion rate over the tickets that *did* resolve, and
-  # `resolved_count` carries the coverage so the surface can say what the
-  # number is actually of. Unknown tickets are excluded from the denominator
-  # rather than counted as incomplete.
+  # Partial completion is a lower bound over the whole pack. Coverage remains
+  # explicit, and a pack with no resolved members still has no numeric reading.
   defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
 
   defp progress(%{tickets: tickets} = pack, membership) do
@@ -189,10 +203,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %{percent: nil, resolution: :unresolved, resolved_count: 0}
 
       resolved_count == length(tickets) ->
-        %{percent: round(completed_count / resolved_count * 100), resolution: :resolved, resolved_count: resolved_count}
+        %{percent: round(completed_count / length(tickets) * 100), resolution: :resolved, resolved_count: resolved_count}
 
       true ->
-        %{percent: round(completed_count / resolved_count * 100), resolution: :partial, resolved_count: resolved_count}
+        %{percent: round(completed_count / length(tickets) * 100), resolution: :partial, resolved_count: resolved_count}
     end
   end
 
@@ -220,7 +234,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         identity: identity,
         title: ticket.title,
         url: if(is_integer(ticket.number), do: issue_url(identity), else: nil),
-        document_url: ticket.document_url,
+        document_url: if(is_nil(ticket.number), do: document_url(pack, identity), else: ticket.document_url),
         document_path: ticket.document_path,
         draft_body: ticket.draft_body,
         icon: ticket.icon,
@@ -230,7 +244,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         labels: labels(ticket, identity, membership),
         dependencies: dependencies
       })
+      |> pack_metadata(ticket)
     end)
+  end
+
+  defp pack_metadata(member, ticket) do
+    metadata = Metadata.parse(pack_labels(ticket))
+    metadata = if is_integer(ticket.phase) and ticket.phase >= 0, do: %{metadata | phase: ticket.phase, warnings: Enum.reject(metadata.warnings, &(&1.code == :invalid_phase))}, else: metadata
+    %{member | metadata: metadata}
+  end
+
+  defp document_url(pack, identity) do
+    {owner, repository} = pack.repository
+    "/build-order-documents/#{owner}/#{repository}/#{pack.root_number}/#{identity.identifier}"
   end
 
   defp planning_dependency(identity, endpoint, %{number: number}) when is_integer(number),
@@ -260,27 +286,14 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp root_identity(pack), do: identity!(pack.repository, pack.root_number, pack.root_node_id || "BO_ROOT")
 
-  defp ticket_identity(pack, ticket) do
-    number = ticket_number(pack, ticket)
-    identity!(pack.repository, number, ticket.node_id || "PLAN_#{ticket.id}")
+  defp ticket_identity(pack, %{number: nil, id: id}) do
+    digest = :crypto.hash(:sha256, :erlang.term_to_binary({pack.build_order_id, id}))
+    # Reserve bounded 19-digit locators so drafts can open the ticket context.
+    number = 1_000_000_000_000_000_000 + rem(:binary.decode_unsigned(digest), 8_223_372_036_854_775_807)
+    identity!(pack.repository, number, "PLAN_" <> Base.encode16(digest, case: :lower))
   end
 
-  # Prefer the pack's real GitHub number when present; otherwise derive it from
-  # the ticket id so blocker edges still resolve for pre-ticket packs.
-  defp ticket_number(pack, %{id: id}) do
-    case Map.get(pack.numbers, id) do
-      number when is_integer(number) -> number
-      _missing -> synthetic_ticket_number(id)
-    end
-  end
-
-  # CT-101 -> 101. Falls back to a stable hash for non-numeric ids.
-  defp synthetic_ticket_number(id) do
-    case id |> String.split(~r/\D+/, trim: true) |> List.last() do
-      nil -> :erlang.phash2(id, 8000) + 1
-      digits -> String.to_integer(digits)
-    end
-  end
+  defp ticket_identity(pack, ticket), do: identity!(pack.repository, ticket.number, ticket.node_id || "PLAN_#{ticket.id}")
 
   defp identity!({owner, repo}, number, node_id) do
     {:ok, identity} =
@@ -549,7 +562,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     |> Enum.map(&load_pack(&1, include_drafts?))
     |> Enum.flat_map(fn
       {:ok, pack} -> [pack]
-      :error -> []
+      {:error, _reason} -> []
     end)
     |> filter_for_tracked_repository()
     |> reconcile_duplicate_packs()
@@ -619,39 +632,57 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
-         {:ok, repository} <- repository(json),
-         {:ok, tickets} <- tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?) do
+         :ok <- pack_object(json),
+         {:repository, {:ok, repository}} <- {:repository, repository(json)},
+         {:tickets, {:ok, tickets}} <- {:tickets, tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?)} do
       raw_build_order_id = Map.get(json, "build_order_id")
       build_order_id = normalized_build_order_id(raw_build_order_id)
       root_number = Map.get(json, "root_number") || get_in(json, ["github_root", "number"])
       status = status(absolute)
       declared_completed? = Map.get(json, "completed", false) == true
 
-      {:ok,
-       %{
-         source: source,
-         path: absolute,
-         content_hash: :crypto.hash(:sha256, body),
-         repository: repository,
-         build_order_id: build_order_id,
-         build_order_id_explicit?: is_binary(raw_build_order_id) and raw_build_order_id != "",
-         title: Map.get(json, "title", "Planning build order"),
-         icon: pack_icon(json),
-         icon_explicit?: is_binary(Map.get(json, "icon")) and Map.get(json, "icon") != "",
-         root_number: root_number || default_root_number(build_order_id),
-         root_number_explicit?: is_integer(root_number),
-         root_node_id: root_node_id(json, build_order_id),
-         declared_completed?: declared_completed?,
-         completed: declared_completed? or status_completed?(status),
-         completed_at: status_completed_at(status),
-         status: status,
-         materialized?: Enum.any?(tickets, &is_integer(&1.number)),
-         tickets: tickets,
-         numbers: ticket_numbers(tickets)
-       }}
+      pack =
+        %{
+          source: source,
+          path: absolute,
+          content_hash: :crypto.hash(:sha256, body),
+          repository: repository,
+          build_order_id: build_order_id,
+          build_order_id_explicit?: is_binary(raw_build_order_id) and raw_build_order_id != "",
+          title: Map.get(json, "title", "Planning build order"),
+          icon: pack_icon(json),
+          icon_explicit?: is_binary(Map.get(json, "icon")) and Map.get(json, "icon") != "",
+          root_number: root_number || default_root_number(build_order_id),
+          root_number_explicit?: is_integer(root_number),
+          root_node_id: root_node_id(json, build_order_id),
+          declared_completed?: declared_completed?,
+          completed: declared_completed? or status_completed?(status),
+          completed_at: status_completed_at(status),
+          status: status,
+          metadata: Map.take(json, ["workstreams", "phases", "external_gates"]),
+          materialized?: Enum.any?(tickets, &is_integer(&1.number)),
+          tickets: tickets
+        }
+
+      root_identity(pack)
+      identifiers = Enum.map(tickets, &ticket_identity(pack, &1).identifier)
+
+      if length(Enum.uniq(identifiers)) == length(identifiers),
+        do: {:ok, pack},
+        else: pack_error(absolute, :duplicate_member_identifier)
     else
-      _error -> :error
+      error -> pack_error(absolute, error)
     end
+  rescue
+    error -> pack_error(absolute_path(path), {:exception, error.__struct__, Exception.message(error)})
+  end
+
+  defp pack_object(json) when is_map(json), do: :ok
+  defp pack_object(_json), do: {:error, :invalid_pack_object}
+
+  defp pack_error(path, reason) do
+    Logger.warning("build order catalog skipped pack #{path}: #{inspect(reason)}")
+    {:error, reason}
   end
 
   # The publisher writes a workspace mirror while the repository state node
@@ -711,10 +742,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp normalized_build_order_id(build_order_id) when is_binary(build_order_id) and build_order_id != "", do: build_order_id
   defp normalized_build_order_id(_build_order_id), do: "planning"
-
-  defp ticket_numbers(tickets) do
-    for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
-  end
 
   defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || get_in(json, ["github_root", "node_id"]) || "BO_#{build_order_id}"
 
@@ -816,19 +843,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     pack_dir = Path.expand(pack_dir)
     document = Path.expand(path, pack_dir)
 
-    if document_inside_pack?(document, pack_dir) do
-      case File.read(document) do
-        {:ok, body} when byte_size(body) in 1..64_000 -> body
-        _missing_or_invalid -> nil
-      end
+    with {:ok, %{candidate: canonical}} <- Aiur.PathSafety.contained?(pack_dir, document),
+         {:ok, body} when byte_size(body) in 1..64_000 <- File.read(canonical) do
+      body
+    else
+      _missing_or_invalid -> nil
     end
   end
 
   defp draft_body(_path, _pack_dir), do: nil
-
-  defp document_inside_pack?(document, pack_dir) do
-    document == pack_dir or String.starts_with?(document, pack_dir <> "/")
-  end
 
   defp status(path) do
     path

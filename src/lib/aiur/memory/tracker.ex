@@ -7,6 +7,12 @@ defmodule Aiur.Memory.Tracker do
 
   alias Aiur.Issue
 
+  @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
+  def open_issue_labels(_max_age_ms) do
+    labels = Map.new(issue_entries(), &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
+    {:ok, labels, System.system_time(:millisecond)}
+  end
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: "memory"
 
@@ -97,7 +103,7 @@ defmodule Aiur.Memory.Tracker do
       :error ->
         update_issue_state(issue_id, state_name)
 
-      {:ok, expected_state} when is_binary(expected_state) ->
+      {:ok, expected_state} when is_binary(expected_state) or expected_state == :none ->
         update_issue_state_if_current(issue_id, state_name, expected_state)
 
       {:ok, _invalid} ->
@@ -137,10 +143,10 @@ defmodule Aiur.Memory.Tracker do
 
       index ->
         %Issue{state: current_state} = Enum.at(issues, index)
-        expected = normalize_state_slug(expected_state)
+        expected = if expected_state == :none, do: :none, else: normalize_state_slug(expected_state)
         actual = normalize_state_slug(current_state)
 
-        if actual == expected do
+        if actual == expected or (expected == :none and actual == "") do
           Application.put_env(:aiur, :memory_tracker_issues, List.update_at(issues, index, &%{&1 | state: state_name}))
           send_event({:memory_tracker_state_update, issue_id, state_name})
           :ok

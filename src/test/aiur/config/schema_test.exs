@@ -1,8 +1,33 @@
 defmodule Aiur.Config.SchemaTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Config
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Polling, StringOrMap}
+
+  describe "Claude account configuration" do
+    test "defaults to legacy single-account behavior and accepts selection modes" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.accounts == %{}
+      assert defaults.agent.account_selection == "balance"
+
+      assert {:ok, configured} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "accounts" => %{"claude" => ["default", "max"]},
+                   "account_selection" => "priority"
+                 }
+               })
+
+      assert configured.agent.accounts["claude"] == ["default", "max"]
+      assert configured.agent.account_selection == "priority"
+    end
+
+    test "rejects malformed account lists and unknown selection modes" do
+      assert {:error, _} = Schema.parse(%{"agent" => %{"accounts" => %{"claude" => "max"}}})
+      assert {:error, _} = Schema.parse(%{"agent" => %{"account_selection" => "random"}})
+    end
+  end
 
   describe "agent Mix scheduler cap" do
     test "defaults to four and accepts an explicit override" do
@@ -350,12 +375,12 @@ defmodule Aiur.Config.SchemaTest do
       assert message =~ "eligible registered fallback backend"
     end
 
-    test "accepts a non-default eligible primary/fallback pair" do
+    test "accepts a non-default primary with the registered fallback" do
       assert {:ok, settings} =
-               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "fake"}})
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "codex", "rate_limit_fallback" => "claude"}})
 
-      assert settings.agent.rate_limit_primary == "claude"
-      assert settings.agent.rate_limit_fallback == "fake"
+      assert settings.agent.rate_limit_primary == "codex"
+      assert settings.agent.rate_limit_fallback == "claude"
     end
 
     test "accepts an empty string to disable" do
@@ -656,6 +681,7 @@ defmodule Aiur.Config.SchemaTest do
       assert {:ok, settings} = Schema.parse(%{})
 
       assert settings.elevenlabs.api_key == nil
+      assert settings.elevenlabs.enabled == true
       assert settings.elevenlabs.language_code == "eng"
       assert settings.elevenlabs.voice_id == nil
     end
@@ -665,6 +691,7 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config", "language_code" => "spa", "voice_id" => "voice-123"}})
 
       assert settings.elevenlabs.api_key == "from-config"
+      assert settings.elevenlabs.enabled == true
       assert settings.elevenlabs.language_code == "spa"
       assert settings.elevenlabs.voice_id == "voice-123"
     end
@@ -691,6 +718,19 @@ defmodule Aiur.Config.SchemaTest do
       assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"language_code" => "eng"}})
 
       assert settings.elevenlabs.api_key == "env-token"
+    end
+
+    test "explicit disablement suppresses configured and fallback credentials" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} =
+               Schema.parse(%{"elevenlabs" => %{"enabled" => false, "api_key" => "from-config"}})
+
+      assert settings.elevenlabs.enabled == false
+      assert settings.elevenlabs.api_key == nil
+
+      assert {:ok, fallback_settings} = Schema.parse(%{"elevenlabs" => %{"enabled" => false}})
+      assert fallback_settings.elevenlabs.api_key == nil
     end
   end
 
@@ -841,6 +881,7 @@ defmodule Aiur.Config.SchemaTest do
     test "Observability section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.observability.dashboard_enabled == true
+      assert settings.observability.build_order_funnel_health_check == false
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
       assert settings.observability.telemetry_enabled == true
@@ -849,11 +890,22 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_retention_prune_interval_bytes == nil
     end
 
+    test "Funnel health checking is disabled by default and enabled explicitly" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      refute Config.build_order_funnel_health_check_enabled?({:ok, defaults})
+
+      assert {:ok, enabled} =
+               Schema.parse(%{"observability" => %{"build_order_funnel_health_check" => true}})
+
+      assert Config.build_order_funnel_health_check_enabled?({:ok, enabled})
+    end
+
     test "Observability section accepts explicit values" do
       {:ok, settings} =
         Schema.parse(%{
           "observability" => %{
             "dashboard_enabled" => false,
+            "build_order_funnel_health_check" => true,
             "dashboard_writable" => true,
             "refresh_ms" => 500,
             "telemetry_enabled" => false,
@@ -864,12 +916,40 @@ defmodule Aiur.Config.SchemaTest do
         })
 
       assert settings.observability.dashboard_enabled == false
+      assert settings.observability.build_order_funnel_health_check == true
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 500
       assert settings.observability.telemetry_enabled == false
       assert settings.observability.telemetry_retention_max_bytes == 1_024
       assert settings.observability.telemetry_retention_max_age_days == 7
       assert settings.observability.telemetry_retention_prune_interval_bytes == 128
+    end
+
+    test "Monitoring section parses with defaults" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.monitoring.daemon_heartbeat_stale_ms == 3_600_000
+    end
+
+    test "Monitoring section accepts explicit values" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "monitoring" => %{
+            "daemon_heartbeat_stale_ms" => 7_200_000
+          }
+        })
+
+      assert settings.monitoring.daemon_heartbeat_stale_ms == 7_200_000
+    end
+
+    test "Monitoring section rejects non-positive values" do
+      {:error, {:invalid_workflow_config, message}} =
+        Schema.parse(%{
+          "monitoring" => %{
+            "daemon_heartbeat_stale_ms" => 0
+          }
+        })
+
+      assert String.contains?(message, "daemon_heartbeat_stale_ms")
     end
 
     test "Upgrade section parses with defaults" do

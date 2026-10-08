@@ -91,12 +91,9 @@ defmodule Aiur.Config.Schema.Rtk do
 
   @primary_key false
   embedded_schema do
-    # Opt-in. rtk compresses shell output before an agent reads it, which is an
-    # optimization rather than a correctness fix, and its saving is strongly
-    # command-dependent (measured on this repo: `ls -la src/lib/aiur` 12724 ->
-    # 1044 bytes, but `git log --oneline -30` 2033 -> 2033 bytes, i.e. nothing).
-    # A tool that rewrites every command an agent runs is a real behaviour
-    # change, so it stays off until an operator asks for it.
+    # Controls whether the analytics panel reports host-level rtk output
+    # savings. This does not enable or disable a host-wide rtk hook; the
+    # operator owns that hook and must configure it to exclude `gh`.
     field(:enabled, :boolean, default: false)
   end
 
@@ -197,6 +194,8 @@ defmodule Aiur.Config.Schema.Agent do
     # its section here without adding another Ecto embed to this module.
     field(:backend_configs, :map, default: %{})
     field(:routing, :map, default: %{})
+    field(:accounts, :map, default: %{})
+    field(:account_selection, :string, default: "balance")
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
     # that hits usage_limit_exhausted, reverted at a safe boundary once
@@ -298,6 +297,8 @@ defmodule Aiur.Config.Schema.Agent do
         :max_concurrent_agents_by_state,
         :backend_configs,
         :routing,
+        :accounts,
+        :account_selection,
         :switch_model_on_ratelimit,
         :rate_limit_primary,
         :rate_limit_fallback,
@@ -322,6 +323,8 @@ defmodule Aiur.Config.Schema.Agent do
       empty_values: []
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
+    |> validate_inclusion(:account_selection, ["balance", "priority"])
+    |> validate_change(:accounts, &validate_accounts/2)
     |> validate_number(:run_queue_threshold, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
@@ -379,6 +382,18 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end
+
+  defp validate_accounts(field, accounts) when is_map(accounts) do
+    if Enum.all?(accounts, fn {harness, names} ->
+         is_binary(harness) and is_list(names) and Enum.all?(names, &is_binary/1)
+       end) do
+      []
+    else
+      [{field, "must map harness names to lists of account names"}]
+    end
+  end
+
+  defp validate_accounts(field, _accounts), do: [{field, "must be a map"}]
 
   defp validate_backend_configs(changeset) do
     configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}

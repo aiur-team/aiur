@@ -4,6 +4,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
   alias Aiur.AgentGitHubGuard
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.PathSafety
+  alias Aiur.Workspace.{Provisioner, WipPreservation}
 
   describe "hollow workspace provisioning (#1317)" do
     test "logs-only workspace with no configured before_run hook: dispatch refuses instead of starting a turn" do
@@ -38,6 +39,12 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
 
         assert {:error, {:workspace_provisioning_incomplete, ^workspace, :bootstrap}} =
                  Workspace.run_before_run_hook(workspace, issue)
+
+        # Refused bootstraps remain eligible for reconstruction on a later retry:
+        # installing runtime wrappers here would turn logs-only into unproven WIP.
+        assert File.ls!(workspace) == ["logs"]
+        refute File.exists?(Path.join(workspace, ".aiur-runtime"))
+        assert Provisioner.workspace_readiness(workspace) == :bootstrap
 
         # The underlying reason is in the alert text itself, not just a fixed
         # "missing" headline the operator would have to grep the log to explain.
@@ -132,7 +139,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
       end
     end
 
-    test "dirty leftover + todo state: held with work intact" do
+    test "dirty leftover + todo state: saved, recreated and disclosed to the worker" do
       test_root = test_root("todo")
 
       try do
@@ -146,16 +153,13 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
-        assert trace_count(trace_file) == 1
+        assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
       after
         File.rm_rf(test_root)
       end
     end
 
-    test "dirty leftover + agent:todo label on in-progress retry: held with work intact" do
+    test "dirty leftover + agent:todo label on in-progress retry: saved, recreated and disclosed" do
       test_root = test_root("retry")
 
       try do
@@ -169,10 +173,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
-        assert trace_count(trace_file) == 1
+        assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
       after
         File.rm_rf(test_root)
       end
@@ -204,7 +205,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
       end
     end
 
-    test "refusal is recognized by exit 65, never by output wording" do
+    test "dirty stale recreation is recognized by exit 65, never by output wording" do
       test_root = test_root("exit-65")
 
       try do
@@ -219,10 +220,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
-        assert trace_count(trace_file) == 1
+        assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
       after
         File.rm_rf(test_root)
       end
@@ -309,14 +307,12 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
         }
 
         # The restart dispatch order in AgentRunner reuses the existing checkout.
-        # A refused dirty refresh now stops before replacement and retains support.
+        # Recreate saves the WIP, rebuilds the checkout, and restores agent support.
         assert {:ok, ^workspace} = Workspace.create_for_issue(issue)
-        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
-        assert trace_count(trace_file) == 1
-        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+        assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
 
         assert_full_agent_runtime!(workspace)
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
       after
         File.rm_rf(test_root)
       end
@@ -774,6 +770,21 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
     base
   end
 
+  defp assert_stale_refresh_saved!(workspace, identifier, trace_file, issue) do
+    assert :ok = Workspace.run_before_run_hook(workspace, issue)
+    assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+    assert trace_count(trace_file) == 2
+
+    assert [notice] = WipPreservation.pending_notices(workspace, identifier)
+    assert notice["action"] == "recreate the stale workspace"
+    assert notice["tracked_files"] == ["README.md"]
+
+    {prompt, [^notice]} = WipPreservation.with_pending_notices(workspace, identifier, "continue work")
+    assert prompt =~ notice["artifact_dir"]
+    assert prompt =~ "Restore with these commands"
+    assert Enum.any?(notice["restore_commands"], &String.contains?(&1, "git apply --binary"))
+  end
+
   defp bootstrap_dirty_refresh_workspace!(test_root, identifier, opts \\ []) do
     source_repo = Path.join(test_root, "source")
     remote_repo = Path.join(test_root, "remote.git")
@@ -794,11 +805,13 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
       tracker_kind: "memory",
       workspace_root: workspace_root,
       hook_after_create: """
+      PATH="/usr/bin:/bin:$PATH"
       git clone #{shell_quote(remote_repo)} .
       issue_id="$(basename "$PWD")"
       git checkout -b "aiur/${issue_id}" origin/main
       """,
       hook_before_run: """
+      PATH="/usr/bin:/bin:$PATH"
       printf 'attempt\\n' >> #{shell_quote(trace_file)}
       if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +

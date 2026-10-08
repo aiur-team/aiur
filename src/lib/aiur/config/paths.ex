@@ -65,6 +65,14 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
+  @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_queue_dir do
+    with {:ok, root} <- decision_state_dir() do
+      {:ok, Path.join(root, "build-queue")}
+    end
+  end
+
   @doc """
   Resolves the daemon-private current-run membership state directory.
 
@@ -104,6 +112,20 @@ defmodule Aiur.Config.Paths do
       _ ->
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
+        end
+    end
+  end
+
+  @doc "Resolves the durable history leaf, separate from decision and membership state."
+  @spec build_history_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_history_state_dir do
+    case Application.get_env(:aiur, :build_history_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "build-history")}
         end
     end
   end
@@ -210,6 +232,20 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "balance-baselines")}
         end
+    end
+  end
+
+  @doc """
+  Resolves the daemon heartbeat file path.
+
+  The heartbeat file is written on daemon startup and refreshed periodically
+  to allow the Executor to detect daemon downtime. It lives in the executor-
+  scoped state directory alongside other per-repository state files.
+  """
+  @spec daemon_heartbeat_path() :: {:ok, Path.t()} | {:error, atom()}
+  def daemon_heartbeat_path do
+    with {:ok, root} <- decision_state_dir() do
+      {:ok, Path.join([root, "executor", "#{repo_name()}.daemon-heartbeat"])}
     end
   end
 

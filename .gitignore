@@ -83,7 +83,4 @@ __pycache__/
 # dependency worth committing.
 .aiur/model-catalog.json
 .aiur/update-check.json
-
-# Whitelist aiur-style dist/ (committed as part of the package)
-!packages/aiur-style/dist/
-!packages/aiur-style/dist/**
+.worktrees
