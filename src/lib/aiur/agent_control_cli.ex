@@ -1,6 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.ProviderMeters.CLI
 
   alias Aiur.{
@@ -2332,7 +2333,7 @@ defmodule Aiur.AgentControlCLI do
   @spec accounts(boolean()) :: :ok
   def accounts(json) do
     guarded("accounts", fn ->
-      AccountsCLI.accounts(json, &Aiur.Accounts.UsageReadings.snapshot("claude", &1))
+      AccountsCLI.accounts(json, &UsageReadings.snapshot("claude", &1))
       exit_marker(0)
     end)
   end
