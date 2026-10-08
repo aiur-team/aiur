@@ -9,6 +9,7 @@ defmodule Aiur.OpenAICompat.Registry do
     %{
       "kimi" =>
         entry("kimi", %{
+          accounts: %{kind: :api_key, multi: :available, supported: true, api_key_env: "MOONSHOT_API_KEY", usage: :unavailable},
           rate_limit_fallback_target: true,
           configurable: true,
           init_order: 2,
@@ -35,6 +36,7 @@ defmodule Aiur.OpenAICompat.Registry do
         }),
       "deepseek" =>
         entry("deepseek", %{
+          accounts: %{kind: :api_key, multi: :available, supported: true, api_key_env: "DEEPSEEK_API_KEY", usage: :unavailable},
           rate_limit_fallback_target: false,
           configurable: false,
           dispatch_enabled_by_default: false,
@@ -66,6 +68,7 @@ defmodule Aiur.OpenAICompat.Registry do
         }),
       "openrouter" =>
         entry("openrouter", %{
+          accounts: %{kind: :api_key, multi: :available, supported: true, api_key_env: "OPENROUTER_API_KEY", usage: :unavailable},
           rate_limit_fallback_target: true,
           configurable: true,
           init_order: 4,

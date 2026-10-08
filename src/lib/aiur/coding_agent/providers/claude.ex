@@ -15,6 +15,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       rate_limit_fallback_target: true,
       skill_install: %{path: ".claude/skills"},
       configurable: true,
+      accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},
       init_order: 0,
       default_command: "aiur-claude",
       model_catalog: &ModelCatalog.extract_claude/1,
@@ -84,6 +85,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       adapter: Aiur.Claude.ReplAgent,
       transcript: Aiur.Claude.Transcript,
       family: "claude",
+      accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},
       # A persistent REPL carries the primary session handle. It must never
       # be selected as a usage-limit replacement for a different session.
       rate_limit_fallback_target: false,

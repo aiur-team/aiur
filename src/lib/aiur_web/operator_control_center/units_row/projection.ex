@@ -67,6 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       requested_model: values.requested_model,
       resolved_model: values.resolved_model,
       effort: values.effort,
+      account: values.account,
       complexity: values.complexity,
       build_lane: values.build_lane,
       reasons: Fields.reasons(status_row, open_command_count),
@@ -170,6 +171,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       {requested_model, requested_model_source},
       {resolved_model, resolved_model_source},
       {effort, effort_source},
+      {account, account_source},
       {complexity, complexity_source},
       {build_lane, build_lane_source}
     } =
@@ -182,6 +184,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
         Fields.sourced_value(issue_fact, status_row, [:requested_model]),
         Fields.sourced_value(issue_fact, status_row, [:resolved_model]),
         Fields.sourced_value(issue_fact, status_row, [:effort]),
+        Fields.sourced_value(issue_fact, status_row, [:account]),
         Fields.sourced_complexity(issue_fact, status_row),
         Fields.sourced_build_lane(issue_fact, status_row)
       }
@@ -195,6 +198,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       requested_model: requested_model,
       resolved_model: resolved_model,
       effort: effort,
+      account: account,
       complexity: complexity,
       build_lane: build_lane,
       sources: %{
@@ -206,6 +210,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
         requested_model: requested_model_source,
         resolved_model: resolved_model_source,
         effort: effort_source,
+        account: account_source,
         complexity: complexity_source,
         build_lane: build_lane_source
       }
@@ -223,6 +228,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       requested_model: values.requested_model,
       resolved_model: values.resolved_model,
       effort: values.effort,
+      account: values.account,
       complexity: values.complexity,
       build_lane: values.build_lane,
       progress: if(is_nil(activity_row), do: :unknown, else: :activity),

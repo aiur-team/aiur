@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   require Logger
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
   alias Aiur.Init.AgentCli
 
@@ -66,7 +67,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   # Runtime dependencies in `opts` keep the decision pure in tests.
   @doc false
   @spec decide(map(), Issue.t(), keyword()) ::
-          :engage | :prepare_revert | :revert | :cancel_revert | :resume | :noop
+          :engage | :prepare_revert | :revert | :cancel_revert | :resume | :handoff | :noop
   def decide(running_entry, %Issue{} = issue, opts \\ []) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
 
@@ -155,10 +156,67 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp decide_unengaged(running_entry, issue, opts) do
     cond do
+      account_handoff_ready?(running_entry, opts) -> :handoff
       usage_pause_recovered?(running_entry, issue, opts) -> :resume
       usage_limited_on_primary?(running_entry, issue, opts) -> :engage
       true -> :noop
     end
+  end
+
+  defp account_handoff_ready?(entry, opts) do
+    session = Map.get(entry, :usage_limit_session, %{})
+
+    if handoff_candidate?(entry, session) do
+      config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+      source = session.account_name
+      candidates = configured_claude_accounts(config, opts) |> Enum.reject(&(&1 == source))
+      usages = account_usages(candidates, opts)
+
+      match?({:ok, _}, Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages))
+    else
+      false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp handoff_candidate?(entry, session) do
+    # Headless Claude's aiur-claude app-server is not resumable: its thread map
+    # is in-memory and thread/start cannot seed a moved session transcript.
+    # Keep those sessions on the existing wait-for-reset path.
+    State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :usage_limit_exhausted and
+      Map.get(entry, :account_handoff_attempted) != true and Map.get(session, :backend) == "claude-repl" and
+      is_binary(session[:account_name]) and is_binary(session[:session_id]) and is_binary(session[:cwd])
+  end
+
+  defp configured_claude_accounts(config, opts) do
+    names = Map.get(config.accounts || %{}, "claude", [])
+    list_accounts = Keyword.get(opts, :account_list_fun, &Aiur.Accounts.list/1)
+    registered = MapSet.new(list_accounts.("claude"), & &1.name)
+    Enum.filter(names, &MapSet.member?(registered, &1))
+  end
+
+  defp account_usages(names, opts) do
+    polled = UsageReadings.snapshot("claude", names)
+
+    fetch =
+      Keyword.get(opts, :account_usage_fetcher, fn name ->
+        case Aiur.Accounts.usage("claude", name) do
+          {:ok, %{windows: windows}, _metadata} -> Map.new(windows, &{&1.window, &1.used_percent})
+          _ -> nil
+        end
+      end)
+
+    Map.new(names, fn name ->
+      value =
+        case Map.fetch(polled, name) do
+          {:ok, %{reading: %{windows: windows}}} -> Map.new(windows, &{&1.window, &1.used_percent})
+          {:ok, _unavailable} -> nil
+          :error -> fetch.(name)
+        end
+
+      {name, value}
+    end)
   end
 
   defp usage_pause_recovered?(entry, issue, opts) do
@@ -247,6 +305,23 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     end
   end
 
+  defp apply_decision(state, running_entry, issue, :handoff, opts) do
+    session = Map.get(running_entry, :usage_limit_session, %{})
+    config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+    candidates = configured_claude_accounts(config, opts) |> Enum.reject(&(&1 == session.account_name))
+    usages = account_usages(candidates, opts)
+    move_session = Keyword.get(opts, :move_session_fun, &Aiur.Accounts.move_session/6)
+
+    with {:ok, destination} <- Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages),
+         :ok <- move_session.("claude", session.account_name, destination, session.session_id, session.cwd, Keyword.get(opts, :move_opts, [])) do
+      handoff(opts, state, running_entry, issue, destination, session)
+    else
+      {:error, reason} ->
+        Logger.warning("Claude account handoff deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
+        {put_running_entry(state, issue.id, Map.put(running_entry, :account_handoff_attempted, true)), true}
+    end
+  end
+
   defp apply_decision(state, running_entry, issue, :revert, opts) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
     engaged = engaged_fallback(issue, opts)
@@ -322,6 +397,43 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
       issue_id = get_in(running_entry, [:issue, Access.key(:id)])
       {put_running_entry(state, issue_id, cleared_entry), true}
     end
+  end
+
+  defp handoff(opts, state, running_entry, issue, destination, session) do
+    teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
+    event = Keyword.get(opts, :handoff_event_fun, &emit_account_handoff/4)
+    event.(issue, session.account_name, destination, session.session_id)
+    staged_state = teardown.(state, running_entry, :account_handoff)
+    staged_entry = Map.get(staged_state.running, issue.id, running_entry)
+    safe_entry = redispatch_safety_entry(staged_entry, issue) |> Map.put(:session_execution, %{backend: session.backend, account: destination})
+    staged_state = put_running_entry(staged_state, issue.id, safe_entry)
+
+    next_state =
+      case Keyword.get(opts, :dispatch_fun) do
+        dispatch when is_function(dispatch, 5) ->
+          dispatch.(staged_state, issue, nil, Map.get(running_entry, :worker_host),
+            account_name: destination,
+            resume_thread_id: session.session_id
+          )
+
+        _ ->
+          Dispatcher.do_dispatch_issue(staged_state, issue, nil, Map.get(running_entry, :worker_host),
+            prior_work: Config.agent_prior_work_continuation?(),
+            account_name: destination,
+            resume_thread_id: session.session_id
+          )
+      end
+
+    {retain_redispatch_safety(next_state, safe_entry, issue), true}
+  end
+
+  defp emit_account_handoff(issue, source, destination, session_id) do
+    Aiur.Alerts.emit_system("ticket.#{issue.identifier}.agent.account_handoff",
+      issue: issue,
+      reason: "Claude session #{session_id} moved from account #{source} to #{destination} and resumed.",
+      needs_attention: false,
+      severity: "info"
+    )
   end
 
   defp transition_context(state, running_entry, issue, relabeled, opts) do
@@ -488,6 +600,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     replacement
     |> Map.put(:rate_limit_fallback_replacement, true)
     |> Map.put(:redispatch_safety, Map.fetch!(staged_entry, :redispatch_safety))
+    |> Map.put(:session_execution, Map.get(replacement, :session_execution) || Map.get(staged_entry, :session_execution))
     |> maybe_put_lifecycle_fence(Map.get(staged_entry, :lifecycle_fence))
     |> maybe_put_workspace_path(Map.get(staged_entry, :workspace_path))
   end
