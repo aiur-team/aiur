@@ -72,6 +72,23 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
       for (const page of [pair.design, pair.product]) {
         await page.evaluate(() => {
           const specimen = document.createElement('div')
+          specimen.id = 'faces-specimen'
+          specimen.style.cssText = 'display:block!important;position:fixed;top:0;left:0;width:max-content'
+          for (const family of ['Space Grotesk', 'JetBrains Mono']) for (const weight of [550, 650]) {
+            const text = document.createElement('span')
+            text.style.cssText = `display:block;font:${weight} 40px "${family}";line-height:1.5`
+            text.textContent = 'Aiur stroke specimen 0123456789'
+            specimen.append(text)
+          }
+          document.body.append(specimen)
+        })
+      }
+      // Variable weights can share advances; compare strokes as well as widths.
+      await expectDesignParity(pair, { name: `faces-${theme}-${palette}`, region: '#faces-specimen' })
+      for (const page of [pair.design, pair.product]) await page.locator('#faces-specimen').evaluate(node => node.remove())
+      for (const page of [pair.design, pair.product]) {
+        await page.evaluate(() => {
+          const specimen = document.createElement('div')
           specimen.id = 'bungee-specimen'
           specimen.style.cssText = 'display:inline-block!important;font:400 40px Bungee;position:fixed;top:0;left:0'
           specimen.textContent = 'aiur'
