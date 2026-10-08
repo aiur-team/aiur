@@ -27,6 +27,8 @@ defmodule Aiur.Orchestrator.State do
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
+            optional(:sample_id) => reference() | integer() | nil,
+            optional(:sampled_at_ms) => integer() | nil,
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()

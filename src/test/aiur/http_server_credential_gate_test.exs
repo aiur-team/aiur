@@ -32,6 +32,59 @@ defmodule Aiur.HttpServerCredentialGateTest do
     :ok
   end
 
+  # Future-regression guards: these intentionally pass on existing production code.
+  describe "non-loopback addresses without credentials" do
+    for {name, host} <- [
+          {"the IPv4 wildcard needs credentials", "0.0.0.0"},
+          {"the IPv6 wildcard needs credentials", "::"},
+          {"only 127.0.0.1 counts as IPv4 loopback", "127.0.0.2"}
+        ] do
+      test name do
+        assert :ignore =
+                 HttpServer.start_link(
+                   host: unquote(host),
+                   port: 0,
+                   dashboard_writable: false,
+                   endpoint_start_fun: fn -> {:ok, self()} end
+                 )
+      end
+    end
+
+    test "a writable wildcard bind needs credentials" do
+      log =
+        capture_log(fn ->
+          assert :ignore =
+                   HttpServer.start_link(
+                     host: "0.0.0.0",
+                     port: 0,
+                     dashboard_writable: true,
+                     endpoint_start_fun: fn -> {:ok, self()} end
+                   )
+        end)
+
+      assert log =~ "observability.dashboard_writable"
+    end
+  end
+
+  # Future-regression guard for MP-N2 RQ-TRANSPORT and MP-R3-C2-T01 Transport docs.
+  test "the listener is configured for plain HTTP only (MP-N2 transport depends on this)" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "alice")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    assert {:ok, pid} =
+             HttpServer.start_link(
+               host: "127.0.0.1",
+               port: 0,
+               endpoint_start_fun: fn -> {:ok, self()} end
+             )
+
+    assert pid == self()
+    config = Application.fetch_env!(:aiur, AiurWeb.Endpoint)
+    assert config[:http][:ip] == {127, 0, 0, 1}
+    assert config[:http][:port] == 0
+    refute Keyword.has_key?(config, :https)
+  end
+
   describe "non-loopback bind without credentials" do
     test "returns :ignore" do
       result =

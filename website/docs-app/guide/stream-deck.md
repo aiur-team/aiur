@@ -205,6 +205,8 @@ The key is optional and its absence is not an error; unlike an absent key, `elev
 
 ### Where your voice goes
 
+See [voice responsibilities and cloud processing](/apis/elevenlabs#who-does-what) for capture, transport, transcription, delivery and retention.
+
 This is the one part of Aiur that sends operator data to a third party.
 
 **Aiur holds the credential and Aiur performs the ElevenLabs call. The sidecar never sees the key.**
