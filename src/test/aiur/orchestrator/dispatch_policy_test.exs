@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, ModelAvailability, Workflow}
+  alias Aiur.BuildQueue.Hints
   alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
   describe "load_gate/3" do
@@ -381,6 +382,57 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
   end
 
   describe "sort_issues_for_dispatch/1" do
+    # Compatibility guard: deliberately passes against the pre-hints implementation.
+    test "sort is unchanged with no hints table or an empty table" do
+      assert :ets.whereis(Hints.table_name()) == :undefined
+
+      issues =
+        for n <- 20..1//-1 do
+          issue(to_string(n),
+            priority: Enum.at([nil, 1, 2, 3, 4, 9], rem(n, 6)),
+            created_at: if(rem(n, 4) == 0, do: nil, else: DateTime.add(~U[2026-01-01 00:00:00Z], rem(n, 3)))
+          )
+        end
+
+      issues = [nil | issues]
+
+      expected =
+        Enum.sort_by(issues, fn
+          %Issue{} = issue ->
+            priority = if issue.priority in 1..4, do: issue.priority, else: 5
+            age = if issue.created_at, do: DateTime.to_unix(issue.created_at, :microsecond), else: 9_223_372_036_854_775_807
+            {priority, age, issue.identifier || issue.id || ""}
+
+          _ ->
+            {5, 9_223_372_036_854_775_807, ""}
+        end)
+
+      assert DispatchPolicy.sort_issues_for_dispatch(issues) == expected
+      :ets.new(Hints.table_name(), [:named_table, :set])
+      assert DispatchPolicy.sort_issues_for_dispatch(issues) == expected
+    end
+
+    test "a queue item with downstream 3 precedes a priority:1 non-queue item" do
+      :ets.new(Hints.table_name(), [:named_table, :set])
+      :ets.insert(Hints.table_name(), {"7", {-3, 0}, false})
+      issues = [issue("1", priority: 1), issue("7", priority: 4)]
+
+      assert Enum.map(DispatchPolicy.sort_issues_for_dispatch(issues), & &1.id) == ["7", "1"]
+    end
+
+    test "list position orders equal-priority queue items before age but after priority" do
+      :ets.new(Hints.table_name(), [:named_table, :set])
+      :ets.insert(Hints.table_name(), [{"1", {-3, 1}, false}, {"2", {-3, 2}, false}, {"3", {-3, 9}, false}])
+
+      issues = [
+        issue("2", priority: 2, created_at: ~U[2026-01-01 00:00:00Z]),
+        issue("1", priority: 2, created_at: ~U[2026-01-02 00:00:00Z]),
+        issue("3", priority: 1, created_at: ~U[2026-01-03 00:00:00Z])
+      ]
+
+      assert Enum.map(DispatchPolicy.sort_issues_for_dispatch(issues), & &1.id) == ["3", "1", "2"]
+    end
+
     test "orders by priority rank, missing priority, created_at, then identifier" do
       early = ~U[2026-01-01 00:00:00Z]
       late = ~U[2026-01-02 00:00:00Z]
@@ -1053,6 +1105,24 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
   end
 
   describe "blocked-on-decision dispatch gate (#1965)" do
+    test "a held issue is declined with :build_queue_hold before other state gates" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      :ets.new(Hints.table_name(), [:named_table, :set])
+      :ets.insert(Hints.table_name(), {"held", {0, 0}, true})
+      ticket = issue("held", [])
+      state = %State{max_concurrent_agents: 5, blocked_ticket_ids: MapSet.new([ticket.id])}
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, MapSet.new()) == {:skip, :build_queue_hold}
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, state.blocked_ticket_ids) == {:skip, :build_queue_hold}
+      assert DispatchPolicy.manual_resume_decision(ticket, state) == {:skip, :build_queue_hold}
+
+      :ets.insert(Hints.table_name(), {ticket.id, {0, 0}, false})
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, MapSet.new()) == :dispatch
+      assert DispatchPolicy.manual_resume_decision(ticket, %{state | blocked_ticket_ids: MapSet.new()}) == :dispatch
+    end
+
     test "a ticket with an open blocking Command is skipped with :blocked_on_decision" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
       state = %State{max_concurrent_agents: 5}

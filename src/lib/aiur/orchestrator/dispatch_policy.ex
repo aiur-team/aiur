@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   require Logger
 
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
 
@@ -628,10 +629,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def sort_issues_for_dispatch(issues) when is_list(issues) do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
-        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+        {downstream_rank, position} = Hints.sort_key(issue.id)
+        {downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 
       _ ->
-        {priority_rank(nil), issue_created_at_sort_key(nil), ""}
+        {0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
     end)
   end
 
@@ -670,6 +672,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :no_agent_work_state
           | :terminal_state
           | :dependency
+          | :build_queue_hold
           | :blocked_on_decision
           | :already_running
           | :auto_resume_pending
@@ -698,6 +701,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :no_agent_work_state,
     :terminal_state,
     :dependency,
+    :build_queue_hold,
     :blocked_on_decision,
     :already_running,
     :auto_resume_pending,
@@ -884,6 +888,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          blocked_ticket_ids
        ) do
     cond do
+      Hints.held?(issue.id) -> {:skip, :build_queue_hold}
       blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
       todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
