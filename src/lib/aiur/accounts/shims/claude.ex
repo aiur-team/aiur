@@ -14,6 +14,9 @@ defmodule Aiur.Accounts.Shims.Claude do
   def never_shared, do: [".claude.json", "projects/*", "sessions/", "history.jsonl", "remote-settings.json", "policy-limits.json"]
 
   @impl true
+  def profile_root, do: Path.join([System.get_env("HOME") || Path.expand("~"), ".claude"])
+
+  @impl true
   def login_command(dir), do: {"env", ["CLAUDE_CONFIG_DIR=" <> dir, "claude"]}
 
   @impl true

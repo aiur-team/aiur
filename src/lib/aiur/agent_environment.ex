@@ -29,7 +29,7 @@ defmodule Aiur.AgentEnvironment do
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
   @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
-  @provider_api_key_pattern ~r/_API_KEY\z/
+  @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
   # as the bot account and carry its `GITHUB_TOKEN` PAT; the App installation is
   # deliberately a different login (see `AgentGitHubGuard`), and it is the
@@ -142,7 +142,7 @@ defmodule Aiur.AgentEnvironment do
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()

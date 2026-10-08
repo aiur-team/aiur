@@ -1,15 +1,17 @@
-# Claude accounts
+# Accounts by backend
 
-Aiur can dispatch Claude workers across multiple Claude Code logins on one
-machine. Account profiles are machine-local; they do not belong in repository
-configuration.
+Account profiles are machine-local; they do not belong in repository
+configuration. Claude and Codex support isolated profile directories. Kimi,
+DeepSeek, and OpenRouter support named API keys. Muse uses its native single
+login and does not support isolated accounts.
 
 ## Add an account
 
-Create a profile and sign in interactively:
+Create a Claude or Codex profile and sign in interactively:
 
 ```sh
 aiur login claude work
+aiur login codex work
 ```
 
 To adopt a profile that already exists elsewhere:
@@ -18,16 +20,30 @@ To adopt a profile that already exists elsewhere:
 aiur login claude work --dir "$HOME/Claude-work"
 ```
 
-Aiur links shared settings, instructions, plugins, skills, and project memory
-from the default Claude profile. It does not link Claude identity files,
-transcripts, sessions, history, remote settings, or policy limits. The existing
-`~/.claude` remains the `default` account and is not copied or moved.
+Claude profiles link shared settings, instructions, plugins, skills, and
+project memory. Claude identity files, transcripts, sessions, history, remote
+settings, and policy limits stay private. Codex profiles link only
+`config.toml` and `skills`; `auth.json` and state databases are never shared.
+The existing `~/.claude` and `~/.codex` directories remain the `default`
+accounts and are not copied or moved.
+
+For API-key backends, add a named key to `~/.aiur/.env`, for example
+`DEEPSEEK_API_KEY__WORK=...`, then register the account with `aiur login`:
+
+```sh
+aiur login deepseek work
+```
+
+Use the provider's base variable name followed by `__` and the uppercase
+account name. Keys remain in the env file; the machine account registry stores
+only the variable name. Per-key identity and usage are unavailable for these
+backends and are shown as unavailable.
 
 List account identity and usage without exposing credentials:
 
 ```sh
 aiur accounts
-aiur accounts --json
+aiur accounts codex --json
 ```
 
 ## Enable accounts for dispatch
@@ -39,18 +55,21 @@ priority order:
 agent:
   accounts:
     claude: [default, work]
-  account_selection: balance
+    codex: [default, work]
+    deepseek: [default, work]
+  account_selection: priority
 ```
 
 `balance` selects the account with the lowest weekly utilization, using
 five-hour utilization to break ties. `priority` uses the first configured
-account that is below both limits. Unavailable usage is never treated as zero
-and ranks after known readings. The chosen account stays fixed for that ticket's
-session.
+account. Usage-aware selection currently applies to Claude and Codex; API-key
+accounts have unavailable usage, so use `priority` when those backends have
+multiple keys. The chosen account stays fixed for that ticket's session.
 
-The combined Claude usage bar gives every account an equal-width segment and
-reports the average weekly utilization. Each account's utilization and
-freshness remain visible in its label and tooltip.
+Claude usage includes weekly and five-hour account readings. Codex identities
+come from auth metadata, never token contents; its usage probe reads the
+selected `CODEX_HOME`. API-key accounts currently have no per-key identity or
+usage reading, so Aiur reports usage unavailable for those rows.
 
 Remove an account from the registry while keeping its files:
 

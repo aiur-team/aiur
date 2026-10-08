@@ -21,6 +21,39 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
     %{workspace: workspace}
   end
 
+  test "named API key accounts resolve from the machine env file without leaking into session metadata", _context do
+    home = Path.join(System.tmp_dir!(), "aiur-api-account-#{System.unique_integer([:positive])}")
+    env_path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(env_path))
+    File.write!(env_path, "DEEPSEEK_API_KEY__WORK=account-secret\nDEEPSEEK_API_KEY=default-secret\n")
+    previous = System.get_env("HOME")
+    System.put_env("HOME", home)
+
+    on_exit(fn ->
+      if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
+      File.rm_rf!(home)
+    end)
+
+    config = %{
+      base_url: "https://example.invalid/v1",
+      api_key_env: "DEEPSEEK_API_KEY",
+      default_model: "deepseek-v4-flash",
+      transport: :responses,
+      quirks: %{}
+    }
+
+    assert {:ok, resolved} =
+             Aiur.OpenAICompat.Config.resolve(
+               backend: "deepseek",
+               instance: config,
+               backend_config: %{},
+               account_name: "work"
+             )
+
+    assert resolved.api_key == "account-secret"
+    refute inspect(Map.drop(resolved, [:api_key])) =~ "account-secret"
+  end
+
   test "completes a tool loop, replays reasoning content, and drains an operator message", %{workspace: workspace} do
     parent = self()
 

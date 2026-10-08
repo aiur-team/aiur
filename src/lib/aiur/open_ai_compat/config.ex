@@ -3,6 +3,7 @@ defmodule Aiur.OpenAICompat.Config do
 
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Init.Dotenv
 
   @required ~w(base_url api_key_env transport)a
 
@@ -86,11 +87,36 @@ defmodule Aiur.OpenAICompat.Config do
   defp valid_required?(config, key), do: is_binary(Map.get(config, key)) and String.trim(Map.fetch!(config, key)) != ""
 
   defp fetch_api_key(env_name, opts) do
-    fetcher = Keyword.get(opts, :api_key_fetcher, &System.get_env/1)
+    fetcher =
+      Keyword.get(opts, :api_key_fetcher, fn key ->
+        account_api_key(env_name, opts) || account_api_key_from_file(env_name, opts) || System.get_env(key)
+      end)
 
     case fetcher.(env_name) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _ -> {:error, {:missing_api_key, env_name}}
+    end
+  end
+
+  defp account_api_key(env_name, opts) do
+    case Keyword.get(opts, :env, []) |> Enum.find(fn {name, _} -> name == env_name end) do
+      {_name, value} when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp account_api_key_from_file(env_name, opts) do
+    selected_name = Keyword.get(opts, :account_name)
+    selected_key = if is_binary(selected_name), do: env_name <> "__" <> String.upcase(selected_name), else: env_name
+    path = Path.join(System.get_env("HOME") || Path.expand("~"), ".aiur/.env")
+
+    case File.read(path) do
+      {:ok, contents} ->
+        env = Map.new(Dotenv.parse(contents))
+        if selected_key == env_name, do: Map.get(env, env_name), else: Map.get(env, selected_key)
+
+      _ ->
+        nil
     end
   end
 
