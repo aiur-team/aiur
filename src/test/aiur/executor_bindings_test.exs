@@ -36,6 +36,7 @@ defmodule Aiur.ExecutorBindingsTest do
     assert ExecutorBindings.allowlisted?("ticket.*.pr.opened")
     assert ExecutorBindings.allowlisted?("executor.#")
     assert ExecutorBindings.allowlisted?("executor.notice.*")
+    assert ExecutorBindings.allowlisted?("ticket.3028.agent.attention.*")
 
     refute ExecutorBindings.allowlisted?("ticket.#.pr.opened")
     refute ExecutorBindings.allowlisted?("ticket.*.#")

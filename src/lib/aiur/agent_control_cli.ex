@@ -15,6 +15,7 @@ defmodule Aiur.AgentControlCLI do
     BuildOrdersCLI,
     CommandsCLI,
     Config,
+    ExecutorBindings,
     ExecutorCommandCLI,
     ExecutorEvents,
     ExecutorListener,
@@ -431,6 +432,18 @@ defmodule Aiur.AgentControlCLI do
 
   @spec executor_listen(keyword()) :: no_return()
   def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  @spec executor_listen_validate(String.t()) :: no_return()
+  def executor_listen_validate(topic) do
+    case ExecutorEvents.validate_binding_topic(topic) do
+      :ok ->
+        exit_marker(0)
+
+      {:error, reason} ->
+        IO.puts(@error_marker <> "aiur: listen topic rejected (#{inspect(reason)}); allowed bindings: #{Enum.join(ExecutorBindings.patterns(), ", ")}")
+        exit_marker(64)
+    end
+  end
 
   @doc """
   Waits for Executor wake records, auto-claiming the stream when nobody holds
