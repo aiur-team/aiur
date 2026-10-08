@@ -327,8 +327,20 @@ focused test runner, test-tree paths and CI gate at each step.
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
-    - **Passed:** fetch the configured base once. If its current remote head is
-      still an ancestor of the tested PR head, trust the delivered result without re-polling,
+    - **Freshness checklist (before `gh pr ready` or `human-review`):**
+      verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
+      `headRefOid` equals your local `HEAD`. Run
+      `git -C "$workspace" fetch origin "$AIUR_BASE_BRANCH"`, then
+      `git -C "$workspace" merge-base --is-ancestor "origin/$AIUR_BASE_BRANCH" HEAD`.
+      A fetch/probe error is not permission to hand off. On exit 1, record the
+      pre-merge head and create a rescue ref, merge the configured base,
+      validate and push; return to `ci-wait` for CI on the new head. Preserve
+      feature scope and push the rescue ref before resolving nontrivial conflicts.
+      Record the observed base SHA, exact PR head and ancestry result in the
+      workpad. The GitHub state writer also refuses a stale head and returns
+      one update instruction in the tool response; follow it before retrying.
+    - **Passed:** run the freshness checklist above. If the observed base head is
+      an ancestor of the tested PR head, trust the delivered result without re-polling,
       mark the PR ready for review, emit the required 100% progress sample, and
       move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
       Use that tool, never `gh issue edit --remove-label agent:ci-wait

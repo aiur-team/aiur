@@ -262,6 +262,18 @@ defmodule Aiur.Codex.DynamicTool.Errors do
       }
     }
 
+  def payload({:stale_review_base, detail}),
+    do: %{
+      "error" => %{
+        "message" =>
+          "Human-review refused: PR ##{detail.pr_number} does not contain current origin/#{detail.base_branch}. " <>
+            "Fetch and merge the configured base, resolve conflicts, validate and push, then return to ci-wait. " <>
+            "Wait for CI on the new head before marking the PR ready or requesting human-review again.",
+        "reason" => "stale_review_base",
+        "detail" => Response.jsonable(detail)
+      }
+    }
+
   def payload(:ticket_state_setter_unavailable),
     do: %{
       "error" => %{

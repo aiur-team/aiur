@@ -3,11 +3,14 @@ defmodule Aiur.GitHub.HumanReviewGate do
   Human-review readiness checks for GitHub issues.
 
   This module blocks a transition to human review while the canonical open
-  `aiur/<issue>` pull request has unaddressed review-thread comments. It
-  composes pull request discovery, bot identity resolution, and review-thread
-  classification without mutating GitHub state.
+  pull request has unaddressed review-thread comments or does not contain the
+  configured integration base at the state-write boundary. Subsequent observer
+  checks verify review threads only, so base movement during review does not
+  withdraw an accepted handoff. It composes pull request discovery, bot identity
+  resolution, review-thread classification and ancestry without mutating GitHub state.
   """
 
+  alias Aiur.Config
   alias Aiur.GitHub.{BotIdentity, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
 
   @spec verify_human_review_ready(String.t() | integer(), keyword()) :: :ok | {:error, term()}
@@ -30,7 +33,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @spec verify_human_review_review_threads_clear(map(), String.t()) :: :ok | {:error, term()}
   def verify_human_review_review_threads_clear(context, state_name) do
     if StatePolicy.human_review_target_state?(state_name) do
-      verify_issue_review_threads_clear(context)
+      verify_issue_ready(context, true)
     else
       :ok
     end
@@ -38,12 +41,15 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   @doc false
   @spec verify_issue_review_threads_clear(map()) :: :ok | {:error, term()}
-  def verify_issue_review_threads_clear(context) do
+  def verify_issue_review_threads_clear(context), do: verify_issue_ready(context, false)
+
+  defp verify_issue_ready(context, check_base?) do
     case open_pull_request(context) do
-      {:ok, %{"number" => pr_number}} when is_integer(pr_number) ->
+      {:ok, %{"number" => pr_number} = pr} when is_integer(pr_number) ->
         with {:ok, agent_login} <-
-               BotIdentity.bot_account(context.opts, context.request_fun, context.token) do
-          verify_pr_review_threads_clear(context, pr_number, agent_login)
+               BotIdentity.bot_account(context.opts, context.request_fun, context.token),
+             :ok <- verify_pr_review_threads_clear(context, pr_number, agent_login) do
+          if check_base?, do: verify_base_ancestry(context, pr), else: :ok
         end
 
       {:ok, nil} ->
@@ -56,6 +62,29 @@ defmodule Aiur.GitHub.HumanReviewGate do
         error
     end
   end
+
+  defp verify_base_ancestry(context, %{"head" => %{"sha" => head_sha}, "number" => pr_number})
+       when is_binary(head_sha) and head_sha != "" do
+    base = Config.base_branch(context.opts)
+    comparison = "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head_sha, &URI.char_unreserved?/1)}"
+    url = "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=1"
+    # A branch name moves independently of this PR; ancestry decisions always read upstream.
+    case Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry") do
+      {:ok, %{"status" => status}} when status in ["ahead", "identical"] ->
+        :ok
+
+      {:ok, %{"status" => status}} when status in ["behind", "diverged"] ->
+        {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head_sha}}}
+
+      {:ok, _body} ->
+        {:error, :review_base_ancestry_unavailable}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp verify_base_ancestry(_context, _pr), do: {:error, :review_base_ancestry_unavailable}
 
   @doc false
   @spec verify_pr_review_threads_clear(map(), integer(), String.t()) :: :ok | {:error, term()}

@@ -1796,8 +1796,11 @@ defmodule Aiur.GitHub.ClientTest do
 
       request_fun = fn req ->
         cond do
+          req.method == :get and req.url =~ "/compare/main...tested-head" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
+
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1912,7 +1915,7 @@ defmodule Aiur.GitHub.ClientTest do
 
           {:get, 1} ->
             assert req.url =~ "/pulls?"
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
 
           {:post, 2} ->
             assert req.url == "https://api.github.com/graphql"
@@ -1921,6 +1924,10 @@ defmodule Aiur.GitHub.ClientTest do
           # The swap adds first: the active-label add re-checks the issue, then
           # POSTs the new label, then removes the old one (#2420).
           {:get, 3} ->
+            assert req.url =~ "/compare/main...tested-head"
+            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
+
+          {:get, 4} ->
             assert req.url =~ "/issues/42"
 
             {:ok,
@@ -1932,11 +1939,11 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:post, 4} ->
+          {:post, 5} ->
             assert req.body == %{"labels" => ["sym:human-review"]}
             {:ok, %{status: 200}}
 
-          {:delete, 5} ->
+          {:delete, 6} ->
             assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
             {:ok, %{status: 200}}
         end

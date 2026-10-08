@@ -37,11 +37,14 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
     test "returns :ok when the canonical aiur/<issue> PR has zero unaddressed thread comments" do
       request_fun = fn req ->
         cond do
+          req.method == :get and req.url =~ "/compare/" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
+
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok,
              %{
                status: 200,
-               body: [%{"number" => 42, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+               body: [%{"number" => 42, "head" => %{"ref" => "aiur/42", "sha" => "tested-head", "repo" => %{"full_name" => "owner/repo"}}}]
              }}
 
           req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
@@ -195,6 +198,109 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       assert ResourceStore.data(key) == approved
     end
 
+    test "stale heads refuse the label write and return one actionable worker packet" do
+      for status <- ["behind", "diverged"] do
+        parent = self()
+        fallback = blocking_thread_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
+
+        request_fun = fn req ->
+          cond do
+            req.method == :get and req.url =~ "/issues/42" ->
+              {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "agent:in-progress"}]}}}
+
+            req.method == :get and req.url =~ "/compare/" ->
+              assert req.url =~ "/compare/release%2Fnext...tested-head?per_page=1"
+              assert req.caller == "human_review_base_ancestry"
+              send(parent, :compared)
+              {:ok, %{status: 200, body: %{"status" => status}}}
+
+            req.method in [:post, :delete] and req.url != "https://api.github.com/graphql" ->
+              flunk("stale head must not mutate labels")
+
+            true ->
+              fallback.(req)
+          end
+        end
+
+        executor =
+          Aiur.AgentRunner.ToolExecutor.build(%Aiur.Issue{id: "42", identifier: "42"}, nil, nil, %{},
+            coordination_runner: fn _key, operation, _opts -> operation.() end,
+            ticket_state_writer: fn id, state ->
+              Aiur.GitHub.Client.update_issue_state(id, state, request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
+            end
+          )
+
+        response = executor.("aiur_set_ticket_state", %{"state" => "human-review"})
+        assert response["success"] == false
+        error = Jason.decode!(response["output"])["error"]
+        assert error["reason"] == "stale_review_base"
+        assert error["detail"] == %{"pr_number" => 77, "base_branch" => "release/next", "head_sha" => "tested-head"}
+        assert error["message"] =~ "Fetch and merge"
+        assert error["message"] =~ "ci-wait"
+        assert_receive :compared
+        refute_receive :compared
+      end
+    end
+
+    test "ancestry checks observe a base that moves after a successful handoff check" do
+      {:ok, statuses} = Agent.start_link(fn -> ["ahead", "identical", "diverged"] end)
+      fallback = blocking_thread_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
+
+      request_fun = fn req ->
+        if req.method == :get and req.url =~ "/compare/main...tested-head" do
+          status = Agent.get_and_update(statuses, fn [status | rest] -> {status, rest} end)
+          {:ok, %{status: 200, body: %{"status" => status}}}
+        else
+          fallback.(req)
+        end
+      end
+
+      opts = [request_fun: request_fun, bot_account: "aiur-bot"]
+      assert :ok = Aiur.GitHub.Client.update_issue_state("42", "human-review", opts)
+      assert :ok = Aiur.GitHub.Client.update_issue_state("42", "human-review", opts)
+
+      assert {:error, {:stale_review_base, %{base_branch: "main", head_sha: "tested-head"}}} =
+               Aiur.GitHub.Client.update_issue_state("42", "human-review", opts)
+
+      assert Agent.get(statuses, & &1) == []
+    end
+
+    test "unavailable ancestry never becomes permission to hand off" do
+      fallback = blocking_thread_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
+
+      cases = [
+        {{:ok, %{status: 200, body: %{}}}, {:error, :review_base_ancestry_unavailable}},
+        {{:ok, %{status: 200, body: %{"status" => "unknown"}}}, {:error, :review_base_ancestry_unavailable}},
+        {{:error, :timeout}, {:error, {:github, :timeout, %{reason: :timeout}}}},
+        {{:ok, %{status: 403}}, {:error, {:github, :http, %{status: 403}}}}
+      ]
+
+      for {result, expected} <- cases do
+        request_fun = fn req ->
+          if req.method == :get and req.url =~ "/compare/" do
+            result
+          else
+            if req.method in [:post, :delete] and req.url != "https://api.github.com/graphql", do: flunk("unavailable ancestry must not mutate labels")
+            fallback.(req)
+          end
+        end
+
+        assert Aiur.GitHub.Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot") == expected
+      end
+
+      missing_head = fn req ->
+        if req.method == :get and req.url =~ "/pulls?" do
+          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+        else
+          if req.method in [:post, :delete] and req.url != "https://api.github.com/graphql", do: flunk("missing head must not mutate labels")
+          fallback.(req)
+        end
+      end
+
+      assert {:error, :review_base_ancestry_unavailable} =
+               Aiur.GitHub.Client.update_issue_state("42", "human-review", request_fun: missing_head, bot_account: "aiur-bot")
+    end
+
     test "returns :ok when no open PR exists (FI-GH-033)" do
       request_fun = fn req ->
         cond do
@@ -216,6 +322,15 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
   defp blocking_thread_request_fun(reviews) do
     fn req ->
       cond do
+        req.method == :get and req.url =~ "/issues/42" ->
+          {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "agent:in-progress"}]}}}
+
+        req.method in [:post, :delete] and req.url != "https://api.github.com/graphql" ->
+          {:ok, %{status: 200}}
+
+        req.method == :get and req.url =~ "/compare/" ->
+          {:ok, %{status: 200, body: %{"status" => "ahead"}}}
+
         req.method == :get and req.url =~ "/pulls/77/reviews" ->
           {:ok, %{status: 200, body: reviews}}
 
@@ -223,7 +338,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
           {:ok,
            %{
              status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head", "repo" => %{"full_name" => "owner/repo"}}}]
            }}
 
         req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
