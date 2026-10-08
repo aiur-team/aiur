@@ -174,6 +174,10 @@ if with_node:
     imports('file_dependency_contracts_allowed', 'import "@aiur/contracts";',
             dependencies={'@aiur/contracts': 'file:../aiur-contracts'},
             extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}'})
+    imports('parenthesized_external_resource_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
+    imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
     imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',

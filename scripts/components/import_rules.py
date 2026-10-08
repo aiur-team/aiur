@@ -53,10 +53,11 @@ def client_reason(root, package, dependencies, specifier, resolved):
 
 
 def resource_attributes(text):
+    # ponytail: literal paths and attribute aliases only; use an Elixir AST for computed paths.
     attributes = []
     lines = text.splitlines()
     for index, line in enumerate(lines):
-        match = re.match(r'^\s*@(\w+)\s+(.+)$', line)
+        match = re.match(r'^\s*@(\w+)\s*(.*)$', line)
         if not match:
             continue
         name, expression = match.groups()
@@ -81,7 +82,9 @@ def reverse_resources(root, files):
         for name, expression in declarations:
             if name != 'external_resource':
                 continue
-            if re.fullmatch(r'@\w+', expression):
+            seen = set()
+            while re.fullmatch(r'@\w+', expression) and expression not in seen:
+                seen.add(expression)
                 expression = attributes.get(expression[1:], '')
             literal = re.search(r'"([^"\n]+)"', expression)
             if not literal:
