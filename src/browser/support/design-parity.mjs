@@ -15,10 +15,10 @@ import { DESIGN_ROOT, DESIGN_ORIGIN, FIXTURE_META, verifyDesignSource, routeDesi
 import { loadAllowlist, applyAllowlist } from './design-parity-allowlist.mjs'
 export { DESIGN_ROOT, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage, loadAllowlist, applyAllowlist }
 
-// 2026-10-08, Chromium 149.0.7827.55, threshold 0.02: calibration maxima 0/0/0.
+// CI run 37775013284: identical logo renders differ by up to 8/255 per channel.
 // Every pixel above that colour threshold must match.
 export const PARITY_FLOOR = 0
-export const PARITY_THRESHOLD = 0.02
+export const PARITY_THRESHOLD = 0.04
 export const PARITY_VIEWPORTS = [
   { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
   { viewport: { width: 1024, height: 768 }, deviceScaleFactor: 1 },
