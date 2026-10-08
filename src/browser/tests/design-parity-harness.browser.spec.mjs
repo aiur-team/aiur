@@ -56,6 +56,22 @@ for (const region of [undefined, '.bd-now']) {
     await pixelFailure(pair, { name: 'padding', region })
   })
 }
+for (const size of [1, 10]) {
+  test(`mutation: catches ${size}x${size} red pixels`, async ({ browser }) => {
+    const pair = await designPair(browser)
+    await pair.product.evaluate(size => {
+      const change = document.createElement('div')
+      change.style.cssText = `position:fixed;left:700px;top:450px;width:${size}px;height:${size}px;background:red;z-index:2147483647`
+      document.body.append(change)
+    }, size)
+    await pixelFailure(pair, { name: `red-${size}` })
+  })
+}
+test('mutation: catches changed API count text', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.product.getByText('2 APIs', { exact: true }).evaluate(e => { e.textContent = '3 APIs' })
+  await pixelFailure(pair, { name: 'api-count' })
+})
 test('mutation: palette swap fails', async ({ browser }) => {
   const other = { ...cell, palette: 'aiur' }
   const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }

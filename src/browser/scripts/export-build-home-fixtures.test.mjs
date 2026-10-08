@@ -127,6 +127,15 @@ test('deterministic', t => {
   const a = exportTo(t), b = exportTo(t);
   for (const f of readdirSync(a)) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
 });
+test('trailing slash design paths preserve exported files and checks', t => {
+  assert.deepEqual(buildAll({ designDir: `${designDir}/` }), buildAll({ designDir }));
+  // Existing CLI normalization is a control; the exported API assertion guards the fix.
+  const dir = exportTo(t);
+  const before = readFileSync(join(dir, 'manifest.json'), 'utf8');
+  assert.equal(run(['--out', dir, '--design', `${designDir}/`, '--check']).status, 0);
+  assert.equal(run(['--out', dir, '--design', `${designDir}/`]).status, 0);
+  assert.equal(readFileSync(join(dir, 'manifest.json'), 'utf8'), before);
+});
 test('check rejects changed non-JS design assets', t => {
   const dir = exportTo(t);
   const copy = join(dir, 'design-source');

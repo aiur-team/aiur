@@ -15,9 +15,10 @@ import { DESIGN_ROOT, DESIGN_ORIGIN, FIXTURE_META, verifyDesignSource, routeDesi
 import { loadAllowlist, applyAllowlist } from './design-parity-allowlist.mjs'
 export { DESIGN_ROOT, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage, loadAllowlist, applyAllowlist }
 
-// 2026-10-08, Chromium 149.0.7827.55: three calibration maxima 60, 77, 176.
-// Residual differences are antialiased glyph/border edges; +1px mutations remain red.
-export const PARITY_FLOOR = 176
+// 2026-10-08, Chromium 149.0.7827.55, threshold 0.02: calibration maxima 0/0/0.
+// Every pixel above that colour threshold must match.
+export const PARITY_FLOOR = 0
+export const PARITY_THRESHOLD = 0.02
 export const PARITY_VIEWPORTS = [
   { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
   { viewport: { width: 1024, height: 768 }, deviceScaleFactor: 1 },
@@ -51,7 +52,7 @@ async function prepare(page, phase, side) {
 async function refuseLiveTicket(dataset, ticket) {
   if (!ticket || dataset === 'offline') return
   const fixture = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${dataset}.json`, import.meta.url), 'utf8'))
-  if (fixture.data.now.some(t => t.id === ticket && t.agent.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
+  if (fixture.data.now.some(t => t.id === ticket && t.agent?.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
 }
 
 export async function openDesign(page, cell, opts = {}) {
@@ -167,7 +168,7 @@ export async function compareParityPixels(pair, { name, region, fullPage = false
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: 0, maxDiffPixels: PARITY_FLOOR })
+  await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

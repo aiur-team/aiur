@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import { mapRawToPayload } from './build-home-fixture-map.mjs';
@@ -14,7 +14,7 @@ const DATASETS = ['live', 'dense', 'newrepo', 'noqueue', 'offline'];
 const designFiles = dir => {
   const entries = readdirSync(dir, { recursive: true, withFileTypes: true });
   assert.ok(!entries.some(e => e.isSymbolicLink()), 'design source contains a symlink');
-  return entries.filter(e => e.isFile()).map(e => join(e.parentPath, e.name).slice(dir.length + 1)).sort();
+  return entries.filter(e => e.isFile()).map(e => relative(dir, join(e.parentPath, e.name))).sort();
 };
 // build.js:1031–1036: API usage is literal render data, unlike PSETS.
 export const API_ROWS = [
