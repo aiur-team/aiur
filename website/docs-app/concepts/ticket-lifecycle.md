@@ -40,12 +40,12 @@ never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy.ex:35,1001`).
 
 ### Markers are not states
 
-**`agent:paused` is not a state label.** Four suffixes are **markers**,
+**`agent:paused` is not a state label.** Five suffixes are **markers**,
 deliberately kept out of the state machine so the orchestrator never treats
 them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
 
 ```text
-watch  paused  parked  rate-limit-fallback
+watch  paused  parked  queued  rate-limit-fallback
 ```
 
 | Marker | Meaning |
@@ -53,6 +53,7 @@ watch  paused  parked  rate-limit-fallback
 | `agent:watch` | Opt-in PR-watch marker: Aiur watches a PR for comments. |
 | `agent:paused` | Per-issue pause override: suppress Aiur work while preserving the current state. |
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
+| `agent:queued` | Reserved for the build queue; not a state. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
 
 Markers **survive every state swap by design**: `IssueState` preserves any

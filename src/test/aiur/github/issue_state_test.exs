@@ -33,6 +33,30 @@ defmodule Aiur.GitHub.IssueStateTest do
   end
 
   describe "update_issue_state/3" do
+    test "swap keeps the queued marker" do
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:queue_request, request})
+
+        case request.method do
+          :get ->
+            {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}, %{"name" => "sym:queued"}]}}}
+
+          :post ->
+            assert request.body == %{"labels" => ["sym:in-progress"]}
+            {:ok, %{status: 200}}
+
+          :delete ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
+      assert_received {:queue_request, %{method: :delete, url: "https://api.github.com/repos/owner/repo/issues/42/labels/sym:todo"}}
+      refute_received {:queue_request, %{method: :delete}}
+    end
+
     # Acceptance #2326: a state transition issues a conditional request. When the
     # store holds the issue body and its validator, the transition's own issue
     # read sends `If-None-Match` — a free `304` when nothing changed, instead of
