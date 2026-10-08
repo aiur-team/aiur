@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   # Required for GitHub's merge queue: the queue builds each candidate on a
   # `gh-readonly-queue/<base>/pr-<n>-<sha>` ref and waits for the required
   # checks to report against it. Without this trigger no workflow runs there,
@@ -69,6 +70,9 @@ concurrency:
 # then compare each job's `started_at`/`completed_at` span.
 
 jobs:
+  # Drafts run only changes, lint and build. Job-level skips on drafts are
+  # not full-suite evidence; the CI poller requires successful required checks.
+  # Ready PRs retain the existing docs-only step shortcuts and check names.
   # Path classifier (docs-only CI, #website). A pull request that touches only
   # `website/**` (the marketing site and `website/docs-app`) has nothing the
   # Elixir engine, the browser harness, the Stream Deck package or the release
@@ -142,6 +146,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   workflow-security:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     name: workflow security
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -189,6 +194,7 @@ jobs:
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
 
   merge-ruleset-drift:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     name: merge ruleset drift
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -291,7 +297,7 @@ jobs:
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     # Last-resort backstop only (#2461's measured value). The effective bound is
     # the `timeout` wrapper on the test step below: a job-level timeout CANCELS
@@ -417,7 +423,7 @@ jobs:
 
   coverage:
     needs: [coverage-partition, changes]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -463,7 +469,7 @@ jobs:
   quarantine:
     name: quarantined tests (non-blocking)
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -520,7 +526,7 @@ jobs:
 
   test:
     needs: [coverage, changes]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -554,6 +560,7 @@ jobs:
         run: make regression
 
   analytics:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     name: analytics
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -572,7 +579,7 @@ jobs:
 
   dialyzer:
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -605,7 +612,7 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -668,7 +675,7 @@ jobs:
   streamdeck:
     name: streamdeck
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -705,7 +712,7 @@ jobs:
   layout-release:
     name: layout release smoke
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

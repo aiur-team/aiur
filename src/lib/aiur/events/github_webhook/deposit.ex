@@ -400,6 +400,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       "completed_at" => Map.get(check_run, "completed_at"),
       "updated_at" => Map.get(check_run, "updated_at"),
       "check_suite_id" => get_in(check_run, ["check_suite", "id"]),
+      "app" => Map.get(check_run, "app", %{}),
       "output" => Map.get(check_run, "output", %{})
     }
   end
