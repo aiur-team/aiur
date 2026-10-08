@@ -468,3 +468,27 @@ When the script path and current directory point at different checkouts, command
 | Dirty-tree flag and build time | Records the exact development build provenance. |
 
 `aiur` accepts a path to a workflow configuration as the final run argument. Every fresh `aiur` or `aiurdev` launch prints `Config: /absolute/path` after startup, naming the configuration selected by discovery or that explicit argument. An already-running background no-op does not load or print a configuration.
+
+## Refresh research plans after refactors
+
+From a source checkout, `python3 -I scripts/plan_refresh.py` writes a Markdown
+report of file moves, component paths, migration-plan rows, stale citations,
+and oversized-file ownership. It reads inputs without editing tickets or contracts.
+
+```sh
+python3 -I scripts/plan_refresh.py --repo /path/to/aiur \
+  --from OLD_MAIN_SHA --to NEW_MAIN_SHA \
+  --pack docs/research/aiur-mobile-and-platform --pack-ref RESEARCH_SHA \
+  --u8-ledger /path/to/assignments.csv --out /path/to/report.md
+```
+
+All six arguments are required. Omit `--pack-ref` to read `--pack` as a local
+directory; with `--pack-ref`, the pack path is relative to the repository tree
+at that commit. The ledger and output paths are local filesystem paths.
+The ledger must carry the U8 columns `path,release_lines,package,frozen_owner,frozen_disposition,confidence`.
+Missing component manifests leave file-level reporting available. Unresolvable
+citations and migration rows remain explicit in the report; potential splits
+need human inspection. Contract rows show `status`, `base_main_sha`, and `date`
+without judging compatibility. Exit 0 means the report was written, including
+when drift exists; exit 2 means invalid input, a Git failure, or an I/O failure.
+This source tool is not included in the installed `aiur` command.
