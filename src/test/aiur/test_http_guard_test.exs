@@ -1,6 +1,8 @@
 defmodule Aiur.TestHTTPGuardTest do
   use Aiur.TestSupport
 
+  alias Aiur.Linear.Client
+
   defmodule LocalPlug do
     def init(opts), do: opts
     def call(conn, _opts), do: Plug.Conn.send_resp(conn, 200, "local response")
@@ -18,7 +20,7 @@ defmodule Aiur.TestHTTPGuardTest do
 
   test "default Linear fixture refuses a real poll" do
     assert {:error, {:linear_api_request, %RuntimeError{message: message}}} =
-             Aiur.Linear.Client.fetch_candidate_issues()
+             Client.fetch_candidate_issues()
 
     assert message =~ "test HTTP request blocked for api.linear.app"
   end
