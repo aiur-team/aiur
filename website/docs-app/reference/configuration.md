@@ -776,6 +776,29 @@ Build queue configuration for GitHub workflows; Linear is unsupported, and the q
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
+| `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
+| `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
+| `build_order.general_epics.label` | string | required | Column header text, without control characters. |
+| `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
+| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
+| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+
+### General epics
+
+Omitting `build_order`, omitting `general_epics`, or setting `general_epics: null` uses these defaults:
+
+```yaml
+build_order:
+  general_epics:
+    - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
+    - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
+    - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }
+    - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
+```
+
+A configured list replaces all four defaults and keeps its order. Matchers within an entry are normalized; sharing a matcher across entries is a config error. For a ticket carrying different matched labels, config order defines which general epic wins. `enhancement` has no default matcher; add it to an epic if your repository uses it for that work.
+
+These settings define the epic catalogue for the build history home page; its resolver and rendering are delivered separately.
 
 ### Two removed keys
 

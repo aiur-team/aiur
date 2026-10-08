@@ -18,11 +18,11 @@ on:
   # (#2397). Checks attach to the head commit either way.
   workflow_dispatch:
 
-# Initial PR runs share a stable group; reruns and every non-PR event get a
-# unique group so they cannot replace another pending or in-progress run.
+# Initial main pushes share a group so newer commits supersede older main runs.
+# Initial PR runs share a group; other events and all reruns stay independent.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1) || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
 
 # Job timeouts (#2461).
 #
@@ -174,8 +174,12 @@ jobs:
         run: bash scripts/test-quarantine-build-cache.sh
       - name: Test known-flaky reporter
         run: bash scripts/test-report-known-flaky-tests.sh
+      - name: Test coverage flake ledger
+        run: python3 scripts/test-record-coverage-flakes.py
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
+      - name: Test CI concurrency
+        run: node scripts/test-ci-concurrency.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test config documentation guard
@@ -335,6 +339,7 @@ jobs:
       # see the `coverage-partition` target in src/Makefile. The variable also
       # still isolates per-shard resources inside the tests themselves.
       - name: Test coverage partition
+        id: partition-tests
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
@@ -413,6 +418,34 @@ jobs:
         shell: bash
         working-directory: .
         run: bash scripts/report-known-flaky-tests.sh "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$GITHUB_STEP_SUMMARY"
+      # Attempt-qualified artifacts survive reruns without overwriting failure evidence.
+      - name: Download previous shard attempts
+        continue-on-error: true
+        if: ${{ always() && github.run_attempt > 1 && needs.changes.outputs.docs_only != 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: shard-flake-evidence-${{ matrix.partition }}-*
+          path: ${{ runner.temp }}/previous-shard-attempts
+      - name: Record coverage flake ledger
+        continue-on-error: true
+        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        env:
+          MIX_TEST_PARTITION: ${{ matrix.partition }}
+          PARTITION_OUTCOME: ${{ steps.partition-tests.outcome }}
+        run: >-
+          python3 scripts/record-coverage-flakes.py
+          "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
+          "$PARTITION_OUTCOME" "$RUNNER_TEMP/previous-shard-attempts"
+          "$RUNNER_TEMP/shard-evidence" "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage flake evidence
+        continue-on-error: true
+        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: shard-flake-evidence-${{ matrix.partition }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shard-evidence/
+          if-no-files-found: error
       - name: Upload partition coverage
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

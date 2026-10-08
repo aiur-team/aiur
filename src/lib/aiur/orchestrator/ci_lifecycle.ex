@@ -1291,8 +1291,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   # authoritative when the tracker projection is stale. Only a failure on a head
   # review has not seen supersedes that disposition.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
-    ci_head_approved?(state, issue, result) or
-      (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result))
+    # Returning a PR to draft withdraws the review handoff, even when its head is unchanged.
+    Map.get(result, :draft?) != true and
+      (ci_head_approved?(state, issue, result) or
+         (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result)))
   end
 
   defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
@@ -1333,23 +1335,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp remember_ci_approved_head(state, _issue, _result), do: state
 
-  # A `ci-wait` label that co-owns a ticket with a real disposition (human-review,
-  # rework, …) is a stale leftover: CI finished and the ticket moved on, but the
-  # waiting marker was never cleared. The human-review branches keep the ticket in
-  # its review disposition without a state swap, so they must explicitly drop the
-  # stale `ci-wait` to leave GitHub carrying exactly one state label and keep the
-  # ticket dispatchable (#2366). Best-effort: a failed removal logs and leaves the
-  # state untouched; the next terminal observation retries.
+  # Reassert the surviving disposition through the add-first owner; an approved head alone is not a label.
   defp clear_stale_ci_wait(%State{} = state, %Issue{} = issue) do
-    if @ci_wait_state in List.wrap(issue.state_labels) do
-      label = "#{Aiur.GitHub.Config.label_prefix()}:#{@ci_wait_state}"
-
+    if @ci_wait_state in List.wrap(issue.state_labels) and HumanReview.human_review_state?(effective_ci_state(issue)) do
       run_ci_effect(
         state,
         issue,
         :clear_stale_wait,
-        fn -> remove_ci_wait_label({issue, label}) end,
-        fn arg1, arg2 -> apply_ci_wait_label_removal(arg1, arg2, {issue}) end
+        fn -> reassert_human_review_state(issue) end,
+        fn arg1, arg2 -> apply_stale_ci_wait_cleanup(arg1, arg2, {issue}) end
       )
     else
       state
@@ -1795,17 +1789,17 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp remove_ci_wait_label({issue, label}) do
-    Tracker.remove_label(to_string(issue.id || issue.identifier), label)
+  defp reassert_human_review_state(issue) do
+    Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state, expected_state_opts(issue))
   end
 
-  defp apply_ci_wait_label_removal(state, response, {issue}) do
+  defp apply_stale_ci_wait_cleanup(state, response, {issue}) do
     case response do
       :ok ->
         state
 
       {:error, reason} ->
-        Logger.warning("Stale ci-wait removal failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+        Logger.warning("Stale ci-wait cleanup failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
         state
     end

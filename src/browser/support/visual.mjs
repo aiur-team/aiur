@@ -25,14 +25,15 @@ export function getMaskConfig(page) {
   return VISUAL_MASKS.map(({ selector }) => page.locator(selector))
 }
 
-export async function openVisualRoute(page, { theme, route, collapsed = false, mode = 'read_only' }) {
+export async function openVisualRoute(page, { theme, palette, route, collapsed = false, mode = 'read_only' }) {
   await openFixture(page, mode)
   await page.context().setHTTPCredentials(dashboardCredentials)
   if (mode === 'writable') await page.goto('/streamdeck-control/writable')
-  await page.evaluate(({ theme, collapsed }) => {
+  await page.evaluate(({ theme, palette, collapsed }) => {
     localStorage.setItem('aiur-theme', theme)
+    if (palette !== undefined) localStorage.setItem('aiur-palette', palette)
     localStorage.setItem('aiur-nav-collapsed', String(collapsed))
-  }, { theme, collapsed })
+  }, { theme, palette, collapsed })
   // The synthetic fixture layout lacks production's early theme restore.
   // Read the seeded storage before mounting its LiveView hooks.
   await page.addInitScript(() => {
