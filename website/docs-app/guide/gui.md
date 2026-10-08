@@ -52,6 +52,9 @@ The fleet table's **Context** column shows each agent's observed context occupan
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
+The temporary, unlinked `/build` route previews the build timeline loading shell.
+It requires dashboard authentication; the production data source is not wired yet.
+
 ## The pages
 
 Each page renders a durable concept whose detail lives in Concepts.

@@ -143,6 +143,7 @@ defmodule AiurWeb.Router do
       live("/commands/:decision_id", DashboardLive, :decision)
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
+      live("/build", BuildLive, :build)
       live("/analytics", AnalyticsLive, :analytics)
       live("/streamdeck", StreamdeckLive, :streamdeck)
     end

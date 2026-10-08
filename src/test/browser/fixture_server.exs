@@ -1,3 +1,4 @@
+Code.require_file("../support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 
 defmodule Aiur.BrowserHarness.FixtureLayout do
@@ -1574,6 +1575,22 @@ defmodule Aiur.BrowserHarness.VoiceSTT do
   def handle_cast(:stop, channel), do: {:stop, :normal, channel}
 end
 
+defmodule Aiur.BrowserHarness.FixtureBuildDataset do
+  use Phoenix.Controller, formats: []
+
+  alias Aiur.TestSupport.BuildHome.FixtureSource
+
+  def configure(conn, %{"dataset" => dataset}) do
+    if dataset in FixtureSource.datasets() do
+      Application.put_env(:aiur, :build_fixture_dataset, dataset)
+      query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
+      redirect(conn, to: "/build" <> query)
+    else
+      conn |> Plug.Conn.put_resp_content_type("text/plain") |> Plug.Conn.send_resp(404, "unknown build fixture dataset")
+    end
+  end
+end
+
 defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
   @moduledoc """
   Lets one browser spec opt its own fixture server into a writable dashboard.
@@ -2267,6 +2284,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
   end
 
@@ -2363,6 +2381,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
+    Application.put_env(:aiur, :build_data_source, Aiur.TestSupport.BuildHome.FixtureSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     configure_forwarded_dashboard()
 
