@@ -5,12 +5,15 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   Delivers blocker-critical events urgently at safe-checkpoint boundaries,
   falls back to the next normal checkpoint item, and handles the four
   delivery-failure outcomes (restore vs. mark-failed) per FI-ORC-075.
+
+  Backends supporting safe checkpoints restore pending work on errors classified
+  as recoverable by their registry entry.
   """
 
   require Logger
 
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, QueueDrain}
-  alias Aiur.Codex.SessionRecovery
+  alias Aiur.CodingAgent
   alias Aiur.Issue
 
   # Mid-turn delivery for the persistent-REPL backend: when an Executor
@@ -172,34 +175,30 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   # belt-and-suspenders net. If a checkpoint delivery ever does reach the provider
   # and is rejected as active, the durable item is restored to pending — never
   # marked failed or dropped. This holds for every backend, so it is matched ahead
-  # of the Codex-specific recovery clause below.
+  # of the provider-classified recovery clause below.
   defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, _backend, {:response_error, %{"code" => -32_003}}) do
     Logger.info("Queued item delivery hit provider active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=restore_pending reason=active_turn")
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  # A recoverable Codex transport loss (closed port, port exit, or exact
-  # active-turn desync) while writing a mid-turn checkpoint must NOT fail the
+  # A provider-classified recoverable transport loss (today: Codex) while
+  # writing a mid-turn checkpoint must NOT fail the
   # claimed item. The same closed port fails the surrounding turn, which
   # restores delivered work and forces a fresh Codex session; restore this
   # checkpoint item to pending too so that replacement session redelivers it
   # exactly once. Marking it failed here (issue #1238) stranded the instruction
   # because the later target-wide sweep only restores `:delivered` items.
   # Claude and genuine provider failures keep the mark-failed behavior below.
-  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, "codex", reason) do
-    if SessionRecovery.recoverable?(reason) do
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, backend, reason) do
+    if CodingAgent.recoverable_session_error?(backend, reason) do
       Logger.info(
-        "Queued item delivery hit a recoverable Codex transport loss for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=restore_for_fresh_session reason=#{inspect(reason)}"
+        "Queued item delivery hit a recoverable Codex transport loss for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} backend=#{backend} decision=restore_for_fresh_session reason=#{inspect(reason)}"
       )
 
       Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
     else
       mark_checkpoint_item_failed(issue, orchestrator, item_id, reason)
     end
-  end
-
-  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, _backend, reason) do
-    mark_checkpoint_item_failed(issue, orchestrator, item_id, reason)
   end
 
   defp mark_checkpoint_item_failed(issue, orchestrator, item_id, reason) do
