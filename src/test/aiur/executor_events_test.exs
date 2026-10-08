@@ -86,7 +86,7 @@ defmodule Aiur.ExecutorEventsTest do
     assert String.contains?(elem(StringIO.contents(output), 1), ~s("wake_id":#{first_id}))
     ref = Process.monitor(listener)
     Process.exit(listener, :kill)
-    assert_receive {:DOWN, ^ref, :process, _, :killed}
+    assert_receive {:DOWN, ^ref, :process, _, :killed}, 1_000
 
     # A later matching event marks the end of the reconnected replay: replay is
     # ordered by id, so once 703 is printed, 701 would already have been.
