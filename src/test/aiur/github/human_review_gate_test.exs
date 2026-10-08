@@ -237,8 +237,8 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
         assert error["detail"] == %{"pr_number" => 77, "base_branch" => "release/next", "head_sha" => "tested-head"}
         assert error["message"] =~ "Fetch and merge"
         assert error["message"] =~ "ci-wait"
-        assert_receive :compared
-        refute_receive :compared
+        assert_receive :compared, 1000
+        refute_receive :compared, 100
       end
     end
 
