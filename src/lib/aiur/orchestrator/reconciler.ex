@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.Reconciler do
   @moduledoc """
   Per-poll reconciliation of running entries against refreshed tracker states.
-  All functions execute inside the orchestrator GenServer process.
+  Tracker reads run in tasks; their results reconcile the current runtime.
   """
 
   require Logger
@@ -15,7 +15,8 @@ defmodule Aiur.Orchestrator.Reconciler do
     MembershipLifecycle,
     PauseResume,
     RateLimitFallback,
-    State
+    State,
+    TrackerTasks
   }
 
   # A before_run hook failure parks the agent alive in
@@ -98,10 +99,30 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp refresh_running_issue_ids(state, [], _context, _fetch_fun), do: prune_running_issue_cache(state)
 
   defp refresh_running_issue_ids(state, issue_ids, context, fetch_fun) do
-    case apply_fetch_fun(fetch_fun, issue_ids, state.running_issue_cache) do
+    inputs = Map.new(issue_ids, &{&1, issue_input(state, &1)})
+    cache = state.running_issue_cache
+
+    TrackerTasks.run(state, :running_issue_refresh, fn -> apply_fetch_fun(fetch_fun, issue_ids, cache) end, fn current, result ->
+      eligible_ids = Enum.filter(issue_ids, &(issue_input(current, &1) == inputs[&1]))
+      apply_running_refresh(current, eligible_ids, context, result)
+    end)
+  end
+
+  @doc false
+  @spec issue_input(State.t(), String.t()) :: tuple()
+  def issue_input(state, issue_id) do
+    entry = Map.get(state.running, issue_id)
+    runtime = if is_map(entry), do: Map.take(entry, [:pid, :ref, :control, :lifecycle_fence, :issue]), else: entry
+    {runtime, Map.get(state.last_polled_issues, issue_id), Map.get(state.retry_attempts, issue_id), MapSet.member?(state.claimed, issue_id)}
+  end
+
+  defp apply_running_refresh(state, issue_ids, context, result) do
+    case result do
       {:ok, issues, cache} ->
+        issues = Enum.filter(issues, &(&1.id in issue_ids))
+
         state
-        |> put_running_issue_cache(cache)
+        |> merge_running_issue_cache(cache, issue_ids)
         |> reconcile_refreshed_running_issues(issues)
         |> reconcile_missing_running_issue_ids(issue_ids, issues)
         |> prune_running_issue_cache()
@@ -113,7 +134,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         log_refresh_failure(state, issue_ids, context, reason)
 
         state
-        |> put_running_issue_cache(cache)
+        |> merge_running_issue_cache(cache, issue_ids)
         |> prune_running_issue_cache()
 
       {:error, reason} ->
@@ -144,8 +165,10 @@ defmodule Aiur.Orchestrator.Reconciler do
     )
   end
 
-  defp put_running_issue_cache(state, nil), do: state
-  defp put_running_issue_cache(state, cache) when is_map(cache), do: %{state | running_issue_cache: cache}
+  defp merge_running_issue_cache(state, nil, _issue_ids), do: state
+
+  defp merge_running_issue_cache(state, cache, issue_ids) when is_map(cache),
+    do: %{state | running_issue_cache: Map.merge(state.running_issue_cache, Map.take(cache, issue_ids))}
 
   defp prune_running_issue_cache(%State{running_issue_cache: cache} = state) when map_size(cache) == 0, do: state
 

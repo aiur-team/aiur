@@ -288,7 +288,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       # cannot be answered — that failure is reported at the RPC, not as a
       # status-read timeout.
       refute output =~ "timed out while reading agent status"
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+      assert output =~ "outcome unknown for resume #44"
+      refute output =~ "failed to resume"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
