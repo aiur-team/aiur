@@ -1249,7 +1249,7 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "#44    paused"
-    assert output =~ "waiting=waiting_for_human"
+    assert output =~ "waiting=paused"
     assert output =~ "pause_reason=agent_pause_request"
     assert output =~ "#99    idle"
     assert output =~ "waiting=waiting_for_dependency"
