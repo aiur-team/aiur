@@ -950,7 +950,12 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp safe_destination(:commands, value, _identity, _number), do: safe_destination_result(Bounded.commands_route(value))
   # Planning-doc link (pre-ticket): any bounded https://github.com URL, including
   # a doc blob path that `github_url/1` (issue/PR-shaped) would reject.
-  defp safe_destination(:document, value, _identity, _number), do: safe_document_destination(value)
+  defp safe_destination(:document, value, identity, _number) do
+    case Bounded.planning_document_route_for(value, identity) do
+      {:ok, route} -> route
+      :error -> safe_document_destination(value)
+    end
+  end
 
   defp safe_destination_result({:ok, safe}), do: safe
   defp safe_destination_result(:error), do: nil
