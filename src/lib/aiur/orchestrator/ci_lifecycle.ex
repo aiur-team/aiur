@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     AgentTeardown,
     DispatchPolicy,
     HumanReview,
+    IssueSync,
     LifecycleFence,
     OperatorMessages,
     PauseResume,
@@ -383,6 +384,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       {:ok, issues, state} ->
         state
         |> prune_ci_lifecycle_state(issues, opts)
+        |> IssueSync.observe_human_review_handoffs(issues)
         |> poll_github_ci_targets(issues, poller, opts)
 
       {:error, reason, state} ->

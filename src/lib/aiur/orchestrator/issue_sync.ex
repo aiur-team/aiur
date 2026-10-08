@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   require Logger
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
@@ -37,6 +38,35 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   def sync_polled_issue_state(%State{} = state, _issues), do: state
+
+  @doc false
+  @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
+  def observe_human_review_handoffs(%State{} = state, issues) when is_list(issues) do
+    current_ids = MapSet.new(for %Issue{state: state_name, id: id} <- issues, DispatchPolicy.state_slug(state_name) == "human-review", do: id)
+
+    if is_nil(state.human_review_observed_ids) do
+      %{state | human_review_observed_ids: current_ids}
+    else
+      new_ids = MapSet.difference(current_ids, state.human_review_observed_ids)
+      state = publish_new_human_review_handoffs(state, issues, new_ids)
+      %{state | human_review_observed_ids: current_ids}
+    end
+  end
+
+  defp publish_new_human_review_handoffs(state, issues, new_ids) do
+    Enum.reduce(issues, state, fn
+      %Issue{id: id} = issue, state_acc ->
+        if MapSet.member?(new_ids, id) do
+          publish_human_review_handoff(issue)
+          resolve_observed_error_transition_alert(state_acc, issue)
+        else
+          state_acc
+        end
+
+      _issue, state_acc ->
+        state_acc
+    end)
+  end
 
   @doc """
   Heals polled issues that observe more than one `agent:*` state label.
@@ -1104,6 +1134,19 @@ defmodule Aiur.Orchestrator.IssueSync do
       current_state == "error" ->
         emit_observed_error_transition_alert(state, issue)
 
+      current_state == "human-review" ->
+        Alerts.emit_system(
+          "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: task_state_alert_reason(current_state),
+          needs_attention: task_state_needs_attention?(current_state),
+          severity: task_state_alert_severity(current_state)
+        )
+
+        publish_human_review_handoff(issue)
+        resolve_observed_error_transition_alert(state, issue)
+
       previous_state == "error" ->
         resolve_observed_error_transition_alert(state, issue)
 
@@ -1124,6 +1167,43 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp publish_human_review_handoff(%Issue{} = issue) do
+    {pr_number, head_sha} = human_review_pr_details(issue)
+
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.handoff.human_review",
+      issue: issue,
+      reason: "Agent handed the ticket to human review",
+      needs_attention: true,
+      severity: "warning",
+      exchange_payload: %{
+        "action" => "human_review",
+        "pr_number" => pr_number,
+        "head_sha" => head_sha
+      }
+    )
+  end
+
+  defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
+       when is_binary(id) do
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
+    key |> ResourceStore.data() |> human_review_pr_listing_identity()
+  rescue
+    _ -> {nil, nil}
+  end
+
+  defp human_review_pr_details(_issue), do: {nil, nil}
+
+  defp human_review_pr_listing_identity(%{} = pull_request), do: human_review_pr_identity(pull_request)
+
+  defp human_review_pr_listing_identity([pull_request | _rest]), do: human_review_pr_identity(pull_request)
+
+  defp human_review_pr_listing_identity(_listing), do: {nil, nil}
+
+  defp human_review_pr_identity(%{"number" => number, "head" => %{"sha" => sha}}) when is_integer(number) and is_binary(sha),
+    do: {number, sha}
+
+  defp human_review_pr_identity(_pull_request), do: {nil, nil}
 
   defp reconcile_observed_error_alert(state, issue, "error"),
     do: emit_observed_error_transition_alert(state, issue)
