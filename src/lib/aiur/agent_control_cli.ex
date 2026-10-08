@@ -36,7 +36,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
   # One age shape wherever a stale surface appears — reuse #1814's renderer
@@ -136,7 +136,7 @@ defmodule Aiur.AgentControlCLI do
     case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
       :ok ->
         print_snapshot_freshness(freshness)
-        Aiur.Orchestrator.StatusObservation.print_groups(snapshot)
+        StatusObservation.print_groups(snapshot)
         render.(snapshot, statuses)
 
       {:error, error} ->
@@ -183,7 +183,7 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
-  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> Aiur.Orchestrator.StatusObservation.label(freshness))
+  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
 
   defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
   defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
@@ -2116,7 +2116,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> Aiur.Orchestrator.StatusObservation.row_label(status)
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> StatusObservation.row_label(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2804,7 +2804,7 @@ defmodule Aiur.AgentControlCLI do
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
         agents_activity(agent),
-        WaitingReason.render_wait(agent) <> Aiur.Orchestrator.StatusObservation.row_label(agent)
+        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent)
       ])
     end)
   end

@@ -24,6 +24,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.PollCadence
@@ -80,8 +81,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   # Before the first publish, the read model has nothing and a bounded
-  # call is the honest way to get an answer rather than telling the operator to
-  # retry. It is never the steady-state path, so it cannot reintroduce the
+  # call answers honestly. This is never steady-state, so cannot reintroduce the
   # head-of-line block: an Orchestrator that has been running long enough to be
   # busy has already published.
   #
@@ -374,7 +374,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   """
   @spec fleet_view_call(State.t()) :: {:reply, map(), State.t()}
   def fleet_view_call(%State{} = state),
-    do: {:reply, Aiur.Orchestrator.StatusObservation.refresh(Map.put(snapshot_payload(state), :statuses, agent_statuses(state))), state}
+    do: {:reply, StatusObservation.refresh(Map.put(snapshot_payload(state), :statuses, agent_statuses(state))), state}
 
   @doc false
   @spec snapshot_payload(State.t()) :: map()
@@ -423,7 +423,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         class_intervals: PollCadence.effective_intervals()
       }
     }
-    |> Aiur.Orchestrator.StatusObservation.attach(state, now)
+    |> StatusObservation.attach(state, now)
   end
 
   defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms), do: max(now_ms - last_ms, 0)

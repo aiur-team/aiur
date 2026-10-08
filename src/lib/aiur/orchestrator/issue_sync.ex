@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.StatusObservation
   alias Aiur.PollCadence
 
   @idle_terminal_verification_batch_size 25
@@ -856,7 +857,6 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    # Prefer the freshly polled blockee over the running entry.
     state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
 
     %{
@@ -864,7 +864,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       | last_polled_issues: retained_issues,
         released_claims: purge_resolved_released_claims(state.released_claims, retained_issues, terminal_states)
     }
-    |> Aiur.Orchestrator.StatusObservation.observe_tickets(issues, retained_issues)
+    |> StatusObservation.observe_tickets(issues, retained_issues)
   end
 
   # A `released_claims` entry exists only to tell the operator that a claim was

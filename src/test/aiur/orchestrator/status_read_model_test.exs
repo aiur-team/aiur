@@ -6,8 +6,8 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
   alias Aiur.{AgentControlCLI, Boot, Issue}
   alias Aiur.Orchestrator.{Dispatcher, IssueSync, SnapshotStore, State, StatusObservation, StatusReport}
-  alias AiurWeb.Presenter
   alias AiurWeb.OperatorControlCenter.{CapacityControl, CapacityPresenter, FleetTable, Overview}
+  alias AiurWeb.Presenter
 
   test "snapshot projection preserves all six renderer inputs and their behavior" do
     sample = %{load: 7.0, load_threshold: 8.0, target: 3, schedulers: 4}

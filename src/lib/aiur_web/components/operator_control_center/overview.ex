@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
+  alias Aiur.Orchestrator.StatusObservation
   alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters}
 
   @fleet_stats [
@@ -102,8 +103,8 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       |> assign(:all_active, MapSet.equal?(assigns.filters, MapSet.new(FleetFilters.all())))
 
     ~H"""
-    <p class="muted">Fleet snapshot {Aiur.Orchestrator.StatusObservation.label(@fleet[:snapshot_freshness])}</p>
-    <p :for={{group, observation} <- @fleet[:observations] || %{}} class="muted">{group}: {Aiur.Orchestrator.StatusObservation.label(observation)}</p>
+    <p class="muted">Fleet snapshot {StatusObservation.label(@fleet[:snapshot_freshness])}</p>
+    <p :for={{group, observation} <- @fleet[:observations] || %{}} class="muted">{group}: {StatusObservation.label(observation)}</p>
     <section class="overview-strip" aria-label="Fleet filters">
       <button
         :for={{key, label, tone} <- @stats}
