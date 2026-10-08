@@ -5,6 +5,7 @@
 ## Summary counts
 
 0 file moves; 22 citations; OK: 6, UNRESOLVED: 16
+16 migration rows; 1 size-owner outcomes.
 
 Component manifest absent at 45a290e3053423100a73b534c620fdd12ebe11ad; file mode only.
 
