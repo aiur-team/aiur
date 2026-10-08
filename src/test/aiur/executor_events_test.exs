@@ -11,9 +11,12 @@ defmodule Aiur.ExecutorEventsTest do
     previous = Application.get_env(:aiur, :log_file)
     root = Aiur.TestSupport.tmp_root!("aiur-executor-events")
     Application.put_env(:aiur, :log_file, Path.join(root, "aiur.log"))
+    previous_state_dir = Application.get_env(:aiur, :executor_state_dir)
+    Application.put_env(:aiur, :executor_state_dir, Path.join(root, "executor"))
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :log_file, previous), else: Application.delete_env(:aiur, :log_file)
+      if previous_state_dir, do: Application.put_env(:aiur, :executor_state_dir, previous_state_dir), else: Application.delete_env(:aiur, :executor_state_dir)
       File.rm_rf!(root)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
@@ -78,6 +81,8 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:ok, [selected]} = ExecutorEvents.replay(["ticket.3028.#"], 0)
     assert selected["id"] == first_id
     assert selected["topic"] == "ticket.3028.agent.paused"
+    assert {:ok, events} = ExecutorEvents.replay(["ticket.3028.#"], 0)
+    refute Enum.any?(events, &(&1["id"] == second_id))
   end
 
   test "rejects GitHub-sourced executor events" do
