@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCIPoller do
   require Logger
 
   alias Aiur.{CIApprovalStore, Config}
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{CiReadiness, Client}
 
   @type target :: String.t() | integer()
   @type decision :: :pending | :passed | :failed
@@ -26,6 +26,10 @@ defmodule Aiur.Events.GithubCIPoller do
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do
     targets = normalize_targets(targets)
+
+    required_check_fetcher = Keyword.get(opts, :required_check_fetcher, &CiReadiness.fetch_required_checks/1)
+    required_checks = if targets == [], do: {:ok, []}, else: required_check_fetcher.(opts)
+    opts = Keyword.put(opts, :required_checks, required_checks)
 
     results =
       targets
@@ -132,6 +136,7 @@ defmodule Aiur.Events.GithubCIPoller do
       case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
           evaluate(check_runs, commit_status)
+          |> enforce_required_checks(check_runs, commit_status, pr, opts)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
           |> Map.merge(merge_queue_observation(pr))
@@ -139,6 +144,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           evaluate(check_runs, commit_status)
+          |> enforce_required_checks(check_runs, commit_status, pr, opts)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
           |> Map.merge(merge_queue_observation(pr))
@@ -290,6 +296,7 @@ defmodule Aiur.Events.GithubCIPoller do
     case head_sha(current_pr) do
       {:ok, ^observed_head_sha} ->
         evaluate(check_runs, commit_status)
+        |> enforce_required_checks(check_runs, commit_status, current_pr, opts)
         |> enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{
           target: target,
@@ -341,6 +348,40 @@ defmodule Aiur.Events.GithubCIPoller do
       end
 
     evaluation(classification, failed_checks)
+  end
+
+  # A skipped draft job satisfies GitHub's check state but never proves the full suite ran.
+  defp enforce_required_checks(%{decision: :passed} = result, check_runs, commit_status, pr, opts) do
+    draft? = Map.get(merge_queue_observation(pr), :draft?, pr_draft?(pr))
+
+    case {draft?, Keyword.fetch!(opts, :required_checks)} do
+      {true, _} ->
+        Map.merge(result, %{decision: :pending, pending_reason: :draft_pull_request})
+
+      {false, {:ok, required}} ->
+        runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
+        statuses = Map.get(commit_status, "statuses", [])
+
+        if Enum.all?(required, &required_check_passed?(&1, runs, statuses)) do
+          result
+        else
+          Map.merge(result, %{decision: :pending, pending_reason: :required_checks_incomplete})
+        end
+
+      {false, {:error, reason}} ->
+        Map.merge(result, %{decision: :pending, pending_reason: :required_checks_unavailable, error: reason})
+    end
+  end
+
+  defp enforce_required_checks(result, _runs, _statuses, _pr, _opts), do: result
+
+  defp required_check_passed?(%{name: name, app_id: app_id}, runs, statuses) do
+    Enum.any?(runs, fn run ->
+      Map.get(run, "name") == name and Map.get(run, "status") == "completed" and
+        Map.get(run, "conclusion") in ~w(success neutral) and
+        (app_id in [nil, -1] or get_in(run, ["app", "id"]) == app_id)
+    end) or
+      (app_id in [nil, -1] and Enum.any?(statuses, &(Map.get(&1, "context") == name and Map.get(&1, "state") == "success")))
   end
 
   # A head sha can carry check runs from several runs of the same workflow when
