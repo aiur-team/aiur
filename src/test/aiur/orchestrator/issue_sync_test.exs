@@ -2569,6 +2569,52 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       refute_receive {:event, %{topic: ^topic}}, 50
     end
 
+    test "leaves a queued marker-only ticket alone although its last poll was todo" do
+      topic = "ticket.its-everdred/aiur#queued.agent.attention.state-label-missing"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      queued = %{issue("queued", nil) | state_labels: [], queued: true, labels: ["agent:queued"]}
+      prior_state = %State{last_polled_issues: %{queued.id => issue("queued", "todo")}}
+
+      assert {^prior_state, [^queued]} =
+               IssueSync.reconcile_contradictory_state_labels(
+                 prior_state,
+                 [queued],
+                 fn _id, _target -> flunk("must not restore todo on a queued ticket") end
+               )
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "raises no state-label-missing-no-evidence for a queued ticket" do
+      topic = "ticket.its-everdred/aiur#queued.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      queued = %{issue("queued", nil) | state_labels: [], queued: true, labels: ["agent:queued"]}
+      state = %State{}
+
+      assert {^state, [^queued]} =
+               IssueSync.reconcile_contradictory_state_labels(
+                 state,
+                 [queued],
+                 fn _id, _target -> flunk("must not rewrite a queued ticket") end
+               )
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
     test "leaves an agent:paused zero-label ticket alone even with prior workflow evidence" do
       # A ticket the operator paused after it had been running still carries the
       # parking marker, so the last-known-state heal must not fire and re-arm
@@ -2914,6 +2960,29 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   end
 
   describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "strand sweep treats a queued marker-only ticket as legitimately unowned" do
+      topic = "ticket.its-everdred/aiur#queued.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      queued = %{issue("queued", nil) | state_labels: [], queued: true, labels: ["agent:queued"]}
+      state = %State{released_claims: %{queued.id => %{cause: :tracker_retry_exhausted}}}
+
+      assert ^state =
+               IssueSync.sync_stranded_ticket_reconciliation(
+                 state,
+                 [queued],
+                 fn _id, _target -> flunk("must not re-queue a queued marker-only ticket") end
+               )
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
     test "re-queues a released-claim ticket with no recovery and alerts" do
       topic = "ticket.its-everdred/aiur#released.agent.attention.stranded-requeued"
       Publisher.set_tracked_fn(fn _ -> true end)
