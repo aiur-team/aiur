@@ -123,12 +123,14 @@ defmodule Aiur.CLITest do
   end
 
   test "parses shared account commands and rejects unrelated flags" do
-    assert {:accounts, true} = CLI.evaluate(["accounts", "--json"], deps())
+    assert {:accounts, true, nil} = CLI.evaluate(["accounts", "--json"], deps())
+    assert {:accounts, true, nil} = CLI.evaluate(["accounts", "--all", "--json"], deps())
+    assert {:accounts, false, "codex"} = CLI.evaluate(["accounts", "codex"], deps())
 
-    assert {:account_login, "work", "/tmp/claude-profile"} =
+    assert {:account_login, "claude", "work", "/tmp/claude-profile"} =
              CLI.evaluate(["login", "claude", "work", "--dir", "/tmp/claude-profile"], deps())
 
-    assert {:account_logout, "work", true} = CLI.evaluate(["logout", "claude", "work", "--purge"], deps())
+    assert {:account_logout, "claude", "work", true} = CLI.evaluate(["logout", "claude", "work", "--purge"], deps())
     assert {:error, _} = CLI.evaluate(["accounts", "--purge"], deps())
   end
 

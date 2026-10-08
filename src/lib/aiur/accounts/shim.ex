@@ -8,4 +8,7 @@ defmodule Aiur.Accounts.Shim do
   @callback identity(Path.t() | nil) :: map()
   @callback usage(Path.t() | nil) :: term()
   @callback session_artifacts(Path.t(), String.t(), Path.t()) :: [Path.t()]
+  @callback profile_root() :: Path.t()
+
+  @optional_callbacks session_artifacts: 3
 end

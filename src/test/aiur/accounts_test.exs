@@ -5,10 +5,14 @@ defmodule Aiur.AccountsTest do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude
+  alias Aiur.Accounts.Shims.Codex, as: CodexAccounts
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.AccountsCLI
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Claude.RemoteControl
+  alias Aiur.CodingAgent
   alias Aiur.Issue
+  alias Aiur.OpenAICompat.Config, as: OpenAIConfig
 
   setup do
     UsageReadings.reset()
@@ -77,6 +81,174 @@ defmodule Aiur.AccountsTest do
     assert Accounts.profile_env("claude", "default") == []
   end
 
+  test "Codex profile copies only shared config and skills and reads identity metadata", %{home: home} do
+    source = Path.join(home, ".codex")
+    File.mkdir_p!(Path.join(source, "skills"))
+    File.write!(Path.join(source, "config.toml"), "model = 'test'")
+
+    File.write!(
+      Path.join(source, "auth.json"),
+      Jason.encode!(%{
+        "tokens" => %{
+          "id_token" => "header.#{Base.url_encode64(Jason.encode!(%{"email" => "codex@example.com", "chatgpt_account_id" => "acct-123"}), padding: false)}.signature",
+          "access_token" => "secret-token"
+        },
+        "account_id" => "acct-123"
+      })
+    )
+
+    :ok = Accounts.register("codex", "work", nil)
+    profile = Path.join([home, ".aiur/accounts/codex/work"])
+    assert [{"CODEX_HOME", ^profile}] = Accounts.profile_env("codex", "work")
+    assert File.read_link!(Path.join(profile, "config.toml")) == Path.join(source, "config.toml")
+    assert File.read_link!(Path.join(profile, "skills")) == Path.join(source, "skills")
+    refute File.exists?(Path.join(profile, "auth.json"))
+    assert %{"account_id" => "acct-123", "email" => "codex@example.com"} = CodexAccounts.identity(source)
+    refute inspect(CodexAccounts.identity(profile)) =~ "secret-token"
+    assert is_tuple(Accounts.usage("codex", "work"))
+  end
+
+  test "API key account registry stores named env key, never the value", %{home: home} do
+    path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "DEEPSEEK_API_KEY__WORK=deepseek-secret\n")
+
+    :ok = Accounts.register("deepseek", "work", nil)
+    account = Enum.find(Accounts.list("deepseek"), &(&1.name == "work"))
+    assert account.api_key_env == "DEEPSEEK_API_KEY__WORK"
+    assert Accounts.profile_env("deepseek", "work") == []
+    assert :ok = AccountsCLI.login("deepseek", "work", nil)
+
+    config = %{
+      base_url: "https://example.invalid/v1",
+      api_key_env: "DEEPSEEK_API_KEY",
+      default_model: "deepseek-v4-flash",
+      transport: :responses,
+      quirks: %{}
+    }
+
+    previous = System.get_env("DEEPSEEK_API_KEY")
+
+    try do
+      System.put_env("DEEPSEEK_API_KEY", "default-key")
+
+      assert {:ok, resolved} = OpenAIConfig.resolve(backend: "deepseek", instance: config, backend_config: %{}, account_name: "work")
+      assert resolved.api_key == "deepseek-secret"
+      assert resolved.api_key != "default-key"
+    after
+      if previous, do: System.put_env("DEEPSEEK_API_KEY", previous), else: System.delete_env("DEEPSEEK_API_KEY")
+    end
+
+    refute File.read!(Path.join(home, ".aiur/machine")) =~ "deepseek-secret"
+  end
+
+  test "API key account login registers only the named env binding", %{home: home} do
+    path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "MOONSHOT_API_KEY__TEAM=moonshot-secret\n")
+
+    assert :ok = AccountsCLI.login("kimi", "team", nil)
+    assert %{api_key_env: "MOONSHOT_API_KEY__TEAM"} = Enum.find(Accounts.list("kimi"), &(&1.name == "team"))
+    refute File.read!(Path.join(home, ".aiur/machine")) =~ "moonshot-secret"
+  end
+
+  test "legacy Claude registry entries keep their names and can be rewritten safely", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"accounts" => %{"old" => %{"harness" => "claude", "profile_dir" => Path.join(home, "old")}}}))
+
+    assert Enum.any?(Accounts.list("claude"), &(&1.name == "old"))
+    :ok = Accounts.register("claude", "new", nil)
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.has_key?(entries, "claude:old")
+    assert Map.has_key?(entries, "claude:new")
+  end
+
+  test "profile purge refuses adopted paths outside the account root", %{home: home} do
+    adopted = Path.join(home, "adopted-claude")
+    File.mkdir_p!(adopted)
+    File.write!(Path.join(adopted, "keep.txt"), "retained")
+    :ok = Accounts.register("claude", "adopted", adopted)
+
+    assert :ok = Accounts.logout("claude", "adopted", true)
+    assert File.read!(Path.join(adopted, "keep.txt")) == "retained"
+  end
+
+  test "every supported backend has a default account and API keys report unavailable usage", %{home: home} do
+    for harness <- ["claude", "codex", "kimi", "deepseek", "openrouter"] do
+      assert Enum.any?(Accounts.list(harness), &(&1.name == "default"))
+    end
+
+    File.mkdir_p!(Path.join(home, ".aiur"))
+    File.write!(Path.join(home, ".aiur/.env"), "OPENROUTER_API_KEY__WORK=private-key\n")
+    :ok = Accounts.register("openrouter", "work")
+    assert {:error, :usage_unsupported} = Accounts.usage("openrouter", "work")
+
+    for harness <- ["kimi", "deepseek", "openrouter"] do
+      assert %{accounts: %{kind: :api_key, usage: :unavailable}} = CodingAgent.backends()[harness]
+    end
+  end
+
+  test "Codex identity reads nested account metadata but not token values", %{home: home} do
+    source = Path.join(home, ".codex")
+    File.mkdir_p!(source)
+
+    claims = %{
+      "https://api.openai.com/profile" => %{"email" => "nested@example.com"},
+      "https://api.openai.com/auth" => %{"chatgpt_account_id" => "acct-nested"}
+    }
+
+    token = "header.#{Base.url_encode64(Jason.encode!(claims), padding: false)}.signature"
+    File.write!(Path.join(source, "auth.json"), Jason.encode!(%{"tokens" => %{"id_token" => token, "access_token" => "never-print-this"}}))
+
+    assert %{"account_id" => "acct-nested", "email" => "nested@example.com"} = CodexAccounts.identity(source)
+    refute inspect(CodexAccounts.identity(source)) =~ "never-print-this"
+  end
+
+  test "backend capability explains native single-login backends" do
+    assert {:ok, %{supported: false, reason: reason}} = Accounts.capability("muse")
+    assert reason =~ "one native login"
+    assert {:error, {:unsupported_account_backend, ^reason}} = Accounts.register("muse", "work", nil)
+  end
+
+  test "dispatch carries the chosen Codex profile home" do
+    :ok = Accounts.register("codex", "work", nil)
+    issue = %Issue{id: "codex-account", identifier: "CODEX-ACCOUNT", selected_backend: "codex"}
+
+    {"codex", false, opts} =
+      SessionLifecycle.resolve_session_options(
+        issue,
+        [
+          account_config: %{accounts: %{"codex" => ["work"]}, account_selection: "priority"}
+        ],
+        nil
+      )
+
+    assert Keyword.fetch!(opts, :account_name) == "work"
+    assert Keyword.fetch!(opts, :env) == [{"CODEX_HOME", Path.join([System.get_env("HOME"), ".aiur/accounts/codex/work"])}]
+  end
+
+  test "dispatch carries named API key env binding without storing key in registry", %{home: home} do
+    env_path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(env_path))
+    File.write!(env_path, "DEEPSEEK_API_KEY__WORK=top-secret\n")
+    :ok = Accounts.register("deepseek", "work", nil)
+    issue = %Issue{id: "deepseek-account", identifier: "DEEPSEEK-ACCOUNT", selected_backend: "deepseek"}
+
+    {"deepseek", false, opts} =
+      SessionLifecycle.resolve_session_options(
+        issue,
+        [
+          account_config: %{accounts: %{"deepseek" => ["work"]}, account_selection: "priority"}
+        ],
+        nil
+      )
+
+    assert Keyword.fetch!(opts, :env) == []
+    assert Keyword.fetch!(opts, :account_name) == "work"
+    refute File.read!(Path.join(home, ".aiur/machine")) =~ "top-secret"
+  end
+
   test "Claude dispatch pins the selected non-default profile in adapter session options", %{home: home} do
     :ok = Accounts.register("claude", "max", nil)
     :ok = Accounts.register("claude", "max", nil)
@@ -107,7 +279,7 @@ defmodule Aiur.AccountsTest do
         nil
       )
 
-    assert Keyword.fetch!(remote_opts, :env) == Keyword.fetch!(session_opts, :env)
+    assert Keyword.get(remote_opts, :env, []) == Keyword.fetch!(session_opts, :env)
 
     parent = self()
 
