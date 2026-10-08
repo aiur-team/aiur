@@ -43,6 +43,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/time-brush-hook.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
+        <script defer src="/build-home/loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -269,6 +270,10 @@ defmodule AiurWeb.Layouts do
               Hooks.SortableTable = window.AiurSortableTableHook;
             }
 
+            if (window.AiurBuildHome) {
+              Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook();
+            }
+
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
               params: {
@@ -288,6 +293,7 @@ defmodule AiurWeb.Layouts do
           });
         </script>
         <link rel="stylesheet" href="/dashboard.css" />
+        <link rel="stylesheet" href="/build-home/home.css" />
       </head>
       <body>
         {@inner_content}
