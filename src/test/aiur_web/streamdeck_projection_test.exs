@@ -30,6 +30,24 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert StreamdeckProjection.merge_provider_meter(current, session) == current
   end
 
+  test "an initial account summary replaces a session event ingested after the poll began" do
+    session = %ProviderMeterSnapshot{provider: :claude, source: :provider, observed_at: @now, ingested_at: @now, windows: %{"seven_day" => %{kind: :rate_limit, used_percent: 33}}}
+
+    summary = %{
+      session
+      | source: :usage_api,
+        observed_at: DateTime.add(@now, -60),
+        ingested_at: DateTime.add(@now, -30),
+        summary_label: "worst of 2 accounts",
+        windows: %{"seven_day" => %{kind: :rate_limit, used_percent: 94}}
+    }
+
+    current = StreamdeckProjection.provider_meters(%{claude: session}, @now)
+    current = StreamdeckProjection.merge_provider_meter(current, summary)
+    assert current["claude"]["windows"]["weekly"]["used_percent"] == 94
+    assert current["claude"]["summary_label"] == "worst of 2 accounts"
+  end
+
   test "keeps distinct session and weekly readings for every registry provider" do
     meters = %{
       claude: observed_meter("five_hour", 30, 300, "seven_day", 47, 10_080),

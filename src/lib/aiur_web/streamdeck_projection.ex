@@ -474,8 +474,8 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp newer_provider_observation?(%ProviderMeterSnapshot{provider: :claude, source: :usage_api, summary_label: label} = snapshot, current) when is_binary(label) do
-    case {snapshot.ingested_at, current && datetime(field(current, :ingested_at))} do
-      {%DateTime{} = incoming, %DateTime{} = prior} -> DateTime.compare(incoming, prior) != :lt
+    case {snapshot.ingested_at, current && field(current, :summary_label), current && datetime(field(current, :ingested_at))} do
+      {%DateTime{} = incoming, label, %DateTime{} = prior} when is_binary(label) -> DateTime.compare(incoming, prior) != :lt
       _ -> true
     end
   end
