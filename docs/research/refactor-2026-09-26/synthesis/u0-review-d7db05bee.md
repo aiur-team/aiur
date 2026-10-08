@@ -83,6 +83,24 @@ The executed scratch validator also resolved every anchor at the pin and rejecte
 
 Handoff recheck after integrating `main` at `1cf10771d203dfa97130b0887899b388824c7093`: `mise exec -- mix lint` passes specs and Credo (2,078 source files, no issues), and the receive-timeout check passes across 929 test files. The merged backfill refactor clears this review's local lint gate; the implementation review pin and overlay remain unchanged. Mapping/anchor validation and its negative controls pass again.
 
+## U1-T01 automated witness follow-up
+
+At implementation base `ea3076b4f02cee57a3b61105604d09372d3f1e9e`, #3303 adds guards for the two already-merged U1 P0 repairs. The signed U0 pin and finding dispositions above remain unchanged.
+
+- `agent-backends-oc-01`: the legacy coalesced-route test observes actual `AgentChat.send/3` calls, flushes tracing before asserting no unauthorized send, and proves an authorized control sends exactly once. Legacy input omits the versioned envelope header, whose independent authorization would mask removal of the early check; the original envelope denial test is preserved.
+- `agent-backends-oc-02`: the `:bwrap` test runs `env` through the real `CommandRunner` sandbox with synthetic `GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_APP_PRIVATE_KEY` parent values. It asserts those names are absent and `AIUR_GITHUB_CREDENTIAL_FILE` retains the isolated budget credential path. Missing bubblewrap and disabled user namespaces produce explicit skip reasons; unexpected sandbox errors fail.
+
+Both focused files pass: 13 tests, zero failures or skips, using bubblewrap 0.11.2 unpacked from the local package cache into private scratch space. No system or CI package installation was changed. CI does not install bubblewrap, so real sandbox coverage remains an explicit known gap where it is unavailable; the test reports a skip there. No full-agent-turn credential or manual TUI claim is made.
+
+Mutation checks at test commit `225b6718f` ran in a unique detached worktree, with HEAD verified before each batch and `git status --porcelain` constrained to exactly the intended production file. Removing the early `Caller.authorize` hunk makes the no-send test fail on an actual `AgentChat.send/3` trace (1 failure); restoration passes (1 test). Adding `GITHUB_TOKEN` to `@inherited_env_names` makes the real sandbox test fail on the child environment key (1 failure); restoration passes (1 test). No production repair was needed.
+
+Commands executed from the mutation worktree's `src/`, once mutated and again restored:
+
+```sh
+mise exec -- mix test --max-cases 4 test/aiur/opencode/chat_completions/operator_identity_test.exs:145
+PATH="$TMPDIR/3303-bubblewrap/usr/bin:$PATH" mise exec -- mix test --max-cases 4 test/aiur/open_ai_compat/command_runner_budget_test.exs:104 --include bwrap
+```
+
 ## Sign-off
 
 Executor sign-off: [2026-10-08 approval](https://github.com/aiur-team/aiur/issues/3255#issuecomment-6065858720), confirmed by the selected `signoff` answer to `dec_6e160f5dce7a0d1b`. The Executor independently checked the corpus hash, mappings, dispositions, changed-path membership, repair ancestry and ten code spot checks. The issue text's `agents-01..03` IDs are absent from the canonical corpus; that ticket-text error does not add findings or change the preserved source mapping.
