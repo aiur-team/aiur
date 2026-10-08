@@ -8,7 +8,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, PackOverlay, RouteState, SourceRuntime, Truncation}
   alias AiurWeb.BuildOrderPresenter
-  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderGridModel}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderGridModel, BuildOrderSelected}
 
   defmodule Projection do
     def catalog, do: Process.get(:live_catalog)
@@ -84,6 +84,19 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert html =~ "Owner design"
     refute html =~ "Phase label is invalid"
     assert length(Floki.find(Floki.parse_fragment!(html), "[data-bo-card]")) == 2
+  end
+
+  test "summary and graph count the same external gates", %{root: root} do
+    catalog = DataSource.catalog(graph_projection: Projection)
+    {:ok, selected} = DataSource.selected(root.identity, graph_projection: Projection)
+    {route, _} = RouteState.new("gates") |> RouteState.navigate("99")
+    {route, _} = RouteState.put_catalog(route, catalog)
+    {route, _} = RouteState.put_selected(route, selected)
+    model = BuildOrderPresenter.present(selected, :unavailable, :unavailable)
+    html = render_component(&BuildOrderSelected.build_order_selected/1, route_state: route, model: model, now: DateTime.utc_now(), analytics_scope: %{}, usage_scope: %{})
+    tree = Floki.parse_fragment!(html)
+    assert Floki.find(tree, ".bo-summary-grid div") |> Enum.find(&(Floki.text(&1) =~ "External")) |> Floki.text() == "External gates1"
+    assert Floki.find(tree, "summary") |> Enum.any?(&(Floki.text(&1) == "External gates (1)"))
   end
 
   test "a cold production pack demands the live read even while drafts render", %{selected: selected, root: root} do
