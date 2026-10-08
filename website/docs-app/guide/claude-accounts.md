@@ -51,11 +51,14 @@ session.
 ## Continue a session after a usage limit
 
 When a resumable Claude REPL session reaches its account's usage limit, Aiur
-selects another configured Claude account using the same `account_selection`
-rule. If one is available, Aiur moves the inactive session transcript and
-related session artifacts to that profile, then resumes from the original
-working directory under the new account. Status shows the account now running
-the session. If no other configured account has room, Aiur keeps the existing
+selects another configured Claude account using the same `account_selection` rule.
+
+If one is available, Aiur moves the inactive session transcript and related
+session artifacts to that profile. It then resumes from the original working
+directory under the new account, and status shows the account now running the
+session.
+
+If no other configured account has room, Aiur keeps the existing
 wait-for-reset behavior.
 
 The combined Claude usage bar gives every account an equal-width segment and
