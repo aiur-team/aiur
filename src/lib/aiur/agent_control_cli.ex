@@ -285,7 +285,7 @@ defmodule Aiur.AgentControlCLI do
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running ++ retry_rows(snapshot))
+          print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -296,9 +296,6 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
-
-  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
-  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -2118,7 +2115,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2805,7 +2802,8 @@ defmodule Aiur.AgentControlCLI do
         " ",
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
-        agents_activity(agent)
+        agents_activity(agent),
+        WaitingReason.render_wait(agent)
       ])
     end)
   end
@@ -2948,8 +2946,6 @@ defmodule Aiur.AgentControlCLI do
 
   defp format_runtime(_), do: "-"
 
-  # ── aiur watch board ──────────────────────────────────────────────────────
-
   defp watch_row(status) do
     state = watch_state(status)
     age = activity_age_seconds(status)
@@ -2968,7 +2964,9 @@ defmodule Aiur.AgentControlCLI do
       stuck?: stuck?,
       pr_ready?: pr_ready?,
       doing: watch_activity(status),
-      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), stuck?, pr_ready?}
+      waiting: WaitingReason.render_wait(status),
+      signature:
+        {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), Map.take(status[:waiting] || %{}, [:reason, :owner, :cause]), stuck?, pr_ready?}
     }
   end
 
@@ -3101,7 +3099,8 @@ defmodule Aiur.AgentControlCLI do
       " ",
       String.pad_trailing(format_runtime(row.age_seconds), 7),
       " ",
-      watch_doing(row)
+      watch_doing(row),
+      row.waiting
     ]
   end
 

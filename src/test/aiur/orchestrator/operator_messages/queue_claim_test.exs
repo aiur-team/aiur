@@ -89,8 +89,16 @@ defmodule Aiur.Orchestrator.OperatorMessages.QueueClaimTest do
     :erlang.trace(task_pid, true, [:send])
     send(task_pid, :claim)
     receive_barrier({:trace, ^task_pid, :send, {:"$gen_call", _from, request}, ^server})
-    :erlang.trace(task_pid, false, [:send])
+    # The owner can answer and the task can exit before this line (#3213), and
+    # tracing a dead pid raises. A trace ends with its process, so that is fine.
+    safe_trace_off(task_pid)
     assert elem(request, 0) == method
     task
+  end
+
+  defp safe_trace_off(pid) do
+    :erlang.trace(pid, false, [:send])
+  rescue
+    ArgumentError -> :ok
   end
 end
