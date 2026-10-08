@@ -822,16 +822,13 @@ defmodule Aiur.Orchestrator.IssueSync do
         set_terminal_verification_pending_fun
       )
 
-    {external_wait_ids, pending_issue_ids} = Enum.split_with(pending_issue_ids, &match?({:external_wait, _}, &1))
-    retained_issue_ids = pending_issue_ids ++ Enum.map(external_wait_ids, &elem(&1, 1))
-
     retain_pending_terminal_verification(
       pending_issue_ids,
       mark_reconciled_fun,
       set_terminal_verification_pending_fun
     )
 
-    Map.merge(current_issues, Map.take(previous_issues, retained_issue_ids))
+    Map.merge(current_issues, Map.take(previous_issues, pending_issue_ids))
   end
 
   defp record_refreshed_terminal_membership(
@@ -918,12 +915,6 @@ defmodule Aiur.Orchestrator.IssueSync do
          _set_terminal_verification_pending_fun
        ),
        do: :not_terminal
-
-  # External waits disappear from active candidates, but remain workflow evidence for a later zero-label heal.
-  defp retain_refreshed_terminal_verification(:not_terminal, pending_ids, issue, _set_pending_fun) do
-    pending_ids = MapSet.delete(pending_ids, issue.id)
-    if external_wait_state?(issue.state), do: MapSet.put(pending_ids, {:external_wait, issue.id}), else: pending_ids
-  end
 
   defp retain_refreshed_terminal_verification(
          result,

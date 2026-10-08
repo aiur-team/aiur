@@ -382,7 +382,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case fetch_ci_issues(state, opts) do
       {:ok, issues, state} ->
         state
-        |> remember_ci_issue_states(issues)
         |> prune_ci_lifecycle_state(issues, opts)
         |> poll_github_ci_targets(issues, poller, opts)
 
@@ -390,12 +389,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
         TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
     end
-  end
-
-  # Idle CI tickets are absent from the dispatch candidates; retain their label evidence for the next-poll heal.
-  defp remember_ci_issue_states(state, issues) do
-    observed = Map.new(issues, &{&1.id, &1})
-    %{state | last_polled_issues: Map.merge(state.last_polled_issues, observed)}
   end
 
   defp fetch_ci_issues(%State{} = state, opts) do

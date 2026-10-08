@@ -4,7 +4,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{CiLifecycle, IssueSync, State}
+  alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
     @recipient_key {__MODULE__, :recipient}
@@ -748,40 +748,6 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework"]}]
       assert next.ci_lifecycle.approved_heads == %{}
-    end
-
-    test "the next poll heals a zero-label idle CI ticket using retained CI evidence" do
-      identifier = unique_identifier("ci-zero-label")
-      waiting = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
-      observed = poll_ci(%State{}, waiting, %{decision: :pending, head_sha: "head", pr_number: 3095})
-      parent = self()
-
-      idle =
-        IssueSync.sync_polled_issue_state(
-          observed,
-          [],
-          fn _ids -> {:ok, [waiting]} end,
-          fn _identity, _lifecycle -> :ok end,
-          MapSet.new(["done"]),
-          fn status ->
-            send(parent, {:reconciled, status})
-            :ok
-          end,
-          fn _, _ -> :ok end
-        )
-
-      refute_received {:reconciled, :unavailable}
-      assert idle.running == %{}
-      missing = %{waiting | state: nil, state_labels: []}
-
-      {_, [healed]} =
-        IssueSync.reconcile_contradictory_state_labels(idle, [missing], fn id, target ->
-          send(parent, {:heal, id, target})
-          :ok
-        end)
-
-      assert_received {:heal, ^identifier, "ci-wait"}
-      assert healed.state_labels == ["ci-wait"]
     end
 
     test "a stale ci-wait projection cannot rework the persisted approved head" do
