@@ -6563,11 +6563,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp expire_cached_payloads(cache) do
     :sys.replace_state(cache, fn state ->
-      update_in(state.entries, fn entries ->
-        Map.new(entries, fn {key, entry} ->
-          {key, %{entry | loaded_at_ms: entry.loaded_at_ms - 60_000}}
-        end)
-      end)
+      entries = Map.new(state.entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: entry.loaded_at_ms - 60_000}} end)
+      %{state | entries: entries}
     end)
   end
 
@@ -6627,9 +6624,8 @@ defmodule AiurWeb.DashboardLiveTest do
     loaded_at_ms = System.monotonic_time(:millisecond)
 
     :sys.replace_state(cache, fn state ->
-      update_in(state.entries, fn entries ->
-        Map.new(entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: loaded_at_ms}} end)
-      end)
+      entries = Map.new(state.entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: loaded_at_ms}} end)
+      %{state | entries: entries}
     end)
   end
 
