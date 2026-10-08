@@ -3,6 +3,21 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
 
   alias Aiur.Opencode.{Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
 
+  setup context do
+    if context[:stopped_slot_registry] do
+      ensure_slot_registry!()
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, SlotRegistry.registry_name())
+      on_exit(fn -> ensure_slot_registry!() end)
+      assert Process.whereis(SlotRegistry.registry_name()) == nil
+    end
+
+    :ok
+  end
+
+  setup do
+    ensure_slot_registry!()
+  end
+
   defmodule FakeActiveSlot do
     use GenServer
 
@@ -83,7 +98,8 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
   end
 
   describe "slot_count/0 with no registered slots" do
-    test "returns zero" do
+    @tag :stopped_slot_registry
+    test "returns zero after a sibling stopped the application-owned registry" do
       assert SlotSupervisor.slot_count() == 0
     end
   end
@@ -112,6 +128,20 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       assert :ok = stop_supervised(SlotPolicy)
       assert_empty_slot_registry()
     end
+  end
+
+  defp ensure_slot_registry! do
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
+
+    # The supervisor call waits for any rest_for_one cascade before inspecting the child.
+    children = Supervisor.which_children(Aiur.Supervisor)
+    name = SlotRegistry.registry_name()
+
+    if List.keyfind(children, name, 0) |> elem(1) == :undefined do
+      assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, name)
+    end
+
+    :ok
   end
 
   defp registered_slot_indexes do
