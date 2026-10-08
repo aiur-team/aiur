@@ -46,6 +46,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerHealth
   }
 
+  alias Aiur.Orchestrator.ReworkGate
+
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -2515,18 +2517,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
       })
     end
 
-    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-           runner.(issue, recipient,
-             attempt: attempt,
-             prior_work: Keyword.get(opts, :prior_work, false),
-             account_name: Keyword.get(opts, :account_name),
-             resume_thread_id: Keyword.get(opts, :resume_thread_id),
-             telemetry_attempt_id: lifecycle_attempt_id,
-             worker_host: worker_host,
-             orchestrator: recipient,
-             worker_generation: worker_generation
-           )
-         end) do
+    supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
+    rework_head_sha = supplied_rework_head_sha || :pending
+
+    runner_context = %{
+      attempt: attempt,
+      worker_host: worker_host,
+      worker_generation: worker_generation,
+      lifecycle_attempt_id: lifecycle_attempt_id,
+      rework_head_sha: rework_head_sha
+    }
+
+    case start_runner_task(issue, runner, recipient, runner_context, opts) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
@@ -2563,6 +2565,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             prior_work: Keyword.get(opts, :prior_work, false),
+            rework_head_sha: rework_head_sha,
             started_at: DateTime.utc_now()
           }
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
@@ -2592,6 +2595,40 @@ defmodule Aiur.Orchestrator.Dispatcher do
         })
     end
   end
+
+  defp start_runner_task(issue, runner, recipient, context, opts) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+      rework_head_sha = capture_rework_head(issue, context.rework_head_sha, opts)
+      maybe_report_rework_head(recipient, issue, rework_head_sha)
+
+      runner.(issue, recipient,
+        attempt: context.attempt,
+        prior_work: Keyword.get(opts, :prior_work, false),
+        account_name: Keyword.get(opts, :account_name),
+        resume_thread_id: Keyword.get(opts, :resume_thread_id),
+        telemetry_attempt_id: context.lifecycle_attempt_id,
+        worker_host: context.worker_host,
+        orchestrator: recipient,
+        worker_generation: context.worker_generation,
+        rework_head_sha: rework_head_sha
+      )
+    end)
+  end
+
+  defp capture_rework_head(_issue, initial_head, _opts) when initial_head != :pending, do: initial_head
+
+  defp capture_rework_head(issue, :pending, opts) do
+    fetcher = Keyword.get(opts, :rework_head_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+
+    case fetcher.(issue.identifier) do
+      {:ok, %{} = pr} -> ReworkGate.head_sha(pr) || :lookup_failed
+      {:error, _reason} -> :lookup_failed
+      _ -> nil
+    end
+  end
+
+  defp maybe_report_rework_head(recipient, issue, rework_head_sha) when is_pid(recipient),
+    do: send(recipient, {:worker_runtime_info, issue.id, %{rework_head_sha: rework_head_sha}})
 
   # An agent that files a blocking Command ends its run, so the answer usually
   # arrives when no worker runs the ticket and its delivery fails (#2713). The

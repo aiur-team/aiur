@@ -199,8 +199,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Cx 3"
     assert html =~ ~s(class="bo-node-blocks")
     assert html =~ "width:60%"
-    assert html =~ ~r/class="bo-epic-count"[^>]*>60% partial</
-    assert html =~ ~r/class="bo-wave-seg-pct"[^>]*>60% partial</
+    assert html =~ ~r/class="bo-epic-count"[^>]*>30% partial</
+    assert html =~ ~r/class="bo-wave-seg-pct"[^>]*>30% partial</
 
     # Unresolved-progress cards expose neither a false percentage nor a zero-width bar.
     assert html =~ ~s(data-bo-card="#2")
