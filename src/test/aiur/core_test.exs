@@ -1370,13 +1370,17 @@ defmodule Aiur.CoreTest do
   test "stale retry timer messages do not consume newer retry entries" do
     issue_id = "issue-stale-retry"
     orchestrator_name = Module.concat(__MODULE__, :StaleRetryOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
     end)
 
+    :ok = :sys.suspend(pid)
     initial_state = :sys.get_state(pid)
+    assert is_nil(initial_state.tick_timer_ref)
+    assert is_nil(initial_state.tick_token)
+    refute initial_state.poll_check_in_progress
     current_retry_token = make_ref()
     stale_retry_token = make_ref()
 
@@ -1395,7 +1399,8 @@ defmodule Aiur.CoreTest do
     end)
 
     send(pid, {:retry_issue, issue_id, stale_retry_token})
-    Process.sleep(50)
+    # Hold the message until explicitly released; the state read below is the mailbox barrier.
+    :ok = :sys.resume(pid)
 
     assert %{
              attempt: 2,

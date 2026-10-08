@@ -469,7 +469,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
-       aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
+       aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
+       aiur executor-listen [--topic <pattern>]  deprecated alias for listen
        aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
        aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
@@ -3242,21 +3243,61 @@ cmd_watch() {
   fi
 }
 
-cmd_executor_listen() {
-  local topic="executor.#" arg
+listen_clock() { printf '%s' "$SECONDS"; }
+
+cmd_listen() {
+  local topic="executor.#" ticket="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --topic) shift; topic="${1:-}" ;;
       --topic=*) topic="${arg#--topic=}" ;;
-      *) echo "aiur: executor-listen accepts --topic <pattern>" >&2; exit 64 ;;
+      --ticket) shift; ticket="${1:-}" ;;
+      --ticket=*) ticket="${arg#--ticket=}" ;;
+      *) echo "aiur: listen accepts --topic <pattern> or --ticket <id>" >&2; exit 64 ;;
     esac
-    [ -n "$topic" ] || { echo "aiur: executor-listen requires a topic" >&2; exit 64; }
     shift
   done
+  if [ -n "$ticket" ]; then
+    [[ "$ticket" =~ ^[0-9]+$ ]] || { echo "aiur: listen --ticket expects a numeric ticket id" >&2; exit 64; }
+    [ "$topic" = "executor.#" ] || { echo "aiur: listen cannot combine --ticket and --topic" >&2; exit 64; }
+    topic="ticket.${ticket}.#"
+  fi
+  [ -n "$topic" ] || { echo "aiur: listen requires a topic" >&2; exit 64; }
   local encoded
   encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
-  run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))"
+  run_control_rpc "Aiur.AgentControlCLI.executor_listen_validate(Base.decode64!(\"$encoded\"))" || return $?
+  # A stream that stayed up 30s had a live connection, so losing it starts a
+  # new outage. Each outage gets a bounded backoff totalling ~10 minutes, long
+  # enough to outlast a normal `aiur restart`.
+  # ponytail: attempt duration stands in for "connected"; a wedged daemon whose
+  # RPC hangs 30s+ before failing keeps the listener retrying past the budget.
+  # Upgrade to a listener-ready signal if that case shows up in practice.
+  local waited=0 delay=2 started status
+  while :; do
+    started="$(listen_clock)"
+    status=0
+    # Subshell: a `die` inside (e.g. the release dir missing mid-rebuild during
+    # `aiurdev restart`) fails this attempt with exit 1 instead of the listener.
+    (run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))") || status=$?
+    [ "$status" -eq 0 ] && return 0
+    if [ "$status" -ne 1 ] || [ "${AIUR_LISTEN_RECONNECT:-1}" -ne 1 ]; then
+      echo "aiur: listen stopped after streaming control RPC failure (exit ${status}); restart the command after correcting the daemon error" >&2
+      return "$status"
+    fi
+    if [ $(($(listen_clock) - started)) -ge 30 ]; then
+      waited=0
+      delay=2
+    fi
+    if [ "$waited" -ge 600 ]; then
+      echo "aiur: listen could not reconnect within ${waited} seconds; daemon may be unavailable" >&2
+      return 1
+    fi
+    echo "aiur: listen lost the daemon stream (exit ${status}); reconnecting in ${delay} seconds" >&2
+    sleep "$delay"
+    waited=$((waited + delay))
+    delay=$((delay * 2 > 60 ? 60 : delay * 2))
+  done
 }
 
 cmd_executor_wait() {
@@ -4266,9 +4307,9 @@ aiur_engine_main() {
       shift
       cmd_watch "$@"
       ;;
-    executor-listen)
+    listen|executor-listen)
       shift
-      cmd_executor_listen "$@"
+      cmd_listen "$@"
       ;;
     executor-wait)
       shift
