@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   require Logger
 
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.Init.AgentCli
 
   alias Aiur.Orchestrator.{
@@ -185,7 +186,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp account_usages(names, opts) do
-    polled = Aiur.Accounts.UsageReadings.snapshot("claude", names)
+    polled = UsageReadings.snapshot("claude", names)
 
     fetch =
       Keyword.get(opts, :account_usage_fetcher, fn name ->

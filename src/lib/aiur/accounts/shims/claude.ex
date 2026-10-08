@@ -2,7 +2,7 @@ defmodule Aiur.Accounts.Shims.Claude do
   @moduledoc "Claude Code profile adapter."
   @behaviour Aiur.Accounts.Shim
 
-  alias Aiur.Claude.UsageApi
+  alias Aiur.Claude.{RemoteControl, UsageApi}
 
   @impl true
   def profile_env(dir), do: [{"CLAUDE_CONFIG_DIR", dir}]
@@ -43,7 +43,7 @@ defmodule Aiur.Accounts.Shims.Claude do
 
   @impl true
   def session_artifacts(dir, session_id, cwd) do
-    project = Path.join([dir, "projects", Aiur.Claude.RemoteControl.workspace_slug(cwd)])
+    project = Path.join([dir, "projects", RemoteControl.workspace_slug(cwd)])
     short_id = String.slice(session_id, 0, 8)
 
     explicit = [

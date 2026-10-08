@@ -7,6 +7,7 @@ defmodule Aiur.AccountsTest do
   alias Aiur.Accounts.Shims.Claude
   alias Aiur.Accounts.UsageReadings
   alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Issue
 
   setup do
@@ -218,7 +219,7 @@ defmodule Aiur.AccountsTest do
     source = Path.join(home, ".claude")
     destination = Path.join([home, ".aiur/accounts/claude/work"])
     session = "11111111-2222-4333-8444-555555555555"
-    project = Aiur.Claude.RemoteControl.workspace_slug("/repo")
+    project = RemoteControl.workspace_slug("/repo")
     transcript = Path.join([source, "projects", project, session <> ".jsonl"])
     File.mkdir_p!(Path.dirname(transcript))
     File.write!(transcript, "transcript")
@@ -250,13 +251,13 @@ defmodule Aiur.AccountsTest do
     :ok = Accounts.register("claude", "work", nil)
     source = Path.join([home, ".aiur/accounts/claude/work"])
     session = "11111111-2222-4333-8444-555555555555"
-    transcript = Path.join([source, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
+    transcript = Path.join([source, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
     File.mkdir_p!(Path.dirname(transcript))
     File.write!(transcript, "transcript")
 
     assert :ok = Accounts.move_session("claude", "work", "default", session, "/repo")
     refute File.exists?(transcript)
-    assert File.read!(Path.join([home, ".claude", "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])) == "transcript"
+    assert File.read!(Path.join([home, ".claude", "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])) == "transcript"
   end
 
   test "skips a destination artifact symlink that resolves to the source file", %{home: home} do
@@ -265,7 +266,7 @@ defmodule Aiur.AccountsTest do
     source = Path.join(home, ".claude")
     destination = Path.join([home, ".aiur/accounts/claude/work"])
     session = "11111111-2222-4333-8444-555555555555"
-    relative = Path.join(["projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
+    relative = Path.join(["projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
     source_transcript = Path.join(source, relative)
     destination_transcript = Path.join(destination, relative)
     File.mkdir_p!(Path.dirname(source_transcript))
@@ -284,7 +285,7 @@ defmodule Aiur.AccountsTest do
     :ok = Accounts.register("claude", "work", nil)
     source = Path.join(home, ".claude")
     session = "11111111-2222-4333-8444-555555555555"
-    transcript = Path.join([source, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
+    transcript = Path.join([source, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
     File.mkdir_p!(Path.dirname(transcript))
     File.write!(transcript, "transcript")
     rm = fn path -> if path == transcript, do: {:error, :injected_delete_failure}, else: File.rm_rf(path) end
@@ -293,7 +294,7 @@ defmodule Aiur.AccountsTest do
              Accounts.move_session("claude", "default", "work", session, "/repo", same_device: false, rm_rf: rm)
 
     assert File.read!(transcript) == "transcript"
-    refute File.exists?(Path.join([home, ".aiur/accounts/claude/work", "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"]))
+    refute File.exists?(Path.join([home, ".aiur/accounts/claude/work", "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"]))
   end
 
   test "refuses a live session and a destination that already contains it", %{home: home} do
@@ -307,7 +308,7 @@ defmodule Aiur.AccountsTest do
     File.write!(Path.join(registry, session <> ".json"), "{}")
     assert {:error, :session_live} = Accounts.move_session("claude", "default", "work", session, "/repo")
     File.rm!(Path.join(registry, session <> ".json"))
-    destination_artifact = Path.join([destination, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
+    destination_artifact = Path.join([destination, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
     File.mkdir_p!(Path.dirname(destination_artifact))
     File.write!(destination_artifact, "pre-existing")
     assert {:error, :destination_session_exists} = Accounts.move_session("claude", "default", "work", session, "/repo")
@@ -319,14 +320,14 @@ defmodule Aiur.AccountsTest do
     source = Path.join(home, ".claude")
     destination = Path.join([home, ".aiur/accounts/claude/work"])
     session = "11111111-2222-4333-8444-555555555555"
-    project = Path.join([source, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo")])
+    project = Path.join([source, "projects", RemoteControl.workspace_slug("/repo")])
     File.mkdir_p!(project)
     transcript = Path.join(project, session <> ".jsonl")
     File.write!(transcript, "source")
     file_history = Path.join([source, "file-history", session])
     File.mkdir_p!(file_history)
     File.write!(Path.join(file_history, "snapshot"), "history")
-    conflict = Path.join([destination, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
+    conflict = Path.join([destination, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
 
     rename = fn from, to ->
       if String.ends_with?(from, session <> ".jsonl"), do: {:error, :injected_failure}, else: File.rename(from, to)
@@ -344,7 +345,7 @@ defmodule Aiur.AccountsTest do
     source = Path.join(home, ".claude")
     destination = Path.join([home, ".aiur/accounts/claude/work"])
     session = "11111111-2222-4333-8444-555555555555"
-    project = Path.join([source, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo")])
+    project = Path.join([source, "projects", RemoteControl.workspace_slug("/repo")])
     File.mkdir_p!(project)
     transcript = Path.join(project, session <> ".jsonl")
     File.write!(transcript, "verified transcript")
@@ -358,6 +359,6 @@ defmodule Aiur.AccountsTest do
     assert :ok = Accounts.move_session("claude", "default", "work", session, "/repo", same_device: false, copy: copy)
     assert_received {:copied, ^transcript, _}
     refute File.exists?(transcript)
-    assert File.read!(Path.join([destination, "projects", Aiur.Claude.RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])) == "verified transcript"
+    assert File.read!(Path.join([destination, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])) == "verified transcript"
   end
 end
