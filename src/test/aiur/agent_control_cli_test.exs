@@ -11,7 +11,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, SnapshotStore, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, Lifecycle, SnapshotStore, State, StatusReport}
   alias Aiur.TrackerIdentity
 
   test "executor-wait prints and acknowledges a pending wake" do
@@ -566,7 +566,7 @@ defmodule Aiur.AgentControlCLITest do
     :sys.suspend(pid)
 
     try do
-      state = :sys.replace_state(pid, &Aiur.Orchestrator.Lifecycle.schedule_tick(&1, 60_000))
+      state = :sys.replace_state(pid, &Lifecycle.schedule_tick(&1, 60_000))
       timer = state.tick_timer_ref
       send(pid, {:tick, state.tick_token})
       send(pid, :run_poll_cycle)
