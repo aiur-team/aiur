@@ -11,30 +11,38 @@ defmodule AiurWeb.BuildQueue.Panel do
     assigns = assigns |> assign(:state, state(assigns.view)) |> assign(:attentions, if(assigns.view, do: Runtime.recent_attentions(assigns.view.attentions, assigns.now), else: []))
 
     ~H"""
-    <section id="build-queue-panel" class="bo-surface" aria-label={Copy.text(:title)} data-queue-state={@state}>
-      <h2>{Copy.text(:title)}</h2>
-      <p>{Copy.text(:intro)}</p>
+    <section id="build-queue-panel" class="bo-surface bo-queue-panel" aria-label={Copy.text(:title)} data-queue-state={@state}>
+      <header>
+        <h2>{Copy.text(:title)}</h2>
+        <p :if={not inactive?(@state)} class="bo-queue-muted">{Copy.text(:intro)}</p>
+      </header>
       <p :if={@state != :running} role="status">{Copy.text(@state)}</p>
-      <%= if @view do %>
-        <p :for={{name, source} <- Enum.sort(@view.model.sources)} data-queue-source={name} data-freshness={source.freshness}>
-          <strong>{name}</strong> · {Copy.text(:observed)}: {Copy.timestamp(source.observed_at)} ·
+      <%= if @view && not inactive?(@state) do %>
+        <p :for={{name, source} <- Enum.sort(@view.model.sources)} class="bo-queue-muted" data-queue-source={name} data-freshness={source.freshness}>
+          <strong>{Copy.source_name(name)}</strong> · {Copy.text(:observed)}: {Copy.timestamp(source.observed_at)} ·
           {Copy.text(:age)}: {Copy.age(source.age_ms)} · {Copy.text(:freshness)}: {Copy.label(source.freshness)}
           <span :if={source.reasons != []}> · {Copy.reason(source.reasons)}</span>
         </p>
         <.queue :for={queue <- @view.model.queues} queue={queue} dimmed={dimmed?(queue, @view.model.sources)} />
       <% end %>
+      <section :if={not inactive?(@state)}>
       <h3>{Copy.text(:attentions)}</h3>
-      <p :if={@view && @view.model.status != :unknown && @attentions == []}>{Copy.text(:no_attentions)}</p>
-      <p :if={Enum.any?(@attentions, &(not &1["needs_attention"]))}>{Copy.text(:resolved_notice)}</p>
+      <p :if={@view && @view.model.status != :unknown && @attentions == []} class="bo-queue-muted">{Copy.text(:no_attentions)}</p>
+      <p :if={Enum.any?(@attentions, &(not &1["needs_attention"]))} class="bo-queue-muted">{Copy.text(:resolved_notice)}</p>
       <ul :if={@attentions != []}>
         <li :for={alert <- @attentions} data-queue-attention={if(alert["needs_attention"], do: "open", else: "resolved")}>
           <strong :if={not alert["needs_attention"]}>{Copy.text(:resolved)} · </strong>
           {alert["message"]} · {Copy.text(:observed)}: {alert["timestamp"]}
         </li>
       </ul>
+      </section>
     </section>
     """
   end
+
+  # A queue that is switched off or unsupported has no sources or attentions to
+  # report; showing their Unknown placeholders would read as a fault.
+  defp inactive?(state), do: state in [:disabled, :unsupported_tracker]
 
   attr(:queue, :map, required: true)
   attr(:dimmed, :boolean, required: true)

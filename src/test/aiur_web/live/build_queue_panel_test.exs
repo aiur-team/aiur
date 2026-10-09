@@ -39,6 +39,28 @@ defmodule AiurWeb.BuildQueuePanelTest do
     end
   end
 
+  for status <- [:disabled, :unsupported_tracker] do
+    test "#{status} shows only its notice, without source or attention placeholders" do
+      fixture =
+        put_in(view(unquote(status)), [:model, :sources, "tracker_observation"], %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:observation_unavailable]})
+
+      html = render_component(&Panel.panel/1, view: fixture, now: @now)
+      refute html =~ "data-queue-source"
+      refute html =~ "Attentions"
+      refute html =~ "Freshness"
+      refute html =~ ":observation"
+    end
+  end
+
+  test "source names and reasons render as words, not Elixir terms" do
+    fixture = put_in(view(:running), [:model, :sources, "tracker_observation"], %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:observation_unavailable]})
+    html = render_component(&Panel.panel/1, view: fixture, now: @now)
+    assert html =~ "<strong>Tracker</strong>"
+    assert html =~ "Observation unavailable"
+    refute html =~ "tracker_observation</strong>"
+    refute html =~ "[:"
+  end
+
   test "empty queues show the CLI hint even without an observation" do
     fixture = put_in(view(:running), [:model, :queues], []) |> put_in([:model, :sources], %{})
     html = render_component(&Panel.panel/1, view: fixture, now: @now)
@@ -97,10 +119,10 @@ defmodule AiurWeb.BuildQueuePanelTest do
   test "renders progress, waiting causes, rank and open attentions without controls" do
     html = render_component(&Panel.panel/1, view: view(:running), now: @now)
     assert html =~ "50% · 1/2 completed"
-    assert html =~ "#12 · Waiting · :local"
+    assert html =~ "#12 · Waiting · Local"
     assert html =~ "2 open downstream · priority 1"
-    assert html =~ "queue hold"
-    assert html =~ "prerequisite failed"
+    assert html =~ "Queue hold"
+    assert html =~ "Prerequisite failed"
     refute html =~ "<button"
     refute html =~ "phx-click"
   end
