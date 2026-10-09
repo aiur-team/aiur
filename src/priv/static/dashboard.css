@@ -1,13 +1,3 @@
-/* Bungee — the display face used by the aiur home-page wordmark, bundled so
-   the dashboard renders it offline (no web-font fetch). */
-@font-face {
-  font-family: "Bungee";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/bungee.woff2") format("woff2");
-}
-
 :root {
   color-scheme: dark;
   --bg: #16171a;
@@ -17,11 +7,10 @@
   --surface-3: #292d34;
   --fg: #edeef0;
   --muted: #969aa4;
-  /* Keep faint text >= WCAG AA 4.5:1 on the dark surfaces (>= 5:1 on --surface);
-     stay dimmer than --muted. Do not darken below this without rechecking axe. */
+  /* AA hold: design #676b74, pending Kevin (S-19) */
   --faint: #8b8f99;
   --line: rgba(221, 226, 235, 0.12);
-  --line-strong: rgba(221, 226, 235, 0.2);
+  --line-strong: rgba(221, 226, 235, 0.20);
   --hairline: rgba(221, 226, 235, 0.08);
   --pill-bg: rgba(221, 226, 235, 0.04);
   --accent: #2f86ff;
@@ -77,72 +66,66 @@
      run-summary and units-table tracks, the provider-meter tracks, and the
      Stream Deck bars — so no two bars read as different gauges. */
   --progress-bar-height: 0.5rem;
+  --pill-bd: rgba(221, 226, 235, 0.14);
+  --ack-soft: rgba(79, 214, 196, 0.14);
+  --attn: var(--attention);
+  --attn-ink: var(--attention-ink);
+  --attn-soft: var(--attention-soft);
+  --attn-line: var(--attention-line);
+  --block: var(--blocking);
+  --block-ink: var(--blocking-ink);
+  --block-soft: var(--blocking-soft);
+  --block-line: var(--blocking-line);
 }
 
 html[data-theme="light"] {
   color-scheme: light;
-  --bg: #e7d6b2;
-  --bg-2: #e2cfa6;
-  --surface: #f4ecd9;
-  --surface-2: #efe5cd;
-  --surface-3: #e9dcbf;
-  --fg: #2a2520;
-  /* Darkened from #756a55 and #9a8e73, which were tuned for the sepia surface
-     by eye and never measured: --faint reached only 2.75:1 on --surface (2.26:1
-     on --bg) and --muted fell to 4.20:1 behind --pill-bg, which is what put the
-     Units filter pills below AA. Both are now set to mirror their dark-theme
-     counterparts' contrast profile rather than to a bare 4.5:1 pass, so the
-     muted/faint step stays the same size it is in dark mode:
-       --muted 5.78:1 on --surface (dark: 5.79:1), 4.75:1 on --bg
-       --faint 4.97:1 on --surface (dark: 5.03:1), 4.62:1 behind --pill-bg
-     --faint clears AA on --surface and --surface-2 only. It is under it on
-     --surface-3 (4.31:1, as dark --faint is at 4.27:1) and on the page itself
-     (4.08:1 on --bg, 3.82:1 on --bg-2) — text on those steps up to --muted
-     rather than dragging the whole token darker, because --faint cannot go
-     much below this without collapsing into --muted and losing the third rung
-     of the hierarchy. Do not lighten either without rechecking axe. */
-  --muted: #635a48;
-  --faint: #6d6450;
-  --line: rgba(42, 37, 26, 0.16);
-  --line-strong: rgba(42, 37, 26, 0.28);
-  --hairline: rgba(42, 37, 26, 0.1);
-  --pill-bg: rgba(42, 37, 26, 0.04);
-  --accent: #1f57c4;
-  --accent-ink: #1a4aa8;
-  /* The light accent is already dark enough to carry white text (6.52:1), so
-     the fill and the accent are the same colour here. */
+  --bg: #f3f1ec;
+  --bg-2: #f8f7f3;
+  --surface: #ffffff;
+  --surface-2: #f4f2ed;
+  --surface-3: #ebe8e1;
+  --fg: #1e1c19;
+  --muted: #67625a;
+  /* AA hold: design #9a958c, pending Kevin (S-19) */
+  --faint: #777269;
+  --line: rgba(40, 32, 20, 0.10);
+  --line-strong: rgba(40, 32, 20, 0.18);
+  --hairline: rgba(40, 32, 20, 0.07);
+  --pill-bg: rgba(40, 32, 20, 0.03);
+  --accent: #2563d9;
+  --accent-ink: #1d4fb3;
+  /* Preserve the product's text-bearing button fill in both palettes. */
   --accent-strong: #1f57c4;
   --on-accent: #ffffff;
-  --accent-soft: rgba(31, 87, 196, 0.11);
-  --accent-line: rgba(31, 87, 196, 0.3);
-  --attention: #b8821a;
-  /* Darkened from #8a6210, which reached only 4.11:1 against its own soft
-     background in the light theme — an "Expired" chip is a state the operator
-     has to be able to read. Darkened again from #7d590e, which cleared its own
-     soft background (4.78:1) but not when that sits on a tinted panel: the
-     revision caution inside `.decision-revision` measured 4.16:1 over the
-     --super-soft wash. Now 4.59:1 there and 5.27:1 on the plain surface. */
-  --attention-ink: #75530d;
+  --accent-soft: rgba(37, 99, 217, 0.09);
+  --accent-line: rgba(37, 99, 217, 0.28);
+  --attention: #e3a321;
+  /* AA hold: design #94650a, pending Kevin (S-19) */
+  --attention-ink: #855b09;
   --attention-soft: rgba(184, 130, 26, 0.13);
   --attention-line: rgba(184, 130, 26, 0.32);
   --blocking: #d23b32;
   --blocking-ink: #a52a23;
   --on-blocking: #ffffff;
   --blocking-soft: rgba(210, 59, 50, 0.11);
-  --blocking-line: rgba(210, 59, 50, 0.3);
-  --good: #1f9d4d;
-  --good-ink: #167038;
+  --blocking-line: rgba(210, 59, 50, 0.30);
+  --good: #22b85a;
+  --good-ink: #15803d;
   --good-soft: rgba(31, 157, 77, 0.13);
-  --good-line: rgba(31, 157, 77, 0.3);
+  --good-line: rgba(31, 157, 77, 0.30);
   --super: #8a4fd0;
   --super-ink: #6d3aa8;
   --super-soft: rgba(138, 79, 208, 0.12);
-  --super-line: rgba(138, 79, 208, 0.3);
+  --super-line: rgba(138, 79, 208, 0.30);
   --ack: #0e9e8e;
-  --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.1);
+  --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.10);
   --shadow-md: 0 4px 12px -2px rgba(58, 44, 18, 0.22);
-  --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.3);
+  --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.30);
+  --pill-bd: rgba(40, 32, 20, 0.12);
+  --ack-soft: rgba(14, 158, 142, 0.13);
 }
+
 
 * {
   box-sizing: border-box;
@@ -162,10 +145,10 @@ body {
     radial-gradient(1200px 520px at 78% -8%, var(--accent-soft) 0%, transparent 60%),
     var(--bg);
   color: var(--fg);
-  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.35s ease, color 0.35s ease;
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
 
 a {
@@ -1126,7 +1109,7 @@ th[data-sort-key]:focus-visible {
   font-size: 0.6rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .bo-breakdown-row-stat .num {
@@ -3510,6 +3493,11 @@ html[data-theme="light"] .toggle-icon .moon {
   color: #e29b63;
   border-color: rgba(226, 155, 99, 0.4);
   background: rgba(226, 155, 99, 0.12);
+}
+
+/* The legacy medium-priority ink needs a small lift on Gruvbox surfaces to clear AA. */
+html[data-palette="gruvbox"] .u-prio.is-med {
+  color: color-mix(in srgb, var(--fg) 5%, #e29b63);
 }
 
 .u-prio.is-low {
@@ -8194,6 +8182,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .bo-epic-label {
+  background: transparent;
   font-weight: 600;
   font-size: 0.86rem;
   color: var(--fg);
@@ -8468,7 +8457,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 /* Complexity moved into the card body as a plain detail. */
 .bo-node-cx {
   font-variant-numeric: tabular-nums;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .bo-node-title {
