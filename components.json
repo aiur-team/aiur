@@ -59,9 +59,9 @@
     },
     {
       "id": "agent-runner", "name": "Turn engine for one ticket", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
+      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel"], "optional": ["build-orders"],
+      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel", "identity"], "optional": ["build-orders"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["RUN"]
     },
@@ -134,7 +134,7 @@
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands", "orchestration"], "optional": ["build-queue"],
+      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands", "orchestration"], "optional": ["build-queue", "conversations", "telemetry"],
       "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": ["build_orders", "build_orders.progress"]},
       "prior": ["BO"]
     },
@@ -149,8 +149,8 @@
     },
     {
       "id": "commands", "name": "Commands (code: Decisions) and Asks", "layer": 3, "kind": "required",
-      "paths": ["src/lib/aiur_web/routes/decisions.ex", "src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur/supervisor_token/**", "src/lib/aiur_web/controllers/decision*.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur_web/routes/decisions.ex", "src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur/supervisor_token/**", "src/lib/aiur_web/controllers/decision*.ex", "src/lib/aiur/commands.ex", "src/lib/aiur/commands/**"],
+      "facades": ["Aiur.Commands", "Aiur.Decision", "Aiur.DecisionAnswer", "Aiur.DecisionRevision", "Aiur.DecisionEvent", "Aiur.DecisionArtifact", "AiurWeb.DecisionApiController", "AiurWeb.Routes.Decisions"], "facade_pending": null,
       "requires": ["event-bus", "kernel", "config", "identity", "signal", "web-kit"], "optional": [],
       "owns": {"config": ["decisions"], "env": ["AIUR_CI_READINESS_TOKEN", "AIUR_SUPERVISOR_TOKEN"], "state": ["decision_state_dir"], "capabilities": []},
       "prior": ["DEC", "EXE"]
@@ -158,7 +158,7 @@
     {
       "id": "pr-lifecycle", "name": "PR health lifecycle", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/pr_lifecycle/**"],
-      "facades": ["Aiur.PRLifecycle.HealthScanner"], "facade_pending": null,
+      "facades": ["Aiur.PRLifecycle.HealthScanner", "Aiur.PRLifecycle.ReworkRequeue"], "facade_pending": null,
       "requires": ["tracker", "github", "config", "kernel", "signal"], "optional": ["executor-attention"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["PRL"],
@@ -166,8 +166,8 @@
     },
     {
       "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/conversation/history.ex"],
+      "facades": ["Aiur.Conversation.History", "Aiur.Conversation.Anchors", "Aiur.AgentEventFeed"], "facade_pending": null,
       "requires": ["event-bus", "agent-runner", "identity", "kernel"], "optional": ["executor-attention"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": ["conversations.read"]},
       "prior": ["PRJ", "RUN", "SD"]
@@ -226,7 +226,7 @@
       "id": "projections", "name": "Current-run read models", "layer": 3, "kind": "required",
       "paths": ["src/lib/aiur/projections/**", "src/lib/aiur/current_run_projections.ex", "src/lib/aiur/current_run_projections/**", "src/lib/aiur/current_run_projection/**", "src/lib/aiur/current_run_outcome_snapshot.ex", "src/lib/aiur/current_run_outcome_snapshot/**", "src/lib/aiur/current_run_summary.ex", "src/lib/aiur/current_run_summary/**", "src/lib/aiur/progress_retention.ex", "src/lib/aiur/progress_tracker.ex", "src/lib/aiur/ticket_activity.ex", "src/lib/aiur/ticket_activity/**"],
       "facades": ["Aiur.CurrentRunProjections", "Aiur.CurrentRunOutcomeSnapshot", "Aiur.CurrentRunSummary", "Aiur.TicketActivity", "Aiur.ProgressRetention", "Aiur.ProgressTracker", "Aiur.Projections.UnitsRow", "Aiur.Projections.UnitsPolicy", "Aiur.Projections.UnitsRow.Sources"], "facade_pending": null,
-      "requires": ["event-bus", "tracker", "kernel", "orchestration"], "optional": ["conversations", "github-listeners"],
+      "requires": ["agent-runner", "event-bus", "tracker", "kernel", "orchestration"], "optional": ["conversations", "github-listeners"],
       "owns": {"config": [], "env": [], "state": ["progress_retention_state_dir"], "capabilities": []},
       "prior": ["PRJ"]
     },
@@ -306,13 +306,13 @@
       "id": "web-shell", "name": "HTTP endpoint, router, auth, sockets, JSON API", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur_web/routes/api.ex", "src/lib/aiur/http_server.ex", "src/lib/aiur/http_server/**", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["config", "identity", "projections", "web-kit"], "optional": ["github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
+      "requires": ["config", "identity", "projections", "web-kit"], "optional": ["conversations", "github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
       "owns": {"config": ["observability", "server"], "env": ["AIUR_DASHBOARD_PASSWORD", "AIUR_DASHBOARD_USERNAME"], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
     {
-      "id": "aiur-contracts", "name": "Published wire contracts: JSON Schemas and generated TS types for identity, capabilities, events, Commands, conversations, notifications (new, MP-R1-C3; `status: planned` until C3-T06, `added_by: MP-R1`, exempt from rule I4)", "layer": 5, "kind": "required",
-      "paths": [],
+      "id": "aiur-contracts", "name": "Wire contracts: JSON Schemas and generated TypeScript types for identity and capabilities", "layer": 5, "kind": "required",
+      "paths": ["packages/aiur-contracts/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -383,6 +383,6 @@
       "prior": []
     }
   ],
-  "seams": [{"from": "orchestration", "to_module": "Aiur.BuildQueue.Hints", "kind": "reference", "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "behaviour", "reason": "MP-E1 X-1: orchestration implements the claim-probe port"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder.*", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "reference", "only_paths": ["src/lib/aiur/orchestrator/build_queue_claim_probe.ex"], "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"}, {"from": "build-queue", "to_module": "Aiur.Orchestrator.TicketTransition", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/write_protocol.ex"], "allow_forbidden": true, "reason": "#3306 lifecycle-write owner: #3259 preserves the exact sanctioned scan exception"}],
+  "seams": [{"from": "orchestration", "to_module": "Aiur.BuildQueue.Hints", "kind": "reference", "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "behaviour", "reason": "MP-E1 X-1: orchestration implements the claim-probe port"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder.*", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "reference", "only_paths": ["src/lib/aiur/orchestrator/build_queue_claim_probe.ex"], "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"}, {"from": "pr-lifecycle", "to_module": "Aiur.Orchestrator.TicketTransition", "kind": "reference", "only_paths": ["src/lib/aiur/pr_lifecycle/rework_requeue.ex"], "allow_forbidden": true, "reason": "MP-R1-C9-T06 RC-20: U2 keeps requeue decisions in the worker and routes writes through its single lifecycle owner (#3570)"}, {"from": "build-queue", "to_module": "Aiur.Orchestrator.TicketTransition", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/write_protocol.ex"], "allow_forbidden": true, "reason": "#3306 lifecycle-write owner: #3259 preserves the exact sanctioned scan exception"}],
   "ports": [{"from": "orchestration", "to_module": "Aiur.Listener.DeliveryTarget", "kind": "behaviour", "reason": "RC-36: orchestration implements listener delivery; listener-modes must not depend on orchestration"}, {"from": "orchestration", "to_module": "Aiur.Commands.DeliveryTarget", "kind": "behaviour", "reason": "CR-C8-3: orchestration implements Command delivery; activation belongs to MP-R1-C8-T02"}, {"from": "web-shell", "to_module": "AiurWeb.Sockets.*", "kind": "reference", "reason": "RC-39: downward composition of optional component sockets"}]
 }

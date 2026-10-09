@@ -282,7 +282,7 @@ validator that is then sent on a URL where it can never match — either way a
 later conditional request is answered wrongly. Store a validator where the
 thing it describes lives, and only answer it against the read that earned it.
 
-GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
+The ticket poll uses GraphQL to resolve which pull request belongs to a ticket and to read its inline review threads. Build history also uses bounded closed-issue catch-up, described below.
 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
 
@@ -319,14 +319,7 @@ Dispatch orders candidates with fresh cached native dependency holds after other
 
 `planning` is recommended as `0` (on-demand): its expensive query runs only when a page opens or a degradation needs a re-list.
 
-| View state | Behaviour |
-| --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. One exception: a Build Order root with no graph yet gets one first read, when `/build-orders/<root>` opens or `aiur build-orders <root>` runs. |
-| Explicit single-root CLI read | `aiur build-orders <root>` also requests an asynchronous read when the retained graph is stale. Healthy graphs are reused; provider backoff and in-flight coalescing apply. This does not add a periodic page refresh. |
-| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. Build Order membership also gets a 15-minute safety reconciliation in every webhook mode, as described above. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
-| Divergence watermark | On the same sweep cadence, one bounded `updated_at`-ordered head page of the open-issue listing. It does two jobs the deleted polls used to do: it records poller corroboration for the silence sweep (so an `issues` delivery loss can degrade the repo instead of looking like an idle one), and it re-lists the event-sourced sources when GitHub's newest open issue is newer than the store's — the proof that a delivery was dropped. One page, never a paged listing. |
-| Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, resolving promoted members by issue number across roots. Successful batches are retained across budget-limited cycles; unfetched members keep their previous state and source health stays incomplete. Moving it to the event stream is a separate change. |
-| Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
+<!--@include: ../.vitepress/includes/github-view-state.md-->
 
 The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
 moment a delivery deposits the changed issue; the sweep's only other

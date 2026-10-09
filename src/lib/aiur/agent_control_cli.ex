@@ -2,7 +2,6 @@ defmodule Aiur.AgentControlCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ControlCLI.Reasons
-  alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -11,9 +10,9 @@ defmodule Aiur.AgentControlCLI do
     AgentChat,
     AlertFeed,
     AnalyticsCLI,
-    Asks,
     BuildGate,
     BuildOrdersCLI,
+    Commands,
     CommandsCLI,
     Config,
     ExecutorBindings,
@@ -197,7 +196,7 @@ defmodule Aiur.AgentControlCLI do
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     print_executor_wake_status()
-    ProjectionRecovery.print_status()
+    Commands.print_projection_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -473,6 +472,7 @@ defmodule Aiur.AgentControlCLI do
   claim, which is retryable and reports the retry bounds already spent; exit `1`
   is a daemon or store failure, which is not.
   """
+
   @spec executor_wait(keyword()) :: :ok
   def executor_wait(opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
@@ -3190,7 +3190,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp blocking_asks_for_repo(repo) do
-    with {:ok, asks} <- Asks.open(repo), do: {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
+    with {:ok, asks} <- Commands.open_asks(repo), do: {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
   end
 
   defp format_ask_store_error({:invalid_ask_record, _path, line_number, reason}),
