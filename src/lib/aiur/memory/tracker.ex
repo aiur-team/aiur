@@ -7,6 +7,14 @@ defmodule Aiur.Memory.Tracker do
 
   alias Aiur.Issue
 
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    case Enum.find(issue_entries(), &matching_issue?(&1, issue_id)) do
+      nil -> {:error, :issue_not_found}
+      issue -> {:ok, Enum.map(issue.blocked_by, & &1.id)}
+    end
+  end
+
   @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
   def ticket_pull_request(_issue_id), do: {:ok, nil}
 
