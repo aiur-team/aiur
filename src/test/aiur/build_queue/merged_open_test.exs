@@ -18,10 +18,13 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
 
     def issue_closure(_id, _age), do: {:ok, %{open?: false, state_reason: "completed"}}
     def ticket_pull_request(_id), do: Agent.get(__MODULE__, &{:ok, &1.pr})
+    def blocked_by("1"), do: {:ok, ["2"]}
+    def update_issue_state("1", "todo", expected_state: :none), do: :ok
+    def notify_demand(["1"]), do: :ok
     def status(_ids), do: :unavailable
   end
 
-  setup do
+  setup context do
     previous = Application.fetch_env(:aiur, :decision_state_dir)
     root = Aiur.TestSupport.tmp_root!("queue-merged-open")
     Application.put_env(:aiur, :decision_state_dir, root)
@@ -43,7 +46,8 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
     Process.register(boundary, Boundary)
     input = PlannerFixture.input() |> PlannerFixture.waiting()
     {:ok, document} = Store.load()
-    :ok = Store.save(%{document | queues: [%{hd(input.queues) | id: "q-abcd", held: true}], items: [%{hd(input.items) | queue_id: "q-abcd"}], edges: input.edges})
+    native? = context[:native] == true
+    :ok = Store.save(%{document | queues: [%{hd(input.queues) | id: "q-abcd", held: not native?}], items: [%{hd(input.items) | queue_id: "q-abcd"}], edges: if(native?, do: [], else: input.edges)})
     settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true, merged_open_grace_seconds: 60}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
 
     pid =
@@ -82,6 +86,30 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
     reconcile(pid)
     resolved = @topic <> ".resolved"
     assert_received {:event, %{topic: ^resolved}}
+    assert {:ok, %{latches: []}} = Store.load()
+  end
+
+  @tag :native
+  test "native prerequisite merge starts grace, emits once, and closure resolves", %{pid: pid} do
+    change(pr: %{merged?: true, state: :closed})
+    reconcile(pid)
+    assert :sys.get_state(pid).document.edges == []
+    assert :sys.get_state(pid).observations["2"].pr == :merged
+    change(pr: nil, now: 69_999)
+    reconcile(pid)
+    refute_received {:event, %{topic: @topic}}
+    change(now: 70_000)
+    reconcile(pid)
+    assert_received {:event, %{topic: @topic, ticket: "2"}}
+    assert {:ok, %{latches: [%{key: {:merged_issue_open, "2"}, emitted?: true}]}} = Store.load()
+    assert hd(:sys.get_state(pid).projections).verdict == :waiting
+    reconcile(pid)
+    refute_received {:event, %{topic: @topic}}
+    change(open: false)
+    reconcile(pid)
+    resolved = @topic <> ".resolved"
+    assert_received {:event, %{topic: ^resolved}}
+    refute_received {:event, %{topic: ^resolved}}
     assert {:ok, %{latches: []}} = Store.load()
   end
 
