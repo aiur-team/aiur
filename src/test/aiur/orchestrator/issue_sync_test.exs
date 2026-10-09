@@ -695,7 +695,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "Ready tickets=1"
     assert event["reason"] =~ "effective cap=4, configured cap=4"
-    assert event["reason"] =~ "load-envelope limit"
+    assert event["reason"] =~ "adaptive envelope limit"
     assert event["reason"] =~ "memory gate"
     assert event["reason"] =~ "FD gate"
     assert event["reason"] =~ "load gate"

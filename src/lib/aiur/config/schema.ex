@@ -35,6 +35,9 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
+  # Ecto embeds Agent defaults at compile time without tracking its source changes.
+  @external_resource Path.expand("schema/agent.ex", __DIR__)
+
   @primary_key false
 
   @type t :: %__MODULE__{}

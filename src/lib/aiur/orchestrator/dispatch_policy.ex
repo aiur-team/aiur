@@ -5,10 +5,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.BuildQueue.Hints
+  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{Slots, State, SustainedLoad}
+  alias Aiur.Orchestrator.{PressureAdmission, Slots, State, SustainedLoad}
 
   @cpu_headroom_ramp_max 3
   @reclaimable_cpu_threshold 60.0
@@ -93,19 +93,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @doc false
   @spec read_file_descriptors() :: SystemFileDescriptors.sample_result()
   def read_file_descriptors, do: SystemFileDescriptors.sample()
-
-  @doc false
-  # Reads the shared build-gate status. The status call is the authoritative
-  # agent-launched Mix concurrency signal (the shell hook owns lock acquisition),
-  # so this reads the real gate unless a test seam overrides it. A disabled or
-  # unreadable gate yields a `build_gate/1` fail-open.
-  @spec read_build_status() :: map()
-  def read_build_status do
-    case Application.get_env(:aiur, :build_gate_status_override) do
-      fun when is_function(fun, 0) -> fun.()
-      _other -> BuildGate.status()
-    end
-  end
 
   @doc false
   # Dispatchable backends whose configured provider usage limits participate in
@@ -225,21 +212,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   @doc false
-  # Concurrent-build-pressure gate: holds new dispatch while every agent-launched
-  # Mix build slot is busy or a build is queued behind them. This is the
-  # "concurrent build pressure" admission signal — it complements the CPU load
-  # gate, which sees external build load through the load average. Fails open
-  # when the build gate is disabled (`max_concurrent_builds: 0`) or its status
-  # is unavailable/degraded.
-  @spec build_gate(map()) :: :dispatch | :hold
-  def build_gate(%{enabled?: true, capacity: capacity, active: active, queued: queued})
-      when is_integer(capacity) and capacity > 0 and is_integer(active) and is_integer(queued) do
-    if active >= capacity or queued > 0, do: :hold, else: :dispatch
-  end
-
-  def build_gate(_status), do: :dispatch
-
-  @doc false
   # Configured-provider-limit gate: holds new dispatch only when every
   # dispatchable backend reports usage-limited (the fleet-wide provider signal),
   # failing open when no limits are observed or there is nothing dispatchable.
@@ -275,7 +247,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # admit them or dialyzer intersects the inferred 5-key hold with a closed
   # 3-key spec, finds nothing, and declares every load/run-queue hold dead.
   @type admission_reason :: %{
-          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
+          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :cpu_pressure | :build | :provider,
           :measured => term(),
           :threshold => term(),
           optional(:reclaimable_cpu_percent) => number(),
@@ -287,8 +259,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
   (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, GitHub quota, run queue, load,
-  build, provider.
+  priority order is memory, file descriptors, GitHub quota, CPU pressure
+  (run queue/load fallback), provider.
   Every signal fails open when disabled or unavailable, so an explicit-disable
   config never touches a Linux-specific probe.
   """
@@ -321,36 +293,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp workload_admission_gate(
-         %{
-           runnable: runnable,
-           run_queue_threshold: run_queue_threshold,
-           schedulers: schedulers,
-           load: load,
-           load_threshold: load_threshold,
-           build_status: build_status,
-           provider_backends: provider_backends,
-           queued_demand?: queued_demand?
-         } = probes
-       ) do
-    cpu_headroom = Map.get(probes, :cpu_headroom, :unavailable)
-    run_queue_hold = run_queue_admission_reason(runnable, schedulers, run_queue_threshold, cpu_headroom)
-    load_hold = load_admission_reason(load, load_threshold, schedulers, cpu_headroom)
+  defp workload_admission_gate(%{provider_backends: provider_backends, queued_demand?: queued_demand?} = probes) do
+    cpu_hold = PressureAdmission.cpu_gate(probes)
 
     cond do
-      run_queue_hold != :dispatch ->
-        run_queue_hold
-
-      load_hold != :dispatch ->
-        load_hold
-
-      build_gate(build_status) == :hold ->
-        {:hold,
-         %{
-           signal: :build,
-           measured: %{active: Map.get(build_status, :active), queued: Map.get(build_status, :queued)},
-           threshold: Map.get(build_status, :capacity)
-         }}
+      cpu_hold != :dispatch ->
+        cpu_hold
 
       queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
         provider_opts = Map.get(probes, :provider_gate_opts, [])
@@ -557,7 +505,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       # added to remove (#1610): the raw 1-minute load average, which this fleet
       # routinely inflates with niced `mix` builds and I/O wait, withheld new
       # dispatch with no CPU evidence behind it. Every neighbouring probe
-      # (`SystemLoad`, `SystemCpu`, `memory_gate/2`, `build_gate/1`) degrades
+      # (`SystemLoad`, `SystemCpu`, `memory_gate/2`) degrades
       # open when its sample is missing; this one now agrees. A hold therefore
       # always carries a measured `reclaimable_cpu_percent`, and the next poll
       # cycle — which does have a window — is what holds a genuinely saturated
