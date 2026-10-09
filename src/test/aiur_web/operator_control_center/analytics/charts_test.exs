@@ -69,6 +69,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert Charts.cpu_stack(m, MapSet.new()) =~ "<svg"
   end
 
+  test "unknown cap omits the ceiling and wasted-capacity band while rendering activity" do
+    model = %{model() | cap: nil}
+    assert model.cap == nil
+    svg = Charts.concurrency(model)
+    assert svg =~ ~s|stroke="var(--accent)"|
+    refute svg =~ "cap "
+    refute svg =~ ~s|stroke="var(--attention)" stroke-width="1.2"|
+    refute svg =~ ~s|fill="var(--blocking)"|
+  end
+
   test "concurrency renders the cap line and a wasted-capacity band" do
     m = model()
     svg = Charts.concurrency(m)

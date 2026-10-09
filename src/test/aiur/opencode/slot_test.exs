@@ -1,7 +1,22 @@
 defmodule Aiur.Opencode.SlotTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Opencode.Slot
+  alias Aiur.Opencode.{Slot, TokenRegistry}
+  alias Aiur.Opencode.Slot.State
+
+  test "attach and select grant only their requested ticket before session creation" do
+    for operation <- [:attach, :select] do
+      token = "slot-grant-#{System.unique_integer([:positive])}"
+      :ok = TokenRegistry.put(token, 96, 1, ["_slot-96"])
+      on_exit(fn -> TokenRegistry.delete(token) end)
+      state = %State{slot_index: 96, status: :ready, token: token, base_url: "http://127.0.0.1:1", known_identifiers: MapSet.new(["ticket-a", "ticket-b"])}
+
+      refute TokenRegistry.valid?(token, "ticket-a")
+      assert {:reply, {:error, _}, _state} = Slot.handle_call({operation, "ticket-a"}, {self(), make_ref()}, state)
+      assert TokenRegistry.valid?(token, "ticket-a")
+      refute TokenRegistry.valid?(token, "ticket-b")
+    end
+  end
 
   describe "terminate_pane_command/1" do
     test "returns a kill-pane command when the slot owns a pane" do
