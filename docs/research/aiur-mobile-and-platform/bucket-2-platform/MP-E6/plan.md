@@ -9,6 +9,7 @@ blocked_by: DESIGN-E6 (owner), owner authorization of the paid validation spike 
 owns_contracts: contracts/voice-session.md (owner; §4 conversation provider, §5.3 drafts, §6, §9, §10)
 consumes_contracts: listener mode (MP-E7), command request (MP-E2), conversations/transcripts (MP-E4), identity, capabilities (MP-R1), events (MP-R2)
 research_resolved: MP-Q3 (see provider-research.md)
+amended: 2026-10-09 (§17 independent package; read-only fork per harness)
 ---
 
 # MP-E6 — Independent conversational voice component — Plan
@@ -59,6 +60,8 @@ browser / phone / watch ──/voice socket, voice:converse──► VoiceConver
 | `ElevenLabsAgents` adapter | implements the behaviour; owns signed-URL fetch, websocket, event normalisation | MP-R5 config/credential access | — |
 | Role registry | `roles/0`, `role(id)` → `{id, title, prompt, hash}` | role files | — |
 | Read ports | `ConversationRead`, `CommandRead`, `StatusRead`, `ExecutorRead` — thin behaviours the host app supplies | — | each port may be absent → that context is omitted and stated |
+
+**2026-10-09: superseded in part by §17.** The core is the standalone package `voice_converse` (no aiur dependency). The read ports below become the host ports `BriefingSource`, `AgentChannel`, `CommandSource` and `Credentials`. aiur is one host.
 
 Independence: the package depends on behaviours, not on orchestrator modules. Without E2 it
 has no Command tools; without E3 it cannot target the Executor; without E4 it uses the bounded
@@ -281,3 +284,328 @@ Changes:
 - New chunk C10 (5 tickets); latency targets in research §7: answer-from-card ≤ 0.8 s median,
   Converse → listening ≤ 1 s.
 - New owner questions E6-OQ12..OQ15 in DESIGN-E6 §3.1.
+
+## 17. Independent package (2026-10-09)
+
+Kevin, 2026-10-09 (verbatim): "I also want to make sure that we're planning to build this in
+such a way that it's its own independent package that can be used separately from [aiur]."
+Later the same day (verbatim): "I like the idea of not stopping the agent and forking it when
+it needs additional context. Let's make sure that we have the fork feature wrapper model
+specific so that we use the native fork for both Claude and Codex if they have those features
+as well as other models."
+
+This uses the same pattern as the GitHub access layer
+([MP-R1 github-access](../../bucket-1-refactor/MP-R1/github-access/brainstorm.md)) and the
+Experiments component (`docs/research/experiments/requirements.md`): a core package with no
+host types, host adapters, an MP-R1 manifest entry, and the MP-R1 promotion test.
+Nothing in MP-E6 is implemented or promoted, so this section changes the plan before any code
+exists. Where §2–§16 name `Aiur.VoiceConversation.*` modules, §17.9 gives the new home.
+
+### 17.1 Gaps in §1–§16 (verified against this plan and the tickets)
+
+| # | Gap | Where | Fix |
+| --- | --- | --- | --- |
+| G1 | The target was "in-monorepo package; Elixir app or namespace per MP-R1". Nothing could be used without aiur. | §2 table, component-map `voice-conversation` row | A core Mix project with its own OTP app, born as a package (§17.2). |
+| G2 | The only transport was aiur's `/voice` Phoenix socket (`voice:converse`) in the daemon. | §2 diagram, C7-T01 | The core has a transport-neutral session API and a wire codec. `/voice` is one adapter. A local WebSock transport is another (§17.5). |
+| G3 | Credentials and settings came from aiur config (`Aiur.Config.elevenlabs_api_key/0`, `voice.conversation.*`, MP-R5 facade). | C2-T02, C3-T01, C4-T01 | A `Credentials` port and a `VoiceConverse.Config` struct that the host passes in. aiur maps its keys into the struct (§17.6). |
+| G4 | The briefing (status card, status note) and the read ports used aiur words: ticket, worker, Executor, Command, `StatusReport`, `DecisionStore`, `LiveConversation`. `ask_agent`/consult and instructions went straight to aiur's E7 `Aiur.Listener.send/3`. | §5, §6, C4-T02, C5-T03/T04, C10-T02 | A generic `Briefing` and host ports `BriefingSource`, `AgentChannel` and `CommandSource`. The aiur status card, E7 and E2 are one implementation each (§17.4). |
+| G5 | The transcript root was `Aiur.Config.Paths.decision_state_dir/0`; redaction was `Aiur.SecretRedactor`; give-up alerts used `Aiur.Alerts.emit_custom/3`; session children were started from `src/lib/aiur.ex`. | C6-T01, C4-T03, C2-T04, C4-T01 | An injectable `transcript_root`, a redactor hook, `:telemetry` events, and `VoiceConverse.child_spec/1` (§17.3). |
+| G6 | The side query (C10-T03/T05) was specified for Claude only (`claude -p --resume --fork-session`), and only inside the voice code. | C10-T03, C10-T05 | A per-harness `fork_session` capability in the MP-R7 harness layer, with a native fork where one exists and a read-only replay where it does not (§17.7). |
+
+### 17.2 Package shape and where it lives
+
+```text
+packages/elixir/voice_converse/            (new Mix project, OTP app :voice_converse; Hex name: E6-OQ18)
+  lib/voice_converse.ex                    session API (start/push_audio/send_text/confirm/discard/end/subscribe)
+  lib/voice_converse/config.ex             %VoiceConverse.Config{}  (validated struct, no global config)
+  lib/voice_converse/ports/*.ex            BriefingSource, AgentChannel, CommandSource, Credentials (behaviours)
+  lib/voice_converse/session*.ex           state machine (voice-session §6), timers, limits, persist-before-notify
+  lib/voice_converse/turns.ex              turn-taking policy (barge-in, eagerness, announce at pause)
+  lib/voice_converse/briefing.ex           %Briefing{} + render/2 + diff/2 + staleness (generic "status card")
+  lib/voice_converse/context_builder.ex    budgeted, redacted, time-stamped context blocks
+  lib/voice_converse/tools.ex              tool specs + router (get_status, get_details, ask_agent, propose_*, end)
+  lib/voice_converse/drafts.ex             draft lifecycle (voice-session §5.3); the confirm rule lives here
+  lib/voice_converse/transcript_store*.ex  ndjson writer, fsync, torn-tail recovery, index, minutes_today
+  lib/voice_converse/provider.ex           behaviour (former C2-T01) + events
+  lib/voice_converse/provider/eleven_labs_agents*.ex   adapter, preflight, provisioning, DELETE queue
+  lib/voice_converse/provider/openai_realtime*.ex      adapter (GPT-Live 1 / Realtime)
+  lib/voice_converse/wire.ex               transport-neutral frame codec (voice-session §3.3 converse frames)
+  lib/voice_converse/transport/websock.ex  optional local transport (compiled only with :websock_adapter)
+  lib/voice_converse/redact.ex             default redactor (bearer tokens, sk-/ghp_/xi- style keys, URLs with credentials)
+  lib/voice_converse/testing/*.ex          FakeProvider, FakeBriefingSource, FakeAgentChannel (shipped, so hosts can test)
+  lib/mix/tasks/voice_converse.{setup,transcripts}.ex
+  priv/static/voice_converse_client.js     small browser client for the wire protocol (capture, playback, drafts)
+  examples/local_host/                     standalone example host (separate Mix project, path dep "../..")
+  guides/*.md, README.md, CHANGELOG.md, LICENSE
+
+src/lib/aiur/voice_converse/host/*.ex      aiur adapter layer (thin; §17.8)
+src/lib/aiur_web/channels/voice_converse_channel.ex   /voice transport adapter (C7-T01)
+```
+
+Decisions and reasons:
+
+- **Born as a package, not promoted later.** The MP-R1 promotion test (migration-plan §5)
+  is for code that already lives in `src/` and must prove it can leave. This code does not
+  exist yet. Building it inside `src/` and moving it later costs a move and allows aiur
+  calls to leak in. MP-R1-KD4 already takes the same route for the mobile app ("a separate
+  package from day one … not promoted because it never lived in `src/`"). We use the
+  physical form that migration-plan §5 fixes: an in-repo Mix project under
+  `packages/elixir/<app>/`, a path dependency of `src/mix.exs`, and one `mix release` boot.
+  If MP-R7-C4-T03 has not yet created `packages/elixir/`, MP-E6-C11-T01 creates it the same way.
+- **Neutral namespace `VoiceConverse.*`, not `Aiur.*`.** No caller exists, so a neutral name
+  costs nothing now and saves a rename at publish time. github-access deferred its rename
+  because it has many callers today. The name is E6-OQ18.
+- **Elixir, not a TypeScript package.** The provider socket must stay out of the client, with
+  the key held server-side (§3 "daemon relay", V4). aiur's daemon is Elixir. The browser part
+  is one small JS file shipped in `priv/` that speaks the wire protocol. It needs no npm
+  package until a non-browser JS consumer exists (E6-OQ16).
+- **The core has no aiur dependency, and two checks enforce it.** (1) A CI job compiles and
+  tests `packages/elixir/voice_converse` with only its own `mix.exs` deps (`mint`,
+  `mint_web_socket`, `jason`, `telemetry`; optional `websock_adapter`/`bandit` for the local
+  transport). `src/` is not on the code path. (2) The same job runs
+  `git grep -nE '\bAiur(Web)?\.' packages/elixir/voice_converse/lib` and fails on any match.
+  The MP-R1 checker sees the package as component `voice-conversation-core` with an empty
+  `requires` list (§17.10).
+- **Shared helpers are copied, not imported.** The core carries its own small fsync and
+  torn-tail code (about 60 lines, the `Aiur.DecisionLog` pattern) and its own default
+  redactor, instead of calling `Aiur.Fs`/`Aiur.SecretRedactor`. A dependency on an aiur
+  utility package would make the core unusable alone. The aiur host passes its stronger
+  redactor through the hook.
+
+### 17.3 Core (host-agnostic) — what it owns
+
+| Concern | In the core | Host supplies |
+| --- | --- | --- |
+| Session state machine | voice-session §6 states, end reasons, idle/max/daily-cap timers, reconnect once, `ClientErrors` table | limits in `Config` |
+| Turn-taking | barge-in on, eagerness, turn timeout, `announce(text, when: :idle \| :now)` for late results (C2-T01 amendment) | nothing (defaults in `Config.turn`) |
+| Providers | behaviour + ElevenLabs Agents + OpenAI Realtime/GPT-Live adapters, preflight (`record_voice=false`, retention), provisioning, provider `DELETE` queue (persisted under `transcript_root`) | `Credentials` |
+| Context | `ContextBuilder`: briefing first, 4,000-token start budget, `observed_at` stamps, gaps line per missing port | `BriefingSource`, optional `CommandSource` |
+| Tools | `get_status`, `get_details(section)`, `list_open_commands` (only if `CommandSource`), `ask_agent`, `propose_instruction`, `propose_command_answer` (only if `CommandSource`), `end_conversation` | ports |
+| Drafts | draft lifecycle, `draft_id` idempotency, stale detection, **the confirm rule** (§17.11) | delivery via `AgentChannel`/`CommandSource` |
+| Transcript | ndjson store with injectable `transcript_root`, fsync before notify, torn-tail recovery, index, `minutes_today/1`, read API | `transcript_root` (default `./voice_converse_transcripts` only in the example host; required in `Config`) |
+| Redaction | hook `redactor :: (String.t() -> String.t())`, applied before the provider and before the store; default `VoiceConverse.Redact` | aiur passes `&Aiur.SecretRedactor.redact/1` composed with `redact_urls/1` |
+| Roles | `Config.roles` (list of `%{id, title, prompt}`) or `roles_dir`; hash recorded per session; `Config.glossary` appended | aiur: roles dir + `.claude/skills/aiur-agent/dictated-input.md` |
+| Signals | `:telemetry` events `[:voice_converse, :session, :start \| :stop]`, `[:voice_converse, :provider_cleanup, :give_up]`, `[:voice_converse, :cost_cap, :reached]`, `[:voice_converse, :tool, :stop]` with durations | aiur maps give-up to `Aiur.Alerts.emit_custom/3` |
+| Supervision | `VoiceConverse.child_spec(config)` starts one named instance (session supervisor, registry, cleanup queue, preflight cache) | the host adds it to its tree (MP-R1 promotion criterion 2) |
+| Availability | `VoiceConverse.availability(config) :: :ok \| {:unavailable, reason}` | aiur turns it into capability `voice.conversation` |
+
+### 17.4 Host ports
+
+All ports are behaviours named in `Config`. Each call has a deadline. A timeout, an exit or
+`{:error, _}` becomes a stated gap ("Briefing unavailable"), never an empty value that looks
+like "idle" or "nothing open". This is the C4-T02 rule, now in the core. A target is an opaque
+host term with `%{id, kind, title}` from `describe_target/1`. The core never branches on `kind`.
+Worker and Executor are two aiur kinds.
+
+| Port | Required? | Callbacks (sketch) | Latency budget | aiur implementation |
+| --- | --- | --- | --- | --- |
+| `BriefingSource` | yes | `describe_target(t)`; `brief(t) :: {:ok, %Briefing{}} \| {:error, :unavailable}`; `details(t, section, opts) :: {:ok, text}`; `sections(t) :: [%{id, description}]` (builds the `get_details` schema); `subscribe(t, pid) :: :ok \| :unsupported` → `{:briefing, t, %Briefing{}}`; `alive?(t) :: boolean \| :unknown` | `brief` ≤ 100 ms p95 (serve a cached briefing); `details` ≤ 300 ms | status card fields from the agent status note (C10-T01), `StatusReport`, PR/CI, milestones, E4/`LiveConversation` for `details("conversation")` |
+| `AgentChannel` | no (absent → no `ask_agent`, no instruction drafts, stated) | `ask(t, question, ref, opts) :: {:ok, delivery_id}`; `instruct(t, text, idempotency_key, opts) :: {:ok, delivery_id}`; `fork_query(t, question, opts) :: {:ok, ref} \| {:error, :unsupported}` (§17.7); optional `request_briefing(t, :refresh \| :pause)` (C10-T04); `subscribe(t, pid)` → `{:agent_reply, ref, text}`, `{:receipt, delivery_id, :accepted \| :delivered \| :failed \| :unknown}`, `{:fork_answer, ref, text}`; `capabilities(t) :: %{fork: :native \| :history_copy \| :replay \| :none, …}` | `ask`/`instruct`/`fork_query` return ≤ 300 ms (asynchronous; answers arrive as messages) | E7 `Aiur.Listener.send/3` with `origin: :voice_assistant`, `:checkpoint` delivery; receipts mapped from listener-mode; `fork_query` via MP-R7 `fork_session` (§17.7) |
+| `CommandSource` | no | `open(t) :: {:ok, [%{id, version, question, options}]}`; `answer(t, id, choice, idempotency_key) :: :ok \| {:error, :stale \| term}`; `subscribe(t, pid)` → `{:command_resolved, id, reason}` | ≤ 300 ms | E2 `DecisionStore` reads + `Aiur.Commands.Answering` |
+| `Credentials` | yes | `fetch(provider :: atom, purpose :: :connect \| :provision \| :delete) :: {:ok, secret} \| {:error, :missing}`. Called at the moment of use; the secret is never kept in process state or logs (the `Realtime` precedent). | ≤ 50 ms | MP-R5 voice facade (`elevenlabs.api_key`), an OpenAI key from aiur config or env |
+| Transport | — (a client of the session API, not a callback port) | uses `VoiceConverse.start_session/3`, `push_audio/2`, `send_text/2`, `confirm_draft/3`, `discard_draft/2`, `end_session/2`, `subscribe/1`; frames via `VoiceConverse.Wire` | one in-process hop | `/voice` channel `voice:converse` (C7-T01); standalone: `VoiceConverse.Transport.WebSock` |
+
+**Generic `Briefing`** (the status card becomes one producer of it):
+
+```elixir
+%VoiceConverse.Briefing{
+  version: pos_integer(),            # monotonic per target; diff/2 sends only changed lines
+  summary: field(String.t()),        # what is going on, 1–3 sentences
+  current_task: field(String.t()),   # doing now, and why
+  next_steps: field([String.t()]),
+  waiting_on: field(String.t()),     # CI, review, a person, nothing
+  questions: field([String.t()]),    # what the agent asks the operator ("asks" in C10-T01)
+  links: [%{label: String.t(), url: String.t()}],
+  extra: [%{title: String.t(), text: String.t(), observed_at: DateTime.t()}],  # host-specific, e.g. PR/CI line
+  gaps: [String.t()]                 # e.g. "no note from the agent yet"
+}
+# field(x) :: %{value: x, observed_at: DateTime.t(), max_age_s: pos_integer() | nil}
+```
+
+`Briefing.render/2` (≤ 1,500 tokens; drop order: extra, then links, then `next_steps` beyond 3;
+it never drops `current_task`, `waiting_on` or `questions`). `Briefing.diff/2` produces the
+changed lines for one non-interrupting `contextual_update`. A field past `max_age_s` is
+rendered as "(as of 12 min ago)". All three are core code with core tests. aiur only fills
+the fields (C10-T02 amendment).
+
+### 17.5 Transports
+
+- **Session API (core).** It is transport-neutral. Events reach the subscriber as
+  `{:voice_converse, conversation_id, event}`. Audio crosses as base64 PCM 16 kHz in, provider
+  format out (voice-session §3.6). `confirm_draft/3` requires `origin: :client` (§17.11).
+- **Wire codec (core).** `VoiceConverse.Wire.encode/decode` implements the voice-session §3.3
+  converse frames exactly. The contract stays the source. aiur's channel and the local
+  socket use the same codec, so they cannot drift.
+- **aiur adapter.** `voice:converse` on the `/voice` socket and on the MP-E5-C8 device
+  socket (C7-T01). Auth, CSRF, the `VoiceSessionLimiter` lease and device identity stay in
+  aiur, as voice-session §3 requires. The core never sees them.
+- **Standalone transport (proof of use without aiur).** `VoiceConverse.Transport.WebSock` is
+  a `WebSock` handler that any Plug/Bandit host can mount. It binds to `127.0.0.1` by
+  default and requires a bearer token from `Config`. The example host (C11-T03) serves it
+  with one HTML page that uses `voice_converse_client.js`. The browser gives echo
+  cancellation for free. **A CLI mic/speaker demo is not in v1:** it needs platform audio
+  tools (`pacat`, `sox`) and has no echo cancellation, and the browser page already proves
+  standalone use (E6-OQ17).
+
+### 17.6 Configuration
+
+`%VoiceConverse.Config{}` is a validated struct (NimbleOptions-style schema in the core).
+It holds `name`, `provider: {module, opts}` (agent id, LLM, voice), `credentials`,
+`briefing_source`, `agent_channel`, `command_source`, `transcript_root`, `redactor`,
+`roles`/`roles_dir`, `glossary`, and `limits` (`max_session_seconds`, `idle_timeout_seconds`,
+`daily_minutes_cap` (60 by default, E6-OQ6), `context_token_budget` 4,000,
+`briefing_token_budget` 1,500, `max_sessions`, `consult_timeout_seconds` 300). It also holds
+`turn` (`interruptions: true`, `eagerness: :normal`, `turn_timeout_seconds: 10`) and
+`privacy` (§17.11). The core reads no application env and no files except the roles directory
+and `transcript_root`.
+
+aiur keeps its `voice.conversation.*` keys (RC-13, C3-T01) and maps them in
+`Aiur.VoiceConverse.Host.Config.build/1`. Config docs, `config.example` and
+`scripts/check-config-docs.py` stay aiur concerns. The package documents the struct in its
+own guide.
+
+### 17.7 Read-only fork per harness (`fork_session`, MP-R7)
+
+`ask_agent` routes as in C5-T04/C10-T05. A question that needs only the agent's existing
+context ("why did you drop the retry?") goes to `AgentChannel.fork_query/3`. A question that
+needs new work goes to the queued `ask` at the agent's checkpoint. The fork is how the
+assistant gets more context without stopping the agent.
+
+**Where it lives.** The voice core knows only `fork_query/3` and the `fork` capability value.
+The mechanism belongs in the **harness adapter layer** (MP-R7, `aiur_harness`), because it
+differs per harness and other features can reuse it (Executor side questions, Khala). New
+optional callback on `Aiur.Harness.Adapter` (MP-E6-C11-T05; contract request R-6 to MP-R7):
+
+```elixir
+@callback fork_capability() :: :native | :history_copy | :replay
+@callback fork_session(session_handle, %{prompt: String.t(), read_only: true,
+                                         max_turns: pos_integer(), timeout_ms: pos_integer()}) ::
+            {:ok, fork_ref} | {:error, term()}
+@optional_callbacks fork_capability: 0, fork_session: 2
+```
+
+An adapter without the callbacks gets the shared **replay fallback**
+(`Aiur.Harness.ForkReplay`). It starts a fresh session of the same harness and model with the
+briefing, the last N redacted transcript entries (E4 `list_entries(…, principal: :internal,
+tail: true)`, or `LiveConversation`) and the question, using the read-only tool set.
+
+**Rules for every mode:** read-only (no edit or write tools, no shell that can write, no
+`git` writes, no network beyond the model call); no write to the parent's session, transcript
+or worktree; never pauses or interrupts the parent; ephemeral (the fork is discarded after
+the answer; aiur records only the question and the answer in the voice transcript); at most
+one fork per voice session at a time; hard timeout (default 60 s, then "the fork did not
+answer"). The parent-untouched test (hash the parent transcript and `git status` of the
+worktree before and after) is a required test for every mode.
+
+**Capability matrix (evidence checked 2026-10-09):**
+
+| Harness (MP-R7 registry key) | Mode | Mechanism | Read-only enforcement | Evidence | Status |
+| --- | --- | --- | --- | --- | --- |
+| `claude-repl` (interactive Claude Code; aiur knows the session id, `providers/claude.ex:117-122`) | **native** | `claude -p --resume <session_id> --fork-session` with the question as the prompt. The fork gets a new session id; the original's history is unchanged. | `--permission-mode plan` plus `--allowedTools Read,Grep,Glob` and `--disallowedTools "Bash Edit Write"`; the fork runs in the parent worktree, so write refusal is required (forking branches history, **not** the filesystem) | Local `claude --help` on Claude Code 2.1.295 lists `--fork-session` ("When resuming, create a new session ID instead of reusing the original"). Agent SDK docs, "Fork to explore alternatives": <https://code.claude.com/docs/en/agent-sdk/sessions> (`fork_session=True` / `forkSession: true` with `resume`; "the original's ID and history stay unchanged"; "Forking branches the conversation history, not the filesystem"), accessed 2026-10-09 | verified in docs and CLI help; **not yet run against a live mid-turn parent** (SQ-6) |
+| `claude` (headless, sibling `aiur-claude` app-server; no resume today, `providers/claude.ex:34-40`) | **replay** until `aiur-claude` exposes a fork | `aiur-claude` is built on the Agent SDK, which supports `resume` + `forkSession`. A `thread/fork` method in `aiur-claude` would make this native. | as above, through SDK `allowedTools`/`permissionMode` | SDK docs above; `aiur-claude` support **unverified** (cross-repo; MP-R7-C5 protocol fixture is the place to add it) | replay now; native is a cross-repo follow-up |
+| `codex` (`codex app-server`, `thread/resume` today, `codex/frames.ex:57-69`) | **native** | app-server `thread/fork` with `threadId`, `ephemeral: true` (in memory, not listed), then `turn/start` on the fork. `lastTurnId` must not be an in-progress turn. If it is omitted while the parent is mid-turn, the fork records an interruption marker and the parent is not touched. | fork params `sandbox: read-only` and `approvalPolicy: never` (present in the local 0.160.0 JSON schema; the docs page lists `sandbox` only on `thread/start`, so the turn also passes a read-only `sandboxPolicy`) | Docs: <https://learn.chatgpt.com/docs/app-server#start-or-resume-a-thread> ("fork a thread into a new thread id by copying stored history"; `ephemeral: true`; "App-server rejects an in-progress `lastTurnId`"), accessed 2026-10-09. Local: `codex app-server generate-json-schema` on codex-cli 0.160.0 → `v2/ThreadForkParams.json` with `threadId, ephemeral, lastTurnId, sandbox, approvalPolicy, model, cwd, …`. CLI also has `codex fork [SESSION_ID]` (interactive). | verified in docs and schema; **not yet run** (SQ-4) |
+| `kimi`, `deepseek`, `openrouter` (`OpenAICompat`, in-process message list, `open_ai_compat/coding_agent.ex:51,121`) | **history_copy** | aiur owns the full message list, so the fork copies it into a new in-process loop with the read-only tool specs and appends the question. This is exact (the same history) and needs no vendor feature. | tool specs filtered to read tools; no tool executor for write tools | code at base (above) | design only; no vendor dependency |
+| `muse` (Muse MSP stdio, resume yes, `providers/muse.ex:31`) | **replay** | no fork method found in `muse/protocol.ex` | replay fallback's read-only tool set | `grep -i fork src/lib/aiur/muse` finds nothing (base `e8dfd52ef`) | **unverified** whether MSP has a fork; replay until shown |
+| `gemini` (conditional, RC-22; ACP `session/load`) | **replay** | no fork or branch found; Gemini CLI has save/resume and checkpoint/restore, which are not a fork of a live session | replay fallback | web search 2026-10-09 found no fork command; Gemini CLI checkpointing doc (restores files and history; not a fork) | **unverified**; replay |
+| future harnesses | declare it | `fork_capability/0` or nothing → replay | — | MP-R7-C6 contributor docs add the callback | — |
+
+The replay fallback is lower quality: the fork does not have the parent's full reasoning
+trace, only the tail and the briefing. The voice assistant says so once per session ("this
+answer comes from a summary, not the agent's full memory") when `capabilities.fork ==
+:replay`. Spike C10-T03 measures speed and quality for all three modes.
+
+### 17.8 aiur integration (thin adapter layer)
+
+`src/lib/aiur/voice_converse/host/`: `Config` (maps `voice.conversation.*` and the MP-R5
+voice facade into the struct), `Credentials`, `BriefingSource` (the status card, C10-T02),
+`AgentChannel` (E7 send with `origin: :voice_assistant`, `:checkpoint` delivery, receipt
+mapping, consult reply capture, `fork_query` via `fork_session`), `CommandSource` (E2), and
+`Telemetry` (alerts bridge). It also holds `Capability` (`voice.conversation` from
+`VoiceConverse.availability/1` plus aiur rules) and the composition-root entry that adds
+`VoiceConverse.child_spec(config)`. The `/voice` channel (C7-T01), the dashboard panel (C7),
+the review UI (C8) and the CLI verbs `aiur voice setup|transcripts` (which call the core's
+provisioning and transcript functions) stay in aiur. **Size rule:** each host module is a
+mapping with no session logic. A reviewer rejects a host module that holds state-machine,
+draft or turn-taking code.
+
+### 17.9 Module moves (applies to every ticket that names `Aiur.VoiceConversation.*`)
+
+| Old (§2–§16, tickets) | New |
+| --- | --- |
+| `Aiur.VoiceConversation.Provider`, `.Events`, `FakeProvider` | `VoiceConverse.Provider`, `VoiceConverse.Events`, `VoiceConverse.Testing.FakeProvider` |
+| `.Provider.ElevenLabsAgents`, preflight, `ProviderCleanup` | `VoiceConverse.Provider.ElevenLabsAgents{,.Preflight,.Provision}`, `VoiceConverse.ProviderCleanup` |
+| `.Session`, `SessionSupervisor`, `Registry`, `ClientErrors` | `VoiceConverse.Session*`, `VoiceConverse.ClientErrors` |
+| `.ContextBuilder`, `.Tools`, drafts, `.LiveContext` | `VoiceConverse.ContextBuilder`, `.Tools`, `.Drafts`, `.LiveContext` (subscribes to ports, not to `Aiur.Events.Exchange`) |
+| `.TranscriptStore` + index, `Config.Paths.voice_conversation_state_dir/0` | `VoiceConverse.TranscriptStore*`; aiur keeps the path function and passes it as `transcript_root` |
+| `Ports.{ConversationRead, CommandRead, StatusRead, ExecutorRead}` | replaced by `BriefingSource` (+ `details/3`) and `CommandSource`; Executor is a target kind in aiur's `BriefingSource` |
+| `.StatusCard` | split: `VoiceConverse.Briefing` (core) + `Aiur.VoiceConverse.Host.BriefingSource` (aiur fields) |
+| `.SideQuery` | `AgentChannel.fork_query/3` (core) → `Aiur.VoiceConverse.Host.AgentChannel` → `Aiur.Harness` `fork_session/2` (MP-R7) |
+| role registry | `VoiceConverse.Roles`; aiur supplies `roles_dir` and the glossary |
+| `Aiur.VoiceConversation.Host.*` | `Aiur.VoiceConverse.Host.*` |
+
+Ticket IDs and test intent do not change. Test paths for core work move to
+`packages/elixir/voice_converse/test/**` and run with
+`env -C packages/elixir/voice_converse mise exec -- mix test`. They do not boot aiur, so the
+agent-token hash check is not needed there. It is still needed for every `src/` test.
+
+### 17.10 MP-R1 manifest and promotion
+
+- **Manifest (`components.json`, MP-R1-C1-T01):** two entries. (1) `voice-conversation-core`:
+  paths `packages/elixir/voice_converse/**`, `requires: []`, `optional: []`, `owns.state:
+  ["<transcript_root> (injected)"]`, `owns.config: []`, kind `optional`, target `package
+  (born as package)`. (2) `voice-conversation` (existing row): paths
+  `src/lib/aiur/voice_converse/**`, `src/lib/aiur_web/channels/voice_converse_channel.ex`;
+  `requires: [voice-conversation-core, config, listener-modes]`; `optional: [commands,
+  conversations, executor-attention, harness-adapters (fork_session), voice-stt (ElevenLabs
+  key via MP-R5)]`; `owns.config: ["voice.conversation"]`. The R-down rule then fails any
+  edge from core to aiur.
+- **Promotion test (migration-plan §5), recorded by MP-E6-C11-T07 as a birth check:**
+  criterion 2 (own child specs) and 3 (tests run without the app) hold by construction and
+  are proven by the standalone CI job. Criterion 4 holds because the core owns no aiur config
+  section and aiur's `voice.conversation` is declared in the adapter entry. Criterion 5 is
+  met by the example host and Kevin's 2026-10-09 statement that independent use is a need.
+  Criterion 1 (zero violations for 2 consecutive merged releases) is checked before any
+  public publish (E6-OQ16), not before the in-repo path dependency.
+
+### 17.11 Rules kept
+
+- **Latency targets unchanged** (research §7): answer from the briefing ≤ 0.8 s median,
+  ≤ 1.5 s p95; Converse → listening ≤ 1 s. Ports are in-process function calls with the
+  budgets in §17.4. The split adds no network hop. The standalone socket has the same hop
+  count as `/voice`. C11-T03 measures Converse → listening with the fake provider in the
+  example host as a regression guard.
+- **Never an instruction without confirmation** (V5, V8). This is a core invariant. Only
+  `VoiceConverse.confirm_draft/3` called with `origin: :client` from a transport calls
+  `AgentChannel.instruct/4` or `CommandSource.answer/4`. No tool, provider event or host
+  callback can reach those calls. Core test with `FakeAgentChannel`: across every tool and
+  provider event, `instruct` is called only after a client confirm, and once per `draft_id`.
+  The `ask` (consult) and `fork_query` paths are framed questions, not instructions (§6), and
+  E6-OQ2 still decides whether `ask` needs a button.
+- **Privacy defaults travel with the package** (D17, V2). The core never writes audio. It
+  refuses a provider agent with `record_voice: true` and deletes the provider conversation
+  after the session. `Config.privacy` has no switch that turns these off. A standalone user
+  gets the same guarantees as aiur.
+
+### 17.12 Ticket changes
+
+- **New research ticket files** (promoted with MP-E6, no GitHub issue now): MP-E6-C11-T01
+  package skeleton, `Config`, ports and the standalone CI job; C11-T02 session API, wire
+  codec and WebSock transport; C11-T03 standalone example host; C11-T04 aiur host adapter
+  layer and manifest entries; C11-T05 harness `fork_session` capability (MP-R7 layer);
+  C11-T06 second provider adapter (bake-off runner-up); C11-T07 package docs and birth check.
+- **Amended (section "Amendment 2026-10-09 — independent package"):** C2-T01..T04, C3-T01..T03,
+  C4-T01..T06, C5-T01..T05, C6-T01..T03, C7-T01, C9-T01, C10-T01..T05.
+- Component map `voice-conversation` row and capability-matrix `voice.conversation` row
+  updated. voice-session contract §13 added. MP-R7 plan gets a plan-refresh note for
+  `fork_session` (contract request R-6).
+
+### 17.13 Open questions for Kevin
+
+| ID | Question | Recommendation |
+| --- | --- | --- |
+| E6-OQ16 | Distribution: in-repo path dependency only, Hex, npm, or Hex + npm? | **In-repo path dependency for v1. Publish to Hex after the 2-release clean check (§17.10). No npm package:** the browser client is one file in `priv/`. Add npm only when a non-browser JS consumer (for example Khala) asks for it. |
+| E6-OQ17 | Is a standalone demo host in scope for v1? | **Yes: the local WebSock + one-page browser host (C11-T03).** It is the proof of independence and runs in CI with a fake provider. **No CLI mic/speaker demo** (platform audio tools, no echo cancellation). |
+| E6-OQ18 | Package name: neutral `voice_converse` / `VoiceConverse` or aiur-branded `aiur_voice_converse`? | **Neutral `voice_converse`.** It costs nothing now, and an aiur prefix would suggest that aiur is required. Check Hex name availability at C11-T07. |
+| E6-OQ19 | License for the package? | **Apache-2.0, the same as aiur** (`LICENSE` at the repo root). |
+| E6-OQ20 | Ship both provider adapters in v1, or only the bake-off winner? | **Both, winner first.** Standalone users may have only one vendor account. The fake-driven conformance suite makes the second adapter cheap (C11-T06 runs after the aiur path works). |
+| E6-OQ21 | Accept the replay fallback for harnesses without a native fork (Muse, Gemini, headless `claude` until `aiur-claude` adds a fork), with the spoken "from a summary" note? | **Yes.** Otherwise `ask_agent` on those harnesses must wait for the agent's checkpoint. Also file a cross-repo `aiur-claude` fork request when MP-E6 is promoted. |

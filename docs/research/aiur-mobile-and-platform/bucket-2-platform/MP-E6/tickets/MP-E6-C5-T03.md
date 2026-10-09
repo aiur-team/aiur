@@ -104,3 +104,22 @@ test fails at the listener stub's dedup assertion.
 
 - [ ] Confirm/discard and delivery mirror; docs in C9-T01.
 - **Dependents:** C7-T03, MP-N6-C4-T03, MP-N7 converse.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- The confirm path is core code: `VoiceConverse.confirm_draft(conversation_id, draft_id,
+  origin: :client, edited_text: …)`. That is the only caller of `AgentChannel.instruct/4`
+  (plan §17.11). Core invariant test with `FakeAgentChannel`: no tool, provider event or
+  host callback can call `instruct/4`; a double confirm calls it once per `draft_id`.
+- The E7 send (`Aiur.Listener.send/3`, `origin: :voice_assistant`, `client_request_id =
+  draft_id`) and the receipt mapping (`accepted/held_async → :accepted`,
+  `harness_queued/in_context/read → :delivered`, `failed → :failed`,
+  `outcome_unknown → :unknown`) move to `Aiur.VoiceConverse.Host.AgentChannel` (aiur adapter).
+  The core mirrors the normalized receipts into the draft.

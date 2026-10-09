@@ -5,7 +5,7 @@ chunk_id: MP-E6-C6
 bucket: 2-platform
 title: Transcript store — state directory, append+fsync writer and torn-line recovery
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend, DESIGN-E6 header)"]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend, DESIGN-E6 header)", MP-E6-C11-T01]
 prior_units: []
 prior_boundaries: [VOX, K]
 prior_features: []
@@ -99,3 +99,20 @@ traversal test fails.
 
 - [ ] Writer and reader; tests green.
 - **Dependents:** C2-T04, C4-T01, C4-T03, C5-T02, C6-T02.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.TranscriptStore`. The root is `Config.transcript_root` (required,
+  injected). aiur keeps `Aiur.Config.Paths.voice_conversation_state_dir/0` and passes its
+  result. The core does not resolve aiur paths.
+- The core carries its own fsync/torn-tail helpers (the `Aiur.DecisionLog` pattern, about 60
+  lines) instead of calling `Aiur.Fs`. The traversal and root-containment checks are
+  unchanged.
+- Added predecessor: MP-E6-C11-T01.

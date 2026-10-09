@@ -110,3 +110,16 @@ page.
 
 - [ ] Command-answer drafts end to end (backend).
 - **Dependents:** C7-T03, MP-N6-C4-T03 ("Converse path … confirm-to-answer").
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- `propose_command_answer` and stale detection are core code over `CommandSource`. The answer
+  path through `Aiur.Commands.Answering` (with `idempotency_key = draft_id` and optional
+  `via: :voice_assistant`, R-3) is `Aiur.VoiceConverse.Host.CommandSource.answer/4`.

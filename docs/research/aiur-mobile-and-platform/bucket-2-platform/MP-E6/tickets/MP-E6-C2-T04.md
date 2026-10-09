@@ -114,3 +114,17 @@ an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-check
 - [ ] Docs: covered by MP-E6-C9-T01 privacy table ("deleted after each session; retried").
 - **Dependents:** MP-E6-C4-T01, MP-E6-C6-T02 (boot reconciliation; its test "a transcript
   with a provider id and no session_ended is enqueued at boot" covers the crash path, M1).
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.ProviderCleanup`. The retry queue is persisted under `Config.transcript_root`.
+- On give-up, emit `[:voice_converse, :provider_cleanup, :give_up]` telemetry; do not call
+  `Aiur.Alerts.emit_custom/3`. The aiur adapter (C11-T04) attaches a handler that raises the
+  alert. The test asserts the telemetry event in the core, and the alert in the adapter test.

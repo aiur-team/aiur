@@ -114,3 +114,20 @@ second, without stopping or waiting for the coding agent.
   exists (MP-E6-C10-T05); questions that need fresh work go to the queued consult.
 - While waiting, a progress line every 60 s at most, only if the operator is silent ("Still
   waiting; the agent is in a long test run."), taken from the status card.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- `ask_agent` routing lives in the core: a fork when `AgentChannel.capabilities(t).fork !=
+  :none` and the question is about existing reasoning or history; otherwise `AgentChannel.ask/4`.
+  Framing text, "one outstanding consult", the 5-minute timeout and the 60 s progress lines
+  are core behaviour.
+- aiur's `AgentChannel.ask/4` sends through E7 with `origin: :voice_assistant` and
+  `:checkpoint` delivery. Reply capture (formerly `Aiur.LiveConversation.subscribe`) is in
+  the aiur adapter. It emits `{:agent_reply, ref, text}` to the core.

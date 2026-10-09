@@ -97,3 +97,14 @@ button" on the voice guide page (`website/docs-app/guide/`).
 
 - [ ] Draft lifecycle and `propose_instruction`.
 - **Dependents:** C5-T03, C5-T04, C5-T05, C7-T03, C8-T02.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Drafts`. Drafts are stored in the core transcript store. No aiur dependency.

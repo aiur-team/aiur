@@ -118,3 +118,16 @@ count, and the provider copy is deleted".
 
 - [ ] Index, boot reconciliation, list/get, minutes_today.
 - **Dependents:** C6-T03, C8-T01, C8-T02, C4-T01 (daily cap).
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.TranscriptIndex` (`list/2`, `get/2`, `minutes_today/1`, boot
+  reconciliation on instance start). The reconciliation runs inside
+  `VoiceConverse.child_spec/1`, so a standalone host gets the same crash cleanup.

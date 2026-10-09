@@ -5,7 +5,7 @@ chunk_id: MP-E6-C2
 bucket: 2-platform
 title: ElevenLabs Agents adapter — connect, authenticate, relay audio, close (daemon-held websocket)
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C2-T01, MP-R5-C1-T01]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C2-T01, MP-E6-C11-T01]
 prior_units: []
 prior_boundaries: [VOX]
 prior_features: [integrations-51]
@@ -129,3 +129,20 @@ statuses to `provider_unavailable`: the table test fails (collapsed-cause rule).
 - [ ] Adapter connection layer with injected transport and http; tests green.
 - [ ] Docs: none yet (MP-E6-C9-T01 documents the Agents permission).
 - **Dependents:** MP-E6-C2-T03, MP-E6-C2-T04, MP-E6-C3-T02.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Provider.ElevenLabsAgents`. The key comes from the `Credentials`
+  port (plan §17.4), not from `Aiur.Config.elevenlabs_api_key/0`. The aiur implementation of
+  that port (C11-T04) reads the MP-R5 voice facade.
+- Log redaction uses the core redactor hook. The test asserts that neither the key nor the
+  signed URL appears in any log line or crash reason.
+- Predecessor MP-R5-C1-T01 is replaced by MP-E6-C11-T01. The OpenAI Realtime / GPT-Live
+  adapter is C11-T06. If GPT-Live wins the bake-off (C1-T01), the two tickets swap targets.

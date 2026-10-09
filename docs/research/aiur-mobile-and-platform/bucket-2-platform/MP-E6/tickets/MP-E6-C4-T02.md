@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: Read-port behaviours and host wiring for worker targets
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E4-C2-T01]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E4-C2-T01, MP-E6-C11-T01]
 prior_units: []
 prior_boundaries: [VOX, DEC, PRJ]
 prior_features: [integrations-51]
@@ -101,3 +101,24 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 
 - [ ] Ports and host wiring for worker targets.
 - **Dependents:** C4-T03, C4-T05, C4-T06, C5-T01, C5-T05.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- **Re-scoped.** The four read-port behaviours (`ConversationRead`, `CommandRead`,
+  `StatusRead`, `ExecutorRead`) are replaced by the host ports `BriefingSource` (with
+  `details/3` for conversation, PR, CI and plan sections) and `CommandSource` (plan §17.4).
+  The behaviours are defined in C11-T01.
+- This ticket now builds the **aiur implementations**: `Aiur.VoiceConverse.Host.BriefingSource`
+  for worker targets (E4 `list_entries(…, principal: :internal)` or `LiveConversation` for
+  `details("conversation")`; `StatusReport` for status) and
+  `Aiur.VoiceConverse.Host.CommandSource` (DecisionStore reads filtered to the ticket). The
+  2 s timeout and the "unavailable, not empty" rule are now enforced by the core caller.
+  Keep the aiur-side tests: ticket filtering, `principal: :internal`, and `:unknown` liveness.
+- Added predecessor: MP-E6-C11-T01.

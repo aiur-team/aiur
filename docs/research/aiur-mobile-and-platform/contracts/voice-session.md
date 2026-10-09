@@ -483,3 +483,16 @@ Disabling voice (no key, or package absent) means no voice data leaves the machi
 
 No new environment variable is introduced. `ELEVENLABS_API_KEY` remains the only voice
 secret, and it stays in the daemon (V4).
+
+## 13. Independent package (2026-10-09)
+
+MP-E6 plan §17: the converse side of this contract is implemented by the standalone package
+`voice_converse` (`packages/elixir/voice_converse/`, no aiur dependency). §3.3 converse
+frames are encoded by `VoiceConverse.Wire`. aiur's `voice:converse` channel and the
+package's local WebSock transport both use it. §4 provider events, §5.3 drafts, §6 states,
+§8.1 client errors and §9 transcript records are core behaviour. §3 auth/limiter rules,
+§7 capability advertisement, §10 docs placement and §12 config namespaces stay aiur rules,
+which the aiur adapter implements. Module names in this contract that start
+`Aiur.VoiceConversation.` map to `VoiceConverse.` per plan §17.9. The confirm rule (§5.3,
+V5/V8) is a core invariant: only a client-originated `confirm_draft` reaches
+`AgentChannel.instruct/4` or `CommandSource.answer/4`.

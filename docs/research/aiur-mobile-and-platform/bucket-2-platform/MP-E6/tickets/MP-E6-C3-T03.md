@@ -110,3 +110,19 @@ Replace the never-run `unknown` branch with `available`: the unknown test fails.
 - [ ] Preflight and capability; tests green.
 - [ ] Docs: covered by MP-E6-C9-T01 (privacy table "aiur checks before every session").
 - **Dependents:** MP-E6-C4-T01, MP-E5-C3-T01/T02 (Converse visibility).
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- The preflight is core code (`…ElevenLabsAgents.Preflight`) behind an optional provider
+  callback `preflight/1`. The refusal (`privacy_preflight_failed`) cannot be configured off
+  (plan §17.11).
+- The `voice.conversation` capability stays in aiur. It is computed from
+  `VoiceConverse.availability/1` plus aiur rules, in `Aiur.VoiceConverse.Host.Capability`
+  (C11-T04).

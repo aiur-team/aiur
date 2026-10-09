@@ -100,3 +100,18 @@ converse target" fails.
 
 - [ ] Channel on both sockets.
 - **Dependents:** C7-T02..T04, MP-N6-C4-T03, MP-N7 converse relay.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- This ticket is the **aiur transport adapter**. The `voice:converse` channel decodes and
+  encodes frames with `VoiceConverse.Wire` (core) and calls the session API. Auth, CSRF,
+  the limiter lease and device identity stay in the channel.
+- The standalone transport `VoiceConverse.Transport.WebSock` uses the same codec (C11-T02).
+  A shared golden-frame test in the core keeps the two in step.

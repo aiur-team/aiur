@@ -132,3 +132,16 @@ behaviour is documented by C9-T01.
 
 - [ ] Decoder, encoder, fixtures, tests.
 - **Dependents:** MP-E6-C4-T01, MP-E6-C5-*, MP-E6-C7-T01.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Provider.ElevenLabsAgents.Events` (or the GPT-Live module if that
+  wins). Fixtures are stored in the package's `test/fixtures/` and feed the conformance suite
+  (C2-T01 amendment).

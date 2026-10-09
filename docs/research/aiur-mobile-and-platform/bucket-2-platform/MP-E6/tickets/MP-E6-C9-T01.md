@@ -94,3 +94,16 @@ env -C src/browser npm run test:units
 
 - [ ] Docs pages updated; all 11 rows recorded in the PR body.
 - **Dependents:** DESIGN-N6/N7 phone/watch converse notes.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Scope stays **aiur docs** (privacy table, concepts section, config/CLI references), and
+  each page links to the package docs. The package's own README, guides, privacy page and
+  standalone quick start are MP-E6-C11-T07.

@@ -5,7 +5,7 @@ chunk_id: MP-E6-C2
 bucket: 2-platform
 title: Conversation provider behaviour, normalized event structs and a fake provider
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend, DESIGN-E6 header)", MP-R5-C1-T01]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend, DESIGN-E6 header)", MP-E6-C11-T01]
 prior_units: []
 prior_boundaries: [VOX]
 prior_features: [integrations-51]
@@ -146,3 +146,22 @@ second, without stopping or waiting for the coding agent.
   response with `scheduling: WHEN_IDLE`. The spike (MP-E6-C1-T01) confirms the mapping.
 - Keep the behaviour provider-neutral: MP-E6-C1-T01 now compares ElevenLabs Agents and OpenAI
   Realtime, and the winner may be either.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Provider`, `VoiceConverse.Events`, and
+  `VoiceConverse.Testing.FakeProvider`. The fake moves to the package's `lib/` (not
+  `test/support`), so any host can use it in its own tests.
+- `session_spec` gets the key `credentials: {module, provider_id}`. The adapter calls
+  `Credentials.fetch/2` at connect time. It never puts a key in `session_spec` or in state.
+- Predecessor changes from MP-R5-C1-T01 to **MP-E6-C11-T01** (package skeleton). The
+  behaviour no longer sits beside `Aiur.Voice`, so MP-R5 does not block it.
+- Add a provider conformance suite (`VoiceConverse.Testing.ProviderConformance`), driven by
+  recorded fixtures. Every adapter (C2-T02/T03, C11-T06) must pass it.

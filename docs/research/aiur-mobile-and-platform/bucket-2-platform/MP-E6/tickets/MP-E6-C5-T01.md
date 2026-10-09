@@ -101,3 +101,18 @@ second, without stopping or waiting for the coding agent.
   `read_recent_conversation`; same `n` param), `pr` (title, diff stat, review state),
   `ci` (failing job names and the last 40 redacted log lines), `plan` (the workpad excerpt).
   All local reads; target ≤ 300 ms per call so the assistant answers without filler.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Tools`. The `get_details(section)` schema is built from
+  `BriefingSource.sections/1`, so a host decides which sections exist. aiur offers
+  `conversation`, `pr`, `ci` and `plan`; the example host offers `notes`.
+  `list_open_commands` is offered only when `CommandSource` is configured. Without it, the
+  "Command data unavailable" gap is stated (test unchanged in intent).

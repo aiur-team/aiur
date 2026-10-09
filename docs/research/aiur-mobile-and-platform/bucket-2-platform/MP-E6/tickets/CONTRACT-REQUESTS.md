@@ -10,3 +10,11 @@ draft-2 there itself.
 | R-3 | MP-E2 (command contract, actor) | optional `via: :voice_assistant` on the operator actor of an answer | audit trail of how a Command answer was produced (MP-E6-C5-T05) | omit `via` |
 | R-4 | MP-R1 (capability matrix) | `voice.conversation` row: computed from `voice.stt` (dependency), `voice.conversation.agent_id`, last privacy preflight; `degraded` when `voice.tts` is unavailable | voice-session §7 defines it; MP-E6-C3-T03 implements it | none; documentation alignment only |
 | R-5 | MP-R5 (plan §8 C2) | the voice package's child spec also starts `Aiur.VoiceConversation.SessionSupervisor`, `ProviderCleanup` and the preflight cache owner when the conversation component is present | MP-E6-C4-T01/C2-T04 need supervised children inside the optional package | start them from the application child list next to `Aiur.ElevenLabs.Quota` (`aiur.ex:355`) |
+
+**2026-10-09 (plan §17):** R-5 is now met by `VoiceConverse.child_spec/1`, which the
+composition root adds (MP-E6-C11-T04). The voice-stt spec does not start these children.
+
+| ID | To | Request | Why | Fallback if declined |
+| --- | --- | --- | --- | --- |
+| R-6 | MP-R7 (harness adapter contract) | optional callbacks `fork_capability/0` and `fork_session/2` on `Aiur.Harness.Adapter`, plus a shared `Aiur.Harness.ForkReplay` fallback (MP-E6-C11-T05; matrix in plan §17.7) | Kevin, 2026-10-09: use each harness's native fork (Claude Code `--fork-session`, Codex app-server `thread/fork`); read-only side queries must not disturb the agent | the fork lives in aiur's voice adapter as per-harness code, outside MP-R7, and other features cannot reuse it |
+| R-7 | MP-R1 (component manifest) | new component `voice-conversation-core` (`packages/elixir/voice_converse/**`, `requires: []`) and the `voice-conversation` row re-pointed to the aiur adapter (plan §17.10) | independent package (Kevin, 2026-10-09) | none; documentation alignment |

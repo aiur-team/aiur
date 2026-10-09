@@ -146,3 +146,24 @@ concepts page does not exist yet, C9-T01 creates it and this ticket adds the end
 
 - [ ] Session lifecycle complete with fakes; tests green.
 - **Dependents:** C4-T02..T06, C5-*, C7-T01, C8-T02.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Session`, `SessionSupervisor`, `Registry`, `ClientErrors`. Public API:
+  `VoiceConverse.start_session(instance, target, opts)`, where `opts` holds `role_id` and the
+  client ref. The other functions are unchanged.
+- Supervision: `VoiceConverse.child_spec(config)` starts one named instance. aiur adds it at
+  the composition root (C11-T04). The Phase D rule "start next to `Aiur.ElevenLabs.Quota`
+  until assembly exists" still applies, but only in the aiur adapter. The core never touches
+  `src/lib/aiur.ex`.
+- Target validation uses `BriefingSource.alive?/1` and `describe_target/1`. The limiter lease
+  stays transport-side (the aiur channel or the WebSock transport). The core enforces only
+  `Config.limits.max_sessions`.
+- Persist-before-notify, timers, reconnect and end reasons are unchanged and now core tests.

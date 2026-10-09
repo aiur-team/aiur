@@ -17,15 +17,15 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | ID | Title | Status | Blocked by (owner / research / spike in bold) | Wave |
 | --- | --- | --- | --- | --- |
 | [MP-E6-C1-T01](MP-E6-C1-T01.md) | PAID provider validation spike | blocked | **E6-OQ9, DESIGN-E6** | 4 (first, owner-run) |
-| [MP-E6-C2-T01](MP-E6-C2-T01.md) | Provider behaviour, events, fake | ready | MP-R5-C1-T01 | 4a |
-| [MP-E6-C2-T02](MP-E6-C2-T02.md) | ElevenLabs Agents connection layer | ready | C2-T01 | 4b |
+| [MP-E6-C2-T01](MP-E6-C2-T01.md) | Provider behaviour, events, fake | ready | C11-T01 (was MP-R5-C1-T01) | 4a |
+| [MP-E6-C2-T02](MP-E6-C2-T02.md) | ElevenLabs Agents connection layer | ready | C2-T01, C11-T01 | 4b |
 | [MP-E6-C2-T03](MP-E6-C2-T03.md) | Event mapping + tool round trip | blocked | **C1-T01 (spike)**, C2-T02 | 4c |
 | [MP-E6-C2-T04](MP-E6-C2-T04.md) | Provider conversation deletion queue | ready | C2-T02, C6-T01 | 4b |
 | [MP-E6-C3-T01](MP-E6-C3-T01.md) | `voice.conversation.*` config | blocked | **E6-OQ6, E6-OQ7**, MP-R5-C2-T01 | 4b |
 | [MP-E6-C3-T02](MP-E6-C3-T02.md) | `aiur voice setup [--repair]` | blocked | **DESIGN-E6, E6-OQ7, C1-T01 (spike)**, C3-T01, C2-T02 | 4c |
 | [MP-E6-C3-T03](MP-E6-C3-T03.md) | Privacy preflight + capability | blocked | **C1-T01 (spike, RQ-E6-3)**, C3-T01, C2-T02, MP-E5-C2-T03 | 4c |
 | [MP-E6-C4-T01](MP-E6-C4-T01.md) | Session process and lifecycle | ready | C2-T01, C6-T01, C2-T04, C3-T01, C3-T03 | 4d |
-| [MP-E6-C4-T02](MP-E6-C4-T02.md) | Read ports (worker) | ready | C4-T01, MP-E4-C2 (optional) | 4d |
+| [MP-E6-C4-T02](MP-E6-C4-T02.md) | aiur BriefingSource/CommandSource (worker) | ready | C4-T01, C11-T01, MP-E4-C2 (optional) | 4d |
 | [MP-E6-C4-T03](MP-E6-C4-T03.md) | ContextBuilder | ready | C4-T02, C6-T01 | 4d |
 | [MP-E6-C4-T04](MP-E6-C4-T04.md) | Role registry | blocked | **DESIGN-E6, E6-OQ3**, C3-T01 | 4d |
 | [MP-E6-C4-T05](MP-E6-C4-T05.md) | Live context updates from the bus | ready | C4-T01, C4-T03, MP-R2-C5 | 4e |
@@ -35,7 +35,7 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | [MP-E6-C5-T03](MP-E6-C5-T03.md) | Confirm/discard + delivery via E7 | blocked | **DESIGN-E6, E6-OQ1**, C5-T02, MP-E7-C3, E7 `origin` request | 4f |
 | [MP-E6-C5-T04](MP-E6-C5-T04.md) | `consult_agent` | blocked | **DESIGN-E6, E6-OQ2, C1-T01 (spike)**, C5-T02/T03 | 4f |
 | [MP-E6-C5-T05](MP-E6-C5-T05.md) | Command-answer drafts | ready | C5-T02, C4-T05, MP-E2 | 4f |
-| [MP-E6-C6-T01](MP-E6-C6-T01.md) | Transcript writer | ready | — | 4a |
+| [MP-E6-C6-T01](MP-E6-C6-T01.md) | Transcript writer | ready | C11-T01 | 4a |
 | [MP-E6-C6-T02](MP-E6-C6-T02.md) | Index + read API | ready | C6-T01 | 4b |
 | [MP-E6-C6-T03](MP-E6-C6-T03.md) | `aiur voice transcripts` | ready | C6-T02 | 4c |
 | [MP-E6-C6-T04](MP-E6-C6-T04.md) | Transcript deletion | blocked | **DESIGN-E6, E6-OQ5**, C6-T02/T03 | 4f |
@@ -51,9 +51,16 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | [MP-E6-C10-T02](MP-E6-C10-T02.md) | Status card + deltas | ready | C10-T01, C4-T03, C4-T05 | 4e |
 | [MP-E6-C10-T03](MP-E6-C10-T03.md) | Side-query spike (fork) | ready | — | 4a |
 | [MP-E6-C10-T04](MP-E6-C10-T04.md) | Briefing on demand (refresh / pause) | blocked | **DESIGN-E6, E6-OQ12**, C10-T01, C10-T02, C5-T03 | 4f |
-| [MP-E6-C10-T05](MP-E6-C10-T05.md) | Side-query path for `ask_agent` | blocked | **C10-T03 (spike), E6-OQ15**, C5-T04 | 4g |
+| [MP-E6-C10-T05](MP-E6-C10-T05.md) | Side-query path for `ask_agent` | blocked | **C10-T03 (spike), E6-OQ15**, C5-T04, C11-T05 | 4g |
+| [MP-E6-C11-T01](MP-E6-C11-T01.md) | `voice_converse` package skeleton, Config, ports, standalone CI | ready | — | 4a (first) |
+| [MP-E6-C11-T02](MP-E6-C11-T02.md) | Session API, `Wire` codec, WebSock transport | ready | C11-T01, C4-T01 | 4e |
+| [MP-E6-C11-T03](MP-E6-C11-T03.md) | Standalone example host (no aiur) | ready | C11-T02, C5-T03, C10-T02, C2-T03; E6-OQ17 (assumes yes) | 4g |
+| [MP-E6-C11-T04](MP-E6-C11-T04.md) | aiur host adapter layer + manifest entries | ready | C11-T01, C3-T01, MP-R5-C1-T01, MP-R1-C1-T01 | 4c |
+| [MP-E6-C11-T05](MP-E6-C11-T05.md) | Harness `fork_session` (native / history copy / replay) | blocked | **C10-T03 (spike), E6-OQ21**, MP-R7-C2-T02, MP-R7 request R-6 | 4f |
+| [MP-E6-C11-T06](MP-E6-C11-T06.md) | Second provider adapter (bake-off runner-up) | blocked | **C1-T01 (spike), E6-OQ20**, C2-T03 | 4h |
+| [MP-E6-C11-T07](MP-E6-C11-T07.md) | Package docs + MP-R1 birth check | ready | C11-T03, C11-T04, C3-T03; E6-OQ16/OQ18 for publish only | 4i |
 
-Totals: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
+Totals: 43 tickets — 22 ready, 21 blocked (C11 added 2026-10-09, plan §17: independent package and read-only fork per harness). Before that: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
 [../realtime-convo-research.md](../realtime-convo-research.md); several older tickets carry a
 2026-10-08 amendment section).
 
@@ -61,7 +68,7 @@ Totals: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
 
 ```text
 C6-T01 ─► C6-T02 ─► C6-T03 ; C6-T04 (E6-OQ5)
-MP-R5-C1 ─► C2-T01 ─► C2-T02 ─┬─► C2-T04 (+C6-T01)
+C11-T01 ─► C2-T01 ─► C2-T02 ─┬─► C2-T04 (+C6-T01)
                                └─► C2-T03 ◄── C1-T01 (PAID spike, E6-OQ9)
 MP-R5-C2 ─► C3-T01 (E6-OQ6/7) ─► C3-T02 (spike) ; C3-T03 (spike)
 C2-T01 + C6-T01 + C2-T04 + C3-T01 + C3-T03 ─► C4-T01 ─► C4-T02 ─► C4-T03 ─► C4-T05 ; C4-T06
@@ -75,7 +82,9 @@ everything user-visible ─► C9-T01
 
 ## Concurrency
 
-- Can start first (after MP-R5-C1): C6-T01, C2-T01; then C2-T02, C6-T02, C2-T04 in parallel.
+- **2026-10-09:** C11-T01 lands first. C2-T01 and C6-T01 now depend on it, not on MP-R5-C1. Core tickets write into `packages/elixir/voice_converse/`; plan §17.9 maps the modules.
+
+- Can start first (after C11-T01): C6-T01, C2-T01; then C2-T02, C6-T02, C2-T04 in parallel.
 - The spike (C1-T01) runs in parallel with all backend work; it only gates C2-T03, C3-T02,
   C3-T03, C5-T04 and C7-T04.
 - C4-T05, C4-T06, C5-T01 can run in parallel after C4-T03.

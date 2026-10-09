@@ -111,3 +111,21 @@ second, without stopping or waiting for the coding agent.
   start-context size adds directly to time to first audio (research §7 latency table).
 - Added predecessor once C10-T02 lands: the builder calls `StatusCard.build/2`; until then
   the old `work` block stays (no ordering change to this ticket's own tests).
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.ContextBuilder`. Inputs are `BriefingSource.brief/1` (the first
+  block, rendered by `VoiceConverse.Briefing.render/2`), `CommandSource.open/1` when present,
+  the prior-session tail from the core transcript index, and the gaps.
+- Redaction uses the `Config.redactor` hook. The core default is `VoiceConverse.Redact`; aiur
+  passes `Aiur.SecretRedactor.redact/1` composed with `redact_urls/1`. The test "secrets are
+  redacted before the provider and the store" runs in the core with a test redactor, plus one
+  aiur adapter test with `SecretRedactor`.
+- The 4,000-token start budget from the 2026-10-08 amendment is `Config.limits.context_token_budget`.

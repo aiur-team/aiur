@@ -90,3 +90,16 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 - [ ] Registry, defaults, docs: `configuration.md` `roles_dir` entry explains the file
       format (same PR).
 - **Dependents:** C4-T01 (start uses `Roles.get/1`), C7-T02 (role picker if DESIGN-E6 has one).
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.Roles`. Roles come from `Config.roles` (inline) or `Config.roles_dir`.
+  The glossary comes from `Config.glossary`. aiur supplies its roles directory (E6-OQ3) and
+  `.claude/skills/aiur-agent/dictated-input.md`. The core has no aiur glossary built in.

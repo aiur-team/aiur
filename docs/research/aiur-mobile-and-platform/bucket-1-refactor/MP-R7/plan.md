@@ -265,6 +265,14 @@ MP-R1-C11-T02's implementation-head recheck does not replace it.
 
 ## Plan-refresh note
 
+**2026-10-09 (MP-E6 request R-6):** reserve optional callbacks `fork_capability/0` and
+`fork_session/2` with the shared `Aiur.Harness.ForkReplay` fallback. They give a read-only
+fork that never disturbs the parent. Native for `claude-repl` (`--resume … --fork-session`)
+and `codex` (app-server `thread/fork`, `ephemeral: true`); history copy for OpenAI-compatible;
+replay for Muse, Gemini and headless `claude` until `aiur-claude` exposes a fork. Design,
+evidence and the capability matrix: MP-E6 plan §17.7; implementation ticket MP-E6-C11-T05
+(promoted with MP-E6). MP-R7-C6-T01 contributor docs should mention the callbacks.
+
 R7 depends on MP-R1's layout decision for its physical move (chunk C4 only).
 Until then, chunks C1–C3 work in place under `src/lib/aiur/`. After R7 lands:
 MP-E7 and MP-E2 cite `Aiur.Harness.*` paths, not `Aiur.Codex.*`/`Aiur.Claude.*`;

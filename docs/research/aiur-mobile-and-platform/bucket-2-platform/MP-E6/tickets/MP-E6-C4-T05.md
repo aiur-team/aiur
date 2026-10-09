@@ -105,3 +105,19 @@ second, without stopping or waiting for the coding agent.
 - A consult answer, a side-query answer or a refreshed note is **announce-worthy**: the
   session asks the provider to speak it at the next pause (provider event "say when idle",
   MP-E6-C2-T01 amendment), not only to hold it silently in context.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Home: `VoiceConverse.LiveContext`. It subscribes through `BriefingSource.subscribe/2`,
+  `AgentChannel.subscribe/2` and `CommandSource.subscribe/2`, not through
+  `Aiur.Events.Exchange`. A port that returns `:unsupported` leads to a refresh on tool calls
+  only (the old "without R2" fallback).
+- The aiur implementations subscribe to `ticket.<id>.*` / `executor.*` on the Exchange and
+  push a new `%Briefing{}`. The 5 s coalescing and the `announce` rules stay in the core.

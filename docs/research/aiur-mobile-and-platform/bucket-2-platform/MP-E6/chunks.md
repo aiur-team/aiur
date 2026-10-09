@@ -182,3 +182,25 @@ MP-R2-C5-T01 ─► C10-T01 ─► C10-T02 ◄── C4-T03, C4-T05
 C10-T02 + C5-T03 ─► C10-T04 (E6-OQ12)
 C10-T03 (spike, no deps) ─► C10-T05 ◄── C5-T04 (E6-OQ15)
 ```
+
+## MP-E6-C11 — Independent package and per-harness fork (added 2026-10-09)
+
+- **Outcome:** the assistant core is the standalone Mix package `voice_converse` with no aiur
+  dependency, host ports (`BriefingSource`, `AgentChannel`, `CommandSource`, `Credentials`),
+  a transport-neutral session API and wire codec, and a standalone example host. aiur
+  integrates through a thin adapter layer. The read-only fork used by `ask_agent` is a
+  per-harness capability in the MP-R7 layer (native for Claude Code and Codex). Plan §17.
+- **Tickets:** C11-T01 skeleton/Config/ports/standalone CI; C11-T02 session API, Wire,
+  WebSock; C11-T03 example host; C11-T04 aiur host adapter + manifest; C11-T05 harness
+  `fork_session`; C11-T06 second provider adapter; C11-T07 package docs + birth check.
+- **Amended (2026-10-09 sections):** C2-T01..T04, C3-T01..T03, C4-T01..T06, C5-T01..T05,
+  C6-T01..T03, C7-T01, C9-T01, C10-T01..T05.
+
+```text
+C11-T01 ─► C2-T01, C6-T01 (core tickets write into the package)
+C11-T01 + C3-T01 + MP-R5-C1 + MP-R1-C1 ─► C11-T04
+C4-T01 ─► C11-T02 ─► C11-T03 ◄── C5-T03, C10-T02, C2-T03
+C10-T03 (spike) + MP-R7-C2-T02 ─► C11-T05 ─► C10-T05
+C1-T01 + C2-T03 ─► C11-T06
+C11-T03 + C11-T04 ─► C11-T07
+```

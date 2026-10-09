@@ -85,3 +85,16 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 
 - [ ] Executor sessions start with project context.
 - **Dependents:** C7-T02 (Executor panel), MP-N6 Executor chat.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- The Executor is a target kind (`kind: :executor`) in aiur's `BriefingSource` and
+  `AgentChannel`. The core has no Executor code. This ticket is now entirely aiur adapter
+  work under `src/lib/aiur/voice_converse/host/`.

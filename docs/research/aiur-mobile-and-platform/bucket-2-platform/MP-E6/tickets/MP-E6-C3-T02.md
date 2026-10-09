@@ -113,3 +113,17 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 
 - [ ] CLI, RPC module, docs (`cli.md`, `elevenlabs.md`).
 - **Dependents:** MP-E6-C3-T03, MP-E6-C9-T01.
+
+## Amendment 2026-10-09 — independent package
+
+Source: [../plan.md](../plan.md) §17. Kevin, 2026-10-09: build the voice assistant as "its own
+independent package that can be used separately from [aiur]". The core is the Mix project
+`packages/elixir/voice_converse/` (OTP app `:voice_converse`, namespace `VoiceConverse.*`).
+It has no `Aiur.*` reference, and aiur is one host behind ports (§17.4). Module moves:
+plan §17.9. Core tests run with `env -C packages/elixir/voice_converse mise exec -- mix test`
+and do not boot aiur.
+
+- Provisioning logic (create/update the provider agent with `record_voice=false` and the
+  shortest retention) moves to the core as `VoiceConverse.Provider.ElevenLabsAgents.Provision`.
+  It is exposed as `mix voice_converse.setup` for standalone hosts. `aiur voice setup
+  [--repair]` is a thin CLI wrapper that builds the struct and calls the same function.
