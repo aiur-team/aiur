@@ -59,9 +59,9 @@
     },
     {
       "id": "agent-runner", "name": "Turn engine for one ticket", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
+      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel"], "optional": ["build-orders"],
+      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel", "identity"], "optional": ["build-orders"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["RUN"]
     },
@@ -134,7 +134,7 @@
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["Aiur.BuildOrder.GraphProjection", "Aiur.BuildOrder.GraphProjection.Snapshot", "Aiur.BuildOrder.Catalog", "Aiur.BuildOrder.ProgressRenderer", "Aiur.BuildOrder.ProviderHealth", "Aiur.BuildOrder.RootSummary", "Aiur.BuildOrder.Readiness", "Aiur.BuildOrder.Metadata", "Aiur.BuildOrder.GitHubGraph", "Aiur.BuildOrder.Component", "AiurWeb.BuildOrder.DataSource", "AiurWeb.BuildOrder.Runtime", "Aiur.BuildOrdersCLI", "Aiur.EpicCLI"], "facade_pending": null,
-      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands", "orchestration", "event-bus", "agent-runner", "workspace", "github-listeners", "accounting"], "optional": ["build-queue", "ticket-context", "executor-attention", "web-shell", "dashboard-ui"],
+      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands", "orchestration", "event-bus", "agent-runner", "workspace", "github-listeners", "accounting"], "optional": ["build-queue", "ticket-context", "executor-attention", "web-shell", "dashboard-ui", "conversations"],
       "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": ["build_orders", "build_orders.progress"]},
       "prior": ["BO"]
     },
@@ -174,8 +174,8 @@
     },
     {
       "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/conversation/history.ex"],
+      "facades": ["Aiur.Conversation.History", "Aiur.Conversation.Anchors", "Aiur.AgentEventFeed"], "facade_pending": null,
       "requires": ["event-bus", "agent-runner", "identity", "kernel"], "optional": ["executor-attention"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": ["conversations.read"]},
       "prior": ["PRJ", "RUN", "SD"]
@@ -234,7 +234,7 @@
       "id": "projections", "name": "Current-run read models", "layer": 3, "kind": "required",
       "paths": ["src/lib/aiur/projections/**", "src/lib/aiur/current_run_projections.ex", "src/lib/aiur/current_run_projections/**", "src/lib/aiur/current_run_projection/**", "src/lib/aiur/current_run_outcome_snapshot.ex", "src/lib/aiur/current_run_outcome_snapshot/**", "src/lib/aiur/current_run_summary.ex", "src/lib/aiur/current_run_summary/**", "src/lib/aiur/progress_retention.ex", "src/lib/aiur/progress_tracker.ex", "src/lib/aiur/ticket_activity.ex", "src/lib/aiur/ticket_activity/**"],
       "facades": ["Aiur.CurrentRunProjections", "Aiur.CurrentRunOutcomeSnapshot", "Aiur.CurrentRunSummary", "Aiur.TicketActivity", "Aiur.ProgressRetention", "Aiur.ProgressTracker", "Aiur.Projections.UnitsRow", "Aiur.Projections.UnitsPolicy", "Aiur.Projections.UnitsRow.Sources"], "facade_pending": null,
-      "requires": ["event-bus", "tracker", "kernel", "orchestration"], "optional": ["conversations", "github-listeners"],
+      "requires": ["agent-runner", "event-bus", "tracker", "kernel", "orchestration"], "optional": ["conversations", "github-listeners"],
       "owns": {"config": [], "env": [], "state": ["progress_retention_state_dir"], "capabilities": []},
       "prior": ["PRJ"]
     },
@@ -314,7 +314,7 @@
       "id": "web-shell", "name": "HTTP endpoint, router, auth, sockets, JSON API", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur_web/routes/api.ex", "src/lib/aiur/http_server.ex", "src/lib/aiur/http_server/**", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["config", "identity", "projections", "web-kit"], "optional": ["github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
+      "requires": ["config", "identity", "projections", "web-kit"], "optional": ["conversations", "github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
       "owns": {"config": ["observability", "server"], "env": ["AIUR_DASHBOARD_PASSWORD", "AIUR_DASHBOARD_USERNAME"], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
