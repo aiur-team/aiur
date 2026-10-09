@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
+  alias Aiur.Protocol.ObservationAge
   alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters}
 
   @fleet_stats [
@@ -103,6 +104,8 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       |> assign(:all_active, MapSet.equal?(assigns.filters, MapSet.new(FleetFilters.all())))
 
     ~H"""
+    <p class="muted">Fleet snapshot {ObservationAge.label(@fleet[:snapshot_freshness])}</p>
+    <p :for={{group, observation} <- @fleet[:observations] || %{}} class="muted">{group}: {ObservationAge.label(observation)}</p>
     <section class="overview-strip" aria-label="Fleet filters">
       <button
         :for={{key, label, tone} <- @stats}

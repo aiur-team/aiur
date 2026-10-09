@@ -2,7 +2,15 @@ import Config
 
 config :aiur, env: config_env()
 
-config :aiur, :capability_providers, [Aiur.Capabilities.IdentityProvider, Aiur.BuildQueue.CapabilityProvider]
+config :aiur, :capability_providers, [
+  Aiur.Capabilities.IdentityProvider,
+  Aiur.BuildQueue.CapabilityProvider,
+  Aiur.HttpServer.CapabilityProvider,
+  Aiur.Orchestrator.CapabilityProvider,
+  Aiur.DecisionStore.CapabilityProvider,
+  Aiur.Tracker.CapabilityProvider,
+  Aiur.Executor.CapabilityProvider
+]
 
 config :aiur, :project_identity_source, Aiur.Tracker
 

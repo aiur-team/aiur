@@ -49,18 +49,21 @@ defmodule Aiur.Events.EventDeliveryTest do
 
   describe "SubscriptionStore receives + enqueues" do
     test "event published to a subscribed pattern reaches enqueue_fn", %{identifier: id} do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.#"
+      ticket_topic1 = "ticket.#{ticket}.branch.push"
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic, "test")
 
       Process.sleep(50)
 
       Publisher.publish(
-        "ticket.42.branch.push",
-        %{sha: "abc", ref: "refs/heads/aiur/42"},
-        issue_number: 42
+        ticket_topic1,
+        %{sha: "abc", ref: "refs/heads/aiur/#{ticket}"},
+        issue_number: String.to_integer(ticket)
       )
 
-      assert_receive {:enqueued, ^id, %{topic: "ticket.42.branch.push", sha: "abc"}}, 1_000
+      assert_receive {:enqueued, ^id, %{topic: ^ticket_topic1, sha: "abc"}}, 1_000
     end
 
     test "event published to a non-matching pattern does NOT reach enqueue_fn",
@@ -70,7 +73,8 @@ defmodule Aiur.Events.EventDeliveryTest do
 
       Process.sleep(50)
 
-      Publisher.publish("ticket.42.branch.push", %{sha: "abc"})
+      ticket = System.unique_integer([:positive])
+      Publisher.publish("ticket.#{ticket}.branch.push", %{sha: "abc"})
 
       refute_receive {:enqueued, _, _}, 200
     end
