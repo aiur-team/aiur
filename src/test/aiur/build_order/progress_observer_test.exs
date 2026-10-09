@@ -30,6 +30,8 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     assert [%{percent: 50, generation: 1, resolution: :resolved, resolved: 3, total: 3, observed_at: observed_at}] = BuildProgress.facts(context.scope, store)
     assert observed_at == snapshot.health.observed_at
     assert_received {:event, %{milestone: 50}}
+    scope = context.scope
+    assert_received {:build_progress_changed, %{scope: ^scope, percent: 50}}
     [fact] = BuildProgress.facts(context.scope, store)
     :ok = BuildProgress.put_fact(%{fact | scope: {:queue, "other-latch"}}, store)
     snapshot = percent(snapshot, 67)
