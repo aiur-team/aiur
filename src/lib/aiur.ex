@@ -471,7 +471,7 @@ defmodule Aiur.Application do
       # The single view-state cadence, now reconciling only the pack-status
       # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
       # timer). Starts after its sources so its first tick never races boot fill.
-      Aiur.GitHub.ViewStateSweep,
+      {Aiur.GitHub.ViewStateSweep, sources: [Aiur.BuildOrder.PackStatus]},
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
@@ -515,7 +515,7 @@ defmodule Aiur.Application do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children)
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu])
   end
 
   defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled

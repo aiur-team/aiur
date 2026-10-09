@@ -191,6 +191,8 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
+    get("/api/v1/capabilities", CapabilitiesController, :show)
+    match(:*, "/api/v1/capabilities", CapabilitiesController, :method_not_allowed)
     get("/api/v1/state", ObservabilityApiController, :state)
     get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
     get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)
