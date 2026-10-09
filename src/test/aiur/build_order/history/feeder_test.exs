@@ -400,6 +400,44 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     assert row(ctx).title == "Issue"
   end
 
+  test "restart resumes the saved cursor and never re-reads recorded history", ctx do
+    store(ctx, true)
+    owner = self()
+
+    paged = fn _, _, _, vars, _ ->
+      send(owner, {:catch_up_vars, vars})
+      # Six closed issues, one per page, all updated at @t; a later `since` matches none of them.
+      index = if vars["after"], do: String.to_integer(vars["after"]) + 1, else: 1
+      nodes = if vars["since"] == DateTime.to_iso8601(@t), do: [%{closed_node() | "number" => index, "id" => "I_#{index}"}], else: []
+      {:ok, %{"data" => %{"repository" => %{"issues" => %{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => nodes != [] and index < 6, "endCursor" => to_string(index)}}}}}}
+    end
+
+    restart = fn ->
+      History.flush(ctx.opts)
+      stop_supervised!(Feeder)
+      stop_supervised!(@store)
+      store(ctx)
+      feeder(ctx, graphql_fun: paged)
+    end
+
+    feeder(ctx, graphql_fun: paged)
+    after_feed(fn -> Feeder.catch_up_status().status == :partial end)
+    floor = DateTime.to_iso8601(@t)
+    for after_cursor <- [nil, "1", "2", "3", "4"], do: assert_received({:catch_up_vars, %{"after" => ^after_cursor, "since" => ^floor}})
+    refute_received {:catch_up_vars, _}
+    restart.()
+    after_feed(fn -> Feeder.catch_up_status().status == :ok end)
+    assert_received {:catch_up_vars, %{"after" => "5", "since" => ^floor}}
+    refute_received {:catch_up_vars, _}
+    assert {:ok, %{rows: rows}} = History.snapshot(ctx.opts)
+    assert rows |> Map.keys() |> Enum.sort() == Enum.to_list(1..6)
+    restart.()
+    after_feed(fn -> Feeder.catch_up_status().status == :ok end)
+    assert_received {:catch_up_vars, %{"after" => nil, "since" => since}}
+    assert since == DateTime.to_iso8601(DateTime.add(@later, -600))
+    refute_received {:catch_up_vars, _}
+  end
+
   test "no steady-state GitHub polling (future regression guard)", ctx do
     store(ctx, true)
     feeder(ctx)
