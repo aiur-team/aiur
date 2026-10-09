@@ -11,6 +11,8 @@ FACT_TIMES = {'pr_opened': 'pr_created_at', 'pr_ready': 'pr_ready_at', 'first_re
 USAGE_KEYS = ('input_tokens', 'output_tokens', 'cached_tokens', 'cost_amount', 'cost_currency', 'coverage')
 EVENT_KEYS = ('ticket', 'event', 'boundary', 'attempt_id', 'operation_id', 'source_id', 'event_key', 'source',
               'from_state', 'to_state', 'outcome', 'blocker', 'segment_continuation') + ATTEMPT_KEYS + FACT_KEYS + tuple(FACT_TIMES.values()) + USAGE_KEYS
+LEDGER_EVENTS = ('dispatch', 'implement', 'pr_opened', 'pr_ready', 'pr_merged', 'closed', 'dependency_cleared',
+                 'pr_facts', 'ticket_usage', 'ci_result', 'state_change', 'agent_pause', 'agent_resume')
 MILESTONES = ('first_dispatch', 'first_work', 'pr_opened', 'pr_ready', 'first_review', 'first_approval',
               'merged', 'closed', 'blockers_cleared')
 
@@ -24,6 +26,8 @@ def project(record: dict) -> dict | None:
     attrs = record['attributes']
     if record['kind'] == 'lifecycle' and (not isinstance(attrs.get('ticket'), str) or not isinstance(attrs.get('event'), str)):
         raise ValueError('invalid_lifecycle_identity')
+    if record['kind'] == 'lifecycle' and attrs['event'] not in LEDGER_EVENTS:
+        return None
     definitions = ledger_schema.SCHEMA['$defs']
     rules = {**definitions['context']['properties'], **definitions['attempt']['properties'],
              **ledger_schema.SCHEMA['properties']['facts']['properties'],

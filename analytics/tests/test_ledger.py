@@ -141,6 +141,12 @@ class LedgerTests(unittest.TestCase):
                     handle.write(json.dumps(row) + '\n')
                 ledger_store.materialize([path], root)
             self.assertEqual(len(list((root / 'analytics/tickets/.history').glob('42.*.json'))), 5)
+            target = root / 'analytics/tickets/42.json'
+            before = target.stat().st_mtime_ns
+            with path.open('a') as handle:
+                handle.write(json.dumps(event('comment_received', '11:00')) + '\n')
+            self.assertEqual(ledger_store.materialize([path], root), [])
+            self.assertEqual(target.stat().st_mtime_ns, before)
             self.assertEqual(json.loads((root / 'analytics/tickets/42.json').read_text())['facts']['additions'], 7)
 
     def test_malformed_input_is_reported_and_adjacent_ticket_survives(self):
