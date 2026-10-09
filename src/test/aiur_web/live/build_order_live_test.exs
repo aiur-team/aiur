@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
-  alias Aiur.TestSupport.AwaitingCommands
+  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -1684,7 +1684,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "No telemetry for this Build Order yet"
     # A zeroed KPI strip would read as "this build burned nothing".
@@ -1716,7 +1716,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "Sessions"
     assert html =~ "CPU burned"
@@ -1755,7 +1755,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
     [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
     [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
     start_ms = String.to_integer(start_ms)
@@ -1810,7 +1810,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "No telemetry for this Build Order yet"
     refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
