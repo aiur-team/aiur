@@ -12,6 +12,10 @@ defmodule Aiur.Tracker do
           {:ok, nil | %{required(:state) => :open | :closed, required(:merged?) => boolean(), optional(:number) => pos_integer(), optional(:version) => String.t() | nil}} | {:error, term()}
 
   @callback ticket_pull_request(String.t()) :: ticket_pull_request_result()
+
+  @type issue_closure_result :: {:ok, %{open?: boolean(), state_reason: String.t() | nil}} | {:error, term()}
+  @callback issue_closure(String.t(), pos_integer()) :: issue_closure_result()
+
   @callback open_issue_labels(pos_integer()) :: open_issue_labels_result()
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
@@ -36,12 +40,20 @@ defmodule Aiur.Tracker do
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
   @optional_callbacks ticket_pull_request: 1,
+                      issue_closure: 2,
                       ensure_labels: 1,
                       open_issue_labels: 1,
                       fetch_issue_states_by_ids_conditional: 2,
                       update_issue_state: 3,
                       add_label: 2,
                       remove_label: 2
+
+  @doc "Reads closure evidence, failing closed when the tracker does not support it."
+  @spec issue_closure(String.t(), pos_integer()) :: issue_closure_result()
+  def issue_closure(issue_id, max_age_ms) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 2), do: tracker.issue_closure(issue_id, max_age_ms), else: {:error, :unsupported}
+  end
 
   @doc "Reads open-issue labels already observed by the tracker, without a remote request."
   @spec open_issue_labels(pos_integer()) :: open_issue_labels_result()

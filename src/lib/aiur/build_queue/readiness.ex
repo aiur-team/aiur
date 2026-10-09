@@ -19,6 +19,7 @@ defmodule Aiur.BuildQueue.Readiness do
   def edge_verdict(observation, opts) do
     cond do
       Keyword.get(opts, :cyclic, false) -> {:unknown, :cyclic}
+      match?(%Observation{unavailable_reason: :closed_reason}, observation) -> {:unknown, :closed_reason}
       stale?(observation, opts) -> {:unknown, :stale}
       true -> classify(observation, opts)
     end
@@ -59,6 +60,8 @@ defmodule Aiur.BuildQueue.Readiness do
   defp classify(%Observation{open?: false, state_reason: "not_planned"}, opts) do
     if Keyword.get(opts, :not_planned, :fail) == :satisfy, do: :satisfied, else: {:failed, :not_planned}
   end
+
+  defp classify(%Observation{open?: false, state_reason: "duplicate"}, _opts), do: {:unknown, :duplicate}
 
   defp classify(%Observation{open?: false}, _opts), do: {:unknown, :closed_reason}
 

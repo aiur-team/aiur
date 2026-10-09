@@ -3,16 +3,21 @@ defmodule Aiur.BuildQueue.PRObserver do
   alias Aiur.Events.Publisher
   require Logger
 
+  @doc "Adds delivered PR evidence to open prerequisites; returns the PR versions already published per ticket."
   @spec observe(map(), map()) :: {map(), map()}
   def observe(observations, state) do
     tracker = state.tracker
+    state = Map.put_new(state, :published_pr_versions, %{})
 
-    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1) do
-      ids = state.document.edges |> Enum.map(& &1.prerequisite) |> Enum.uniq()
-      Enum.reduce(ids, {observations, state}, &observe_ticket/2)
-    else
-      {observations, state}
-    end
+    {observations, state} =
+      if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1) do
+        ids = state.document.edges |> Enum.map(& &1.prerequisite) |> Enum.uniq()
+        Enum.reduce(ids, {observations, state}, &observe_ticket/2)
+      else
+        {observations, state}
+      end
+
+    {observations, state.published_pr_versions}
   end
 
   defp observe_ticket(id, {observations, state}) do
@@ -40,7 +45,7 @@ defmodule Aiur.BuildQueue.PRObserver do
   end
 
   defp publish(id, %{number: number, version: version}, state) do
-    previous = Map.get(state, :published_pr_versions, %{})
+    previous = state.published_pr_versions
     identity = {number, version}
 
     if previous[id] == identity do
