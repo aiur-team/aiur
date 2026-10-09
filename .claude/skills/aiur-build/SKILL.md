@@ -232,7 +232,7 @@ Check `aiur queue show` before creation. With the queue enabled, create executab
 members with open prerequisites with `agent:queued`; members with none receive
 the configured lifecycle todo label (`agent:todo` in the standard workflow).
 Then adopt the root with `aiur queue add --build-order <root>` and verify it with
-`aiur queue show`. If status is `disabled`, use `agent:todo` for every executable
+`aiur queue show`. If status is disabled, use `agent:todo` for every executable
 member and retain native blockers; other unavailable statuses need recovery.
 The Build Order root carries only `build-order`; `Epic:` containers remain
 undispatched. Never create first and label second: include the waiting marker

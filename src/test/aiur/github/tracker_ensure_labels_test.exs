@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
   alias Aiur.BuildQueueFakeTracker, as: Fake
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: MemoryTracker
-  alias Aiur.{Tracker, Workflow}
+  alias Aiur.{Tracker, Tracker.IssueTracker, Workflow}
 
   setup do
     previous = Map.new([:github_transport_test_options, :github_budget_enabled?, :github_quota_server], &{&1, Application.get_env(:aiur, &1)})
@@ -84,6 +84,6 @@ defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
     assert {:error, {:github_api_status, 422, "agent:queued"}} = Tracker.ensure_labels(["agent:queued"])
     assert :ok = MemoryTracker.ensure_labels(["agent:queued"])
     assert {:error, :unsupported} = LinearTracker.ensure_labels(["agent:queued"])
-    assert {:ensure_labels, 1} in Tracker.behaviour_info(:optional_callbacks)
+    assert {:ensure_labels, 1} in IssueTracker.behaviour_info(:optional_callbacks)
   end
 end

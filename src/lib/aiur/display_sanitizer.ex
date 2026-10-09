@@ -1,4 +1,4 @@
-defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
+defmodule Aiur.DisplaySanitizer do
   @moduledoc false
 
   alias Aiur.SecretRedactor

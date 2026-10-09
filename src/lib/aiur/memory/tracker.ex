@@ -3,7 +3,7 @@ defmodule Aiur.Memory.Tracker do
   In-memory tracker adapter used for tests and local development.
   """
 
-  @behaviour Aiur.Tracker
+  @behaviour Aiur.Tracker.IssueTracker
 
   alias Aiur.Issue
 
@@ -88,21 +88,6 @@ defmodule Aiur.Memory.Tracker do
 
   @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]}
   def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
-
-  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_classified_pr_review_comments(_pr_number), do: {:ok, []}
-
-  @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_classified_pr_reviews(_pr_number), do: {:ok, []}
-
-  @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_unaddressed_pr_review_thread_comments(_pr_number), do: {:ok, []}
-
-  @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
-  def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
-
-  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) :: {:ok, []}
-  def fetch_open_pull_requests_for_branch(_issue_id), do: {:ok, []}
 
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do

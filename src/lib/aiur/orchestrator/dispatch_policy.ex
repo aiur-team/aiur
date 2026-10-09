@@ -132,8 +132,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def initial_load_envelope_limit(_agent), do: 1
 
   @doc false
-  # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
-  # unit-tested without the orchestrator GenServer.
+  # Pure eager pre-warm decision.
   @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
   def prewarm_gate(false, _phase), do: :dispatch
   def prewarm_gate(true, :ready), do: :dispatch
@@ -141,11 +140,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def prewarm_gate(true, _warming), do: :hold
 
   @doc false
-  # Pure load-threshold check (#465), kept separate for compatibility and unit
-  # testing. The authoritative admission reason additionally corroborates an
+  # The authoritative admission reason additionally corroborates an
   # exceeded threshold with short-window CPU headroom so low-priority runnable
-  # processes — and a load average that no longer reflects current CPU
-  # contention — cannot hold the fleet by themselves.
+  # processes cannot hold the fleet by themselves.
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   def load_gate(_load, nil, _schedulers), do: :dispatch
   def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
@@ -165,6 +162,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         ) :: :dispatch | {:hold, admission_reason()}
   def load_admission_reason(load, threshold, schedulers, cpu_headroom) do
     load
+    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
     |> load_gate(threshold, schedulers)
     |> corroborated_admission_reason(:load, load, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
@@ -204,10 +202,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def fd_headroom_percent, do: @fd_headroom_percent
 
   @doc false
-  # Pure instantaneous run-queue threshold check. The authoritative admission
-  # reason corroborates it with the same CPU headroom used by the load gate, so
-  # niced runnable processes do not masquerade as normal-priority contention.
-  @spec run_queue_gate(integer() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
+  # Instantaneous run-queue check; admission corroborates it with CPU headroom.
+  @spec run_queue_gate(number() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
   def run_queue_gate(_runnable, _schedulers, nil), do: :dispatch
   def run_queue_gate(_runnable, _schedulers, threshold) when not is_number(threshold) or threshold <= 0, do: :dispatch
   def run_queue_gate(:unavailable, _schedulers, _threshold), do: :dispatch
@@ -223,6 +219,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         ) :: :dispatch | {:hold, admission_reason()}
   def run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom) do
     runnable
+    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
     |> run_queue_gate(schedulers, threshold)
     |> corroborated_admission_reason(:run_queue, runnable, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
@@ -443,8 +440,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         queued_work?
       ) do
     envelope_state = state.load_envelope_state
-    overload_samples = SustainedLoad.count(load, target, schedulers, envelope_state)
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
+    overload_samples = SustainedLoad.count(SystemLoad.gate_signal(load, cpu_headroom, schedulers), target, schedulers, envelope_state)
 
     {effective, last_decrease_ms, bootstrap_complete?} =
       load_envelope_state(
@@ -484,6 +481,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          load,
          %{schedulers: schedulers} = options
        ) do
+    load = SystemLoad.gate_signal(load, options.cpu_headroom, schedulers)
+
     if load <= options.target * schedulers and fast_recovery?(last_decrease_ms, options) do
       {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
       {next, next_decrease_ms, options.bootstrap_complete?}

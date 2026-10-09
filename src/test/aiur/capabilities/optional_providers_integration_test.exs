@@ -44,7 +44,7 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
     refute Jason.encode!(before) =~ "test-voice-secret"
   end
 
-  test "a slow real catalog call exceeds the registry budget and becomes unknown" do
+  test "repeated registry ticks never queue calls to a projection that never replies" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "test-owner/slow-catalog")
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.BuildOrder.GraphProjection)
     on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Aiur.BuildOrder.GraphProjection) end)
@@ -58,10 +58,15 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
 
     Process.register(pid, Aiur.BuildOrder.GraphProjection)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
-    {report, warnings} = Collector.collect(providers: [Aiur.BuildOrder.CapabilityProvider])
-    assert report.capabilities["build_orders"] == %{state: :unknown, reason: :unknown}
-    assert report.capabilities["build_orders.progress"] == %{state: :unknown, reason: :unknown}
-    assert MapSet.member?(warnings, {:failed, Aiur.BuildOrder.CapabilityProvider})
+
+    for _tick <- 1..10 do
+      {report, warnings} = Collector.collect(providers: [Aiur.BuildOrder.CapabilityProvider])
+      assert report.capabilities["build_orders"] == %{state: :unknown, reason: :unknown}
+      assert report.capabilities["build_orders.progress"] == %{state: :unknown, reason: :unknown}
+      assert MapSet.member?(warnings, {:failed, Aiur.BuildOrder.CapabilityProvider})
+    end
+
+    assert {:message_queue_len, 0} = Process.info(pid, :message_queue_len)
     ref = Process.monitor(pid)
     send(pid, :stop)
     receive_barrier({:DOWN, ^ref, :process, ^pid, :normal})

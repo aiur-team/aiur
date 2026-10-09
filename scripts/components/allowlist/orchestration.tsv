@@ -8,7 +8,6 @@ R-declared	Aiur.CIApprovalStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade83
 R-declared	Aiur.Claude.RemoteControl	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Claude.ReplAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.CurrentRunMembership	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Executor.StatePaths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.AuthPreflight	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.CIPollBatch	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -64,8 +63,6 @@ R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts.UsageReadings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.BuildQueue.ClaimProbe	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.BuildQueue.Hints	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.CIApprovalStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.BranchRefStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.GithubCIPoller	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

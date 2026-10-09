@@ -48,8 +48,10 @@ defmodule Aiur.GitHub.TrackerTest do
     :ok
   end
 
-  test "implements Tracker behaviour" do
-    assert {:ok, _issues} = GitHubTracker.fetch_candidate_issues()
+  test "implements issue tracker and code host behaviours" do
+    behaviours = Keyword.get_values(GitHubTracker.module_info(:attributes), :behaviour) |> List.flatten()
+    assert Aiur.Tracker.IssueTracker in behaviours
+    assert Aiur.Tracker.CodeHost in behaviours
   end
 
   test "fetch_issues_by_states delegates to client" do

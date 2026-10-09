@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow.Value do
+defmodule Aiur.Projections.UnitsRow.Value do
   @moduledoc false
 
   @spec get(map() | term(), atom() | String.t()) :: term()
