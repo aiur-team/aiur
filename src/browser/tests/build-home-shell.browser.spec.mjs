@@ -10,10 +10,10 @@ async function open(page, dataset = 'live') {
 }
 
 async function patch(page) {
-  const toggle = page.locator('#nav-toggle')
-  const previous = await toggle.getAttribute('aria-pressed')
+  const toggle = page.locator('#ax-drag')
+  const previous = await toggle.getAttribute('data-nav-collapsed')
   await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-pressed', previous === 'true' ? 'false' : 'true')
+  await expect(toggle).toHaveAttribute('data-nav-collapsed', previous === 'true' ? 'false' : 'true')
 }
 
 test('hook-owned DOM survives a server patch', async ({ page }) => {
@@ -30,8 +30,8 @@ test('an open modal survives a server patch', async ({ page }) => {
     document.querySelector('#tk-body').append(Object.assign(document.createElement('b'), { id: 'mprobe' }))
   })
   // The modal deliberately overlays navigation once its styles have landed.
-  await page.locator('#nav-toggle').evaluate(button => button.click())
-  await expect(page.locator('#nav-toggle')).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('#ax-drag').evaluate(handle => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })))
+  await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', 'true')
   await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
   await expect(page.locator('#mprobe')).toHaveCount(1)
 })
