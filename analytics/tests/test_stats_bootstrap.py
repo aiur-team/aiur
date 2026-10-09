@@ -98,6 +98,8 @@ class BootstrapTests(unittest.TestCase):
             return difference(a, b)
         bootstrap([1, 2, 100], [4, 5, 200], {'difference': statistic}, resamples=20,
                   strata=(['low', 'low', 'high'], ['low', 'low', 'high']))
+        self.assertEqual(len(seen[1:21]), 20)
+        self.assertTrue(any(a[:2] != [1, 2] for a, _ in seen[1:21]))
         for a, b in seen[1:21]:
             self.assertEqual(a[2], 100)
             self.assertEqual(b[2], 200)
