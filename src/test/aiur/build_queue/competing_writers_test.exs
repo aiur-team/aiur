@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
   use ExUnit.Case, async: false
   alias Aiur.BuildQueue.{Hints, Model, Server}
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
 
   defmodule Boundary do
     def open_issue_labels(_age), do: Agent.get(__MODULE__, fn s -> {:ok, Map.new(s.labels, fn {id, labels} -> {id, %{labels: labels}} end), s.now} end)
@@ -38,6 +39,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
   end
 
   test "AC7: external todo removal survives five reconciles until item release" do
+    :ok = Exchange.subscribe("ticket.1.queue.released")
     pid = server()
     reconcile(pid)
     assert calls() == [{:promote, "1"}]
@@ -47,6 +49,8 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert Hints.held?("1")
     assert calls() == [{:promote, "1"}]
     assert :ok = Aiur.BuildQueue.release("1", pid)
+    Exchange.bindings_for(self())
+    assert_received {:event, %{"ticket" => "1", "queue_id" => "q", "cause" => "operator", topic: "ticket.1.queue.released"}}
     reconcile(pid)
     assert item("1").hold == nil
     assert calls() == [{:promote, "1"}, {:promote, "1"}]

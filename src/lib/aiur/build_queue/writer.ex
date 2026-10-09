@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Writer do
   @moduledoc "Serial label writes with durable intents and a rolling minute write budget."
   require Logger
-  alias Aiur.BuildQueue.{Attention, Bookkeeping, WriteEvidence, WriteProtocol}
+  alias Aiur.BuildQueue.{Attention, Bookkeeping, Events, WriteEvidence, WriteProtocol}
   alias Aiur.BuildQueue.Model.Latch
 
   @spec new() :: map()
@@ -50,8 +50,12 @@ defmodule Aiur.BuildQueue.Writer do
     document = Bookkeeping.apply(context.document, command)
 
     case context.store.save(document) do
-      :ok -> {:cont, %{context | document: document}}
-      {:error, _reason} -> {:halt, %{context | status: :store_unavailable}}
+      :ok ->
+        Events.saved(context.document, document)
+        {:cont, %{context | document: document}}
+
+      {:error, _reason} ->
+        {:halt, %{context | status: :store_unavailable}}
     end
   end
 

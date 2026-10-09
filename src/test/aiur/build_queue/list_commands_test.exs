@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   use ExUnit.Case, async: false
   alias Aiur.BuildQueue.{ListCommands, Server}
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
 
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
 
@@ -84,6 +85,15 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert {{:unmark, "1", "agent:queued"}, before_unmark} = List.last(Agent.get(Boundary, & &1.calls))
     refute Enum.any?(before_unmark.items, &(&1.issue_id == "1"))
     assert ListCommands.pending(document()) == []
+  end
+
+  test "operator removal publishes a removed hint naming the operator as cause" do
+    :ok = Exchange.subscribe("ticket.1.queue.removed")
+    server()
+    assert :ok = Aiur.BuildQueue.add(["1"], "paseo")
+    assert :ok = Aiur.BuildQueue.remove("1")
+    Exchange.bindings_for(self())
+    assert_received {:event, %{"ticket" => "1", "cause" => "operator", topic: "ticket.1.queue.removed"}}
   end
 
   test "ownership and self edge refusals save nothing and write nothing" do

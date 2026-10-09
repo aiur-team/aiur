@@ -85,6 +85,17 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
 
+## Queue transitions
+
+`ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
+verbs `promoted`, `withdrawn`, `held`, `released`, `overridden`, and `removed`.
+Payloads contain only `ticket`, `queue_id`, and `cause` references and attributes
+(plus the bus envelope). An operator removal carries cause `operator`.
+
+Consumers re-read queue state; these topics are not bound to the Executor by
+default and are not replayed after a daemon restart. Publication failures are
+logged without retry.
+
 ## Queue attentions
 
 Queue attentions add two default Executor bindings: `ticket.*.queue.attention.#`
