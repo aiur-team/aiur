@@ -62,6 +62,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       number: String.to_integer(member.issue_id),
       position: member.position,
       state: projection.state,
+      reason: Map.get(projection, :reason),
       verdict: verdict(projection.verdict),
       prerequisites: prerequisites(member.issue_id, context),
       downstream_open: if(projection.rank, do: -elem(projection.rank, 0)),
@@ -72,7 +73,9 @@ defmodule Aiur.BuildQueue.ReadModel do
   end
 
   defp fresh_projection(projection, context) do
-    if context.tracker_source.freshness == :current and projection.state != :unknown, do: projection, else: %{projection | state: :unknown, verdict: {:unknown, [:observation_unavailable]}, rank: nil}
+    if context.tracker_source.freshness == :current and projection.state != :unknown,
+      do: projection,
+      else: %{projection | state: :unknown, verdict: {:unknown, [:observation_unavailable]}, rank: nil} |> Map.put(:reason, :observation_unavailable)
   end
 
   defp prerequisites(id, context) do
