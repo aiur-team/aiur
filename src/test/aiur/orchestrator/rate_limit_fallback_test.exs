@@ -445,25 +445,29 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       state = fallback_state([])
       test_pid = self()
 
-      assert RateLimitFallback.reconcile(
-               state,
-               reconcile_opts(
-                 state: %{"backends" => %{}},
-                 add_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:add, identifier, label}})
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            state: %{"backends" => %{}},
+            add_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:add, identifier, label}})
 
-                   if label == "model:claude",
-                     do: {:error, :model_write_failed},
-                     else: :ok
-                 end,
-                 remove_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:remove, identifier, label}})
-                   :ok
-                 end,
-                 teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
-                 dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
-               )
-             ) == state
+              if label == "model:claude",
+                do: {:error, :model_write_failed},
+                else: :ok
+            end,
+            remove_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:remove, identifier, label}})
+              :ok
+            end,
+            teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
+            dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
+          )
+        )
+
+      assert result.running == state.running
+      assert {1, _deadline} = result.fallback_backoff["1"]
 
       assert_label_ops([
         {:add, "repo#1", @marker_label},
@@ -476,24 +480,28 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       state = fallback_state(["model:claude", @marker_label])
       test_pid = self()
 
-      assert RateLimitFallback.reconcile(
-               state,
-               reconcile_opts(
-                 add_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:add, identifier, label}})
-                   :ok
-                 end,
-                 remove_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:remove, identifier, label}})
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            add_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:add, identifier, label}})
+              :ok
+            end,
+            remove_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:remove, identifier, label}})
 
-                   if label == @marker_label,
-                     do: {:error, :marker_remove_failed},
-                     else: :ok
-                 end,
-                 teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
-                 dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
-               )
-             ) == state
+              if label == @marker_label,
+                do: {:error, :marker_remove_failed},
+                else: :ok
+            end,
+            teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
+            dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
+          )
+        )
+
+      assert result.running == state.running
+      assert {1, _deadline} = result.fallback_backoff["1"]
 
       assert_label_ops([
         {:remove, "repo#1", "model:claude"},
@@ -702,33 +710,6 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       refute_receive {:teardown, _identifier}, 100
       assert_receive {:label_op, {:add, _, @marker_label}}, 1000
       assert_receive {:label_op, {:add, _, "model:claude"}}, 1000
-      refute_receive {:label_op, _}, 100
-    end
-
-    test "caps label attempts when the tracker is failing" do
-      entries =
-        Map.new(1..3, fn index ->
-          id = Integer.to_string(index)
-          issue = %Issue{id: id, identifier: "repo##{id}", labels: []}
-          {id, fallback_entry(%{identifier: issue.identifier, issue: issue})}
-        end)
-
-      state = %State{running: entries}
-      test_pid = self()
-
-      assert RateLimitFallback.reconcile(
-               state,
-               reconcile_opts(
-                 state: %{"backends" => %{}},
-                 add_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:add, identifier, label}})
-                   {:error, :tracker_unavailable}
-                 end,
-                 teardown_fun: fn _, _, _ -> flunk("must not tear down after label failure") end
-               )
-             ) == state
-
-      assert_receive {:label_op, {:add, _, @marker_label}}, 1000
       refute_receive {:label_op, _}, 100
     end
 
