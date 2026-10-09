@@ -6,7 +6,9 @@ defmodule Aiur.BuildQueue.Recovery do
   def resolve(%{phase: :awaiting_first_observation, freshness: :fresh} = state, observations) do
     intents = Enum.map(state.document.intents, &resolve_intent(&1, observations, state.settings.tracker.github.label_prefix))
     document = %{state.document | intents: intents}
-    document = Enum.reduce(intents, document, &provenance/2)
+    # Only intents resolved here gain provenance: a release may have cleared promoted_at after an older :ok intent.
+    resolved = for {before, now} <- Enum.zip(state.document.intents, intents), before.outcome == nil, do: now
+    document = Enum.reduce(resolved, document, &provenance/2)
 
     if document == state.document do
       %{state | phase: :ready}
