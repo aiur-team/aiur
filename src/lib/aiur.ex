@@ -458,7 +458,6 @@ defmodule Aiur.Application do
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
-      Aiur.BuildOrder.EpicOverrides,
       Aiur.TicketActivity,
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.
@@ -511,7 +510,8 @@ defmodule Aiur.Application do
       # above; BuildProgress and its observer run with recording and are
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
-      if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress, Aiur.BuildOrder.ProgressObserver])
+      if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress, Aiur.BuildOrder.ProgressObserver]),
+      Aiur.BuildOrder.EpicOverrides
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)

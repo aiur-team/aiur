@@ -455,10 +455,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  show build queue state
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
-  epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
-  epic clear <ids...> [--as <who>] [--json]
-  epic show [<ids...>] [--json]
-  epic list [--json]
+       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur epic clear <ids...> [--as <who>] [--json]
+       aiur epic show [<ids...>] [--json]
+       aiur epic list [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings

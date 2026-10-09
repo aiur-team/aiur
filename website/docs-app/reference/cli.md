@@ -208,7 +208,7 @@ To recover saved work by hand, run the `restore_commands` of `manifest.json` in 
 
 ## Build history epic commands
 
-Overrides are local; these commands do not write GitHub labels or report effective epics. Agents use `aiur_set_epic` with daemon-bound identity.
+Overrides are local: these commands never write GitHub labels or report effective epics, and agents use `aiur_set_epic` with daemon-bound identity.
 
 | Command | Behavior |
 | --- | --- |

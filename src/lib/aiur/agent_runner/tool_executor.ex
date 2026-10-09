@@ -68,7 +68,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
       unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
-      # re-reads the issue and makes the target the sole `agent:*` state label —
+      # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
       set_ticket_state: Keyword.get(opts, :ticket_state_writer, &Tracker.update_issue_state/2)
