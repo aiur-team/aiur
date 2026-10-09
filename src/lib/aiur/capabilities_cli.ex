@@ -12,7 +12,7 @@ defmodule Aiur.CapabilitiesCLI do
   @spec render(map()) :: String.t()
   def render(report) do
     header = "aiur capabilities — #{value(report.machine, :label)} / #{value(report.instance, :instance_id)}"
-    age = if is_number(report.age_ms), do: "#{report.age_ms / 1_000}s ago", else: "unknown"
+    age = "#{report.age_ms / 1_000}s ago"
     rows = report.capabilities |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&capability/1)
 
     Enum.join(
