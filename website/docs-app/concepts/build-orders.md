@@ -123,6 +123,14 @@ An unrecognised queue status or source flag reports `unknown/unknown` for that c
 
 These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
 
+## Restacking after a squash merge
+
+When a blocker merges, Aiur restacks idle dependents with a fast-forward merge commit. It subtracts the original blocker changes using the blocker PR’s retained head ref, so the PR diff contains the dependent’s changes. Merge events trigger the task; CI polling reconciles missed events using delivered PR facts.
+
+The task holds the workspace lock and leaves the checkout and index untouched. A live dependent receives the merge wake and follows the agent skill’s restack recipe. A moved remote rejects the push; a textual conflict pushes nothing and produces `agent:rework`, a comment with paths, and `ticket.<id>.restack.conflict`.
+
+`tracker.restack_after_blocker_merge` defaults to `true`. Set it to `false` to leave restacking to agents. Automatic restacking requires git 2.40 or newer. CI still checks clean textual merges for semantic failures; a restack push may dismiss approval and require review again.
+
 ## Queue cost
 
 Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.

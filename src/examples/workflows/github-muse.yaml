@@ -1,6 +1,7 @@
 tracker:
   kind: github
   base_branch: your-base-branch
+  # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states:
     - todo
     - in-progress

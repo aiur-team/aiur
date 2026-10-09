@@ -1,7 +1,5 @@
 # GitHub
-
 Aiur reads GitHub to find work, follow each ticket, and return completed changes for review.
-
 ## Repository setup from global defaults
 
 A new run using `~/.aiur/config` bootstraps the current GitHub repository before starting supervision or dispatch. It resolves the repository from `origin` and rejects conflicting explicit `tracker.github.repo`.
@@ -735,6 +733,8 @@ separately from harmless stale heads; the earlier 3-of-8 stale-base count is
 context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
+
+Idle dependent restacks use delivered blocker PR facts without adding REST reads. The daemon fetches git refs and pushes through the agent credential file, with cached GitHub helpers cleared. It never force-pushes; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
 
