@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, AgentQueue, AgentQueueStore, AlertFeed, Issue}
-  alias Aiur.Orchestrator.{Dispatcher, LifecycleFence, LifecycleFenceExpiry, PauseResume, State, StatusReport}
+  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, LifecycleFence, LifecycleFenceExpiry, PauseResume, State, StatusReport}
 
   test "a never-acknowledged fence expires on the dispatch poll and dispatches rework with its input" do
     {state, issue, item} = fenced_state(:completed)
@@ -96,6 +96,18 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
     assert next.running[issue.id].lifecycle_fence.pending_item_ids == MapSet.new([1, 2])
   end
 
+  test "expiry keeps a live worker's failed input deliverable for subsequent rework" do
+    {state, issue, item} = fenced_state(:working)
+    {store, _} = AgentQueueStore.mark_failed(state.queue_store, item.id, :provider_down)
+    state = %{state | queue_store: store}
+    opened_at = state.running[issue.id].lifecycle_fence.opened_at
+    next = LifecycleFenceExpiry.reconcile(state, DateTime.add(opened_at, 120, :second))
+    refute Map.has_key?(next.running[issue.id], :lifecycle_fence)
+    {_, retry} = AgentQueueStore.claim_next_deliverable(next.queue_store, issue.identifier)
+    assert retry.id == item.id
+    assert retry.body == item.body
+  end
+
   test "CLI agents, status and watch expose concrete pending IDs and their age" do
     {state, issue, item} = fenced_state(:completed)
     payload = StatusReport.snapshot_payload(state)
@@ -109,6 +121,27 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
       assert output =~ "pending_item_ids=[#{item.id}]"
       assert output =~ ~r/LifecycleFence · \d+s/
       assert output =~ issue.identifier
+    end
+  end
+
+  test "forced teardown after expiry restores unacknowledged live claims for later rework" do
+    for teardown <- [&AgentTeardown.deactivate_running_issue(&1, &2), &AgentTeardown.terminate_running_issue(&1, &2, false)] do
+      {state, issue, item} = fenced_state(:working)
+      {store, _} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue.identifier)
+      {:ok, pid} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
+      ref = Process.monitor(pid)
+      state = %{state | queue_store: store}
+      state = put_in(state.running[issue.id].pid, pid)
+      state = put_in(state.running[issue.id].ref, ref)
+      opened_at = state.running[issue.id].lifecycle_fence.opened_at
+      expired = LifecycleFenceExpiry.reconcile(state, DateTime.add(opened_at, 120, :second))
+      assert AgentQueueStore.get(expired.queue_store, item.id).status == :delivered
+      next = teardown.(expired, issue.id)
+      refute Process.alive?(pid)
+      {_, retry} = AgentQueueStore.claim_next_deliverable(next.queue_store, issue.identifier)
+      assert retry.id == item.id
+      assert retry.body == item.body
     end
   end
 

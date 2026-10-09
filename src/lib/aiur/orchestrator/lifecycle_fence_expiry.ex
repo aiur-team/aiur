@@ -41,20 +41,25 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiry do
       severity: "warning"
     )
 
-    # A completed provider cannot drain its claims; let its replacement retry them.
-    queue_store =
-      if State.completed_provenance?(entry) do
-        Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim/2)
-      else
-        state.queue_store
-      end
+    # Retry failed input; only a completed provider's in-flight claims can be reclaimed.
+    completed? = State.completed_provenance?(entry)
+    queue_store = Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim(&1, &2, completed?))
 
-    %{state | queue_store: queue_store, running: Map.put(state.running, issue_id, Map.delete(entry, :lifecycle_fence))}
+    entry = entry |> Map.delete(:lifecycle_fence) |> Map.update(:expired_lifecycle_item_ids, MapSet.new(ids), &MapSet.union(&1, MapSet.new(ids)))
+    %{state | queue_store: queue_store, running: Map.put(state.running, issue_id, entry)}
   end
 
-  defp restore_unacknowledged_claim(id, store) do
+  @doc "Recover expired claims only after their provider has been terminated."
+  @spec recover_terminated_input(State.t(), map()) :: State.t()
+  def recover_terminated_input(state, entry) do
+    ids = Map.get(entry, :expired_lifecycle_item_ids, MapSet.new())
+    queue_store = Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim(&1, &2, true))
+    %{state | queue_store: queue_store}
+  end
+
+  defp restore_unacknowledged_claim(id, store, completed?) do
     case AgentQueueStore.get(store, id) do
-      %AgentQueueItem{provider_delivered_at: nil, status: :delivered} -> elem(AgentQueueStore.restore_pending(store, id), 0)
+      %AgentQueueItem{provider_delivered_at: nil, status: :delivered} when completed? -> elem(AgentQueueStore.restore_pending(store, id), 0)
       %AgentQueueItem{provider_delivered_at: nil, status: :failed} -> elem(AgentQueueStore.restore_failed_pending(store, id), 0)
       _ -> store
     end

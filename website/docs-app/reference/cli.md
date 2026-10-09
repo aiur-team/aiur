@@ -148,7 +148,7 @@ An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-l
 
 The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation. Existing `waiting_reason` atoms remain unchanged; a pending lifecycle fence changes the owner, cause and since, and adds sorted `pending_item_ids` to JSON and text output.
 
-Provider-delivery fences expire on the first dispatch poll after two minutes from the oldest pending input. The `lifecycle_fence_expired` alert names the stuck IDs and allows lifecycle reconciliation to continue without claiming delivery succeeded. Unacknowledged claimed or failed items on completed workers return to pending for the replacement worker; queued input is retained.
+Provider-delivery fences expire on the first dispatch poll after two minutes from the first pending input. The `lifecycle_fence_expired` alert names the stuck IDs and allows lifecycle reconciliation to continue without claiming delivery succeeded. Unacknowledged failed items return to pending, as do unacknowledged claimed items on completed workers. Live claims stay with their provider until teardown, when unacknowledged expired claims return to pending for later rework.
 
 Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.
 
