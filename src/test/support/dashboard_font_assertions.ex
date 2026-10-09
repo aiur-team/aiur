@@ -1,7 +1,6 @@
 defmodule Aiur.TestSupport.DashboardFontAssertions do
   import ExUnit.Assertions
-  import Plug.Test, only: [assert_error_sent: 2]
-  import Phoenix.ConnTest, only: [response: 2]
+  import Phoenix.ConnTest, only: [response: 2, assert_error_sent: 2]
 
   def assert_bootstrap(html) do
     assert html =~ ~s(data-palette="gruvbox")
