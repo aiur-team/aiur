@@ -5,6 +5,9 @@ defmodule Aiur.Linear.Tracker do
 
   @behaviour Aiur.Tracker.IssueTracker
 
+  @spec config_module() :: module()
+  def config_module, do: Aiur.Linear.Config
+
   alias Aiur.Linear.Client
   alias Aiur.Linear.Config
 

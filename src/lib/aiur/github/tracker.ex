@@ -4,6 +4,12 @@ defmodule Aiur.GitHub.Tracker do
   """
 
   @behaviour Aiur.Tracker.IssueTracker
+
+  @impl Aiur.Tracker.IssueTracker
+  def config_module, do: Aiur.GitHub.Config
+
+  @impl Aiur.Tracker.IssueTracker
+  def code_host, do: __MODULE__
   @behaviour Aiur.Tracker.CodeHost
 
   alias Aiur.GitHub.BoundedBlockedBy
