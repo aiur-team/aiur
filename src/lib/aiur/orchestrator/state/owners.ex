@@ -88,6 +88,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     globally_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
+    restack_completed: :pr_lifecycle,
     ci_lifecycle: :pr_lifecycle,
     last_ci_poll_started_at_ms: :pr_lifecycle,
     pr_review_seen_at: :pr_lifecycle,
@@ -120,7 +121,14 @@ defmodule Aiur.Orchestrator.State.Owners do
 
   @members %{
     core: [Aiur.Orchestrator, Aiur.Orchestrator.IssueSync, Aiur.Orchestrator.TrackerHealth, Aiur.Orchestrator.TrackerTasks, Aiur.Orchestrator.SnapshotPublisher, Aiur.Orchestrator.SnapshotStore],
-    dispatch: [Aiur.Orchestrator.Dispatcher, Aiur.Orchestrator.DispatchOutcome, Aiur.Orchestrator.DispatchPolicy, Aiur.Orchestrator.CapacityBinding, Aiur.Orchestrator.Slots],
+    dispatch: [
+      Aiur.Orchestrator.Dispatcher,
+      Aiur.Orchestrator.DispatchOutcome,
+      Aiur.Orchestrator.DispatchPolicy,
+      Aiur.Orchestrator.PressureAdmission,
+      Aiur.Orchestrator.CapacityBinding,
+      Aiur.Orchestrator.Slots
+    ],
     lifecycle: [
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,
@@ -134,6 +142,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     control: [Aiur.Orchestrator.PauseResume, Aiur.Orchestrator.GlobalPause, Aiur.Orchestrator.ControlLifecycle],
     pr_lifecycle: [
+      Aiur.Orchestrator.RestackScheduler,
       Aiur.Orchestrator.CiLifecycle,
       Aiur.Orchestrator.CommentWake,
       Aiur.Orchestrator.ReworkGate,
