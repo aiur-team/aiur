@@ -7,7 +7,17 @@ defmodule Aiur.RunTelemetryTest do
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-run-telemetry")
-    on_exit(fn -> File.rm_rf!(root) end)
+    prior_repo_root = Application.fetch_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, root)
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+
+      case prior_repo_root do
+        {:ok, value} -> Application.put_env(:aiur, :repo_base_root, value)
+        :error -> Application.delete_env(:aiur, :repo_base_root)
+      end
+    end)
 
     %{root: root}
   end
