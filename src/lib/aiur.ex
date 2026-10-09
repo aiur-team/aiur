@@ -2,7 +2,6 @@ defmodule Aiur do
   @moduledoc """
   Entry point for the Aiur orchestrator.
   """
-
   @doc """
   Start the orchestrator in the current BEAM node.
   """
@@ -459,6 +458,7 @@ defmodule Aiur.Application do
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
+      Aiur.BuildOrder.EpicOverrides,
       Aiur.TicketActivity,
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.

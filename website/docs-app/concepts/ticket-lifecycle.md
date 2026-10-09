@@ -20,7 +20,6 @@ There are exactly **ten** state suffixes (`src/lib/aiur/github/labels.ex:23-25`)
 ```text
 todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled
 ```
-
 | Label | Meaning |
 | --- | --- |
 | `agent:todo` | Queued and dispatchable. |
@@ -47,7 +46,6 @@ them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
 ```text
 watch  paused  parked  queued  rate-limit-fallback
 ```
-
 | Marker | Meaning |
 | --- | --- |
 | `agent:watch` | Opt-in PR-watch marker: Aiur watches a PR for comments. |
@@ -107,6 +105,8 @@ end
 The consequence: a stale or hand-edited label set carrying **two state labels
 at once** denies dispatch. A poll-time repair heals the pair to its winner
 (`agent:todo` wins).
+
+Agents use `aiur_set_epic` to set or clear local general-epic overrides for their ticket or a batch of up to 200 ids. The daemon records `agent:<acting ticket>` as actor; `backfill: true` marks an unconfirmed guess. These overrides do not change GitHub labels. See [epic commands](../reference/cli.md#build-history-epic-commands).
 
 Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
 raw label edits.

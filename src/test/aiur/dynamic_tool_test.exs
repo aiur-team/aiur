@@ -94,7 +94,8 @@ defmodule Aiur.Codex.DynamicToolTest do
                  "aiur_unsubscribe",
                  "aiur_declare_blocker",
                  "aiur_unblock",
-                 "aiur_set_ticket_state"
+                 "aiur_set_ticket_state",
+                 "aiur_set_epic"
                ]
              }
            }
