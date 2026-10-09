@@ -135,7 +135,7 @@
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["tracker", "github", "config", "web-kit", "kernel"], "optional": [],
-      "owns": {"config": ["build_order"], "env": [], "state": ["build_history_state_dir"], "capabilities": []},
+      "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir"], "capabilities": []},
       "prior": ["BO"]
     },
     {
