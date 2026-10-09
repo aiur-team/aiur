@@ -3,6 +3,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
   import Phoenix.ChannelTest
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.AgentPubSub
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
   alias Phoenix.Socket.Message
 
@@ -38,6 +39,8 @@ defmodule AiurWeb.StreamdeckFloodTest do
     {:ok, token} = StreamdeckAuth.issue_token()
     {:ok, socket} = StreamdeckSocket.connect(%{"token" => token}, socket(StreamdeckSocket, "flood", %{}), %{})
     {:ok, _, socket} = subscribe_and_join(socket, "streamdeck:fleet")
+    channel = socket.channel_pid
+    on_exit(fn -> if Process.alive?(channel), do: Process.exit(channel, :kill) end)
     receive_barrier(%Message{event: "snapshot"})
     %{socket: socket, source: source}
   end
@@ -73,6 +76,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
     channel = socket.channel_pid
     receive_barrier({:snapshot_read, ^channel})
     for _ <- 1..1_000, do: AgentPubSub.broadcast_running_change([])
+    assert Process.info(channel, :message_queue_len) == {:message_queue_len, 1}
     monitor = Process.monitor(channel)
     Process.unlink(channel)
     send(channel, :streamdeck_auth_expired)
@@ -82,9 +86,9 @@ defmodule AiurWeb.StreamdeckFloodTest do
 
   test "published snapshots notify the deck even without a running broadcast", %{source: source} do
     key = self()
-    on_exit(fn -> Aiur.Orchestrator.SnapshotStore.discard(key) end)
+    on_exit(fn -> SnapshotStore.discard(key) end)
     Agent.update(source, &put_in(&1, [:snapshot, :agents], [%{identifier: "3875", title: "published"}]))
-    Aiur.Orchestrator.SnapshotStore.publish(key, %{running: [], retrying: [], idle: []})
+    SnapshotStore.publish(key, %{running: [], retrying: [], idle: []})
     receive_barrier(%Message{event: "fleet", payload: %{"agents" => [%{"title" => "published"}]}})
     assert Agent.get(source, & &1.reads) == 2
   end

@@ -16,7 +16,7 @@ defmodule Aiur.CadenceFreshnessTest do
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.TicketHistoryProvider.Options, as: TicketHistoryOptions
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.PollCadence
   alias Aiur.Projections.UnitsRow.Sources
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
@@ -324,10 +324,10 @@ defmodule Aiur.CadenceFreshnessTest do
   defp publish_aged(orchestrator, age_ms) do
     :ok = SnapshotStore.publish(orchestrator, %{globally_paused: false})
 
-    cached = Aiur.Orchestrator.SnapshotCache.get(orchestrator)
+    cached = SnapshotCache.get(orchestrator)
     observed_at_ms = System.monotonic_time(:millisecond) - age_ms
 
-    Aiur.Orchestrator.SnapshotCache.put(
+    SnapshotCache.put(
       orchestrator,
       %{
         cached

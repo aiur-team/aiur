@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckFleetUpdates do
   @moduledoc false
   import Phoenix.Socket, only: [assign: 3]
+  alias Aiur.AgentPubSub.FleetRefresh
   alias AiurWeb.StreamdeckProjection
 
   @spec schedule(Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
@@ -15,7 +16,7 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
   @spec flush(Phoenix.Socket.t(), reference()) :: {:noreply, Phoenix.Socket.t()}
   def flush(%{assigns: %{fleet_flush: token}} = socket, token) when is_reference(token) do
     :atomics.put(socket.assigns.fleet_latch, 1, 0)
-    Phoenix.Channel.push(socket, "fleet", StreamdeckProjection.fleet_with_grid(Aiur.AgentPubSub.FleetRefresh.latest(self())))
+    Phoenix.Channel.push(socket, "fleet", StreamdeckProjection.fleet_with_grid(FleetRefresh.latest(self())))
     {:noreply, assign(socket, :fleet_flush, nil)}
   end
 

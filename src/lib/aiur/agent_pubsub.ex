@@ -11,7 +11,7 @@ defmodule Aiur.AgentPubSub do
 
   require Logger
 
-  alias Aiur.AgentEvents
+  alias Aiur.{AgentEvents, AgentPubSub.FleetRefresh}
 
   @pubsub Aiur.PubSub
   @fleet_refresh_topic "agents:fleet_refresh"
@@ -45,7 +45,7 @@ defmodule Aiur.AgentPubSub do
   @doc "Payload-free fleet invalidations for consumers that read the published snapshot."
   @spec subscribe_fleet_refresh(reference()) :: :ok | {:error, term()}
   def subscribe_fleet_refresh(latch) do
-    :ok = Aiur.AgentPubSub.FleetRefresh.register(self())
+    :ok = FleetRefresh.register(self())
     opts = [metadata: {:fleet_refresh, latch}]
     :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic(), opts)
     :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic(), opts)
@@ -53,7 +53,7 @@ defmodule Aiur.AgentPubSub do
   end
 
   @spec broadcast_fleet_refresh() :: :ok
-  def broadcast_fleet_refresh, do: do_broadcast(@fleet_refresh_topic, :fleet_changed, Aiur.AgentPubSub.FleetRefresh)
+  def broadcast_fleet_refresh, do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
 
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
@@ -134,12 +134,12 @@ defmodule Aiur.AgentPubSub do
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
   def broadcast_running_change(summaries) when is_list(summaries) do
-    do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries}, Aiur.AgentPubSub.FleetRefresh)
+    do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries}, FleetRefresh)
   end
 
   @spec broadcast_status_change(AgentEvents.agent_identifier(), atom()) :: :ok
   def broadcast_status_change(identifier, status) when is_binary(identifier) and is_atom(status) do
-    do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}}, Aiur.AgentPubSub.FleetRefresh)
+    do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}}, FleetRefresh)
   end
 
   @spec broadcast_turn_event(AgentEvents.agent_identifier(), atom(), map()) :: :ok
