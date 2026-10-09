@@ -51,6 +51,26 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
     assert CurrentRunProjections.snapshot(:outcomes, server: owner).state == :unavailable
   end
 
+  test "a change to any single non-run source rebuilds the projection" do
+    {source, owner, builds, _reads} = start_owner()
+    assert :ok = CurrentRunProjections.refresh(owner)
+    assert Agent.get(builds, & &1) == 1
+
+    changes = [
+      status: &Map.put(&1, :generation, 7),
+      status_facts: fn _facts -> [%{identifier: "42"}] end,
+      activity: &Map.put(&1, :generation, 7),
+      merges: &Map.put(&1, :generation, 7),
+      configured_repository: fn _repository -> {:ok, {"aiur-team", "other"}} end
+    ]
+
+    for {{key, change}, expected_builds} <- Enum.with_index(changes, 2) do
+      Agent.update(source, &Map.update!(&1, key, change))
+      assert :ok = CurrentRunProjections.refresh(owner)
+      assert {key, Agent.get(builds, & &1)} == {key, expected_builds}
+    end
+  end
+
   test "notification burst collects sources once" do
     pubsub = __MODULE__.PubSub
     start_supervised!({Phoenix.PubSub, name: pubsub})
