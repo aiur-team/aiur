@@ -48,9 +48,6 @@ defmodule AiurWeb.StaticAssetController do
   def provider_asset(conn, %{"provider_asset" => asset}) when is_binary(asset),
     do: serve(conn, "/provider-assets/" <> asset, revalidate?: true)
 
-  @spec bungee_font(Conn.t(), map()) :: Conn.t()
-  def bungee_font(conn, _params), do: serve(conn, "/bungee.woff2")
-
   @spec phoenix_html_js(Conn.t(), map()) :: Conn.t()
   def phoenix_html_js(conn, _params), do: serve(conn, "/vendor/phoenix_html/phoenix_html.js")
 
