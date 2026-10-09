@@ -138,9 +138,6 @@ The queue read model reports each source under `sources["build_order:<root>"]` a
 ## Queue attentions
 
 Queue faults emit once per cause and subject, then emit `.resolved` when cleared.
-Prerequisite failures identify the prerequisite and list direct dependents before
-transitive dependents. Changing that set does not re-fire; changing the failure
-cause does. Durable latches survive restarts.
 
 | Cause | Opens | Clears |
 | --- | --- | --- |
@@ -150,6 +147,10 @@ cause does. Durable latches survive restarts.
 | `merged_issue_open` | A prerequisite PR merged and the issue remains open past the grace | Issue closes |
 | `inputs_unavailable` | Inputs remain unknown for twice the observation age | All inputs become current |
 | `store_unavailable` | Queue store cannot load or save | Store recovers |
+
+A prerequisite failure names the prerequisite and lists direct dependents before
+transitive dependents. Changing that set does not re-fire; changing the failure
+cause does. Durable latches survive restarts.
 
 Ticket topics use `ticket.<id>.queue.attention.<cause>`; input and store faults
 use `system.queue.attention.<cause>`. The store fault uses an in-memory latch:
