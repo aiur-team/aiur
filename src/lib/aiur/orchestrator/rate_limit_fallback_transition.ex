@@ -59,14 +59,14 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTransition do
   end
 
   defp finish(current, :ok, context, transition, redispatch) do
-    Logger.info("Rate-limit fallback #{transition} labels persisted; re-dispatching: #{State.issue_context(context.issue)}")
+    Logger.info("Rate-limit fallback #{transition} labels persisted; re-dispatching: #{log_context(context)}")
     current = %{current | fallback_backoff: Map.delete(current.fallback_backoff, context.issue.id)}
-    redispatch.(current, context.running_entry, context.relabeled, context.opts)
+    redispatch.(current, Map.fetch!(current.running, context.issue.id), context.relabeled, context.opts)
   end
 
   defp finish(current, result, context, transition, _redispatch) do
     {reason, rollback} = failure_details(result)
-    Logger.error("Rate-limit fallback #{transition} failed: #{State.issue_context(context.issue)} reason=#{inspect(reason)} rollback=#{inspect(rollback)}")
+    Logger.error("Rate-limit fallback #{transition} failed: #{log_context(context)} reason=#{inspect(reason)} rollback=#{inspect(rollback)}")
     {attempts, _deadline} = Map.get(current.fallback_backoff, context.issue.id, {0, 0})
     attempts = attempts + 1
     delay = min((current.poll_interval_ms || Aiur.PollCadence.base_interval_ms(class: :dispatch)) * Integer.pow(2, min(attempts - 1, 20)), 600_000)
@@ -89,6 +89,9 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTransition do
       severity: "warning"
     )
   end
+
+  defp log_context(context),
+    do: "#{State.issue_context(context.issue)} session_id=#{State.running_entry_session_id(context.running_entry)}"
 
   defp now_ms(opts), do: Keyword.get_lazy(opts, :now_ms, fn -> System.monotonic_time(:millisecond) end)
 end
