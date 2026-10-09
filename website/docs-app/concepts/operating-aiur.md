@@ -99,12 +99,14 @@ A restart that cannot read persisted global-pause state starts paused rather tha
 
 An `in-progress` ticket with no worker is checked on startup and each candidate
 poll. After 60 seconds without ownership, Aiur releases it to `todo` if it has
-no open PR, `rework` for conflicts or current review findings, or `human-review`
+no open PR, `rework` for conflicts, a stale review base or current review findings, or `human-review`
 otherwise. It comments with the reason and wakes the Executor.
 
 Live workspace leases, scheduled retries, `agent:paused` and `agent:parked`
-protect the claim; unavailable PR evidence retains it for later polls. Failed writes have bounded
-retries and raise an attention.
+protect the claim; unavailable PR evidence retains it for later polls. Budget-held writes
+retry on later polls without consuming the three-attempt limit. Other failed writes
+raise an attention; exhausting three attempts raises an explicit Executor attention
+and retains the claim until intervention or a new daemon boot.
 
 ## Remote control
 

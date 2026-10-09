@@ -193,6 +193,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
           "#{State.issue_context(issue)}"
       )
 
+      emit_release_failed(state, issue, reason, attempts, opts)
       {:latched, %{state | startup_claim_reconciliation_failures: failures}, issue}
     else
       emit_release_failed(state, issue, reason, attempts, opts)
@@ -203,23 +204,35 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp emit_release_failed(%State{} = state, %Issue{} = issue, reason, attempts, opts) do
     Logger.error(
       "Failed to release orphaned startup claim: #{inspect(reason)}; " <>
-        "retry #{attempts}/#{@max_release_attempts} on a later candidate poll " <>
+        if(attempts >= @max_release_attempts,
+          do: "attempts exhausted; Executor intervention required ",
+          else: "retry #{attempts}/#{@max_release_attempts} on a later candidate poll "
+        ) <>
         "#{State.issue_context(issue)}"
     )
 
-    unless Map.has_key?(state.startup_claim_reconciliation_failures, issue.identifier) do
+    if attempts >= @max_release_attempts or not Map.has_key?(state.startup_claim_reconciliation_failures, issue.identifier) do
       emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
 
       emit_alert_fun.(
         failure_topic(issue),
         issue: issue,
-        message: "Startup reconciliation could not release ticket #{issue.identifier}; its orphaned in-progress claim remains.",
+        message:
+          if(attempts >= @max_release_attempts,
+            do: "Startup claim release for ticket #{issue.identifier} exhausted #{attempts} attempts; Executor intervention required.",
+            else: "Startup reconciliation could not release ticket #{issue.identifier}; its orphaned in-progress claim remains."
+          ),
         reason:
           "Ticket #{issue.identifier} has no live runtime, but its guarded update from in-progress to its recovery state failed " <>
-            "(#{inspect(reason)}); it will be retried up to #{@max_release_attempts} times within this boot.",
+            "(#{inspect(reason)}); " <>
+            if(attempts >= @max_release_attempts,
+              do: "no further release attempts will run within this boot.",
+              else: "it will be retried up to #{@max_release_attempts} times within this boot."
+            ),
         needs_attention: true,
         severity: "warning",
-        central: true
+        central: true,
+        durable: true
       )
     end
 
