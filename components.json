@@ -134,15 +134,15 @@
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "github", "config", "web-kit", "projections", "kernel"], "optional": ["orchestration", "telemetry"],
-      "owns": {"config": ["build_order"], "env": [], "state": ["build_history_state_dir", "epic_overrides_state_dir"], "capabilities": []},
+      "requires": ["tracker", "github", "config", "web-kit", "projections", "kernel", "commands"], "optional": ["build-queue", "orchestration", "telemetry"],
+      "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": []},
       "prior": ["BO"]
     },
     {
       "id": "build-queue", "name": "Build queue (MP-E1, new; ships before the refactor on a seam)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur/build_queue/**"],
+      "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur/build_queue/**", "src/lib/aiur_web/build_queue/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "event-bus", "config", "identity", "kernel"], "optional": ["build-orders"],
+      "requires": ["tracker", "event-bus", "config", "identity", "kernel", "executor-attention"], "optional": ["build-orders"],
       "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
       "prior": []
     },
