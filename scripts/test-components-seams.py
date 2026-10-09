@@ -50,6 +50,20 @@ def check(name, source, expected=0, message='', source_component='orchestration'
         print(f'PASS: {name}')
 
 
+check('sanctioned_lifecycle_writer_passes', 'Aiur.Orchestrator.TicketTransition.write_state()',
+      source_component='build-queue', path='src/lib/aiur/build_queue/write_protocol.ex')
+check('sanctioned_lifecycle_alias_passes', 'alias Aiur.Orchestrator.TicketTransition',
+      source_component='build-queue', path='src/lib/aiur/build_queue/write_protocol.ex')
+check('lifecycle_exception_other_path_fails', 'Aiur.Orchestrator.TicketTransition.write_state()', 1,
+      'R-forbid build-queue -> Aiur.Orchestrator.TicketTransition:',
+      source_component='build-queue', path='src/lib/aiur/build_queue/server.ex')
+check('lifecycle_exception_child_module_fails', 'Aiur.Orchestrator.TicketTransition.Other.f()', 1,
+      'R-forbid build-queue -> Aiur.Orchestrator.TicketTransition.Other:',
+      source_component='build-queue', path='src/lib/aiur/build_queue/write_protocol.ex')
+check('ordinary_seam_cannot_override_forbid', 'Aiur.Orchestrator.TicketTransition.write_state()', 1,
+      'R-forbid build-queue -> Aiur.Orchestrator.TicketTransition:', source_component='build-queue',
+      path='src/lib/aiur/build_queue/write_protocol.ex',
+      change=lambda m: m['seams'][-1].pop('allow_forbidden'))
 check('hints_seam_passes', 'Aiur.BuildQueue.Hints.rank("1")', message='R-optional: 0')
 check('claim_probe_behaviour_seam', '@behaviour Aiur.BuildQueue.ClaimProbe', message='R-optional: 0',
       path='src/lib/aiur/orchestrator/other.ex')

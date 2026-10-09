@@ -18,9 +18,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   """
 
   require Logger
-
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
+  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
   alias Aiur.Init.AgentCli
 
   alias Aiur.Orchestrator.{
@@ -30,6 +29,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     RemoteControlMode,
     RetryEngine,
     State,
+    TicketTransition,
     TrackerTasks
   }
 
@@ -439,12 +439,12 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp transition_context(state, running_entry, issue, relabeled, opts) do
     %{
-      add_label: Keyword.get(opts, :add_label_fun, &Tracker.add_label/2),
+      add_label: Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :rate_limit_fallback)),
       identifier: Map.get(running_entry, :identifier),
       issue: issue,
       opts: opts,
       relabeled: relabeled,
-      remove_label: Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2),
+      remove_label: Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :rate_limit_fallback)),
       running_entry: running_entry,
       state: state
     }

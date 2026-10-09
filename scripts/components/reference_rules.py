@@ -11,13 +11,14 @@ def module_matches(pattern, target):
 
 def seam_rules(manifest, component, target, kind, path):
     rules = []
-    if any(module_matches(pattern, target) for pattern in component.get('forbid', [])):
-        rules.append('R-forbid')
     seams = [edge for edge in manifest.get('seams', [])
              if edge['from'] == component['id'] and module_matches(edge['to_module'], target)]
     matching = [edge for edge in seams if edge['kind'] == kind and
                 ('only_paths' not in edge or any(fnmatch.fnmatchcase(path, pattern)
                                                for pattern in edge['only_paths']))]
+    if any(module_matches(pattern, target) for pattern in component.get('forbid', [])) and not any(
+            edge.get('allow_forbidden') for edge in matching):
+        rules.append('R-forbid')
     # Scoped adapters restrict even otherwise-declared, same-component references.
     if any('only_paths' in edge for edge in seams) and not matching:
         rules.append('R-seam')

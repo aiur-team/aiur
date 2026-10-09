@@ -27,6 +27,11 @@ defmodule Aiur.Capabilities.Provider do
   @spec dependency(String.t(), :unavailable | :degraded) :: entry()
   def dependency(id, state \\ :unavailable), do: %{state: state, reason: :dependency_unavailable, depends_on: [id]}
 
+  @doc "Classifies credential presence without returning its value."
+  @spec present?(term()) :: boolean()
+  def present?(value) when is_binary(value), do: String.trim(value) != ""
+  def present?(_value), do: false
+
   defp http_port do
     # HttpServer is a startup facade; the listener belongs to this registered endpoint.
     case Bandit.PhoenixAdapter.server_info(:"Elixir.AiurWeb.Endpoint", :http) do

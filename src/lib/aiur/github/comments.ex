@@ -130,7 +130,7 @@ defmodule Aiur.GitHub.Comments do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
 
-      case Transport.fetch_json_list(request_fun, token, url, caller: "classified_issue_comments") do
+      case fetch_repo_comment_stream(request_fun, token, url, [], caller: "classified_issue_comments") do
         {:ok, comments} ->
           {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
 
@@ -147,21 +147,28 @@ defmodule Aiur.GitHub.Comments do
     |> URI.encode_query()
   end
 
-  @spec fetch_repo_comment_stream(function(), String.t(), String.t() | nil, [map()]) ::
+  @spec fetch_repo_comment_stream(function(), String.t(), String.t() | nil, [map()], keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_repo_comment_stream(_request_fun, _token, nil, acc), do: {:ok, acc}
+  def fetch_repo_comment_stream(request_fun, token, url, acc, opts \\ [])
 
-  def fetch_repo_comment_stream(request_fun, token, url, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+  def fetch_repo_comment_stream(_request_fun, _token, nil, acc, _opts), do: {:ok, acc}
+
+  def fetch_repo_comment_stream(request_fun, token, url, acc, opts) do
+    request = Transport.put_caller(%{method: :get, url: url, token: token}, opts)
+
+    case request_fun.(request) do
       {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
         next = Transport.parse_next_page_url(headers)
-        fetch_repo_comment_stream(request_fun, token, next, acc ++ body)
+        fetch_repo_comment_stream(request_fun, token, next, acc ++ body, opts)
 
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, acc ++ body}
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
+
+      {:error, {:aiur, :locally_held, _hold}} = error ->
+        error
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}

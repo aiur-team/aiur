@@ -23,8 +23,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
+  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     CommandScan,
     CommentPolling,
     DispatchBatch,
+    DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
     IssueSync,
@@ -43,12 +44,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Slots,
     StartupClaimReconciler,
     State,
+    StatusObservation,
     StatusReport,
     TrackedSet,
     TrackerHealth
   }
-
-  alias Aiur.Orchestrator.ReworkGate
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
@@ -711,11 +711,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  # Sample host pressure even though prewarm already decided the hold.
-  # Otherwise a prewarm phase that flickers ready/:building across ticks drops
+  # Sample under a prewarm hold: flickering ready/:building across ticks drops
   # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
-  # of a gate that never actually cleared — suppressing the starvation alert for
-  # as long as prewarm keeps oscillating. Only probe when ready work exists,
+  # of a persistent gate. Probe only when ready work exists,
   # since that is the sole condition the starvation alert reports on.
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun, _opts), do: state
 
@@ -1103,7 +1101,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchPolicy.sort_issues_for_dispatch(issues), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
@@ -2302,7 +2300,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
           load: probes.load,
           load_threshold: probes.load_threshold,
           target: probes.target,
-          schedulers: probes.schedulers
+          schedulers: probes.schedulers,
+          observed_at: StatusObservation.sample_observed_at(probes)
         }
     }
   end
@@ -2522,7 +2521,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    state = persist_lifetime_trip(state, issue, fn identifier, target -> Tracker.update_issue_state(identifier, target, expected_state: issue.state) end)
+    state = persist_lifetime_trip(state, issue, fn identifier, target -> TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state) end)
     entry = Map.get(thrash_budget(state), issue.id, %{})
 
     if Map.get(entry, :alert_emitted, false) do

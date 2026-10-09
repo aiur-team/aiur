@@ -2,9 +2,10 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   @moduledoc false
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionLog, Fs}
+  alias Aiur.{Alerts, Config, Fs}
   alias Aiur.BuildOrder.Features.Journal
   alias Aiur.BuildOrder.ProviderHealth
+  alias Aiur.Journal, as: AppendJournal
 
   @spec boot(keyword()) :: map()
   def boot(opts) do
@@ -12,7 +13,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
 
     with {:ok, dir} <- state_dir(opts),
          path = Path.join(dir, "features.ndjson"),
-         :ok <- DecisionLog.prepare(dir, path, state.sync_fun) do
+         :ok <- AppendJournal.prepare(dir, path, state.sync_fun) do
       replay(%{state | path: path})
     else
       {:error, reason} -> fail(state, boot_failure(reason))
@@ -27,7 +28,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
       bytes: 0,
       health: nil,
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-      append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+      append_fun: Keyword.get(opts, :append_fun, &AppendJournal.append/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
       general_epics: epic_reader(Keyword.get(opts, :general_epics, &configured_epics/0)),
@@ -54,7 +55,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   defp replay(state) do
     limits = [max_record_bytes: state.max_record_bytes, max_file_bytes: state.max_file_bytes]
 
-    case DecisionLog.replay(state.path, &Journal.validate/1, limits) do
+    case AppendJournal.replay(state.path, &Journal.validate/1, limits) do
       {:ok, records, nil} -> fold_records(records, state)
       {:ok, _prefix, {:corrupt, _, reason}} -> fail(state, corruption_failure(reason))
       {:error, reason} -> fail(state, replay_failure(reason))

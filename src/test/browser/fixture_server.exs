@@ -1,5 +1,4 @@
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
-
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 
 defmodule Aiur.BrowserHarness.RouteShellLive do
@@ -2150,6 +2149,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
+    get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
   end
 
   scope "/" do
@@ -2177,8 +2177,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/aiur-logo.png", AiurWeb.StaticAssetController, :aiur_logo)
   end
 
-  # Route vendor assets through the production router so browser tests exercise
-  # the same authenticated controller and content-addressed paths as a release.
+  # Route vendor assets through production to exercise release authentication and content-addressed paths.
   scope "/" do
     forward("/", AiurWeb.Router)
   end
