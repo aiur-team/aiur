@@ -83,7 +83,7 @@ defmodule Aiur.Experiments do
   defp mutate(command) do
     GenServer.call(Store, command, 30_000)
   catch
-    :exit, {:noproc, _call} -> {:error, :disabled}
+    :exit, {:noproc, _call} -> {:error, Store.startup_failure()}
     :exit, {:timeout, _call} -> {:error, :outcome_unknown}
   end
 end

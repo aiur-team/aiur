@@ -178,7 +178,7 @@ defmodule Aiur.Experiments.StoreTest do
     assert Experiments.status().store == {:error, :unreadable}
     report = CapabilityProvider.capabilities(%{})
     assert report["experiments"] == %{state: :unavailable, reason: :store_unavailable}
-    assert Experiments.create(attrs()) == {:error, :disabled}
+    assert Experiments.create(attrs()) == {:error, :unreadable}
   end
 
   test "restart reconciles an audit entry appended before an ambiguous failure" do

@@ -48,3 +48,6 @@ excluded units and notes.
 Set [`experiments.enabled`](../reference/configuration#experiments) to false
 to disable the writer. The capability report exposes `experiments` and
 `experiments.metric_packs`; unsupported metric packs report `not_installed`.
+
+Storage failures leave the daemon running and report the experiments store as
+unavailable; writes return the storage failure while disk reads remain usable.
