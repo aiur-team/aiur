@@ -20,6 +20,7 @@ R-declared	Aiur.Orchestrator.CapacityBinding	baseline 4aba33f8aae03cdaec432d6614
 R-declared	Aiur.Orchestrator.GlobalPause	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.Slots	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.SnapshotStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Orchestrator.TicketTransition	#3306 sanctioned lifecycle owner; replaces direct tracker writes without moving caller decisions
 R-declared	Aiur.Orchestrator.WaitingReason	baseline 2d8ca3198; upstream #3537 predates reference-checker rollout
 R-declared	Aiur.PollCadence	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RecentMerge	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839

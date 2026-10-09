@@ -9,8 +9,9 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.StatusObservation
   alias Aiur.PollCadence
 
   @idle_terminal_verification_batch_size 25
@@ -711,7 +712,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp guarded_update_fun(issues) do
     fn identifier, target ->
       issue = Enum.find(issues, &(&1.identifier == identifier))
-      Tracker.update_issue_state(identifier, target, expected_state: issue.state)
+      TicketTransition.write_state(identifier, target, writer: :issue_sync, expected_state: issue.state)
     end
   end
 
@@ -856,8 +857,6 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    # `issues` is the active poll: pass it so the recheck prefers a freshly
-    # polled blockee over the snapshot stored in the running entry.
     state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
 
     %{
@@ -865,6 +864,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       | last_polled_issues: retained_issues,
         released_claims: purge_resolved_released_claims(state.released_claims, retained_issues, terminal_states)
     }
+    |> StatusObservation.observe_tickets(issues, retained_issues)
   end
 
   # A `released_claims` entry exists only to tell the operator that a claim was
