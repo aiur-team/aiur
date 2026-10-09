@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ListCommands do
   @moduledoc false
-  alias Aiur.BuildQueue.{ListMutations, Model.Intent, Reconcile, Settings}
+  alias Aiur.BuildQueue.{ListMutations, Model.Intent, QueueTriggers, Reconcile, Settings}
 
   @spec prepare(map(), tuple()) :: {:ok, map(), list(), map()} | {:error, term()}
   def prepare(state, command) do
@@ -39,6 +39,7 @@ defmodule Aiur.BuildQueue.ListCommands do
   defp wanted?(%{action: :mark, issue_id: id}, members), do: MapSet.member?(members, id)
   defp wanted?(%{action: :unmark, issue_id: id}, members), do: not MapSet.member?(members, id)
 
+  defp edit(document, {:set_trigger, name, trigger}, _now), do: QueueTriggers.set(document, name, trigger)
   defp edit(document, {:add, ids, opts}, now), do: ListMutations.add(document, ids, opts, DateTime.from_unix!(now, :millisecond))
   defp edit(document, {:remove, id}, _now), do: ListMutations.remove(document, id)
   defp edit(document, {:reorder, id, at}, _now), do: ListMutations.reorder(document, id, at)

@@ -10,12 +10,12 @@ queue_workspace_guard() {
 }
 
 cmd_queue() {
-  local verb="${1:-}" json=0 queue="" after="" at="" to="" root="" opts="" id status=0 force=0 remove_markers=0 yes=0
+  local verb="${1:-}" json=0 queue="" after="" at="" to="" root="" start_on="" opts="" id status=0 force=0 remove_markers=0 yes=0
   local ids=()
   case "$verb" in
     show) ;;
-    add|remove|reorder|hold|release|recover|clear) queue_workspace_guard ;;
-    *) queue_usage_error 'expects show, add, remove, reorder, hold, release, recover, or clear' ;;
+    add|set|remove|reorder|hold|release|recover|clear) queue_workspace_guard ;;
+    *) queue_usage_error 'expects show, add, set, remove, reorder, hold, release, recover, or clear' ;;
   esac
   shift
   while [ "$#" -gt 0 ]; do
@@ -29,6 +29,14 @@ cmd_queue() {
         case "$verb" in show|add|hold|release) ;; *) queue_usage_error "--queue is not valid for $verb" ;; esac
         [ -z "$queue" ] || queue_usage_error 'duplicate --queue'
         queue="$2"; shift ;;
+      --start-on)
+        { [ "$verb" = add ] || [ "$verb" = set ]; } && [ "$#" -ge 2 ] && [ -z "$start_on" ] || queue_usage_error '--start-on requires add or set and a trigger'
+        case "$2" in
+          issue_closed|pr_merged|pr_approved|pr_ci_green|pr_opened) ;;
+          default) [ "$verb" = set ] || queue_usage_error 'default requires queue set' ;;
+          *) queue_usage_error '--start-on must be one of: issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened (set also accepts default)' ;;
+        esac
+        start_on="$2"; shift ;;
       --after)
         [ "$verb" = add ] && [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]*$ ]] && [ -z "$after" ] || queue_usage_error '--after requires add and a positive ticket ID'
         after="$2"; shift ;;
@@ -43,6 +51,10 @@ cmd_queue() {
         root="$2"; shift ;;
       -*) queue_usage_error "received an unknown argument: $1" ;;
       *)
+        if [ "$verb" = set ]; then
+          [ -z "$queue" ] && [ -n "$1" ] || queue_usage_error 'set requires exactly one queue name'
+          queue="$1"; shift; continue
+        fi
         [[ "$1" =~ ^[1-9][0-9]*$ ]] || queue_usage_error "invalid ticket ID: $1"
         for id in "${ids[@]}"; do [ "$id" != "$1" ] || queue_usage_error "duplicate ticket ID: $1"; done
         ids+=("$1") ;;
@@ -57,6 +69,7 @@ cmd_queue() {
       else
         [ "${#ids[@]}" -gt 0 ] || queue_usage_error 'add requires ticket IDs or --build-order'
       fi ;;
+    set) [ -n "$queue" ] && [ -n "$start_on" ] || queue_usage_error 'set requires a queue name and --start-on TRIGGER|default' ;;
     recover) [ "${#ids[@]}" -eq 0 ] || queue_usage_error 'recover does not take ticket IDs' ;;
     clear)
       [ "${#ids[@]}" -eq 0 ] && [ "$remove_markers" -eq 1 ] || queue_usage_error 'clear requires --remove-markers and no ticket IDs'
@@ -75,6 +88,7 @@ cmd_queue() {
   [ "$yes" -eq 1 ] && opts="$opts, yes: true"
   [ "$json" -eq 1 ] && opts="json: true"
   [ -n "$queue" ] && opts="${opts:+$opts, }queue: $(queue_string "$queue")"
+  [ -n "$start_on" ] && opts="$opts, start_on: $(queue_string "$start_on")"
   [ -n "$root" ] && opts="$opts, build_order: $root"
   [ -n "$after" ] && opts="$opts, after: \"$after\""
   [ -n "$at" ] && opts="$opts, at: $at"
