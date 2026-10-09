@@ -210,7 +210,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     document = Floki.parse_document!(html)
 
     assert route_title(document) == "Build Order"
-    assert Floki.find(document, "h1#route-title a") == []
+    assert Floki.find(document, "#ax-title a.ax-back") == []
 
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
@@ -604,7 +604,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert length(Regex.scan(~r/#42/, Floki.text(document))) == 1
     assert Floki.find(document, ".bo-page-header") == []
 
-    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert [back_link] = Floki.find(document, ~s(#ax-title a.ax-back[aria-label="Back to all Build Orders"]))
     assert Floki.attribute(back_link, "href") == ["/build-orders"]
 
     assert html =~ ~s(data-build-order-root="42")
@@ -661,7 +661,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ "Invalid Build Order URL"
     assert route_title(document) == "Build Order"
 
-    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert [back_link] = Floki.find(document, ~s(#ax-title a.ax-back[aria-label="Back to all Build Orders"]))
     assert Floki.attribute(back_link, "href") == ["/build-orders"]
 
     refute Enum.any?(FakeDataSource.calls(source), &match?({:demand, _}, &1))
@@ -1819,7 +1819,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   end
 
   defp route_title(document) do
-    document |> Floki.find("h1#route-title") |> Floki.text() |> String.trim()
+    document |> Floki.find("#route-title") |> Floki.text() |> String.trim()
   end
 
   defp selected_lede(document) do

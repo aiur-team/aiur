@@ -39,7 +39,7 @@ async function dragDial(page, knob, angles) {
   // leave the dial flush underneath.
   await knob.scrollIntoViewIfNeeded()
   await knob.evaluate((element) => {
-    const topbar = document.querySelector('.topbar')
+    const topbar = document.querySelector('header.ax-top')
     if (!topbar) return
 
     const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top

@@ -1113,10 +1113,9 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ":root {"
     refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
-    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .shell-nav-sidebar"
-    # Collapsing hides the route list, not the whole sidebar: the `<aside>` stays
-    # as a bare rail so the control that reopens the nav is still on screen.
-    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .shell-nav-toggle"
+    assert dashboard_css =~ "html.nav-collapsed .snav-label"
+    # The collapsed rail retains its drag handle and route icons.
+    assert dashboard_css =~ "html.nav-collapsed .sidenav"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
@@ -1303,7 +1302,7 @@ defmodule Aiur.ExtensionsTest do
     refute html =~ "Transport"
     refute html =~ "status-badge-live"
     assert html =~ "status-badge-offline"
-    assert html =~ ~s(id="nav-toggle")
+    assert html =~ ~s(id="ax-drag")
     assert html =~ ~s(phx-hook="NavToggle")
 
     updated_snapshot =

@@ -28,7 +28,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. | `aiur analytics` |
-| **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
+| **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
@@ -37,6 +37,12 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
 
 The operator-facing UI and CLI call these records **Commands**.
+
+Open the settings cog in the sticky top bar to pause or resume all agents, change the theme, or switch between Gruvbox (the default) and the aiur palette. Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “All agents paused” chip appears only when pause is confirmed.
+
+The theme follows your operating system until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
+
+Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
 The home page shows a named weekly bar for each [Claude account](/guide/claude-accounts), with freshness and observation age. Missing readings remain unknown. The provider summary names the selected account: “worst of N accounts” for complete readings, or the observed account count for partial readings.
 
@@ -148,5 +154,3 @@ The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_T
 An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
-
-The theme follows your operating system until you toggle it. The palette button beside the theme button switches between Gruvbox (the default) and the aiur palette. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
