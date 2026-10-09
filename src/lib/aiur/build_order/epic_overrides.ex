@@ -23,6 +23,7 @@ defmodule Aiur.BuildOrder.EpicOverrides do
     )
   catch
     :exit, {:noproc, _} -> {:error, :epic_overrides_not_running}
+    :exit, _reason -> {:error, :epic_overrides_outcome_unknown}
   end
 
   @spec catalog(keyword()) :: {:ok, [map()]} | {:error, atom()}

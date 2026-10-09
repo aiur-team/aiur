@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
   use ExUnit.Case, async: false
   import Bitwise
   alias Aiur.BuildOrder.EpicOverrides, as: Store
+  alias Aiur.BuildOrder.ProviderHealth
   @p %{actor: "cli:kevin", source: "cli:kevin"}
   @time ~U[2026-10-08 10:00:00Z]
 
@@ -39,7 +40,7 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
 
   test "V-1 set journals every provenance field and deduplicates ids", c do
     start(c)
-    assert Aiur.BuildOrder.ProviderHealth.usable?(Store.health(c.read))
+    assert ProviderHealth.usable?(Store.health(c.read))
 
     assert {:ok, %{generation: 1, results: [%{number: 12, status: :changed, previous: nil}]}} =
              Store.set("bugs", [12, "#12"], @p, c.write)
@@ -297,5 +298,31 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     stop_supervised!(Store)
     start(c)
     assert {:ok, %{12 => %{epic: "bugs"}}, %{generation: 1}} = Store.all(c.read)
+  end
+
+  test "complete but invalid journal entries fail closed without rewriting", c do
+    entry = %{op: "set", number: 12, seq: 1, epic: "bugs", actor: "cli:kevin", source: "cli:kevin", confirmed: true, at: "2026-10-08T10:00:00Z"}
+
+    for change <- [%{seq: 2}, %{actor: "cli:"}, %{source: "agent:5"}, %{confirmed: false}, %{at: "not a time"}, %{number: 0}, %{epic: "unsorted"}] do
+      raw(c, %{next_seq: 2, entries: [Map.merge(entry, change)]})
+      bytes = File.read!(c.path)
+      start(c)
+      assert {:error, %{failure: :epic_overrides_corrupt}} = Store.all(c.read)
+      assert File.read!(c.path) == bytes
+      stop_supervised!(Store)
+    end
+  end
+
+  test "write timeout reports unknown outcome and identical retry is unchanged", c do
+    pid = start(c)
+    :sys.suspend(pid)
+
+    try do
+      assert {:error, :epic_overrides_outcome_unknown} = Store.set("bugs", [12], @p, c.write)
+    after
+      :sys.resume(pid)
+    end
+
+    assert {:ok, %{generation: 1, results: [%{status: :unchanged}]}} = Store.set("bugs", [12], @p, c.write)
   end
 end

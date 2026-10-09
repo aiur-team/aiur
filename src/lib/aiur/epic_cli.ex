@@ -23,6 +23,7 @@ defmodule Aiur.EpicCLI do
   defp error_result(%{state: _} = health), do: %{ok: false, health: health}
   defp error_result(reason), do: %{ok: false, error: inspect(reason)}
   defp error_text(%{failure: reason}), do: "epic overrides unavailable (#{reason})"
+  defp error_text(:epic_overrides_outcome_unknown), do: "epic write outcome is unknown"
   defp error_text(:epic_config_unavailable), do: "epic config unavailable"
   defp error_text(reason), do: inspect(reason)
 
