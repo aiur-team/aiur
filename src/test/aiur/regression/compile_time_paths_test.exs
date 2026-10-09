@@ -40,10 +40,6 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @git_script_path",
       "@external_resource @broker_path"
     ],
-    # Invalidates embedded Agent defaults at compile time; no runtime path reads.
-    "aiur/config/schema.ex" => [
-      "@external_resource Path.expand(\"schema/agent.ex\", __DIR__)"
-    ],
     "aiur/github/budget.ex" => [
       "@broker_source_path Path.expand(\"../../../priv/github_budget.py\", __DIR__)",
       "@external_resource @broker_source_path"

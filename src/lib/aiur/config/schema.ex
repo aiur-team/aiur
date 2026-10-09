@@ -35,8 +35,8 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
-  # Ecto embeds Agent defaults at compile time without tracking its source changes.
-  @external_resource Path.expand("schema/agent.ex", __DIR__)
+  # Embedded struct defaults must rebuild when the agent schema changes.
+  require Agent
 
   @primary_key false
 

@@ -104,7 +104,11 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
         await expectDesignParity(pair, { name: `top-collapsed-${label}`, region: 'header.ax-top' })
         for (const page of [pair.design, pair.product]) await page.locator('#ax-drag').click()
         await expect(pair.product.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', 'false')
+        // Settle the expanding handle before placing the pointer in its final bounds.
+        await finishTransitions(pair)
         for (const page of [pair.design, pair.product]) await page.locator('#ax-drag').hover()
+        await expect.poll(() => Promise.all([pair.design, pair.product].map(page =>
+          page.locator('#ax-drag').evaluate(node => node.matches(':hover'))))).toEqual([true, true])
         await finishTransitions(pair)
         await equalStyle(pair, '#ax-drag', ['width', 'position', 'top', 'bottom', 'right', 'cursor'])
         await equalStyle(pair, '#ax-drag', ['width', 'backgroundColor', 'opacity', 'transition'], '::after')
@@ -158,24 +162,18 @@ async function sampleMotion(page, selector, event, nodes) {
     window.shellMotion = null
     const targets = nodes.map(([selector]) => document.querySelector(selector))
     node.addEventListener(event, () => setTimeout(() => {
-      // Sample native curves at original milliseconds despite mock page work.
+      // Seek paused native curves at identical times, independent of host frame delays.
       targets.forEach(target => getComputedStyle(target).width)
       const animations = targets.flatMap(target => target.getAnimations()).filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime))
       window.shellTiming = animations.map(animation => ({ property: animation.transitionProperty, duration: animation.effect.getTiming().duration, easing: animation.effect.getTiming().easing, endTime: animation.effect.getComputedTiming().endTime }))
       animations.forEach(animation => { animation.pause(); animation.currentTime = 0 })
-      const start = performance.now()
       const frames = []
-      const sample = time => {
-        const elapsed = Math.max(0, time - start)
-        animations.forEach(animation => { animation.currentTime = elapsed })
-        frames.push({ t: elapsed, values: nodes.map(([selector, property]) => getComputedStyle(document.querySelector(selector))[property]) })
-        if (elapsed < 500) requestAnimationFrame(sample)
-        else {
-          animations.forEach(animation => animation.finish())
-          window.shellMotion = frames
-        }
+      for (let t = 0; t <= 500; t += 10) {
+        animations.forEach(animation => { animation.currentTime = t })
+        frames.push({ t, values: nodes.map(([selector, property]) => getComputedStyle(document.querySelector(selector))[property]) })
       }
-      sample(start)
+      animations.forEach(animation => animation.finish())
+      window.shellMotion = frames
     }, 0), { once: true, capture: true })
   }, { event, nodes })
 }
@@ -184,17 +182,19 @@ function assertMotion(design, product, properties) {
   expect(design.length).toBeGreaterThan(10)
   expect(product.length).toBeGreaterThan(10)
   for (const frames of [design, product]) {
+    expect(frames.map(frame => frame.t), 'load-independent sample times').toEqual(Array.from({ length: 51 }, (_, index) => index * 10))
+    expect(frames.at(-1).values, 'native styles progress along the curve').not.toEqual(frames[0].values)
     expect(frames[0].t, "first transition frame").toBeLessThanOrEqual(20)
     expect(frames.at(-1).t, "settled transition tail").toBeGreaterThanOrEqual(400)
   }
   for (const sample of design) {
-    const nearby = product.filter(frame => Math.abs(frame.t - sample.t) <= 20)
-    expect(nearby.length, `no product frame within one frame of ${sample.t}ms`).toBeGreaterThan(0)
+    const nearby = product.filter(frame => frame.t === sample.t)
+    expect(nearby.length, `no product frame at ${sample.t}ms`).toBeGreaterThan(0)
     for (let index = 0; index < properties.length; index += 1) {
       const numbers = value => [...value.matchAll(/-?\d+(?:\.\d+)?/g)].map(match => Number(match[0]))
       const expected = numbers(sample.values[index])
       const nearest = nearby.map(frame => numbers(frame.values[index]))
-      // Find a same-time frame, allowing one refresh interval at either edge.
+      // Compare the same native animation time without a neighboring-frame allowance.
       const aligned = nearest.filter(values => values.length === expected.length)
       expect(aligned.length).toBeGreaterThan(0)
       for (let i = 0; i < expected.length; i += 1) {
