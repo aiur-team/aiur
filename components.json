@@ -263,7 +263,7 @@
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-shell", "projections", "kernel"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
+      "requires": ["web-shell", "projections", "kernel"], "optional": ["commands", "build-orders", "build-queue", "conversations", "voice-stt", "accounting", "streamdeck-server"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
