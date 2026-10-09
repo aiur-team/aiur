@@ -7,6 +7,9 @@ defmodule Aiur.BuildQueue.ColdRecoveryTest do
     reason = :not_applied |> :erlang.term_to_binary() |> Base.encode64()
 
     script = """
+    defmodule Aiur.Alerts do
+      def emit_system(_, _), do: :ok
+    end
     defmodule ColdBoundary do
       def open_issue_labels(_), do: :none
       def load do

@@ -125,7 +125,7 @@ defmodule Aiur.BuildQueue.PRObserverTest do
 
   # Reconcile.plan/1 returns the published PR versions; carry them as the server does.
   defp plan(state) do
-    {projections, actions, observations, _cache, _holds, published} = Reconcile.plan(state)
+    {projections, actions, observations, _cache, _holds, published, _edges} = Reconcile.plan(state)
     {projections, actions, observations, %{state | published_pr_versions: published}}
   end
 
