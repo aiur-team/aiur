@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.History.TimingTest do
   use ExUnit.Case, async: false
   alias Aiur.BuildOrder.{History, Lifecycle}
   alias Aiur.BuildOrder.History.{Row, Timing}
+  alias Aiur.TestSupport.BuildHome.FixtureSource
   @t ~U[2026-10-01 10:00:00Z]
 
   test "unknown start never becomes creation or end, including payload" do
@@ -110,7 +111,7 @@ defmodule Aiur.BuildOrder.History.TimingTest do
 
   test "fixture history timestamps reach integer millisecond payloads unchanged" do
     for dataset <- ~w(live dense) do
-      {:ok, data} = Aiur.TestSupport.BuildHome.FixtureSource.full(dataset: dataset)
+      {:ok, data} = FixtureSource.full(dataset: dataset)
 
       for item <- data["sections"]["hist"] do
         row = derive(%{in_progress_at: DateTime.from_unix!(item["start"], :millisecond), merged_at: DateTime.from_unix!(item["end"], :millisecond)})

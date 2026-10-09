@@ -12,6 +12,8 @@ defmodule Aiur.GitHub.Tracker do
   def code_host, do: __MODULE__
   @behaviour Aiur.Tracker.CodeHost
 
+  alias Aiur.BuildOrder.History
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
@@ -278,8 +280,8 @@ defmodule Aiur.GitHub.Tracker do
   end
 
   defp note_in_progress(result, issue_id, state_name) do
-    if result == :ok and Aiur.Orchestrator.DispatchPolicy.state_slug(state_name) == "in-progress",
-      do: Aiur.BuildOrder.History.note_start(issue_id, :label, DateTime.utc_now())
+    if result == :ok and DispatchPolicy.state_slug(state_name) == "in-progress",
+      do: History.note_start(issue_id, :label, DateTime.utc_now())
 
     result
   end
