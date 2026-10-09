@@ -109,7 +109,7 @@ at once** denies dispatch. A poll-time repair heals the pair to its winner
 Agents use `aiur_set_epic` to set or clear local general-epic overrides for their ticket or a batch of up to 200 ids. The daemon records `agent:<acting ticket>` as actor; `backfill: true` marks an unconfirmed guess. These overrides do not change GitHub labels. See [epic commands](../reference/cli.md#build-history-epic-commands).
 
 Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
-raw label edits. `Aiur.Orchestrator.TicketTransition` owns daemon, agent-tool,
+raw label edits. `Aiur.Orchestrator.TicketTransition` owns daemon, agent-tool, build-queue,
 dashboard and CLI label writes, recording the caller and outcome in logs and telemetry.
 
 An agent cannot safely name the label to remove. The orchestrator writes state

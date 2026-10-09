@@ -29,7 +29,6 @@ R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Quota	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.ReadCache	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.StatePolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.Tracker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
