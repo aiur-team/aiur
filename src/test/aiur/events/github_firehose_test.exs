@@ -26,12 +26,16 @@ defmodule Aiur.Events.GithubFirehoseTest do
       end
     end)
 
-    :ok
+    # Ticket 42 is the suite-wide fixture id: other tests publish trusted
+    # `ticket.42.*` comments on this shared bus, and the app-level Orchestrator
+    # answers them asynchronously, sometimes after that test ended (#3598).
+    # Refutes key on an id no other test can publish for.
+    {:ok, ticket: Integer.to_string(System.unique_integer([:positive]))}
   end
 
   describe "poll/1" do
-    test "PushEvent on ticket branch is ignored" do
-      :ok = Exchange.subscribe("ticket.42.branch.push")
+    test "PushEvent on ticket branch is ignored", %{ticket: ticket} do
+      :ok = Exchange.subscribe("ticket.#{ticket}.branch.push")
 
       stub = fn _req ->
         {:ok,
@@ -44,7 +48,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
                "actor" => %{"login" => "alice"},
                "repo" => %{"name" => "owner/repo"},
                "payload" => %{
-                 "ref" => "refs/heads/aiur/42",
+                 "ref" => "refs/heads/aiur/#{ticket}",
                  "head" => "abc-#{System.unique_integer([:positive])}",
                  "commits" => [%{"message" => "wip"}]
                }
@@ -54,11 +58,13 @@ defmodule Aiur.Events.GithubFirehoseTest do
       end
 
       assert {:ok, %{etag: ~s("e1"), count: 0}} = GithubFirehose.poll(request_fun: stub)
-      refute_receive {:event, %{topic: "ticket.42.branch.push"}}, 100
+      refute_receive {:event, _}, 100
     end
 
     test "304 returns previously-cached etag, no publishes" do
-      :ok = Exchange.subscribe("ticket.42.#")
+      # Every topic this poller publishes; a 304 names no ticket, so no id.
+      :ok = Exchange.subscribe("ticket.*.pr.#")
+      :ok = Exchange.subscribe("system.*.branch.push")
 
       stub = fn %{etag: ~s("e1")} ->
         {:ok, %{status: 304, headers: [{"ETag", ~s("e1")}], body: ""}}
@@ -402,8 +408,8 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.7.pr.merged"}}, 500
     end
 
-    test "IssueCommentEvent is ignored" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+    test "IssueCommentEvent is ignored", %{ticket: ticket} do
+      :ok = Exchange.subscribe("ticket.#{ticket}.issue.commented")
 
       stub = fn _ ->
         {:ok,
@@ -416,7 +422,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
                "actor" => %{"login" => "dan"},
                "repo" => %{"name" => "owner/repo"},
                "payload" => %{
-                 "issue" => %{"number" => 42},
+                 "issue" => %{"number" => String.to_integer(ticket)},
                  "comment" => %{"id" => 555, "body" => "looks good"}
                }
              }
@@ -425,7 +431,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       end
 
       assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
-      refute_receive {:event, %{topic: "ticket.42.issue.commented"}}, 100
+      refute_receive {:event, _}, 100
     end
 
     # Regression: the Events API returns the same historical event on
@@ -547,9 +553,9 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, %{topic: "ticket.66.pr.opened"}}, 100
     end
 
-    test "drops events for untracked tickets when tracked_fn rejects" do
-      :ok = Exchange.subscribe("ticket.99.#")
-      Publisher.set_tracked_fn(fn n -> n != "99" end)
+    test "drops events for untracked tickets when tracked_fn rejects", %{ticket: ticket} do
+      :ok = Exchange.subscribe("ticket.#{ticket}.#")
+      Publisher.set_tracked_fn(fn n -> n != ticket end)
 
       stub = fn _ ->
         {:ok,
@@ -565,7 +571,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
                  "action" => "opened",
                  "pull_request" => %{
                    "number" => 990,
-                   "head" => %{"ref" => "aiur/99", "sha" => "xyz-#{System.unique_integer([:positive])}"}
+                   "head" => %{"ref" => "aiur/#{ticket}", "sha" => "xyz-#{System.unique_integer([:positive])}"}
                  }
                }
              }
