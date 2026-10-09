@@ -8,6 +8,7 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
+  alias Aiur.TestSupport.DashboardFontAssertions
   alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
@@ -1059,7 +1060,7 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     html = html_response(get(build_conn(), "/"), 200)
-    Aiur.TestSupport.DashboardFontAssertions.assert_bootstrap(html)
+    DashboardFontAssertions.assert_bootstrap(html)
     assert html =~ "Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook()"
     assert {dashboard_offset, _} = :binary.match(html, "/dashboard.css")
     assert {home_offset, _} = :binary.match(html, "/build-home/home.css")
@@ -1187,7 +1188,7 @@ defmodule Aiur.ExtensionsTest do
     assert response(github_mark, 200) =~ "<svg"
     assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    Aiur.TestSupport.DashboardFontAssertions.assert_fonts(&get(build_conn(), &1))
+    DashboardFontAssertions.assert_fonts(&get(build_conn(), &1))
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"

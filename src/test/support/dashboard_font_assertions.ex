@@ -1,4 +1,5 @@
 defmodule Aiur.TestSupport.DashboardFontAssertions do
+  @moduledoc false
   import ExUnit.Assertions
   import Phoenix.ConnTest, only: [response: 2, assert_error_sent: 2]
 
