@@ -4,6 +4,20 @@ defmodule Aiur.BuildOrder.Metadata do
   alias Aiur.BuildOrder.Diagnostic
 
   @lanes ~w(plan-graph runtime dashboard-ui accounting platform)
+  @lane_labels %{
+    "plan-graph" => "Plan graph",
+    "runtime" => "Runtime",
+    "dashboard-ui" => "Dashboard UI",
+    "accounting" => "Accounting",
+    "platform" => "Platform",
+    "adhoc" => "Ad Hoc",
+    "core" => "Core",
+    "web" => "Web",
+    "data" => "Data",
+    "api" => "API",
+    "billing" => "Billing"
+  }
+
   @max_labels 100
 
   @type complexity :: 1..5 | :unknown
@@ -65,6 +79,13 @@ defmodule Aiur.BuildOrder.Metadata do
 
   @spec lanes() :: [String.t()]
   def lanes, do: @lanes
+
+  @spec lane_label(term()) :: String.t()
+  def lane_label(lane) when is_binary(lane) do
+    Map.get(@lane_labels, lane) || lane |> String.replace("-", " ") |> String.split(" ") |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  def lane_label(_lane), do: "Unassigned"
 
   defp bounded_labels(labels) when is_list(labels) do
     {labels, overflow} = Enum.split(labels, @max_labels)

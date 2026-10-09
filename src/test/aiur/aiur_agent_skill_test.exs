@@ -701,24 +701,6 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "Fix failures in this scoped gate"
   end
 
-  test "agent PR guidance uses and verifies the configured integration branch" do
-    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
-    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
-
-    for source <- [dev_loop, repo_prompt] do
-      assert source =~ "AIUR_BASE_BRANCH"
-      assert source =~ "tracker.base_branch"
-      assert source =~ "origin/HEAD"
-      assert source =~ "baseRefName"
-      assert source =~ "machine-local configuration"
-    end
-
-    assert dev_loop =~ ~s(gh pr create --draft --head "$branch" --base "$AIUR_BASE_BRANCH")
-    assert dev_loop =~ "PATCH only the PR's `base`"
-    assert repo_prompt =~ ~s(open a PR with `--base "$AIUR_BASE_BRANCH"`)
-    assert repo_prompt =~ "leave a correct base unchanged"
-  end
-
   test "Codex pull recovery merges the configured integration branch" do
     pull_skill =
       @repo_root

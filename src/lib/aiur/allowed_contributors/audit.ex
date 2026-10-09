@@ -12,7 +12,7 @@ defmodule Aiur.AllowedContributors.Audit do
 
   require Logger
 
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
 
   @type decision :: :accept | :reject | :deferred
 
@@ -41,7 +41,7 @@ defmodule Aiur.AllowedContributors.Audit do
 
   defp append(path, record) do
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- DecisionLog.append(path, record) do
+         :ok <- Journal.append(path, record) do
       :ok
     else
       {:error, reason} ->

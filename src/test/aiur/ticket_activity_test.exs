@@ -83,7 +83,7 @@ defmodule Aiur.TicketActivityTest do
       Aiur.TestSupport.safe_stop(server)
     end)
 
-    Exchange.publish("ticket.42.agent.progress", event)
+    Exchange.publish("ticket.#{ticket.identifier}.agent.progress", event)
 
     assert_receive {:ticket_activity_changed, %{identity: ^ticket, snapshot: %{progress: %{percent: 40}}}}, 500
     assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: server)
@@ -202,14 +202,16 @@ defmodule Aiur.TicketActivityTest do
   end
 
   defp identity do
+    ticket = Integer.to_string(System.unique_integer([:positive]))
+
     %TrackerIdentity{
       version: 1,
       status: :joinable,
       kind: :github,
       owner: "owner",
       repository: "repo",
-      provider_id: "I-42",
-      identifier: "42",
+      provider_id: "I-#{ticket}",
+      identifier: ticket,
       reason: nil
     }
   end

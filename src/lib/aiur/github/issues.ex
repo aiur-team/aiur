@@ -1078,7 +1078,7 @@ defmodule Aiur.GitHub.Issues do
 
   defp fetch_blocked_by(id, opts) do
     case Keyword.get(opts, :revalidate) do
-      :bounded -> BoundedBlockedBy.fetch(id, Keyword.delete(opts, :revalidate))
+      mode when mode in [:bounded, :cached] -> BoundedBlockedBy.fetch(id, opts |> Keyword.delete(:revalidate) |> Keyword.put(:cache_only, mode == :cached))
       _other -> DependenciesApi.fetch_blocked_by(id, opts)
     end
   end

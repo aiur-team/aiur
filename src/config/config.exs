@@ -2,7 +2,25 @@ import Config
 
 config :aiur, env: config_env()
 
-config :aiur, :capability_providers, [Aiur.Capabilities.IdentityProvider, Aiur.BuildQueue.CapabilityProvider]
+config :aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck]
+config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
+
+config :aiur, :capability_providers, [
+  Aiur.Capabilities.IdentityProvider,
+  Aiur.BuildQueue.CapabilityProvider,
+  Aiur.HttpServer.CapabilityProvider,
+  Aiur.Orchestrator.CapabilityProvider,
+  Aiur.DecisionStore.CapabilityProvider,
+  Aiur.Tracker.CapabilityProvider,
+  Aiur.Executor.CapabilityProvider,
+  Aiur.BuildOrder.CapabilityProvider,
+  Aiur.ElevenLabs.CapabilityProvider,
+  AiurWeb.StreamdeckCapabilityProvider,
+  Aiur.Webhooks.CapabilityProvider,
+  Aiur.Claude.RemoteControl.CapabilityProvider,
+  Aiur.ProviderMeterProjection.CapabilityProvider,
+  Aiur.LiveConversation.CapabilityProvider
+]
 
 config :aiur, :project_identity_source, Aiur.Tracker
 
@@ -88,6 +106,7 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  config :aiur, :build_order_root_import_enabled?, false
   config :aiur, :build_history_backfill_enabled?, false
 
   # The shared app must not replace the singleton BranchRefStore with real

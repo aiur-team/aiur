@@ -8,6 +8,7 @@ assert.ok(concurrency, 'workflow must declare concurrency');
 const group = concurrency.match(/^  group: (.+)$/m)?.[1];
 const cancel = concurrency.match(/^  cancel-in-progress: \$\{\{ (.+) \}\}$/m)?.[1];
 assert.ok(group && cancel, 'group and cancellation expressions must exist');
+assert.ok(!/^  queue:/m.test(concurrency), 'keep the default single pending slot');
 
 // These expressions use the shared JS/Actions operators and format syntax only.
 function evaluate(expression, github) {
@@ -29,9 +30,9 @@ function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci') {
 }
 
 const main = policy('push', 'refs/heads/main', 100);
-assert.equal(main.cancel, true, 'main pushes must cancel older running runs');
+assert.equal(main.cancel, false, 'main pushes must let the running run finish');
 assert.deepEqual(policy('push', 'refs/heads/main', 101), main,
-  'initial main pushes must share a cancelling group across run IDs');
+  'initial main pushes must share one group across run IDs');
 for (const runId of [100, 101]) {
   assert.deepEqual(policy('push', 'refs/heads/main', runId, 2), {
     group: `ci-push-${runId}-2`, cancel: false,
@@ -68,3 +69,24 @@ const security = workflow.match(/^  workflow-security:\n([\s\S]*?)(?=^  merge-ru
 assert.ok(security?.includes('run: node scripts/test-ci-concurrency.mjs'),
   'workflow security must execute this test');
 console.log('CI concurrency tests passed');
+
+for (const [job, upstream] of [['coverage', 'coverage-partition'], ['test', 'coverage']]) {
+  const body = workflow.match(new RegExp(`^  ${job}:\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:)`, 'm'))?.[1];
+  const condition = body?.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
+  assert.ok(condition, `${job} must declare a condition`);
+  function runs(result, cancelled = false, draft = false, event = 'pull_request') {
+    return runInNewContext(condition, {
+      github: { event_name: event, event: { pull_request: { draft } } },
+      needs: { [upstream]: { result } }, cancelled: () => cancelled, always: () => true,
+    });
+  }
+  assert.equal(runs('cancelled', true), false, `${job} must skip a cancelled run's inputs`);
+  assert.equal(runs('success', true), false, `${job} must stop on workflow cancellation`);
+  assert.equal(runs('skipped', true), false, `${job} must skip cancelled runs with skipped inputs`);
+  for (const result of ['success', 'failure']) {
+    assert.equal(runs(result), true, `${job} must still run on ${result}`);
+    assert.equal(runs(result, false, true), false, `${job} must skip draft PRs`);
+    assert.equal(runs(result, false, false, 'push'), true, `${job} must run on main pushes`);
+  }
+  console.log(`${job} cancellation tests passed`);
+}

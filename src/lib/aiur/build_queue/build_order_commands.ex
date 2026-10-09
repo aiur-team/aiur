@@ -4,14 +4,19 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
   alias Aiur.BuildQueue.{ListCommands, Model.Queue, Reconcile}
   alias Aiur.BuildQueue.Sources.BuildOrder
 
-  @spec prepare(map(), {:adopt | :unadopt, term()}) :: {:ok, map(), list(), map(), map()} | {:error, term()}
-  def prepare(state, {:adopt, root}) when is_integer(root) and root > 0 do
+  @spec prepare(map(), {:adopt | :unadopt, term()} | {:adopt, term(), String.t() | nil}) :: {:ok, map(), list(), map(), map()} | {:error, term()}
+  def prepare(state, {:adopt, root}), do: prepare(state, {:adopt, root, nil})
+
+  def prepare(state, {:adopt, root, name}) when is_integer(root) and root > 0 do
+    name = if is_nil(name), do: "Build Order ##{root}", else: name
     queues = Enum.filter(state.document.queues, &(&1.kind == :build_order))
 
     cond do
       Enum.any?(queues, &(&1.root == root)) -> {:error, :already_adopted}
       length(queues) >= 32 -> {:error, :too_many_roots}
-      true -> adopt(state, root)
+      not is_binary(name) or String.trim(name) == "" -> {:error, :invalid_queue}
+      Enum.any?(state.document.queues, &(&1.name == name)) -> {:error, :queue_exists}
+      true -> adopt(state, root, name)
     end
   end
 
@@ -24,10 +29,10 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
 
   def prepare(_, _), do: {:error, :invalid_root}
 
-  defp adopt(state, root) do
+  defp adopt(state, root, name) do
     with {:ok, snapshot} <- BuildOrder.watch(root, state.build_order_projection),
          {:ok, id} <- ListCommands.queue_id(state.document) do
-      queue = %Queue{id: id, name: "Build Order ##{root}", kind: :build_order, root: root, held: false, generation: 0, created_at: DateTime.from_unix!(state.clock.(), :millisecond)}
+      queue = %Queue{id: id, name: name, kind: :build_order, root: root, held: false, generation: 0, created_at: DateTime.from_unix!(state.clock.(), :millisecond)}
       document = %{state.document | queues: state.document.queues ++ [queue]}
       {document, actions, sources, verdicts, refusals} = import(document, queue, {:ok, snapshot})
       observations = Reconcile.observations(state)
