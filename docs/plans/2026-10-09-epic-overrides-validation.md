@@ -110,3 +110,8 @@ this gate green, and no second integration was attempted. The Executor authorize
 An additional merge of `85fbf331a` resolved these comparisons, with rescue
 `rescue/3127-authorized-main-2b9f87d8` pushed first. Feature scope is unchanged;
 current-base file-size check now passes.
+
+The final assessed base advanced again to `7f21999c8`, adding a progress observer
+to the shared supervision file. The authorized refresh preserved both observer
+and override-store children; rescue `rescue/3127-authorized-main-3c0829ce` was
+pushed before this clean merge. Current-base file-size check passes.
