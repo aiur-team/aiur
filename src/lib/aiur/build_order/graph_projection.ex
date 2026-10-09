@@ -138,6 +138,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   @impl true
+  def handle_call(:capability_catalog, _from, state), do: {:reply, catalog_snapshot(state), state}
+
   def handle_call(:catalog, _from, state) do
     {state, events} = reconcile(state)
     broadcast_all(state, events)
@@ -1399,15 +1401,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
     %{state | selected: Map.put(state.selected, Policy.root_key(identity), entry)}
   end
 
-  defp catalog_snapshot(state) do
-    Policy.snapshot(
-      state.catalog,
-      state.active_repository,
-      state.authority_epoch,
-      now_ms(state),
-      catalog_bound_ms(state)
-    )
-  end
+  defp catalog_snapshot(state),
+    do: Policy.snapshot(state.catalog, state.active_repository, state.authority_epoch, now_ms(state), catalog_bound_ms(state))
 
   # The window after which a selected root is *displayed* as ageing. It is not a
   # refresh trigger — nothing reads this to decide whether to spend — it only
