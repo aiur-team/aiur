@@ -74,7 +74,7 @@ Aiur separates the repository's tracked code from daemon-owned state under `~/.a
 | --- | --- |
 | `latest/` | Aiur-managed warm clone of the configured base branch. |
 | `builds/` | State-node Build Order packs, daemon status projections, and cross-boot build summaries. |
-| `analytics/` | Telemetry summaries, including `runs/<boot-id>/run-summary.json`. |
+| `analytics/` | Run summaries, durable `tickets/<ticket>.json`, and `repo-timeline.ndjson` facts when captured. |
 | `meta/` | Executor findings at `findings.ndjson` and narrative retrospectives at `retros/<boot-id>.md`. |
 
 These paths are machine-local. Do not commit them, and do not expect copying a repository to copy its run state.

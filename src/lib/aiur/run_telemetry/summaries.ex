@@ -68,6 +68,10 @@ defmodule Aiur.RunTelemetry.Summaries do
   @spec runs_dir() :: Path.t()
   def runs_dir, do: Path.join(analytics_dir(), "runs")
 
+  @doc "`<state-node>/analytics/tickets` — durable records across launches."
+  @spec ledger_dir() :: Path.t()
+  def ledger_dir, do: Path.join(analytics_dir(), "tickets")
+
   @doc "`<state-node>/builds` — `RepoBase.builds_path/1`, the real writer target for build rollups."
   @spec builds_dir() :: Path.t()
   def builds_dir, do: RepoBase.builds_path(repo_url())
@@ -115,6 +119,13 @@ defmodule Aiur.RunTelemetry.Summaries do
     :ok
   end
 
+  @doc false
+  @spec materialize_if_facts([{atom() | String.t(), map(), DateTime.t()}]) :: :ok
+  def materialize_if_facts(records) do
+    if Enum.any?(records, fn {_kind, attrs, _at} -> Map.get(attrs, :event, Map.get(attrs, "event")) == "pr_facts" end), do: materialize_async()
+    :ok
+  end
+
   defp run_reduce_background(script, args) do
     case System.cmd(script, args, stderr_to_stdout: true) do
       {_output, 0} ->
@@ -158,12 +169,15 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc false
   @spec reduce_command(keyword()) :: {:ok, {Path.t(), [String.t()]}} | :unavailable
   def reduce_command(opts \\ []) do
-    with {:ok, dir} <- reduce_dir(Keyword.get(opts, :reduce_dir)),
+    with true <- RunTelemetry.telemetry_enabled?(),
+         {:ok, dir} <- reduce_dir(Keyword.get(opts, :reduce_dir)),
          script when is_binary(script) and script != "" <- Path.join(dir, @reduce_tool),
          true <- File.regular?(script),
          telemetry when is_binary(telemetry) and telemetry != "" <- telemetry_file(opts),
          state when is_binary(state) and state != "" <- state_node() do
-      args = ["--all", "--all-builds", "--telemetry", telemetry, "--state-node", state]
+      logs_root = Keyword.get(opts, :logs_root, Path.expand("~/.aiur/logs"))
+      glob = Path.join([logs_root, "**", "telemetry.ndjson*"])
+      args = ["--all", "--all-builds", "--ledger", "--telemetry-glob", glob, "--telemetry", telemetry, "--state-node", state, "--repo", repo_url()]
       {:ok, {script, args}}
     else
       _other -> :unavailable

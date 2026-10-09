@@ -24,7 +24,7 @@ from .github import anchor_fields
 # run-summary schema version (distinct from the telemetry record schema version).
 SUMMARY_SCHEMA_VERSION = 1
 
-SUPPORTED_KINDS = ("restart", "lifecycle", "resource", "warning")
+SUPPORTED_KINDS = ("restart", "lifecycle", "resource", "warning", "run_context")
 BOUNDARIES = ("start", "end", "point")
 
 RESOURCE_METRICS = (

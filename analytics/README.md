@@ -36,6 +36,9 @@ Materialized outputs live in the per-repo state node (`RepoBase.repo_path/1`,
 ~/.aiur/repo/<owner>/<name>/
 ├── analytics/
 │   ├── runs/<boot-id>/run-summary.json     # one reduced dataset per boot
+│   ├── tickets/<ticket>.json               # durable cross-launch ticket facts
+│   ├── tickets/.history/                   # up to five terminal-record versions
+│   ├── ledger-cursor.json                 # offsets and sanitized lifecycle evidence
 │   └── flakes.ndjson                       # reserved (flake-report; blocked)
 └── builds/<slug>/build-summary.json        # rollup across every boot touching a member
 ```
@@ -58,6 +61,7 @@ usage-aggregate checkpoint and price table that the daemon already maintains.
 | Tool | Purpose |
 |------|---------|
 | `analytics/reduce` | Materialize run-summaries (and optional build rollups). Idempotent, cron/post-run safe. |
+| `analytics/ledger-backfill --since DATE` | Rebuild durable ticket facts from retained launches; print observed-milestone coverage. |
 | `analytics/run-summary [<boot-id>|--current]` | One boot: dispatched/merged/open, CPU-hours, peak concurrency vs cap, wasted slot-hours, top-5 by cost (CPU-seconds). `--json` for machines. |
 | `analytics/build-report <slug>` | **The retrospective number-fetcher.** Members merged/closed/open, wall-clock and active time across every boot touching a member, CI cycles, rework count, spend. Replaces hand-counting. |
 | `analytics/cost-report` | Spend by model, agent family, ticket — pure wiring over `UsageAggregate` + `PriceTable` (offline mix task; needs the Elixir toolchain + `src/` checkout, unlike the dependency-free Python tools). Needs no new recording. |
@@ -138,3 +142,35 @@ checked to `1e-9`, special functions to `1e-10` relative error, and bootstrap
 endpoints to 2% of the fixture's pooled range (20,000 PCG draws versus 100,000
 independent reference draws). R confidence goldens use achievable coverages;
 R warns and reduces coverage when a requested small-sample interval is impossible.
+
+## Durable ticket ledger
+
+`analytics/reduce --ledger` also writes `analytics/tickets/<ticket>.json` in
+the state node. The daemon requests this on segment materialization, shutdown,
+and PR-facts appends. `--telemetry-glob 'PATH/**/telemetry.ndjson*'` adds retained
+launches to the ledger without changing the run-summary input scope.
+
+```sh
+analytics/ledger-backfill --since 2026-09-15 --repo owner/name \
+  --telemetry /path/to/retained/logs --state-node /path/to/state-node
+```
+
+Records follow `schema/ticket-record.v1.json`: attempts carry their dispatch-time
+run context, cohort fields become `mixed` when attempts disagree, and every
+milestone has an observed/derived/unavailable status and source. Pre-v3 events
+are marked `pre_x1`; missing cohort attributes are `unknown`. Missing dispatch
+times are never inferred from a PR. No prompts, bodies, comments or command text
+are retained. Metric definitions belong to the experiment metric pack.
+
+`ledger-cursor.json` stores byte offsets and projected lifecycle evidence so
+retention or a deleted launch file cannot erase facts already materialized.
+Do not delete it when clearing raw logs. Writes are atomic and serialized;
+unchanged records keep their timestamps. A changed terminal record keeps its
+previous version in `.history/`, capped at five per ticket. A repo-timeline
+revert updates `facts.reverted_by` when `revert_of` matches the merge SHA.
+
+Consumers use `Aiur.RunTelemetry.Ledger.get(ticket)` and
+`list(window: {from, to}, cohort: %{backend: "claude"})`. Windows select the
+record's last event, inclusively; the facade returns decoded string-keyed JSON
+without deriving facts. Disabled capture returns `{:error, :disabled}`.
+Corrupt records are logged and skipped when listing.

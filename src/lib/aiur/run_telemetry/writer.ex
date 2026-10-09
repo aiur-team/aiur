@@ -45,7 +45,6 @@ defmodule Aiur.RunTelemetry.Writer do
   @max_pending_casts 256
   @admission_key {__MODULE__, :pending_casts}
 
-  # Atomics slots shared between callers and the writer process.
   @pending_index 1
   @dropped_index 2
   @overflow_logged_index 3
@@ -199,6 +198,7 @@ defmodule Aiur.RunTelemetry.Writer do
           write_warning_emitted: false
       }
 
+      Summaries.materialize_if_facts(records)
       maybe_prune(state)
     else
       {:error, reason} -> warn_write_failure(state, reason)
