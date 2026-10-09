@@ -7,9 +7,6 @@ R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.DispatchPolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TestTicketScope	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Webhooks	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Webhooks.DeliveryMode	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Webhooks.ModeTable	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Layout	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Executor.StatePaths	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

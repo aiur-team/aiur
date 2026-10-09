@@ -225,10 +225,10 @@ Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
 authority.
 
-Create each ticket with its disposition: executable Build Order members with
+Create each ticket with its disposition in the same creation request: executable Build Order members with
 open prerequisites carry `agent:queued` when the queue is enabled; other executable
-work carries the configured todo label (`agent:todo`). Follow `aiur-build`'s creation
-and adoption convention; when queue status is `disabled`, use todo for all members. Parked work carries `needs-triage` or `human:todo` with a
+work carries the configured todo label (`agent:todo`). Follow the aiur-build skill's creation
+and adoption convention; when queue status is disabled, use todo for all members. Parked work carries `needs-triage` or `human:todo` with a
 reason; roots carry `build-order`, and `Epic:` containers stay undispatched. Never create first and label second.
 
 Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.

@@ -1,10 +1,10 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
+defmodule Aiur.Projections.UnitsRow.Projection do
   @moduledoc false
 
   alias Aiur.CurrentRunMembership.Reconciler
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
+  alias Aiur.Projections.UnitsRow.{Fields, Sources, URL, Value}
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.UnitsRow.{Fields, Sources, URL, Value}
 
   @spec rows(map(), map(), Sources.source_set()) :: [map()]
   def rows(membership, indexes, sources) do
