@@ -60,7 +60,9 @@ defmodule Aiur.BuildQueue.Planner do
     if MapSet.member?(context.cycles, id) do
       {:unknown, [:cyclic]}
     else
-      context.edges |> Map.get(id, []) |> Enum.map(&edge_verdict(&1, context)) |> Readiness.item_verdict()
+      verdicts = context.edges |> Map.get(id, []) |> Enum.map(&edge_verdict(&1, context))
+      native = context.opts |> Keyword.get(:native_verdicts, %{}) |> Map.get(id)
+      Readiness.item_verdict(verdicts ++ if(native, do: [native], else: []))
     end
   end
 

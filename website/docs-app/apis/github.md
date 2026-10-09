@@ -314,7 +314,7 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 
 Dashboard state derives its staleness from the `dispatch` class (the cadence of
 the orchestrator snapshot it renders), and the Build Order catalog is
-event-sourced — its staleness and refresh bounds follow the `planning` class.
+event-sourced — its staleness and refresh bounds follow the `planning` class. ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
 
 `planning` is recommended as `0` (on-demand), so the most expensive query in the
 system runs only when a page opens or a degradation needs a re-list.
