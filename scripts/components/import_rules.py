@@ -7,6 +7,8 @@ import subprocess
 
 def client_imports(root):
     walker = Path(__file__).with_name('ts-imports.mjs')
+    if not (walker.parent / 'node_modules/typescript/lib/typescript.js').is_file():
+        raise ValueError('TypeScript missing; run npm ci --prefix scripts/components --ignore-scripts')
     result = subprocess.run(['node', str(walker), str(root)], capture_output=True, text=True)
     if result.returncode:
         raise ValueError(result.stderr.strip())

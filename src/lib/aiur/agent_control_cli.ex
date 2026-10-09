@@ -2,6 +2,7 @@ defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -39,8 +40,6 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
-  # One age shape wherever a stale surface appears — reuse #1814's renderer
-  # rather than adding a second one for the CLI.
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -193,6 +192,7 @@ defmodule Aiur.AgentControlCLI do
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     print_executor_wake_status()
+    ProjectionRecovery.print_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()

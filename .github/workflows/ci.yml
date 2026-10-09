@@ -249,7 +249,7 @@ jobs:
       - name: Credo + specs
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
-      # Keep guards in required lint: a new job is not merge-blocking until the ruleset adds it.
+      # Keep guards in required lint so they remain merge-blocking.
       - name: Every config key has a documentation entry
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -264,14 +264,12 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: npm ci --prefix scripts/components --ignore-scripts
-      - name: Test component import boundaries
+      - name: Component ownership, reference boundaries and fixtures
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: bash scripts/test-check-components.sh --with-node
-      - name: Every source file belongs to one component
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/check-components.py
+        run: |
+          python3 scripts/check-components.py --require-elixir
+          bash scripts/test-check-components.sh --with-elixir --with-node
       # The generated env example must include every operator-facing variable.
       - name: .env.example matches the env-var schema
         if: ${{ needs.changes.outputs.docs_only != 'true' }}

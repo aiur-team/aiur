@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Fixture tests for the stdlib ownership guard; no Elixir or Python packages.
+# Ownership fixtures need only Python; --with-elixir requires reference fixtures.
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo_root" "$@" <<'PY'
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,7 +13,8 @@ import tempfile
 
 repo = Path(sys.argv[1])
 with_node = '--with-node' in sys.argv[2:]
-selected = set(sys.argv[2:]) - {'--with-node'}
+with_elixir = '--with-elixir' in sys.argv[2:]
+selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
 
@@ -228,7 +230,7 @@ for kind, name in [('config', 'bad.section'), ('env', 'lowercase'), ('state', 'r
           change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].append(n), declarations=declarations)
 if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
-    result = subprocess.run([sys.executable, str(checker), '--rules', 'all' if with_node else 'ownership'], text=True, capture_output=True)
+    result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert '21 sections, 7 fields, 70 env vars, 13 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
@@ -243,6 +245,141 @@ if not selected or 'malformed_json_exits_2' in selected:
                                 capture_output=True, text=True)
         assert result.returncode == 2 and 'components: components.json:' in result.stderr
         print('PASS: malformed_json_exits_2')
+if with_node and (not selected or 'missing_typescript_exits_2' in selected):
+    ran.add('missing_typescript_exits_2')
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copyfile(checker, root / 'check-components.py')
+        shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
+        result = subprocess.run([sys.executable, str(root / 'check-components.py')],
+                                env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert 'TypeScript missing; run npm ci --prefix scripts/components --ignore-scripts' in result.stderr, result.stderr
+        assert 'ERR_MODULE_NOT_FOUND' not in result.stderr, result.stderr
+        print('PASS: missing_typescript_exits_2')
+if with_elixir and not shutil.which('elixir'):
+    sys.exit('Elixir missing; install via mise (--with-elixir cannot skip fixtures)')
+if not with_elixir:
+    print('SKIP: Elixir reference fixtures (use --with-elixir in lint)')
+else:
+    import os
+
+    def reference_check(name, fixture, code=0, messages=(), source=None, change=None, args=(), verify=None):
+        if selected and name not in selected:
+            return
+        ran.add(name)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(repo / 'scripts/components/fixtures' / fixture, root, dirs_exist_ok=True)
+            shutil.copyfile(repo / 'components.schema.json', root / 'components.schema.json')
+            if source is not None:
+                (root / 'src/lib/a.ex').write_text(source)
+            if change:
+                change(root)
+            command = [sys.executable, str(checker), '--rules', 'elixir', '--require-elixir', *args]
+            result = subprocess.run(command, env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)),
+                                    capture_output=True, text=True)
+            output = result.stdout + result.stderr
+            assert result.returncode == code, f'{name}: expected {code}, got {result.returncode}: {output}'
+            for message in messages:
+                assert message in output, f'{name}: missing {message!r}: {output}'
+            if verify:
+                verify(root, command)
+            print(f'PASS: {name}')
+
+    reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
+    reference_check('declared_facade_passes', 'declared_facade_passes')
+    reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
+    reference_check('facade_star_allows_any', 'facade_star_allows_any')
+    reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
+    reference_check('doc_mentions_ignored', 'doc_mentions_ignored', messages=('R-private: 0',))
+    reference_check('allowlisted_violation_passes', 'allowlisted_violation_passes', messages=('R-private: 1',))
+    reference_check('new_violation_beside_allowlist_fails', 'new_violation_beside_allowlist_fails', 1,
+                    ('R-private a -> B.Other',))
+    reference_check('composition_root_exempt', 'composition_root_exempt', messages=('R-private: 0', 'R-declared: 0'))
+    reference_check('alias_as_resolves', 'private_module_fails', 1, ('R-private a -> B.Internal',),
+                    source='defmodule A do\n alias B.Internal, as: Hidden\n def f, do: Hidden.f()\nend\n')
+    reference_check('alias_scope_does_not_leak', 'private_module_fails', messages=('R-private: 0',),
+                    source='defmodule A do\n def f do\n alias B.Internal, as: Hidden\n end\n def g, do: Hidden.f()\nend\n')
+    for name, form in [('import_reference_counts', 'import B.Internal'), ('use_reference_counts', 'use B.Internal'),
+                       ('behaviour_reference_counts', '@behaviour B.Internal'),
+                       ('type_reference_counts', '@spec f() :: B.Internal.t()')]:
+        reference_check(name, 'private_module_fails', 1, ('R-private a -> B.Internal',),
+                        source=f'defmodule A do\n {form}\nend\n')
+    reference_check('parse_failure_exits_2', 'private_module_fails', 2, ('src/lib/a.ex', 'module walker failed'),
+                    source='defmodule A do\n')
+    reference_check('unresolved_internal_is_warning', 'private_module_fails', messages=('1 unresolved internal targets',),
+                    source='defmodule A do\n Aiur.Generated.f()\n Enum.map([])\nend\n')
+
+    def optional(root):
+        path = root / 'components.json'
+        manifest = json.loads(path.read_text())
+        manifest['components'][0]['requires'] = []
+        manifest['components'][0]['optional'] = ['b']
+        path.write_text(json.dumps(manifest))
+
+    reference_check('optional_facade_passes', 'declared_facade_passes', change=optional)
+    reference_check('facade_is_exact', 'private_module_fails', 1, ('R-private a -> B.Internal',))
+    reference_check('primary_source_module', 'private_module_fails', 1, ('src/lib/a.ex:4 (A)',),
+                    source='defmodule A do\nend\ndefmodule Second do\n B.Internal.f()\nend\n')
+    reference_check('baseline_overwrite_refused', 'allowlisted_violation_passes', 2,
+                    ('baseline already exists',), args=('--write-baseline',))
+
+    def malformed_allowlist(root):
+        (root / 'scripts/components/allowlist/a.tsv').write_text('R-private\tB.Internal\n')
+
+    reference_check('malformed_allowlist_exits_2', 'allowlisted_violation_passes', 2,
+                    ('expected rule, target_module, reason TSV',), change=malformed_allowlist)
+
+    def committed_fixture(root):
+        subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+        subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
+                        'commit', '-qm', 'Fixture baseline'], check=True)
+
+    def verify_baseline(root, command):
+        sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+        path = root / 'scripts/components/allowlist/a.tsv'
+        expected = f'# rule\ttarget_module\treason\nR-private\tB.Internal\tbaseline {sha}\n'
+        assert path.read_text() == expected, 'baseline must contain the actual violation and implementation SHA'
+        command = [arg for arg in command if arg != '--write-baseline']
+        result = subprocess.run(command, env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)), capture_output=True)
+        assert result.returncode == 0, result.stderr
+
+    reference_check('baseline_generation_and_recheck', 'private_module_fails', change=committed_fixture,
+                    args=('--write-baseline',), verify=verify_baseline)
+
+    def untracked_syntax_error(root):
+        committed_fixture(root)
+        (root / 'src/lib/untracked.ex').write_text('defmodule Unfinished do\n')
+
+    reference_check('untracked_parse_error_ignored', 'declared_facade_passes', change=untracked_syntax_error,
+                    messages=('all 2 source files owned',))
+    reference_check('nested_namespace_resolves', 'private_module_fails', 1,
+                    ('R-private a -> Aiur.Parent.Aiur.Child',),
+                    source='defmodule A do\n Aiur.Parent.Aiur.Child.f()\nend\n',
+                    change=lambda root: (root / 'src/lib/b.ex').write_text(
+                        'defmodule Aiur.Parent do\n defmodule Aiur.Child do\n end\nend\n'))
+    reference_check('absolute_nested_module_resolves', 'private_module_fails', 1,
+                    ('R-private a -> B.Internal',),
+                    change=lambda root: (root / 'src/lib/b.ex').write_text(
+                        'defmodule Parent do\n defmodule Elixir.B.Internal do\n end\nend\n'))
+
+    def verify_application_primary(root, command):
+        result = subprocess.run(['elixir', str(repo / 'scripts/components/module_references.exs'), str(root)],
+                                text=True, capture_output=True, check=True)
+        assert 'R\tsrc/lib/aiur.ex\tAiur.Application\tB.Internal\t' in result.stdout
+
+    reference_check('application_primary_module', 'composition_root_exempt', verify=verify_application_primary)
+
+    if not selected or 'missing_elixir_exits_2' in selected:
+        ran.add('missing_elixir_exits_2')
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, str(checker), '--rules', 'elixir', '--require-elixir'],
+                                    env=dict(os.environ, PATH=directory), capture_output=True, text=True)
+            assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
+            print('PASS: missing_elixir_exits_2')
+
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
