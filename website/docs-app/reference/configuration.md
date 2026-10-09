@@ -407,19 +407,7 @@ Local Codex turns use Aiur's shared build admission.
 
 Build admission covers direct `mix compile`, `mix test`, `mix lint`, `mix credo`, and `mix dialyzer`, `mix do` compounds using `+` or legacy comma separators,
 `elixir -S mix`, and `mise exec` / `mise x` commands after `--` or in a simple `-c` / `--command` string.
-One compound or nested wrapper chain holds one live-token lease.
-
-Executor reviewer worktrees can run `scripts/build-gate mise exec -- mix lint`
-from the worktree's `src/` directory (use the script's absolute path).
-Set `AIUR_BUILD_GATE_DIR` and `AIUR_BUILD_GATE_SLOTS` to the running fleet's
-metadata directory and `agent.max_concurrent_builds`; the wrapper requires both
-instead of guessing a separate cap. The host-owned lock directory defaults to
-`$AIUR_BUILD_GATE_DIR.locks` and must already be prepared by Aiur.
-Copy the fleet's `AIUR_BUILD_START_STAGGER_SECONDS`, `AIUR_MIN_FREE_MEMORY_MB`,
-`AIUR_BUILD_GATE_MAX_HOLD_SECONDS`, and `AIUR_BUILD_GATE_RETAIN_SECONDS` when set
-so reviewer commands use the same pacing, memory floor, and lease backstops.
-The wrapper admits the entire command as one `review` lease, visible in
-`aiur status`, preserves its exit status, and fails closed when admission fails.
+One compound or nested wrapper chain holds one live-token lease. Executor reviewer worktrees can invoke the absolute path to `scripts/build-gate mise exec -- mix lint` from their `src/` directory. Set `AIUR_BUILD_GATE_DIR` and `AIUR_BUILD_GATE_SLOTS` to the running fleet's directory and `agent.max_concurrent_builds`; both are required. The lock directory defaults to `$AIUR_BUILD_GATE_DIR.locks` and must already be prepared by Aiur. Copy the fleet's `AIUR_BUILD_START_STAGGER_SECONDS`, `AIUR_MIN_FREE_MEMORY_MB`, `AIUR_BUILD_GATE_MAX_HOLD_SECONDS`, and `AIUR_BUILD_GATE_RETAIN_SECONDS` when set. The wrapper holds one `review` lease visible in `aiur status`, preserves exit status, and fails closed on admission errors.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are

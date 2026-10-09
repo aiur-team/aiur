@@ -57,6 +57,7 @@ defmodule Aiur.BuildGateAnalysisTest do
     end
   end
 
+  # Future-regression guard: cheap commands already bypass admission on main.
   test "cheap Mix tasks bypass admission", %{env: env} do
     assert {output, 7} = System.cmd("sh", ["-c", "mix format"], env: env, stderr_to_stdout: true)
     assert output =~ "ran:format"
