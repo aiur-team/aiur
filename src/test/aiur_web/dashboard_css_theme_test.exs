@@ -1,6 +1,14 @@
 defmodule AiurWeb.DashboardCssThemeTest do
   use ExUnit.Case, async: true
 
+  test "home sheet literal inks are frozen" do
+    home = File.read!(Application.app_dir(:aiur, "priv/static/build-home/home.css"))
+
+    # Design H:1345/1349 and C:59/544/564; preserve approved white-on-fill ink.
+    colors = Regex.scan(~r/(?<![\w-])color:\s*(#[0-9a-fA-F]{3,8})\b/, home, capture: :all_but_first)
+    assert colors |> List.flatten() |> Enum.uniq() |> Enum.sort() == ["#fff"]
+  end
+
   defp css do
     {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
     css
