@@ -48,6 +48,14 @@ defmodule Aiur.BuildQueue do
     :exit, {:timeout, _} -> {:error, :outcome_unknown}
   end
 
+  @doc "Rebuilds a missing or corrupt store as an operator-held list from queued markers."
+  @spec recover() :: :ok | {:error, term()}
+  def recover do
+    GenServer.call(Server, :recover)
+  catch
+    :exit, {:noproc, _} -> {:error, :disabled}
+  end
+
   @doc "Clears item holds and overrides, or releases all items and the hold in a queue by ID."
   @spec release(String.t(), GenServer.server()) :: :ok | {:error, term()}
   def release(target, server \\ Server) when is_binary(target) do

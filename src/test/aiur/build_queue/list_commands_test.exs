@@ -151,6 +151,13 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert {:error, :outcome_unknown} = Aiur.BuildQueue.add(["1"], "paseo")
   end
 
+  test "mutations wait for recovery's first observation and touch nothing" do
+    start(20)
+    assert {:error, :awaiting_first_observation} = Aiur.BuildQueue.add(["1"], "paseo")
+    assert Agent.get(Boundary, & &1.saves) == []
+    assert Agent.get(Boundary, & &1.calls) == []
+  end
+
   test "paced unmark survives removal and restart" do
     server(2)
     assert :ok = Aiur.BuildQueue.add(["1"], "paseo")
@@ -165,6 +172,14 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   end
 
   defp server(max_writes \\ 20) do
+    pid = start(max_writes)
+    assert_received {:scheduled, ^pid, {:reconcile, token}}
+    send(pid, {:reconcile, token})
+    assert GenServer.call(pid, :status) == :running
+    pid
+  end
+
+  defp start(max_writes) do
     owner = self()
     settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true, max_writes_per_minute: max_writes}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
 
@@ -185,9 +200,6 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
          exchange: :missing_queue_exchange}
       )
 
-    assert_received {:scheduled, ^pid, {:reconcile, token}}
-    send(pid, {:reconcile, token})
-    assert GenServer.call(pid, :status) == :running
     pid
   end
 

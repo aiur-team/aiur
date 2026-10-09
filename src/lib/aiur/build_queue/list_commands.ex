@@ -15,14 +15,21 @@ defmodule Aiur.BuildQueue.ListCommands do
 
   @spec pending(map()) :: list()
   def pending(document) do
+    members = MapSet.new(document.items, & &1.issue_id)
+
     document.intents
     |> Enum.filter(&(&1.action in [:mark, :unmark]))
     |> Enum.reverse()
     |> Enum.uniq_by(& &1.issue_id)
     |> Enum.reverse()
     |> Enum.reject(&(&1.outcome == :ok))
+    |> Enum.filter(&wanted?(&1, members))
     |> Enum.map(&{&1.action, &1.issue_id})
   end
+
+  # Replay only what current membership still wants: a stale request recovered after a crash must not strip a member's marker.
+  defp wanted?(%{action: :mark, issue_id: id}, members), do: MapSet.member?(members, id)
+  defp wanted?(%{action: :unmark, issue_id: id}, members), do: not MapSet.member?(members, id)
 
   defp edit(document, {:add, ids, opts}, now), do: ListMutations.add(document, ids, opts, DateTime.from_unix!(now, :millisecond))
   defp edit(document, {:remove, id}, _now), do: ListMutations.remove(document, id)
