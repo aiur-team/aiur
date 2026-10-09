@@ -289,6 +289,11 @@ else:
 
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
     reference_check('declared_facade_passes', 'declared_facade_passes')
+    # Future-regression guard: component routes import the kit, never the shell.
+    reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))
+    reference_check('component_route_shell_fails', 'component_routes', 1,
+                    ('R-down commands -> AiurWeb.Router',),
+                    source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
