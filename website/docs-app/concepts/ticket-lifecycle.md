@@ -130,10 +130,10 @@ PR base SHA. Mismatched heads or base branches, malformed observations and
 incomplete comparison data block the write. Harmless base movement needs no
 merge or CI rerun.
 
-Workers assess integration safety before marking the PR ready and after CI.
-They integrate at most once per handoff, validate and push, keep the PR ready,
-then await new-head CI in `ci-wait`. Another unsafe base change after that
-integration requires an Executor alert rather than another merge/CI cycle.
+Workers check integration safety before handoff and after CI. Up to 3
+integrations per handoff need no approval; each runs local tests and the format, size and components gates,
+then awaits new-head CI in `ci-wait`. After the third, workers send a non-blocking Executor alert and
+continue if the base is safe. Base integration never opens a blocking decision.
 
 When a pair does form, the heal prefers the label that arrived *since* the
 orchestrator's own claim over the claim itself — whenever the orchestrator can
