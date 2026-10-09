@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
       entry[:identifier] == issue.identifier and (is_nil(entry[:pid]) or State.alive?(entry[:pid]))
     end) or Map.has_key?(state.retry_attempts, issue.id) or Map.has_key?(state.auto_resume, issue.id) or
       Map.has_key?(state.dispatch_recovery.workspace_ownership.waits, issue.identifier) or
-      Map.has_key?(state.dispatch_recovery.workspace_ownership.ready, issue.identifier)
+      Map.has_key?(state.dispatch_recovery.workspace_ownership.ready, issue.id)
   end
 
   @spec lease_free?(Issue.t(), keyword()) :: boolean()
