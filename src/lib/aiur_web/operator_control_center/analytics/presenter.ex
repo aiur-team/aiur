@@ -19,8 +19,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
-  alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, TicketRow}
+  alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, ProjectedSeries, TicketRow}
 
   @default_buckets 180
   @max_series_actors 8
@@ -104,31 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     _error -> {:unavailable, :error}
   end
 
-  # Cross-session view: the current boot is read live from raw (bounded tail so
-  # it stays fresh on the 30 s tick); every prior boot is read from its
-  # materialized run summary instead of re-parsing the retained stream. When no
-  # summaries exist yet this falls back to the historical full raw parse so the
-  # Full-log view keeps working before the first materialization.
-  defp cross_session(file) do
-    current = current_boot_id()
-    prior = Summaries.load_prior_datasets(current)
-
-    if prior == [] do
-      Dataset.build(file, [])
-    else
-      case Dataset.build(file, session: :current, boot_id: current) do
-        {:ok, current_dataset} -> {:ok, merge_datasets([current_dataset | prior])}
-        {:error, _reason} -> {:ok, merge_datasets(prior)}
-      end
-    end
-  end
-
-  # `Dataset.merge/1` already unions provenance across the merged boots; only the
-  # producer label differs, so name this path rather than recomputing the union.
-  defp merge_datasets(datasets) do
-    merged = Dataset.merge(datasets)
-    Map.update!(merged, :provenance, &Map.put(&1, :generated_by, "presenter:cross"))
-  end
+  defp cross_session(file), do: SummaryMerge.load(file, current_boot_id())
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
@@ -440,6 +416,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     samples
     |> Enum.reduce(%{}, fn s, acc -> accumulate_sample(acc, s, timeline, axis0, bw, buckets) end)
     |> Map.new(fn {b, {cs, cn, rs, rn}} -> {b, %{cpu: mean(cs, cn), rss: mean(rs, rn)}} end)
+    |> ProjectedSeries.fill(samples, fn ts -> bucket_index(Timeline.project(timeline, ts), axis0, bw, buckets) end)
   end
 
   defp accumulate_sample(acc, sample, timeline, axis0, bw, buckets) do

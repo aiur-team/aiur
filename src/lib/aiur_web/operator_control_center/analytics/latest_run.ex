@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   records agent or ticket activity, the newest materialized prior run remains
   the truthful latest analyzable dataset.
 
-  Decoded prior summaries are cached in an ETS table so the Build Order pane's
+  Only the newest analyzable prior summary is retained and cached in an ETS table so the Build Order pane's
   30-second idle retry does not re-decode them. The cache key folds in each
   summary's file metadata, so a new or regenerated summary invalidates the
   entry without retaining one key per boot forever. ETS is deliberate:
@@ -46,7 +46,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   # none of them decode, that is a persistence failure the page must surface,
   # not an idle fleet to paper over.
   defp latest_prior(current_boot, fallback, analyzable?, opts) do
-    {datasets, unreadable?} = prior_datasets(opts, current_boot)
+    {datasets, unreadable?} = prior_datasets(opts, current_boot, analyzable?)
 
     case newest_analyzable(datasets, analyzable?) do
       {:ok, dataset} -> {:ok, dataset}
@@ -69,8 +69,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   # `prior_loader/0` returns `{datasets, unreadable?}` so tests can inject both
   # halves; the default reads the real summaries through `Summaries`.
-  defp prior_datasets(opts, current_boot) do
+  defp prior_datasets(opts, current_boot, analyzable?) do
     identity = Keyword.get_lazy(opts, :cache_identity, fn -> cache_identity(current_boot) end)
+
+    identity = {identity, Keyword.get(opts, :tickets)}
 
     case cache_get(identity) do
       {:ok, cached} ->
@@ -79,12 +81,29 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
       :miss ->
         value =
           case Keyword.get(opts, :prior_loader) do
-            nil -> Summaries.load_prior_datasets_with_state(current_boot)
+            nil -> load_newest(current_boot, analyzable?)
             loader when is_function(loader, 0) -> loader.()
           end
 
         cache_put(identity, value)
         value
+    end
+  end
+
+  defp load_newest(current_boot, analyzable?) do
+    Summaries.summary_boot_ids()
+    |> Enum.reject(&(&1 == current_boot))
+    |> Enum.reduce({[], false}, &choose_newest(&1, &2, analyzable?))
+  end
+
+  defp choose_newest(boot_id, {newest, unreadable?}, analyzable?) do
+    case Summaries.load_dataset(boot_id) do
+      {:ok, dataset} ->
+        candidates = if analyzable?.(dataset), do: [dataset | newest], else: newest
+        {Enum.take(Enum.sort_by(candidates, &observed_at/1, :desc), 1), unreadable?}
+
+      {:error, _reason} ->
+        {newest, true}
     end
   end
 
@@ -119,7 +138,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   defp cache_put(key, value) do
     ensure_table()
-    :ets.insert(@cache_table, {key, value})
+    if :ets.info(@cache_table, :size) >= 8, do: :ets.delete_all_objects(@cache_table)
+    if :erlang.external_size(value) <= 2 * 1024 * 1024, do: :ets.insert(@cache_table, {key, value})
     :ok
   rescue
     ArgumentError -> :ok
