@@ -19,8 +19,8 @@ defmodule Aiur.CI.FailureDigest do
          {:ok, ci} <- PullRequests.fetch_commit_ci_status(sha, opts) do
       runs = ci.check_runs |> Enum.filter(&(&1["status"] == "completed" and &1["conclusion"] in @failed)) |> Enum.sort_by(& &1["id"])
       key = evidence_key(owner, repo, sha, ci)
-      evidence = evidence(key, runs, sha, opts)
-      issues = FailureEvidence.flake_issues(opts)
+      evidence = if runs == [], do: %{"annotations" => [], "known" => []}, else: evidence(key, runs, sha, opts)
+      issues = if runs == [], do: {:ok, []}, else: FailureEvidence.flake_issues(opts)
       {:ok, digest(runs, ci.commit_status, evidence, issues)}
     end
   end

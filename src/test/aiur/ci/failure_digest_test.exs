@@ -16,6 +16,18 @@ defmodule Aiur.CI.FailureDigestTest do
     :ok
   end
 
+  test "clean commits do not buy annotation or classification reads" do
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/check-runs?") -> ok(%{"check_runs" => []})
+        String.ends_with?(url, "/status") -> ok(%{"statuses" => []})
+        true -> flunk("unexpected read: #{url}")
+      end
+    end
+
+    assert {:ok, %FailureDigest{checks: [], tests: [], flake_only: false}} = FailureDigest.build("abc", request_fun: request)
+  end
+
   test "lint without test annotations is a check-level failure" do
     assert {:ok, digest} = build([run(1, "lint")], %{1 => []})
     assert [%{name: "lint", url: "https://example.test/check/1", tests: [], flake_only: false}] = digest.checks
