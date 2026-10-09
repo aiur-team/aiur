@@ -6,6 +6,7 @@ defmodule Aiur.Config do
   alias Aiur.AgentEnvironment
   alias Aiur.BuildGate
   alias Aiur.BuildOrder.Cadence
+  alias Aiur.Codex.Config, as: CodexConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.{Schema, SemanticChecks}
   alias Aiur.Config.Schema.AgentValidation
@@ -1316,7 +1317,7 @@ defmodule Aiur.Config do
   end
 
   defp validate_codex_approval_policy(value) do
-    case Aiur.Codex.Config.validate_approval_policy(value) do
+    case CodexConfig.validate_approval_policy(value) do
       {:ok, trimmed} -> {:ok, trimmed}
       {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
     end
