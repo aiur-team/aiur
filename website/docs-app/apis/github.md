@@ -19,12 +19,10 @@ Label read/create failures stop startup before agents start and explain the requ
 | Poll | What it tracks | Why it exists |
 | --- | --- | --- |
 | Tracker state | Issue labels, active tickets, blockers, and pull requests | Keeps dispatch and the Units page aligned with GitHub. |
-| Ticket branches | The validated ref and commit for each active ticket | Lets dependent agents inspect the exact code another ticket pushed. |
+| Ticket branches | Validated refs and commits; subscribed known-ref changes trigger async compare (`per_page=1`, caller `ticket_branch_rewrite`) | `behind`/`diverged` or 404 emits `ticket.N.branch.force-push` (404: `previous_missing`). Errors/holds log and count `[:aiur, :events, :branch_rewrite, :error]`; new/unsubscribed refs skip compare. |
 | Comments and reviews | Trusted issue comments, PR comments, reviews, and unresolved threads | Wakes the correct agent for operator direction or rework. |
 | CI | Terminal checks while a ticket is in `agent:ci-wait` or `agent:human-review` | Returns passed work for human review and failed work for repair. |
 | Repository events | Default-branch pushes and opened or merged pull requests | Refreshes work whose base or review state changed. |
-
-After a known ticket ref changes, a live force-push subscription triggers one asynchronous REST compare (`previous...new`, `per_page=1`, caller `ticket_branch_rewrite`). `behind` or `diverged` emits `ticket.N.branch.force-push`; 404 emits it with `previous_missing: true`. Other failures, including budget holds, only log and increment the `[:aiur, :events, :branch_rewrite, :error]` telemetry count. New refs and unsubscribed refs make no compare request.
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
