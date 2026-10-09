@@ -3,10 +3,10 @@
   "components": [
     {
       "id": "config", "name": "Config and workflow", "layer": 0, "kind": "required",
-      "paths": ["src/lib/aiur/agent_config.ex", "src/lib/aiur/config.ex", "src/lib/aiur/config/**", "src/lib/aiur/env.ex", "src/lib/aiur/env/**", "src/lib/aiur/workflow.ex", "src/lib/aiur/workflow_store.ex", "src/lib/aiur/workflow_store/**"],
+      "paths": ["src/lib/aiur/agent_config.ex", "src/lib/aiur/config.ex", "src/lib/aiur/merge_policy.ex", "src/lib/aiur/config/**", "src/lib/aiur/env.ex", "src/lib/aiur/env/**", "src/lib/aiur/workflow.ex", "src/lib/aiur/workflow_store.ex", "src/lib/aiur/workflow_store/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel"], "optional": [],
-      "owns": {"config": ["prompt_file"], "env": ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"], "state": [], "capabilities": []},
+      "owns": {"config": ["merge_policy", "prompt_file"], "env": ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"], "state": [], "capabilities": ["merge_policy"]},
       "prior": ["CFG"]
     },
     {

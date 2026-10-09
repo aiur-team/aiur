@@ -198,7 +198,7 @@ defmodule Aiur.AgentControlCLI do
     print_executor_wake_status()
     Commands.print_projection_status()
     print_codeowners_trust()
-
+    Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
     # Count from the rows that are actually printed. Counting the unfiltered

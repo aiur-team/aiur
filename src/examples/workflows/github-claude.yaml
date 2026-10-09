@@ -21,7 +21,7 @@ tracker:
     # allowed_contributors:
     #   users: [583231]
     #   orgs: [{id: 9919, login: github}]
-    # Required for human-only merge attribution. Keep machine identities out.
+    # Human-only attribution and planned aiur pr merge identity allowlist.
     human_mergers:
       - your-github-login
     # Optional: trusted human Executor logins whose GitHub comments reach
@@ -50,6 +50,22 @@ tracker:
     agent_core_limit_per_hour: 250
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait | pending_ok; pending_ok needs main_watch.enabled
+#   local_tests: partial           # all | partial | none; pending_ok forbids none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+
 build_order:
   # Three settings are intentionally absent — graph_catalog_refresh_ms,
   # graph_catalog_labels_refresh_ms and ticket_detail_freshness_ms. They derive

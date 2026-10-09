@@ -19,6 +19,22 @@ tracker:
 linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait | pending_ok; pending_ok needs main_watch.enabled
+#   local_tests: partial           # all | partial | none; pending_ok forbids none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+
 observability:
   # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
   # build_order_funnel_health_check: true

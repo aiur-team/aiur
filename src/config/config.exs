@@ -23,6 +23,7 @@ config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
+  Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,

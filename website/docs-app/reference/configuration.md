@@ -36,29 +36,15 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 
 ## executor takeover alerts
 
-Aiur watches nonterminal tickets in the run scope and, once a ticket's
-**convergence age** crosses a configurable threshold, raises an advisory
-`needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
-watch actionable section. The alerts are advisory takeover prompts — they never
-perform a takeover automatically.
+Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
-- `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
-  first raises the advisory once its convergence age reaches this value.
-- `executor_takeover_continuous_alert_hours` (default `1`) — while the ticket
-  stays nonterminal and unresolved, the advisory is repeated at most this often.
-  A value of `0` disables repeats (first alert only); `0` on the first threshold
-  disables the feature. Negative or non-integer values are rejected.
+- `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket first raises the advisory once its convergence age reaches this value.
+- `executor_takeover_continuous_alert_hours` (default `1`) — while the ticket stays nonterminal and unresolved, the advisory is repeated at most this often. A value of `0` disables repeats (first alert only); `0` on the first threshold disables the feature. Negative or non-integer values are rejected.
 
-**Convergence age** is `now − min(first_observed_active_work_at,
-open_pr_created_at)`:
+**Convergence age** is `now − min(first_observed_active_work_at, open_pr_created_at)`:
 
-- `first_observed_active_work_at` is persisted durably per ticket in daemon
-  state, set once the first time the monitor observes the ticket as nonterminal
-  and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon
-  restart never resets it.
-- `open_pr_created_at` is the creation time of the ticket's open PR (a floor,
-  so an already-open PR is never hidden by a freshly installed or restarted
-  monitor).
+- `first_observed_active_work_at` is persisted durably per ticket in daemon state, set once the first time the monitor observes the ticket as nonterminal and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon restart never resets it.
+- `open_pr_created_at` is the creation time of the ticket's open PR (a floor, so an already-open PR is never hidden by a freshly installed or restarted monitor).
 
 The alert carries actionable evidence.
 
@@ -106,7 +92,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
 | `tracker.github.allowed_contributors` | map | nil | Whole intake allow-list: `users: [42]`, `orgs: [{id: 77, login: acme}]`. Positive numeric int64 ids; logins address the membership API only. Present empty map/null admits nobody; present key skips `.github/ALLOWED-CONTRIBUTORS`. Invalid entries fail startup validation. Reload/restart applies changes and alerts with added/removed entries. |
-| `tracker.github.human_mergers` | array | `[]` | GitHub logins allowed to perform human merge actions. |
+| `tracker.github.human_mergers` | array | `[]` | Explicit human-only post-merge attribution allowlist; also the identity allowlist for the planned `aiur pr merge` command. Never inherits CODEOWNERS, bot accounts, trusted accounts or dispatch users. |
 | `tracker.github.planning_root_limit` | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
 | `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub planning pages fetched in one cycle. |
 | `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub planning calls fetched in one cycle. |
@@ -114,6 +100,26 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.linear.project_slug` | string | nil | Linear project polled by Aiur. |
 | `tracker.linear.endpoint` | string | `https://api.linear.app/graphql` | Linear GraphQL endpoint. |
 | `tracker.linear.assignee` | string | env fallback | Linear assignee filter. |
+
+## merge_policy {#merge-policy}
+
+The top-level policy is validated at config load and displayed by `aiur status` and `aiur capabilities`. This release provides configuration and visibility only: merge enforcement, worker test instructions and daemon main watching are not active yet. The table describes the policy those consumers will use; no setting permits failed CI checks.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `merge_policy.ci` | string | `wait` | `wait` requires full CI; `pending_ok` permits pending checks with local-test evidence. |
+| `merge_policy.local_tests` | string | `partial` | `all`: full local suite; `partial`: tests relevant to the change, falling back to the full suite when selection is unsafe; `none`: compile and format only. |
+| `merge_policy.full_ci_labels` | array | `[main-fix]` | Case-insensitive PR or ticket labels requiring full CI regardless of `ci`. |
+| `merge_policy.full_ci_paths` | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI regardless of `ci`; matches deleted paths too. |
+| `merge_policy.premerge_checks` | array | `[]` | Commands to run on the merge result before merging. |
+| `merge_policy.attribution_scan` | boolean | false | Enables the premerge AI-attribution scan of the PR title and body. |
+| `merge_policy.main_watch.enabled` | boolean | false | Enables watching CI on the configured base branch. |
+| `merge_policy.main_watch.workflows` | array | `[]` | Workflow names to watch; empty means every workflow on the base branch. |
+| `merge_policy.main_watch.on_red` | string | `alert` | `alert` reports failed CI; `dispatch_fixer` requests a fixer ticket and priority dispatch. |
+| `merge_policy.main_watch.fixer_label` | string | `main-fix` | Label for fixer tickets and their full-CI requirement. |
+| `merge_policy.main_watch.canary_minutes` | integer | 45 | Minutes without a completed watched run before a canary rerun; `0` disables. |
+
+Validation rejects `ci: pending_ok` unless `main_watch.enabled: true` and `local_tests` is `all` or `partial`. `on_red: dispatch_fixer` requires `fixer_label` in `full_ci_labels`. Lists reject blank entries; canary minutes must be nonnegative. Invalid values name the dotted config path.
 
 ## polling
 
@@ -263,8 +269,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 
 ### Routes in `agent.priority`
 
-Each entry is a **route**, not just a backend name. A route uses the same
-grammar `agent.routing` has always used:
+Each entry is a **route**, not just a backend name. A route uses the same grammar `agent.routing` has always used:
 
 ```
 <backend>[:<model>[:<effort>]][+remote]
@@ -273,8 +278,7 @@ grammar `agent.routing` has always used:
 - `claude`: the backend's own direct connection, exactly as before.
 - `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
-A colon-free entry means what it has always meant, so **existing configs need
-no change**.
+A colon-free entry means what it has always meant, so **existing configs need no change**.
 
 ```yaml
 agent:
@@ -296,8 +300,7 @@ agent:
     avoid_peak_pricing: true
 ```
 
-**A model reachable two ways may appear twice, and the order is the fallback
-order.** Duplicate *routes* are rejected; duplicate backends are not.
+**A model reachable two ways may appear twice, and the order is the fallback order.** Duplicate *routes* are rejected; duplicate backends are not.
 
 | Model name | Behavior |
 | --- | --- |
@@ -306,11 +309,9 @@ order.** Duplicate *routes* are rejected; duplicate backends are not.
 | Alias claimed by multiple vendors | Rejected during config load. |
 | Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
-**OpenRouter needs an explicit model.** It fronts a catalog rather than a
-product, so a bare `openrouter` entry is a config error.
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a product, so a bare `openrouter` entry is a config error.
 
-**An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
-means direct-only, always. Routing through OpenRouter is something you write.
+**An untagged model never falls back to OpenRouter implicitly.** Bare `claude` means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
@@ -370,10 +371,7 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 
 Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
 
-Local Muse sessions retain a native session handle across Aiur restarts. Aiur
-starts a fresh session only when Muse explicitly reports that the stored session
-was not found. Other resume errors, including a busy session, timeout, or
-mismatched session identity, remain failures to preserve conversation continuity.
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures to preserve conversation continuity.
 
 Remote workers and Claude Remote Control are unsupported for Muse.
 
