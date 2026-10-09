@@ -561,11 +561,9 @@ defmodule Aiur.ExtensionsTest do
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
     last_failure_at = ~U[2026-09-29 12:00:00Z]
-
     snapshot = update_in(static_snapshot(), [:retrying], fn [retrying] -> [Map.put(retrying, :last_failure_at, last_failure_at)] end)
 
     orchestrator_name = Module.concat(__MODULE__, :ObservabilityApiOrchestrator)
-
     {:ok, _pid} =
       StaticOrchestrator.start_link(
         name: orchestrator_name,
@@ -579,11 +577,10 @@ defmodule Aiur.ExtensionsTest do
       )
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
-
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
     assert_occ_sections(state_payload)
-
+    assert %{"daemon_started_at" => nil, "observations" => nil, "snapshot_freshness" => %{"status" => "current"}} = state_payload
     assert without_occ_sections(state_payload) == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
@@ -1898,7 +1895,10 @@ defmodule Aiur.ExtensionsTest do
       "analytics",
       "capacity",
       "capacity_hold",
-      "dispatch_hold"
+      "dispatch_hold",
+      "daemon_started_at",
+      "observations",
+      "snapshot_freshness"
     ])
   end
 
