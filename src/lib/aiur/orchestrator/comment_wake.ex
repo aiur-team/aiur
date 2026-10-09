@@ -812,7 +812,7 @@ defmodule Aiur.Orchestrator.CommentWake do
        when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
     remedy =
       case reason do
-        :parked -> "unpark the issue and assign its intended agent state"
+        :parked -> "resume the issue explicitly to clear the park marker"
         :unlabeled_issue -> "assign an agent state if this issue should be worked"
         :no_open_pr -> "open a pull request before requesting rework"
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
@@ -1119,7 +1119,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
 
   defp dispatch_decline_reason("issue is parked", _issue),
-    do: "Dispatch policy refused to wake the parked issue. Remedy: unpark it and assign its intended agent state."
+    do: "Dispatch policy refused to wake the parked issue. Remedy: resume it explicitly to clear the park marker."
 
   defp dispatch_decline_reason("issue is already running", _issue),
     do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."

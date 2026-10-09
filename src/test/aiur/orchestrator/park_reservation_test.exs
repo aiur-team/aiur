@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     :ok
   end
 
-  test "parking writes the marker before releasing the paused reservation and unpark waits for resume" do
+  test "parking keeps the issue fenced until an explicit resume" do
     issue = %Issue{id: "2952", identifier: "repo#2952", state: "in-progress", labels: ["agent:in-progress"], paused: true}
     entry = %{issue: issue, identifier: issue.identifier, pid: nil, ref: nil, paused_reason: :operator, control: %{status: :paused}}
     state = %State{running: %{issue.id => entry}}
@@ -25,12 +25,26 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     assert {:reply, {:ok, :already_parked}, ^parked} = PauseResume.park_agent_call(parked, issue.identifier)
     refute_received {:memory_tracker_add_label, "2952", "agent:parked"}
 
-    assert {:reply, :ok, unparked} = PauseResume.unpark_agent_call(parked, issue.identifier)
-    refute unparked.running[issue.id].issue.parked
-
-    fresh_issue = %{unparked.running[issue.id].issue | labels: ["agent:in-progress"]}
-    reconciled = Reconciler.maybe_reactivate_or_refresh(unparked, fresh_issue)
+    fresh_issue = %{parked.running[issue.id].issue | labels: ["agent:in-progress"]}
+    reconciled = Reconciler.maybe_reactivate_or_refresh(parked, fresh_issue)
     assert reconciled.running[issue.id].control.status == :deactivated
+    assert reconciled.running[issue.id].issue.parked
+
+    assert {{:ok, :reactivated}, resumed} = PauseResume.resume_issue(parked, issue.identifier)
+    assert_received {:memory_tracker_remove_label, "repo#2952", "agent:parked"}
+    refute resumed.running[issue.id].issue.parked
+  end
+
+  test "resume refuses to race a pending park marker write" do
+    issue = %Issue{id: "2952", identifier: "repo#2952", state: "in-progress", paused: true}
+    entry = %{issue: issue, identifier: issue.identifier, pid: nil, ref: nil, control: %{status: :paused}}
+    task_ref = make_ref()
+    state = %State{running: %{issue.id => entry}, tracker_tasks: %{task_ref => %{key: {:park_issue, issue.id}}}}
+
+    assert {:reply, {:error, :park_pending}, ^state} =
+             PauseResume.tracker_control_call(state, :resume, issue.identifier)
+
+    refute_received {:memory_tracker_remove_label, "repo#2952", "agent:parked"}
   end
 
   test "parks only pause reasons that currently hold fleet capacity" do

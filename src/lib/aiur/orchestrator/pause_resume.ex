@@ -243,11 +243,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp tracker_control_step(state, action, identifier, :start, _) when action in [:resume, :resume_with_receipt] do
     case State.find_running_by_identifier(state.running, identifier) do
       %{issue: %Issue{} = issue} = entry ->
-        if Issue.paused?(issue) do
-          tracker_io(state, action, identifier, {:running_cleared, issue.id, Map.get(entry, :ref)}, :remove_label, [issue.identifier, pause_override_label()])
-        else
-          resume_control_reply(state, action, identifier, entry)
-        end
+        resume_running_control(state, action, identifier, entry, issue)
 
       nil ->
         case find_issue_id_by_identifier(state, identifier) do
@@ -270,7 +266,13 @@ defmodule Aiur.Orchestrator.PauseResume do
         issue = cleared_pause_issue(issue)
         entry = Map.put(entry, :issue, issue)
         state = put_running_entry(state, issue_id, entry)
-        resume_control_reply(state, action, identifier, entry)
+
+        if Issue.parked?(issue) do
+          label = "#{Config.settings!().tracker.github.label_prefix}:parked"
+          tracker_io(state, action, identifier, {:running_unparked, issue_id, ref}, :remove_label, [issue.identifier, label])
+        else
+          resume_control_reply(state, action, identifier, entry)
+        end
 
       {{:error, reason}, _entry} ->
         {:reply, {:error, {:pause_override_clear_failed, reason}}, state}
@@ -279,6 +281,22 @@ defmodule Aiur.Orchestrator.PauseResume do
         {:reply, {:error, :no_running_agent}, state}
     end
   end
+
+  defp tracker_control_step(state, action, identifier, {:running_unparked, issue_id, ref}, :ok) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{issue: %Issue{id: ^issue_id} = issue, ref: ^ref} = entry ->
+        label = "#{Config.settings!().tracker.github.label_prefix}:parked"
+        issue = %{issue | parked: false, labels: List.delete(issue.labels, label)}
+        entry = Map.put(entry, :issue, issue)
+        resume_control_reply(put_running_entry(state, issue_id, entry), action, identifier, entry)
+
+      _ ->
+        {:reply, {:error, :no_running_agent}, state}
+    end
+  end
+
+  defp tracker_control_step(state, _action, _identifier, {:running_unparked, _issue_id, _ref}, {:error, reason}),
+    do: {:reply, {:error, {:park_marker_clear_failed, reason}}, state}
 
   defp tracker_control_step(state, action, identifier, {:completed_refreshed, issue_id, ref}, result) do
     case State.find_running_by_identifier(state.running, identifier) do
@@ -347,6 +365,23 @@ defmodule Aiur.Orchestrator.PauseResume do
       tracker_io(state, action, identifier, {:queued_cleared, issue}, :remove_label, [issue.identifier, pause_override_label()])
     else
       tracker_io(state, action, identifier, {:queued_refreshed, issue}, :fetch_issue_states_by_ids, [[issue.id]])
+    end
+  end
+
+  defp resume_running_control(state, action, identifier, entry, issue) do
+    cond do
+      TrackerTasks.running?(state, {:park_issue, issue.id}) ->
+        {:reply, {:error, :park_pending}, state}
+
+      Issue.paused?(issue) ->
+        tracker_io(state, action, identifier, {:running_cleared, issue.id, Map.get(entry, :ref)}, :remove_label, [issue.identifier, pause_override_label()])
+
+      Issue.parked?(issue) ->
+        label = "#{Config.settings!().tracker.github.label_prefix}:parked"
+        tracker_io(state, action, identifier, {:running_unparked, issue.id, Map.get(entry, :ref)}, :remove_label, [issue.identifier, label])
+
+      true ->
+        resume_control_reply(state, action, identifier, entry)
     end
   end
 
@@ -444,21 +479,6 @@ defmodule Aiur.Orchestrator.PauseResume do
       State.reserved_paused_running_count(%{issue.id => entry}) == 0 -> {:reply, {:error, :reservation_not_held}, state}
       Issue.parked?(issue) -> {:reply, {:ok, :already_parked}, park_paused_entry(state, issue)}
       true -> queue_park(state, entry, issue)
-    end
-  end
-
-  @doc false
-  @spec unpark_agent_call(State.t(), String.t()) :: {:reply, term(), State.t()}
-  def unpark_agent_call(%State{} = state, issue_identifier) do
-    case State.find_running_by_identifier(state.running, issue_identifier) do
-      %{issue: %Issue{} = issue, operator_parked: true} = entry ->
-        label = "#{Config.settings!().tracker.github.label_prefix}:parked"
-        issue = %{issue | parked: false, labels: List.delete(issue.labels, label)}
-        entry = %{entry | issue: issue}
-        {:reply, :ok, put_in(state.running[issue.id], entry)}
-
-      _ ->
-        {:reply, :ok, state}
     end
   end
 
@@ -792,17 +812,38 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp resume_running_issue(%State{} = state, running_entry) do
     issue = Map.get(running_entry, :issue)
 
-    cond do
-      is_struct(issue, Issue) and TrackerTasks.running?(state, {:park_issue, issue.id}) ->
-        {{:error, :park_pending}, state}
+    if is_struct(issue, Issue) and Issue.parked?(issue) do
+      clear_parked_running_issue(state, running_entry, issue)
+    else
+      resume_unparked_running_issue(state, running_entry, issue)
+    end
+  end
 
-      is_struct(issue, Issue) and Issue.paused?(issue) ->
-        run_running_effect(state, running_entry, :clear_pause, fn -> fetch_resuming_issue({running_entry}) end, fn arg1, arg2, arg3 ->
-          apply_resuming_issue(arg1, arg2, arg3, {issue})
-        end)
+  defp clear_parked_running_issue(state, running_entry, issue) do
+    if TrackerTasks.running?(state, {:park_issue, issue.id}) do
+      {{:error, :park_pending}, state}
+    else
+      label = "#{Config.settings!().tracker.github.label_prefix}:parked"
 
-      true ->
-        do_resume_running_issue(state, running_entry)
+      case Tracker.remove_label(issue.identifier, label) do
+        :ok ->
+          issue = %{issue | parked: false, labels: List.delete(issue.labels, label)}
+          entry = Map.put(running_entry, :issue, issue)
+          resume_unparked_running_issue(put_running_entry(state, issue.id, entry), entry, issue)
+
+        {:error, reason} ->
+          {{:error, {:park_marker_clear_failed, reason}}, state}
+      end
+    end
+  end
+
+  defp resume_unparked_running_issue(state, running_entry, issue) do
+    if is_struct(issue, Issue) and Issue.paused?(issue) do
+      run_running_effect(state, running_entry, :clear_pause, fn -> fetch_resuming_issue({running_entry}) end, fn arg1, arg2, arg3 ->
+        apply_resuming_issue(arg1, arg2, arg3, {issue})
+      end)
+    else
+      do_resume_running_issue(state, running_entry)
     end
   end
 
@@ -2382,12 +2423,21 @@ defmodule Aiur.Orchestrator.PauseResume do
   # dispatches, so the reconciler cannot pause the fresh agent straight back
   # off the label the operator just resumed past (#1668).
   defp clear_and_resume_queued_issue(state, issue) do
-    case clear_tracker_pause_override(state, issue) do
-      {:ok, state, %Issue{} = cleared_issue} ->
-        refresh_cleared_queued_issue(state, cleared_issue)
+    if Issue.parked?(issue) do
+      label = "#{Config.settings!().tracker.github.label_prefix}:parked"
 
-      {:error, reason} ->
-        {{:error, {:pause_override_clear_failed, reason}}, state}
+      with {:ok, state, %Issue{} = cleared_issue} <- clear_tracker_pause_override(state, issue),
+           :ok <- Tracker.remove_label(cleared_issue.identifier, label) do
+        cleared_issue = %{cleared_issue | parked: false, labels: List.delete(cleared_issue.labels, label)}
+        refresh_cleared_queued_issue(put_in(state.last_polled_issues[cleared_issue.id], cleared_issue), cleared_issue)
+      else
+        {:error, reason} -> {{:error, {:park_marker_clear_failed, reason}}, state}
+      end
+    else
+      case clear_tracker_pause_override(state, issue) do
+        {:ok, state, %Issue{} = cleared_issue} -> refresh_cleared_queued_issue(state, cleared_issue)
+        {:error, reason} -> {{:error, {:pause_override_clear_failed, reason}}, state}
+      end
     end
   end
 

@@ -1362,35 +1362,6 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  @doc "Removes the operator parking marker; resume remains a separate action."
-  @spec unpark([String.t()]) :: :ok
-  def unpark(targets) when is_list(targets) do
-    guarded("unpark", fn ->
-      label = "#{GitHubConfig.label_prefix()}:parked"
-
-      results =
-        Enum.map(targets, fn id -> {id, unpark_issue(to_string(id), label)} end)
-
-      Enum.each(results, fn
-        {id, {:ok, :ok}} -> IO.puts("unparked ##{id}; run `aiur resume #{id}` to reclaim a slot")
-        {id, {:ok, {:error, reason}}} -> IO.puts(:stderr, "✗ ##{id} marker removed, but local state refresh failed: #{Reasons.format_reason(reason)}")
-        {id, {{:error, reason}, _local_result}} -> IO.puts(:stderr, "✗ ##{id} could not be unparked: #{Reasons.format_reason(reason)}")
-      end)
-
-      _ = Orchestrator.note_queued_demand(Enum.map(targets, &to_string/1))
-      exit_marker(if Enum.any?(results, &unpark_pair_failed?/1), do: 1, else: 0)
-    end)
-  end
-
-  defp unpark_issue(identifier, label) do
-    result = Tracker.remove_label(identifier, label)
-    local_result = if result == :ok, do: Orchestrator.unpark_agent(identifier), else: :not_attempted
-    {result, local_result}
-  end
-
-  defp unpark_pair_failed?({_id, {tracker_result, local_result}}),
-    do: tracker_result != :ok or local_result != :ok
-
   # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
   # dispatch latch. Clears the in-memory + durable budget entries so a latched
   # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
