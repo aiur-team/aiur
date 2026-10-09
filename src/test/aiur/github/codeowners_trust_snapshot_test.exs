@@ -152,6 +152,32 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     assert CodeOwners.trust_snapshot(server).degradation.cause == :repo_owner_unknown
   end
 
+  test "failed refresh clears the last member when configured accounts and origin are absent", %{path: path} do
+    key = {Aiur.GitHub.Config, :resolved_origin_repo}
+    old = :persistent_term.get(key, :unset)
+    :persistent_term.put(key, nil)
+
+    on_exit(fn ->
+      if old == :unset, do: :persistent_term.erase(key), else: :persistent_term.put(key, old)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github")
+    File.write!(path, "* @acme/team\n")
+    {:ok, mode} = Agent.start_link(fn -> :success end)
+
+    request = fn _ ->
+      if Agent.get(mode, & &1) == :success, do: {:ok, %{status: 200, body: [%{"login" => "member"}], headers: []}}, else: {:ok, %{status: 403, body: %{}}}
+    end
+
+    server = start_snapshot(path, request)
+    assert CodeOwners.allowed?("member", server)
+    Agent.update(mode, fn _ -> :failure end)
+    CodeOwners.refresh(server)
+    refute CodeOwners.allowed?("member", server)
+    assert CodeOwners.trust_snapshot(server).trusted == []
+    assert {:team_lookup_failed, "@acme/team", {:github, :http, %{status: 403}}} = CodeOwners.trust_snapshot(server).degradation.cause
+  end
+
   test "malformed PR file records make authority unknown", %{root: root} do
     for entry <- [%{}, %{"filename" => nil}, %{"filename" => ""}, %{"filename" => 42}] do
       request = fn _ -> {:ok, %{status: 200, body: [entry], headers: []}} end

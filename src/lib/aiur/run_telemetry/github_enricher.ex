@@ -26,7 +26,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       ticket_set = tickets |> Enum.map(&to_string/1) |> MapSet.new()
-      trusted_author_fun = Keyword.get(opts, :trusted_author_fun, &default_trusted_author?(&1, owner))
+      trusted_author_fun = Keyword.get(opts, :trusted_author_fun, &default_trusted_author?/1)
 
       case fetch_all(pulls_url(owner, name), request_fun, token, opts) do
         {:ok, pulls} ->
@@ -288,9 +288,9 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   defp author_allowed?(_trusted_author_fun, _author), do: false
 
-  defp default_trusted_author?(nil, _owner), do: false
+  defp default_trusted_author?(nil), do: false
 
-  defp default_trusted_author?(author, _owner) when is_binary(author) do
+  defp default_trusted_author?(author) when is_binary(author) do
     if Process.whereis(CodeOwners) do
       CodeOwners.allowed?(author)
     else

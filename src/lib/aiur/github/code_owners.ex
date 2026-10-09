@@ -7,8 +7,6 @@ defmodule Aiur.GitHub.CodeOwners do
 
   use GenServer
 
-  require Logger
-
   alias Aiur.GitHub.{CodeownersFile, Teams, TrustSnapshot}
 
   @default_refresh_seconds 3_600
