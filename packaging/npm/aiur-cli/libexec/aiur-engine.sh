@@ -461,6 +461,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur epic list [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
@@ -3148,7 +3149,6 @@ cmd_github_cost() {
 
   run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"
 }
-
 # `aiur github-usage` — per-actor (daemon vs each agent workspace) Core/GraphQL
 # usage and ceilings from the shared admission broker. Read-only; it reads the
 # broker database and issues no GitHub request of its own.
@@ -3167,10 +3167,8 @@ cmd_github_usage() {
 
   local opts=""
   [ "$json" -eq 1 ] && opts="json: true"
-
   run_control_rpc "Aiur.AgentControlCLI.github_usage([$opts])"
 }
-
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
@@ -4293,6 +4291,8 @@ aiur_engine_main() {
       shift
       cmd_github_cost "$@"
       ;;
+    capabilities)
+      shift; cmd_capabilities "$@" ;;
     github-usage)
       shift
       cmd_github_usage "$@"
@@ -4400,9 +4400,9 @@ aiur_engine_main() {
       ;;
   esac
 }
-
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"
 fi
