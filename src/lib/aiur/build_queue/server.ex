@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Settings, Store, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, Reconcile, Settings, Store, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -36,6 +36,7 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       actions: [],
       holds: MapSet.new(),
+      intent_reconciles: %{},
       reconciles: 0
     }
 
@@ -53,6 +54,21 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
   def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
+
+  def handle_call({:release, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
+    observations = Reconcile.observations(state)
+
+    with {:ok, document} <- Bookkeeping.release(state.document, target, observations, state.clock.(), "#{state.settings.tracker.github.label_prefix}:todo"),
+         :ok <- state.store.save(document) do
+      released = for item <- state.document.items, item.issue_id == target or item.queue_id == target, do: item.issue_id
+      {:reply, :ok, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
+    else
+      {:error, reason} when reason in [:not_found, :observation_unavailable] -> {:reply, {:error, reason}, state}
+      {:error, reason} -> {:reply, {:error, reason}, %{state | status: :store_unavailable}}
+    end
+  end
+
+  def handle_call({:release, _target}, _from, state), do: {:reply, {:error, state.status}, state}
 
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, request(state)}
@@ -123,7 +139,8 @@ defmodule Aiur.BuildQueue.Server do
     holds = MapSet.intersection(holds, MapSet.new(retained))
     Reconcile.write_hints(projections, holds, state.document)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
-    %{state | projections: projections, actions: state.actions, holds: holds, reconciles: state.reconciles + 1}
+    state = %{state | projections: projections, actions: state.actions, holds: holds, reconciles: state.reconciles + 1}
+    if Enum.any?(actions, &match?({:dequeue, _}, &1)), do: request(state), else: state
   end
 
   defp write(state, actions, observations) do
@@ -140,7 +157,8 @@ defmodule Aiur.BuildQueue.Server do
 
     result = Writer.run(context, actions, state.writer)
     status = if result.status == :paced, do: :running, else: result.status
-    %{state | document: result.document, writer: result.writer, write_results: result.write_results, status: status, actions: actions ++ result.write_attentions}
+    ages = Map.new(result.document.intents, &{&1.id, Map.get(state.intent_reconciles, &1.id, state.reconciles)})
+    %{state | document: result.document, writer: result.writer, write_results: result.write_results, status: status, actions: actions ++ result.write_attentions, intent_reconciles: ages}
   end
 
   defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state
