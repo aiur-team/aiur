@@ -51,10 +51,10 @@
     },
     {
       "id": "accounting", "name": "Provider meters and usage ledger", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/accounts.ex", "src/lib/aiur/accounts/**", "src/lib/aiur/agent/**", "src/lib/aiur/provider_account_generation.ex", "src/lib/aiur/provider_account_generation/**", "src/lib/aiur/provider_meter_probe.ex", "src/lib/aiur/provider_meter_projection.ex", "src/lib/aiur/provider_meter_refresh.ex", "src/lib/aiur/provider_meter_snapshot.ex", "src/lib/aiur/provider_meters.ex", "src/lib/aiur/provider_meters/**", "src/lib/aiur/token_usage.ex", "src/lib/aiur/usage/**", "src/lib/aiur/usage_aggregate.ex", "src/lib/aiur/usage_aggregate/**", "src/lib/aiur/usage_compaction/**", "src/lib/aiur/usage_envelope.ex", "src/lib/aiur/usage_envelope/**", "src/lib/aiur/usage_ledger.ex", "src/lib/aiur/usage_ledger/**"],
+      "paths": ["src/lib/aiur/accounts.ex", "src/lib/aiur/accounts/**", "src/lib/aiur/agent/**", "src/lib/aiur/provider_account_generation.ex", "src/lib/aiur/provider_account_generation/**", "src/lib/aiur/provider_meter_probe.ex", "src/lib/aiur/provider_meter_projection.ex", "src/lib/aiur/provider_meter_projection/**", "src/lib/aiur/provider_meter_refresh.ex", "src/lib/aiur/provider_meter_snapshot.ex", "src/lib/aiur/provider_meters.ex", "src/lib/aiur/provider_meters/**", "src/lib/aiur/token_usage.ex", "src/lib/aiur/usage/**", "src/lib/aiur/usage_aggregate.ex", "src/lib/aiur/usage_aggregate/**", "src/lib/aiur/usage_compaction/**", "src/lib/aiur/usage_envelope.ex", "src/lib/aiur/usage_envelope/**", "src/lib/aiur/usage_ledger.ex", "src/lib/aiur/usage_ledger/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
-      "owns": {"config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "state": ["balance_baseline_state_dir", "usage_aggregate_state_dir", "usage_compaction_state_dir", "usage_ledger_state_dir"], "capabilities": []},
+      "requires": ["identity", "kernel", "config"], "optional": [],
+      "owns": {"config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "state": ["balance_baseline_state_dir", "usage_aggregate_state_dir", "usage_compaction_state_dir", "usage_ledger_state_dir"], "capabilities": ["accounting.meters"]},
       "prior": ["PM", "USG"]
     },
     {
@@ -85,16 +85,16 @@
       "id": "github-listeners", "name": "GitHub event ingestion (webhook + pollers)", "layer": 2, "kind": "optional",
       "paths": ["src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["github", "event-bus", "config", "web-kit", "kernel"], "optional": [],
-      "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": []},
+      "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel"], "optional": [],
+      "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": ["webhook_ingress"]},
       "prior": ["ING"]
     },
     {
       "id": "harness-adapters", "name": "Harness adapter package (MP-R7)", "layer": 2, "kind": "required",
       "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["agent-sandbox", "config", "kernel"], "optional": ["accounting"],
-      "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": []},
+      "requires": ["identity", "agent-sandbox", "config", "kernel"], "optional": ["accounting"],
+      "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": ["remote_control"]},
       "prior": ["CA", "CDX", "CLD", "OAI"],
       "shared_with": ["orchestration"]
     },
@@ -134,8 +134,8 @@
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "github", "config", "web-kit", "projections", "kernel", "commands"], "optional": ["build-queue", "orchestration", "telemetry"],
-      "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": []},
+      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands"], "optional": ["build-queue", "orchestration", "telemetry"],
+      "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": ["build_orders", "build_orders.progress"]},
       "prior": ["BO"]
     },
     {
@@ -159,7 +159,7 @@
       "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["event-bus", "agent-runner", "identity"], "optional": ["executor-attention"],
-      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "owns": {"config": [], "env": [], "state": [], "capabilities": ["conversations.read"]},
       "prior": ["PRJ", "RUN", "SD"]
     },
     {
@@ -231,8 +231,8 @@
       "id": "streamdeck-server", "name": "Daemon side of the Stream Deck (MP-R6)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur_web/controllers/streamdeck*.ex", "src/lib/aiur_web/sockets/streamdeck.ex", "src/lib/aiur_web/stream_deck_grid.ex", "src/lib/aiur_web/streamdeck*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt"],
-      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "requires": ["identity", "web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt"],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": ["streamdeck"]},
       "prior": ["SD"]
     },
     {
@@ -247,8 +247,8 @@
       "id": "voice-stt", "name": "Speech-to-text and TTS (MP-R5)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/sockets/voice.ex", "src/lib/aiur_web/voice*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["config", "web-kit"], "optional": [],
-      "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": []},
+      "requires": ["identity", "config", "web-kit"], "optional": [],
+      "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": ["voice.stt", "voice.tts"]},
       "prior": ["VOX"]
     },
     {
