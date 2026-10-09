@@ -179,9 +179,6 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
       {:error, reason} ->
         handle_release_failure(state, issue, reason, opts)
-
-      unexpected ->
-        handle_release_failure(state, issue, {:unexpected_result, unexpected}, opts)
     end
   end
 
