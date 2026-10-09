@@ -8,6 +8,7 @@ defmodule Aiur.Config do
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.Schema.Codex, as: CodexSchema
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.GitHub.Budget
   alias Aiur.Workflow
@@ -1234,7 +1235,7 @@ defmodule Aiur.Config do
   end
 
   defp validate_codex_approval_policy(value) do
-    case Aiur.Codex.Config.validate_approval_policy(value) do
+    case CodexSchema.validate_approval_policy(value) do
       {:ok, trimmed} -> {:ok, trimmed}
       {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
     end
