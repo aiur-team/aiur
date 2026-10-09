@@ -2566,8 +2566,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     test "niced runnable load does not hard-hold but cannot widen above target" do
       test_pid = self()
 
-      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
-      current_cpu = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, daemon_nice: 0, runnable: 20}
+      current_cpu = %{total: 1_200, idle: 620, nice: 240, daemon_nice: 0, runnable: 74}
 
       state = %State{
         max_concurrent_agents: 8,
@@ -2631,7 +2631,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
-      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, daemon_nice: 0, runnable: 20}
 
       state = %State{
         max_concurrent_agents: 8,
@@ -2755,7 +2755,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert held.dispatch_capacity_sample == %{load: 0.7, gate_signal: 0.7, load_sampled_at_ms: nil, load_threshold: 1.0, target: 1.0, schedulers: 16}
+      assert held.dispatch_capacity_sample == %{load: 0.7, load_discount_reason: :unavailable, gate_signal: 0.7, load_sampled_at_ms: nil, load_threshold: 1.0, target: 1.0, schedulers: 16}
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000

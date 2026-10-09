@@ -2190,7 +2190,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     ])
   end
 
-  # Re-stamp refreshed measurements so their age stays truthful (#2527).
   defp merge_capacity_reason(hold, reason, measured_at) do
     hold
     |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
@@ -2306,6 +2305,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
       | dispatch_capacity_sample: %{
           load: probes.load,
+          load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
           gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
           load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
           load_threshold: probes.load_threshold,

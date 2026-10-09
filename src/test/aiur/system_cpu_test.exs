@@ -25,8 +25,8 @@ defmodule Aiur.SystemCpuTest do
   end
 
   test "reports niced CPU time as reclaimable headroom" do
-    previous = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
-    current = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+    previous = %{total: 1_000, idle: 600, nice: 100, daemon_nice: 0, runnable: 20}
+    current = %{total: 1_200, idle: 620, nice: 240, daemon_nice: 0, runnable: 74}
 
     assert %{
              idle_percent: 10.0,

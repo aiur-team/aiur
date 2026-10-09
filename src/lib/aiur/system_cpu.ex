@@ -4,18 +4,21 @@ defmodule Aiur.SystemCpu do
 
   CPU counters are cumulative, so callers retain one snapshot and compare it
   with the next poll. Niced CPU time is reported separately and included in
-  reclaimable headroom because it yields to normal-priority agent work. Missing
+  reclaimable headroom only when the daemon is at nice 0. At other priorities,
+  aggregate nice CPU can include the fleet itself, so it is not discounted. Missing
   or malformed procfs data returns `:unavailable` and lets admission fall back
   to the load-average envelope.
   """
 
   @type snapshot :: %{
+          optional(:daemon_nice) => integer() | :unavailable,
           total: non_neg_integer(),
           idle: non_neg_integer(),
           nice: non_neg_integer(),
           runnable: non_neg_integer()
         }
   @type headroom :: %{
+          daemon_nice: integer() | :unavailable,
           idle_percent: float(),
           nice_percent: float(),
           reclaimable_percent: float(),
@@ -25,8 +28,14 @@ defmodule Aiur.SystemCpu do
   @spec snapshot() :: snapshot() | :unavailable
   def snapshot do
     case stat_source().() do
-      {:ok, contents} -> parse(contents)
-      _other -> :unavailable
+      {:ok, contents} ->
+        case parse(contents) do
+          snapshot when is_map(snapshot) -> Map.put(snapshot, :daemon_nice, Aiur.SystemPriority.nice())
+          unavailable -> unavailable
+        end
+
+      _other ->
+        :unavailable
     end
   end
 
@@ -41,10 +50,13 @@ defmodule Aiur.SystemCpu do
       idle_percent = percentage(idle_delta, total_delta)
       nice_percent = percentage(nice_delta, total_delta)
 
+      daemon_nice = if Map.get(previous, :daemon_nice) == Map.get(current, :daemon_nice), do: Map.get(current, :daemon_nice, :unavailable), else: :unavailable
+
       %{
+        daemon_nice: daemon_nice,
         idle_percent: idle_percent,
         nice_percent: nice_percent,
-        reclaimable_percent: idle_percent + nice_percent,
+        reclaimable_percent: idle_percent + if(daemon_nice == 0, do: nice_percent, else: 0.0),
         runnable: runnable
       }
     else
