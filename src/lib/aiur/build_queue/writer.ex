@@ -26,7 +26,7 @@ defmodule Aiur.BuildQueue.Writer do
 
     case context.store.load() do
       {:ok, document} ->
-        if result != :ok, do: Logger.warning("Build queue unauthorized attention failed for ##{id}: #{inspect(result)}", issue_id: id, issue_identifier: "##{id}", action: action)
+        if result != :ok, do: Logger.warning("Build queue unauthorized attention failed issue_id=#{id} issue_identifier=##{id} action=#{action}: #{inspect(result)}")
         {:cont, %{context | document: document}}
 
       {:error, _reason} ->
