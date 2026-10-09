@@ -8,12 +8,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
   """
 
   use GenServer
-
   require Logger
 
   alias Aiur.BuildOrder.{Catalog, CatalogStore, ProviderHealth, ProviderResult}
   alias Aiur.BuildOrder.GitHubGraph.Settings
-  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, ReconciliationTimer, Snapshot, TaskLifecycle}
+  alias Aiur.BuildOrder.GraphProjection.{CapabilityReader, Configuration, Failure, Options, Policy, ReconciliationTimer, Snapshot, TaskLifecycle}
   alias Aiur.TrackerIdentity
   alias Aiur.Webhooks
 
@@ -129,7 +128,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
-    state = Options.new(opts)
+    state = Options.new(opts) |> tap(&CapabilityReader.publish(&1, catalog_bound_ms(&1)))
     subscribe_to_configuration(state)
     subscribe_to_resources(state)
     subscribe_to_mode_events(state)
@@ -138,8 +137,6 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   @impl true
-  def handle_call(:capability_catalog, _from, state), do: {:reply, catalog_snapshot(state), state}
-
   def handle_call(:catalog, _from, state) do
     {state, events} = reconcile(state)
     broadcast_all(state, events)
@@ -1491,7 +1488,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
     %{state | monitor_by_ref: %{}, monitor_by_demand: %{}}
   end
 
-  defp broadcast_all(state, events), do: Enum.each(events, &broadcast(state, &1))
+  defp broadcast_all(state, events) do
+    CapabilityReader.publish(state, catalog_bound_ms(state))
+    Enum.each(events, &broadcast(state, &1))
+  end
 
   defp broadcast(state, {:reset, generation}) do
     publish(@reset_topic, {:graph_projection_reset, generation})
