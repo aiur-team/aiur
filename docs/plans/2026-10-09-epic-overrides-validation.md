@@ -3,7 +3,7 @@
 Final feature validation uses the configured integration branch `main`.
 
 - Compile with warnings as errors, formatter check, strict lint: passed.
-- Final scoped suite: 189 tests passed; after sync exception handling, all 24 store tests passed again.
+- Final post-integration scoped suite: 190 tests passed, including sync exception handling.
 - Restored mutation baseline: 113 tests passed. Focused development-shim control test: passed.
 - npm launcher suite: 114 passed, 0 failed (`mise exec bun@1.3.14 -- bun test`).
 - Component ownership, docs prose, configuration docs, bare assert_receive checks: passed. File-size passes against integrated base `3203ff8d6`; see current-base limitation below.
