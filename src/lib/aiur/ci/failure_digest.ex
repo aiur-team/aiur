@@ -64,6 +64,7 @@ defmodule Aiur.CI.FailureDigest do
       end
 
     checks = Enum.zip_with(runs, evidence["annotations"], &check(&1, &2, known, issues)) ++ legacy_checks(status)
+    checks = resolve_derived(checks) |> Enum.map(&Map.delete(&1, :derived_from))
     tests = if Enum.any?(checks, &(&1.tests == :unknown)), do: :unknown, else: Enum.flat_map(checks, & &1.tests)
     signature_checks = checks |> Enum.reject(& &1.flake_only) |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.sort()
     new_tests = checks |> Enum.flat_map(&new_tests/1) |> Enum.uniq() |> Enum.sort()
@@ -90,13 +91,17 @@ defmodule Aiur.CI.FailureDigest do
       url: run["html_url"],
       tests: tests,
       truncated: truncated,
-      flake_only: run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations) and tests != [] and Enum.all?(tests, &(&1.classification == :known_flake))
+      derived_from: if(run["conclusion"] == "failure" and not unknown and not truncated and tests == [] and not other_failures?(annotations), do: derived_from(annotations), else: []),
+      flake_only:
+        run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations) and derived_from(annotations) == [] and tests != [] and
+          Enum.all?(tests, &(&1.classification == :known_flake))
     }
   end
 
   defp other_failures?(annotations) do
     coverage_exit? = Enum.any?(annotations || [], &routine_coverage_exit?/1)
-    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?))
+    derived? = derived_from(annotations) != []
+    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?, derived?))
   end
 
   defp routine_coverage_exit?(%{"annotation_level" => "failure", "message" => message}) when is_binary(message),
@@ -104,14 +109,42 @@ defmodule Aiur.CI.FailureDigest do
 
   defp routine_coverage_exit?(_), do: false
 
-  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?) do
+  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?, derived?) do
     # GitHub adds its own exit annotation; ignore it only beside the matching coverage wrapper.
     routine_exit = routine_coverage_exit?(annotation) or (coverage_exit? and message == "Process completed with exit code 2.")
-    annotation["title"] != "aiur-test-failure" and not routine_exit
+    derived_exit = derived? and (annotation["title"] == "aiur-derived-failure" or message == "Process completed with exit code 1.")
+    annotation["title"] != "aiur-test-failure" and not routine_exit and not derived_exit
   end
 
-  defp substantive_failure?(%{"annotation_level" => "failure"}, _), do: true
-  defp substantive_failure?(_, _), do: false
+  defp substantive_failure?(%{"annotation_level" => "failure"}, _, _), do: true
+  defp substantive_failure?(_, _, _), do: false
+
+  defp derived_from(annotations) do
+    case Enum.filter(annotations || [], &(&1["title"] == "aiur-derived-failure")) do
+      [%{"annotation_level" => "failure", "message" => message}] when is_binary(message) ->
+        case Jason.decode(message) do
+          {:ok, names} when is_list(names) -> if names != [] and Enum.all?(names, &(is_binary(&1) and &1 != "")), do: Enum.uniq(names), else: []
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp resolve_derived([]), do: []
+
+  defp resolve_derived(checks) do
+    # Bounded propagation leaves missing dependencies and cycles conservative.
+    Enum.reduce(1..length(checks), checks, fn _, current ->
+      Enum.map(current, fn check ->
+        names = Map.get(check, :derived_from, [])
+        upstream = Enum.filter(current, &(&1.name in names))
+        proven = names != [] and Enum.sort(Enum.map(upstream, & &1.name)) == Enum.sort(names) and Enum.all?(upstream, & &1.flake_only)
+        Map.update!(check, :flake_only, &(&1 or proven))
+      end)
+    end)
+  end
 
   defp parse(%{"title" => "aiur-test-failure", "message" => "truncated :: " <> _}), do: [:truncated]
 
