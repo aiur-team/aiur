@@ -17,7 +17,7 @@ defmodule Aiur.Experiments do
   def status do
     store =
       cond do
-        is_nil(Process.whereis(Store)) -> {:error, :disabled}
+        is_nil(Process.whereis(Store)) -> {:error, Store.startup_failure()}
         writable_directory?() -> :ok
         true -> {:error, :store_read_only}
       end

@@ -8,12 +8,20 @@ defmodule Aiur.Experiments.Store do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
+  @spec startup_failure() :: term()
+  def startup_failure, do: :persistent_term.get({__MODULE__, :startup_failure}, :disabled)
+
   @impl true
   def init(opts) do
+    :persistent_term.erase({__MODULE__, :startup_failure})
+
     with :ok <- Aiur.Journal.ensure_directory(Paths.root()), :ok <- Persistence.recover() do
       {:ok, %{append: Keyword.get(opts, :journal_writer, &Journal.append/2), defaults: Map.new(Keyword.get(opts, :defaults, config_defaults())) |> Map.put_new(:repo_slug, Paths.repo())}}
     else
-      {:error, reason} -> {:stop, reason}
+      {:error, reason} ->
+        :persistent_term.put({__MODULE__, :startup_failure}, reason)
+        Logger.warning("experiment writer unavailable: #{inspect(reason)}")
+        :ignore
     end
   end
 
@@ -45,7 +53,8 @@ defmodule Aiur.Experiments.Store do
   defp create(attrs, opts, state) do
     attrs = stringify(attrs) |> with_origin(opts)
 
-    with {:ok, spec} <- Spec.new(attrs, state.defaults) do
+    with :ok <- Persistence.recover(),
+         {:ok, spec} <- Spec.new(attrs, state.defaults) do
       case existing(spec.key) do
         {:error, _reason} = error -> error
         {:ok, nil} -> create_new(spec, opts, state)

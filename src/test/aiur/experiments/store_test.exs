@@ -2,16 +2,19 @@ defmodule Aiur.Experiments.StoreTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Experiments
-  alias Aiur.Experiments.{Journal, Paths, Store}
+  alias Aiur.Experiments.{CapabilityProvider, Journal, Paths, Store}
 
   setup do
     {:ok, _applications} = Application.ensure_all_started(:phoenix_pubsub)
     root = Path.join(System.tmp_dir!(), "experiments-store-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :experiments_dir)
+    failure_key = {Store, :startup_failure}
+    previous_failure = :persistent_term.get(failure_key, :disabled)
     Application.put_env(:aiur, :experiments_dir, root)
     unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
 
     on_exit(fn ->
+      if previous_failure == :disabled, do: :persistent_term.erase(failure_key), else: :persistent_term.put(failure_key, previous_failure)
       if previous, do: Application.put_env(:aiur, :experiments_dir, previous), else: Application.delete_env(:aiur, :experiments_dir)
       File.rm_rf!(root)
     end)
@@ -152,6 +155,30 @@ defmodule Aiur.Experiments.StoreTest do
     File.rm_rf!(root)
     File.write!(root, "not a directory")
     assert {:error, :enotdir} = Experiments.list()
+  end
+
+  test "a pending-only create retry recovers before matching its key" do
+    start_supervised!({Store, journal_writer: fn _path, _entry -> {:error, :injected_failure} end})
+    input = Map.put(attrs(), :key, "pending:retry")
+    assert {:error, :injected_failure} = Experiments.create(input)
+    assert {:ok, [id]} = Paths.ids()
+    File.rm!(Paths.file(id, "spec.json"))
+    assert {:ok, %{id: ^id, existing: true}} = Experiments.create(input)
+    assert {:ok, [row]} = Experiments.list()
+    assert row.id == id
+    assert [%{"kind" => "created"}] = Experiments.journal(id)
+  end
+
+  test "corrupt pending transactions leave the optional child ignored and files untouched", %{root: root} do
+    File.mkdir_p!(Path.join(root, "broken"))
+    pending = Paths.file("broken", "pending.json")
+    File.write!(pending, "{")
+    assert Store.start_link() == :ignore
+    assert File.read!(pending) == "{"
+    assert Experiments.status().store == {:error, :unreadable}
+    report = CapabilityProvider.capabilities(%{})
+    assert report["experiments"] == %{state: :unavailable, reason: :store_unavailable}
+    assert Experiments.create(attrs()) == {:error, :disabled}
   end
 
   test "restart reconciles an audit entry appended before an ambiguous failure" do
