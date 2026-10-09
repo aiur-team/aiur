@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, AgentQueue, AgentQueueStore, AlertFeed, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, LifecycleFence, LifecycleFenceExpiry, PauseResume, State, StatusReport}
+  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, LifecycleFence, LifecycleFenceExpiry, PauseResume, RetryEngine, State, StatusReport}
 
   test "a never-acknowledged fence expires on the dispatch poll and dispatches rework with its input" do
     {state, issue, item} = fenced_state(:completed)
@@ -94,6 +94,9 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
     assert {:fenced, next} = LifecycleFence.reconcile_observed_state(state, issue)
     assert next.running[issue.id].lifecycle_fence.opened_at == opened_at
     assert next.running[issue.id].lifecycle_fence.pending_item_ids == MapSet.new([1, 2])
+    state = put_in(state.running[issue.id].lifecycle_fence.authoritative_state, nil)
+    assert {:fenced, first_observation} = LifecycleFence.reconcile_observed_state(state, issue)
+    assert first_observation.running[issue.id].lifecycle_fence.opened_at == opened_at
   end
 
   test "expiry keeps a live worker's failed input deliverable for subsequent rework" do
@@ -151,5 +154,22 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
     {store, item} = AgentQueueStore.enqueue(AgentQueueStore.new(), AgentQueue.operator_message(issue.identifier, "fix the review"))
     state = %State{queue_store: store, running: %{issue.id => entry}, claimed: MapSet.new([issue.id]), max_concurrent_agents: 2, effective_concurrent_agents: 2}
     {LifecycleFence.protect_queued_item(state, issue.identifier, item), issue, item}
+  end
+
+  test "abnormal worker exit after expiry restores its claims before scheduling rework retry" do
+    {state, issue, item} = fenced_state(:working)
+    ref = make_ref()
+    state = put_in(state.running[issue.id].ref, ref)
+    {store, _} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue.identifier)
+    state = %{state | queue_store: store}
+    opened_at = state.running[issue.id].lifecycle_fence.opened_at
+    expired = LifecycleFenceExpiry.reconcile(state, DateTime.add(opened_at, 120, :second))
+    assert {:noreply, next} = RetryEngine.handle_agent_down(expired, ref, :killed)
+    Process.cancel_timer(next.retry_attempts[issue.id].timer_ref)
+    refute Map.has_key?(next.running, issue.id)
+    assert next.retry_attempts[issue.id].identifier == issue.identifier
+    {_, retry} = AgentQueueStore.claim_next_deliverable(next.queue_store, issue.identifier)
+    assert retry.id == item.id
+    assert retry.body == item.body
   end
 end
