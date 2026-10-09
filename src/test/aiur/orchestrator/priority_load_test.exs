@@ -81,6 +81,7 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
     assert_in_delta capacity.gate_signal, 15.496, 0.0001
     assert capacity.load_sampled_at_ms == sampled_at
     assert result.effective_concurrent_agents == 4
+    assert result.load_envelope_state.overload_samples == 0
     output = capture_io(fn -> SystemLoad.print_dispatch_sample(capacity) end)
     assert output =~ "DISPATCH LOAD total=25.0 gate_signal=15.496"
     assert [_, age] = Regex.run(~r/sampled=(\d+)s ago/, output)

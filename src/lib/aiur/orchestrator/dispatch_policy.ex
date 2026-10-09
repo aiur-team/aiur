@@ -440,8 +440,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         queued_work?
       ) do
     envelope_state = state.load_envelope_state
-    overload_samples = SustainedLoad.count(load, target, schedulers, envelope_state)
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
+    overload_samples = SustainedLoad.count(SystemLoad.gate_signal(load, cpu_headroom, schedulers), target, schedulers, envelope_state)
 
     {effective, last_decrease_ms, bootstrap_complete?} =
       load_envelope_state(
