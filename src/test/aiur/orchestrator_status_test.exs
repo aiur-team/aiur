@@ -3882,6 +3882,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     on_exit(fn ->
       File.touch(release_file)
+      SubscriptionStore.stop(issue.identifier)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
     end)
@@ -3906,8 +3907,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     state = :sys.get_state(pid)
     replacement = Map.fetch!(state.running, "issue-completed-resume")
-    assert is_pid(replacement.pid)
-    assert Process.alive?(replacement.pid)
+    assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert replacement.pid != old_worker
     assert is_reference(replacement.ref)
     assert replacement.ref != old_ref
