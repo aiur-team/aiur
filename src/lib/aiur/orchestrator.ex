@@ -481,6 +481,10 @@ defmodule Aiur.Orchestrator do
 
   @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
+  @spec park_agent(String.t()) :: {:ok, :pending} | {:error, term()}
+  def park_agent(identifier), do: GenServer.call(__MODULE__, {:park_agent, identifier}, 5_000)
+  @spec unpark_agent(String.t()) :: :ok
+  def unpark_agent(identifier), do: GenServer.call(__MODULE__, {:unpark_agent, identifier}, 5_000)
   @spec pause_agent(GenServer.server(), String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(server, identifier), do: PauseResume.pause_agent(server, identifier)
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
@@ -765,6 +769,12 @@ defmodule Aiur.Orchestrator do
   def handle_call({:pause_agent, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: PauseResume.pause_agent_call(state, issue_identifier)
+
+  def handle_call({:park_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
+    do: PauseResume.park_agent_call(state, issue_identifier)
+
+  def handle_call({:unpark_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
+    do: PauseResume.unpark_agent_call(state, issue_identifier)
 
   def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
     do: PauseResume.pause_agent_call(state, identity)

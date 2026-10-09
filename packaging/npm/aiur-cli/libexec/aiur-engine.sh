@@ -481,6 +481,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
+       aiur park <ids> | unpark <ids>  release paused reservations; resume explicitly after unpark
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
@@ -4356,6 +4357,14 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    park | unpark)
+      shift
+      if ! parse_issue_targets "$@" || [ "$parsed_all" -eq 1 ]; then
+        echo "aiur: $cmd expects explicit issue IDs (e.g. aiur $cmd 44 45)" >&2
+        exit 64
+      fi
+      run_control_rpc "Aiur.AgentControlCLI.${cmd}($(elixir_list_literal "${parsed_targets[@]}"))"
       ;;
     reset-budget)
       shift
