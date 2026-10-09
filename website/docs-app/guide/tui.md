@@ -97,6 +97,8 @@ both servers. Pane isolation alone does not enable reconnecting after restart.
 
 Lifecycle hooks spool locally before posting to the dashboard and replay when the
 turn consumer reconnects. Each spool is capped at 16 MiB; reaching the cap rotates
-out older events. Only lifecycle and display fields are stored; tool inputs and
+out older events.
+
+Only lifecycle and display fields are stored; tool inputs and
 responses are omitted. Proven session teardown deletes the spool. If the spool
 cannot be written, hooks still post directly to the dashboard.
