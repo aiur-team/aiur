@@ -25,8 +25,11 @@ defmodule Aiur.CurrentRunProjections.Projector do
   defp fingerprint(results) do
     # Run time advances on every read; the existing clock path updates it without rebuilding rows.
     Map.update(results, :run, nil, fn
-      {:ok, run} -> {:ok, Map.drop(run, [:observed_at, :elapsed_ms])}
-      error -> error
+      {:ok, run} = result ->
+        if CurrentRunSummary.Facts.run(run).valid?, do: {:ok, Map.drop(run, [:observed_at, :elapsed_ms])}, else: result
+
+      result ->
+        result
     end)
   end
 

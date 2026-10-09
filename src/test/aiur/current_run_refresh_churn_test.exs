@@ -40,6 +40,15 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
     for _ <- 1..20, do: assert(:ok = CurrentRunProjections.refresh(owner))
     assert Agent.get(builds, & &1) == 4
     assert :sys.get_state(owner).last_race_signature != nil
+
+    Agent.update(source, &put_in(&1, [:run, :observed_at], ~U[2026-10-07 00:00:00Z]))
+    assert :ok = CurrentRunProjections.refresh(owner)
+    assert Agent.get(builds, & &1) == 5
+    assert CurrentRunProjections.snapshot(:outcomes, server: owner).state == :unavailable
+    Agent.update(source, &put_in(&1, [:run, :observed_at], nil))
+    assert :ok = CurrentRunProjections.refresh(owner)
+    assert Agent.get(builds, & &1) == 6
+    assert CurrentRunProjections.snapshot(:outcomes, server: owner).state == :unavailable
   end
 
   test "notification burst collects sources once" do
