@@ -21,6 +21,7 @@ defmodule Aiur.BuildQueueCLITest do
          tracker: Boundary,
          store: Boundary,
          claim_probe: Boundary,
+         build_order_projection: :absent_queue_cli_projection,
          settings: {:ok, settings()},
          clock: fn -> 2_000 end,
          exchange: :absent_queue_cli_exchange,
@@ -33,7 +34,8 @@ defmodule Aiur.BuildQueueCLITest do
     assert_received {^pid, {:reconcile, token}}
     send(pid, {:reconcile, token})
     model = BuildQueue.show(pid)
-    assert Map.keys(model) |> Enum.sort() == Enum.sort([:schema_version, :page, :instance, :snapshot, :status, :sources, :queues])
+    assert Map.keys(model) |> Enum.sort() == Enum.sort([:schema_version, :page, :instance, :snapshot, :status, :build_queue, :sources, :queues])
+    assert model.build_queue == %{build_order_source: false}
     assert model.schema_version == 1
     assert model.page == "build-queue"
     assert [queue] = model.queues
@@ -45,6 +47,7 @@ defmodule Aiur.BuildQueueCLITest do
     assert model.sources["tracker_observation"].age_ms == 1_000
     output = capture_io(fn -> assert BuildQueueCLI.run(server: pid, json: true, queue: "paseo") == 0 end)
     json = Jason.decode!(output)
+    assert json["build_queue"] == %{"build_order_source" => false}
     assert hd(json["queues"])["name"] == "paseo"
     refute output =~ "title"
     refute output =~ "body"

@@ -10,6 +10,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
 
   defmodule Boundary do
+    def blocked_by(_id), do: {:ok, []}
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
 
     def save(document) do
