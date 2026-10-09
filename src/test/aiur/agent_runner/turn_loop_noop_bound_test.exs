@@ -11,6 +11,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.Memory.Tracker
   alias Aiur.Orchestrator.{RetryEngine, State}
   alias Aiur.Workspace.Provisioner
 
@@ -82,7 +83,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert {:completed, %{state: state}} =
                run_loop(ctx,
                  run_turn: fn _s, _p, _i, _o ->
-                   :ok = Aiur.Memory.Tracker.update_issue_state("614309", "rework")
+                   :ok = Tracker.update_issue_state("614309", "rework")
                    {:ok, %{session_id: "noop-existing-pr"}}
                  end,
                  max_turns: nil,
