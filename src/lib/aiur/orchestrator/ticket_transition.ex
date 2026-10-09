@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.TicketTransition do
   The tracker label is authoritative: repeated writes retain adapter semantics.
   This owner never retries; callers reconcile labels before deciding again.
   Errors are returned unchanged. Transport/deadline failures have unknown outcomes.
+  `tracker:` names the facade-shaped module to call (default `Aiur.Tracker`); the
+  build queue passes its injected tracker so its writes are attributed here too.
   """
 
   require Logger
@@ -14,7 +16,8 @@ defmodule Aiur.Orchestrator.TicketTransition do
   def write_state(issue_id, to_state, opts) do
     writer = Keyword.fetch!(opts, :writer)
     true = is_atom(writer) and not is_nil(writer)
-    result = Tracker.update_issue_state(issue_id, to_state, Keyword.drop(opts, [:writer, :identifier]))
+    tracker = Keyword.get(opts, :tracker, Tracker)
+    result = tracker.update_issue_state(issue_id, to_state, Keyword.drop(opts, [:writer, :identifier, :tracker]))
     record(issue_id, :state, to_state, writer, opts, result)
     result
   end
@@ -23,7 +26,8 @@ defmodule Aiur.Orchestrator.TicketTransition do
   def write_marker(issue_id, action, label, opts) when action in [:add, :remove] do
     writer = Keyword.fetch!(opts, :writer)
     true = is_atom(writer) and not is_nil(writer)
-    result = if action == :add, do: Tracker.add_label(issue_id, label), else: Tracker.remove_label(issue_id, label)
+    tracker = Keyword.get(opts, :tracker, Tracker)
+    result = if action == :add, do: tracker.add_label(issue_id, label), else: tracker.remove_label(issue_id, label)
     record(issue_id, action, label, writer, opts, result)
     result
   end

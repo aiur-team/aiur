@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
     # Xref inspection is deprecated, but provides the compiled, alias-resolved calls this guard needs.
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
     calls = apply(Xref, :calls, [])
-    assert Enum.any?(calls, &(&1.callee == {Aiur.Tracker, :update_issue_state, 3})), "xref must collect real compiled calls"
+    assert Enum.any?(calls, &(&1.callee == {Aiur.Tracker, :fetch_issue_states_by_ids, 1})), "xref must collect real compiled calls"
 
     violations =
       Enum.filter(calls, fn %{callee: {module, function, _}, caller_module: caller, file: file} ->
@@ -25,6 +25,26 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
   test "dynamic tracker dispatch cannot bypass the transition owner" do
     violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_tracker_apply?(File.read!(path)), do: path
     assert violations == [], "Dynamic tracker apply bypasses TicketTransition: #{inspect(violations)}"
+  end
+
+  test "an injected tracker module cannot write labels outside the transition owner" do
+    violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_receiver_write?(File.read!(path)), do: path
+    assert violations == [], "Injected tracker write bypasses TicketTransition: #{inspect(violations)}"
+  end
+
+  defp dynamic_receiver_write?(source) do
+    {_, found?} =
+      source
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk(false, fn
+        {{:., _, [receiver, function]}, _, [_ | _]} = node, found when function in @write_functions ->
+          {node, found or not match?({:__aliases__, _, _}, receiver)}
+
+        node, found ->
+          {node, found}
+      end)
+
+    found?
   end
 
   defp adapter_path?(path) do
