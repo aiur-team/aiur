@@ -1,10 +1,9 @@
 defmodule Aiur.GitHub.QueueCost do
   @moduledoc "Attributes queue transition HTTP requests without changing tracker interfaces."
-  require Logger
 
   @spec tag(map()) :: map()
   def tag(request) do
-    if Logger.metadata()[:ticket_writer] == :build_queue do
+    if Process.get(:aiur_ticket_writer) == :build_queue do
       path = URI.parse(request.url).path || ""
 
       caller =

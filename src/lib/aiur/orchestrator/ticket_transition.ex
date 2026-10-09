@@ -33,13 +33,13 @@ defmodule Aiur.Orchestrator.TicketTransition do
   end
 
   defp with_writer(writer, fun) do
-    previous = Logger.metadata()[:ticket_writer]
-    Logger.metadata(ticket_writer: writer)
+    previous = Process.get(:aiur_ticket_writer)
+    Process.put(:aiur_ticket_writer, writer)
 
     try do
       fun.()
     after
-      Logger.metadata(ticket_writer: previous)
+      if previous == nil, do: Process.delete(:aiur_ticket_writer), else: Process.put(:aiur_ticket_writer, previous)
     end
   end
 

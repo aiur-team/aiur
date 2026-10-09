@@ -1,6 +1,5 @@
 defmodule Aiur.GitHub.QueueCostTest do
   use ExUnit.Case, async: false
-  require Logger
   alias Aiur.GitHub.{Quota, Transport}
   alias Aiur.Orchestrator.TicketTransition
 
@@ -53,7 +52,7 @@ defmodule Aiur.GitHub.QueueCostTest do
     assert :ok = TicketTransition.write_state("3083", "todo", writer: :build_queue, tracker: Tracker, expected_state: :none)
     assert :ok = TicketTransition.write_marker("3083", :add, "agent:queued", writer: :build_queue, tracker: Tracker)
     assert :ok = TicketTransition.write_marker("3083", :remove, "agent:todo", writer: :build_queue, tracker: Tracker)
-    assert Logger.metadata()[:ticket_writer] == nil
+    assert Process.get(:aiur_ticket_writer) == nil
     assert {:ok, %{status: 200}} = Tracker.request(:post, "3083", "/labels")
 
     callers = Map.new(Quota.snapshot(quota).callers, &{&1.caller, &1.calls})
@@ -68,8 +67,8 @@ defmodule Aiur.GitHub.QueueCostTest do
   end
 
   test "tracker exception restores previous attribution" do
-    Logger.metadata(ticket_writer: :outer)
+    Process.put(:aiur_ticket_writer, :outer)
     assert_raise RuntimeError, "tracker failed", fn -> TicketTransition.write_marker("1", :add, "agent:queued", writer: :build_queue, tracker: BrokenTracker) end
-    assert Logger.metadata()[:ticket_writer] == :outer
+    assert Process.get(:aiur_ticket_writer) == :outer
   end
 end
