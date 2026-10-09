@@ -1,5 +1,3 @@
-Code.require_file("../support/dashboard_font_assertions.ex", __DIR__)
-
 defmodule Aiur.ExtensionsTest do
   use Aiur.TestSupport
 
