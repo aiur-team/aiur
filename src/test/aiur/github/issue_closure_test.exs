@@ -1,5 +1,6 @@
 defmodule Aiur.GitHub.IssueClosureTest do
   use Aiur.TestSupport
+  alias Aiur.BuildQueue.Settings
   alias Aiur.GitHub.{Issues, Tracker}
 
   defmodule Client do
@@ -36,9 +37,10 @@ defmodule Aiur.GitHub.IssueClosureTest do
   test "tracker maps state with attributed freshness-bounded read" do
     Process.put(:closure_response, {:ok, %{"state" => "closed", "state_reason" => "not_planned"}, :fresh})
     assert Tracker.issue_closure("77") == {:ok, %{open?: false, state_reason: "not_planned"}}
+    assert Aiur.Tracker.issue_closure("77") == {:ok, %{open?: false, state_reason: "not_planned"}}
     assert_received {:closure_read, "77", opts}
     assert opts[:caller] == "build_queue_observe"
-    assert opts[:freshness_ms] == Aiur.BuildQueue.Settings.observation_max_age_ms(Aiur.Config.settings!())
+    assert opts[:freshness_ms] == Settings.observation_max_age_ms(Aiur.Config.settings!())
     Process.put(:closure_response, {:ok, %{"state" => "open", "state_reason" => nil}, :fetched})
     assert Tracker.issue_closure("77") == {:ok, %{open?: true, state_reason: nil}}
     Process.put(:closure_response, {:error, :timeout})
