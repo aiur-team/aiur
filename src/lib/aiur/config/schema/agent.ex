@@ -81,6 +81,7 @@ defmodule Aiur.Config.Schema.Agent do
     # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
     field(:max_concurrent_builds, :integer, default: 4)
+    field(:build_nice, :integer, default: 10)
     # Minimum spacing between local Mix compile/test starts when more than one
     # build may run concurrently. 0 disables start pacing.
     field(:build_start_stagger_seconds, :integer, default: 0)
@@ -221,6 +222,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_concurrent_agents,
         :run_queue_threshold,
         :max_concurrent_builds,
+        :build_nice,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
         :build_gate_max_hold_seconds,
@@ -261,6 +263,8 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_change(:accounts, &validate_accounts/2)
     |> validate_number(:run_queue_threshold, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
+    |> validate_required([:build_nice])
+    |> validate_number(:build_nice, greater_than_or_equal_to: 0, less_than_or_equal_to: 19)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:build_gate_max_hold_seconds, greater_than_or_equal_to: 0)
