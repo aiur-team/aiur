@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{Slots, State, SustainedLoad}
 
   @cpu_headroom_ramp_max 3
   @reclaimable_cpu_threshold 60.0
@@ -443,6 +443,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         queued_work?
       ) do
     envelope_state = state.load_envelope_state
+    overload_samples = SustainedLoad.count(load, target, schedulers, envelope_state)
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
 
     {effective, last_decrease_ms, bootstrap_complete?} =
@@ -452,6 +453,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         load,
         %{
           target: target,
+          overload_samples: overload_samples,
           schedulers: schedulers,
           static_limit: Slots.max_concurrent_agent_limit(state),
           ramp_step: Config.load_ramp_step(),
@@ -469,6 +471,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       | effective_concurrent_agents: effective,
         load_envelope_state: %{
           last_decrease_ms: last_decrease_ms,
+          overload_samples: overload_samples,
           cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot),
           bootstrap_complete?: bootstrap_complete?
         }
@@ -508,25 +511,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do
-    decrease_load_envelope(effective, last_decrease_ms, options)
+    SustainedLoad.decrease(effective, last_decrease_ms, options)
   end
-
-  defp decrease_load_envelope(effective, last_decrease_ms, %{
-         cooldown_ms: cooldown_ms,
-         now_ms: now_ms
-       }) do
-    if cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) do
-      reduced = max(div(effective + 1, 2), 1)
-      {reduced, next_decrease_time(effective, reduced, last_decrease_ms, now_ms)}
-    else
-      {effective, last_decrease_ms}
-    end
-  end
-
-  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective,
-    do: now_ms
-
-  defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
 
   defp clear_cpu_headroom?(headroom) when is_map(headroom) do
     case reclaimable_cpu_percent(headroom) do
@@ -598,11 +584,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        do: min(effective, static_limit)
 
   defp normalize_load_envelope_limit(_effective, static_limit), do: static_limit
-
-  defp cooldown_elapsed?(nil, _cooldown_ms, _now_ms), do: true
-
-  defp cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms),
-    do: now_ms - last_decrease_ms >= cooldown_ms
 
   @spec sort_issues_for_dispatch([term()]) :: [term()]
   def sort_issues_for_dispatch(issues) when is_list(issues) do
