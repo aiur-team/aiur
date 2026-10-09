@@ -14,50 +14,68 @@ defmodule Aiur.BuildQueue.Attention do
   @system_causes [:inputs_unavailable, :store_unavailable]
   @fields [:ticket, :prerequisite, :queue_id, :root, :blocked, :cause, :milestone, :percent, :generation, :freshness]
 
-  @spec open(atom(), String.t() | nil, map()) :: :ok | {:error, term()}
-  def open(cause, subject, payload) when is_map(payload) do
+  @spec open(atom() | tuple(), String.t() | nil, map()) :: :ok | {:error, term()}
+  @spec open(atom() | tuple(), String.t() | nil, map(), keyword()) :: :ok | {:error, term()}
+  def open(cause, subject, payload, opts \\ [])
+
+  def open(cause, subject, payload, opts) when is_map(payload) do
+    store = Keyword.get(opts, :store, Store)
     payload = Map.take(payload, @fields)
 
-    with :ok <- validate(cause, subject, payload),
-         {:ok, document} <- Store.load() do
+    with :ok <- validate(kind(cause), subject, payload),
+         {:ok, document} <- store.load() do
       key = {cause, subject}
-      latch = Enum.find(document.latches, &(&1.key == key)) || %Latch{key: key, opened_at_ms: System.system_time(:millisecond)}
-      open_latch(document, latch, payload)
+      latch = Enum.find(document.latches, &(&1.key == key)) || %Latch{key: key, opened_at_ms: Keyword.get_lazy(opts, :now_ms, fn -> System.system_time(:millisecond) end)}
+      open_latch(document, latch, payload, store)
     end
   end
 
-  def open(_, _, _), do: {:error, :invalid_attention}
-  defp open_latch(_document, %Latch{emitted?: true}, _payload), do: :ok
+  def open(_, _, _, _), do: {:error, :invalid_attention}
+  defp open_latch(_document, %Latch{emitted?: true}, _payload, _store), do: :ok
 
-  defp open_latch(document, latch, payload) do
+  defp open_latch(document, latch, payload, store) do
     {cause, subject} = latch.key
 
-    with :ok <- save_latch(document, latch),
-         :ok <- emit(cause, subject, payload, false) do
-      save_latch(document, %{latch | emitted?: true})
+    with :ok <- save_latch(document, latch, store),
+         :ok <- emit(kind(cause), subject, payload, false) do
+      save_latch(document, %{latch | emitted?: true}, store)
     end
   end
 
-  @spec resolve(atom(), String.t() | nil) :: :ok | {:error, term()}
-  def resolve(cause, subject) do
-    with :ok <- validate(cause, subject, %{}),
-         {:ok, document} <- Store.load() do
+  @spec resolve(atom() | tuple(), String.t() | nil) :: :ok | {:error, term()}
+  @spec resolve(atom() | tuple(), String.t() | nil, module()) :: :ok | {:error, term()}
+  def resolve(cause, subject, store \\ Store) do
+    with :ok <- validate(kind(cause), subject, %{}),
+         {:ok, document} <- store.load() do
       case Enum.find(document.latches, &(&1.key == {cause, subject})) do
         nil -> :ok
-        latch -> resolve_latch(document, latch)
+        latch -> resolve_latch(document, latch, store)
       end
     end
   end
 
-  defp resolve_latch(document, latch) do
+  defp resolve_latch(document, latch, store) do
     {cause, subject} = latch.key
 
-    with :ok <- emit(cause, subject, %{}, true) do
-      Store.save(%{document | latches: Enum.reject(document.latches, &(&1.key == latch.key))})
+    with :ok <- emit(kind(cause), subject, %{}, true) do
+      save_store(store, %{document | latches: Enum.reject(document.latches, &(&1.key == latch.key))})
     end
   end
 
-  defp save_latch(document, latch), do: Store.save(%{document | latches: [latch | Enum.reject(document.latches, &(&1.key == latch.key))]})
+  defp save_latch(document, latch, store), do: save_store(store, %{document | latches: [latch | Enum.reject(document.latches, &(&1.key == latch.key))]})
+
+  defp save_store(store, document) do
+    case store.save(document) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:store_unavailable, reason}}
+    end
+  end
+
+  @spec transient_store(boolean()) :: :ok | {:error, term()}
+  def transient_store(resolved?), do: emit(:store_unavailable, nil, %{}, resolved?)
+
+  defp kind({:prerequisite_failed, reason}) when reason in [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate], do: :prerequisite_failed
+  defp kind(cause), do: cause
 
   # One Alerts seam; only the local feed gets the human-readable copy.
   defp emit(cause, subject, payload, resolved?) do
@@ -108,12 +126,14 @@ defmodule Aiur.BuildQueue.Attention do
     "##{subject} #{reason}; #{blocked} wait on it. Re-plan or remove the dependents; ask before reopening the prerequisite."
   end
 
-  defp message(:dependency_changed_after_start, subject, payload),
-    do: "##{subject} gained prerequisite ##{payload[:prerequisite]} after it started. Decide whether it pauses; ask the human if unsure."
+  defp message(:dependency_changed_after_start, subject, payload) do
+    prerequisite = if payload[:prerequisite], do: " (prerequisite ##{payload[:prerequisite]})", else: ""
+    "##{subject} became unready after it started#{prerequisite}. Decide whether it pauses; ask the human if unsure."
+  end
 
   defp message(:promoted_unauthorized, subject, _), do: "##{subject} is ready but dispatch is not authorized for it. An allowed human must apply the marker or agent:todo, or hold it."
   defp message(:merged_issue_open, subject, _), do: "The PR for ##{subject} merged; the issue is still open. Close it or explain why it stays open."
   defp message(:inputs_unavailable, _, _), do: "Queue readiness unknown: inputs unavailable. Wait; do not promote by hand."
   defp message(:store_unavailable, _, _), do: "Queue store unavailable; promotion paused. Report it; do not edit labels by hand."
-  defp message(:write_failed, subject, _), do: "Cannot write the todo label on ##{subject}. Check GitHub budget and auth; retry with aiur queue recover."
+  defp message(:write_failed, subject, _), do: "Cannot write queue labels on ##{subject}. Check GitHub budget and auth; retry with aiur queue recover."
 end

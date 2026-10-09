@@ -31,6 +31,10 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 The catalog's **Tickets completed** percentage counts accepted completions over all members. With partial lifecycle coverage, the percentage is a lower bound and the resolved count appears alongside it.
 
+Build Order completion progress announces the highest newly reached 25%, 50%, 75% or 100% milestone on `system.build_order.<root>.progress`, independently of queue adoption.
+
+Events use the catalog’s rounded percent and suppress milestones while provider health is unusable. A fully resolved root falling below 100% after its completion milestone starts a new durable generation.
+
 In a selected Build Order, **Estimated work progress** combines reported work estimates using member complexity weights. It can advance before any ticket is complete. Last-known estimates show their age; unavailable member measurements remain unknown.
 
 Partial aggregates divide known work by the weight of all members, so unresolved members cannot inflate the percentage.
@@ -134,3 +138,25 @@ Adoption brings pre-labelled blocked members under queue control: the queue hold
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+
+## Queue attentions
+
+Queue faults emit once per cause and subject, then emit `.resolved` when cleared.
+
+| Cause | Opens | Clears |
+| --- | --- | --- |
+| `prerequisite_failed` | Agent error, closed-unmerged PR, not-planned or duplicate closure | No dependent edge still has that cause; unknown evidence retains the latch |
+| `dependency_changed_after_start` | A promoted, claimed ticket becomes unready | Readiness returns or the ticket completes |
+| `write_failed` | Five consecutive queue-label write failures | Next successful write |
+| `merged_issue_open` | A prerequisite PR merged and the issue remains open past the grace | Issue closes |
+| `inputs_unavailable` | Inputs remain unknown for twice the observation age | All inputs become current |
+| `store_unavailable` | Queue store cannot load or save | Store recovers |
+
+A prerequisite failure names the prerequisite and lists direct dependents before
+transitive dependents. Changing that set does not re-fire; changing the failure
+cause does. Durable latches survive restarts.
+
+Ticket topics use `ticket.<id>.queue.attention.<cause>`; input and store faults
+use `system.queue.attention.<cause>`. The store fault uses an in-memory latch:
+a restart with a still-broken store emits once again per boot. Queue promotion
+stays paused while the store is unavailable.

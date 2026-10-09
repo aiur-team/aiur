@@ -11,6 +11,8 @@ defmodule Aiur.BuildQueueFakeTracker do
   def clock, do: get(:now)
   def sleep(delay), do: put(:delays, (get(:delays) || []) ++ [delay])
 
+  def load, do: {:ok, get(:document)}
+
   def save(document) do
     put(:saves, get(:saves) ++ [document])
 

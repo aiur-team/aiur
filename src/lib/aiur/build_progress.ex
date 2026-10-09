@@ -2,17 +2,19 @@ defmodule Aiur.BuildProgress do
   @moduledoc """
   Current queue and Build Order progress facts, with durable milestone latches.
 
-  Producers own counts, percent and generation. Reads return a list of facts
-  for `:all` or one scope. Facts are volatile; only announced milestones survive
-  restart. Corrupt or unavailable storage disables milestones until restart,
+  Producers own counts and percent; Build Order generations are assigned durably.
+  Reads return facts for `:all` or one scope. Facts are volatile; milestone
+  latches and Build Order generation markers survive restart. Corrupt or unavailable
+  storage disables milestones until restart,
   while reads and change signals continue. Persisting before publication favors
   a missed notification over a repeated one if the daemon crashes between them.
+  Generation tracking and milestone writes share this owner to serialize persistence.
   """
   use GenServer
 
   require Logger
 
-  alias Aiur.{Alerts, Config.Paths, JsonStore}
+  alias Aiur.{Alerts, BuildOrder.ProgressGeneration, Config.Paths, JsonStore}
 
   @topic "build_progress"
   @changed_fields [:percent, :resolution, :freshness, :generation]
@@ -27,6 +29,9 @@ defmodule Aiur.BuildProgress do
   def put_fact(fact, server \\ __MODULE__) do
     GenServer.call(server, {:put_fact, fact})
   end
+
+  @spec put_build_order_fact(map(), GenServer.server()) :: :ok | {:error, :invalid_fact}
+  def put_build_order_fact(fact, server \\ __MODULE__), do: GenServer.call(server, {:put_build_order_fact, fact})
 
   @spec facts(:all | scope(), GenServer.server()) :: [map()]
   def facts(filter \\ :all, server \\ __MODULE__) do
@@ -46,6 +51,17 @@ defmodule Aiur.BuildProgress do
   def handle_call({:facts, :all}, _from, state), do: {:reply, Map.values(state.facts), state}
   def handle_call({:facts, scope}, _from, state), do: {:reply, state.facts |> Map.take([scope]) |> Map.values(), state}
 
+  def handle_call({:put_build_order_fact, %{scope: {:build_order, _}} = fact}, from, state) do
+    if valid_fact?(Map.put(fact, :generation, 1)) do
+      fact = ProgressGeneration.assign(fact, state.latches, Map.get(state.facts, fact.scope))
+      handle_call({:put_fact, fact}, from, state)
+    else
+      {:reply, {:error, :invalid_fact}, state}
+    end
+  end
+
+  def handle_call({:put_build_order_fact, _fact}, _from, state), do: {:reply, {:error, :invalid_fact}, state}
+
   def handle_call({:put_fact, fact}, _from, state) do
     if valid_fact?(fact) do
       previous = Map.get(state.facts, fact.scope)
@@ -55,11 +71,31 @@ defmodule Aiur.BuildProgress do
         Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:build_progress_changed, fact})
       end
 
-      {:reply, :ok, announce(fact, state)}
+      {:reply, :ok, announce(fact, remember_generation(fact, state))}
     else
       {:reply, {:error, :invalid_fact}, state}
     end
   end
+
+  defp remember_generation(%{scope: {:build_order, id}, generation: generation}, %{latches: latches} = state) when is_map(latches) do
+    key = Jason.encode!([:build_order, id, generation])
+
+    if Map.has_key?(latches, key) do
+      state
+    else
+      latches = Map.put(latches, key, 0)
+
+      case persist(state.path, latches) do
+        :ok ->
+          %{state | latches: latches}
+
+        {:error, reason} ->
+          disable_milestones(reason, state)
+      end
+    end
+  end
+
+  defp remember_generation(_fact, state), do: state
 
   defp valid_fact?(%{
          scope: {kind, id},
@@ -72,7 +108,7 @@ defmodule Aiur.BuildProgress do
          freshness: freshness,
          observed_at: observed_at
        }) do
-    kind in [:queue, :build_order] and valid_identity?(id) and valid_identity?(generation) and
+    kind in [:queue, :build_order] and valid_identity?(id) and valid_generation?(generation) and
       valid_counts?(completed, resolved, total) and
       valid_percent?(percent) and
       resolution in [:resolved, :partial, :unresolved, :unknown] and freshness in [:current, :stale, :unknown] and
@@ -81,6 +117,7 @@ defmodule Aiur.BuildProgress do
 
   defp valid_fact?(_fact), do: false
   defp valid_identity?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value > 0)
+  defp valid_generation?(value), do: (is_integer(value) and value >= 0) or (is_binary(value) and value != "")
   defp valid_percent?(nil), do: true
   defp valid_percent?(percent), do: is_number(percent) and percent >= 0 and percent <= 100
 
@@ -124,9 +161,13 @@ defmodule Aiur.BuildProgress do
         %{state | latches: latches}
 
       {:error, reason} ->
-        unavailable(reason)
-        %{state | latches: nil}
+        disable_milestones(reason, state)
     end
+  end
+
+  defp disable_milestones(reason, state) do
+    unavailable(reason)
+    %{state | latches: nil}
   end
 
   defp persist(path, latches) do
@@ -157,7 +198,8 @@ defmodule Aiur.BuildProgress do
   defp valid_latch?({key, milestone}) do
     case Jason.decode(key) do
       {:ok, [kind, id, generation]} ->
-        kind in ["queue", "build_order"] and valid_identity?(id) and valid_identity?(generation) and milestone in [25, 50, 75, 100]
+        kind in ["queue", "build_order"] and valid_identity?(id) and valid_generation?(generation) and
+          (milestone in [25, 50, 75, 100] or (kind == "build_order" and milestone == 0))
 
       _ ->
         false
