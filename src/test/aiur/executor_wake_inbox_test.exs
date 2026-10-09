@@ -268,10 +268,10 @@ defmodule Aiur.ExecutorWakeInboxTest do
   end
 
   test "restores cached stats from a persisted cursor and backlog", %{opts: opts} do
-    :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
+    :ok = Aiur.Journal.prepare(Path.dirname(opts[:path]), opts[:path])
 
     for id <- 1..3 do
-      :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(id, Integer.to_string(id)), "wake_id", id))
+      :ok = Aiur.Journal.append(opts[:path], Map.put(record(id, Integer.to_string(id)), "wake_id", id))
     end
 
     :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 1})
@@ -281,10 +281,10 @@ defmodule Aiur.ExecutorWakeInboxTest do
   end
 
   test "refuses a missing wake id inside the durable range", %{opts: opts} do
-    :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
+    :ok = Aiur.Journal.prepare(Path.dirname(opts[:path]), opts[:path])
 
     for id <- [1, 3] do
-      :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(id, Integer.to_string(id)), "wake_id", id))
+      :ok = Aiur.Journal.append(opts[:path], Map.put(record(id, Integer.to_string(id)), "wake_id", id))
     end
 
     start_supervised!({ExecutorWakeInbox, opts})
@@ -297,8 +297,8 @@ defmodule Aiur.ExecutorWakeInboxTest do
   end
 
   test "refuses an absent wake id below the cursor", %{opts: opts} do
-    :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
-    :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(3, "3"), "wake_id", 3))
+    :ok = Aiur.Journal.prepare(Path.dirname(opts[:path]), opts[:path])
+    :ok = Aiur.Journal.append(opts[:path], Map.put(record(3, "3"), "wake_id", 3))
     :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
     start_supervised!({ExecutorWakeInbox, opts})
     assert {:ok, _claim} = Claims.claim("covered-window")
