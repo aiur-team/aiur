@@ -14,7 +14,9 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp derive(f) do
     cond do
+      Map.has_key?(Keyword.get(f.context.opts, :source_verdicts, %{}), f.item.issue_id) -> result(:unknown, elem(f.verdict, 1))
       is_nil(f.observation) -> result(:unknown, :observation_unavailable)
+      awaiting_marker?(f) -> result(:unknown, :marker_pending)
       "#{f.prefix}:queued" not in f.labels -> result(:removed, nil, {:dequeue, f.item.issue_id})
       f.observation.open? == false -> closed(f.observation)
       f.observation.open? == :unknown -> result(:unknown, :observation_unavailable)
@@ -23,15 +25,29 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     end
   end
 
+  defp awaiting_marker?(f) do
+    marker = Enum.find(Enum.reverse(f.context.input.intents), &(&1.issue_id == f.item.issue_id and &1.action in [:mark, :unmark]))
+    "#{f.prefix}:queued" not in f.labels and marker != nil and marker.action == :mark and marker.outcome != :ok
+  end
+
   defp managed(f) do
     cond do
       f.item.override != nil -> result(:overridden, f.item.override)
-      f.todo and not own_promotion?(f) -> result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+      f.todo and not own_promotion?(f) -> manual_promotion(f)
       awaiting_promotion?(f) -> result(:unknown, :awaiting_promotion_observation)
       external_removal?(f) -> external_hold(f)
       held?(f) -> result(:held, f.item.hold || :queue_hold)
       true -> managed_labels(f)
     end
+  end
+
+  defp manual_promotion(f) do
+    if adoption_withdrawal?(f), do: withdrawal(f), else: result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+  end
+
+  defp adoption_withdrawal?(f) do
+    Map.fetch!(f.context.queues, f.item.queue_id).kind == :build_order and f.todo and
+      f.item.override == nil and not own_promotion?(f) and f.verdict != :ready
   end
 
   defp managed_labels(f) do

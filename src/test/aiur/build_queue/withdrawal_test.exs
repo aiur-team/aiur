@@ -41,8 +41,8 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
   end
 
   setup do
-    queue = %Model.Queue{id: "q", name: "Q", kind: :build_order, root: 1, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
-    item = %Model.Item{issue_id: "1", queue_id: "q", position: nil, hold: nil, override: nil, promoted_at: DateTime.from_unix!(0), added_at: queue.created_at}
+    queue = %Model.Queue{id: "q", name: "Q", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
+    item = %Model.Item{issue_id: "1", queue_id: "q", position: 0, hold: nil, override: nil, promoted_at: DateTime.from_unix!(0), added_at: queue.created_at}
     edge = %Model.Edge{prerequisite: "2", dependent: "1", source: :native}
     document = %{queues: [queue], items: [item], edges: [edge], intents: [], latches: []}
 

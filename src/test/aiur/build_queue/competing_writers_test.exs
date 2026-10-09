@@ -8,6 +8,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     def open_issue_labels(_age), do: Agent.get(__MODULE__, fn s -> {:ok, Map.new(s.labels, fn {id, labels} -> {id, %{labels: labels}} end), s.now} end)
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
+    def blocked_by(_id), do: {:ok, []}
     def notify_demand(_ids), do: :ok
 
     def save(document) do
@@ -30,8 +31,8 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
   end
 
   setup do
-    queue = %Model.Queue{id: "q", name: "Q", kind: :build_order, root: 1, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
-    items = for id <- ["1", "2"], do: %Model.Item{issue_id: id, queue_id: "q", position: nil, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
+    queue = %Model.Queue{id: "q", name: "Q", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
+    items = for id <- ["1", "2"], do: %Model.Item{issue_id: id, queue_id: "q", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
     document = %{queues: [queue], items: items, edges: [%Model.Edge{prerequisite: "1", dependent: "2", source: :native}], intents: [], latches: []}
     pid = start_supervised!({Agent, fn -> %{document: document, now: 1_000, labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]}, calls: [], save_error: nil} end})
     Process.register(pid, Boundary)
