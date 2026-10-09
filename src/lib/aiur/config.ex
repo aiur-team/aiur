@@ -5,8 +5,7 @@ defmodule Aiur.Config do
 
   alias Aiur.AgentEnvironment
   alias Aiur.BuildGate
-  alias Aiur.Config.RoutingValue
-  alias Aiur.Config.{Capture, Schema, SemanticChecks}
+  alias Aiur.Config.{Capture, RoutingValue, Schema, SemanticChecks}
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.Codex, as: CodexSchema
   alias Aiur.Config.Schema.EnvResolver
