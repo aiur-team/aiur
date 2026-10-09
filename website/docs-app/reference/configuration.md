@@ -407,9 +407,7 @@ Local Codex turns use Aiur's shared build admission.
 Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
 or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
 `--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
-holds one live-token lease. Playwright CLI runs (including the `src/browser` harness)
-share this host-wide cap and admit at most one browser run per workspace. Run only
-affected browser specs locally; CI runs the full harness.
+holds one live-token lease. Playwright CLI runs (including `src/browser`) share the host cap and serialize per workspace. Run only affected browser specs locally; CI runs the full harness.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
