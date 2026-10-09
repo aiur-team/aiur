@@ -44,17 +44,17 @@ defmodule AiurWeb.BuildQueue.Panel do
     <section data-queue-id={@queue.queue_id}>
       <h3>{@queue.name} <span :if={@queue.held} class="badge">{Copy.text(:held_queue)}</span></h3>
       <p data-queue-progress={Copy.progress_state(@queue)}>{Copy.progress(@queue)}</p>
-      <div style="overflow-x: auto">
-        <table class="bo-catalog-table">
+      <div style="overflow-x: auto" tabindex="0" role="region" aria-label="Build queue items">
+        <table class="bo-catalog-table" style="min-width: 48rem">
           <thead><tr>
             <th :for={key <- [:position, :ticket, :state, :waiting_on, :rank, :attentions]} scope="col">{Copy.text(key)}</th>
           </tr></thead>
           <tbody>
             <tr :for={item <- @queue.items} data-queue-item={item.number} data-item-state={item.state}>
               <td>{item.position || Copy.text(:none)}</td>
-              <td>#{item.number}</td>
+              <td style="white-space: nowrap">#{item.number}</td>
               <td class={if(@dimmed, do: "muted")} style={if(@dimmed, do: "opacity: 0.6")} data-readiness-dimmed={@dimmed}>
-                <span class="badge">{Copy.label(if(@dimmed, do: :unknown, else: item.state))}</span>
+                <span class="badge" style="white-space: nowrap">{Copy.label(if(@dimmed, do: :unknown, else: item.state))}</span>
                 <span :if={Map.get(item, :reason)}>{Copy.reason(item.reason)}</span>
               </td>
               <td>
