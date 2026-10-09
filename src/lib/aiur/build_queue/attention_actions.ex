@@ -13,7 +13,7 @@ defmodule Aiur.BuildQueue.AttentionActions do
   defp perform(context, {action, {cause, id}}) do
     result =
       case action do
-        :attention_open -> Attention.open(cause, id, payload(cause, id, context), context.store)
+        :attention_open -> Attention.open(cause, id, payload(cause, id, context), store: context.store, now_ms: context.clock.())
         :attention_resolve -> Attention.resolve(cause, id, context.store)
       end
 

@@ -15,16 +15,17 @@ defmodule Aiur.BuildQueue.Attention do
   @fields [:ticket, :prerequisite, :queue_id, :root, :blocked, :cause, :milestone, :percent, :generation, :freshness]
 
   @spec open(atom() | tuple(), String.t() | nil, map()) :: :ok | {:error, term()}
-  @spec open(atom() | tuple(), String.t() | nil, map(), module()) :: :ok | {:error, term()}
-  def open(cause, subject, payload, store \\ Store)
+  @spec open(atom() | tuple(), String.t() | nil, map(), keyword()) :: :ok | {:error, term()}
+  def open(cause, subject, payload, opts \\ [])
 
-  def open(cause, subject, payload, store) when is_map(payload) do
+  def open(cause, subject, payload, opts) when is_map(payload) do
+    store = Keyword.get(opts, :store, Store)
     payload = Map.take(payload, @fields)
 
     with :ok <- validate(kind(cause), subject, payload),
          {:ok, document} <- store.load() do
       key = {cause, subject}
-      latch = Enum.find(document.latches, &(&1.key == key)) || %Latch{key: key, opened_at_ms: System.system_time(:millisecond)}
+      latch = Enum.find(document.latches, &(&1.key == key)) || %Latch{key: key, opened_at_ms: Keyword.get_lazy(opts, :now_ms, fn -> System.system_time(:millisecond) end)}
       open_latch(document, latch, payload, store)
     end
   end

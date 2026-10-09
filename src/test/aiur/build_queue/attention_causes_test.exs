@@ -12,7 +12,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
     def issue_closure(_id, _age), do: Agent.get(__MODULE__, &{:ok, %{open?: false, state_reason: &1.close_reason}})
     def ticket_pull_request(_id), do: {:ok, nil}
-    def blocked_by(_id), do: {:ok, []}
+    def blocked_by(_id), do: Agent.get(__MODULE__, fn s -> if s.native_available, do: {:ok, []}, else: {:error, :offline} end)
     def notify_demand(_ids), do: :ok
     def ensure_labels(_labels), do: :ok
     def add_label(_id, _label), do: Agent.get(__MODULE__, & &1.write_result)
@@ -48,7 +48,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     end)
 
     labels = Map.new(["11", "12"], &{&1, %{labels: ["agent:queued"]}}) |> Map.put("10", %{labels: ["agent:error"]})
-    pid = start_supervised!({Agent, fn -> %{now: 10_000, available: true, labels: labels, write_result: :ok, close_reason: "completed"} end})
+    pid = start_supervised!({Agent, fn -> %{now: 10_000, available: true, labels: labels, write_result: :ok, close_reason: "completed", native_available: true} end})
     Process.register(pid, Boundary)
     queue = %{hd(PlannerFixture.input().queues) | id: "q-abcd", held: true}
     items = for id <- ["11", "12"], do: %{PlannerFixture.item(id) | queue_id: queue.id}
@@ -73,6 +73,25 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     resolved = topic <> ".resolved"
     assert_received {:event, %{topic: ^resolved}}
     assert {:ok, %{latches: []}} = Store.load()
+  end
+
+  test "a failed prerequisite publication retries on the next reconcile" do
+    pid = server()
+    generator = Process.whereis(Aiur.Events.IdGenerator)
+    Process.unregister(Aiur.Events.IdGenerator)
+
+    try do
+      reconcile(pid)
+      assert {:ok, %{latches: [%{key: {{:prerequisite_failed, :agent_error}, "10"}, emitted?: false}]}} = Store.load()
+    after
+      Process.register(generator, Aiur.Events.IdGenerator)
+    end
+
+    reconcile(pid)
+    topic = "ticket.10.queue.attention.prerequisite_failed"
+    assert_received {:event, %{topic: ^topic, blocked: ["11", "12"]}}
+    refute_received {:event, %{topic: ^topic}}
+    assert {:ok, %{latches: [%{emitted?: true}]}} = Store.load()
   end
 
   test "direct dependents precede transitive dependents; changed blocked set does not re-fire" do
@@ -112,6 +131,13 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     reconcile(pid)
     topic = "ticket.11.queue.attention.dependency_changed_after_start"
     assert_received {:event, %{topic: ^topic, prerequisite: "10"}}
+    change(available: false)
+    reconcile(pid)
+    resolved = topic <> ".resolved"
+    refute_received {:event, %{topic: ^resolved}}
+    change(available: true)
+    reconcile(pid)
+    refute_received {:event, %{topic: ^topic}}
     Agent.update(Boundary, &%{&1 | labels: Map.delete(&1.labels, "10")})
     reconcile(pid)
     resolved = topic <> ".resolved"
@@ -134,6 +160,23 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     reconcile(pid)
     refute_received {:event, %{topic: ^topic}}
     change(available: true)
+    reconcile(pid)
+    resolved = topic <> ".resolved"
+    assert_received {:event, %{topic: ^resolved}}
+  end
+
+  test "a native dependency outage alerts even with a current listing" do
+    {:ok, doc} = Store.load()
+    :ok = Store.save(%{doc | queues: Enum.map(doc.queues, &%{&1 | held: false})})
+    Agent.update(Boundary, &%{&1 | labels: Map.delete(&1.labels, "10"), native_available: false})
+    pid = server()
+    reconcile(pid)
+    change(now: 12_000)
+    reconcile(pid)
+    topic = "system.queue.attention.inputs_unavailable"
+    assert_received {:event, %{topic: ^topic}}
+    assert :sys.get_state(pid).freshness == :fresh
+    change(native_available: true)
     reconcile(pid)
     resolved = topic <> ".resolved"
     assert_received {:event, %{topic: ^resolved}}
@@ -250,6 +293,40 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     assert_received {:event, %{topic: ^resolved}}
     {:ok, doc} = Store.load()
     refute Enum.any?(doc.latches, &(&1.key == {:write_failed, "11"}))
+  end
+
+  test "write attention resolution retries after restart without another label write" do
+    labels("10", [])
+    pid = server()
+    reconcile(pid)
+    change(write_result: {:error, :offline})
+    for _ <- 1..2, do: GenServer.call(pid, {:write, :mark, "11"})
+    topic = "ticket.11.queue.attention.write_failed"
+    assert_received {:event, %{topic: ^topic}}
+    stop_supervised!(Server)
+    pid = server()
+    reconcile(pid)
+    resolved = topic <> ".resolved"
+    refute_received {:event, %{topic: ^resolved}}
+    refute_received {:event, %{topic: ^topic}}
+    generator = Process.whereis(Aiur.Events.IdGenerator)
+    Process.unregister(Aiur.Events.IdGenerator)
+
+    try do
+      change(now: 11_000, write_result: :ok)
+      assert GenServer.call(pid, {:write, :mark, "11"}) == :ok
+      assert {:ok, %{latches: [%{key: {:write_failed, "11"}}]}} = Store.load()
+    after
+      Process.register(generator, Aiur.Events.IdGenerator)
+    end
+
+    stop_supervised!(Server)
+    pid = server()
+    reconcile(pid)
+    resolved = topic <> ".resolved"
+    assert_received {:event, %{topic: ^resolved}}
+    assert {:ok, %{latches: []}} = Store.load()
+    refute_received {:event, %{topic: ^topic}}
   end
 
   defp server(opts \\ []) do
