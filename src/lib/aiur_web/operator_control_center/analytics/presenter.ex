@@ -241,6 +241,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
     %{
       available?: true,
+      retained_runs: Map.get(dataset, :retained_runs),
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
       source_boot_id: single_boot_id(dataset),
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),

@@ -6,14 +6,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   records agent or ticket activity, the newest materialized prior run remains
   the truthful latest analyzable dataset.
 
-  Only the newest analyzable prior summary is retained and cached in an ETS table so the Build Order pane's
-  30-second idle retry does not re-decode them. The cache key folds in each
-  summary's file metadata, so a new or regenerated summary invalidates the
-  entry without retaining one key per boot forever. ETS is deliberate:
-  `:persistent_term` would `put` on every materialization and force a global
-  literal-area GC across every process in the VM — including the daemon. The
-  table is owned by the caller (a LiveView or the CLI) and dies with it, which
-  is fine for a best-effort cache: losing it costs one re-decode.
+  Only the newest analyzable prior summary is retained in a bounded cache.
+  A persistent cache owner serializes cold loads and survives request exits.
+  File metadata invalidates regenerated summaries without retaining every boot.
 
   When retained summaries exist but none of them can be decoded — a truncated
   or corrupt `run-summary.json` — `load/4` returns `{:error, :retained_unreadable}`
@@ -23,8 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   alias Aiur.RunTelemetry.{Dataset, Summaries}
 
-  @cache_table __MODULE__
-  @cache_options [:named_table, :public, :set, read_concurrency: true]
+  alias AiurWeb.OperatorControlCenter.Analytics.RetainedCache
 
   @spec load(Path.t(), String.t() | nil, (map() -> boolean())) ::
           {:ok, map()} | {:error, term()}
@@ -74,20 +68,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
     identity = {identity, Keyword.get(opts, :tickets)}
 
-    case cache_get(identity) do
-      {:ok, cached} ->
-        cached
-
-      :miss ->
-        value =
-          case Keyword.get(opts, :prior_loader) do
-            nil -> load_newest(current_boot, analyzable?)
-            loader when is_function(loader, 0) -> loader.()
-          end
-
-        cache_put(identity, value)
-        value
-    end
+    RetainedCache.fetch(
+      __MODULE__,
+      identity,
+      fn ->
+        case Keyword.get(opts, :prior_loader) do
+          nil -> load_newest(current_boot, analyzable?)
+          loader when is_function(loader, 0) -> loader.()
+        end
+      end,
+      max_value_bytes: 24 * 1024 * 1024
+    )
   end
 
   defp load_newest(current_boot, analyzable?) do
@@ -107,7 +98,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
     end
   end
 
-  defp cache_identity(current_boot) do
+  @doc "File metadata identity for retained summaries excluding the current boot."
+  @spec cache_identity(String.t() | nil) :: tuple()
+  def cache_identity(current_boot) do
     summaries =
       Summaries.summary_boot_ids()
       |> Enum.reject(&(&1 == current_boot))
@@ -121,49 +114,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
       end)
 
     {Summaries.state_node(), current_boot, summaries}
-  end
-
-  defp cache_get(key) do
-    if cache_table?() do
-      case :ets.lookup(@cache_table, key) do
-        [{^key, value}] -> {:ok, value}
-        [] -> :miss
-      end
-    else
-      :miss
-    end
-  rescue
-    ArgumentError -> :miss
-  end
-
-  defp cache_put(key, value) do
-    ensure_table()
-    if :ets.info(@cache_table, :size) >= 8, do: :ets.delete_all_objects(@cache_table)
-    if :erlang.external_size(value) <= 2 * 1024 * 1024, do: :ets.insert(@cache_table, {key, value})
-    :ok
-  rescue
-    ArgumentError -> :ok
-  end
-
-  defp cache_table? do
-    :ets.whereis(@cache_table) != :undefined
-  end
-
-  # A public named table owned by the calling process. Concurrent callers that
-  # race to create it lose the race cleanly and reuse the winner's table; a
-  # caller whose table has died simply falls back to a re-decode.
-  defp ensure_table do
-    case :ets.whereis(@cache_table) do
-      :undefined ->
-        try do
-          :ets.new(@cache_table, @cache_options)
-        rescue
-          ArgumentError -> :ok
-        end
-
-      _table ->
-        :ok
-    end
   end
 
   defp observed_at(dataset), do: get_in(dataset, [:provenance, :time_range, :end]) || ""

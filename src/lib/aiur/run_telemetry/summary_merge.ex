@@ -2,32 +2,69 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   @moduledoc "Merges projected chart samples while preserving full-run resource totals."
 
   alias Aiur.RunTelemetry.{Dataset, Summaries, SummaryReader}
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, RetainedCache}
 
   @doc "Loads and merges retained projections one boot at a time."
   @spec load(Path.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
   def load(file, current) do
     summaries = Summaries.summary_boot_ids() |> Enum.reject(&(&1 == current))
-    if summaries == [], do: bounded_raw(file), else: load_retained(summaries, live(file, current))
+
+    if summaries == [] do
+      bounded_raw(file)
+    else
+      key = LatestRun.cache_identity(current)
+      retained = RetainedCache.fetch(__MODULE__, key, fn -> load_retained(summaries) end, max_value_bytes: 24 * 1024 * 1024)
+
+      with {:ok, dataset} <- retained do
+        case Dataset.build(file, session: :current, boot_id: current) do
+          {:ok, live} -> {:ok, merge([live, dataset]) |> Map.put(:retained_runs, dataset.retained_runs)}
+          {:error, _reason} -> {:ok, dataset}
+        end
+      end
+    end
   rescue
     _error -> {:error, :retained_unreadable}
   end
 
-  defp live(file, current) do
-    case Dataset.build(file, session: :current, boot_id: current) do
-      {:ok, dataset} -> [dataset]
-      {:error, _reason} -> []
+  defp load_retained(summaries) do
+    result =
+      Enum.reduce_while(summaries, [], fn boot, acc ->
+        case Summaries.load_dataset(boot) do
+          {:ok, dataset} -> {:cont, fit([dataset | acc])}
+          {:error, _reason} -> {:halt, :unreadable}
+        end
+      end)
+
+    case result do
+      datasets when is_list(datasets) and datasets != [] ->
+        case trim(datasets) do
+          [] -> {:error, :retained_unreadable}
+          included -> {:ok, merge(included) |> Map.put(:retained_runs, %{included: length(included), total: length(summaries)})}
+        end
+
+      _other ->
+        {:error, :retained_unreadable}
     end
   end
 
-  defp load_retained(summaries, live) do
-    {merged, readable?} = Enum.reduce_while(summaries, {live, false}, &merge_retained/2)
+  # ponytail: keep newest complete runs within the projection budget; expand to pre-aggregated lifecycle storage if history must be exhaustive.
+  defp fit(datasets) do
+    sorted = Enum.sort_by(datasets, &get_in(&1, [:provenance, :time_range, :end]), :desc)
+    trim_inputs(sorted)
+  end
 
-    case {readable?, merged} do
-      {true, [dataset]} -> {:ok, dataset}
-      _other -> {:error, :retained_unreadable}
-    end
-  rescue
-    _error -> {:error, :retained_unreadable}
+  defp trim_inputs([]), do: []
+
+  defp trim_inputs(datasets) do
+    if :erlang.external_size(datasets) <= 24 * 1024 * 1024, do: datasets, else: trim_inputs(Enum.drop(datasets, -1))
+  end
+
+  defp trim([]), do: []
+
+  defp trim(datasets) do
+    if :erlang.external_size(merge(datasets)) <= 24 * 1024 * 1024,
+      do: datasets,
+      else: trim(Enum.drop(datasets, -1))
   end
 
   defp bounded_raw(file) do
@@ -36,17 +73,9 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     if files != [] and size <= 1024 * 1024, do: Dataset.build(file, []), else: {:error, :retained_unreadable}
   end
 
-  defp merge_retained(boot, {acc, _readable?}) do
-    case Summaries.load_dataset(boot) do
-      {:ok, dataset} -> {:cont, {[merge([dataset | acc])], true}}
-      {:error, _reason} -> {:halt, {[], false}}
-    end
-  end
-
   @spec merge([map()]) :: map()
   def merge(datasets) do
     merged = Dataset.merge(datasets)
-    if :erlang.external_size(merged) > 24 * 1024 * 1024, do: raise(ArgumentError, "oversized retained rollup")
     actors = datasets |> Enum.flat_map(&Map.to_list(&1.actors)) |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
     merged =
@@ -54,7 +83,6 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
       |> Map.put(:actors, Map.new(actors, fn {key, versions} -> {key, merge_actor(versions)} end))
       |> Map.update!(:provenance, &Map.put(&1, :generated_by, "presenter:cross"))
 
-    if :erlang.external_size(merged) > 24 * 1024 * 1024, do: raise(ArgumentError, "oversized retained rollup")
     merged
   end
 
