@@ -121,7 +121,8 @@ defmodule Aiur.ApplicationChildOrderTest do
 
   # Add an ID => reason entry only when a new child must start before existing
   # children. Explain the startup dependency here; do not extend the baseline.
-  @early_start_exceptions %{}
+  # Feeder subscribes after History starts and before Backfill can publish completion.
+  @early_start_exceptions %{Aiur.BuildOrder.History.Feeder => "Subscribe to History before Backfill starts so completion triggers catch-up"}
   @flags [:interactive_cli?, :headless?, :dashboard?, :tailscale_funnel?, :telemetry?, :executor_mode?, :ls_remote_ticker?, :recording?]
 
   test "the fully enabled tree retains every existing child in its pinned order" do
