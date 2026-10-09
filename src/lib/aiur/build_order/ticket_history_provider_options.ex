@@ -1,9 +1,12 @@
 defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{TicketDetail, TicketHistory.Normalizer}
-  alias Aiur.{Config, IssueLog, PollCadence, TicketActivity, WorkflowStore}
+  alias Aiur.BuildOrder.{Settings, TicketDetail, TicketHistory.Normalizer}
   alias Aiur.Events.Exchange
+  alias Aiur.IssueLog
+  alias Aiur.PollCadence
+  alias Aiur.TicketActivity
+  alias Aiur.WorkflowStore
 
   @default_history_limit 50
   @default_max_identities 100
@@ -45,7 +48,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
 
   defp runtime_options(opts) do
     case Keyword.pop(opts, :runtime_config?, false) do
-      {true, opts} -> Keyword.merge(Config.build_order_ticket_history_options(), opts)
+      {true, opts} -> Keyword.merge(Settings.build_order_ticket_history_options(), opts)
       {_runtime?, opts} -> opts
     end
   end
