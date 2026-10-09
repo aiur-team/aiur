@@ -174,8 +174,16 @@ test('cards stay keyboard-openable and dependency highlight pins without mutatio
 
     // Accessibility stays clean while a highlight is active.
     await target.hover()
-    const results = await new AxeBuilder({ page }).analyze()
-    expect(results.violations).toEqual([])
+    for (const palette of ['gruvbox', 'aiur']) {
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(({ palette, theme }) => {
+          document.documentElement.dataset.palette = palette
+          document.documentElement.dataset.theme = theme
+        }, { palette, theme })
+        const results = await new AxeBuilder({ page }).analyze()
+        expect(results.violations, `${palette} ${theme}`).toEqual([])
+      }
+    }
   } finally {
     await context.close()
   }
