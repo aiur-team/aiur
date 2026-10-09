@@ -283,8 +283,10 @@ for (const selectedCell of colourCells) test.describe(`product inventory/grain $
     if (absent) missingPorts.add(`inventory #build-root: ${owners.join(', ')}`)
     test.fixme(absent, `awaiting ${owners.join(', ')}`)
     const reduce = selectedCell.reducedMotion === 'reduce'
+    await openDesign(pair.design, selectedCell, { motion: true })
+    await openProduct(pair.product, selectedCell, { motion: true })
     const design = await runOn(pair.design, 'inventory', { reduce })
-    const product = await runOn(pair.product, 'inventory', { reduce })
+    const product = await runOn(pair.product, 'inventory', { reduce, ids: FIXTURE_META.ids })
     collectAllowlist(design, product, scopedEntries(pair.allowlist, selectedCell))
   })
   for (const name of ['inventory', 'grain.static']) for (const [selector, owner] of Object.entries(OWNER[name].per)) test(`${name} ${selector}`, async () => {

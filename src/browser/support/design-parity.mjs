@@ -1,4 +1,5 @@
 /**
+ * Openers and captures share one clock, matrix, and allowlist contract.
  * Visual consumers: openParityPair(browser, cell, { dataset }), then
  * expectDesignParity(pair, { name, region: '.bd-now' }); always close the pair.
  * Both references render live; use playwright.design-parity.config.mjs.
