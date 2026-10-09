@@ -90,9 +90,11 @@ Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are tru
 `ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
 verbs `promoted`, `withdrawn`, `held`, `released`, `overridden`, and `removed`.
 Payloads contain only `ticket`, `queue_id`, and `cause` references and attributes
-(plus the bus envelope). Consumers re-read queue state; these topics are not
-bound to the Executor by default and are not replayed after a daemon restart.
-Publication failures are logged without retry.
+(plus the bus envelope). An operator removal carries cause `operator`.
+
+Consumers re-read queue state; these topics are not bound to the Executor by
+default and are not replayed after a daemon restart. Publication failures are
+logged without retry.
 
 ## Queue attentions
 

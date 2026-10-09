@@ -19,6 +19,9 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # These files define or populate the RootSummary progress contract itself
   # rather than presenting it, so they name the resolution fields by necessity.
   @contract_boundary_files [
+    "aiur/build_queue_cli.ex",
+    "aiur/build_queue/read_model.ex",
+    "aiur/build_queue/sources/build_order.ex",
     "aiur/build_order/catalog_store.ex",
     "aiur/build_order/github_graph/normalizer.ex",
     "aiur/build_order/progress_renderer.ex",
@@ -28,6 +31,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   ]
 
   @renderer_calls %{
+    "aiur/build_queue_cli.ex" => ["ProgressRenderer.terminal("],
+    "aiur/build_queue/sources/build_order.ex" => ["ProgressRenderer.json("],
     "aiur/build_orders_cli.ex" => [
       "ProgressRenderer.terminal(",
       "ProgressRenderer.terminal(",

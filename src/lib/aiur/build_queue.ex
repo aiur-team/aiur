@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue do
-  @moduledoc "Supervised build queue reconciliation and read-only planned actions."
+  @moduledoc "Supervised build queue reconciliation and local ordered-list commands."
 
-  alias Aiur.BuildQueue.Server
+  alias Aiur.BuildQueue.{ReadModel, Server}
 
   @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused
 
@@ -14,12 +14,12 @@ defmodule Aiur.BuildQueue do
     if Process.whereis(Server), do: GenServer.call(Server, :status), else: absent_status()
   end
 
-  @doc "Returns current projections and unexecuted actions; no tracker labels are written."
-  @spec show(GenServer.server()) :: {:ok, map()} | {:error, status()}
+  @doc "Returns the version 1 public read model from held projections; no upstream requests or label writes."
+  @spec show(GenServer.server()) :: map()
   def show(server \\ Server) do
-    GenServer.call(server, :show)
+    GenServer.call(server, :read_model)
   catch
-    :exit, {:noproc, _} -> {:error, :disabled}
+    :exit, {:noproc, _} -> ReadModel.unavailable(absent_status())
   end
 
   @spec reconcile_now() :: :ok | {:error, status()}
@@ -27,6 +27,25 @@ defmodule Aiur.BuildQueue do
     GenServer.call(Server, :reconcile_now)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
+  end
+
+  @spec add([String.t()], String.t(), keyword()) :: :ok | {:error, term()}
+  def add(ids, queue, opts \\ []), do: mutate({:add, ids, Keyword.put(opts, :queue, queue)})
+
+  @spec remove(String.t()) :: :ok | {:error, term()}
+  def remove(id), do: mutate({:remove, id})
+
+  @spec reorder(String.t(), non_neg_integer()) :: :ok | {:error, term()}
+  def reorder(id, at), do: mutate({:reorder, id, at})
+
+  @spec add_edge(String.t(), String.t()) :: :ok | {:error, term()}
+  def add_edge(prerequisite, dependent), do: mutate({:add_edge, prerequisite, dependent})
+
+  defp mutate(command) do
+    GenServer.call(Server, {:mutate, command}, 30_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :disabled}
+    :exit, {:timeout, _} -> {:error, :outcome_unknown}
   end
 
   @doc "Rebuilds a missing or corrupt store as an operator-held list from queued markers."

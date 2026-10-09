@@ -3,8 +3,9 @@ defmodule Aiur.BuildQueue.Events do
   require Logger
   alias Aiur.Events.Publisher
 
-  @spec saved(map(), map()) :: :ok
-  def saved(before, after_save) do
+  @doc "Publishes transitions between two saved documents; `removed_cause` names why members left."
+  @spec saved(map(), map(), atom()) :: :ok
+  def saved(before, after_save, removed_cause \\ :marker_removed) do
     old_intents = Map.new(before.intents, &{&1.id, &1.outcome})
 
     for intent <- after_save.intents,
@@ -13,7 +14,7 @@ defmodule Aiur.BuildQueue.Events do
       publish_intent(before, intent)
     end
 
-    Enum.each(before.items, &membership(&1, before, after_save))
+    Enum.each(before.items, &membership(&1, before, after_save, removed_cause))
     :ok
   end
 
@@ -22,9 +23,9 @@ defmodule Aiur.BuildQueue.Events do
     if item, do: publish(if(intent.action == :promote, do: :promoted, else: :withdrawn), item, intent.action, intent.id)
   end
 
-  defp membership(item, before, after_save) do
+  defp membership(item, before, after_save, removed_cause) do
     case Enum.find(after_save.items, &(&1.issue_id == item.issue_id)) do
-      nil -> publish(:removed, item, :marker_removed, Ecto.UUID.generate())
+      nil -> publish(:removed, item, removed_cause, Ecto.UUID.generate())
       current -> changed(item, current, held?(item, before), held?(current, after_save))
     end
   end

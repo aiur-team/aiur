@@ -1,9 +1,9 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, Settings, Withdrawal}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, PRObserver, Settings, Withdrawal}
 
-  @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t())}
+  @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map()}
 
   @spec plan(map()) :: plan()
   def plan(state) do
@@ -25,10 +25,11 @@ defmodule Aiur.BuildQueue.Reconcile do
 
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     {observations, cache} = closures(state, observations)
+    {observations, published} = PRObserver.observe(observations, state)
     input = %{input | opts: opts, observations: observations, intents: intents}
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
-    {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds)}
+    {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
@@ -69,6 +70,12 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   @spec snapshot(map()) :: {:fresh | :unknown, map()}
   def snapshot(state) do
+    {freshness, observations, _observed_at_ms} = observed_snapshot(state)
+    {freshness, observations}
+  end
+
+  @spec observed_snapshot(map()) :: {:fresh | :unknown, map(), integer() | nil}
+  def observed_snapshot(state) do
     now = state.clock.()
     max_age = Settings.observation_max_age_ms(state.settings)
     pending = if state.document, do: Enum.filter(state.document.intents, &is_nil(&1.outcome)), else: []
@@ -81,10 +88,10 @@ defmodule Aiur.BuildQueue.Reconcile do
             {id, %Observation{issue_id: id, open?: true, labels: row.labels, state_reason: nil, pr: nil, observed_at_ms: observed_at_ms}}
           end)
 
-        {:fresh, observations}
+        {:fresh, observations, observed_at_ms}
 
       _ ->
-        {:unknown, %{}}
+        {:unknown, %{}, nil}
     end
   end
 end
