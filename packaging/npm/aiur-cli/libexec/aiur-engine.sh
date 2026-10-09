@@ -2704,7 +2704,6 @@ cmd_pause_resume() {
   shift
 
   [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
-
   # Bare `aiur pause` / `aiur resume` flips the daemon-wide pause switch.
   if [ "$#" -eq 0 ]; then
     run_control_rpc "Aiur.AgentControlCLI.${command}_global()"

@@ -9,10 +9,9 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
-  alias Aiur.Orchestrator.GithubBudgetPause
+  alias Aiur.Orchestrator.{GithubBudgetPause, Parking}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.OperatorMessages
-  alias Aiur.Orchestrator.Parking
   alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.RemoteControlMode
@@ -280,12 +279,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp tracker_control_step(state, action, identifier, {:running_unparked, issue_id, ref}, :ok) do
-    Parking.running_marker_result(state, action, identifier, issue_id, ref, :ok, &put_running_entry/3, &resume_control_reply/4)
-  end
-
-  defp tracker_control_step(state, _action, _identifier, {:running_unparked, _issue_id, _ref}, {:error, reason}),
-    do: Parking.running_marker_error(state, reason)
+  defp tracker_control_step(state, action, identifier, {:running_unparked, _, _} = stage, result),
+    do: Parking.running_marker_result(state, action, identifier, stage, result, &put_running_entry/3, &resume_control_reply/4)
 
   defp tracker_control_step(state, action, identifier, {:completed_refreshed, issue_id, ref}, result) do
     case State.find_running_by_identifier(state.running, identifier) do
@@ -424,10 +419,6 @@ defmodule Aiur.Orchestrator.PauseResume do
       {:reply, reply, state}
     end)
   end
-
-  @doc false
-  @spec park_agent_call(State.t(), String.t()) :: {:reply, term(), State.t()}
-  def park_agent_call(state, issue_identifier), do: Parking.park_agent_call(state, issue_identifier)
 
   @doc false
   # Operator control calls run inside the Orchestrator GenServer, and that
@@ -702,15 +693,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp resume_running_issue(%State{} = state, running_entry) do
-    issue = Map.get(running_entry, :issue)
-
-    if is_struct(issue, Issue) and Issue.parked?(issue) do
-      Parking.resume_running_issue(state, running_entry, issue, &resume_unparked_running_issue/3)
-    else
-      resume_unparked_running_issue(state, running_entry, issue)
-    end
-  end
+  defp resume_running_issue(%State{} = state, running_entry), do: Parking.resume_running_issue(state, running_entry, &resume_unparked_running_issue/3)
 
   defp resume_unparked_running_issue(state, running_entry, issue) do
     if is_struct(issue, Issue) and Issue.paused?(issue) do

@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake, Parking}
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
@@ -481,8 +481,6 @@ defmodule Aiur.Orchestrator do
 
   @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
-  @spec park_agent(String.t()) :: {:ok, :pending} | {:error, term()}
-  def park_agent(identifier), do: GenServer.call(__MODULE__, {:park_agent, identifier}, 5_000)
   @spec pause_agent(GenServer.server(), String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(server, identifier), do: PauseResume.pause_agent(server, identifier)
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
@@ -764,11 +762,9 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_identifier),
       do: OM.control_capabilities_call(state, issue_identifier)
 
-  def handle_call({:pause_agent, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.pause_agent_call(state, issue_identifier)
-
-  def handle_call({:park_agent, issue_identifier}, _from, state) when is_binary(issue_identifier), do: PauseResume.park_agent_call(state, issue_identifier)
+  def handle_call({action, issue_identifier}, _from, state)
+      when action in [:pause_agent, :park_agent] and is_binary(issue_identifier),
+      do: if(action == :park_agent, do: Parking.park_agent_call(state, issue_identifier), else: PauseResume.pause_agent_call(state, issue_identifier))
 
   def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
     do: PauseResume.pause_agent_call(state, identity)

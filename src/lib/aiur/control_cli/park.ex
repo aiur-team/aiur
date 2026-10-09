@@ -1,13 +1,13 @@
 defmodule Aiur.ControlCLI.Park do
   @moduledoc false
 
-  alias Aiur.{ControlCLI.Reasons, Orchestrator}
+  alias Aiur.ControlCLI.Reasons
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec run([String.t()]) :: :ok
   def run(targets) do
     guarded("park", fn ->
-      results = Enum.map(targets, fn id -> {id, Orchestrator.park_agent(to_string(id))} end)
+      results = Enum.map(targets, fn id -> {id, GenServer.call(Aiur.Orchestrator, {:park_agent, to_string(id)}, 5_000)} end)
 
       Enum.each(results, fn
         {id, {:ok, :pending}} -> IO.puts("parking ##{id}; tracker marker write pending")

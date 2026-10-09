@@ -41,8 +41,8 @@ defmodule Aiur.Orchestrator.Parking do
     end
   end
 
-  @spec running_marker_result(State.t(), atom(), String.t(), String.t(), term(), term(), function(), function()) :: term()
-  def running_marker_result(state, action, identifier, issue_id, ref, :ok, put_running_entry, resume_reply) do
+  @spec running_marker_result(State.t(), atom(), String.t(), term(), term(), function(), function()) :: term()
+  def running_marker_result(state, action, identifier, {:running_unparked, issue_id, ref}, :ok, put_running_entry, resume_reply) do
     case State.find_running_by_identifier(state.running, identifier) do
       %{issue: %Issue{id: ^issue_id} = issue, ref: ^ref} = entry ->
         issue = %{issue | parked: false, labels: List.delete(issue.labels, park_label())}
@@ -54,14 +54,21 @@ defmodule Aiur.Orchestrator.Parking do
     end
   end
 
-  def running_marker_result(state, _action, _identifier, _issue_id, _ref, {:error, reason}, _put_running_entry, _resume_reply),
+  def running_marker_result(state, _action, _identifier, {:running_unparked, _issue_id, _ref}, {:error, reason}, _put_running_entry, _resume_reply),
     do: {:reply, {:error, {:park_marker_clear_failed, reason}}, state}
 
-  @spec running_marker_error(State.t(), term()) :: term()
-  def running_marker_error(state, reason), do: {:reply, {:error, {:park_marker_clear_failed, reason}}, state}
+  @spec resume_running_issue(State.t(), map(), function()) :: term()
+  def resume_running_issue(state, entry, resume_unparked) do
+    issue = Map.get(entry, :issue)
 
-  @spec resume_running_issue(State.t(), map(), Issue.t(), function()) :: term()
-  def resume_running_issue(state, entry, issue, resume_unparked) do
+    if is_struct(issue, Issue) and Issue.parked?(issue) do
+      clear_parked_issue(state, entry, issue, resume_unparked)
+    else
+      resume_unparked.(state, entry, issue)
+    end
+  end
+
+  defp clear_parked_issue(state, entry, issue, resume_unparked) do
     if TrackerTasks.running?(state, {:park_issue, issue.id}) do
       {{:error, :park_pending}, state}
     else
@@ -75,6 +82,11 @@ defmodule Aiur.Orchestrator.Parking do
           {{:error, {:park_marker_clear_failed, reason}}, state}
       end
     end
+  end
+
+  @spec reconcile_deactivated(State.t(), map(), Issue.t(), function(), function()) :: State.t()
+  def reconcile_deactivated(state, entry, issue, refresh, reactivate) do
+    if Issue.parked?(issue, entry), do: refresh.(state, issue, entry), else: reactivate.(state, entry, issue)
   end
 
   @spec clear_and_resume_queued_issue(State.t(), Issue.t(), function(), function()) :: term()

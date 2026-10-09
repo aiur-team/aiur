@@ -1345,14 +1345,10 @@ defmodule Aiur.AgentControlCLI do
 
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
-
   @doc "Parks paused tickets without changing their workflow state."
   @spec park([String.t()]) :: :ok
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
-
-  # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
-  # dispatch latch. Clears the in-memory + durable budget entries so a latched
-  # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
+  # Clear a named ticket's lifetime dispatch-budget latch so it can run again (#1453).
   @spec reset_budget([String.t()]) :: :ok
   def reset_budget(targets) when is_list(targets) do
     guarded("reset-budget", fn ->
