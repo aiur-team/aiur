@@ -33,7 +33,7 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.Executor.{Claims, Roster}
-  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy, TrustSnapshot}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
@@ -2520,7 +2520,7 @@ defmodule Aiur.AgentControlCLI do
         path = snapshot |> Map.get(:path) |> trust_path()
         accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
         suffix = if path, do: " path=#{path}", else: ""
-        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}#{TrustSnapshot.status_suffix(snapshot)}")
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}#{CodeOwners.status_suffix(snapshot)}")
 
       _ ->
         :ok

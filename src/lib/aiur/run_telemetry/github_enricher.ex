@@ -8,7 +8,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   to apply the normal trust and benign-review rules and are never returned.
   """
 
-  alias Aiur.GitHub.{CodeOwners, Transport, TrustSnapshot}
+  alias Aiur.GitHub.{CodeOwners, Transport}
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.TicketBranch
@@ -294,7 +294,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     if Process.whereis(CodeOwners) do
       CodeOwners.allowed?(author)
     else
-      MapSet.member?(TrustSnapshot.configured_set(), String.downcase(author))
+      MapSet.member?(CodeOwners.configured_set(), String.downcase(author))
     end
   rescue
     _error -> false

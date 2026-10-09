@@ -47,6 +47,12 @@ defmodule Aiur.GitHub.CodeOwners do
     GenServer.call(server, :snapshot)
   end
 
+  @doc "Configured identities and repository owner trusted without CODEOWNERS."
+  defdelegate configured_set(), to: TrustSnapshot
+
+  @doc "Status-line suffix naming a degraded snapshot's cause and age."
+  defdelegate status_suffix(snapshot, now \\ DateTime.utc_now()), to: TrustSnapshot
+
   @doc """
   Returns the current comment-trust snapshot, including whether trust comes
   from a parsed CODEOWNERS file or the safe repository-owner fallback.
