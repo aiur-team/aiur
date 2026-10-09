@@ -685,7 +685,7 @@ fi
 #   --test    reset the single sandbox ticket (issue 99) then launch
 #   --test3   reset the 3-ticket blocker chain (drives the remote agent) then launch
 #   --debug   verbose logging (AIUR_DEBUG=1)
-#   --clear   delete prior ~/.aiur/logs sessions first (requires --debug)
+#   --clear   delete this instance's inactive log sessions (requires --debug)
 debug_mode=0
 clear_mode=0
 test_single=0
@@ -709,7 +709,7 @@ for arg in "$@"; do
     --port) has_port=1; passthrough+=("$arg"); expect_port_value=1 ;;
     --port=*) has_port=1; passthrough+=("$arg") ;;
     --test) test_single=1 debug_mode=1 clear_mode=1 ;;
-    --test3) test3_mode=1 debug_mode=1 clear_mode=1 allow_remote=1 ;;
+    --test3) test3_mode=1 debug_mode=1 allow_remote=1 ;;
     *) passthrough+=("$arg") ;;
   esac
 done
@@ -783,11 +783,8 @@ fi
 
 [ "$debug_mode" -eq 1 ] && export AIUR_DEBUG=1
 if [ "$clear_mode" -eq 1 ]; then
-  if [ -n "${AIUR_AGENT_IR_LOGS_PARENT:-}" ]; then
-    rm -rf "$AIUR_AGENT_IR_LOGS_PARENT/"* 2>/dev/null || true
-  else
-    rm -rf "$HOME/.aiur/logs/"* 2>/dev/null || true
-  fi
+  clear_key="$("$engine" __identity | sed -n 's/^AIUR_INSTANCE_KEY=//p')"
+  bash "$script_dir/aiur-clear-logs" "${AIUR_AGENT_IR_LOGS_PARENT:-$HOME/.aiur/logs}" "$clear_key"
 fi
 
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
