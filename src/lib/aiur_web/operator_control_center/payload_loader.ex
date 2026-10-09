@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   import Phoenix.Component, only: [assign: 3]
 
+  alias Aiur.Commands
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.PollCadence
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
@@ -180,8 +181,8 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   defp providers do
     {
       Endpoint.config(:orchestrator) || Aiur.Orchestrator,
-      Endpoint.config(:decision_store) || Aiur.DecisionStore,
-      Endpoint.config(:decision_metrics) || Aiur.DecisionMetrics,
+      Endpoint.config(:decision_store) || Commands.default_store(),
+      Endpoint.config(:decision_metrics) || Commands.default_metrics(),
       Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore,
       PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
     }

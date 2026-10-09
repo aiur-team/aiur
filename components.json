@@ -157,8 +157,8 @@
     },
     {
       "id": "commands", "name": "Commands (code: Decisions) and Asks", "layer": 3, "kind": "required",
-      "paths": ["src/lib/aiur_web/routes/decisions.ex", "src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur/supervisor_token/**", "src/lib/aiur_web/controllers/decision*.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur_web/routes/decisions.ex", "src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur/supervisor_token/**", "src/lib/aiur_web/controllers/decision*.ex", "src/lib/aiur/commands.ex", "src/lib/aiur/commands/**"],
+      "facades": ["Aiur.Commands", "Aiur.Decision", "Aiur.DecisionAnswer", "Aiur.DecisionRevision", "Aiur.DecisionEvent", "Aiur.DecisionArtifact", "AiurWeb.DecisionApiController", "AiurWeb.Routes.Decisions"], "facade_pending": null,
       "requires": ["event-bus", "kernel", "config", "identity", "signal", "web-kit"], "optional": [],
       "owns": {"config": ["decisions"], "env": ["AIUR_CI_READINESS_TOKEN", "AIUR_SUPERVISOR_TOKEN"], "state": ["decision_state_dir"], "capabilities": []},
       "prior": ["DEC", "EXE"]
@@ -319,8 +319,8 @@
       "prior": ["WEB"]
     },
     {
-      "id": "aiur-contracts", "name": "Published wire contracts: JSON Schemas and generated TS types for identity, capabilities, events, Commands, conversations, notifications (new, MP-R1-C3; `status: planned` until C3-T06, `added_by: MP-R1`, exempt from rule I4)", "layer": 5, "kind": "required",
-      "paths": [],
+      "id": "aiur-contracts", "name": "Wire contracts: JSON Schemas and generated TypeScript types for identity and capabilities", "layer": 5, "kind": "required",
+      "paths": ["packages/aiur-contracts/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},

@@ -8,7 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
   dashboard mount.
   """
 
-  alias Aiur.{DecisionMetrics, DecisionQuery}
+  alias Aiur.Commands
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   @spec detail(String.t(), keyword()) ::
@@ -19,7 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
              | {:indeterminate, map()}
              | {:invalid_decision_id, atom()}}
   def detail(decision_id, opts \\ []) when is_list(opts) do
-    with {:ok, result} <- DecisionQuery.get(decision_id, store: store(opts)) do
+    with {:ok, result} <- Commands.query_get(decision_id, store: store(opts)) do
       {snapshots, latency_health} = latency_for(result.decision.decision_id, metrics(opts))
 
       case DecisionPresenter.present(result.decision) do
@@ -41,7 +41,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
   def list(params \\ %{}, opts \\ [])
 
   def list(params, opts) when is_map(params) and is_list(opts) do
-    with {:ok, result} <- DecisionQuery.list(params, store: store(opts)) do
+    with {:ok, result} <- Commands.query_list(params, store: store(opts)) do
       {snapshots, latency_health} = latency_for_ids(Enum.map(result.decisions, & &1.decision_id), metrics(opts))
 
       rows =
@@ -56,13 +56,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
   def list(_params, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
 
   @spec counts(keyword()) :: {:ok, map()}
-  def counts(opts \\ []) when is_list(opts), do: DecisionQuery.counts(store: store(opts))
+  def counts(opts \\ []) when is_list(opts), do: Commands.query_counts(store: store(opts))
 
-  defp store(opts), do: Keyword.get(opts, :decision_store, Aiur.DecisionStore)
-  defp metrics(opts), do: Keyword.get(opts, :decision_metrics, DecisionMetrics)
+  defp store(opts), do: Keyword.get(opts, :decision_store, Commands.default_store())
+  defp metrics(opts), do: Keyword.get(opts, :decision_metrics, Commands.default_metrics())
 
   defp latency_for(decision_id, metrics) do
-    case safe_metrics_call(fn -> DecisionMetrics.snapshot(decision_id, metrics) end) do
+    case safe_metrics_call(fn -> Commands.metrics_snapshot(decision_id, metrics) end) do
       {:ok, snapshot} when is_map(snapshot) -> {%{decision_id => snapshot}, :ok}
       {:error, :not_found} -> {%{}, :ok}
       _unavailable -> {%{}, :unavailable}
@@ -76,7 +76,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
   end
 
   defp next_latency_snapshot(decision_id, metrics, snapshots, health) do
-    case safe_metrics_call(fn -> DecisionMetrics.snapshot(decision_id, metrics) end) do
+    case safe_metrics_call(fn -> Commands.metrics_snapshot(decision_id, metrics) end) do
       {:ok, snapshot} when is_map(snapshot) -> {:cont, {Map.put(snapshots, decision_id, snapshot), health}}
       {:error, :not_found} -> {:cont, {snapshots, health}}
       _unavailable -> {:halt, {snapshots, :unavailable}}

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Presenter do
   @moduledoc "Shared projections for the observability API and dashboard."
 
-  alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
+  alias Aiur.{Commands, Config, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
   alias Aiur.Orchestrator.WaitingReason
   @recent_merge_limit 50
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
@@ -79,7 +79,7 @@ defmodule AiurWeb.Presenter do
   end
 
   defp decision_history_payload(opts) do
-    provider = Keyword.get(opts, :decision_history_fun, fn -> DecisionHistory.list() end)
+    provider = Keyword.get(opts, :decision_history_fun, fn -> Commands.history() end)
 
     case safe_call(provider) do
       {:ok, entries} when is_list(entries) ->
