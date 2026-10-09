@@ -3,6 +3,7 @@
 Experiments record a hypothesis, comparison design, metrics and expected directions.
 A **before/after** experiment names a change line (`type`, `ref`, UTC `time`);
 an **A/B** experiment names at least two cohorts and a control cohort.
+
 Cohort predicates use `eq`, `neq`, `in`, `prefix`, `exists`, `all`, `any` and `not`
 over recorded attributes such as backend, model, complexity or `tags.team`.
 
@@ -21,7 +22,9 @@ cat spec.json | aiur experiments create --from -
 Specs include owner, hypothesis, origin, metrics, minimum sample counts,
 windows, filters, stratification keys, tags and notes. Before/after windows
 default to 14 days before the change and an open-ended window after it.
-The default minimum is 15 samples per arm. Metric references are checked for
+The default minimum is 15 samples per arm.
+
+Metric references are checked for
 syntax; metric packs and baseline freezing arrive separately. Creation reports
 that the baseline was not frozen when freezing is unavailable in this build.
 

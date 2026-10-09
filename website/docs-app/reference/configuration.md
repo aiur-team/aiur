@@ -736,7 +736,7 @@ The durable repository Executor state also records every daemon start and stop i
 
 ## experiments
 
-The daemon owns experiment writes; CLI reads and edits use control RPC. See [Experiments](../concepts/experiments).
+The daemon owns [experiment](../concepts/experiments) writes through control RPC.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |

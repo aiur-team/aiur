@@ -274,7 +274,7 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 
 ## Experiments
 
-These commands use control RPC and require a running daemon. See [Experiments](../concepts/experiments) for the spec and state-node model.
+[Experiments](../concepts/experiments) use control RPC and require a running daemon.
 
 | Command | What it does | Example |
 | --- | --- | --- |
@@ -287,9 +287,8 @@ These commands use control RPC and require a running daemon. See [Experiments](.
 | `aiur experiments create --no-freeze` | Suppresses the default baseline-freeze request and its unavailable warning. | `aiur experiments create --from spec.json --no-freeze` |
 | `aiur experiments create --hypothesis <text>` | Sets the quick-form hypothesis; default is empty. | `aiur experiments create --title smoke --line manual:smoke@2026-10-09T00:00:00Z --metric delivery-speed/start_to_merge --hypothesis faster` |
 
-Quick creation also accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Manual lines require a UTC timestamp; tag and commit lines can resolve it from base-checkout history.
-Creation reports that the baseline was not frozen when freezing is unavailable in this build. JSON stdout contains the facade result; warnings and validation errors go to stderr.
-Exit codes: 0 success, 1 refused, 64 invalid usage. Newer stored schema versions are readable but refuse writes.
+Quick creation also accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`; manual lines need a UTC timestamp, while tag/commit times can resolve from base history.
+JSON stdout contains the facade result; stderr carries errors and unavailable-freeze warnings. Exit codes: 0 success, 1 refused, 64 invalid usage. Newer specs refuse writes.
 
 ## Decisions, Executor events, and findings
 
