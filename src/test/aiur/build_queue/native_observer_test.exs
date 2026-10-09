@@ -30,7 +30,7 @@ defmodule Aiur.BuildQueue.NativeObserverTest do
 
   test "native open blocker holds promotion through reconciliation", %{input: input, state: state} do
     observations = Map.put(input.observations, "3", %{PlannerFixture.observation("3") | labels: []})
-    {[projection], actions, _, _, _, _} = Reconcile.plan(state, observations)
+    {[projection], actions, _, _, _, _, _} = Reconcile.plan(state, observations)
     assert projection.state == :waiting
     assert projection.verdict == :waiting
     refute {:promote, "1"} in actions
@@ -41,7 +41,7 @@ defmodule Aiur.BuildQueue.NativeObserverTest do
   test "native prerequisite carries closed-unmerged PR evidence", %{input: input, state: state} do
     Process.put({:pr, "3"}, {:ok, %{state: :closed, merged?: false}})
     observations = Map.put(input.observations, "3", %{PlannerFixture.observation("3") | labels: []})
-    {[projection], actions, observations, _, _, _} = Reconcile.plan(state, observations)
+    {[projection], actions, observations, _, _, _, _} = Reconcile.plan(state, observations)
     assert projection.verdict == {:failed, [:pr_closed_unmerged]}
     assert observations["3"].pr == :closed_unmerged
     refute {:promote, "1"} in actions
@@ -51,7 +51,7 @@ defmodule Aiur.BuildQueue.NativeObserverTest do
     edge = %Edge{prerequisite: "2", dependent: "1", source: :list}
     state = %{state | document: %{state.document | edges: [edge]}}
     observations = Map.put(input.observations, "2", PlannerFixture.observation("2"))
-    {[_], actions, _, _, _, _} = Reconcile.plan(state, observations)
+    {[_], actions, _, _, _, _, _} = Reconcile.plan(state, observations)
     refute {:promote, "1"} in actions
     assert Process.get(:native_reads, []) == []
   end
@@ -59,7 +59,7 @@ defmodule Aiur.BuildQueue.NativeObserverTest do
   test "errors and external edges hold with explicit unknown verdicts", %{input: input, state: state} do
     for {error, cause} <- [{:timeout, :native_dependencies}, {:external_edge, :external_edge}] do
       Process.put(:native_result, {:error, error})
-      {[projection], actions, _, _, _, _} = Reconcile.plan(state, input.observations)
+      {[projection], actions, _, _, _, _, _} = Reconcile.plan(state, input.observations)
       assert projection.state == :unknown
       assert projection.verdict == {:unknown, [cause]}
       refute {:promote, "1"} in actions

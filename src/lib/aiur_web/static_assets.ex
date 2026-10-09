@@ -4,6 +4,8 @@ defmodule AiurWeb.StaticAssets do
   alias Aiur.CodingAgent
 
   @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
+  @dashboard_fonts_path Path.expand("../../priv/static/dashboard-fonts.css", __DIR__)
+  @dashboard_palette_path Path.expand("../../priv/static/dashboard-palette.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
   @phoenix_js_path Application.app_dir(:phoenix, "priv/static/phoenix.js")
@@ -26,7 +28,7 @@ defmodule AiurWeb.StaticAssets do
     time-brush-hook.js
     voice-capture-worklet.js
   )
-  @long_lived_static_paths ~w(aiur-logo.png bungee.woff2)
+  @long_lived_static_paths ~w(aiur-logo.png fonts)
 
   @layout_asset_definitions %{
     engine: %{name: "engine", revision: "elk-0.11.1", file: "elk-worker.min.js"},
@@ -51,17 +53,18 @@ defmodule AiurWeb.StaticAssets do
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
     "/elevenlabs-symbol.svg" => {"image/svg+xml", "priv/static/elevenlabs-symbol.svg"},
-    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"},
-    "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
+    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"}
   }
 
   @external_resource @dashboard_css_path
+  @external_resource @dashboard_fonts_path
+  @external_resource @dashboard_palette_path
   @external_resource @dom_svg_layout_adapter_path
   @external_resource @phoenix_html_js_path
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path
 
-  @dashboard_css File.read!(@dashboard_css_path)
+  @dashboard_css Enum.map_join([@dashboard_fonts_path, @dashboard_css_path, @dashboard_palette_path], "\n", &File.read!/1)
   @dom_svg_layout_adapter File.read!(@dom_svg_layout_adapter_path)
   @phoenix_html_js File.read!(@phoenix_html_js_path)
   @phoenix_js File.read!(@phoenix_js_path)
