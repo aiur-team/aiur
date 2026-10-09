@@ -2,6 +2,12 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :turn_sandbox_root_contributors, [
+  Aiur.AgentEnvironment.SandboxRoots,
+  Aiur.GitHub.Budget.SandboxRoots,
+  Aiur.BuildGate.SandboxRoots
+]
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 config :phoenix, :json_library, Jason
