@@ -96,7 +96,7 @@ Integration was performed once: pre-head `abf1f281c`, base `3203ff8d6`, merge
 manifest conflicts. Both the main projections dependency and epic ownership/API
 paths were retained; the intended feature diff remains present.
 
-## Current-base handoff blocker
+## Resolved current-base gate
 
 Main advanced to `85fbf331ae8d1675880fe5d79c4039f3a0ff2123` after the one permitted
 integration. Its changed paths do not overlap this feature, and merge-tree is clean.
@@ -106,5 +106,7 @@ current base and flags three unrelated files shortened by these newer commits:
 `src/test/aiur/extensions_test.exs` (1939 → 1940), and
 `src/test/browser/fixture_server.exs` (2532 → 2646).
 The feature docs are at 500 lines and pass. No unrelated file was changed to make
-this gate green, and no second integration was attempted. Draft handoff needs an
-Executor-authorized additional integration before ready/CI handoff.
+this gate green, and no second integration was attempted. The Executor authorized additional integrations whenever a required gate needs the current base.
+An additional merge of `85fbf331a` resolved these comparisons, with rescue
+`rescue/3127-authorized-main-2b9f87d8` pushed first. Feature scope is unchanged;
+current-base file-size check now passes.
