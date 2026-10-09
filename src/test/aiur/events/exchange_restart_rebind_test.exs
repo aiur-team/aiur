@@ -50,17 +50,17 @@ defmodule Aiur.Events.ExchangeRestartRebindTest do
     assert Exchange.bindings_for(probe, context.exchange) == ["ticket.*.#"]
 
     assert Exchange.publish("ticket.3348.agent.progress", :after_restart, context.exchange) == 1
-    assert_receive {:probe_event, ^probe, :after_restart}, 1000
+    receive_barrier({:probe_event, ^probe, :after_restart})
   end
 
   test "events published before the restart are not redelivered to the new subscriber", context do
     previous_probe = context.probe
     assert Exchange.publish("ticket.3348.agent.progress", :before_restart, context.exchange) == 1
-    assert_receive {:probe_event, ^previous_probe, :before_restart}, 1000
+    receive_barrier({:probe_event, ^previous_probe, :before_restart})
 
     probe = restart_exchange(context)
     assert Exchange.publish("ticket.3348.agent.progress", :after_restart, context.exchange) == 1
-    assert_receive {:probe_event, ^probe, :after_restart}, 1000
+    receive_barrier({:probe_event, ^probe, :after_restart})
     refute_received {:probe_event, ^probe, :before_restart}
   end
 
