@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.AllowedContributors
-  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
+  alias Aiur.{Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     BoundedBlockedBy,

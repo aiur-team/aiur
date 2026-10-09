@@ -1,4 +1,4 @@
-defmodule Aiur.BuildOrder.Bounded do
+defmodule Aiur.Bounded do
   @moduledoc false
 
   alias Aiur.SecretRedactor

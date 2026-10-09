@@ -2,6 +2,8 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :project_identity_source, Aiur.Tracker
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 # Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.

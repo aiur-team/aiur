@@ -11,7 +11,7 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   require Logger
 
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.ProcessTree
   alias Aiur.Tmux
 
   # REPL panes live in their own tmux window named `aiur-repl-<beam_os_pid>-<n>`.
@@ -47,9 +47,9 @@ defmodule Aiur.Claude.Repl.Reaper do
     # teardown decision table without signalling or probing real processes.
     # No production caller passes any of these; the real host helpers stay
     # the defaults.
-    group_alive_fun = Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1)
+    group_alive_fun = Keyword.get(opts, :group_alive_fun, &ProcessTree.process_group_alive?/1)
     group_cleanup_fun = Keyword.get(opts, :group_cleanup_fun, &cleanup_process_group/3)
-    tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &RemoteControl.graceful_kill_tree/1)
+    tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &ProcessTree.graceful_kill_tree/1)
     pid_alive_fun = Keyword.get(opts, :pid_alive_fun, &os_pid_alive?/1)
 
     group_result =
@@ -161,7 +161,7 @@ defmodule Aiur.Claude.Repl.Reaper do
       end
 
     Tmux.kill_pane(tmux, pane_id)
-    RemoteControl.graceful_kill_tree(os_pid)
+    ProcessTree.graceful_kill_tree(os_pid)
     :ok
   end
 
@@ -206,10 +206,10 @@ defmodule Aiur.Claude.Repl.Reaper do
     do: {:error, :containment_unavailable}
 
   defp cleanup_process_group(process_group_id, _identity, true),
-    do: RemoteControl.graceful_kill_process_group(process_group_id)
+    do: ProcessTree.graceful_kill_process_group(process_group_id)
 
   defp cleanup_process_group(process_group_id, identity, false),
-    do: RemoteControl.reap_process_group(process_group_id, identity)
+    do: ProcessTree.reap_process_group(process_group_id, identity)
 
   defp safely_group_alive?(group_alive_fun, process_group_id) do
     group_alive_fun.(process_group_id)

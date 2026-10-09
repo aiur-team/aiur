@@ -1,15 +1,11 @@
 # rule	target_module	reason
 R-declared	Aiur.AgentEnvironment	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.AllowedContributors.AllowList	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.BuildGate	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.BuildOrder.Cadence	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Codex.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.CodingAgent	MP-R7-C3-T06: backend catalog deferred to registered adapter data
 R-declared	Aiur.CodingAgent.Models	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Budget	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.Dotenv	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.SupervisorToken	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Tracker	MP-R1-C4-T03: compatibility default module for project_identity_source; no direct calls
