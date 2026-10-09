@@ -8,9 +8,17 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
   @spec run(Issue.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | {:defer, term()}
   def run(issue, opts) do
-    case Keyword.fetch(opts, :release_fun) do
-      {:ok, release} -> release.(issue, opts)
-      :error -> release(issue, opts)
+    result =
+      case Keyword.fetch(opts, :release_fun) do
+        {:ok, release} -> release.(issue, opts)
+        :error -> release(issue, opts)
+      end
+
+    case result do
+      {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] -> {:defer, reason}
+      {:error, {:aiur, :locally_held, _} = reason} -> {:defer, reason}
+      {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} -> {:defer, reason}
+      other -> other
     end
   end
 
@@ -29,8 +37,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       comment(issue, target, opts)
       {:ok, target}
     else
-      false -> {:defer, :workspace_owned}
-      {:error, _reason} = error -> error
+      false ->
+        {:defer, :workspace_owned}
+
+      {:error, {:stale_review_base, _}} = error ->
+        if DispatchPolicy.state_slug(target) == "human-review",
+          do: write_release(issue, lifecycle_state_name("rework", opts), opts),
+          else: error
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
