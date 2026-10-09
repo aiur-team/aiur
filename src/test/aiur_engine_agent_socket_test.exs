@@ -110,7 +110,7 @@ defmodule AiurEngineAgentSocketTest do
   test "stop uses recorded agent socket and falls back for legacy records" do
     root = Aiur.TestSupport.tmp_root!("stop-agent-socket")
     File.mkdir_p!(Path.join(root, "bin"))
-    File.write!(Path.join(root, "bin/tmux"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$EVENTS\"\nexit 0\n")
+    File.write!(Path.join(root, "bin/tmux"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$EVENTS\"\ncase \"$*\" in '-L aiur-test has-session'*) exit 1;; esac\nexit 0\n")
     File.chmod!(Path.join(root, "bin/tmux"), 0o755)
     on_exit(fn -> File.rm_rf!(root) end)
 
@@ -132,7 +132,9 @@ defmodule AiurEngineAgentSocketTest do
                  AIUR_INSTANCE_KEY=test
                  AIUR_RELEASE_NODE=aiur-test@127.0.0.1
                  AIUR_PROJECT_ROOT="$ROOT"
-                 AIUR_PROJECT_ROOT_SOURCE=env
+                 AIUR_PROJECT_ROOT_SOURCE=cwd
+                 AIUR_CONTROL_CURRENT_NODE_STATE=down
+                 AIUR_CONTROL_ADOPTED_RECORD=0
                  AIUR_ADOPTED_TMUX_SOCKET=aiur-test
                  AIUR_ADOPTED_TMUX_SESSION=aiur-test-default
                  AIUR_AGENT_TMUX_SOCKET=recorded-agents

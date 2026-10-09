@@ -3681,7 +3681,7 @@ cmd_stop() {
   local AIUR_AGENT_TMUX_SOCKET="${AIUR_RECORD_AGENT_SOCKET:-${socket}-agents}"
 
   local has_session=0
-  if [ -n "$tmux_bin" ] && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null; then
+  if [ -n "$tmux_bin" ] && { "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null || "$tmux_bin" -L "$AIUR_AGENT_TMUX_SOCKET" has-session 2>/dev/null; }; then
     has_session=1
   fi
 
