@@ -464,7 +464,6 @@ defmodule Aiur.Application do
       Aiur.BuildOrder.History,
       {Aiur.BuildOrder.History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)},
       Aiur.BuildOrder.Features,
-      {Aiur.BuildOrder.Features.RootImport, enabled?: Application.get_env(:aiur, :build_order_root_import_enabled?, true)},
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
@@ -511,7 +510,8 @@ defmodule Aiur.Application do
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
       if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress, Aiur.BuildOrder.ProgressObserver]),
-      Aiur.BuildOrder.EpicOverrides
+      Aiur.BuildOrder.EpicOverrides,
+      {Aiur.BuildOrder.Features.RootImport, enabled?: Application.get_env(:aiur, :build_order_root_import_enabled?, true)}
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
