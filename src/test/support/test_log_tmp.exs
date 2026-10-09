@@ -5,21 +5,23 @@ defmodule Aiur.TestLogTmp do
   def sweep!(base, owner, alive? \\ &alive?/1) do
     for name <- File.ls!(base),
         [_, pid] <- [Regex.run(~r/^aiur-test-logs-\d+-(\d+)$/, name)] do
-      path = Path.join(base, name)
+      remove_dead_run!(Path.join(base, name), owner, pid, alive?)
+    end
+  end
 
-      case File.lstat(path) do
-        {:ok, %File.Stat{type: :directory, uid: ^owner}} ->
-          unless alive?.(pid), do: File.rm_rf!(path)
+  defp remove_dead_run!(path, owner, pid, alive?) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory, uid: ^owner}} ->
+        unless alive?.(pid), do: File.rm_rf!(path)
 
-        {:ok, _} ->
-          :ok
+      {:ok, _} ->
+        :ok
 
-        {:error, :enoent} ->
-          :ok
+      {:error, :enoent} ->
+        :ok
 
-        {:error, reason} ->
-          raise File.Error, reason: reason, action: "stat", path: path
-      end
+      {:error, reason} ->
+        raise File.Error, reason: reason, action: "stat", path: path
     end
   end
 
