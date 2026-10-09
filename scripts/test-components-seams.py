@@ -56,8 +56,10 @@ check('claim_probe_behaviour_seam', '@behaviour Aiur.BuildQueue.ClaimProbe', mes
 check('claim_probe_types_pass_in_implementation', '@spec f() :: Aiur.BuildQueue.ClaimProbe.result()')
 check('claim_probe_reference_elsewhere_fails', 'Aiur.BuildQueue.ClaimProbe.f()', 1, 'R-seam',
       path='src/lib/aiur/orchestrator/other.ex')
-check('other_build_queue_module_from_orchestration_fails', 'Aiur.BuildQueue.Server.f()', 1, 'R-private')
-check('seam_kind_is_exact', '@behaviour Aiur.BuildQueue.Hints', 1, 'R-optional')
+check('other_build_queue_module_from_orchestration_fails', 'Aiur.BuildQueue.Server.f()', 1,
+      'R-private orchestration -> Aiur.BuildQueue.Server:')
+check('seam_kind_is_exact', '@behaviour Aiur.BuildQueue.Hints', 1,
+      'R-optional orchestration -> Aiur.BuildQueue.Hints:')
 for name, source, target in [
     ('forbidden_orchestrator_ref_fails', 'Aiur.Orchestrator.f()', 'Aiur.Orchestrator'),
     ('forbidden_github_ref_fails', 'Aiur.GitHub.Labels.f()', 'Aiur.GitHub.Labels'),
@@ -83,9 +85,11 @@ for path, expected in [('src/lib/aiur/build_queue/server.ex', 1),
 check('build_order_unused_alias_also_restricted', 'alias Aiur.BuildOrder.Graph', 1, 'R-seam',
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex')
 # Future-regression guards preserve existing private/layer rules when applying seams.
-check('seam_does_not_suppress_private', 'Aiur.BuildQueue.Server.f()', 1, 'R-private',
+check('seam_does_not_suppress_private', 'Aiur.BuildQueue.Server.f()', 1,
+      'R-private orchestration -> Aiur.BuildQueue.Server:',
       change=lambda m: m['seams'].append(dict(m['seams'][0], to_module='Aiur.BuildQueue.Server')))
-check('seam_does_not_suppress_upward', 'Aiur.BuildQueue.Hints.f()', 1, 'R-down',
+check('seam_does_not_suppress_upward', 'Aiur.BuildQueue.Hints.f()', 1,
+      'R-down orchestration -> Aiur.BuildQueue.Hints:',
       change=lambda m: next(c for c in m['components'] if c['id'] == 'orchestration').update(layer=2))
 check('unknown_seam_component_rejected', 'nil', 2, 'unknown component absent',
       change=lambda m: m['seams'][0].update({'from': 'absent'}))
