@@ -52,6 +52,9 @@ defmodule Aiur.AgentPubSub do
     Phoenix.PubSub.subscribe(@pubsub, @fleet_refresh_topic, opts)
   end
 
+  @spec latest_fleet_summaries() :: [AgentEvents.agent_summary()] | nil
+  def latest_fleet_summaries, do: FleetRefresh.latest(self())
+
   @spec broadcast_fleet_refresh() :: :ok
   def broadcast_fleet_refresh, do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
 
