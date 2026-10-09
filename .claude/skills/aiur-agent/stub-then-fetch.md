@@ -7,6 +7,66 @@ dependency, subscribes you to blocker events, and marks only the integration
 point as blocked. Keep independent work moving unless the blocker makes the
 entire ticket impossible.
 
+## Optimistic start (started on an unmerged blocker)
+
+Use this mode only when your prompt contains an **Optimistic start** block.
+Never guess it from a branch or an event. Without that block, the paused-dependent
+rules below apply: a push is never a readiness signal. For an optimistic worker,
+every blocker push is an integration signal.
+
+1. **First turn.** Set `workspace="$AIUR_AGENT_WORKSPACE"`. For each blocker
+   listed in the prompt, fetch its validated ref and SHA; never reconstruct a
+   branch from its ticket number. Verify the fetched commit matches the supplied
+   SHA. Run `git -C "$workspace" merge-base --is-ancestor <sha> HEAD`;
+   merge each missing head with `git -C "$workspace" merge <sha>`, resolving
+   conflicts hunk by hunk. Record each integrated blocker identifier, ref and
+   SHA in the Agent Workpad. Keep the old commit reachable with a local rescue
+   ref so a later rewrite can still be compared and rebased.
+2. **Every `ticket.N.branch.push`.** At the next safe checkpoint (WIP
+   committed, no test run in flight), fetch the payload ref and SHA and verify
+   the commit. If several pushes queued for the same blocker, integrate the
+   latest validated push. Read `<old>` from the workpad and run
+   `git -C "$workspace" merge-base --is-ancestor <old> <new>`.
+   Exit 0 means merge `<new>`; exit 1 means rewritten history, so use
+   `git -C "$workspace" rebase --onto <new> <old>` to replay your commits.
+   Any other exit is an error: stop integration and report it. Do not merge a
+   rewritten blocker branch. Resolve conflicts without discarding either
+   ticket's intent. The local ancestry check is authoritative on every push;
+   `branch.force-push` is only a hint, including delayed or missing verdicts.
+3. **Validate and publish.** Inspect `git -C "$workspace" diff <old> <new>`
+   and rerun the repository's documented tests affected by that incoming diff,
+   plus your own touched tests. In Aiur, use `mix aiur.affected_tests` with
+   the old SHA as its base; include tests identified by the incoming diff and
+   run the selected tests with
+   `--max-cases 4`. After a rewrite, verify the PR is still draft and push
+   your existing branch with `--force-with-lease`; otherwise push normally.
+   Record the new integrated SHA only after successful integration and tests.
+   Keep the previous SHA and concrete failure in the workpad if integration fails.
+4. **Keep the PR draft and stacked.** With one unmerged blocker, use its branch
+   as the PR base; with several, use `$AIUR_BASE_BRANCH`, as the prompt block
+   directs. While any blocker PR is unmerged, never run `gh pr ready` or move
+   to `agent:ci-wait` or `agent:human-review`, even if your own work and
+   draft checks are complete.
+5. **Own work done, blocker unmerged: park.** Leave the published PR draft,
+   record the remaining blocker(s) and integrated SHAs in the workpad, and emit
+   each event once without polling or retrying:
+   ```jsonc
+   { "name": "blocked", "message": "Own work complete; awaiting blocker #N merge", "payload": { "reason": "awaiting_blocker_merge" } }
+   { "name": "pause.request", "message": "Awaiting blocker #N merge", "payload": { "reason": "dependency", "blocker_identifier": "N" } }
+   ```
+   For several blockers, name the outstanding blocker in the dependency pause;
+   after each wake, reassess the remaining blockers and park again if necessary.
+6. **On `ticket.N.pr.merged`.** Follow G3's restack procedure when available.
+   Until that section lands: fetch the configured integration branch, retarget
+   the PR to `$AIUR_BASE_BRANCH` and verify its base, then rebase onto the base
+   tip dropping the blocker commits already included by the squash. Use the
+   recorded integrated blocker SHA as the old boundary for
+   `git -C "$workspace" rebase --onto <base-tip> <integrated-blocker-sha>`.
+   Inspect the resulting diff to ensure your changes remain, rerun affected
+   tests and push the draft with `--force-with-lease`. If another blocker is
+   unmerged, keep the PR draft and follow steps 2–5; only after all blockers
+   merge may you use the normal ready/CI handoff.
+
 ## When you're blocked on a function from ticket N
 
 1. **Declare the blocker.** `aiur_declare_blocker(N)` — this records the dependency on GitHub natively and auto-subscribes you to the useful subset of ticket N's events.
@@ -79,7 +139,8 @@ and an unblock whose metadata does not match the observed push is ignored.
 - **Don't poll or retry emissions.** Required means every agent makes the call;
   fire-and-forget means it enqueues once and continues even when publication is
   still pending.
-- **Don't infer readiness from `branch.push`.** Resume and integrate on the
+- **Don't mark an optimistic PR ready while a blocker is unmerged, or merge rewritten blocker history.** Follow the Optimistic start section above.
+- **Don't infer readiness from `branch.push` for paused dependents.** Resume and integrate on the
   blocker's explicit `agent.unblocked`; use a push only to inspect its validated
   ref.
 - **Don't silently use a stub.** Always emit `unblocked` with `temporary_stub: true` so other agents reading your `progress.*` events know to read carefully.

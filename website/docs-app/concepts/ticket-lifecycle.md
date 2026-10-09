@@ -154,6 +154,14 @@ and never deletes ones a repository already has; those keep working as exact pin
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
 
+**Optimistic dependents.** A worker explicitly started on an unmerged blocker
+receives an Optimistic start prompt block. It integrates blocker pushes at safe
+checkpoints, rebases after rewritten history, and keeps its PR draft while any
+blocker PR is unmerged. When its own work is done it parks until blocker merge,
+then restacks onto the integration branch before the normal CI handoff. The
+[agent skill's canonical loop](https://github.com/aiur-team/aiur/blob/main/.claude/skills/aiur-agent/stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker)
+owns the procedure.
+
 The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
 
 Item states are projections, not tracker labels:
