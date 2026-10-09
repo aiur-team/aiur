@@ -362,15 +362,23 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @spec ensure_tracker_preflight(State.t()) :: {:ok, State.t()} | {:error, term(), State.t()}
   def ensure_tracker_preflight(%State{} = state) do
+    case tracker_preflight() do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  @spec tracker_preflight() :: :ok | {:error, term()}
+  def tracker_preflight do
     case Config.validate!() do
       :ok ->
         case Config.tracker_kind() do
-          "github" -> ensure_github_auth_preflight(state)
-          _ -> {:ok, state}
+          "github" -> GitHubTracker.ensure_auth_preflight()
+          _ -> :ok
         end
 
       {:error, reason} ->
-        {:error, reason, state}
+        {:error, reason}
     end
   end
 
@@ -379,12 +387,6 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # requests an hour at idle. The memo behind it is dropped the moment GitHub
   # answers a call unauthenticated, so a revoked token still lands here as the
   # normal preflight diagnostic on the next cycle.
-  defp ensure_github_auth_preflight(%State{} = state) do
-    case GitHubTracker.ensure_auth_preflight() do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:error, reason, state}
-    end
-  end
 
   @spec log_tracker_preflight_error(term()) :: :ok
   def log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do

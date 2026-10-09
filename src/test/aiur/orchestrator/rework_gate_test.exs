@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
       assert ReworkGate.verify_unresolved_review_threads("2473",
                open_pr_fetcher: fn _ -> {:ok, pr} end,
                unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
-               changes_requested_review?: true
+               blocking_review_submission?: true
              ) == {:ok, pr}
     end
 
@@ -141,14 +141,14 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
       assert ReworkGate.verify_unresolved_review_threads("2473",
                open_pr_fetcher: fn _ -> {:ok, pr} end,
                unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
-               changes_requested_review?: false
+               blocking_review_submission?: false
              ) == {:skip, :no_unresolved_review_threads}
     end
 
     test "a changes-requested review still cannot manufacture rework without an open PR" do
       assert ReworkGate.verify_unresolved_review_threads("2473",
                open_pr_fetcher: fn _ -> {:ok, nil} end,
-               changes_requested_review?: true
+               blocking_review_submission?: true
              ) == {:skip, :no_open_pr}
     end
   end

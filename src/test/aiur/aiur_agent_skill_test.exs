@@ -631,11 +631,7 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
-    source =
-      @repo_root
-      |> Path.join(".claude/skills/aiur-agent/dev-loop.md")
-      |> File.read!()
-      |> one_line()
+    source = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
 
     assert source =~ "pre-PR"
     assert source =~ "mix compile --warnings-as-errors"
@@ -644,8 +640,6 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "affected tests only"
     assert source =~ "mix test --max-cases 4"
     refute source =~ "mix credo --strict"
-    assert source =~ "mise exec -- mix lint"
-    assert source =~ "python3 scripts/check-bare-assert-receive.py"
     refute source =~ "Do not run Credo locally"
     refute source =~ "Credo belongs to CI"
     assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
@@ -655,13 +649,25 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "Re-run the scoped local pre-PR verification gate"
   end
 
-  test "shared prompt requires both local checks before PR handoff" do
-    source = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
+  test "agent dev loop requires the local prose guard before pushing docs changes" do
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
 
-    assert source =~ "before marking the PR ready or handing off to CI/review"
-    assert source =~ "From `src/`: `mise exec -- mix lint`"
-    assert source =~ "From the repository root: `python3 scripts/check-bare-assert-receive.py`"
-    assert source =~ "run both required checks and fix any failures"
+    assert dev_loop =~
+             "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
+  end
+
+  test "agent instructions require all local checks and oversized-file fixes before PR handoff" do
+    for path <- [".claude/skills/aiur-agent/dev-loop.md", "src/prompts/shared-agent-instructions.md"] do
+      source = one_line(File.read!(Path.join(@repo_root, path)))
+      assert source =~ "marking the PR ready or handing off to CI/review"
+      assert source =~ "From `src/`: `mise exec -- mix lint`"
+      assert source =~ "From the repository root: `python3 scripts/check-bare-assert-receive.py`"
+      assert source =~ ~s(then run `python3 scripts/check-file-size.py --base "$base"`)
+      assert source =~ ~s|base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"|
+      assert source =~ "run all required checks and fix any failures"
+      assert source =~ "file the same length or shorter"
+      assert source =~ "Put new code in a new small module and new tests in a new test file. Never grow the oversized file."
+    end
   end
 
   test "unrelated CI flakes never become ticket dependencies" do

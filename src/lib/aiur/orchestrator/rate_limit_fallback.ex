@@ -29,7 +29,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     PauseResume,
     RemoteControlMode,
     RetryEngine,
-    State
+    State,
+    TrackerTasks
   }
 
   @marker_label_suffix "rate-limit-fallback"
@@ -450,83 +451,22 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp engage_after_preflight(context, fallback_backend, marker_label) do
-    case context.add_label.(context.identifier, marker_label) do
-      :ok ->
-        case context.add_label.(context.identifier, model_label(fallback_backend)) do
-          :ok ->
-            Logger.warning(
-              "Codex usage-limit fallback engaged; re-dispatching on #{fallback_backend}: " <>
-                log_context(context.running_entry, context.issue)
-            )
-
-            {redispatch(context.state, context.running_entry, context.relabeled, context.opts), true}
-
-          {:error, reason} ->
-            rollback = context.remove_label.(context.identifier, marker_label)
-
-            log_transition_failure(
-              :engage,
-              context.running_entry,
-              context.issue,
-              reason,
-              rollback
-            )
-
-            {context.state, true}
-        end
-
-      {:error, reason} ->
-        log_transition_failure(
-          :engage,
-          context.running_entry,
-          context.issue,
-          reason,
-          :not_needed
-        )
-
-        {context.state, true}
-    end
+    transition_after_preflight(context, :engage, fn -> engage_tracker_fallback({context, fallback_backend, marker_label}) end)
   end
 
   defp revert_after_preflight(context, marker_label) do
     fallback_label = model_label(context.engaged_fallback)
 
-    case context.remove_label.(context.identifier, fallback_label) do
-      :ok ->
-        case context.remove_label.(context.identifier, marker_label) do
-          :ok ->
-            Logger.info(
-              "Primary recovered; reverting usage-limit fallback: " <>
-                log_context(context.running_entry, context.issue)
-            )
+    transition_after_preflight(context, :revert, fn -> revert_tracker_fallback({context, fallback_label, marker_label}) end)
+  end
 
-            {redispatch(context.state, context.running_entry, context.relabeled, context.opts), true}
+  defp transition_after_preflight(context, transition, fetch) do
+    next =
+      TrackerTasks.run(context.state, {:fallback_labels, context.issue.id}, fetch, fn arg1, arg2 ->
+        apply_fallback_transition(arg1, arg2, {context, transition})
+      end)
 
-          {:error, reason} ->
-            rollback = context.add_label.(context.identifier, fallback_label)
-
-            log_transition_failure(
-              :revert,
-              context.running_entry,
-              context.issue,
-              reason,
-              rollback
-            )
-
-            {context.state, true}
-        end
-
-      {:error, reason} ->
-        log_transition_failure(
-          :revert,
-          context.running_entry,
-          context.issue,
-          reason,
-          :not_needed
-        )
-
-        {context.state, true}
-    end
+    {next, true}
   end
 
   defp log_transition_failure(transition, running_entry, issue, reason, rollback) do
@@ -760,4 +700,59 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp log_context(running_entry, issue),
     do: "#{State.issue_context(issue)} session_id=#{State.running_entry_session_id(running_entry)}"
+
+  defp engage_tracker_fallback({context, fallback_backend, marker_label}) do
+    case context.add_label.(context.identifier, marker_label) do
+      :ok ->
+        case context.add_label.(context.identifier, model_label(fallback_backend)) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            {:error, reason, context.remove_label.(context.identifier, marker_label)}
+        end
+
+      {:error, reason} ->
+        {:error, reason, :not_needed}
+    end
+  end
+
+  defp revert_tracker_fallback({context, fallback_label, marker_label}) do
+    case context.remove_label.(context.identifier, fallback_label) do
+      :ok ->
+        case context.remove_label.(context.identifier, marker_label) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            {:error, reason, context.add_label.(context.identifier, fallback_label)}
+        end
+
+      {:error, reason} ->
+        {:error, reason, :not_needed}
+    end
+  end
+
+  defp apply_fallback_transition(current, result, {context, transition}) do
+    entry = Map.get(current.running, context.issue.id)
+
+    case result do
+      :ok ->
+        if TrackerTasks.same_runner?(entry, context.running_entry) do
+          Logger.info("Rate-limit fallback #{transition} labels persisted; re-dispatching: #{log_context(entry, context.issue)}")
+
+          redispatch(current, entry, context.relabeled, context.opts)
+        else
+          current
+        end
+
+      {:error, reason, rollback} ->
+        log_transition_failure(transition, context.running_entry, context.issue, reason, rollback)
+        current
+
+      {:error, reason} ->
+        log_transition_failure(transition, context.running_entry, context.issue, reason, :unknown)
+        current
+    end
+  end
 end

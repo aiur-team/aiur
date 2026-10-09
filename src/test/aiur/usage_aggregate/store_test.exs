@@ -20,7 +20,7 @@ defmodule Aiur.UsageAggregate.StoreTest do
       File.rm_rf(agg_root)
     end)
 
-    %{ledger: ledger, ledger_name: ledger_name, agg_root: agg_root, agg_name: agg_name}
+    %{ledger_root: ledger_root, ledger: ledger, ledger_name: ledger_name, agg_root: agg_root, agg_name: agg_name}
   end
 
   test "catches up from the persisted ledger on boot and serves a bounded scope", context do
@@ -170,6 +170,94 @@ defmodule Aiur.UsageAggregate.StoreTest do
     GenServer.stop(agg)
   end
 
+  test "ledger restart catches up nondefault fields and receives new deltas without duplicates", context do
+    append(context.ledger_name, envelope(%{tokens: token(10), resolved_model: "custom-model"}))
+    parent = self()
+    {:ok, agg} = start_aggregate(context, publish_fun: fn payload -> send(parent, {:recovered, payload}) end)
+    assert_receive {:recovered, %{source_position: 1}}, 1000
+
+    GenServer.stop(context.ledger)
+    assert Store.freshness(agg).status == :stale
+    {:ok, ledger} = UsageLedger.Store.start_link(name: context.ledger_name, state_dir: context.ledger_root, filesystem_sync_fun: fn -> :ok end)
+    append(context.ledger_name, envelope(%{tokens: token(5), resolved_model: "custom-model"}))
+    assert_receive {:recovered, %{source_position: 2, freshness: %{status: :fresh}}}, 2000
+
+    append(context.ledger_name, envelope(%{tokens: token(7), resolved_model: "custom-model"}))
+    assert_receive {:recovered, %{source_position: 3}}, 1000
+    send(agg, {:usage_ledger_delta, %{position: 3}})
+    summary = Store.query(%{runs: [@run]}, agg)
+    assert summary.totals.tokens == %{input: 22}
+    assert summary.groups.by_model["custom-model"].tokens == %{input: 22}
+    assert summary.coverage.projection.folded_records == 3
+    GenServer.stop(agg)
+    GenServer.stop(ledger)
+  end
+
+  test "freshness is stale with since across read surfaces while ledger is down", context do
+    {:ok, agg} = start_aggregate(context, alert_fun: fn _name, _opts -> :ok end)
+    GenServer.stop(context.ledger)
+    stale = Store.freshness(agg)
+    assert stale.status == :stale
+    assert %DateTime{} = stale.since
+    assert Store.freshness(agg).since == stale.since
+    assert Store.query(%{runs: [@run]}, agg).freshness.status == :stale
+    assert Store.cells_snapshot(agg).metadata.freshness.status == :stale
+    GenServer.stop(agg)
+  end
+
+  test "freshness detects a missed delta at read time", context do
+    {:ok, agg} = start_aggregate(context, ledger_subscribe_fun: fn _pid -> :ok end)
+    append(context.ledger_name, envelope(%{tokens: token(9)}))
+    assert %{status: :stale, projected_position: 0, ledger_position: 1} = Store.freshness(agg)
+    assert Store.snapshot(agg).freshness.status == :stale
+    GenServer.stop(agg)
+  end
+
+  test "failed subscribe is retried before delivering live events", context do
+    parent = self()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    subscribe = fn pid ->
+      attempt = Agent.get_and_update(attempts, fn n -> {n, n + 1} end)
+
+      if attempt == 0 do
+        {:error, :noproc}
+      else
+        result = GenServer.call(context.ledger_name, {:subscribe, pid})
+        send(parent, {:subscribed, result})
+        result
+      end
+    end
+
+    {:ok, agg} = start_aggregate(context, ledger_subscribe_fun: subscribe)
+    assert Store.freshness(agg).status == :stale
+    assert_receive {:subscribed, :ok}, 2000
+    append(context.ledger_name, envelope(%{tokens: token(8)}))
+    assert Store.query(%{runs: [@run]}, agg).totals.tokens == %{input: 8}
+    GenServer.stop(agg)
+  end
+
+  @tag timeout: 90_000
+  test "prolonged disconnection alerts once and ignores an old outage after recovery", context do
+    parent = self()
+    {:ok, agg} = start_aggregate(context, alert_fun: fn name, opts -> send(parent, {:alert, name, opts}) end)
+    GenServer.stop(context.ledger)
+    since = Store.freshness(agg).since
+    assert_receive {:alert, "system.usage_aggregate.source_unavailable", opts}, 62_000
+    assert opts[:needs_attention]
+    send(agg, {:ledger_unavailable, since})
+    _ = Store.snapshot(agg)
+    refute_received {:alert, _name, _opts}
+    {:ok, ledger} = UsageLedger.Store.start_link(name: context.ledger_name, state_dir: context.ledger_root, filesystem_sync_fun: fn -> :ok end)
+    assert_receive {:alert, "system.usage_aggregate.source_unavailable.resolved", _opts}, 2000
+    assert Store.freshness(agg).status == :empty
+    send(agg, {:ledger_unavailable, since})
+    _ = Store.snapshot(agg)
+    refute_received {:alert, _name, _opts}
+    GenServer.stop(agg)
+    GenServer.stop(ledger)
+  end
+
   defp start_aggregate(context, opts \\ []) do
     ledger_name = context.ledger_name
 
@@ -178,6 +266,7 @@ defmodule Aiur.UsageAggregate.StoreTest do
       state_dir: context.agg_root,
       filesystem_sync_fun: fn -> :ok end,
       ledger_scan_fun: fn scan_opts -> GenServer.call(ledger_name, {:scan, scan_opts}) end,
+      ledger_server: ledger_name,
       ledger_subscribe_fun: fn pid -> GenServer.call(ledger_name, {:subscribe, pid}) end,
       ledger_generation_fun: fn -> GenServer.call(ledger_name, :generation) end,
       ledger_coverage_fun: fn -> GenServer.call(ledger_name, :coverage) end
