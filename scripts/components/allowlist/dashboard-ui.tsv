@@ -20,4 +20,3 @@ R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Webhooks.DeliveryLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Webhooks.Ingest	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	AiurWeb.GithubWebhook	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.TrustSnapshot	#3295 degraded CODEOWNERS trust banner reads the shared trust snapshot
