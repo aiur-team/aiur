@@ -8,6 +8,10 @@ defmodule Aiur.Tracker do
   @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
 
+  @type ticket_pull_request_result ::
+          {:ok, nil | %{required(:state) => :open | :closed, required(:merged?) => boolean(), optional(:number) => pos_integer(), optional(:version) => String.t() | nil}} | {:error, term()}
+
+  @callback ticket_pull_request(String.t()) :: ticket_pull_request_result()
   @callback open_issue_labels(pos_integer()) :: open_issue_labels_result()
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
@@ -31,7 +35,8 @@ defmodule Aiur.Tracker do
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks ensure_labels: 1,
+  @optional_callbacks ticket_pull_request: 1,
+                      ensure_labels: 1,
                       open_issue_labels: 1,
                       fetch_issue_states_by_ids_conditional: 2,
                       update_issue_state: 3,
@@ -48,6 +53,13 @@ defmodule Aiur.Tracker do
     else
       {:error, :unsupported}
     end
+  end
+
+  @doc "Reads a ticket's delivered PR evidence without a remote request; unsupported adapters return nil."
+  @spec ticket_pull_request(String.t()) :: ticket_pull_request_result()
+  def ticket_pull_request(issue_id) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1), do: tracker.ticket_pull_request(issue_id), else: {:ok, nil}
   end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}

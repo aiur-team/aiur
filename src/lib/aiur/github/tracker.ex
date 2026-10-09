@@ -13,6 +13,9 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.Issue
   alias Aiur.TestTicketScope
 
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(issue_id), do: Aiur.GitHub.TicketPullRequest.read(issue_id)
+
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(max_age_ms) do
     case Transport.parse_repo() do

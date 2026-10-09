@@ -692,8 +692,7 @@ That gap is the exposure, and it is why a verdict is never kept at all.
 
 ## What the agent guard governs
 
-Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
-scrubs them from every agent environment and instead writes the bot PAT to a
+Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
 reads.
 
@@ -722,8 +721,7 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes compare the open PR with the configured base. Stale
-heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
 for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
@@ -748,6 +746,8 @@ separately from harmless stale heads; the earlier 3-of-8 stale-base count is
 context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
+
+Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending.
 
 Build queue writes promote ready issues conditionally to `agent:todo` and add/remove `agent:queued`, paced by `build_queue.max_writes_per_minute` (default 20). Each promotion attempt uses up to three issue GETs and one label POST; marker writes cost one request. Label creation is ensured before the first mark each boot. No quota saving is claimed.
 
