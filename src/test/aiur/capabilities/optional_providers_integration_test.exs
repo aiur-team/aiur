@@ -64,9 +64,9 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
       assert report.capabilities["build_orders"] == %{state: :unknown, reason: :unknown}
       assert report.capabilities["build_orders.progress"] == %{state: :unknown, reason: :unknown}
       assert MapSet.member?(warnings, {:failed, Aiur.BuildOrder.CapabilityProvider})
-      assert {:message_queue_len, 0} = Process.info(pid, :message_queue_len)
     end
 
+    assert {:message_queue_len, 0} = Process.info(pid, :message_queue_len)
     ref = Process.monitor(pid)
     send(pid, :stop)
     receive_barrier({:DOWN, ^ref, :process, ^pid, :normal})
