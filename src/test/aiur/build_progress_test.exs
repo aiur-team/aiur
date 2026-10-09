@@ -14,6 +14,15 @@ defmodule Aiur.BuildProgressTest do
     %{path: path, scope: scope}
   end
 
+  test "BuildProgress is armed with recording after its event publisher and the Orchestrator" do
+    opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+    mods = fn recording? -> opts |> Keyword.put(:recording?, recording?) |> Aiur.Application.child_specs() |> Enum.map(&child_module/1) end
+    with_recording = mods.(true)
+    assert Enum.find_index(with_recording, &(&1 == Aiur.Events.Publisher)) < Enum.find_index(with_recording, &(&1 == BuildProgress))
+    assert Enum.find_index(with_recording, &(&1 == Aiur.Orchestrator)) < Enum.find_index(with_recording, &(&1 == BuildProgress))
+    refute BuildProgress in mods.(false)
+  end
+
   test "20% to 80% emits only the highest milestone and stores its latch", context do
     server = start_store(context.path)
     put(server, context.scope, 20)
@@ -205,4 +214,8 @@ defmodule Aiur.BuildProgressTest do
   end
 
   defp topic({kind, id}), do: "system.#{kind}.#{id}.progress"
+
+  defp child_module(mod) when is_atom(mod), do: mod
+  defp child_module({mod, _opts}), do: mod
+  defp child_module(%{id: id}), do: id
 end

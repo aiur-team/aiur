@@ -508,13 +508,10 @@ defmodule Aiur.Application do
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       # Allowed-contributor intake (#2957) feeds the Executor wake path armed
-      # above, so it runs whenever recording does. It is last in this
-      # `:rest_for_one` list so a restart of it can never cascade into the
-      # dashboard, the Principal, or the opencode supervisors.
-      if(recording?, do: Aiur.AllowedContributors),
-      # Progress facts and milestone latches have no dependents yet; last so a
-      # restart of it cannot cascade into anything above.
-      if(recording?, do: Aiur.BuildProgress)
+      # above; BuildProgress has no dependents. Both run with recording and are
+      # last in this `:rest_for_one` list so their restarts can never cascade
+      # into the dashboard, the Principal, or the opencode supervisors.
+      if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress])
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
