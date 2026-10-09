@@ -131,6 +131,7 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     end
 
     modules = children.(true)
+    assert ProgressObserver in modules
     observer = Enum.find_index(modules, &(&1 == ProgressObserver))
     assert Enum.find_index(modules, &(&1 == GraphProjection)) < observer
     assert Enum.find_index(modules, &(&1 == BuildProgress)) < observer
