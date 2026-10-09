@@ -2775,7 +2775,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp capture_rework_head(_issue, initial_head, _opts) when initial_head != :pending, do: initial_head
 
   defp capture_rework_head(issue, :pending, opts) do
-    fetcher = Keyword.get(opts, :rework_head_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+    fetcher = Keyword.get(opts, :rework_head_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetcher.(issue.identifier) do
       {:ok, %{} = pr} -> ReworkGate.head_sha(pr) || :lookup_failed
