@@ -65,7 +65,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   process, filesystem, log, or clock lookup and never changes edge semantics.
   """
 
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextAdapter.{Relationship, View}
   alias AiurWeb.BuildOrder.TicketContextPresenter

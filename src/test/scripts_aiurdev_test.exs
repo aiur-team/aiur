@@ -6,7 +6,6 @@ defmodule ScriptsAiurdevTest do
   # files via relative paths) and surfaces as a `MatchError {:error, :enoent}`
   # compiling some unrelated `test/...` file under the temp cwd (#589).
   use ExUnit.Case, async: false
-
   # aiurdev is now a thin dev shim: it resolves the repo-local release, rebuilds
   # it when stale, and execs the shared engine with AIUR_RELEASE_DIR set. The
   # command surface itself is covered by AiurEngineTest; here we only verify the
@@ -442,6 +441,7 @@ defmodule ScriptsAiurdevTest do
 
     for {args, expected} <- [
           {["agents"], "ENGINE_ARGS: agents"},
+          {["epic", "list"], "ENGINE_ARGS: epic list"},
           {["status"], "ENGINE_ARGS: status"},
           {["set", "max-agents", "3"], "ENGINE_ARGS: set max-agents 3"},
           {["pause", "--all"], "ENGINE_ARGS: pause --all"},

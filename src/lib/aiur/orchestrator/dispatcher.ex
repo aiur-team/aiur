@@ -207,12 +207,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
     state = CommentPolling.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
-    # One decision-store read per poll cycle, shared by the running-state
-    # reconciliation (stop agents whose ticket just opened a blocking Command)
-    # and the dispatch gate (`choose_issues`). Threading it from here — rather
-    # than a per-ticket read inside `DispatchPolicy` — keeps the pure policy
-    # function GenServer-free and the orchestrator mailbox out from behind the
-    # decision store (#1965).
+    # Reconciliation needs current holds before stopping blocked workers;
+    # admission refreshes again after tracker work because answers can arrive during the poll.
     state = refresh_blocked_ticket_ids(state)
 
     state
@@ -246,7 +242,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # Tracker claims survive a daemon restart, while the runtime registry
         # does not. Once both views are fresh, release only claims with no
         # positive current-generation runtime evidence before normal dispatch.
-        {state, issues} = StartupClaimReconciler.reconcile(state, issues)
+        {state, issues} = StartupClaimReconciler.reconcile(state, issues, Keyword.get(opts, :startup_claim_opts, []))
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
@@ -259,9 +255,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # replace a retained snapshot from a prior same-name orchestrator.
         state = %{state | snapshot_ready?: true}
 
-        # The poll just refreshed `last_polled_issues`, so push a fresh
-        # summary out to any open agent-list pane immediately.
+        # Publish all rows, including claims still within the recovery grace period.
         StatusReport.notify_dashboard(state)
+        issues = StartupClaimReconciler.Observation.dispatch_candidates(state, issues)
 
         # Re-dispatch tickets parked on a transient pause/error whose backoff
         # has elapsed (#1453). Runs before normal dispatch so a restored ticket
@@ -547,15 +543,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # a probe that exceeds its bound is reported while the gate is still held.
   @prewarm_blocked_alert_after_ms 15_000
 
-  # Reads the open-blocking-Command ticket set once per poll cycle into State.
+  # Refreshes the open-blocking-Command ticket set in State from the local store.
   # The dispatch gate is fail-closed: `:unavailable` (the decision store could
   # not be read) holds every new dispatch, because an open blocking Command is
   # indistinguishable from an empty store when the store cannot be read. The
   # Reconciler reads the same value but fails OPEN (it never stops healthy
   # running agents on a store outage).
-  @spec refresh_blocked_ticket_ids(State.t()) :: State.t()
-  def refresh_blocked_ticket_ids(%State{} = state) do
-    case DecisionStore.blocked_ticket_ids() do
+  @spec refresh_blocked_ticket_ids(State.t(), GenServer.server()) :: State.t()
+  def refresh_blocked_ticket_ids(%State{} = state, store \\ DecisionStore) do
+    case DecisionStore.blocked_ticket_ids(store) do
       {:ok, %MapSet{} = ids} -> %{state | blocked_ticket_ids: ids}
       {:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}
     end
@@ -649,6 +645,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term()), keyword()) :: State.t()
   def dispatch_or_hold(%State{} = state, issues, trigger_fun, opts)
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
+    # An answer may arrive during the tracker fetch; admission must read the current local hold.
+    state = refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, DecisionStore))
+
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
     state = %{state | dispatch_capacity_constraints: [], dispatch_selection_hold: nil}
@@ -961,6 +960,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
@@ -977,11 +977,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
       |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
 
-    # Sample every failing gate before applying admission priority. A memory or
-    # FD hold must not erase the age of an independently persistent load hold;
-    # IssueSync tracks each recorded gate identity across poll cycles, so the
-    # constraint list is deliberately broader than the single binding signal
-    # `admission_gate/1` returns below.
+    # Reusing a sample neither confirms nor interrupts sustained overload.
+    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)

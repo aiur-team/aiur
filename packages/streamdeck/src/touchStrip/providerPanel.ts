@@ -28,6 +28,7 @@ import { providerSegmentModel, type ProviderMeter, type ProviderSegmentModel } f
 /** One provider's row: the name to print and its meter reading. */
 export interface ProviderPanelRow {
   readonly label: string;
+  readonly summaryLabel?: string;
   readonly model: ProviderSegmentModel;
 }
 
@@ -94,6 +95,9 @@ export const providerRows = (usage: Readonly<Record<string, unknown>>): readonly
     .sort()
     .map((key) => ({
       label: key,
+      summaryLabel: typeof (usage[key] as ProviderMeter | null)?.summary_label === "string"
+        ? (usage[key] as ProviderMeter).summary_label
+        : undefined,
       model: providerSegmentModel(typeof usage[key] === "object" ? (usage[key] as ProviderMeter | null) : null),
     }));
 

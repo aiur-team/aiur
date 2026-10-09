@@ -57,15 +57,35 @@ defmodule Aiur.UsageAggregate.Store do
   end
 
   @impl true
-  def handle_call({:query, scope}, _from, state), do: {:reply, Query.summary(state, scope), state}
+  def handle_call({:query, scope}, _from, state), do: {:reply, Query.summary(read_state(state), scope), state}
   def handle_call(:snapshot, _from, state), do: {:reply, snapshot_payload(state), state}
   def handle_call(:cells_snapshot, _from, state), do: {:reply, cells_snapshot_payload(state), state}
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:generation, _from, state), do: {:reply, state.projection.generation, state}
-  def handle_call(:freshness, _from, state), do: {:reply, state.freshness, state}
+  def handle_call(:freshness, _from, state), do: {:reply, read_freshness(state), state}
 
   @impl true
   def handle_info({:usage_ledger_delta, _acknowledgement}, state), do: {:noreply, catch_up(state, :notification)}
+
+  def handle_info({:DOWN, reference, :process, _pid, _reason}, %{ledger_monitor: reference} = state) do
+    {:noreply, state |> Map.merge(%{ledger_monitor: nil, ledger_pid: nil}) |> disconnected() |> retry_subscription() |> finalize(:notification)}
+  end
+
+  def handle_info(:subscribe_ledger, state), do: {:noreply, subscribe_ledger(state) |> catch_up(:notification)}
+
+  def handle_info({:ledger_unavailable, since}, %{disconnected_since: since, outage_alerted?: false} = state) when since != nil do
+    _ =
+      safe(fn ->
+        state.alert_fun.("system.usage_aggregate.source_unavailable",
+          message: "Usage aggregate has been disconnected from the ledger for 60 seconds",
+          reason: "Usage totals are stale; subscription retries continue",
+          needs_attention: true
+        )
+      end)
+
+    {:noreply, %{state | outage_alerted?: true}}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
   # --- bootstrap ----------------------------------------------------------
@@ -76,8 +96,7 @@ defmodule Aiur.UsageAggregate.Store do
     if base.paths == nil do
       finalize(%{state | freshness: empty_freshness(base.health)}, :announce)
     else
-      _ = safe(fn -> state.ledger_subscribe_fun.(self()) end)
-      state |> effective_base(base) |> catch_up(:announce)
+      state |> subscribe_ledger() |> effective_base(base) |> catch_up(:announce)
     end
   end
 
@@ -94,6 +113,14 @@ defmodule Aiur.UsageAggregate.Store do
       writable?: base.writable?,
       checkpoint_health: :ok,
       persistence: persistence,
+      ledger_server: Keyword.get(opts, :ledger_server, Application.get_env(:aiur, :usage_ledger_backend, Aiur.UsageLedger.Store)),
+      ledger_pid: nil,
+      ledger_monitor: nil,
+      retry_delay: 100,
+      disconnected_since: nil,
+      outage_alerted?: false,
+      last_event_at: nil,
+      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2),
       ledger_scan_fun: Keyword.get(opts, :ledger_scan_fun, &Aiur.UsageLedger.scan/1),
       ledger_subscribe_fun: Keyword.get(opts, :ledger_subscribe_fun, &Aiur.UsageLedger.subscribe/1),
       ledger_generation_fun: Keyword.get(opts, :ledger_generation_fun, &Aiur.UsageLedger.generation/0),
@@ -104,6 +131,47 @@ defmodule Aiur.UsageAggregate.Store do
       base_health_override: nil,
       max_scan: Keyword.get(opts, :max_scan, @max_scan)
     }
+  end
+
+  defp subscribe_ledger(state) do
+    pid = GenServer.whereis(state.ledger_server)
+    reference = if is_pid(pid), do: Process.monitor(pid)
+    result = if reference, do: safe(fn -> state.ledger_subscribe_fun.(self()) end), else: {:error, :noproc}
+
+    case result do
+      {:ok, :ok} ->
+        _ = resolve_outage(state)
+        %{state | outage_alerted?: false, ledger_pid: pid, ledger_monitor: reference, retry_delay: 100, disconnected_since: nil}
+
+      failure ->
+        if reference, do: Process.demonitor(reference, [:flush])
+        Logger.warning("aiur_usage_aggregate phase=subscribe_failed reason=#{inspect(failure)}")
+        state |> disconnected() |> retry_subscription()
+    end
+  end
+
+  defp resolve_outage(%{outage_alerted?: false}), do: :ok
+
+  defp resolve_outage(state) do
+    safe(fn ->
+      state.alert_fun.("system.usage_aggregate.source_unavailable.resolved",
+        reason: "Usage ledger subscription restored",
+        needs_attention: false
+      )
+    end)
+  end
+
+  defp disconnected(%{disconnected_since: nil} = state) do
+    since = DateTime.utc_now()
+    Process.send_after(self(), {:ledger_unavailable, since}, 60_000)
+    %{state | disconnected_since: since, health: derive_health(state, state.checkpoint_health, :unreachable)}
+  end
+
+  defp disconnected(state), do: state
+
+  defp retry_subscription(state) do
+    Process.send_after(self(), :subscribe_ledger, state.retry_delay)
+    %{state | retry_delay: min(state.retry_delay * 2, 5_000)}
   end
 
   # Decide whether the restored checkpoint can seed the projection or the raw
@@ -163,11 +231,14 @@ defmodule Aiur.UsageAggregate.Store do
         {:error, _reason} -> {state.projection, :unreachable}
       end
 
+    source_health = if state.disconnected_since, do: :unreachable, else: source_health
     {checkpoint_health, writable?} = persist(state, projection)
 
     state
     |> Map.merge(%{
       projection: projection,
+      last_event_at:
+        if(source_health == :reachable and (is_nil(state.last_event_at) or projection.source_position > state.projection.source_position), do: DateTime.utc_now(), else: state.last_event_at),
       source_coverage: source_coverage,
       checkpoint_health: checkpoint_health,
       writable?: writable?,
@@ -281,6 +352,8 @@ defmodule Aiur.UsageAggregate.Store do
   end
 
   defp snapshot_payload(state) do
+    state = read_state(state)
+
     %{
       generation: state.projection.generation,
       source_position: state.projection.source_position,
@@ -291,6 +364,22 @@ defmodule Aiur.UsageAggregate.Store do
       source_coverage: state.source_coverage,
       recovery: state.recovery
     }
+  end
+
+  defp read_state(state), do: %{state | freshness: read_freshness(state)}
+
+  defp read_freshness(%{base_available?: false} = state), do: state.freshness
+
+  defp read_freshness(state) do
+    connected? = is_pid(state.ledger_pid) and Process.alive?(state.ledger_pid)
+    latest = safe_latest(state)
+    source_health = if connected? and is_integer(latest) and state.last_event_at != nil and state.freshness.status != :stale, do: :reachable, else: :unreachable
+    freshness = derive_freshness(state.projection, latest, source_health, state.recovery)
+
+    Map.merge(freshness, %{
+      last_event_at: state.last_event_at,
+      since: if(freshness.status == :stale, do: state.disconnected_since || state.last_event_at)
+    })
   end
 
   defp empty_freshness(health) do

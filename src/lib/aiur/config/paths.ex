@@ -12,7 +12,7 @@ defmodule Aiur.Config.Paths do
       daemon launch, so state that must survive a restart belongs in
       `runtime_state_dir/0` or `decision_state_dir/0` instead.
     * `repo_name/0` — the sanitized identifier used to prefix per-issue
-      files. Comes from `Aiur.Tracker.project_identity/0`; failure-safe.
+      files. Comes from the configured project identity source; failure-safe.
     * `sanitize/1` — replaces shell/path-unsafe characters with `_` so
       values from external sources (label slugs, repo names) can't escape
       filesystem boundaries.
@@ -22,7 +22,6 @@ defmodule Aiur.Config.Paths do
   """
 
   alias Aiur.PathSafety
-  alias Aiur.Tracker
 
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
@@ -113,6 +112,24 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
         end
+    end
+  end
+
+  @doc "Resolves the durable feature registry beneath the decision state root."
+  @spec build_features_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_features_state_dir do
+    case Application.get_env(:aiur, :build_features_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "build-features")}
+    end
+  end
+
+  @doc "Resolves the durable local epic override journal directory."
+  @spec epic_overrides_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def epic_overrides_state_dir do
+    case Application.get_env(:aiur, :epic_overrides_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "epic-overrides")}
     end
   end
 
@@ -331,7 +348,8 @@ defmodule Aiur.Config.Paths do
   end
 
   defp safe_project_identity do
-    Tracker.project_identity()
+    source = Application.get_env(:aiur, :project_identity_source, Aiur.Tracker)
+    source.project_identity()
   rescue
     _ -> nil
   catch

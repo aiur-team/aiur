@@ -2,7 +2,7 @@ defmodule Aiur.Muse.Transport do
   @moduledoc "Bounded native MSP transport, using Aiur's owned and scrubbed process launch."
 
   alias Aiur.AppServer.Adapter
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.ProcessTree
 
   @max_frame_bytes 4_194_304
 
@@ -19,7 +19,7 @@ defmodule Aiur.Muse.Transport do
   def metadata(port) do
     case Port.info(port, :os_pid) do
       {:os_pid, pid} ->
-        %{provider_pid: to_string(pid), agent_process_group_id: RemoteControl.process_group_for_pid(pid)}
+        %{provider_pid: to_string(pid), agent_process_group_id: ProcessTree.process_group_for_pid(pid)}
 
       nil ->
         %{}
@@ -61,7 +61,7 @@ defmodule Aiur.Muse.Transport do
   @spec stop(port()) :: :ok
   def stop(port) do
     case Port.info(port, :os_pid) do
-      {:os_pid, pid} -> RemoteControl.graceful_kill_tree(pid)
+      {:os_pid, pid} -> ProcessTree.graceful_kill_tree(pid)
       nil -> :ok
     end
 
@@ -73,8 +73,8 @@ defmodule Aiur.Muse.Transport do
 
   defp record_process(port, opts) do
     {:os_pid, pid} = Port.info(port, :os_pid)
-    group = RemoteControl.process_group_for_pid(pid)
-    provider = %{root_pid: pid, process_group_id: group, descendant_pids: RemoteControl.process_tree(pid)}
+    group = ProcessTree.process_group_for_pid(pid)
+    provider = %{root_pid: pid, process_group_id: group, descendant_pids: ProcessTree.process_tree(pid)}
     provider_callback = Keyword.get(opts, :on_provider_started, fn _ -> :ok end)
     group_callback = Keyword.get(opts, :on_process_group_started, fn _ -> :ok end)
 

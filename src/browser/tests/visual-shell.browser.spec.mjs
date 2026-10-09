@@ -93,6 +93,8 @@ test('CSS nav padding mutation fails sidebar screenshot comparison', async ({ pa
   const navItem = sidebar.locator('.shell-nav-item').first()
   await expect(sidebar).toBeVisible()
   await expect(sidebar).toHaveScreenshot('proof-sidebar.png', { maxDiffPixels: 0, maxDiffPixelRatio: 0 })
+  // Refresh only the unmodified baseline; otherwise update mode records the intentional mutation.
+  if (test.info().config.updateSnapshots !== 'none') return
   const before = await navItem.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))
   await page.addStyleTag({ content: '.shell-nav-item{padding-left:calc(0.72rem + 2px)!important}' })
   const after = await navItem.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))

@@ -919,17 +919,16 @@ defmodule Aiur.DecisionEvent do
 
   defp snapshot_event_id_status(_event_id), do: :legacy
 
-  defp parse_provenance_event_id(@provenance_event_id_prefix <> reserved_id) do
+  @doc false
+  @spec parse_provenance_event_id(term()) :: {:ok, pos_integer()} | :error
+  def parse_provenance_event_id(@provenance_event_id_prefix <> reserved_id) do
     case Integer.parse(reserved_id) do
-      {value, ""} when value > 0 ->
-        if reserved_id == Integer.to_string(value), do: {:ok, value}, else: :error
-
-      _other ->
-        :error
+      {value, ""} when value > 0 -> if reserved_id == Integer.to_string(value), do: {:ok, value}, else: :error
+      _other -> :error
     end
   end
 
-  defp parse_provenance_event_id(_event_id), do: :error
+  def parse_provenance_event_id(_event_id), do: :error
 
   defp validate_type(type) when type in @types, do: :ok
   defp validate_type(_other), do: {:error, {:event_type, :unknown}}

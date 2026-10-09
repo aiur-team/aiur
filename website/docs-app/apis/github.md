@@ -315,9 +315,9 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
 
-Dashboard state derives its staleness from the `dispatch` class (the cadence of
-the orchestrator snapshot it renders), and the Build Order catalog is
-event-sourced — its staleness and refresh bounds follow the `planning` class.
+Dashboard state derives its staleness from the `dispatch` class (the cadence of the orchestrator snapshot it renders), and the Build Order catalog is event-sourced — its staleness and refresh bounds follow the `planning` class.
+
+ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
 
 `planning` is recommended as `0` (on-demand), so the most expensive query in the
 system runs only when a page opens or a degradation needs a re-list.
@@ -695,8 +695,7 @@ That gap is the exposure, and it is why a verdict is never kept at all.
 
 ## What the agent guard governs
 
-Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
-scrubs them from every agent environment and instead writes the bot PAT to a
+Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
 reads.
 
@@ -725,8 +724,7 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes compare the open PR with the configured base. Stale
-heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
 for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
@@ -741,9 +739,7 @@ blocks the write.
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
-Comparisons are attributed to `human_review_base_ancestry` and always contact
-GitHub: base movement can change the verdict without changing the PR. These
-reads add cost; this change claims no quota saving.
+Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base
 SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
@@ -752,9 +748,13 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
-There is a third path, and it is the cheapest one: a change Aiur makes.
+Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending.
 
-Aiur posts comments, applies and removes labels, closes tickets, repairs pull request bases, declares dependencies, and replies to and resolves review threads. GitHub's answer to each of those requests already contains the new state, and Aiur keeps it.
+Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
+
+Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; marker writes and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving the item unclaimed; `agent:queued` remains. No quota saving is claimed.
+
+Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
 
 The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
 
