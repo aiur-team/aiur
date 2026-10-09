@@ -629,9 +629,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         if Map.get(result, :delivered) do
-          # Displaced by a webhook delivery: the read was skipped — no state
-          # transition, alert or projection: held bodies never answer CI (R10). The next
-          # non-displaced read produces the real verdict.
+          # Webhook-displaced reads have no effects; held bodies never answer CI (R10).
           state
         else
           ProgressStore.ci_identity(ci_target_for_issue(issue), result)
