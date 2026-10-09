@@ -36,7 +36,8 @@ Legacy load-only helpers remain available for fallback and compatibility.
 
 Run scoped compile, format, affected tests, mutation checks in an isolated
 worktree, lint, bare-assert and PR structural gates. Review the draft diff.
-Host acceptance requires actual 1-hour before and after fleet measurements
-(agents, PSI, load, memory, merged/hour) from the Executor. Do not claim measured
-throughput improvement or completion without them; no live fleet deployment
-is authorized in an agent turn. Integration branch: main.
+The Executor owns the 1-hour before/after fleet comparison (agents, PSI avg10/avg60,
+load, memory, merged/hour). It records the baseline now and deploys the merged PR
+for the after-window; these measurements do not block PR readiness. Claim no
+measured improvement beforehand. No live deployment is authorized in an agent
+turn. Integration branch: main.
