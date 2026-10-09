@@ -3,14 +3,15 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   alias Aiur.BuildQueue.{Hints, Model.Observation, Planner, Settings}
 
-  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map()}
+  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map(), integer() | nil}
   def plan(state) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
-    input = %{input | opts: opts, observations: observations(state), claims: state.claim_probe.status(ids)}
+    {observations, observed_at_ms} = observed(state)
+    input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids)}
     {projections, actions} = Planner.plan(input)
-    {projections, actions, input.observations}
+    {projections, actions, input.observations, observed_at_ms}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
@@ -33,15 +34,21 @@ defmodule Aiur.BuildQueue.Reconcile do
   defp hint({downstream, _priority, position, _age, _id}), do: {downstream, position}
 
   @spec observations(map()) :: %{String.t() => Observation.t()}
-  def observations(state) do
+  def observations(state), do: elem(observed(state), 0)
+
+  @spec observed(map()) :: {map(), integer() | nil}
+  def observed(state) do
     case state.tracker.open_issue_labels(Settings.observation_max_age_ms(state.settings)) do
       {:ok, labels, observed_at_ms} ->
-        Map.new(labels, fn {id, row} ->
-          {id, %Observation{issue_id: id, open?: true, labels: row.labels, state_reason: nil, pr: nil, observed_at_ms: observed_at_ms}}
-        end)
+        observations =
+          Map.new(labels, fn {id, row} ->
+            {id, %Observation{issue_id: id, open?: true, labels: row.labels, state_reason: nil, pr: nil, observed_at_ms: observed_at_ms}}
+          end)
+
+        {observations, observed_at_ms}
 
       _ ->
-        %{}
+        {%{}, nil}
     end
   end
 end

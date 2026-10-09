@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Settings, Store, Writer}
+  alias Aiur.BuildQueue.{ClaimProbe, Hints, ReadModel, Reconcile, Settings, Store, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -34,6 +34,8 @@ defmodule Aiur.BuildQueue.Server do
       status: :disabled,
       document: nil,
       projections: [],
+      observations: %{},
+      observed_at_ms: nil,
       actions: [],
       holds: MapSet.new(),
       reconciles: 0
@@ -43,6 +45,7 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   @impl true
+  def handle_call(:read_model, _from, state), do: {:reply, ReadModel.build(state), state}
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
   def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :projections, :actions, :reconciles])}, state}
 
@@ -109,7 +112,7 @@ defmodule Aiur.BuildQueue.Server do
   defp request(state), do: state
 
   defp reconcile(state) do
-    {projections, actions, observations} = Reconcile.plan(state)
+    {projections, actions, observations, observed_at_ms} = Reconcile.plan(state)
     state = write(state, actions, observations)
 
     holds =
@@ -123,7 +126,7 @@ defmodule Aiur.BuildQueue.Server do
     holds = MapSet.intersection(holds, MapSet.new(retained))
     Reconcile.write_hints(projections, holds, state.document)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
-    %{state | projections: projections, actions: state.actions, holds: holds, reconciles: state.reconciles + 1}
+    %{state | projections: projections, observations: observations, observed_at_ms: observed_at_ms, actions: state.actions, holds: holds, reconciles: state.reconciles + 1}
   end
 
   defp write(state, actions, observations) do
