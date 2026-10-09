@@ -18,7 +18,8 @@ class StructuralGateTest(unittest.TestCase):
         self.root = Path(self.scratch.name)
         (self.root / 'scripts/components').mkdir(parents=True)
         for name in ('check-pr-structure.py', 'check-file-size.py', 'check-docs-prose.mjs', 'check-components.py',
-                     'components/import_rules.py', 'components/module_references.exs', 'components/ts-imports.mjs'):
+                     'components/import_rules.py', 'components/module_references.exs', 'components/ts-imports.mjs',
+                     'components/reference_rules.py', 'components/ratchet.py'):
             shutil.copyfile(SOURCE / 'scripts' / name, self.root / 'scripts' / name)
         (self.root / 'scripts/components/node_modules').symlink_to(SOURCE / 'scripts/components/node_modules', target_is_directory=True)
         self.write('.gitignore', 'node_modules/\n__pycache__/\n')
