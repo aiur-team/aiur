@@ -27,9 +27,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.State
-  alias Aiur.Tracker
 
   @doc """
   Returns the open pull request for the rework target.
@@ -305,13 +303,13 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # and the precondition is still pinned by the dedicated tests.
   @spec available?() :: boolean()
   def available? do
-    Tracker.adapter() == GitHubTracker and
+    Aiur.CodeHost.available?() and
       github_client_exported?()
   end
 
   defp default_fetcher(issue_key) do
     if available?() do
-      Tracker.fetch_open_pull_request_for_branch(issue_key)
+      Aiur.CodeHost.fetch_open_pull_request_for_branch(issue_key)
     else
       {:ok, %{}}
     end
