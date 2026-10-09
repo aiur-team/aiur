@@ -9,6 +9,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
   test "executor: roster read does not record an observation" do
     path = Path.join(Aiur.TestSupport.tmp_root!("core-provider-claims"), "claims.json")
     File.mkdir_p!(Path.dirname(path))
+    on_exit(fn -> File.rm_rf!(Path.dirname(path)) end)
     now = DateTime.utc_now()
     assert {:ok, _claim} = Claims.claim("owner", path: path, now: now)
     Roster.build(path: path, now: now, cursor: 0, pending_count: 0)
@@ -32,9 +33,14 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     spec = Supervisor.child_spec({Bandit, plug: AiurWeb.Endpoint, port: 0}, id: {AiurWeb.Endpoint, :http})
     assert {:ok, _server} = Supervisor.start_child(AiurWeb.Endpoint, spec)
     assert Provider.http(%{run_shape: %{http_listener: true}}) == %{state: :available}
+    previous_shape = Application.get_env(:aiur, :no_dashboard, false)
+    Application.put_env(:aiur, :no_dashboard, false)
+    on_exit(fn -> Application.put_env(:aiur, :no_dashboard, previous_shape) end)
+    assert Aiur.Capabilities.report(table: :core_bound_http_report_missing).capabilities["api.http"] == %{state: :available}
   end
 
   test "registered providers report every core ID in no-dashboard shape and notice a dead orchestrator" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "test-owner/provider-repo")
     original = Application.get_env(:aiur, :no_dashboard)
     Application.put_env(:aiur, :no_dashboard, true)
 
@@ -51,6 +57,8 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
 
     report = Aiur.Capabilities.report(table: :core_provider_report_missing)
     {_collected, warnings} = Collector.collect([])
+    assert report.repository == %{kind: "github", owner: "test-owner", name: "provider-repo"}
+    assert report.executor == %{state: "absent", consumer_id: nil}
     caps = report.capabilities
     assert caps["api.http"] == %{state: :unavailable, reason: :not_installed}
     assert caps["orchestration"].state in [:available, :degraded]
