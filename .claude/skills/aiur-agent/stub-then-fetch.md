@@ -18,7 +18,8 @@ every blocker push is an integration signal.
    listed in the prompt, fetch its validated ref and SHA; never reconstruct a
    branch from its ticket number. Verify the fetched commit matches the supplied
    SHA. Run `git -C "$workspace" merge-base --is-ancestor <sha> HEAD`;
-   merge each missing head with `git -C "$workspace" merge <sha>`, resolving
+   exit 0 means already integrated, exit 1 means merge the missing head, and
+   any other exit is an error to report. Merge with `git -C "$workspace" merge <sha>`, resolving
    conflicts hunk by hunk. Record each integrated blocker identifier, ref and
    SHA in the Agent Workpad. Keep the old commit reachable with a local rescue
    ref so a later rewrite can still be compared and rebased.
@@ -33,15 +34,18 @@ every blocker push is an integration signal.
    rewritten blocker branch. Resolve conflicts without discarding either
    ticket's intent. The local ancestry check is authoritative on every push;
    `branch.force-push` is only a hint, including delayed or missing verdicts.
-3. **Validate and publish.** Inspect `git -C "$workspace" diff <old> <new>`
+3. **Record, validate and publish.** After successful integration, record the
+   new integrated SHA immediately, with validation pending; this boundary must
+   match HEAD even if tests fail. Inspect `git -C "$workspace" diff <old> <new>`
    and rerun the repository's documented tests affected by that incoming diff,
    plus your own touched tests. In Aiur, use `mix aiur.affected_tests` with
    the old SHA as its base; include tests identified by the incoming diff and
    run the selected tests with
    `--max-cases 4`. After a rewrite, verify the PR is still draft and push
    your existing branch with `--force-with-lease`; otherwise push normally.
-   Record the new integrated SHA only after successful integration and tests.
-   Keep the previous SHA and concrete failure in the workpad if integration fails.
+   Publish only after tests pass and mark validation passed in the workpad.
+   If tests fail, retain the new integrated SHA and record validation failed.
+   If integration itself fails, keep the previous SHA and concrete failure.
 4. **Keep the PR draft and stacked.** With one unmerged blocker, use its branch
    as the PR base; with several, use `$AIUR_BASE_BRANCH`, as the prompt block
    directs. While any blocker PR is unmerged, never run `gh pr ready` or move
