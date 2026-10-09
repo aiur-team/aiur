@@ -8,7 +8,7 @@ defmodule Aiur.BuildQueue.Reconcile do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
-    input = %{input | now_ms: state.clock.(), opts: opts, observations: observations(state), claims: state.claim_probe.status(ids)}
+    input = %{input | opts: opts, observations: observations(state), claims: state.claim_probe.status(ids)}
     Planner.plan(input)
   end
 

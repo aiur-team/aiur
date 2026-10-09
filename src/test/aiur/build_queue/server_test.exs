@@ -101,21 +101,23 @@ defmodule Aiur.BuildQueue.ServerTest do
   test "writes ordering and holds, removes rows and owns table lifetime" do
     fixture()
     snapshot(["1", "2", "3"])
-    pid = server()
+    pid = server(name: Server)
     boot(pid)
+    assert Aiur.BuildQueue.status() == :running
+    assert {:ok, %{status: :running}} = Aiur.BuildQueue.show(pid)
     assert Hints.sort_key("1") == {-1, 0}
     assert Hints.sort_key("2") == {0, 1}
     assert Hints.held?("2")
     assert :ets.info(Hints.table_name(), :read_concurrency)
     assert_raise ArgumentError, fn -> :ets.insert(Hints.table_name(), {"bad", {0, 0}, false}) end
     update(:snapshot, :none)
-    assert :ok = GenServer.call(pid, :reconcile_now)
+    assert :ok = Aiur.BuildQueue.reconcile_now()
     {^pid, unknown, 2_000} = scheduled()
     send(pid, unknown)
     GenServer.call(pid, :status)
     assert Hints.held?("2")
     snapshot(["1", "2", "3"], [])
-    assert :ok = GenServer.call(pid, :reconcile_now)
+    assert :ok = Aiur.BuildQueue.reconcile_now()
     {^pid, message, 2_000} = scheduled()
     send(pid, message)
     GenServer.call(pid, :status)
