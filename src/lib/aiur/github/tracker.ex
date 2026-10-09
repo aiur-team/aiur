@@ -9,9 +9,26 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.TestTicketScope
+
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)
+
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms) do
+    with {:ok, body, _source} <- client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: "build_queue_observe") do
+      case body do
+        %{"state" => state, "state_reason" => reason} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
+          {:ok, %{open?: state == "open", state_reason: reason}}
+
+        _ ->
+          {:error, :invalid_issue_closure}
+      end
+    end
+  end
 
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(max_age_ms) do
