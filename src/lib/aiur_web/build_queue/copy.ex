@@ -82,12 +82,19 @@ defmodule AiurWeb.BuildQueue.Copy do
   def prerequisite(edge), do: "##{edge.number} · #{label(edge.verdict)} · #{reason(edge.source)}"
 
   @spec progress(map()) :: String.t()
-  def progress(progress) do
-    completion = %{progress: progress.percent, progress_resolution: progress.resolution, progress_resolved_count: progress.resolved, member_count: progress.total}
-    projection = ProgressRenderer.html(completion)
+  def progress(queue) do
+    progress = queue.progress
+    projection = progress_projection(progress)
 
     if is_number(projection.percent),
       do: "#{projection.percent}% · #{progress.completed}/#{progress.total} completed · #{label(projection.state)} (#{progress.resolved}/#{progress.total})",
       else: label(projection.state)
+  end
+
+  @spec progress_state(map()) :: atom()
+  def progress_state(queue), do: progress_projection(queue.progress).state
+
+  defp progress_projection(progress) do
+    ProgressRenderer.html(%{progress: progress.percent, progress_resolution: progress.resolution, progress_resolved_count: progress.resolved, member_count: progress.total})
   end
 end

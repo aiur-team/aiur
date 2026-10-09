@@ -43,7 +43,7 @@ defmodule AiurWeb.BuildQueue.Panel do
     ~H"""
     <section data-queue-id={@queue.queue_id}>
       <h3>{@queue.name} <span :if={@queue.held} class="badge">{Copy.text(:held_queue)}</span></h3>
-      <p data-queue-progress={@queue.progress.resolution}>{Copy.progress(@queue.progress)}</p>
+      <p data-queue-progress={Copy.progress_state(@queue)}>{Copy.progress(@queue)}</p>
       <div style="overflow-x: auto">
         <table class="bo-catalog-table">
           <thead><tr>
