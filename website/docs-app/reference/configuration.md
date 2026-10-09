@@ -751,7 +751,7 @@ The durable repository Executor state also records every daemon start and stop i
 
 ## build_queue
 
-Build queue configuration for GitHub workflows; Linear is unsupported, and the queue reconciler is delivered separately.
+Build queue configuration for GitHub workflows; Linear is unsupported. The daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce. This stage exposes dispatch hints and records planned actions; label-writing executors are delivered separately. Disabling the queue removes its server and hints table on the next run.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |

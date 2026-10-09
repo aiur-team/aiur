@@ -140,7 +140,7 @@
     },
     {
       "id": "build-queue", "name": "Build queue (MP-E1, new; ships before the refactor on a seam)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/build_queue/**"],
+      "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["tracker", "event-bus", "config", "identity"], "optional": ["build-orders"],
       "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
