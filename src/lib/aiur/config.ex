@@ -7,7 +7,7 @@ defmodule Aiur.Config do
   alias Aiur.BuildGate
   alias Aiur.BuildOrder.Cadence
   alias Aiur.Config.RoutingValue
-  alias Aiur.Config.Schema
+  alias Aiur.Config.{Schema, SemanticChecks}
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.GitHub.Budget
@@ -1217,7 +1217,7 @@ defmodule Aiur.Config do
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
-      validate_semantics(settings)
+      SemanticChecks.validate(settings)
     end
   end
 
@@ -1319,42 +1319,6 @@ defmodule Aiur.Config do
     case Aiur.Codex.Config.validate_approval_policy(value) do
       {:ok, trimmed} -> {:ok, trimmed}
       {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
-    end
-  end
-
-  defp validate_semantics(settings) do
-    with :ok <- validate_kinds_and_secrets(settings),
-         :ok <- Schema.validate_turn_sandbox_policy(settings) do
-      Aiur.Opencode.Config.validate!()
-    end
-  end
-
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
-  defp validate_kinds_and_secrets(settings) do
-    cond do
-      is_nil(settings.tracker.kind) ->
-        {:error, :missing_tracker_kind}
-
-      settings.tracker.kind not in ["linear", "github", "memory"] ->
-        {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
-
-      settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(settings.agent.backend_configs) ->
-        {:error, {:unsupported_agent_kind, settings.agent.kind}}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->
-        {:error, :missing_linear_api_token}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.project_slug) ->
-        {:error, :missing_linear_project_slug}
-
-      settings.tracker.kind == "github" ->
-        Aiur.GitHub.Config.validate!()
-
-      settings.agent.kind == "claude" ->
-        Aiur.Claude.Config.validate!()
-
-      true ->
-        :ok
     end
   end
 

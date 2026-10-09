@@ -116,7 +116,7 @@
     },
     {
       "id": "tracker", "name": "Tracker contract", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker_config.ex"],
+      "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker/**", "src/lib/aiur/tracker_config.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config"], "optional": [],
       "owns": {"config": ["tracker"], "env": [], "state": [], "capabilities": []},
@@ -287,7 +287,7 @@
       "id": "tui", "name": "tmux agent list, pane manager, opencode chat panes", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/events/debug_log.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["orchestration", "projections", "harness-adapters"], "optional": [],
+      "requires": ["orchestration", "projections", "harness-adapters", "config"], "optional": [],
       "owns": {"config": ["max_vertical_panes", "opencode", "pre_warmed_sessions"], "env": ["AIUR_TMUX_SESSION", "AIUR_TMUX_SOCKET", "COLORTERM", "COLUMNS", "LINES", "TMUX_PANE"], "state": [], "capabilities": []},
       "prior": ["TUI", "OC"]
     },
