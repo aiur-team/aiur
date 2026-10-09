@@ -209,6 +209,7 @@ defmodule Aiur.BuildQueue.ServerTest do
   end
 
   test "server executes marker actions and returns budget errors" do
+    snapshot([])
     pid = server()
     boot(pid)
     assert GenServer.call(pid, {:write, :mark, "1"}) == :ok

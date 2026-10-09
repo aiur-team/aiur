@@ -85,7 +85,7 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted_unauthorized}], ^actions} = Planner.plan(input)
     input = F.apply_actions(input, actions)
     assert {[%{state: :promoted_unauthorized}], []} = Planner.plan(input)
-    assert {[%{state: :promoted}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(%{input | claims: %{}})
+    assert {[%{state: :promoted}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(%{input | claims: %{"1" => :unclaimed}})
   end
 
   test "marker removal, closure, claims and saved overrides take precedence" do
