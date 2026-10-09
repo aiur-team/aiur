@@ -1,6 +1,6 @@
 #!/bin/sh
 # PATH entrypoint for Elixir/Mix admission. Cheap commands pass straight through
-# this POSIX dispatcher; only compile/test work starts Bash and loads the hook.
+# this POSIX dispatcher; only build/static analysis work starts Bash and loads the hook.
 #
 # aiur-build-gate-command-wrapper-marker: this literal identifies a copy of this
 # script to another copy of it. Resolution below refuses to hand a command to a
@@ -157,7 +157,7 @@ aiur_build_gate_needs_wrapper() {
       elixir_mix_task=$(aiur_build_gate_wrapper_elixir_mix_task "$@") || return 1
 
       case $elixir_mix_task in
-        compile | test | do) return 0 ;;
+        compile | test | lint | credo | dialyzer | do) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -166,7 +166,7 @@ aiur_build_gate_needs_wrapper() {
 
     mix)
       case ${1:-} in
-        compile | test | do) return 0 ;;
+        compile | test | lint | credo | dialyzer | do) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -186,7 +186,7 @@ aiur_build_gate_needs_wrapper() {
             if [ "${1##*/}" = mix ]; then
               shift
               case ${1:-} in
-                compile | test | do) return 0 ;;
+                compile | test | lint | credo | dialyzer | do) return 0 ;;
                 *) return 1 ;;
               esac
             fi
@@ -212,7 +212,7 @@ aiur_build_gate_needs_wrapper() {
             [ "$#" -gt 0 ] || return 0
             aiur_build_gate_wrapper_ambiguous_string "$1" && return 0
             case $1 in
-              mix\ compile* | mix\ test* | mix\ do* | */mix\ compile* | */mix\ test* | */mix\ do* | env\ *mix*)
+              mix\ compile* | mix\ test* | mix\ do* | mix\ lint* | mix\ credo* | mix\ dialyzer* | */mix\ compile* | */mix\ test* | */mix\ do* | */mix\ lint* | */mix\ credo* | */mix\ dialyzer* | env\ *mix*)
                 return 0
                 ;;
               *) return 1 ;;
@@ -223,7 +223,7 @@ aiur_build_gate_needs_wrapper() {
             command_string=${1#--command=}
             aiur_build_gate_wrapper_ambiguous_string "$command_string" && return 0
             case $command_string in
-              mix\ compile* | mix\ test* | mix\ do* | */mix\ compile* | */mix\ test* | */mix\ do* | env\ *mix*)
+              mix\ compile* | mix\ test* | mix\ do* | mix\ lint* | mix\ credo* | mix\ dialyzer* | */mix\ compile* | */mix\ test* | */mix\ do* | */mix\ lint* | */mix\ credo* | */mix\ dialyzer* | env\ *mix*)
                 return 0
                 ;;
               *) return 1 ;;
@@ -282,6 +282,14 @@ if [ -z "$real_command" ]; then
     "$command_name" "$0" >&2
   printf 'aiur_build_gate hint run="%s __aiur_build_gate_self_check__"\n' "$0" >&2
   exit 127
+fi
+
+# Mise discovers its shim target from PATH and inherited self-path variables.
+if [ "$command_name" = mise ]; then
+  PATH=$(aiur_build_gate_wrapper_path_without_self)
+  real_command=$(cd -P "${real_command%/*}" && printf '%s/%s' "$PWD" "${real_command##*/}")
+  MISE_BIN=$real_command __MISE_BIN=$real_command __MISE_EXE=$real_command
+  export PATH MISE_BIN __MISE_BIN __MISE_EXE
 fi
 
 # `elixir -S mix` loads the named script as Elixir source. Remove this shell

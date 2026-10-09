@@ -488,9 +488,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
+       aiur doctor [--repair]         check mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
-
 Bare aiur: start or attach to this directory's interactive session.
 EOF
 }
@@ -2649,8 +2649,8 @@ parse_issue_targets() {
 
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
-
 cmd_status() {
+  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   [ "$#" -eq 0 ] || die "status does not accept arguments"
   run_control_rpc "Aiur.AgentControlCLI.status()"
 }
@@ -4178,8 +4178,8 @@ cmd_upgrade() {
 }
 
 # --- dispatch ----------------------------------------------------------------
-
 dispatch_run() {
+  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   local mode="foreground" arg
   local args=()
 
@@ -4197,7 +4197,6 @@ dispatch_run() {
   # `set -u` — happens for a bare `--bg` run. Guard the expansion.
   run_session "$mode" "${args[@]+"${args[@]}"}"
 }
-
 aiur_engine_main() {
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
@@ -4246,6 +4245,7 @@ aiur_engine_main() {
       shift
       dispatch_run "$@"
       ;;
+    doctor) shift; exec bash "$engine_dir/aiur-mise-doctor" "$@" ;;
     status)
       shift
       cmd_status "$@"
