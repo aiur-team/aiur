@@ -60,9 +60,11 @@ cmd_queue() {
       { [ "${#ids[@]}" -eq 1 ] && [ -z "$queue" ]; } ||
         { [ "${#ids[@]}" -eq 0 ] && [ -n "$queue" ]; } || queue_usage_error "$verb requires one ticket ID or --queue NAME" ;;
   esac
-  opts="verb: :$verb, caller_agent_workspace: $(queue_string "${AIUR_AGENT_WORKSPACE:-}")"
-  [ "$json" -eq 1 ] && opts="$opts, json: true"
-  [ -n "$queue" ] && opts="$opts, queue: $(queue_string "$queue")"
+  if [ "$verb" != show ]; then
+    opts="verb: :$verb, caller_agent_workspace: $(queue_string "${AIUR_AGENT_WORKSPACE:-}")"
+  fi
+  [ "$json" -eq 1 ] && opts="json: true"
+  [ -n "$queue" ] && opts="${opts:+$opts, }queue: $(queue_string "$queue")"
   [ -n "$root" ] && opts="$opts, build_order: $root"
   [ -n "$after" ] && opts="$opts, after: \"$after\""
   [ -n "$at" ] && opts="$opts, at: $at"

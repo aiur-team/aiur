@@ -493,7 +493,7 @@ When the script path and current directory point at different checkouts, command
 
 `--json` emits schema version 1 (`page: "build-queue"`): instance, snapshot capture time, server status, sources, and queues with progress and item prerequisites, rank, promotion time, and attention. It includes no ticket titles or bodies.
 
-Mutations print an outcome for each ticket; partial success exits 1 and names refused IDs (including the owning queue for existing members). Invalid arguments and mutations inside agent workspaces exit 64. Both the shared engine and daemon CLI guard agent-originated changes; this guard does not replace dispatch authorization. A timeout exits 124 with `outcome unknown`: run `aiur queue show` before retrying. Build Order queues cannot be edited as lists.
+Mutations print each ticket's outcome; partial success exits 1 and names refusals. Agent workspace mutations and invalid arguments exit 64. Engine and daemon guards block workspace changes; dispatch authorization still applies. Timeouts exit 124: run `aiur queue show` before retrying. Build Order queues cannot be edited as lists.
 
 The build queue uses the `agent:queued` membership marker; `aiur units --condition queued` still means tickets carrying `agent:todo`.
 
