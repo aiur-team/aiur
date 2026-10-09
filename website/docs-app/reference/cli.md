@@ -366,9 +366,7 @@ Every nonzero exit names the stage that failed — `claim`, `wait` or `acknowled
 
 If lease renewal detects that this consumer lost ownership during a wait, the wait continues as an observer and leaves the shared cursor untouched. Ownership loss discovered only when acknowledging still returns `69`.
 
-The `69` diagnostic reports the retry bounds actually spent, read from the live
-configuration: by default the claims lock is retried every 25ms for 5 seconds,
-and a lock older than 60 seconds is broken as stale.
+The `69` diagnostic reports the retry bounds actually spent, read from the live configuration: by default the claims lock is retried every 25ms for 5 seconds, and a lock older than 60 seconds is broken as stale.
 
 A batch that could not be acknowledged is still **printed** — losing a wake is a
 worse failure than announcing a redelivery — so an acknowledge-stage failure
@@ -380,13 +378,9 @@ consumer holds the claim next.
 
 ### Wake ledger bound and lease TTL
 
-The wake ledger is capped at 10,000 records. Consumed records are evicted first. Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
-advanced past them and an `executor.wakes.overflow` alert names the count and id
-range; those wakes are never delivered.
+The wake ledger is capped at 10,000 records. Consumed records are evicted first. Past the cap the **oldest unread wakes are evicted too**. The shared cursor is advanced past them and an `executor.wakes.overflow` alert names the count and id range; those wakes are never delivered.
 
-In practice that only happens when a run records for a long time with no
-consumer, or with a stalled one. The roster's `stalled` state is the earlier
-warning.
+In practice that only happens when a run records for a long time with no consumer, or with a stalled one. The roster's `stalled` state is the earlier warning.
 
 A claim is a lease with a 10-minute TTL. An `--executor` run registers and renews its principal below that TTL; `executor-wait` also renews while it blocks, and every claim or acknowledgement renews. A consumer that stops renewing is reported `expired` after the TTL lapses, and a successor may take over with no operator action.
 
