@@ -312,9 +312,7 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
 
-Dashboard state derives its staleness from the `dispatch` class (the cadence of
-the orchestrator snapshot it renders), and the Build Order catalog is
-event-sourced — its staleness and refresh bounds follow the `planning` class.
+Dashboard state derives its staleness from the `dispatch` class (the cadence of the orchestrator snapshot it renders), and the Build Order catalog is event-sourced — its staleness and refresh bounds follow the `planning` class.
 
 ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
 
