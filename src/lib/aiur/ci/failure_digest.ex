@@ -84,7 +84,7 @@ defmodule Aiur.CI.FailureDigest do
     tests = parsed |> Enum.reject(&(&1 == :truncated)) |> Enum.map(&classify(&1, known, issues))
     unknown = is_nil(annotations) or :unknown in parsed
     tests = if unknown, do: :unknown, else: tests
-    proven = run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations)
+    proven = proven?(run, unknown, truncated, annotations)
     upstream = derived_from(annotations)
 
     %{
@@ -97,6 +97,8 @@ defmodule Aiur.CI.FailureDigest do
       flake_only: proven and upstream == [] and known_tests?(tests)
     }
   end
+
+  defp proven?(run, unknown, truncated, annotations), do: run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations)
 
   defp known_tests?(tests), do: tests != [] and Enum.all?(tests, &(&1.classification == :known_flake))
 
