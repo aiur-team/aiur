@@ -103,7 +103,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 
 ## merge_policy {#merge-policy}
 
-The top-level policy is validated at config load and displayed by `aiur status` and `aiur capabilities`. This release provides configuration and visibility only: merge enforcement, worker test instructions and daemon main watching are not active yet. The table describes the policy those consumers will use; no setting permits failed CI checks.
+The top-level policy is validated and displayed by `aiur status` and `aiur capabilities`; enforcement, worker test instructions and main watching ship separately.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
