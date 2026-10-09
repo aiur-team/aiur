@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.UnitsPolicy
+  alias Aiur.Projections.UnitsPolicy
 
   attr(:selection, :map, required: true)
   attr(:counts, :map, required: true)
