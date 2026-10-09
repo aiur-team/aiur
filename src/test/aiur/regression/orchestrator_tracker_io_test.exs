@@ -310,7 +310,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     state = await_poll_finished(server)
     assert state.last_polled_issues[issue.id] == issue
     assert Map.has_key?(state.running, issue.id)
-    assert await_poll_finished(server).poll_cycles_completed == state.poll_cycles_completed
+    assert await_poll_finished(server).poll_cycles_completed == 1
   end
 
   test "GitHub firehose and CI reads leave real handlers responsive", %{server: server, issue: issue, token: token} do
