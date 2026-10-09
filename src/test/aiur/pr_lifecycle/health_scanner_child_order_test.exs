@@ -9,7 +9,7 @@ defmodule Aiur.PRLifecycle.HealthScannerChildOrderTest do
 
       projections = Enum.find_index(children, &(&1 == Aiur.CurrentRunProjections))
       scanner = Enum.find_index(children, &(&1 == Aiur.PRLifecycle.HealthScanner))
-      requeue = Enum.find_index(children, &(&1 == Aiur.Orchestrator.ReworkRequeue))
+      requeue = Enum.find_index(children, &(&1 == Aiur.PRLifecycle.ReworkRequeue))
 
       assert is_integer(scanner)
       assert scanner == projections + if(ticker?, do: 2, else: 1)
