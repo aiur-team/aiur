@@ -1,7 +1,8 @@
 defmodule Aiur.Config.MaxTurnsByComplexityTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Config, Issue, Workflow}
+  alias Aiur.{Issue, Workflow}
+  alias Aiur.AgentRunner.TurnBudget
 
   setup %{config: config} do
     previous = Application.get_env(:aiur, :workflow_file_path)
@@ -39,18 +40,18 @@ defmodule Aiur.Config.MaxTurnsByComplexityTest do
 
   @tag config: @config
   test "uses the per-complexity cap when the issue's level is configured" do
-    assert Config.agent_max_turns_for(issue(["complexity:1"])) == 3
-    assert Config.agent_max_turns_for(issue(["complexity:2"])) == 6
+    assert TurnBudget.max_turns_for(issue(["complexity:1"])) == 3
+    assert TurnBudget.max_turns_for(issue(["complexity:2"])) == 6
   end
 
   @tag config: @config
   test "falls back to flat max_turns when the level is not in the map" do
-    assert Config.agent_max_turns_for(issue(["complexity:5"])) == 12
+    assert TurnBudget.max_turns_for(issue(["complexity:5"])) == 12
   end
 
   @tag config: @config
   test "falls back to flat max_turns when the issue has no complexity label" do
-    assert Config.agent_max_turns_for(issue([])) == 12
+    assert TurnBudget.max_turns_for(issue([])) == 12
   end
 
   @tag config: """
@@ -61,6 +62,6 @@ defmodule Aiur.Config.MaxTurnsByComplexityTest do
          max_turns: 12
        """
   test "returns flat max_turns when the map is unset" do
-    assert Config.agent_max_turns_for(issue(["complexity:1"])) == 12
+    assert TurnBudget.max_turns_for(issue(["complexity:1"])) == 12
   end
 end
