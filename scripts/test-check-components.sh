@@ -467,4 +467,5 @@ PY
 
 if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-components-seams.py"
+  python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
 fi
