@@ -1,11 +1,11 @@
 defmodule AiurWeb.BuildQueuePanelTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias AiurWeb.BuildQueue.Panel
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildQueue.Sources.ProjectionRead
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildQueue.Panel
 
   defmodule Projection do
     use GenServer
