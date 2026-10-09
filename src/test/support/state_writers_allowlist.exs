@@ -1,5 +1,13 @@
 # Existing cross-owner writes only; remove rows as responsibilities move. Never add a new writer.
 [
+  {Aiur.Orchestrator.Dispatcher, :effective_poll_interval_ms, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
+  {Aiur.Orchestrator.Dispatcher, :idle_poll_backoff, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
+  {Aiur.Orchestrator.Dispatcher, :last_dispatch_poll_at_ms, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
+  {Aiur.Orchestrator.Dispatcher, :poll_cycles_completed, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
+  {Aiur.Orchestrator.StatusReport, :ci_lifecycle, "False positive: StatusReport builds a snapshot payload, not a State update."},
+  {Aiur.Orchestrator.StatusReport, :control_lifecycle, "False positive: StatusReport builds a snapshot payload, not a State update."},
+  {Aiur.Orchestrator.StatusReport, :queue_store, "False positive: StatusReport builds a snapshot payload, not a State update."},
+  {Aiur.Orchestrator.SnapshotStore, :global_pause, "False positive: SnapshotStore overlays the cached snapshot payload, not State."},
   {Aiur.Orchestrator.Dispatcher, :auto_resume, "Dispatcher uses a temporary State copy with auto_resume cleared for admission; the live lifecycle state is unchanged."},
   {Aiur.Orchestrator.StartupClaimReconciler, :last_polled_issues,
    "Startup reconciliation refreshes last_polled_issues after releasing an orphaned claim; retain until core owns that snapshot update."},

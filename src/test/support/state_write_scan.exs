@@ -24,10 +24,10 @@ defmodule Aiur.StateWriteScan do
     if state_target?(target, context), do: known_fields(Enum.map(updates, &elem(&1, 0)), context), else: []
   end
 
-  defp write_fields({{:., _, [{:__aliases__, _, [:Map]}, :put]}, _, [target, field, _value]}, context),
+  defp write_fields({{:., _, [{:__aliases__, _, [:Map]}, operation]}, _, [target, field | _args]}, context) when operation in [:put, :update, :update!],
     do: write_to(target, field, context)
 
-  defp write_fields({:|>, _, [target, {{:., _, [{:__aliases__, _, [:Map]}, :put]}, _, [field, _value]}]}, context),
+  defp write_fields({:|>, _, [target, {{:., _, [{:__aliases__, _, [:Map]}, operation]}, _, [field | _args]}]}, context) when operation in [:put, :update, :update!],
     do: write_to(target, field, context)
 
   defp write_fields({operation, _, [path, _value]}, context) when operation in [:put_in, :update_in] do
@@ -38,9 +38,15 @@ defmodule Aiur.StateWriteScan do
   end
 
   defp write_fields({operation, _, [target, [field | _keys], _value]}, context) when operation in [:put_in, :update_in],
-    do: write_to(target, field, context)
+    do: write_to(target, path_key(field), context)
+
+  defp write_fields({:|>, _, [target, {operation, _, [[field | _keys], _value]}]}, context) when operation in [:put_in, :update_in],
+    do: write_to(target, path_key(field), context)
 
   defp write_fields(_ast, _context), do: []
+
+  defp path_key({{:., _, [{:__aliases__, _, [:Access]}, operation]}, _, [field | _args]}) when operation in [:key, :key!], do: field
+  defp path_key(field), do: field
 
   defp write_to(target, field, context) do
     if state_target?(target, context), do: known_fields([field], context), else: []
@@ -52,6 +58,12 @@ defmodule Aiur.StateWriteScan do
   # ponytail: dynamic field keys are not classified; add data-flow analysis if State starts using them.
   defp state_target?({name, _, scope}, context) when is_atom(name) and is_atom(scope),
     do: name == :state or context.state_module?
+
+  defp state_target?({:|>, _, [target, _operation]}, context), do: state_target?(target, context)
+  defp state_target?({:%{}, _, [{:|, _, [target, _updates]}]}, context), do: state_target?(target, context)
+
+  defp state_target?({{:., _, [{:__aliases__, _, [:Map]}, operation]}, _, [target | _args]}, context) when operation in [:put, :update, :update!],
+    do: state_target?(target, context)
 
   defp state_target?({:%, _, [_module, _map]}, _context), do: true
   defp state_target?(_target, _context), do: false

@@ -59,8 +59,13 @@ defmodule Aiur.Orchestrator.StateOwnersTest do
           running: %{},
           claimed: MapSet.new()
         }
-        Map.put(after_cycle, :completed, MapSet.new())
-        after_cycle |> Map.put(:retry_attempts, %{})
+        Map.put(Map.put(after_cycle, :completed, MapSet.new()), :effective_poll_interval_ms, 10)
+        %{after_cycle | running: %{}} |> Map.put(:idle_poll_backoff, %{})
+        put_in(after_cycle, [Access.key!(:tracker_tasks)], %{})
+        after_cycle |> Map.put(:retry_attempts, %{}) |> Map.put(:poll_frozen, true)
+        after_cycle |> Map.update!(:poll_cycles_completed, &(&1 + 1))
+        after_cycle |> update_in([Access.key(:auto_resume)], & &1)
+        after_cycle |> put_in([Access.key(:dispatch_recovery), Access.key(:workspace_ownership)], %{})
         put_in(after_cycle.ci_lifecycle.poll_cache, %{})
         update_in(after_cycle.queue_store, & &1)
         put_in(after_cycle, [:global_pause, :source], "operator")
@@ -70,7 +75,24 @@ defmodule Aiur.Orchestrator.StateOwnersTest do
     end
     """
 
-    expected = [:running, :claimed, :completed, :retry_attempts, :ci_lifecycle, :queue_store, :global_pause, :dispatch_selection_hold]
+    expected = [
+      :running,
+      :claimed,
+      :completed,
+      :retry_attempts,
+      :ci_lifecycle,
+      :queue_store,
+      :global_pause,
+      :dispatch_selection_hold,
+      :poll_frozen,
+      :poll_cycles_completed,
+      :auto_resume,
+      :dispatch_recovery,
+      :effective_poll_interval_ms,
+      :idle_poll_backoff,
+      :tracker_tasks
+    ]
+
     assert StateWriteScan.scan_source(source, @fields) == MapSet.new(expected, &{ForeignWriter, &1})
   end
 
