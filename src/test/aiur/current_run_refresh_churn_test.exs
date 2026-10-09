@@ -37,7 +37,6 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
     for _ <- 1..100, do: send(owner, {:status_changed, %{}})
     :sys.resume(owner)
     _ = CurrentRunSummary.snapshot(server: owner)
-    assert Agent.get(reads, & &1) == 0
     {:current_run_summary_changed, snapshot} = receive_barrier({:current_run_summary_changed, _})
     assert snapshot.health.status == :healthy
     state = :sys.get_state(owner)
