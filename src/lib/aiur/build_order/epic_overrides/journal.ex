@@ -89,6 +89,8 @@ defmodule Aiur.BuildOrder.EpicOverrides.Journal do
       :ok -> :ok
       {:error, reason} -> {:error, {:durability_unknown, reason}}
     end
+  rescue
+    error -> {:error, {:durability_unknown, Exception.message(error)}}
   end
 
   defp regular_path(path) do

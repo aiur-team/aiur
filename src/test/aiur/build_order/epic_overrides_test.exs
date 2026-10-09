@@ -300,6 +300,14 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     assert {:ok, %{12 => %{epic: "bugs"}}, %{generation: 1}} = Store.all(c.read)
   end
 
+  test "sync command launch exception leaves store alive and unavailable", c do
+    start(c, sync: fn -> raise ErlangError, :enoent end)
+    assert {:error, {:durability_unknown, _}} = Store.set("bugs", [12], @p, c.write)
+    assert {:error, %{failure: :epic_overrides_durability_unknown}} = Store.all(c.read)
+    assert {:error, :epic_overrides_unavailable} = Store.set("infra", [13], @p, c.write)
+    assert [%{"number" => 12}] = Jason.decode!(File.read!(c.path))["entries"]
+  end
+
   test "complete but invalid journal entries fail closed without rewriting", c do
     entry = %{op: "set", number: 12, seq: 1, epic: "bugs", actor: "cli:kevin", source: "cli:kevin", confirmed: true, at: "2026-10-08T10:00:00Z"}
 
