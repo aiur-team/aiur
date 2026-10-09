@@ -49,5 +49,33 @@
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aiur.team/schemas/capability-error.v1.schema.json",
-  "title": "CapabilityError"
+  "title": "CapabilityError",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "reason": {
+            "const": "dependency_unavailable"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "then": {
+        "required": [
+          "depends_on"
+        ],
+        "properties": {
+          "depends_on": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ]
 }

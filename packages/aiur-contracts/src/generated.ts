@@ -38,6 +38,16 @@ export type CapabilityReason =
   | "spec_invalid"
   | "dependency_unavailable"
   | "unknown";
+export type CapabilityError = {
+  error: "capability_unavailable";
+  capability: string;
+  state: "degraded" | "unavailable" | "unknown";
+  reason: CapabilityReason;
+  depends_on?: string[] | null;
+  revision: number;
+  boot_id: string;
+  [k: string]: unknown;
+};
 
 export interface CapabilitiesReport {
   contract: "aiur.capabilities";
@@ -77,8 +87,8 @@ export interface CapabilitiesReport {
   } | null;
   executor: {
     state: "active" | "idle" | "stalled" | "expired" | "absent" | "unknown";
-    consumer_id: string | null;
-    harness: string | null;
+    consumer_id?: string | null;
+    harness?: string | null;
     session_ref?: {
       conversation_id: string;
       session_seq: number;
@@ -89,15 +99,5 @@ export interface CapabilitiesReport {
   capabilities: {
     [k: string]: CapabilityEntry;
   };
-  [k: string]: unknown;
-}
-export interface CapabilityError {
-  error: "capability_unavailable";
-  capability: string;
-  state: "degraded" | "unavailable" | "unknown";
-  reason: CapabilityReason;
-  depends_on?: string[] | null;
-  revision: number;
-  boot_id: string;
   [k: string]: unknown;
 }

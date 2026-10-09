@@ -64,3 +64,18 @@ test('exported reasons match schema and contain every golden reason', () => {
   }
   assert.ok(CAPABILITY_REASONS.includes(error.reason));
 });
+
+test('dependency refusals and report entries require dependency IDs', () => {
+  for (const depends_on of [undefined, null, []]) {
+    const invalid = structuredClone(report);
+    invalid.capabilities['commands.answer'].depends_on = depends_on;
+    assert.equal(validateReport(invalid), false);
+    assert.equal(validateError({ ...error, depends_on }), false);
+  }
+});
+
+test('absent and unknown executors may omit reserved identity fields', () => {
+  for (const executor of [{ state: 'absent', consumer_id: null }, { state: 'unknown' }]) {
+    assert.equal(validateReport({ ...report, executor }), true);
+  }
+});

@@ -204,9 +204,7 @@
             }
           },
           "required": [
-            "state",
-            "consumer_id",
-            "harness"
+            "state"
           ]
         },
         {
@@ -345,6 +343,32 @@
             "properties": {
               "reason": {
                 "$ref": "#/$defs/reason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reason": {
+                "const": "dependency_unavailable"
+              }
+            },
+            "required": [
+              "reason"
+            ]
+          },
+          "then": {
+            "required": [
+              "depends_on"
+            ],
+            "properties": {
+              "depends_on": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
               }
             }
           }
