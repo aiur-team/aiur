@@ -48,10 +48,10 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # The specific regression: this badge counts blocking decisions, so it belongs
   # on the themed --blocking-* family, which is legible in both themes.
   test "the nav attention badge uses themed blocking tokens" do
-    rule = css_rule(".shell-nav-count.is-attention")
+    rule = Regex.scan(~r/^\.snav-c\.attn\s*\{([^}]*)\}/m, css(), capture: :all_but_first) |> List.last() |> hd()
 
-    assert rule =~ "var(--blocking-soft)"
-    assert rule =~ "var(--blocking-ink)"
+    assert rule =~ "var(--block-soft)"
+    assert rule =~ "var(--block)"
 
     css = css()
     refute css =~ "#f5b8a8", "the dark-only salmon ink is back"
