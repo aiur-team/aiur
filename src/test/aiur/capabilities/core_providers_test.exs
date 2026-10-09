@@ -4,6 +4,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
   alias Aiur.Executor.CapabilityProvider, as: Executor
   alias Aiur.HttpServer.CapabilityProvider, as: Http
   alias Aiur.Orchestrator.CapabilityProvider, as: Orchestration
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Tracker.CapabilityProvider, as: Tracker
 
   @context %{run_shape: %{http_listener: true}, settings: %{observability: %{dashboard_writable: true}, tracker: %{kind: "github"}}}
@@ -31,8 +32,8 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
     pid = spawn(fn -> Process.sleep(:infinity) end)
     Process.register(pid, name)
     send(pid, :backlog)
-    :ok = Aiur.Orchestrator.SnapshotStore.publish(name, %{})
-    on_exit(fn -> Aiur.Orchestrator.SnapshotStore.discard(name) end)
+    :ok = SnapshotStore.publish(name, %{})
+    on_exit(fn -> SnapshotStore.discard(name) end)
     Process.sleep(5)
     assert Orchestration.evaluate(@context, orchestrator: name)["orchestration"] == @available
   end
