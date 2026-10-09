@@ -3327,7 +3327,6 @@ html[data-palette="gruvbox"] .u-prio.is-med {
   grid-column: span 2;
 }
 
-.rs-models-rows,
 .rs-apis-rows {
   --rs-provider-row-height: 1.2rem;
   display: grid;
@@ -3362,17 +3361,6 @@ html[data-palette="gruvbox"] .u-prio.is-med {
   align-items: start;
   gap: 0.55rem;
   min-width: 0;
-}
-
-/* Account scope and observation age must not consume the meter's column. */
-.rs-models-rows {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-}
-
-.rs-model > .rs-head {
-  flex-wrap: wrap;
-  height: auto;
-  min-height: var(--rs-provider-row-height);
 }
 
 /* Top-aligned, not centred: the stat block on a provider card is taller than
@@ -3474,7 +3462,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-width: 0;
 }
 
-.rs-model .rs-limit,
 .rs-api .rs-limit {
   grid-template:
     "label meta" minmax(0, 1fr)
@@ -3589,15 +3576,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: var(--caution, #d0a92a);
 }
 
-.github-quota-attribution,
-.github-quota-coverage {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.5rem;
-}
-
 /* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
    the same warning colour the meters use as they approach their ceiling. */
 .github-quota-backoff .rs-limit-label,
@@ -3605,30 +3583,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--warning, #d08a2a);
 }
 
-/* ---- compressed meter row (more than four panes) ----
-   Past four panes the strip stops reading as one thing, so it collapses into a
-   single pane holding two named groups. It deliberately reuses the pane
-   vocabulary above — same logo size, same monospace label scale, same meter
-   bar — so the compressed form reads as the same strip rather than a second
-   visual language. */
-.run-summary.is-compressed {
-  display: block;
-}
-
-.rs-compressed {
-  gap: 1rem;
-}
-
-.rs-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-/* The group name is the whole point of the compressed form: an operator must
-   see that a row is an agent API rather than infer it from where it sorted.
-   The hairline carries the eye across to the count without a heavy divider. */
 .rs-group-head {
   display: flex;
   align-items: baseline;
@@ -3660,108 +3614,125 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   white-space: nowrap;
 }
 
-.rs-group-rows {
-  display: flex;
-  flex-direction: column;
-}
-
-/* One provider per row, three columns: identity, meters, state. The identity
-   column is a fixed track so the logos and the meter lines align down the
-   group — that alignment is what makes it read as a table without needing
-   rules or zebra striping. `minmax(0, 1fr)` on the meter track keeps a long
-   meta string inside the pane instead of widening the row. */
-.rs-row {
-  display: grid;
-  grid-template-columns: 10.5rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.6rem 1rem;
-  padding: 0.5rem 0;
-  min-width: 0;
-}
-
-.rs-row + .rs-row {
-  border-top: 1px solid var(--line);
-}
-
-.rs-row-id {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.rs-row-name {
-  font-weight: 700;
-  font-size: 0.85rem;
-  letter-spacing: -0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rs-row-meters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-/* The meter line runs label, bar, meta on one line so a row stays one line
-   tall. The bar is the flexible middle: the label and the meta are read, the
-   bar is glanced at. */
-/* The meta track is a fixed width rather than `auto` so every bar in the pane
-   ends at the same x. That shared edge is what makes the group scan as a
-   column of comparable quotas instead of a ragged list. */
-.rs-row-meter {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(3rem, 1fr) 17rem;
-  align-items: center;
-  gap: 0.6rem;
-  min-width: 0;
-}
-
-.rs-row-meter .rs-limit-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rs-row-meter .rs-limit-meta {
-  text-align: right;
-  white-space: nowrap;
-}
-
 /* Unknown values remain visibly inert without resembling a measured 0%. */
-.rs-meter-none {
-  display: block;
-  height: var(--progress-bar-height);
-  border-radius: 999px;
-  background: var(--line-strong);
-}
-
 .rs-meter.is-unknown {
   background: var(--line-strong);
 }
 
-/* Narrow widths: the identity column stops being a fixed track, so the row
-   wraps rather than scrolling. */
-@media (max-width: 720px) {
-  .rs-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.4rem 0.6rem;
-  }
-
-  .rs-row-meters {
-    grid-column: 1 / -1;
-  }
-
-  .rs-row-meter {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .rs-row-meter .rs-meter {
-    grid-column: 1 / -1;
-  }
+/* ---- MODELS pane: the Claude design's usage lines (ax-r2 / ax-ln) ----
+   One row per provider: a logo column, then one line per meter reading
+   [tag] percent · bar · reset↻. Every cell owns a grid track and clips its own
+   text, so a label and a value can never overlap at any width (#3751). */
+.rs-models-rows {
+  display: grid;
+  gap: 0.8rem 1.2rem;
+  align-content: start;
 }
+
+.rs-model {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.rs-model > .rs-head {
+  position: relative;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.rs-model .rs-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.rs-model[data-provider="deepseek"] .rs-logo,
+.rs-model[data-provider="kimi"] .rs-logo {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* The logo names the provider; the name stays for assistive technology. */
+.rs-model .rs-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.rs-x {
+  flex: none;
+  padding: 0 0.25rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 700 0.56rem/1.4 "JetBrains Mono", "SFMono-Regular", monospace;
+  cursor: help;
+}
+
+.rs-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.rs-ln {
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr) 12.5ch;
+  align-items: center;
+  gap: 0.5rem;
+  height: 11px;
+  min-width: 0;
+  font: 600 0.68rem/1 "JetBrains Mono", "SFMono-Regular", monospace;
+  cursor: default;
+}
+
+.rs-ln.has-tag { grid-template-columns: var(--rs-tag-width, 3.4em) 4ch minmax(0, 1fr) 12.5ch; }
+
+.rs-ln > span { min-width: 0; overflow: hidden; white-space: nowrap; }
+
+.rs-tg { font-weight: 500; color: var(--muted); text-overflow: ellipsis; }
+
+.rs-ln.is-stale .rs-tg { color: var(--faint); }
+
+.rs-pc { text-align: right; color: var(--fg); }
+
+.rs-pc.is-caution,
+.rs-pc.is-warning {
+  color: var(--attn-ink);
+}
+
+.rs-pc.is-critical { color: var(--block-ink); }
+
+.rs-ln .rs-meter { height: 5px; }
+
+.rs-ln .rs-meter > i { min-width: 4px; }
+
+.rs-ln:hover .rs-meter { filter: brightness(1.3); }
+
+
+.rs-rs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.rs-rs > span { overflow: hidden; text-overflow: clip; }
+
+.rs-rs svg { width: 9px; height: 9px; flex: none; color: var(--faint); }
+
+.rs-rs em { margin-left: -0.15rem; font-style: normal; color: var(--faint); }
+
+.rs-usd { font-weight: 600; color: var(--good-ink); }
+
+.rs-no { font-weight: 400; font-size: 0.62rem; color: var(--faint); }
 
 .rs-progress {
   margin-top: auto;
@@ -3804,17 +3775,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
     font-size: 0.82rem;
   }
 
-  .rs-models-rows,
   .rs-apis-rows {
     gap: 0.55rem 0.55rem;
-  }
-
-  .rs-models-rows {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .rs-model:not(:first-child) > .rs-head {
-    margin-top: 0.4rem;
   }
 
   .rs-provider-row > .rs-provider-body {
@@ -3826,7 +3788,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
     gap: 0.15rem;
   }
 
-  .rs-model .rs-limit,
   .rs-api .rs-limit {
     grid-template-columns: minmax(0, 1fr) 6.5rem;
   }

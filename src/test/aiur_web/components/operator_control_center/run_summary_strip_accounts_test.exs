@@ -22,7 +22,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripAccountsTest do
     html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: %{state: :ready}, usage: %{state: :ready, providers: %{}}, meters: meters, now: @now})
     [row] = html |> Floki.parse_fragment!() |> Floki.find("[data-provider=claude] [data-account=offline]")
     assert Floki.text(row) =~ "unknown"
-    assert Floki.text(row) =~ "unavailable"
+    # Freshness lives in the line's tooltip, not in repeated row text (#3751).
+    assert row |> Floki.attribute("title") |> hd() =~ "unavailable"
+    refute Floki.text(row) =~ "unavailable"
     refute Floki.text(row) =~ "0%"
     assert Floki.attribute(Floki.find(row, "[role=progressbar]"), "aria-valuenow") == []
     assert Floki.find(row, "i") == []
