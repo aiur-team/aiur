@@ -13,7 +13,7 @@ test("queue show safely passes names through the shared engine RPC", () => {
   assert.equal(result.stdout, `Aiur.AgentControlCLI.queue([json: true, queue: Base.decode64!("${Buffer.from(name).toString("base64")}")])\n`);
 });
 test("queue rejects missing names, unsupported verbs, and stray arguments", () => {
-  for (const args of [[], ["add", "1"], ["show", "--queue"], ["show", "--queue", ""], ["show", "--queue", "--json"], ["show", "1"], ["show", "--bad"]]) {
+  for (const args of [[], ["unknown", "1"], ["show", "--queue"], ["show", "--queue", ""], ["show", "--queue", "--json"], ["show", "1"], ["show", "--bad"]]) {
     const result = run(args);
     assert.equal(result.status, 64);
     assert.match(result.stderr, /aiur: queue/);

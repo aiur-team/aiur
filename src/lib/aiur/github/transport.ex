@@ -673,8 +673,8 @@ defmodule Aiur.GitHub.Transport do
     request = put_caller(%{method: :get, url: url, token: token}, opts)
 
     case request_fun.(request) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        {:ok, body}
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        with {:ok, list, _etag} <- single_page_list(body, response, nil), do: {:ok, list}
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
