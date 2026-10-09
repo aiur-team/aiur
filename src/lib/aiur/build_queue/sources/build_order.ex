@@ -53,9 +53,9 @@ end
 defmodule Aiur.BuildQueue.Sources.BuildOrder do
   @moduledoc "Optional dependency input from complete, healthy selected Build Order projections."
   @behaviour Aiur.BuildQueue.Source
+  alias Aiur.{Bounded, TrackerIdentity}
   alias Aiur.BuildOrder.{GraphProjection, ProviderHealth, SelectedRoot}
   alias Aiur.BuildQueue.Model.{Edge, Item}
-  alias Aiur.{Bounded, TrackerIdentity}
 
   @spec projection() :: module()
   def projection, do: GraphProjection
