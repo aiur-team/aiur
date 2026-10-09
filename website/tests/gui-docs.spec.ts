@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { checkDocsProse, markdownFiles, proseParagraphs } from '../../scripts/check-docs-prose.mjs'
 import { assertSyntheticContent, assertSyntheticMeters } from '../scripts/dashboard-capture-safety.mjs'
 
 // Each surface's screenshot belongs on the page that explains that surface. The
@@ -251,35 +254,32 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   expect(streamDeck).not.toContain('## Shared key-face contract')
   expect(streamDeck).not.toContain('### Audio path')
 
-  for (const [file, contents] of markdown) {
-    for (const paragraph of proseParagraphs(contents)) {
-      expect(paragraph.length, `${path.relative(docsRoot, file)} has a dense paragraph: ${paragraph}`).toBeLessThanOrEqual(360)
-    }
+  expect(await checkDocsProse(docsRoot)).toEqual([])
 
+  for (const [file, contents] of markdown) {
     for (const paragraph of proseBeforeTables(contents)) {
       expect(sentenceCount(paragraph), `${path.relative(docsRoot, file)} has more than one sentence above a table: ${paragraph}`).toBeLessThanOrEqual(1)
     }
   }
 })
 
-async function markdownFiles(root: string): Promise<string[]> {
-  const entries = await readdir(root, { withFileTypes: true })
-  const nested = await Promise.all(entries.map(async (entry) => {
-    const absolute = path.join(root, entry.name)
-    if (entry.name === 'node_modules') return []
-    if (entry.isDirectory()) return markdownFiles(absolute)
-    return entry.isFile() && entry.name.endsWith('.md') ? [absolute] : []
-  }))
-  return nested.flat()
-}
-
-function proseParagraphs(markdown: string): string[] {
-  return markdown
-    .split(/\n\s*\n/)
-    .map((block) => block.replace(/\n/g, ' ').trim())
-    .filter((block) => block !== '')
-    .filter((block) => !/^(#|\||```|:::|<|[-*+] |\d+\. )/.test(block))
-}
+test('local docs prose CLI accepts 360 characters and rejects 361 in nested Markdown', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'docs-prose-3229-'))
+  const script = path.resolve(import.meta.dirname, '../../scripts/check-docs-prose.mjs')
+  try {
+    await mkdir(path.join(root, 'guide'))
+    const file = path.join(root, 'guide/planted.md')
+    await writeFile(file, `${'a'.repeat(180)}\n${'b'.repeat(179)}\n`)
+    const passing = spawnSync(process.execPath, [script, root], { encoding: 'utf8' })
+    expect(passing.status, passing.stderr).toBe(0)
+    await writeFile(file, `${'a'.repeat(180)}\n${'b'.repeat(180)}\n`)
+    const failing = spawnSync(process.execPath, [script, root], { encoding: 'utf8' })
+    expect(failing.status).toBe(1)
+    expect(failing.stderr).toContain('guide/planted.md: 361 characters (max 360)')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 function proseBeforeTables(markdown: string): string[] {
   const blocks = markdown.split(/\n\s*\n/).map((block) => block.replace(/\n/g, ' ').trim())

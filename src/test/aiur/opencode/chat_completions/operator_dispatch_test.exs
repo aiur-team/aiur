@@ -11,7 +11,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatchTest do
     test "operator text path closes SSE with stop as soon as send_operator accepts" do
       identifier = "ack-#{System.unique_integer()}"
       token = "ack-tok-#{System.unique_integer()}"
-      :ok = TokenRegistry.put(token, 1, 1)
+      :ok = TokenRegistry.put(token, 1, 1, [identifier])
 
       # A pure scaffold reminder (no real operator text) normalizes to ""
       # → send_operator returns {:ok, :noop} → stream_turn closes SSE with "stop"
@@ -34,7 +34,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatchTest do
     test "non-stream request returns a chat.completion JSON body" do
       identifier = "ns-#{System.unique_integer()}"
       token = "ns-tok-#{System.unique_integer()}"
-      :ok = TokenRegistry.put(token, 1, 1)
+      :ok = TokenRegistry.put(token, 1, 1, [identifier])
 
       noop_text = "<system-reminder>cwd changed to /tmp</system-reminder>"
       body = %{"stream" => false}

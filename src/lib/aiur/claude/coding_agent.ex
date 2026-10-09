@@ -450,23 +450,20 @@ defmodule Aiur.Claude.CodingAgent do
   end
 
   defp stop_port(port) when is_port(port) do
-    case :erlang.port_info(port) do
-      :undefined ->
-        :ok
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} ->
+        Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+        RemoteControl.graceful_kill_tree(os_pid)
 
       _ ->
-        case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} -> Aiur.ProcessReaper.unregister({:os_pid, os_pid})
-          _ -> :ok
-        end
+        :ok
+    end
 
-        try do
-          Port.close(port)
-          :ok
-        rescue
-          ArgumentError ->
-            :ok
-        end
+    try do
+      Port.close(port)
+      :ok
+    rescue
+      ArgumentError -> :ok
     end
   end
 

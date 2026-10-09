@@ -3,9 +3,11 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
   import Plug.Conn
   import Plug.Test
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{Issue, Orchestrator}
   alias Aiur.Opencode.{ChatCompletions, TokenRegistry}
+  alias Aiur.Opencode.ChatCompletions.OperatorDispatch
   alias Aiur.Orchestrator.OperatorMessages
 
   @identifier "identity-probe"
@@ -37,7 +39,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
     end)
 
     token = "identity-test-#{System.unique_integer([:positive])}"
-    :ok = TokenRegistry.put(token, 1, 1)
+    :ok = TokenRegistry.put(token, 1, 1, [@identifier])
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(orchestrator)
@@ -138,6 +140,67 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
     assert ChatCompletions.handle(body, connection("invalid-token")).status == 401
     assert :empty = claim()
+  end
+
+  test "a foreign token cannot enqueue a shadowed message or dispatch operator text" do
+    token = "foreign-#{System.unique_integer([:positive])}"
+    :ok = TokenRegistry.put(token, 2, 1, ["other-ticket"])
+    on_exit(fn -> TokenRegistry.delete(token) end)
+
+    for version <- [nil, "1"] do
+      conn = connection(token) |> delete_req_header("x-aiur-input-version")
+      conn = if version, do: put_req_header(conn, "x-aiur-input-version", version), else: conn
+
+      body = %{
+        "model" => "issue-#{@identifier}",
+        "messages" => [
+          %{"role" => "user", "content" => "continue"},
+          %{"role" => "user", "content" => "__aiur_turn__:absent"}
+        ]
+      }
+
+      assert ChatCompletions.handle(body, conn).status == 403
+      assert :empty = claim()
+      assert OperatorDispatch.dispatch_user_text(%{}, conn, @identifier, "continue").status == 403
+      assert :empty = claim()
+    end
+  end
+
+  # Legacy input lacks InputIdentity's second auth check, so this guards the early authorization repair (#2827).
+  test "unauthorized coalesced batch sends nothing; authorized control sends once", %{token: token} do
+    Code.ensure_loaded!(Aiur.AgentChat)
+    :erlang.trace_pattern({Aiur.AgentChat, :send, 3}, true, [:local])
+    on_exit(fn -> :erlang.trace_pattern({Aiur.AgentChat, :send, 3}, false, [:local]) end)
+
+    body = %{
+      "model" => "issue-#{@identifier}",
+      "messages" => [
+        %{"role" => "user", "content" => "continue"},
+        %{"role" => "user", "content" => "__aiur_turn__:absent"}
+      ]
+    }
+
+    response = traced_request(body, "invalid-token")
+    refute_received {:trace, _pid, :call, {Aiur.AgentChat, :send, _args}}
+    assert response.status == 401
+    assert :empty = claim()
+
+    assert traced_request(body, token).status == 200
+    assert_received {:trace, _pid, :call, {Aiur.AgentChat, :send, [@identifier, "continue", opts]}}
+    assert opts[:delivery_policy] == :auto
+    refute_received {:trace, _pid, :call, {Aiur.AgentChat, :send, _args}}
+    assert {:ok, %{body: %{text: "continue"}}} = claim()
+    assert :empty = claim()
+  end
+
+  defp traced_request(body, token) do
+    task = Task.async(fn -> receive do: (:request -> ChatCompletions.handle(body, delete_req_header(connection(token), "x-aiur-input-version"))) end)
+    :erlang.trace(task.pid, true, [:call, {:tracer, self()}])
+    send(task.pid, :request)
+    response = Task.await(task)
+    delivery = :erlang.trace_delivered(:all)
+    receive_barrier({:trace_delivered, :all, ^delivery})
+    response
   end
 
   defp claim, do: OperatorMessages.claim_next_queue_item(Orchestrator, @identifier)
