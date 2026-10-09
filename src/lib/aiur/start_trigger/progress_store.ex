@@ -33,11 +33,11 @@ defmodule Aiur.StartTrigger.ProgressStore do
   def ci_identity(_id, _result), do: :ok
 
   @spec delivery(String.t(), map(), String.t()) :: :ok
-  def delivery(id, pr, repo) when is_map(pr) do
+  def delivery(id, %{"number" => number} = pr, repo) when is_integer(number) do
     attrs = %{pr_number: pr["number"], head_sha: get_in(pr, ["head", "sha"]), source: :webhook, repo: repo}
 
     cond do
-      not is_integer(pr["number"]) or not same_repo?(pr, repo) -> :ok
+      not same_repo?(pr, repo) -> :ok
       pr["merged"] == true -> record(id, Map.put(attrs, :stage, :pr_merged))
       pr["state"] == "closed" -> record(id, Map.put(attrs, :closed_unmerged?, true))
       pr["state"] == "open" and pr["draft"] == false -> record(id, Map.put(attrs, :stage, :pr_opened))
