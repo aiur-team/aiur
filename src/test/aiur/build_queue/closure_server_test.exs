@@ -6,7 +6,7 @@ defmodule Aiur.BuildQueue.ClosureServerTest do
   defmodule Boundary do
     def open_issue_labels(_age), do: Agent.get(__MODULE__, &{:ok, &1.labels, &1.now})
 
-    def issue_closure(id) do
+    def issue_closure(id, _age) do
       Agent.get_and_update(__MODULE__, fn state -> {{:ok, %{open?: false, state_reason: state.reason}}, %{state | reads: state.reads ++ [id]}} end)
     end
 

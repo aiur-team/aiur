@@ -10,12 +10,12 @@ defmodule Aiur.Init.Templates do
   # no task. The `{{REPO}}` placeholder is init-filled (not Liquid); turn-time
   # `{{ issue.* }}` Liquid is preserved for PromptBuilder.
   @prompt_example_path Path.expand("../../../../.aiur/examples/prompt.md.example", __DIR__)
-  @external_resource @prompt_example_path
+  @external_resource Path.relative_to(@prompt_example_path, File.cwd!(), force: true)
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
 
   @executor_handoff_example_path Path.expand("../../../../.aiur/examples/executor-handoff.md.example", __DIR__)
-  @external_resource @executor_handoff_example_path
+  @external_resource Path.relative_to(@executor_handoff_example_path, File.cwd!(), force: true)
   @executor_handoff_example_template File.read!(@executor_handoff_example_path)
 
   @env_content "GITHUB_TOKEN=\n"
@@ -24,7 +24,7 @@ defmodule Aiur.Init.Templates do
   # release without a runtime file dependency. aiur dogfoods the `.aiur/` layout,
   # so the canonical templates live under `.aiur/examples/` in this repo.
   @example_path Path.expand("../../../../.aiur/examples/config.example", __DIR__)
-  @external_resource @example_path
+  @external_resource Path.relative_to(@example_path, File.cwd!(), force: true)
   @example_template File.read!(@example_path)
 
   # The scaffolded config references hooks via `hooks_file: hooks`, so init also
@@ -34,7 +34,7 @@ defmodule Aiur.Init.Templates do
   @prewarm_file_name "prewarm"
 
   @aiurhooks_example_path Path.expand("../../../../.aiur/examples/hooks.example", __DIR__)
-  @external_resource @aiurhooks_example_path
+  @external_resource Path.relative_to(@aiurhooks_example_path, File.cwd!(), force: true)
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
 
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
@@ -45,8 +45,8 @@ defmodule Aiur.Init.Templates do
   # wizard works from a release with no runtime file dependency.
   @alerts_macos_example_path Path.expand("../../../../.aiur/examples/alerts.macos.example", __DIR__)
   @alerts_linux_example_path Path.expand("../../../../.aiur/examples/alerts.linux.example", __DIR__)
-  @external_resource @alerts_macos_example_path
-  @external_resource @alerts_linux_example_path
+  @external_resource Path.relative_to(@alerts_macos_example_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@alerts_linux_example_path, File.cwd!(), force: true)
   @alerts_macos_example_template File.read!(@alerts_macos_example_path)
   @alerts_linux_example_template File.read!(@alerts_linux_example_path)
 

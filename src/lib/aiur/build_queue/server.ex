@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, Reconcile, Settings, Store, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, Reconcile, Recovery, Settings, Store, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -32,6 +32,8 @@ defmodule Aiur.BuildQueue.Server do
       exchange_pid: nil,
       pending: nil,
       status: :disabled,
+      phase: :awaiting_first_observation,
+      freshness: :unknown,
       document: nil,
       projections: [],
       actions: [],
@@ -46,11 +48,36 @@ defmodule Aiur.BuildQueue.Server do
 
   @impl true
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
-  def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :projections, :actions, :reconciles])}, state}
+  def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :phase, :freshness, :projections, :actions, :reconciles])}, state}
 
-  def handle_call({:write, action, id}, _from, %{status: status} = state) when action in [:mark, :unmark] and status == :running do
+  def handle_call({:write, action, id}, _from, %{status: status} = state) when action in [:mark, :unmark] and status == :running and state.phase == :ready do
     state = write(state, [{action, id}], Reconcile.observations(state))
     {:reply, state.write_results |> List.last() |> elem(2), state}
+  end
+
+  def handle_call({:write, _, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
+
+  def handle_call(:recover, _from, %{status: status} = state) when status in [:disabled, :unsupported_tracker], do: {:reply, {:error, status}, state}
+
+  def handle_call(:recover, _from, state) do
+    case Recovery.rebuild(state) do
+      {:ok, document} ->
+        if state.status == :store_unavailable do
+          Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+          schedule_tick(state)
+        end
+
+        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
+        {projections, _, _, _} = Reconcile.plan(state)
+        Reconcile.write_hints(projections, state.holds, document)
+        {:reply, :ok, state |> subscribe() |> request()}
+
+      {:error, reason} = error when reason in [:store_present, :observation_unavailable] ->
+        {:reply, error, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, %{state | status: :store_unavailable}}
+    end
   end
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
@@ -100,7 +127,7 @@ defmodule Aiur.BuildQueue.Server do
 
   defp recover(state) do
     # Safe ETF decoding needs the producer atoms present before store recovery.
-    Enum.each([Aiur.BuildQueue.Planner, Aiur.BuildQueue.PlannerPolicy, Aiur.BuildQueue.Readiness, Aiur.BuildQueue.Attention], &Code.ensure_loaded!/1)
+    Enum.each([Aiur.BuildQueue.Planner, Aiur.BuildQueue.PlannerPolicy, Aiur.BuildQueue.Readiness, Aiur.BuildQueue.Attention, Recovery], &Code.ensure_loaded!/1)
 
     case state.store.load() do
       {:ok, document} ->
@@ -126,9 +153,15 @@ defmodule Aiur.BuildQueue.Server do
   defp request(state), do: state
 
   defp reconcile(state) do
-    {projections, actions, observations, cache} = Reconcile.plan(state)
+    {freshness, observations} = Reconcile.snapshot(state)
+    state = Recovery.resolve(%{state | freshness: freshness}, observations)
+    plan(state, observations)
+  end
+
+  defp plan(state, observations) do
+    {projections, actions, observations, cache} = Reconcile.plan(state, observations)
     state = %{state | closure_cache: cache}
-    state = write(state, actions, observations)
+    state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
 
     holds =
       Enum.reduce(actions, state.holds, fn

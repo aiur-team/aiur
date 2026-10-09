@@ -6,7 +6,7 @@ defmodule Aiur.BuildQueue.ObserverTest do
   defmodule Tracker do
     def open_issue_labels(_age), do: Process.get(:snapshot)
 
-    def issue_closure(id) do
+    def issue_closure(id, _age) do
       Process.put(:reads, [id | Process.get(:reads, [])])
       Process.get(:closure)
     end

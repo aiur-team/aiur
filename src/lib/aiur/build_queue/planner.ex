@@ -75,7 +75,8 @@ defmodule Aiur.BuildQueue.Planner do
     desired = states |> Enum.flat_map(&(attention_keys(&1, context) ++ failed_keys(&1, context))) |> MapSet.new()
     existing = context.input.latches |> Enum.map(& &1.key) |> Enum.filter(&owned_latch?/1) |> MapSet.new()
     desired = MapSet.union(desired, retained_latches(existing, states, context))
-    opens = desired |> MapSet.difference(existing) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
+    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and match?({:promoted_unauthorized, _}, &1.key))), & &1.key)
+    opens = desired |> MapSet.difference(MapSet.difference(existing, pending)) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
     resolves = existing |> MapSet.difference(desired) |> Enum.sort() |> Enum.map(&{:attention_resolve, &1})
     opens ++ resolves
   end
