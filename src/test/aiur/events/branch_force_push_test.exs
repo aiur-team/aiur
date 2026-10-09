@@ -136,7 +136,7 @@ defmodule Aiur.Events.BranchForcePushTest do
   defp subscribe(topic \\ @topic) do
     id = "rewrite-#{inspect(self())}"
     :ok = SubscriptionStore.attach(id)
-    on_exit(fn -> SubscriptionStore.stop(id) end)
+    on_exit({:subscription_store, id}, fn -> SubscriptionStore.stop(id) end)
     SubscriptionStore.add_subscription(id, topic, "blocker:auto")
   end
 
