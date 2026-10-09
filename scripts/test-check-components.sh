@@ -464,3 +464,7 @@ else:
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
+
+if [[ " $* " == *" --with-elixir "* ]]; then
+  python3 "$repo_root/scripts/test-components-seams.py"
+fi
