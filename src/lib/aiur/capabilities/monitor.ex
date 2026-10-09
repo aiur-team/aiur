@@ -39,7 +39,7 @@ defmodule Aiur.Capabilities.Monitor do
     report = Map.merge(report, %{revision: revision, observed_at: DateTime.utc_now() |> DateTime.to_iso8601()})
     now = Keyword.get(state.opts, :now_fun, fn -> System.monotonic_time(:millisecond) end)
     :ets.insert(table, {:report, {report, now.(), digest}})
-    %{state | warnings: warnings}
+    %{state | warnings: MapSet.union(state.warnings, warnings)}
   end
 
   defp revision(table, digest) do
