@@ -627,13 +627,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         if Map.get(result, :delivered) do
-          # A target the batch displaced because a webhook delivery answered it:
-          # the read was skipped, and nothing rides on the delivery — no state
+          # A webhook-displaced target skips its read; no state
           # transition, no alert, no cache projection — because a CI verdict is
-          # never answered from a held body at any age (R10). The next
-          # non-displaced read produces the real verdict.
+          # never answered from a held body (R10); the next read produces the verdict.
           state
         else
+          ProgressStore.ci_identity(ci_target_for_issue(issue), result)
+
           state
           |> reconcile_draft_stall_alert(issue, result, opts)
           |> reconcile_parked_ready_alert(issue, result, opts)

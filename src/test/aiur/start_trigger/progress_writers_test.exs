@@ -20,6 +20,16 @@ defmodule Aiur.StartTrigger.ProgressWritersTest do
     assert next.ci_lifecycle.passed_heads[id] == "passed-head"
     :sys.get_state(ProgressStore)
     assert %{pr_number: 99, stage: :pr_ci_green} = ProgressStore.lookup(id)
+
+    CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil},
+      ci_issue_fetcher: fn _states -> {:ok, [issue]} end,
+      ci_poller: fn [^id], _opts -> {:ok, %{results: [%{target: id, decision: :pending, head_sha: "passed-head", pr_number: 100}], errors: []}} end,
+      parked_ready_alert_loader: fn -> MapSet.new() end,
+      draft_stall_alert_loader: fn -> MapSet.new() end
+    )
+
+    :sys.get_state(ProgressStore)
+    assert %{pr_number: 100, stage: nil} = ProgressStore.lookup(id)
   end
 
   test "existing recent-merge event poll records the ticket's merged stage" do

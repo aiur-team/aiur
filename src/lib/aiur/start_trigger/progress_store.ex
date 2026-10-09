@@ -25,6 +25,13 @@ defmodule Aiur.StartTrigger.ProgressStore do
   @spec record(String.t(), map()) :: :ok
   def record(id, attrs), do: GenServer.cast(__MODULE__, {:record, id, attrs})
 
+  @spec ci_identity(String.t(), map()) :: :ok
+  def ci_identity(id, %{pr_number: number, decision: decision} = result) when is_integer(number) and decision in [:pending, :failed] do
+    record(id, %{pr_number: number, head_sha: Map.get(result, :head_sha), identity_only?: true, source: :ci_identity})
+  end
+
+  def ci_identity(_id, _result), do: :ok
+
   @spec delivery(String.t(), map(), String.t()) :: :ok
   def delivery(id, pr, repo) when is_map(pr) do
     attrs = %{pr_number: pr["number"], head_sha: get_in(pr, ["head", "sha"]), source: :webhook, repo: repo}
@@ -34,7 +41,7 @@ defmodule Aiur.StartTrigger.ProgressStore do
       pr["merged"] == true -> record(id, Map.put(attrs, :stage, :pr_merged))
       pr["state"] == "closed" -> record(id, Map.put(attrs, :closed_unmerged?, true))
       pr["state"] == "open" and pr["draft"] == false -> record(id, Map.put(attrs, :stage, :pr_opened))
-      pr["state"] == "open" and pr["draft"] == true -> record(id, Map.put(attrs, :draft?, true))
+      pr["state"] == "open" and pr["draft"] == true -> record(id, Map.put(attrs, :identity_only?, true))
       true -> :ok
     end
   end
@@ -70,9 +77,9 @@ defmodule Aiur.StartTrigger.ProgressStore do
     configured_repo = state.repo.()
     incoming_repo = Map.get(attrs, :repo)
     previous = lookup(id)
-    record? = not Map.get(attrs, :draft?, false) or (previous && previous.pr_number != attrs.pr_number)
+    record? = not Map.get(attrs, :identity_only?, false) or (previous && previous.pr_number != attrs.pr_number)
     same_repo? = is_nil(configured_repo) or is_nil(incoming_repo) or String.downcase(configured_repo) == String.downcase(incoming_repo)
-    if same_repo? and record?, do: put(id, Map.drop(attrs, [:repo, :draft?]), state.clock.())
+    if same_repo? and record?, do: put(id, Map.drop(attrs, [:repo, :identity_only?]), state.clock.())
     {:noreply, state}
   end
 
@@ -148,7 +155,7 @@ defmodule Aiur.StartTrigger.ProgressStore do
   defp same_pr?(_previous, _incoming), do: false
 
   defp advance(previous, %{closed_unmerged?: true} = incoming), do: %{incoming | stage: nil, head_sha: incoming.head_sha || previous.head_sha}
-  defp advance(%{closed_unmerged?: true} = previous, %{source: source}) when source in [:ci, :review], do: previous
+  defp advance(%{closed_unmerged?: true} = previous, %{source: source}) when source in [:ci, :ci_identity, :review], do: previous
 
   defp advance(previous, incoming) do
     stage = if StartTrigger.satisfies?(previous.stage, incoming.stage || :pr_opened), do: previous.stage, else: incoming.stage
