@@ -38,6 +38,7 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       actions: [],
       holds: MapSet.new(),
+      closure_cache: %{},
       intent_reconciles: %{},
       reconciles: 0
     }
@@ -67,7 +68,7 @@ defmodule Aiur.BuildQueue.Server do
         end
 
         state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
-        {projections, _, _} = Reconcile.plan(state)
+        {projections, _, _, _} = Reconcile.plan(state)
         Reconcile.write_hints(projections, state.holds, document)
         {:reply, :ok, state |> subscribe() |> request()}
 
@@ -158,7 +159,8 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp plan(state, observations) do
-    {projections, actions, observations} = Reconcile.plan(state, observations)
+    {projections, actions, observations, cache} = Reconcile.plan(state, observations)
+    state = %{state | closure_cache: cache}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
 
     holds =

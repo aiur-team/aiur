@@ -738,9 +738,7 @@ blocks the write.
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
-Comparisons are attributed to `human_review_base_ancestry` and always contact
-GitHub: base movement can change the verdict without changing the PR. These
-reads add cost; this change claims no quota saving.
+Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base
 SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
@@ -748,6 +746,8 @@ separately from harmless stale heads; the earlier 3-of-8 stale-base count is
 context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
+
+Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
 Build queue writes promote ready issues conditionally to `agent:todo` and add/remove `agent:queued`, paced by `build_queue.max_writes_per_minute` (default 20). Each promotion attempt uses up to three issue GETs and one label POST; marker writes cost one request. Label creation is ensured before the first mark each boot. No quota saving is claimed.
 

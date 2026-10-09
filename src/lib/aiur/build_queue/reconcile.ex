@@ -1,20 +1,24 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, Planner, Settings}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, Settings}
 
-  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map()}
-  def plan(state), do: plan(state, observations(state))
+  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map(), map()}
+  def plan(state) do
+    {freshness, observations} = snapshot(state)
+    plan(Map.put(state, :freshness, freshness), observations)
+  end
 
-  @spec plan(map(), map()) :: {[Planner.item_state()], [Planner.action()], map()}
+  @spec plan(map(), map()) :: {[Planner.item_state()], [Planner.action()], map(), map()}
   def plan(state, observations) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     intents = Enum.filter(input.intents, &(state.reconciles - Map.get(state.intent_reconciles, &1.id, 0) < 2))
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
+    {observations, cache} = closures(state, observations)
     input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids), intents: intents}
     {projections, actions} = Planner.plan(input)
-    {projections, actions, input.observations}
+    {projections, actions, input.observations, cache}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
@@ -35,6 +39,17 @@ defmodule Aiur.BuildQueue.Reconcile do
   end
 
   defp hint({downstream, _priority, position, _age, _id}), do: {downstream, position}
+
+  # Prerequisite closure evidence extends a fresh open listing; an unknown listing yields none.
+  defp closures(state, observations) do
+    rows = Map.values(observations)
+
+    cond do
+      rows != [] -> Observer.enrich(state, observations, rows |> Enum.map(& &1.observed_at_ms) |> Enum.max())
+      Map.get(state, :freshness) == :fresh -> Observer.enrich(state, observations, state.clock.())
+      true -> {%{}, Map.get(state, :closure_cache, %{})}
+    end
+  end
 
   @spec observations(map()) :: %{String.t() => Observation.t()}
   def observations(state) do
