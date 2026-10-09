@@ -2475,7 +2475,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          not was_claimed? and
          MapSet.member?(next_state.claimed, issue.id) do
       delay_ms = index * 1_000
-      worker_host = Orchestrator.running_worker_host(next_state, issue.id)
+      worker_host = State.running_worker_host(next_state, issue.id)
       topic = "ticket.#{issue.identifier}.issue.label.added.agent.todo"
       Process.send_after(self(), {:emit_system_alert, topic, issue, worker_host}, delay_ms)
       index + 1

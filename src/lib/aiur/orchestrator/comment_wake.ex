@@ -13,13 +13,13 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
-  alias Aiur.Issue
+  alias Aiur.{Issue, Tracker}
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
-  alias Aiur.Orchestrator.ReviewFindings
+  alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Tracker
+  alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
@@ -58,7 +58,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     clear_session_handle_fun =
-      Keyword.get(opts, :clear_session_handle_fun, &Orchestrator.clear_session_handle/1)
+      Keyword.get(opts, :clear_session_handle_fun, &WorkspaceCleanup.clear_session_handle/1)
 
     observe_membership_fun =
       Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
@@ -733,7 +733,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         identifier = to_string(issue_number)
 
         protected_state =
-          Orchestrator.enqueue_event_digest_item(state, identifier, [event], event)
+          OperatorMessages.enqueue_event_digest_item(state, identifier, [event], event)
 
         issue_key = rework_issue_key(running_entry, issue_number)
 
@@ -1044,7 +1044,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     UniversalSubscriptions.attach(identifier)
 
     state
-    |> Orchestrator.enqueue_event_digest_item(identifier, [event], event)
+    |> OperatorMessages.enqueue_event_digest_item(identifier, [event], event)
     |> dispatch_reworked_comment_issue(identifier, event)
   end
 
@@ -1062,13 +1062,13 @@ defmodule Aiur.Orchestrator.CommentWake do
       {:skip, reason} ->
         Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-        Orchestrator.schedule_poll_cycle_start()
+        OrchestratorLifecycle.schedule_poll_cycle_start()
         state
 
       {:error, reason} ->
         Logger.warning("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-        Orchestrator.schedule_poll_cycle_start()
+        OrchestratorLifecycle.schedule_poll_cycle_start()
         state
     end
   end
@@ -1110,7 +1110,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         event_source: :system
       )
 
-      Orchestrator.schedule_poll_cycle_start()
+      OrchestratorLifecycle.schedule_poll_cycle_start()
       state
     end
   end
@@ -1258,7 +1258,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     if comment_write_pending?(state, context.issue_key) do
       state
-      |> Orchestrator.enqueue_event_digest_item(to_string(context.ticket), [context.event], context.event)
+      |> OperatorMessages.enqueue_event_digest_item(to_string(context.ticket), [context.event], context.event)
       |> schedule_comment_rework_retry(context.ticket, context.source, context.event, context.attempt, :rework_write_in_progress)
     else
       start_comment_rework(state, head_sha, context)
@@ -1684,7 +1684,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
 
           state
-          |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
+          |> OperatorMessages.enqueue_event_digest_item(to_string(issue_number), [event], event)
           |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
           Alerts.emit_custom(
