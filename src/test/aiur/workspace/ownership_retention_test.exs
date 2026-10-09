@@ -124,6 +124,54 @@ defmodule Aiur.Workspace.OwnershipRetentionTest do
     assert StatusReason.render(row.reason) =~ "retry with aiur workspace-recover #{ticket} #{lease.generation}"
   end
 
+  test "missing retention evidence keeps cause and start unknown through JSON and CLI" do
+    row = %{issue_id: "unknown-retention", identifier: "unknown-retention", waiting_reason: :workspace_retained}
+
+    for evidence <- [nil, %{}, %{cause: nil, since: nil}] do
+      attached = WaitingReason.attach(Map.put(row, :workspace_retention, evidence), %State{})
+      assert attached.waiting.reason == :workspace_retained
+      assert attached.waiting.cause == :unknown
+      assert attached.waiting.since == nil
+      assert attached.waiting.age_ms == nil
+      json = attached |> WaitingReason.public_wait() |> Jason.encode!() |> Jason.decode!()
+      assert json["cause"] == "unknown"
+      assert json["since"] == nil
+      assert json["age_ms"] == nil
+      assert WaitingReason.render_wait(attached) == " · workspace_retained · Workspace.Ownership · since unknown"
+    end
+  end
+
+  test "legacy restored lease keeps its unknown start across retries and restoration" do
+    {ticket, lease, topic} = retained_owner(nil)
+    receive_barrier({:event, %{"topic" => ^topic}})
+    assert {:error, :workspace_ownership_lost} = Ownership.mark_provider_cleanup_unknown(lease)
+    {:ok, receipt} = Store.get(ticket)
+    stop_guardian(lease.guardian)
+    legacy = Map.drop(receipt, ["retained_since", "retained_cause"])
+    {:ok, restored} = Guardian.restore(legacy, Aiur.Workspace.Ownership.Registry, [])
+    on_exit(fn -> stop_guardian(restored.guardian) end)
+    receive_barrier({:event, %{"topic" => ^topic, "since" => nil}})
+    assert {:error, :workspace_ownership_lost} = Ownership.mark_provider_cleanup_unknown(restored)
+    assert Retention.for_ticket(ticket) == %{since: nil, cause: "provider_unrecorded", generation: lease.generation}
+    send(restored.guardian, :workspace_guardian_retry_reap)
+    assert {:error, :workspace_ownership_lost} = Ownership.mark_provider_cleanup_unknown(restored)
+    refute_received {:event, %{"topic" => ^topic}}
+    issue = %Issue{id: ticket, identifier: ticket, state: "in-progress"}
+    [row] = StatusReport.agent_statuses(%State{last_polled_issues: %{ticket => issue}})
+    assert row.waiting.reason == :workspace_retained
+    assert row.waiting.since == nil
+    assert row.waiting.age_ms == nil
+    assert WaitingReason.render_wait(row) =~ "since unknown"
+    {:ok, saved} = Store.get(ticket)
+    assert saved["retained_since"] == nil
+    stop_guardian(restored.guardian)
+    {:ok, again} = Guardian.restore(saved, Aiur.Workspace.Ownership.Registry, [])
+    on_exit(fn -> stop_guardian(again.guardian) end)
+    assert {:error, :workspace_ownership_lost} = Ownership.mark_provider_cleanup_unknown(again)
+    assert Retention.for_ticket(ticket).since == nil
+    refute_received {:event, %{"topic" => ^topic}}
+  end
+
   defp retained_owner(provider, opts \\ []) do
     ticket = "retained-#{System.unique_integer([:positive])}"
     topic = "ticket.#{ticket}.workspace.workspace_lease_retained"

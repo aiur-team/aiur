@@ -95,7 +95,9 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 
 ## Inspect and operate a running daemon
 
-A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age and raises one `workspace_lease_retained` attention per lease. Time alone never releases the lease, and a release call that times out returns `{:error, :release_timeout}`.
+A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age (or `since unknown` for leases saved before retention tracking) and raises one `workspace_lease_retained` attention per lease.
+
+Time alone never releases the lease, and a release call that times out returns `{:error, :release_timeout}`.
 
 Use `aiur stop` for graceful provider containment; restarting alone does not clear persisted ownership. Only a local hold with verified reboot proof is eligible for `aiur workspace-recover <ticket-identifier> <generation>`.
 
