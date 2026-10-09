@@ -66,7 +66,8 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
           send(pid, message)
           make_ref()
 
-        _pid, _message, _delay -> make_ref()
+        _pid, _message, _delay ->
+          make_ref()
       end
     ]
 
