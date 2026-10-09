@@ -58,6 +58,8 @@ These stay with the Executor and are not copied into ticket workspaces.
 
 `aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
 
+`aiur-build` creates waiting members with `agent:queued` and adopts their root; `aiur-run` audits queue status, holds and attentions. A disabled queue uses todo labels instead.
+
 ## Codex-native git workflow
 
 | Skill | Covers |
