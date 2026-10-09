@@ -32,7 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
-          cap: non_neg_integer(),
+          cap: non_neg_integer() | nil,
           cap_available?: boolean(),
           configured_cap: non_neg_integer() | nil,
           session_cap: non_neg_integer() | nil,
@@ -205,7 +205,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @spec model(map(), keyword()) :: model()
   def model(dataset, opts \\ []) do
     cap = Keyword.get(opts, :cap, @default_cap)
-    cap_available? = Keyword.get(opts, :cap_available?, true)
+    cap_available? = Keyword.get(opts, :cap_available?, is_integer(cap))
     configured_cap = Keyword.get(opts, :configured_cap, cap)
     session_cap = Keyword.get(opts, :session_cap, cap)
     cap_binding = Keyword.get(opts, :cap_binding)
@@ -1059,7 +1059,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   # `.aiur/config` is a different fact wearing the same name, and reporting it
   # as "configured" would put a confident number under an admitted unknown.
   defp cap_facts(_reading) do
-    [cap: safe_cap(), cap_available?: false, configured_cap: nil, session_cap: nil, cap_binding: nil, cap_staleness: nil]
+    [cap: nil, cap_available?: false, configured_cap: nil, session_cap: nil, cap_binding: nil, cap_staleness: nil]
   end
 
   defp positive_or(value, _fallback) when is_integer(value) and value > 0, do: value
@@ -1098,14 +1098,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp freshness_age_ms(%{age_ms: age_ms}) when is_integer(age_ms) and age_ms >= 0, do: age_ms
   defp freshness_age_ms(_freshness), do: 0
-
-  defp safe_cap do
-    Aiur.Config.max_concurrent_agents()
-  rescue
-    _ -> @default_cap
-  catch
-    _, _ -> @default_cap
-  end
 
   defp host_mem_bytes do
     case File.read("/proc/meminfo") do
