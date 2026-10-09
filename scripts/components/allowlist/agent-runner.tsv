@@ -5,7 +5,6 @@ R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Config.Paths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.DecisionAttention	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.DecisionLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.DecisionStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Events.DebugLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Events.Sanitizer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -34,7 +33,6 @@ R-down	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.BuildOrder.EpicOverrides	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.BuildOrder.EpicOverrides.Override	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.DecisionAttention	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-down	Aiur.DecisionLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.DecisionStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Events.DebugLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.ExternalContent	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
