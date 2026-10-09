@@ -67,3 +67,5 @@ R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1
 R-optional	Aiur.Opencode.TurnMarkers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Lifecycle	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.Headless.Emitter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-private	Aiur.BuildOrder.EpicOverrides	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:12 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.EpicOverrides.Override	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:17 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
