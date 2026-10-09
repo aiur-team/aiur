@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.WriteProtocol do
   @moduledoc false
+  alias Aiur.BuildQueue.{Events, WriteEvidence}
   alias Aiur.BuildQueue.Model.Intent
-  alias Aiur.BuildQueue.WriteEvidence
 
   @spec attempt(map(), atom(), String.t(), map()) :: {map(), :ok | {:error, term()}}
   def attempt(context, action, id, runtime) do
@@ -20,8 +20,12 @@ defmodule Aiur.BuildQueue.WriteProtocol do
     document = provenance(document, intent, result, context.clock.())
 
     case context.store.save(document) do
-      :ok -> {%{context | document: document}, result}
-      {:error, reason} -> {%{context | document: document, status: :store_unavailable}, {:error, reason}}
+      :ok ->
+        Events.saved(context.document, document)
+        {%{context | document: document}, result}
+
+      {:error, reason} ->
+        {%{context | document: document, status: :store_unavailable}, {:error, reason}}
     end
   end
 

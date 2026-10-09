@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, ListCommands, ReadModel, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Events, Hints, ListCommands, ReadModel, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -109,6 +109,7 @@ defmodule Aiur.BuildQueue.Server do
 
     with {:ok, document} <- Bookkeeping.release(state.document, target, observations, state.clock.(), "#{state.settings.tracker.github.label_prefix}:todo"),
          :ok <- state.store.save(document) do
+      Events.saved(state.document, document)
       released = for item <- state.document.items, item.issue_id == target or item.queue_id == target, do: item.issue_id
       {:reply, :ok, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
     else
@@ -138,6 +139,7 @@ defmodule Aiur.BuildQueue.Server do
   defp commit_mutation(state, document, actions, observations) do
     case state.store.save(document) do
       :ok ->
+        Events.saved(state.document, document, :operator)
         state = write(%{state | document: document}, actions, observations)
 
         failures =

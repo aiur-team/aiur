@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.Recovery do
   @moduledoc false
-  alias Aiur.BuildQueue.{Model, Reconcile}
+  alias Aiur.BuildQueue.{Events, Model, Reconcile}
 
   @spec resolve(map(), map()) :: map()
   def resolve(%{phase: :awaiting_first_observation, freshness: :fresh} = state, observations) do
@@ -14,8 +14,12 @@ defmodule Aiur.BuildQueue.Recovery do
       %{state | phase: :ready}
     else
       case state.store.save(document) do
-        :ok -> %{state | document: document, phase: :ready}
-        {:error, _reason} -> %{state | status: :store_unavailable}
+        :ok ->
+          Events.saved(state.document, document)
+          %{state | document: document, phase: :ready}
+
+        {:error, _reason} ->
+          %{state | status: :store_unavailable}
       end
     end
   end
