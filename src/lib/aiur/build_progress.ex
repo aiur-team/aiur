@@ -4,16 +4,17 @@ defmodule Aiur.BuildProgress do
 
   Producers own counts and percent; Build Order generations are assigned durably.
   Reads return facts for `:all` or one scope. Facts are volatile; milestone
-  latches and Build Order generation markers survive restart. Corrupt or unavailable storage disables milestones until restart,
+  latches and Build Order generation markers survive restart. Corrupt or unavailable
+  storage disables milestones until restart,
   while reads and change signals continue. Persisting before publication favors
   a missed notification over a repeated one if the daemon crashes between them.
+  Generation tracking and milestone writes share this owner to serialize persistence.
   """
   use GenServer
 
   require Logger
 
-  alias Aiur.BuildOrder.ProgressGeneration
-  alias Aiur.{Alerts, Config.Paths, JsonStore}
+  alias Aiur.{Alerts, BuildOrder.ProgressGeneration, Config.Paths, JsonStore}
 
   @topic "build_progress"
   @changed_fields [:percent, :resolution, :freshness, :generation]
