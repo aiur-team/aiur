@@ -32,6 +32,7 @@ defmodule Aiur.BuildQueueFakeTracker do
     states = Enum.filter(labels, &(&1 in Labels.state_labels("agent")))
     result = if states == [], do: get(:result), else: {:error, {:stale_issue_state, :none, states}}
     if result == :ok, do: put(:labels, Map.put(get(:labels), id, labels ++ ["agent:todo"]))
+    put(:now, clock() + (get(:write_advance_ms) || 0))
     result
   end
 

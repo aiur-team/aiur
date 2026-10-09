@@ -1,6 +1,10 @@
+Code.require_file("../../support/build_queue_fake_tracker.ex", __DIR__)
+
 defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
   use Aiur.TestSupport
   alias Aiur.{Tracker, Workflow}
+  alias Aiur.BuildQueue.Writer
+  alias Aiur.BuildQueueFakeTracker, as: Fake
 
   setup do
     previous = Map.new([:github_transport_test_options, :github_budget_enabled?, :github_quota_server], &{&1, Application.get_env(:aiur, &1)})
@@ -34,6 +38,43 @@ defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
 
     assert :ok = Tracker.ensure_labels(["agent:queued"])
     assert_received {:label_request, "POST", "/repos/owner/repo/labels", %{"name" => "agent:queued"}}
+  end
+
+  test "HTTP marker throttling pauses the writer before any marker or promotion" do
+    document = %{queues: [], items: [], edges: [], intents: [], latches: []}
+    Fake.reset(document)
+
+    for status <- [403, 429] do
+      quota = start_supervised!({Aiur.GitHub.Quota, name: nil, emit_fun: fn _, _ -> :ok end}, id: {:throttle, status})
+      Application.put_env(:aiur, :github_quota_server, quota)
+      owner = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        send(owner, {:ensure_request, conn.request_path})
+        conn |> Plug.Conn.put_status(status) |> Req.Test.json(%{"message" => "You have exceeded a secondary rate limit."})
+      end)
+
+      context = %{
+        document: document,
+        tracker: Aiur.GitHub.Tracker,
+        store: Fake,
+        claim_probe: Fake,
+        clock: &Fake.clock/0,
+        sleep: &Fake.sleep/1,
+        marker: "agent:queued",
+        todo: "agent:todo",
+        max_writes: 20,
+        observation_max_age_ms: 120_000,
+        observations: %{}
+      }
+
+      result = Writer.run(context, [{:mark, "1"}, {:promote, "2"}], Writer.new())
+      assert result.status == :writes_paused
+      assert_received {:ensure_request, "/repos/owner/repo/labels"}
+      refute_received {:ensure_request, _}
+      assert result.document.intents == []
+      assert result.writer.failures == %{}
+    end
   end
 
   test "ensure surfaces label errors and the non-GitHub adapter contracts" do

@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Store, Writer}
+  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Settings, Store, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -46,8 +46,8 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
   def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :projections, :actions, :reconciles])}, state}
 
-  def handle_call({:write, action, id}, _from, %{status: status} = state) when action in [:mark, :unmark] and status in [:running, :writes_paused] do
-    state = write(state, [{action, id}], %{})
+  def handle_call({:write, action, id}, _from, %{status: status} = state) when action in [:mark, :unmark] and status == :running do
+    state = write(state, [{action, id}], Reconcile.observations(state))
     {:reply, state.write_results |> List.last() |> elem(2), state}
   end
 
@@ -128,7 +128,16 @@ defmodule Aiur.BuildQueue.Server do
 
   defp write(state, actions, observations) do
     prefix = state.settings.tracker.github.label_prefix
-    context = Map.merge(state, %{observations: observations, marker: "#{prefix}:queued", todo: "#{prefix}:todo", max_writes: state.settings.build_queue.max_writes_per_minute})
+
+    context =
+      Map.merge(state, %{
+        observations: observations,
+        marker: "#{prefix}:queued",
+        todo: "#{prefix}:todo",
+        max_writes: state.settings.build_queue.max_writes_per_minute,
+        observation_max_age_ms: Settings.observation_max_age_ms(state.settings)
+      })
+
     result = Writer.run(context, actions, state.writer)
     status = if result.status == :paced, do: :running, else: result.status
     %{state | document: result.document, writer: result.writer, write_results: result.write_results, status: status, actions: actions ++ result.write_attentions}

@@ -217,6 +217,12 @@ defmodule Aiur.BuildQueue.ServerTest do
     update(:result, {:error, {:github, :local_hold, %{}}})
     assert GenServer.call(pid, {:write, :mark, "2"}) == {:error, {:github, :local_hold, %{}}}
     assert GenServer.call(pid, :status) == :writes_paused
+    count = Agent.get(Boundary, &length(&1.calls))
+    update(:result, :ok)
+    assert GenServer.call(pid, {:write, :mark, "3"}) == {:error, :writes_paused}
+    assert GenServer.call(pid, {:write, :unmark, "1"}) == {:error, :writes_paused}
+    assert Agent.get(Boundary, &length(&1.calls)) == count
+    assert GenServer.call(pid, :status) == :writes_paused
   end
 
   defp server(opts \\ []) do

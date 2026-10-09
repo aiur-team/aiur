@@ -32,7 +32,8 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   defp hint({downstream, _priority, position, _age, _id}), do: {downstream, position}
 
-  defp observations(state) do
+  @spec observations(map()) :: %{String.t() => Observation.t()}
+  def observations(state) do
     case state.tracker.open_issue_labels(Settings.observation_max_age_ms(state.settings)) do
       {:ok, labels, observed_at_ms} ->
         Map.new(labels, fn {id, row} ->

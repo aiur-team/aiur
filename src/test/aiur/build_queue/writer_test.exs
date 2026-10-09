@@ -56,6 +56,46 @@ defmodule Aiur.BuildQueue.WriterTest do
     assert Enum.map(final.document.intents, & &1.issue_id) == Enum.map(1..30, &to_string/1)
   end
 
+  test "promotion retries stop when readiness evidence expires", %{document: document} do
+    Fake.put(:result, {:error, :unavailable})
+    context = context(document) |> Map.put(:observation_max_age_ms, 10_000) |> Map.put(:sleep, fn delay -> Fake.put(:now, Fake.clock() + delay) end)
+    result = Writer.run(context, [{:promote, "1"}], Writer.new())
+    assert calls() == [promote("1"), promote("1"), promote("1")]
+    assert List.last(result.write_results) == {:promote, "1", {:error, :stale_observation}}
+    assert result.writer.failures == %{"1" => 3}
+  end
+
+  test "later batch promotions cannot write from evidence aged by an earlier request", %{document: document} do
+    Fake.put(:write_advance_ms, 10_001)
+    context = Map.put(context(document), :observation_max_age_ms, 10_000)
+    result = Writer.run(context, [{:promote, "1"}, {:promote, "2"}], Writer.new())
+    assert calls() == [promote("1"), {:notify_demand, ["1"]}]
+    assert List.last(result.write_results) == {:promote, "2", {:error, :stale_observation}}
+  end
+
+  test "fresh target cannot promote with an expired prerequisite observation", %{document: document} do
+    document = %{document | edges: [%Model.Edge{prerequisite: "2", dependent: "1", source: :native}]}
+    context = context(document)
+    Fake.put(:now, 122_000)
+    context = %{context | observations: Map.update!(context.observations, "1", &%{&1 | observed_at_ms: 122_000})}
+    result = Writer.run(context, [{:promote, "1"}], Writer.new())
+    assert calls() == []
+    assert result.write_results == [{:promote, "1", {:error, :stale_observation}}]
+  end
+
+  test "label ensure uses the last token and marker write waits for next window", %{document: document} do
+    context = Map.put(context(document), :max_writes, 1)
+    first = Writer.run(context, [{:mark, "1"}], Writer.new())
+    assert first.status == :paced
+    assert first.write_results == [{:mark, "1", {:error, :paced}}]
+    assert calls() == [{:ensure_labels, ["agent:queued"]}]
+    assert first.document.intents == []
+    Fake.put(:now, 61_000)
+    second = Writer.run(context, [{:mark, "1"}], first.writer)
+    assert second.status == :running
+    assert calls() == [{:ensure_labels, ["agent:queued"]}, {:add_label, "1", "agent:queued"}]
+  end
+
   test "intent is saved before call with complete target labels; save failure makes no call", %{document: document} do
     run(document, [{:promote, "1"}])
     [{_, saved}, _] = Fake.get(:calls)
@@ -142,23 +182,22 @@ defmodule Aiur.BuildQueue.WriterTest do
   defp calls, do: Enum.map(Fake.get(:calls), &elem(&1, 0))
   defp promote(id), do: {:update_issue_state, id, "todo", [expected_state: :none]}
 
-  defp run(document, actions, runtime \\ Writer.new()) do
-    Writer.run(
-      %{
-        document: document,
-        tracker: Fake,
-        store: Fake,
-        claim_probe: Fake,
-        clock: &Fake.clock/0,
-        sleep: &Fake.sleep/1,
-        marker: "agent:queued",
-        todo: "agent:todo",
-        max_writes: 20,
-        observations: input(document).observations
-      },
-      actions,
-      runtime
-    )
+  defp run(document, actions, runtime \\ Writer.new()), do: Writer.run(context(document), actions, runtime)
+
+  defp context(document) do
+    %{
+      document: document,
+      tracker: Fake,
+      store: Fake,
+      claim_probe: Fake,
+      clock: &Fake.clock/0,
+      sleep: &Fake.sleep/1,
+      marker: "agent:queued",
+      todo: "agent:todo",
+      max_writes: 20,
+      observation_max_age_ms: 120_000,
+      observations: input(document).observations
+    }
   end
 
   defp input(document, opts \\ []) do

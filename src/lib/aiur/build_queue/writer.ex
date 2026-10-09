@@ -23,6 +23,22 @@ defmodule Aiur.BuildQueue.Writer do
   defp execute(_action, context), do: {:cont, context}
 
   defp retry(context, action, id, delays) do
+    if action == :promote and not fresh?(context, id), do: record(context, action, id, {:error, :stale_observation}), else: attempt(context, action, id, delays)
+  end
+
+  defp fresh?(context, id) do
+    prerequisites = for edge <- context.document.edges, edge.dependent == id, do: edge.prerequisite
+    now = context.clock.()
+
+    Enum.all?([id | prerequisites], fn subject ->
+      case context.observations[subject] do
+        nil -> false
+        observation -> observation.observed_at_ms <= now and now - observation.observed_at_ms <= context.observation_max_age_ms
+      end
+    end)
+  end
+
+  defp attempt(context, action, id, delays) do
     case prepare(context, action) do
       {:wait, context} ->
         record(context, action, id, {:error, :paced})
