@@ -1355,7 +1355,7 @@ defmodule Aiur.AgentControlCLI do
       Enum.each(results, fn
         {id, {:ok, :pending}} -> IO.puts("parking ##{id}; tracker marker write pending")
         {id, {:ok, :already_parked}} -> IO.puts("##{id} already parked")
-        {id, {:error, reason}} -> IO.puts(:stderr, "✗ ##{id} could not be parked: #{format_reason(reason)}")
+        {id, {:error, reason}} -> IO.puts(:stderr, "✗ ##{id} could not be parked: #{Reasons.format_reason(reason)}")
       end)
 
       exit_marker(if Enum.any?(results, &match?({_, {:error, _}}, &1)), do: 1, else: 0)
@@ -1373,8 +1373,8 @@ defmodule Aiur.AgentControlCLI do
 
       Enum.each(results, fn
         {id, {:ok, :ok}} -> IO.puts("unparked ##{id}; run `aiur resume #{id}` to reclaim a slot")
-        {id, {:ok, {:error, reason}}} -> IO.puts(:stderr, "✗ ##{id} marker removed, but local state refresh failed: #{format_reason(reason)}")
-        {id, {{:error, reason}, _local_result}} -> IO.puts(:stderr, "✗ ##{id} could not be unparked: #{format_reason(reason)}")
+        {id, {:ok, {:error, reason}}} -> IO.puts(:stderr, "✗ ##{id} marker removed, but local state refresh failed: #{Reasons.format_reason(reason)}")
+        {id, {{:error, reason}, _local_result}} -> IO.puts(:stderr, "✗ ##{id} could not be unparked: #{Reasons.format_reason(reason)}")
       end)
 
       _ = Orchestrator.note_queued_demand(Enum.map(targets, &to_string/1))
