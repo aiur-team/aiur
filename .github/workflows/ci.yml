@@ -270,7 +270,7 @@ jobs:
         run: |
           python3 scripts/check-components.py --require-elixir
           bash scripts/test-check-components.sh --with-elixir --with-node
-      # The generated env example must include every operator-facing variable.
+          python3 scripts/test-check-pr-structure.py
       - name: .env.example matches the env-var schema
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
