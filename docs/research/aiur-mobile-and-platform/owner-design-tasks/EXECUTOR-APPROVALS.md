@@ -116,3 +116,13 @@ to Kevin without a recommendation. The Executor did not adopt them.
 | DESIGN-R1 §3 copy | Page title, intro paragraph, section headings, empty-section copy and badge meanings. | MP-R1-C10-T03 (#3323) |
 | DESIGN-R1 §3 final | Kevin approves the first generated page before the sidebar entry ships. | MP-R1-C10-T05 (#3341) |
 | DESIGN-R6 §2.1 pass | The one manual hardware re-proof pass on Kevin's physical deck before C2 merges (the requirement is adopted; the pass needs the deck). | MP-R6-C2-T01 (#3460) merge |
+
+## DESIGN-E1 §4 (added 2026-10-09)
+
+The dashboard queue view (MP-E1-C8-T01, #3078) blocked on this gate with the fleet
+otherwise idle on the MP-E1 chain. Kevin asked that Commands never block the run.
+
+| Item | Executor decision | Status |
+|---|---|---|
+| E1-PLACE | Adopt the recommendation: a panel on `/build-orders`, no new nav item. | Adopted |
+| §4 states and copy | The worker may derive provisional copy from the §4 state table and the existing dashboard copy style. Each string stays in one module so Kevin can replace it in one edit. The PR body lists every string. | Provisional; Kevin to review after it ships |
