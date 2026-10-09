@@ -6,7 +6,6 @@ from pathlib import Path
 import math
 import unittest
 from statistics import mean, median
-from unittest.mock import patch
 
 from analytics.stats.permutation import permutation_test
 
@@ -45,15 +44,13 @@ class PermutationTests(unittest.TestCase):
                                                 seed=(42, 54), resamples=20_000))
 
     def test_plus_one_and_absolute_two_sided_tail(self):
-        class Draws:
-            def __init__(self, *seed):
-                self.indices = iter([2, 1, 1])
-
-            def randbelow(self, n):
-                return next(self.indices)
-
-        with patch('analytics.stats.permutation.PCG32', Draws):
-            result = permutation_test([0, 1], [10, 11], difference, resamples=1)
+        seen = []
+        def statistic(a, b):
+            seen.append((a.copy(), b.copy()))
+            return difference(a, b)
+        result = permutation_test([0, 1], [10, 11], statistic, seed=(42, 54), resamples=1)
+        self.assertEqual(seen, [([0, 1], [10, 11]), ([1, 10], [0, 11])])
+        # The actual permutation has contrast zero versus observed ten: b=0, m=1.
         self.assertEqual(result['p_value'], 0.5)
         self.assertEqual(result['mc_se'], 0.5)
         self.assertEqual(permutation_test([0], [1], difference, resamples=5)['p_value'], 1)

@@ -2,7 +2,6 @@
 
 import math
 import unittest
-from unittest.mock import patch
 
 from analytics.stats.numeric import mean, round_sig
 from analytics.stats.rng import PCG32, seed_from
@@ -44,15 +43,14 @@ class RNGTests(unittest.TestCase):
                 PCG32(*args)
 
     def test_randbelow_rejects_biased_draws(self):
-        rng = PCG32(42, 54)
-        with patch.object(rng, 'next_u32', side_effect=[0, 4]) as draws:
-            self.assertEqual(rng.randbelow(7), 4)
-            self.assertEqual(draws.call_count, 2)
-        # Two 32-bit words per candidate: reject zero, accept n+1.
-        n = 2**32 + 1
-        with patch.object(rng, 'next_u32', side_effect=[0, 0, 1, 2]) as draws:
-            self.assertEqual(rng.randbelow(n), 1)
-            self.assertEqual(draws.call_count, 4)
+        rng = PCG32(0, 54)
+        # First draw 1203932051 is below threshold 2147483647; second is accepted.
+        self.assertEqual(rng.randbelow(2**31 + 1), 965700134)
+        self.assertEqual(rng.next_u32(), 2101201694)
+        rng = PCG32(0, 54)
+        # The first two 64-bit candidates are rejected; the third is accepted.
+        self.assertEqual(rng.randbelow(2**63 + 1), 2072569916783752268)
+        self.assertEqual(rng.next_u32(), 1465042262)
 
     def test_numeric_helpers(self):
         for value, expected in ((0, 0), (-123.456, -123.5), (1e-300, 1e-300),

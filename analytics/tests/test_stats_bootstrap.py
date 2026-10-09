@@ -5,9 +5,8 @@ import math
 from pathlib import Path
 import unittest
 from statistics import mean, median
-from unittest.mock import patch
 
-from analytics.stats.bootstrap import bootstrap, _acceleration, _probabilities
+from analytics.stats.bootstrap import bootstrap, _acceleration
 
 
 def difference(a, b):
@@ -45,11 +44,13 @@ class BootstrapTests(unittest.TestCase):
         expected = sum(x ** 3 for x in influences) / (6 * sum(x ** 2 for x in influences) ** 1.5)
         self.assertAlmostEqual(_acceleration(a, b, difference, strata), expected, places=12)
         self.assertGreater(abs(_acceleration(a, b, difference) - expected), 0.01)
-        with patch('analytics.stats.bootstrap._probabilities', wraps=_probabilities) as probabilities:
-            bootstrap(a, b, {'difference': difference}, resamples=50,
-                      strata=(['low'] * 3 + ['high'] * 2,
-                              ['low'] * 4 + ['high'] * 2 + ['singleton']))
-        self.assertAlmostEqual(probabilities.call_args.args[2], expected, places=12)
+        result = bootstrap(a, b, {'difference': difference}, resamples=1000,
+                           strata=(['low'] * 3 + ['high'] * 2,
+                                   ['low'] * 4 + ['high'] * 2 + ['singleton']))['difference']
+        # Pooled acceleration instead gives (1454.7488143458354, 1460.905285624473).
+        self.assertEqual(result['method'], 'bca')
+        self.assertAlmostEqual(result['lo'], 1454.3428571428572, places=12)
+        self.assertAlmostEqual(result['hi'], 1460.2285714285713, places=12)
 
     def test_all_singleton_strata_skip_jackknife_and_use_percentile(self):
         evaluations = []
@@ -107,13 +108,19 @@ class BootstrapTests(unittest.TestCase):
             self.assertTrue(set(b[:2]) <= {4, 5})
 
     def test_known_draws_percentiles_and_mc_se(self):
-        # A singleton group makes BCa undefined: verify actual percentile arithmetic.
-        with patch('analytics.stats.bootstrap._draw', side_effect=[[0], [2], [0], [4],
-                                                                   [0], [6]]):
-            result = bootstrap([0], [2, 4, 6], {'difference': difference},
-                               resamples=3, confidence=0.5)['difference']
-        self.assertEqual((result['lo'], result['hi']), (3, 5))
-        self.assertAlmostEqual(result['mc_se'], 2 / math.sqrt(3))
+        # A singleton group makes BCa undefined; real seeded draws retain sizes 1 and 3.
+        seen = []
+        def statistic(a, b):
+            seen.append((a.copy(), b.copy()))
+            return difference(a, b)
+        result = bootstrap([0], [2, 4, 6], {'difference': statistic}, seed=(0, 54),
+                           resamples=3, confidence=0.5)['difference']
+        self.assertEqual(seen, [([0], [2, 4, 6]), ([0], [6, 6, 4]),
+                                ([0], [4, 6, 4]), ([0], [2, 2, 2])])
+        # Bootstrap statistics are 16/3, 14/3, 2: type-7 quartiles 10/3 and 5.
+        self.assertEqual(result['method'], 'percentile')
+        self.assertEqual((result['lo'], result['hi']), (10 / 3, 5))
+        self.assertAlmostEqual(result['mc_se'], math.sqrt(28 / 27))
 
     def test_validation_and_input_preservation(self):
         a, b = [3, 1, 2], [5, 4, 6]
