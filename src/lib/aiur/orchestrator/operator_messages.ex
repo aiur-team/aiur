@@ -2,16 +2,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, OperatorWaitLog, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, Commands, OperatorWaitLog, TrackerIdentity}
 
-  alias Aiur.Orchestrator.{
-    AutoSubscriptions,
-    CommentWake,
-    DigestCoalescer,
-    LifecycleFence,
-    PauseResume,
-    State
-  }
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, DigestCoalescer, LifecycleFence, PauseResume, State}
 
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   alias Aiur.Orchestrator.StatusReason
@@ -991,7 +984,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
-    Aiur.DecisionStore.record_transport_batch_async(transition, List.wrap(items), reason)
+    Commands.record_transport_batch_async(transition, List.wrap(items), reason)
     next_state = %{state | queue_store: queue_store}
     maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
     {:reply, :ok, next_state}

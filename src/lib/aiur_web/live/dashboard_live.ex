@@ -2,9 +2,9 @@ defmodule AiurWeb.DashboardLive do
   @moduledoc """
   Phoenix LiveView shell for the Aiur Operator Control Center.
   """
-
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.Commands
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
@@ -18,7 +18,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
-  alias Aiur.DecisionPubSub
+
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.LiveConversation
@@ -111,7 +111,7 @@ defmodule AiurWeb.DashboardLive do
 
     if connected do
       :ok = ObservabilityPubSub.subscribe()
-      :ok = DecisionPubSub.subscribe()
+      :ok = Commands.subscribe()
       :ok = CurrentRunMembership.subscribe()
       :ok = CurrentRunSummary.subscribe()
       :ok = CurrentRunOutcomeSnapshot.subscribe()

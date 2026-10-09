@@ -6,20 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{
-    AgentRunner,
-    AlertFeed,
-    Alerts,
-    CodingAgent,
-    Config,
-    DecisionStore,
-    DispatchBudgetStore,
-    Issue,
-    ModelAvailability,
-    RepoBase,
-    SystemCpu,
-    Tracker
-  }
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -551,8 +538,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # Reconciler reads the same value but fails OPEN (it never stops healthy
   # running agents on a store outage).
   @spec refresh_blocked_ticket_ids(State.t(), GenServer.server()) :: State.t()
-  def refresh_blocked_ticket_ids(%State{} = state, store \\ DecisionStore) do
-    case DecisionStore.blocked_ticket_ids(store) do
+  def refresh_blocked_ticket_ids(%State{} = state, store \\ Commands.default_store()) do
+    case Commands.blocked_ticket_ids(store) do
       {:ok, %MapSet{} = ids} -> %{state | blocked_ticket_ids: ids}
       {:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}
     end
@@ -647,7 +634,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_or_hold(%State{} = state, issues, trigger_fun, opts)
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # An answer may arrive during the tracker fetch; admission must read the current local hold.
-    state = refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, DecisionStore))
+    state = refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, Commands.default_store()))
 
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
@@ -2799,7 +2786,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow poll. The request is therefore posted to this process and sent to the
   # store only after the handler returns (`handle_pending_answer_delivery/1`).
   defp deliver_pending_answers(%Issue{identifier: identifier}, opts) when is_binary(identifier) do
-    send(self(), {:deliver_pending_answers, identifier, Keyword.get(opts, :decision_store, DecisionStore)})
+    send(self(), {:deliver_pending_answers, identifier, Keyword.get(opts, :decision_store, Commands.default_store())})
     :ok
   end
 
@@ -2813,7 +2800,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   """
   @spec handle_pending_answer_delivery({:deliver_pending_answers, String.t(), GenServer.server()}) :: :ok
   def handle_pending_answer_delivery({:deliver_pending_answers, identifier, store}) when is_binary(identifier),
-    do: DecisionStore.deliver_pending_answers(identifier, store)
+    do: Commands.deliver_pending_answers(identifier, store)
 
   defp dispatch_attempt_ticket(%Issue{} = issue) do
     case dispatch_attempt_identity(issue) do

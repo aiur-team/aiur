@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   Owns orchestrator StatusReport behavior.
   All functions execute inside the orchestrator GenServer process.
   """
-
+  alias Aiur.Commands
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
-  alias Aiur.DecisionStore
+
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CapacityBinding
@@ -730,7 +730,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp open_decision_count(identifier) when is_binary(identifier) do
-    case DecisionStore.open_blocking_decision_ids([identifier], DecisionStore, 100) do
+    case Commands.open_blocking_decision_ids([identifier], Commands.default_store(), 100) do
       {:ok, ids} -> {length(ids), :available}
       {:error, :store_unavailable} -> {0, :unavailable}
     end

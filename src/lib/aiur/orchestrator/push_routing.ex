@@ -9,12 +9,12 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionStore, Issue}
+  alias Aiur.{Alerts, Commands, Config, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State, TrackerTasks}
+  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, GithubBudgetPause, IssueSync, PauseResume, State, TrackerTasks}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -77,7 +77,7 @@ defmodule Aiur.Orchestrator.PushRouting do
     reason = Map.get(payload, :reason) || Map.get(payload, "reason")
 
     reason not in ["operator_decision", :operator_decision, "upstream_merge", :upstream_merge] and
-      DecisionStore.nonblocking_question_pause?(to_string(identifier)) == {:ok, true}
+      Commands.nonblocking_question_pause?(to_string(identifier)) == {:ok, true}
   end
 
   defp nonblocking_question_pause?(_identifier, _pause_reason, _event), do: false
