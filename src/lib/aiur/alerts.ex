@@ -10,7 +10,7 @@ defmodule Aiur.Alerts do
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.Signal
 
   # Built-in OS system sounds keyed by alert category. macOS ships AIFF clips in
   # the system sounds folder; Linux desktops ship freedesktop OGA themes, with a
@@ -195,7 +195,7 @@ defmodule Aiur.Alerts do
         maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts)
         maybe_play_sound(selected_sound, settings, opts)
         broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
-        ObservabilityPubSub.broadcast_update()
+        Signal.refresh()
         :ok
       end
     end

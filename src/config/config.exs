@@ -2,6 +2,8 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :signal, alert_sink: Aiur.Alerts
+
 config :aiur, :tracker_adapters, %{
   "github" => Aiur.GitHub.Tracker,
   "linear" => Aiur.Linear.Tracker,
