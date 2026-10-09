@@ -57,9 +57,13 @@ export async function transplant(browser, cell) {
     }, data)
     await pair.product.evaluate(() => document.fonts.ready)
     await pair.product.evaluate(() => document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish() }))
-    // Compare identical inert clones so hook listeners cannot turn hover into a DOM change.
-    await pair.design.evaluate(({ roots, data }) => {
-      const nodes = [...document.querySelectorAll(roots)].map(e => e.cloneNode(true))
+    // Re-parse identical HTML on both sides; cloneNode retains unserialized coordinate precision.
+    await pair.design.evaluate(({ data }) => {
+      const nodes = data.roots.map(html => {
+        const template = document.createElement('template')
+        template.innerHTML = html
+        return template.content.firstElementChild
+      })
       const wrapper = document.createElement('div')
       wrapper.style.cssText = `position:absolute;left:${data.left}px;top:${data.top}px;width:${data.width}px;`
       Object.assign(wrapper.style, data.layout)
