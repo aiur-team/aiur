@@ -22,6 +22,11 @@ source.
   the same JSON. An Executor never needs to know NDJSON record shapes or which
   of the four instance dirs is live.
 
+GitHub `pr.opened` anchors use `created_at`, then the event timestamp.
+`pr.merged` uses `merged_at`, then `closed_at`, then the event timestamp.
+Regenerate existing summaries with `analytics/reduce --all`, supplying the original
+`--github-events` inputs if used, to pick up fixes.
+
 ## Outputs — per-repo state node
 
 Materialized outputs live in the per-repo state node (`RepoBase.repo_path/1`,

@@ -3,7 +3,7 @@ defmodule Aiur.AgentPubSub do
   Thin Phoenix.PubSub wrapper for agent events.
 
   Subscribes and broadcasts on the topics defined in `Aiur.AgentEvents`.
-  Modeled on `AiurWeb.ObservabilityPubSub`: a single source of truth
+  Modeled on `Aiur.Signal`: a single source of truth
   for the agent-side topic vocabulary, plus a defensive `Process.whereis` guard
   so producers do not crash when PubSub is not yet started (early boot or test
   contexts).

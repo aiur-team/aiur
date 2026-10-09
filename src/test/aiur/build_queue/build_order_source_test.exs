@@ -124,6 +124,21 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert {:ok, [{"Build Order #99", {:error, :already_adopted}}]} = MutationCLI.execute(verb: :add, build_order: 99, server: pid)
   end
 
+  test "start-on adoption persists through codec and queue set follows config" do
+    projection = start_supervised!({Projection, snapshot([member(1)])})
+    pid = server(projection)
+    assert {:ok, [{"Build Order #99", :ok}]} = MutationCLI.execute(verb: :add, build_order: 99, queue: "optimistic", start_on: "pr_opened", server: pid)
+    assert hd(get(:document).queues).start_trigger == :pr_opened
+    assert {:error, :invalid_start_trigger} = GenServer.call(pid, {:mutate, {:adopt, 100, nil, :soon}})
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_opened
+    assert {:ok, [{"optimistic", :ok}]} = MutationCLI.execute(verb: :set, queue: "optimistic", start_on: "default", server: pid)
+    assert hd(get(:document).queues).start_trigger == nil
+    generation = hd(get(:document).queues).generation
+    reconcile(pid)
+    assert hd(get(:document).queues).generation == generation
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_merged
+  end
+
   test "generated Build Order queue names cannot collide with an existing list" do
     projection = start_supervised!({Projection, snapshot([member(2)])})
     pid = server(projection)

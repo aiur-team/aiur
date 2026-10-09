@@ -260,13 +260,20 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   # missing, restarting, or timing-out store yields no blockers rather than an
   # exception. The polled set still stands, so the worst case is exactly the
   # behaviour before this union.
-  @spec direct_blockers_for(State.t(), String.t()) :: [String.t()]
-  def direct_blockers_for(%State{} = state, identifier) when is_binary(identifier) do
-    (polled_direct_blockers(state, identifier) ++ subscribed_direct_blockers(identifier))
+  #
+  # A caller that already holds the bindings passes them as `subscriptions`.
+  # The ticket's own store must do this: it calls the Orchestrator and waits,
+  # so a snapshot read back into it blocks the Orchestrator until that call
+  # times out.
+  @spec direct_blockers_for(State.t(), String.t(), [map()] | nil) :: [String.t()]
+  def direct_blockers_for(state, identifier, subscriptions \\ nil)
+
+  def direct_blockers_for(%State{} = state, identifier, subscriptions) when is_binary(identifier) do
+    (polled_direct_blockers(state, identifier) ++ subscribed_direct_blockers(identifier, subscriptions))
     |> Enum.uniq()
   end
 
-  def direct_blockers_for(_state, _identifier), do: []
+  def direct_blockers_for(_state, _identifier, _subscriptions), do: []
 
   defp polled_direct_blockers(%State{last_polled_issues: polled}, identifier)
        when is_map(polled) do
@@ -285,23 +292,27 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
 
   defp polled_direct_blockers(_state, _identifier), do: []
 
-  defp subscribed_direct_blockers(identifier) do
-    case SubscriptionStore.snapshot(identifier) do
-      %{subscribed_to: subscriptions} when is_list(subscriptions) ->
-        subscriptions
-        |> Enum.filter(&(subscription_reason(&1) == "blocker:auto"))
-        |> Enum.map(&(&1 |> subscription_topic() |> blocker_identifier_from_topic()))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq()
+  defp subscribed_direct_blockers(_identifier, subscriptions) when is_list(subscriptions),
+    do: blocker_identifiers(subscriptions)
 
-      _no_store ->
-        []
+  defp subscribed_direct_blockers(identifier, nil) do
+    case SubscriptionStore.snapshot(identifier) do
+      %{subscribed_to: subscriptions} when is_list(subscriptions) -> blocker_identifiers(subscriptions)
+      _no_store -> []
     end
   catch
     :exit, reason ->
       Logger.warning("direct_blockers_for subscription snapshot failed: identifier=#{identifier} reason=#{inspect(reason)}")
 
       []
+  end
+
+  defp blocker_identifiers(subscriptions) do
+    subscriptions
+    |> Enum.filter(&(subscription_reason(&1) == "blocker:auto"))
+    |> Enum.map(&(&1 |> subscription_topic() |> blocker_identifier_from_topic()))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   # Bindings are string-keyed on disk and read back that way, but the same
