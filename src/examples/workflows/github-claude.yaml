@@ -108,6 +108,8 @@ hooks:
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
 agent:
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   priority: [claude]
   # accounts: {claude: [default, work]}   # machine-local profiles; omit for legacy single-account behavior
   # account_selection: balance            # or priority, following the accounts list order

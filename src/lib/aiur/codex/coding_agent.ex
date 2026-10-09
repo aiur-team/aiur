@@ -23,7 +23,7 @@ defmodule Aiur.Codex.CodingAgent do
   alias Aiur.Config
 
   @type session :: %{
-          port: port(),
+          port: port() | pid(),
           metadata: map(),
           approval_policy: String.t() | map(),
           auto_approve_requests: boolean(),
@@ -204,7 +204,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port} = session) when is_port(port) do
+  def stop_session(%{port: port} = session) when is_port(port) or is_pid(port) do
     AccountGeneration.process_stopped(session)
   after
     try do

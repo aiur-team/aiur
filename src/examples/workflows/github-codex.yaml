@@ -118,6 +118,8 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # Ordered dispatch preference: presence enables a backend, the first
   # available entry is the default, and aiur falls back to the next one when a
   # token/usage limit hits.

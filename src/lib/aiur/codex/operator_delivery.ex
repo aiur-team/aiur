@@ -11,7 +11,7 @@ defmodule Aiur.Codex.OperatorDelivery do
         %{port: port, thread_id: thread_id, workspace: workspace} = session,
         %{kind: :text, body: text}
       )
-      when is_port(port) and is_binary(thread_id) and is_binary(workspace) and is_binary(text) do
+      when (is_port(port) or is_pid(port)) and is_binary(thread_id) and is_binary(workspace) and is_binary(text) do
     request_id = :erlang.unique_integer([:positive])
 
     frame = Frames.operator_turn_frame(session, request_id, text)

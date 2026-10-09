@@ -6,7 +6,7 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
-  alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
+  alias Aiur.AppServer.{Messages, RelayPort, Transport, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Codex.DynamicTool
   alias Aiur.ProcessTree
@@ -173,6 +173,23 @@ defmodule Aiur.AppServer.Adapter do
   @doc false
   @spec start_port(Path.t(), String.t(), (port() -> term()), keyword()) :: {:ok, port()} | {:error, :bash_not_found}
   def start_port(workspace, command, on_port_started, opts \\ []) when is_function(on_port_started, 1) and is_list(opts) do
+    if Config.settings!().agent.relay and Keyword.get(opts, :relay, true) do
+      env = AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, []))
+
+      case RelayPort.start(workspace, command, env, opts) do
+        {:ok, relay} ->
+          contain_port(relay, on_port_started)
+
+        {:error, reason} ->
+          Logger.warning("Relay unavailable, starting direct app-server: #{inspect(reason)}")
+          start_direct_port(workspace, command, on_port_started, opts)
+      end
+    else
+      start_direct_port(workspace, command, on_port_started, opts)
+    end
+  end
+
+  defp start_direct_port(workspace, command, on_port_started, opts) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -206,18 +223,22 @@ defmodule Aiur.AppServer.Adapter do
       # Invoke this while the spawn primitive still owns control. Callers use
       # it to record the local process-group lease before any handshake or
       # session setup can expose a live descendant to an abrupt runner death.
-      case on_port_started.(port) do
-        :ok ->
-          {:ok, port}
+      contain_port(port, on_port_started)
+    end
+  end
 
-        {:error, _reason} = error ->
-          terminate_uncontained_port(port)
-          error
+  defp contain_port(port, on_port_started) do
+    case on_port_started.(port) do
+      :ok ->
+        {:ok, port}
 
-        _other ->
-          terminate_uncontained_port(port)
-          {:error, :workspace_ownership_lost}
-      end
+      {:error, _reason} = error ->
+        terminate_uncontained_port(port)
+        error
+
+      _other ->
+        terminate_uncontained_port(port)
+        {:error, :workspace_ownership_lost}
     end
   end
 
@@ -249,13 +270,13 @@ defmodule Aiur.AppServer.Adapter do
   defp normalize_port_env(_other), do: []
 
   defp terminate_uncontained_port(port) do
-    case :erlang.port_info(port, :os_pid) do
+    case Transport.os_pid(port) do
       {:os_pid, os_pid} -> ProcessTree.graceful_kill_tree(os_pid)
       _ -> :ok
     end
 
     try do
-      Port.close(port)
+      Transport.close(port)
     rescue
       ArgumentError -> :ok
     end

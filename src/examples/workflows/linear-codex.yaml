@@ -52,6 +52,8 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   priority: [codex]
   # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
   # account_selection: balance
