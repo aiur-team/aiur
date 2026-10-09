@@ -99,9 +99,8 @@ changed-file overlap since the merge base, including both paths of renames.
 Incomplete evidence, mismatched heads or bases, conflicts and overlap leave
 labels unchanged.
 
-Harmless base movement needs no merge or CI rerun.
-
-Workers check before handoff and after CI. Up to three integrations per handoff
+Harmless base movement needs no merge or CI rerun. Workers check before handoff
+and after CI. Up to three integrations per handoff
 need no approval; each runs local tests and format, size and components gates,
 then awaits new-head CI. After the third, emit a non-blocking Executor alert.
 Base integration never opens a blocking decision.
@@ -112,10 +111,8 @@ orchestrator claim. Without claim evidence, deterministic precedence applies
 
 Zero-label tickets are repaired only with workflow evidence: restore the last
 state, or `todo` if only a released claim survives. Parked or untriaged tickets
-without that evidence are alerted and left alone.
-
-An open workflow ticket with
-no live agent or scheduled claim is re-queued and alerted.
+without it are alerted and left alone. An open workflow ticket with no live
+agent or scheduled claim is re-queued and alerted.
 
 Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
@@ -155,12 +152,11 @@ and never deletes ones a repository already has; those keep working as exact pin
 
 ## Build queue
 
-The build queue manages future work in named lists or adopted Build Orders.
-`agent:queued` marks membership; `agent:todo` remains the dispatch state.
-Promotion adds `todo` only when fresh evidence proves readiness and no other
-state is present. Queue membership and promotion do not grant authorization.
+The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks
+membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence
+proves readiness and no other state is present. Membership and promotion grant no authorization.
 
-Queue item states are projections, not additional tracker state labels.
+Item states are projections, not tracker labels:
 
 | Item state | Meaning |
 | --- | --- |
@@ -177,29 +173,24 @@ Queue item states are projections, not additional tracker state labels.
 | `cancelled` | Tracker closure is confirmed as not planned. |
 | `removed` | The membership marker was removed. |
 
-If a promoted item becomes unready, Aiur first holds dispatch and checks claims.
-It withdraws only `agent:todo`, only from an unclaimed item with fresh, known
-readiness evidence. Unknown evidence retains the hold; claimed work keeps its
-labels and raises `dependency_changed_after_start` when it becomes unready.
+If a promoted item becomes unready, Aiur first holds dispatch and checks claims. It withdraws only
+`agent:todo`, only from an unclaimed item with fresh, known readiness evidence. Unknown evidence
+retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it
+becomes unready.
 
-A manual `todo` addition normally sets an override; Build Order adoption first
-withdraws pre-labelled, unclaimed blocked members. External removal of a
-queue-owned `todo` creates an external hold. `aiur queue release` clears holds
-and overrides.
+A manual `todo` sets an override (Build Order adoption first withdraws pre-labelled, unclaimed
+blocked members). External removal of a queue-owned `todo` creates an external hold;
+`aiur queue release` clears holds and overrides. Removing `agent:queued` dequeues the item.
+Optimistic writes re-observe races instead of overwriting another writer's transition.
 
-Removing `agent:queued` dequeues the item. Optimistic writes
-re-observe state races instead of overwriting another writer's transition.
+Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains
+`promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable
+claim probe preserves a recorded decline.
 
-Unauthorized detection needs a free dispatch slot; until dispatch can check,
-the item remains `promoted`. An allowed human must apply the marker or `todo`,
-or hold the ticket. An unavailable claim probe preserves a recorded decline.
-
-[Queue attentions](/concepts/build-orders#queue-attentions) cover
-`prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
+[Queue attentions](/concepts/build-orders#queue-attentions) cover `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
 `write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
 
-See [Queueing a Build Order](/concepts/build-orders#queueing-a-build-order) for adoption
-and [Downgrading](/concepts/build-orders#downgrading) before using an older release.
+See [Queueing a Build Order](/concepts/build-orders#queueing-a-build-order) and [Downgrading](/concepts/build-orders#downgrading).
 Closed-unmerged prerequisite PR detection is [webhook-only](/concepts/build-orders#closed-prerequisite-pull-requests);
 polling alone leaves the prerequisite pending.
 
