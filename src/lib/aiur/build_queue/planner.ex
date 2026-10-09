@@ -75,7 +75,8 @@ defmodule Aiur.BuildQueue.Planner do
     desired = states |> Enum.flat_map(&(attention_keys(&1, context) ++ failed_keys(&1, context))) |> MapSet.new()
     existing = context.input.latches |> Enum.map(& &1.key) |> Enum.filter(&owned_latch?/1) |> MapSet.new()
     desired = MapSet.union(desired, retained_latches(existing, states, context))
-    opens = desired |> MapSet.difference(existing) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
+    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and match?({:promoted_unauthorized, _}, &1.key))), & &1.key)
+    opens = desired |> MapSet.difference(MapSet.difference(existing, pending)) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
     resolves = existing |> MapSet.difference(desired) |> Enum.sort() |> Enum.map(&{:attention_resolve, &1})
     opens ++ resolves
   end
@@ -112,7 +113,9 @@ defmodule Aiur.BuildQueue.Planner do
   defp failed_keys(%{state: state}, _context) when state in [:removed, :completed, :cancelled], do: []
 
   defp failed_keys(%{issue_id: id}, context) do
-    for edge <- Map.get(context.edges, id, []), match?({:failed, _}, edge_verdict(edge, context)), do: {{:prerequisite_failed, elem(edge_verdict(edge, context), 1)}, edge.prerequisite}
+    for edge <- Map.get(context.edges, id, []),
+        match?({:failed, _}, edge_verdict(edge, context)) or edge_verdict(edge, context) == {:unknown, :duplicate},
+        do: {{:prerequisite_failed, elem(edge_verdict(edge, context), 1)}, edge.prerequisite}
   end
 
   defp member?(nil, _opts), do: false

@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GitHubGraph.Endpoint do
   @moduledoc false
 
-  alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, BuildOrder.RootSummary, TrackerIdentity}
+  alias Aiur.{Bounded, BuildOrder.Diagnostic, BuildOrder.RootSummary, TrackerIdentity}
 
   @spec node_identity(term(), {String.t(), String.t()}) :: {TrackerIdentity.t() | nil, Diagnostic.t() | nil}
   def node_identity(node, repository) do
