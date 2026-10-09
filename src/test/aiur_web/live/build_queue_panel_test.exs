@@ -2,6 +2,20 @@ defmodule AiurWeb.BuildQueuePanelTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
   alias AiurWeb.BuildQueue.Panel
+  alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildQueue.Sources.ProjectionRead
+  alias Aiur.TrackerIdentity
+
+  defmodule Projection do
+    use GenServer
+    def start_link(root), do: GenServer.start_link(__MODULE__, root)
+    @impl true
+    def init(root), do: {:ok, root}
+    @impl true
+    def handle_call(:catalog, _from, root), do: {:reply, %{root | scope: :catalog, data: %Catalog{entries: [root.data.root]}}, root}
+    def handle_call({:selected, _identity}, _from, root), do: {:reply, {:ok, root}, root}
+  end
 
   @now ~U[2026-10-09 08:00:00Z]
 
@@ -108,6 +122,44 @@ defmodule AiurWeb.BuildQueuePanelTest do
     assert expired =~ "Prerequisite failed"
   end
 
+  test "one unavailable adopted root does not dim a healthy list queue" do
+    fixture = view(:running)
+    list = hd(fixture.model.queues)
+    root = %{list | queue_id: "q-1234", kind: :build_order, root: 42}
+    fixture = put_in(fixture, [:model, :queues], [list, root])
+    fixture = put_in(fixture, [:model, :sources, "build_order:42"], %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:projection_unavailable]})
+    html = render_component(&Panel.panel/1, view: fixture, now: @now)
+    document = Floki.parse_document!(html)
+    assert html =~ ~s(data-queue-state="unknown")
+    assert document |> Floki.find("[data-queue-id='q-abcd'] td .badge") |> Floki.text() == "Ready for promotion"
+    assert Floki.find(document, "[data-queue-id='q-abcd'] [data-readiness-dimmed]") == []
+    assert document |> Floki.find("[data-queue-id='q-1234'] td .badge") |> Floki.text() == "Unknown"
+    assert length(Floki.find(document, "[data-queue-id='q-1234'] [data-readiness-dimmed]")) == 1
+  end
+
+  test "adopted root progress renders canonical string resolutions from the real projection reader" do
+    identity = %TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "owner", repository: "repo", provider_id: "ROOT", identifier: "2573"}
+    health = %ProviderHealth{state: :healthy, generation: 1, complete?: true, observed_at: @now}
+    members = List.duplicate(%Member{lifecycle: %Lifecycle{state: :closed, state_reason: :completed}}, 9)
+
+    for {resolution, resolved, total, percent, expected} <- [
+          {:partial, 12, 15, 60, "60% · 9/15 completed · Partial (12/15)"},
+          {:resolved, 15, 15, 60, "60% · 9/15 completed · Resolved (15/15)"},
+          {:unresolved, 0, 15, nil, "Unresolved"},
+          {:empty, 0, 0, nil, "Empty"}
+        ] do
+      root = %RootSummary{identity: identity, progress: percent, progress_resolution: resolution, progress_resolved_count: resolved, member_count: total}
+      snapshot = %Snapshot{scope: {:selected, identity}, repository: {"owner", "repo"}, generation: 1, health: health, data: %SelectedRoot{root: root, members: members, provider: health}}
+      server = start_supervised!(Supervisor.child_spec({Projection, snapshot}, id: resolution))
+      reading = ProjectionRead.read(2573, DateTime.to_unix(@now, :millisecond), server)
+      assert reading.progress.resolution == Atom.to_string(resolution)
+      fixture = put_in(view(:running), [:model, :queues, Access.at(0), :progress], reading.progress)
+      html = render_component(&Panel.panel/1, view: fixture, now: @now)
+      progress = html |> Floki.parse_document!() |> Floki.find("[data-queue-progress]") |> Floki.text()
+      assert progress == expected
+    end
+  end
+
   defp view(status) do
     item = %{
       number: 13,
@@ -120,7 +172,7 @@ defmodule AiurWeb.BuildQueuePanelTest do
       prerequisites: [%{number: 12, verdict: :waiting, source: :local}]
     }
 
-    queue = %{queue_id: "q-abcd", name: "Next", held: true, items: [item], progress: %{completed: 1, total: 2, percent: 50, resolved: 2, resolution: :resolved}}
+    queue = %{queue_id: "q-abcd", kind: :list, root: nil, name: "Next", held: true, items: [item], progress: %{completed: 1, total: 2, percent: 50, resolved: 2, resolution: :resolved}}
     source = %{state: :ok, observed_at: @now, age_ms: 0, freshness: :current, reasons: []}
     %{model: %{status: status, sources: %{"tracker_observation" => source}, queues: [queue]}, attentions: []}
   end

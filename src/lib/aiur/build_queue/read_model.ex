@@ -73,9 +73,11 @@ defmodule Aiur.BuildQueue.ReadModel do
   end
 
   defp fresh_projection(projection, context) do
-    if context.tracker_source.freshness == :current and projection.state != :unknown,
-      do: projection,
-      else: %{projection | state: :unknown, verdict: {:unknown, [:observation_unavailable]}, rank: nil} |> Map.put(:reason, :observation_unavailable)
+    cond do
+      context.tracker_source.freshness != :current -> %{projection | state: :unknown, verdict: {:unknown, [:observation_unavailable]}, rank: nil} |> Map.put(:reason, :observation_unavailable)
+      projection.state == :unknown -> %{projection | rank: nil}
+      true -> projection
+    end
   end
 
   defp prerequisites(id, context) do

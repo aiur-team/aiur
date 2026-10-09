@@ -21,7 +21,7 @@ defmodule AiurWeb.BuildQueue.Panel do
           {Copy.text(:age)}: {Copy.age(source.age_ms)} · {Copy.text(:freshness)}: {Copy.label(source.freshness)}
           <span :if={source.reasons != []}> · {Copy.reason(source.reasons)}</span>
         </p>
-        <.queue :for={queue <- @view.model.queues} queue={queue} dimmed={@state in [:stale, :unknown]} />
+        <.queue :for={queue <- @view.model.queues} queue={queue} dimmed={dimmed?(queue, @view.model.sources)} />
       <% end %>
       <h3>{Copy.text(:attentions)}</h3>
       <p :if={@view && @view.model.status != :unknown && @attentions == []}>{Copy.text(:no_attentions)}</p>
@@ -71,6 +71,12 @@ defmodule AiurWeb.BuildQueue.Panel do
     </section>
     """
   end
+
+  defp dimmed?(%{kind: :build_order, root: root}, sources),
+    do: not current?(sources["tracker_observation"]) or not current?(sources["build_order:#{root}"])
+
+  defp dimmed?(_queue, sources), do: not current?(sources["tracker_observation"])
+  defp current?(source), do: match?(%{freshness: :current}, source)
 
   @spec state(map() | nil) :: atom()
   def state(nil), do: :loading

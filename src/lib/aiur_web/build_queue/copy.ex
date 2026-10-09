@@ -1,6 +1,8 @@
 defmodule AiurWeb.BuildQueue.Copy do
   @moduledoc "Provisional DESIGN-E1 dashboard copy, kept together for owner review."
 
+  alias Aiur.BuildOrder.ProgressRenderer
+
   @strings %{
     title: "Build queue",
     intro: "Read-only. Manage queues with the CLI.",
@@ -18,6 +20,7 @@ defmodule AiurWeb.BuildQueue.Copy do
     current: "Current",
     unavailable: "Unavailable",
     unknown_value: "Unknown",
+    empty_value: "Empty",
     position: "Position",
     ticket: "Ticket",
     state: "State",
@@ -56,6 +59,7 @@ defmodule AiurWeb.BuildQueue.Copy do
 
   @spec label(atom()) :: String.t()
   def label(:unknown), do: text(:unknown_value)
+  def label(:empty), do: text(:empty_value)
   def label(key), do: text(key)
 
   @spec timestamp(term()) :: String.t()
@@ -78,9 +82,12 @@ defmodule AiurWeb.BuildQueue.Copy do
   def prerequisite(edge), do: "##{edge.number} · #{label(edge.verdict)} · #{reason(edge.source)}"
 
   @spec progress(map()) :: String.t()
-  def progress(%{resolution: resolution} = progress) when resolution in [:resolved, :partial] and is_number(progress.percent) do
-    "#{progress.percent}% · #{progress.completed}/#{progress.total} completed · #{text(resolution)} (#{progress.resolved}/#{progress.total})"
-  end
+  def progress(progress) do
+    completion = %{progress: progress.percent, progress_resolution: progress.resolution, progress_resolved_count: progress.resolved, member_count: progress.total}
+    projection = ProgressRenderer.html(completion)
 
-  def progress(progress), do: label(progress.resolution)
+    if is_number(projection.percent),
+      do: "#{projection.percent}% · #{progress.completed}/#{progress.total} completed · #{label(projection.state)} (#{progress.resolved}/#{progress.total})",
+      else: label(projection.state)
+  end
 end

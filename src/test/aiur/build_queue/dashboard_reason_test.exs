@@ -10,6 +10,18 @@ defmodule Aiur.BuildQueue.DashboardReasonTest do
     assert [%{reason: :observation_unavailable, state: :unknown, rank: nil}] = hd(ReadModel.build(stale).queues).items
   end
 
+  test "current unknown projections preserve their specific cause and hide rank" do
+    state = state()
+
+    for reason <- [:marker_pending, :closed_reason, [:cyclic]] do
+      projection = %{hd(state.projections) | state: :unknown, reason: reason, verdict: {:unknown, [reason]}}
+      result = state |> Map.put(:projections, [projection]) |> ReadModel.build() |> Map.fetch!(:queues) |> hd() |> Map.fetch!(:items) |> hd()
+      assert result.reason == reason
+      assert result.verdict == :unknown
+      assert result.rank == nil
+    end
+  end
+
   defp state do
     now = ~U[2026-10-09 00:00:00Z]
     queue = %Model.Queue{id: "q-abcd", name: "Next", kind: :list, root: nil, held: false, generation: 0, created_at: now}
