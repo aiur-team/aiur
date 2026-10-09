@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
 
   defmodule ControlServer do
     use GenServer
+    def start_link(state), do: GenServer.start_link(__MODULE__, state)
     def init(state), do: {:ok, state}
     def handle_call({:reset_dispatch_budget, id}, _from, state), do: {:reply, {:tracker_io, {:reset_budget, id, :fetched}, :fetch_issue_states_by_ids, [[id]]}, state}
     def handle_call({:tracker_control_result, :reset_budget, _id, :fetched, result}, _from, state), do: {:reply, result, state}
