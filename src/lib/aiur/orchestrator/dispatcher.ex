@@ -977,9 +977,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
       |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
 
-    # Sample every failing gate before applying admission priority. A memory or
-    # FD hold must not erase the age of an independently persistent load hold;
-    # IssueSync records each gate across polls, beyond the binding signal
+    # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)

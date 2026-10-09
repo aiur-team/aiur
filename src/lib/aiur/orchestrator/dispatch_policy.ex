@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{Slots, State, SustainedLoad}
 
   @cpu_headroom_ramp_max 3
   @reclaimable_cpu_threshold 60.0
@@ -443,7 +443,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         queued_work?
       ) do
     envelope_state = state.load_envelope_state
-    overload_samples = Aiur.Orchestrator.SustainedLoad.count(load, target, schedulers, envelope_state)
+    overload_samples = SustainedLoad.count(load, target, schedulers, envelope_state)
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
 
     {effective, last_decrease_ms, bootstrap_complete?} =
@@ -511,7 +511,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do
-    Aiur.Orchestrator.SustainedLoad.decrease(effective, last_decrease_ms, options)
+    SustainedLoad.decrease(effective, last_decrease_ms, options)
   end
 
   defp clear_cpu_headroom?(headroom) when is_map(headroom) do
