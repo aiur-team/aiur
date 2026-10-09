@@ -19,7 +19,7 @@ defmodule Aiur.BuildQueue.RecoveryTest do
     def remove_label(id, _label), do: record({:unmark, id})
 
     def save(document) do
-      state = Agent.get(__MODULE__, & &1)
+      state = Agent.get_and_update(__MODULE__, fn state -> {state, %{state | saves: state.saves ++ [document]}} end)
 
       if state.crash? and Enum.any?(document.intents, &(&1.outcome != nil)) do
         send(state.owner, {:outcome_pending, self()})
@@ -48,7 +48,7 @@ defmodule Aiur.BuildQueue.RecoveryTest do
     previous = Application.fetch_env(:aiur, :decision_state_dir)
     Application.put_env(:aiur, :decision_state_dir, root)
     owner = self()
-    agent = start_supervised!({Agent, fn -> %{owner: owner, snapshot: :none, calls: [], crash?: false, save_error?: false} end})
+    agent = start_supervised!({Agent, fn -> %{owner: owner, snapshot: :none, calls: [], saves: [], crash?: false, save_error?: false} end})
     Process.register(agent, Boundary)
 
     on_exit(fn ->
@@ -124,6 +124,8 @@ defmodule Aiur.BuildQueue.RecoveryTest do
     reconcile(pid)
     assert Aiur.BuildQueue.status() == :store_unavailable
     assert calls() == []
+    [attempted] = Agent.get(Boundary, & &1.saves)
+    assert attempted.intents == [%{intent(:promote) | outcome: {:error, :not_applied}}]
     assert {:ok, %{intents: [%{outcome: nil}]}} = Store.load()
   end
 
