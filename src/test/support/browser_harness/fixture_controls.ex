@@ -1,4 +1,6 @@
 defmodule Aiur.BrowserHarness.FixtureBuildDataset do
+  @moduledoc false
+
   use Phoenix.Controller, formats: []
 
   alias Aiur.TestSupport.BuildHome.FixtureSource
