@@ -97,8 +97,8 @@ A stale single-root CLI read can separately refresh that root's graph. It respec
 
 | Source | Trust rule |
 | --- | --- |
-| Comment commands and review-driven rework | Accepted only from configured trusted accounts or the resolved CODEOWNERS set. |
-| Unresolvable CODEOWNERS | Raises a degraded-trust alert instead of silently widening authority. |
+| Comment commands and review-driven rework | Accepted only from configured trusted/daemon/bot accounts, the repository owner, or CODEOWNERS logins verified in the current refresh. |
+| Unresolvable CODEOWNERS | Failed teams contribute no members, including previously trusted members. Status/dashboard show the cause and age; sanitized comments remain visible to the Executor but untrusted bodies never enter agent digests or commands. Incomplete path ownership is unknown. |
 | The bot identity | Cannot trigger its own work. |
 
 ## GitHub App authentication
