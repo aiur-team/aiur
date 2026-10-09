@@ -48,7 +48,8 @@ defmodule Aiur.GitHub.Labels do
   @doc "Full label set to create for a repo, given the label prefix and chosen backends."
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
-    state_labels(prefix) ++
+    ["flake"] ++
+      state_labels(prefix) ++
       required_rate_limit_fallback_labels(prefix) ++
       (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
@@ -126,6 +127,7 @@ defmodule Aiur.GitHub.Labels do
 
   @doc "A short human description for any label in `label_set/2`."
   @spec describe(String.t()) :: String.t()
+  def describe("flake"), do: "known intermittent test failure"
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
   def describe("model:remote"), do: "Supports claude remote-control"
 

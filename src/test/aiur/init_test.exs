@@ -1911,7 +1911,7 @@ defmodule Aiur.InitTest do
 
       created = labels_created()
       assert created != []
-      required = Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+      required = ["flake"] ++ Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
       assert "model:claude" in created
