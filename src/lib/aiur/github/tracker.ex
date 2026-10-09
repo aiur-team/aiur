@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.Issues
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.OpenIssueSnapshot
   alias Aiur.GitHub.TicketPullRequest
@@ -168,6 +169,10 @@ defmodule Aiur.GitHub.Tracker do
   """
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{} = issue), do: client_module().hydrate_blocked_by(issue)
+
+  @doc "Reads bounded dependency evidence without fetching missing or stale resources."
+  @spec cached_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def cached_blocked_by(%Issue{} = issue), do: Issues.hydrate_blocked_by(issue, revalidate: :cached)
 
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
