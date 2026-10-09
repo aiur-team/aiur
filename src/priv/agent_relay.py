@@ -28,6 +28,7 @@ class Relay:
         self.disconnected_at = time.monotonic()
         self.exit_status = None
         self.stopping = False
+        self.failed = False
         self.finished = asyncio.Event()
         self.journal = open(directory / 'out.journal', 'wb', buffering=0)
         self.stderr = open(directory / 'err.log', 'ab', buffering=0)
@@ -70,6 +71,8 @@ class Relay:
                 await writer.drain()
         except (ConnectionError, asyncio.LimitOverrunError, ValueError):
             pass
+        except OSError:
+            self.fail_io()
         finally:
             self.clients.discard(writer)
             self.disconnect(writer)
@@ -142,23 +145,49 @@ class Relay:
         self.journal = open(self.directory / 'out.journal', 'ab', buffering=0)
         self.retained_base = self.acked
 
+    def fail_io(self):
+        if self.failed:
+            return
+        self.failed = self.lossy = True
+        if self.controller:
+            writer = self.controller[0]
+            try:
+                self.message(writer, 'error', error='io_failure')
+            except ConnectionError:
+                pass
+            finally:
+                self.disconnect(writer)
+        self.signal_group(signal.SIGKILL)
+        asyncio.create_task(self.stop(0))
+
     async def output(self, stream, diagnostic=False):
         pending = bytearray()
-        while data := await stream.read(65536):
-            if diagnostic:
-                self.stderr.write(data)
-            if self.lossy:
-                continue
-            pending.extend(data)
-            while (newline := pending.find(b'\n')) >= 0:
-                raw = bytes(pending[:newline + 1])
-                del pending[:newline + 1]
-                await self.append(raw)
-            if self.end - self.acked + len(pending) > self.cap:
-                self.mark_lossy()
-                pending.clear()
-        if pending and not self.lossy:
-            await self.append(bytes(pending))
+        try:
+            while data := await stream.read(65536):
+                if self.failed:
+                    continue
+                if diagnostic:
+                    if self.stderr.tell() + len(data) > CAP:
+                        self.stderr.seek(0)
+                        self.stderr.truncate()
+                    self.stderr.write(data)
+                if self.lossy:
+                    continue
+                pending.extend(data)
+                while (newline := pending.find(b'\n')) >= 0:
+                    raw = bytes(pending[:newline + 1])
+                    del pending[:newline + 1]
+                    await self.append(raw)
+                if self.end - self.acked + len(pending) > self.cap:
+                    self.mark_lossy()
+                    pending.clear()
+            if pending and not self.lossy:
+                await self.append(bytes(pending))
+        except OSError:
+            self.fail_io()
+            # Drain after killing so inherited pipes cannot keep Process.wait pending.
+            while await stream.read(65536):
+                pass
 
     def mark_lossy(self):
         self.lossy = True
@@ -232,18 +261,25 @@ class Relay:
         # Descendants may survive their session leader; always finish group cleanup.
         self.signal_group(signal.SIGKILL)
         await self.provider.wait()
-        await asyncio.gather(*self.readers)
+        await asyncio.gather(*self.readers, return_exceptions=True)
         status = self.provider.returncode
         self.exit_status = status if status >= 0 else 128 - status
-        self.persist()
-        self.finished.set()
+        try:
+            self.persist()
+        except OSError:
+            self.fail_io()
+        finally:
+            self.finished.set()
 
     async def watch(self):
         await self.provider.wait()
         await asyncio.gather(*self.readers)
         status = self.provider.returncode
         self.exit_status = status if status >= 0 else 128 - status
-        self.persist()
+        try:
+            self.persist()
+        except OSError:
+            self.fail_io()
         if self.controller:
             self.controller[2].set()
 
