@@ -27,7 +27,7 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**"],
+      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**"],
       "facades": ["Aiur.Identity", "Aiur.Capabilities", "Aiur.Capabilities.Provider"], "facade_pending": null,
       "requires": ["kernel", "config", "web-kit"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
