@@ -717,14 +717,8 @@ defmodule Aiur.Orchestrator do
   def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
-  def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
-    do: OM.enqueue_event_digest_call(state, identifier, event)
-
-  # A ticket's SubscriptionStore sends its own bindings, because it is blocked
-  # in this call and cannot answer a snapshot read.
-  def handle_call({:enqueue_event_digest, identifier, event, %{subscribed_to: subscriptions}}, _from, state)
-      when is_list(subscriptions),
-      do: OM.enqueue_event_digest_call(state, identifier, event, subscribed_to: subscriptions)
+  def handle_call({:enqueue_event_digest, identifier, event}, _from, state), do: OM.enqueue_event_digest_call(state, identifier, event)
+  def handle_call({:enqueue_event_digest, id, event, %{subscribed_to: subs}}, _from, state) when is_list(subs), do: OM.enqueue_event_digest_call(state, id, event, subscribed_to: subs)
 
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events),

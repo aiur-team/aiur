@@ -192,9 +192,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier),
       do: queue_api_call(server, {:fail_delivered_queue_items, issue_identifier, reason})
 
-  # `opts[:subscribed_to]` is the ticket's subscription bindings, passed by a
-  # caller that already holds them. When it is absent the bindings are read
-  # from the ticket's SubscriptionStore.
   @spec enqueue_event_digest_item(State.t(), String.t(), list(), map(), keyword()) :: State.t()
   def enqueue_event_digest_item(%State{} = state, identifier, events, _summary_source, opts \\ [])
       when is_binary(identifier) and is_list(events) and is_list(opts) do
