@@ -185,7 +185,9 @@ The `/build-orders` catalog includes a read-only Build queue panel. It uses the 
 
 Every source shows its observation timestamp, age and freshness. Stale readiness is dimmed; unavailable readings show Unknown rather than zero or ready. Disabled queues, unsupported trackers, store failures and paused writes have distinct notices.
 
-Queue and progress notifications arrive in batches spaced at least 500 ms apart, then coalesce for 500 ms before the panel rereads local state. Each subscription group can hold only one unacknowledged batch; newer notifications replace older ones by event type. A local refresh every five seconds updates freshness without tracker requests. Resolved attentions remain visible for 60 seconds; connection loss uses the dashboard’s existing disconnected indicator.
+Queue and progress notifications arrive in batches spaced at least 500 ms apart, then coalesce for 500 ms before the panel rereads local state. Each subscription group can hold only one unacknowledged batch; newer notifications replace older ones by event type.
+
+A local refresh every five seconds updates freshness without tracker requests. Resolved attentions remain visible for 60 seconds; connection loss uses the dashboard’s existing disconnected indicator.
 
 Build Order roots appear as features named `bo-<number>`. Membership follows
 direct sub-issues, and build lanes become feature epics. The import writes no

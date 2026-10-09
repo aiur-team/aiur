@@ -4347,6 +4347,7 @@ defmodule AiurWeb.DashboardLiveTest do
     test_pid = self()
     {:ok, subscription_attempts} = Agent.start_link(fn -> 0 end)
     replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
@@ -4404,7 +4405,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Chat is unavailable"
     assert html =~ "Commands"
     refute html =~ "/private/workspace"
-
     other = units_identity(provider_id: "NODE-other", identifier: "1111")
     send(view.pid, {:ticket_detail_updated, units_ticket_detail(other, "Wrong ticket")})
     refute render(view) =~ "Wrong ticket"
