@@ -9,23 +9,27 @@ defmodule Aiur.BuildQueue.Sources.ProjectionRead do
     with %Snapshot{data: %Catalog{entries: entries}} <- GraphProjection.catalog(server),
          [entry] <- Enum.filter(entries, &(&1.identity && &1.identity.identifier == to_string(root))),
          {:ok, %Snapshot{data: %SelectedRoot{} = data, health: health}} <- GraphProjection.selected(server, entry.identity) do
-      completion = ProgressRenderer.json(data.root)
-
-      %{
-        source: health(health, now),
-        progress: %{
-          completed: if(completion["progress"], do: Enum.count(data.members, &(&1.lifecycle.state == :closed and &1.lifecycle.state_reason == :completed))),
-          resolved: completion["progress_resolved_count"],
-          total: data.root.member_count,
-          percent: completion["progress"],
-          resolution: completion["progress_resolution"]
-        }
-      }
+      source = health(health, now)
+      %{source: source, progress: progress(data, source)}
     else
       _ -> unavailable(now, :projection_unavailable)
     end
   catch
     :exit, _reason -> unavailable(now, :projection_unavailable)
+  end
+
+  defp progress(_data, %{freshness: :unknown}), do: unknown_progress()
+
+  defp progress(data, _source) do
+    completion = ProgressRenderer.json(data.root)
+
+    %{
+      completed: if(completion["progress"], do: Enum.count(data.members, &(&1.lifecycle.state == :closed and &1.lifecycle.state_reason == :completed))),
+      resolved: completion["progress_resolved_count"],
+      total: data.root.member_count,
+      percent: completion["progress"],
+      resolution: completion["progress_resolution"]
+    }
   end
 
   defp health(health, now) do
@@ -42,5 +46,6 @@ defmodule Aiur.BuildQueue.Sources.ProjectionRead do
     %{source | freshness: freshness, partial: not health.complete?, state: if(health.state in [:healthy, :stale], do: :ok, else: :unavailable)}
   end
 
-  defp unavailable(now, reason), do: %{source: ReadModel.source(nil, now, 1, [reason]), progress: %{completed: nil, resolved: nil, total: nil, percent: nil, resolution: :unknown}}
+  defp unavailable(now, reason), do: %{source: ReadModel.source(nil, now, 1, [reason]), progress: unknown_progress()}
+  defp unknown_progress, do: %{completed: nil, resolved: nil, total: nil, percent: nil, resolution: :unknown}
 end
