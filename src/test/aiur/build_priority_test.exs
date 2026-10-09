@@ -2,11 +2,12 @@ defmodule Aiur.BuildPriorityTest do
   use ExUnit.Case, async: true
 
   alias Aiur.BuildGate
+  alias Aiur.Config.Schema
   alias Aiur.Config.Schema.Agent
 
   test "build nice defaults to ten and rejects adjustments outside zero through nineteen" do
     assert %Agent{build_nice: 10} = %Agent{}
-    assert {:ok, %{agent: %Agent{build_nice: 10}}} = Aiur.Config.Schema.parse(%{"agent" => %{}})
+    assert {:ok, %{agent: %Agent{build_nice: 10}}} = Schema.parse(%{"agent" => %{}})
 
     for value <- [0, 7, 19] do
       changeset = Agent.changeset(%Agent{}, %{"build_nice" => value})
@@ -21,9 +22,19 @@ defmodule Aiur.BuildPriorityTest do
   end
 
   test "invalid shell priority fails closed before executing a command" do
+    gate = Path.join(System.tmp_dir!(), "build-priority-invalid-#{System.unique_integer([:positive])}")
+    lock = BuildGate.lock_dir(gate)
+    env = BuildGate.shell_env(gate_dir: gate, lock_dir: lock, slots: 1, stagger_seconds: 0, min_free_memory_mb: nil, nice: 0)
+
+    on_exit(fn ->
+      File.chmod(lock, 0o755)
+      File.rm_rf!(lock)
+      File.rm_rf!(gate)
+    end)
+
     {output, status} =
       System.cmd("bash", ["-c", "aiur_build_gate_run_or_reuse test echo should-not-run"],
-        env: [{"BASH_ENV", BuildGate.hook_path()}, {"AIUR_BUILD_NICE", "20"}, {"AIUR_BUILD_GATE_LEASE_PATH", nil}, {"AIUR_BUILD_GATE_LEASE_TOKEN", nil}],
+        env: env ++ [{"AIUR_BUILD_NICE", "20"}, {"AIUR_MIN_FREE_MEMORY_MB", nil}, {"AIUR_BUILD_GATE_LEASE_PATH", nil}, {"AIUR_BUILD_GATE_LEASE_TOKEN", nil}],
         stderr_to_stdout: true
       )
 
@@ -74,6 +85,7 @@ defmodule Aiur.BuildPriorityTest do
                 {"AIUR_BUILD_GATE_LEASE_STRATEGY", strategy},
                 {"AIUR_BUILD_GATE_LEASE_PATH", nil},
                 {"AIUR_BUILD_GATE_LEASE_TOKEN", nil},
+                {"AIUR_MIN_FREE_MEMORY_MB", nil},
                 {"AIUR_REAL_MIX", executable},
                 {"AIUR_BUILD_GATE_BIN", nil}
               ],
