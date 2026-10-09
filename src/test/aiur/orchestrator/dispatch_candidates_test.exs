@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
         end
       )
 
+    assert TrackerTasks.running?(pending, {:dispatch, "3691061"})
     final = Enum.reduce(1..3, pending, fn _, state -> apply_result(state) end)
     assert Map.keys(final.running) |> Enum.sort() == ["3691061", "3691062", "3691063"]
     assert final.tracker_tasks == %{}
