@@ -9904,4 +9904,4 @@ a.snav { text-decoration: none; }
 
 /* Reserve phone navigation space when operators enlarge the text. */
 @media (max-width: 960px) { .dashboard-shell { padding-bottom: 6.5rem; } }
-@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .ax-title { gap: .4rem; } }
+@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .sidenav-nav, .snav { min-width: 0; } .snav-label { max-width: 100%; text-overflow: ellipsis; } .bo-breakdown-row-top { flex-wrap: wrap; } }
