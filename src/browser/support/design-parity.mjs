@@ -147,10 +147,17 @@ export async function openParityPair(browser, cell, opts = {}) {
   }
 }
 
-export async function captureStable(target, opts) {
+export async function captureStable(target, opts, page) {
   let previous
   for (let attempt = 0; attempt < 10; attempt++) {
-    const png = await target.screenshot(opts)
+    // Locator screenshots scroll into view, disturbing motion under measurement.
+    let png
+    if (page) {
+      const box = await target.boundingBox()
+      if (!box) throw new Error('unreachable screenshot region')
+      const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
+      png = await page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+    } else png = await target.screenshot(opts)
     if (previous?.equals(png)) return png
     previous = png
     await delay(100)
@@ -186,14 +193,17 @@ export async function compareParityPixels(pair, { name, region, fullPage = false
   const product = region ? await one(pair.product, region, 'product') : pair.product
   const opts = { animations: preserveAnimations ? 'allow' : 'disabled', caret: 'hide', scale: 'device', maskColor: '#ff00ff', ...(region ? {} : { fullPage }) }
   await pair.design.bringToFront()
-  const png = await captureStable(design, { ...opts, mask: designMask })
+  const png = await captureStable(design, { ...opts, mask: designMask }, preserveAnimations && region ? pair.design : undefined)
   await pair.product.bringToFront()
   checkPage(pair.design)
   checkPage(pair.product)
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  if (preserveAnimations && region) {
+    const actual = await captureStable(product, { ...opts, mask: productMask }, pair.product)
+    expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  } else await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

@@ -324,15 +324,15 @@ test('harness self-check: pixel frames retain paused CSS animation time', async 
   try {
     const pages = await Promise.all([context.newPage(), context.newPage()])
     for (const page of pages) {
-      await page.setContent('<style>@keyframes probe { from { opacity: .2 } to { opacity: 1 } } #probe { width: 40px; height: 40px; background: red; animation: probe 1s linear both }</style><div id="probe"></div>')
+      await page.setContent('<style>@keyframes probe { from { opacity: .2 } to { opacity: 1 } } #bd-vp { height: 80px; overflow: auto } #probe { margin-top: 60px; width: 40px; height: 40px; background: red; animation: probe 1s linear both }</style><div id="bd-vp"><div id="probe"></div><div style="height: 500px"></div></div>')
       await page.evaluate(() => { const animation = document.querySelector('#probe').getAnimations()[0]; animation.pause(); animation.currentTime = 500 })
     }
     const pair = { design: pages[0], product: pages[1], cell, allowlist: [] }
     await compareParityPixels(pair, { name: 'paused-probe', region: '#probe', preserveAnimations: true })
     for (const page of pages) expect(await page.evaluate(() => {
       const animation = document.querySelector('#probe').getAnimations()[0]
-      return { time: animation.currentTime, state: animation.playState, opacity: getComputedStyle(document.querySelector('#probe')).opacity }
-    })).toEqual({ time: 500, state: 'paused', opacity: '0.6' })
+      return { time: animation.currentTime, state: animation.playState, opacity: getComputedStyle(document.querySelector('#probe')).opacity, scrollTop: document.querySelector('#bd-vp').scrollTop }
+    })).toEqual({ time: 500, state: 'paused', opacity: '0.6', scrollTop: 0 })
   } finally { await context.close() }
 })
 
@@ -351,6 +351,18 @@ test('harness self-check: composed animations share each sampled fraction', asyn
   await page.setContent('<style>@keyframes probeLeft {from {left:0} to {left:100px}} @keyframes probeWidth {from {width:100px} to {width:200px}} #probe {position:relative;height:20px} .on {animation:probeLeft 1s linear both,probeWidth 1s linear both}</style><button onclick="document.querySelector(\'#probe\').classList.add(\'on\')">start</button><div id="probe"></div>')
   const animations = await pausedAnimations(page, '#probe', { trigger: 'button' })
   for (const animation of animations) expect(animation.samples.map(sample => sample.width)).toEqual(['100px', '125px', '150px', '175px', '200px'])
+})
+
+test('harness self-check: animation targets use fixture identity', async ({ browser }) => {
+  const context = await browser.newContext()
+  try {
+    const design = await context.newPage(), product = await context.newPage()
+    for (const [page, id] of [[design, 'design-1'], [product, 'product-1']]) await page.setContent(`<style>@keyframes fade { from { opacity: 0 } to { opacity: 1 } } [data-id] { animation: fade 1s linear both }</style><div id="build-root"><div data-id="${id}">card</div></div>`)
+    const reference = await runOn(design, 'inventory'), changed = await runOn(product, 'inventory', { ids: { 'design-1': 'product-1' } })
+    expect(reference.animation.fade.target).toBe('design-1')
+    expect(changed.animation.fade.target).toBe('design-1')
+    expect(compareRecords(reference, changed)).toEqual([])
+  } finally { await context.close() }
 })
 
 // Future regression guard for the existing sampler; paired root coverage awaits its ports.

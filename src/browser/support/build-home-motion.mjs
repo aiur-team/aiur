@@ -1,5 +1,6 @@
 // The ticket requires one support module: measurements and sequence ownership stay together.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
+import { captureStable } from './design-parity.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))
 const geometry = /(?:scrollTop|top|left|width|height)$/
 
@@ -81,8 +82,8 @@ export async function scrollFrames(page, { from, frames = 27 }) {
   return samples
 }
 
-export async function pausedAnimations(page, selector, { trigger, event = 'click', reducedMotion = false } = {}) {
-  return page.evaluate(({ selector, trigger, event, reducedMotion }) => {
+export async function pausedAnimations(page, selector, { trigger, event = 'click', reducedMotion = false, inventoryOnly = false } = {}) {
+  return page.evaluate(({ selector, trigger, event, reducedMotion, inventoryOnly }) => {
     if (trigger) {
       const input = document.querySelector(trigger)
       if (!input) throw new Error(`unreachable input: ${trigger}`)
@@ -104,7 +105,7 @@ export async function pausedAnimations(page, selector, { trigger, event = 'click
     }
     // Sample the composed styles with every animation at the same fraction.
     const samples = new Map(window.motionAnimations.map(animation => [animation, []]))
-    for (const fraction of [0, .25, .5, .75, 1]) {
+    for (const fraction of inventoryOnly ? [] : [0, .25, .5, .75, 1]) {
       window.motionAnimations.forEach(animation => {
         const timing = animation.effect.getTiming()
         animation.currentTime = Number(timing.delay) + Number(timing.duration) * fraction
@@ -119,9 +120,10 @@ export async function pausedAnimations(page, selector, { trigger, event = 'click
       animation.currentTime = 0
       return { name: animation.animationName ?? animation.transitionProperty ?? animation.id,
         target: el.id || el.dataset.id || el.getAttribute('class') || el.localName, pseudo: effect.pseudoElement ?? null, playState: states.get(animation),
-        timing: { ...timing, iterations: timing.iterations === Infinity ? 'infinite' : timing.iterations }, keyframes: effect.getKeyframes(), samples: samples.get(animation) }
+        timing: { ...timing, iterations: timing.iterations === Infinity ? 'infinite' : timing.iterations },
+        ...(inventoryOnly ? {} : { keyframes: effect.getKeyframes(), samples: samples.get(animation) }) }
     })
-  }, { selector, trigger, event, reducedMotion })
+  }, { selector, trigger, event, reducedMotion, inventoryOnly })
 }
 
 export const OWNER = {
@@ -156,14 +158,24 @@ export async function runOn(page, name, ctx = {}) {
   }
 }
 
-async function click(page, selector) {
+async function click(page, selector, waitScroll = false) {
   if (!await page.locator(selector).count()) throw new Error(`unreachable input: ${selector}`)
-  await page.locator(selector).first().evaluate(el => el.click())
+  await page.locator(selector).first().evaluate((el, waitScroll) => {
+    if (!waitScroll) return el.click()
+    const vp = document.querySelector('#bd-vp'), before = vp.scrollTop
+    return new Promise(resolve => {
+      const done = () => { vp.removeEventListener('scroll', done); resolve() }
+      vp.addEventListener('scroll', done); el.click()
+      if (vp.scrollTop === before) done()
+    })
+  }, waitScroll)
 }
 
 const state = (page, ctx) => domState(page, ctx.ids)
 async function cssMotion(page, selector, ctx, trigger) {
-  const animations = await pausedAnimations(page, selector, { trigger, event: ctx.triggerEvent, reducedMotion: ctx.reduce })
+  const animations = await pausedAnimations(page, selector, { trigger, event: ctx.triggerEvent, reducedMotion: ctx.reduce, inventoryOnly: ctx.inventoryOnly })
+  const reverse = Object.fromEntries(Object.entries(ctx.ids ?? {}).map(([design, product]) => [product, design]))
+  for (const animation of animations) animation.target = reverse[animation.target] ?? animation.target
   for (const fraction of [0, .5, 1]) {
     await page.evaluate(fraction => window.motionAnimations?.forEach(animation => {
       const timing = animation.effect.getTiming()
@@ -280,7 +292,7 @@ async function columns(page, ctx) {
 async function view(page, ctx, mode) {
   if (mode !== 'span') {
     if (mode === 'graph') await click(page, '[data-v="list"]')
-    await click(page, `[data-v="${mode}"]`)
+    await click(page, `[data-v="${mode}"]`, true)
     await page.clock.runFor(32)
     return { samples: [await state(page, ctx)] }
   }
@@ -288,7 +300,7 @@ async function view(page, ctx, mode) {
   if (!await page.locator(input).count()) throw new Error(`unreachable input: ${input}`)
   const samples = []
   for (const span of await page.locator(input).evaluateAll(nodes => nodes.map(el => el.dataset.span))) {
-    await click(page, `.bd-cal [data-span="${span}"]`); await page.clock.runFor(32)
+    await click(page, `.bd-cal [data-span="${span}"]`, true); await page.clock.runFor(32)
     samples.push(await state(page, ctx))
   }
   for (const direction of ['1', '-1']) for (let step = 0; step < 30; step++) {
@@ -297,7 +309,7 @@ async function view(page, ctx, mode) {
     const disabled = await button.isDisabled()
     samples.push({ ...await state(page, ctx), disabled })
     if (disabled) break
-    await click(page, `.bd-zoom [data-z="${direction}"]`); await page.clock.runFor(32)
+    await click(page, `.bd-zoom [data-z="${direction}"]`, true); await page.clock.runFor(32)
     if (step === 29) throw new Error('zoom did not reach its endpoint')
   }
   return { samples }
@@ -418,12 +430,14 @@ async function grain(page, ctx) {
     await pausedAnimations(page, selector)
     await page.evaluate(() => window.motionAnimations.forEach(a => { const t = a.effect.getTiming(); a.currentTime = t.iterations === Infinity ? 0 : Number(t.duration) + Number(t.delay) }))
     await ctx.onFrame?.(0, selector)
-    const target = page.locator(selector).first(), before = await target.screenshot({ animations: 'allow' })
+    // Isolate the actual pseudo-element; live contents are measured separately.
+    const target = page.locator(selector).first(), opts = { animations: 'allow', style: `* { visibility: hidden !important } ${selector}::after { visibility: visible !important }` }
+    const before = await captureStable(target, opts, page)
     await page.clock.runFor(512)
     await ctx.onFrame?.(.5, selector)
     await page.clock.runFor(496)
     await ctx.onFrame?.(1, selector)
-    const after = await target.screenshot({ animations: 'allow' })
+    const after = await captureStable(target, opts, page)
     if (!before.equals(after)) throw new Error(`grain changes over time: ${selector}`)
   }
   return { samples, ...values }
@@ -432,7 +446,8 @@ async function grain(page, ctx) {
 async function inventory(page, ctx) {
   const selector = ctx.selector ?? '#build-root'
   if (!await page.locator(selector).count()) throw new Error(`unreachable inventory: ${selector}`)
-  const animation = await cssMotion(page, selector, ctx)
+  // Inventory compares timing and lifecycle; CSS interaction sequences sample composed styles.
+  const animation = await cssMotion(page, selector, { ...ctx, inventoryOnly: true })
   return { samples: [await page.locator(selector).count()], animation }
 }
 
