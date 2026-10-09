@@ -2,7 +2,7 @@ defmodule Aiur.Capabilities.MergePolicyProviderTest do
   use Aiur.TestSupport
   import ExUnit.CaptureIO
 
-  alias Aiur.Capabilities.MergePolicyProvider
+  alias Aiur.Capabilities.{Collector, MergePolicyProvider}
 
   test "the registered merge policy provider survives the v1 wire projection and human output" do
     report = Aiur.Capabilities.report(table: :missing_merge_policy_test_table)
@@ -35,7 +35,7 @@ defmodule Aiur.Capabilities.MergePolicyProviderTest do
   end
 
   test "merge policy remains a known capability when no provider is installed" do
-    {report, _warnings} = Aiur.Capabilities.Collector.collect(providers: [])
+    {report, _warnings} = Collector.collect(providers: [])
     assert report.capabilities["merge_policy"] == %{state: :unavailable, reason: :not_installed}
   end
 end

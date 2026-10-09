@@ -9,6 +9,7 @@ defmodule Aiur.Config.Schema.MergePolicy do
 
     use Ecto.Schema
     import Ecto.Changeset
+    alias Aiur.Config.Schema.MergePolicy
 
     @primary_key false
     embedded_schema do
@@ -25,7 +26,7 @@ defmodule Aiur.Config.Schema.MergePolicy do
       |> cast(attrs, [:enabled, :workflows, :on_red, :fixer_label, :canary_minutes], empty_values: [])
       |> validate_inclusion(:on_red, ["alert", "dispatch_fixer"], message: "must be one of: alert, dispatch_fixer")
       |> validate_format(:fixer_label, ~r/\S/, message: "must be a non-empty string")
-      |> validate_change(:workflows, &Aiur.Config.Schema.MergePolicy.validate_string_list/2)
+      |> validate_change(:workflows, &MergePolicy.validate_string_list/2)
       |> validate_number(:canary_minutes, greater_than_or_equal_to: 0)
       |> validate_canary_minutes(attrs)
     end
