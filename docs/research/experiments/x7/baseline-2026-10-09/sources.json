@@ -1,0 +1,332 @@
+{
+ "telemetry_and_summaries": [
+  {
+   "file": "/home/everdred/.aiur/logs/20261005T193256Z-3916737/log/telemetry.ndjson",
+   "lifecycle_records": 2024,
+   "unparseable_lines": 0,
+   "bytes": 17345588
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T020016Z-1208307/log/telemetry.ndjson",
+   "lifecycle_records": 118,
+   "unparseable_lines": 0,
+   "bytes": 2058467
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T025940Z-2169204/log/telemetry.ndjson",
+   "lifecycle_records": 83,
+   "unparseable_lines": 0,
+   "bytes": 3524571
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T051244Z-4154021/log/telemetry.ndjson",
+   "lifecycle_records": 35,
+   "unparseable_lines": 0,
+   "bytes": 841686
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T054558Z-476607/log/telemetry.ndjson",
+   "lifecycle_records": 2422,
+   "unparseable_lines": 0,
+   "bytes": 16619978
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T083504Z-612195/log/telemetry.ndjson",
+   "lifecycle_records": 4696,
+   "unparseable_lines": 0,
+   "bytes": 42371826
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T131638Z-3935810/log/telemetry.ndjson",
+   "lifecycle_records": 2475,
+   "unparseable_lines": 0,
+   "bytes": 15039468
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T155235Z-3810066/log/telemetry.ndjson",
+   "lifecycle_records": 1081,
+   "unparseable_lines": 0,
+   "bytes": 5573485
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T171344Z-1519217/log/telemetry.ndjson",
+   "lifecycle_records": 1039,
+   "unparseable_lines": 0,
+   "bytes": 19056692
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T192416Z-717595/log/telemetry.ndjson",
+   "lifecycle_records": 1508,
+   "unparseable_lines": 0,
+   "bytes": 27967587
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261008T225455Z-1460268/log/telemetry.ndjson",
+   "lifecycle_records": 1857,
+   "unparseable_lines": 0,
+   "bytes": 28083307
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T032404Z-3525903/log/telemetry.ndjson",
+   "lifecycle_records": 377,
+   "unparseable_lines": 0,
+   "bytes": 6948170
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T053317Z-2223935/log/telemetry.ndjson",
+   "lifecycle_records": 482,
+   "unparseable_lines": 0,
+   "bytes": 5494531
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T070858Z-631240/log/telemetry.ndjson",
+   "lifecycle_records": 949,
+   "unparseable_lines": 0,
+   "bytes": 11643621
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T093500Z-945321/log/telemetry.ndjson",
+   "lifecycle_records": 426,
+   "unparseable_lines": 0,
+   "bytes": 3241654
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T102900Z-2462857/log/telemetry.ndjson",
+   "lifecycle_records": 882,
+   "unparseable_lines": 0,
+   "bytes": 9304600
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T121316Z-1381646/log/telemetry.ndjson",
+   "lifecycle_records": 1754,
+   "unparseable_lines": 0,
+   "bytes": 23155121
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T162348Z-153920/log/telemetry.ndjson",
+   "lifecycle_records": 592,
+   "unparseable_lines": 0,
+   "bytes": 6450591
+  },
+  {
+   "file": "/home/everdred/.aiur/logs/20261009T170632Z-1516468/log/telemetry.ndjson",
+   "lifecycle_records": 69,
+   "unparseable_lines": 0,
+   "bytes": 1455636
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/02zmZZ4kuqiJGr4w/run-summary.json",
+   "generated_at": "2026-09-22T01:46:53.064200Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260917T022859Z-1671510/log/telemetry.ndjson"
+   ],
+   "ticket_events": 292,
+   "bytes": 30678755
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/G94LzvZsRVfj6wSO/run-summary.json",
+   "generated_at": "2026-09-12T11:33:11.971469Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260909T215258Z-3474144/log/telemetry.ndjson"
+   ],
+   "ticket_events": 186,
+   "bytes": 20455404
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/GemgJNzYxI_qFvii/run-summary.json",
+   "generated_at": "2026-08-22T04:48:26.120137Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260821T223253Z-773626/log/telemetry.ndjson"
+   ],
+   "ticket_events": 116,
+   "bytes": 23811981
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/Gpwtm63U1wprhtxh/run-summary.json",
+   "generated_at": "2026-09-03T23:00:11.286524Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260903T040633Z-1604447/log/telemetry.ndjson"
+   ],
+   "ticket_events": 175,
+   "bytes": 22313720
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/KjVk2cb1w8soJ_MU/run-summary.json",
+   "generated_at": "2026-08-21T15:26:30.410638Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260821T084132Z-2950738/log/telemetry.ndjson"
+   ],
+   "ticket_events": 66,
+   "bytes": 24888852
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/MbmAfcMIXCzcKriN/run-summary.json",
+   "generated_at": "2026-08-22T09:04:23.172508Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260822T082015Z-2142276/log/telemetry.ndjson"
+   ],
+   "ticket_events": 39,
+   "bytes": 18461491
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/NBbQ773diVYcL6B6/run-summary.json",
+   "generated_at": "2026-10-07T16:41:30.945489Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20261006T222935Z-3430263/log/telemetry.ndjson"
+   ],
+   "ticket_events": 108,
+   "bytes": 33890196
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/NPWl00PmsZce5p5_/run-summary.json",
+   "generated_at": "2026-08-17T03:14:13.194711Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260816T193557Z-1857716/log/telemetry.ndjson"
+   ],
+   "ticket_events": 1062,
+   "bytes": 151721489
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/St2qUBb4ASh8pNhp/run-summary.json",
+   "generated_at": "2026-09-01T17:48:58.961939Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260824T202858Z-1441539/log/telemetry.ndjson"
+   ],
+   "ticket_events": 215,
+   "bytes": 20270683
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/VtlfrotZ3MEOFxsc/run-summary.json",
+   "generated_at": "2026-08-09T14:29:47.876833Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260808T213030Z-2932171/log/telemetry.ndjson"
+   ],
+   "ticket_events": 816,
+   "bytes": 26991030
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/XUtjzedac0RGq2WM/run-summary.json",
+   "generated_at": "2026-08-23T00:39:14.978000Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260822T201457Z-3217364/log/telemetry.ndjson"
+   ],
+   "ticket_events": 355,
+   "bytes": 18730232
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/YTeJoG_OPLdTsLKG/run-summary.json",
+   "generated_at": "2026-08-17T13:44:38.069403Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260817T092239Z-3571338/log/telemetry.ndjson"
+   ],
+   "ticket_events": 1770,
+   "bytes": 172052429
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/_QOPpNMlZbQKnmHm/run-summary.json",
+   "generated_at": "2026-09-03T01:22:54.503704Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260902T070544Z-574574/log/telemetry.ndjson"
+   ],
+   "ticket_events": 52,
+   "bytes": 20332632
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/bZ9rJw4Q5pb9w3xZ/run-summary.json",
+   "generated_at": "2026-08-10T17:24:51.369393Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260810T052237Z-1612418/log/telemetry.ndjson"
+   ],
+   "ticket_events": 923,
+   "bytes": 27196319
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/eyxoTC1UrARepOwL/run-summary.json",
+   "generated_at": "2026-10-06T18:16:13.452105Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20261006T121139Z-2024630/log/telemetry.ndjson"
+   ],
+   "ticket_events": 5122,
+   "bytes": 257738386
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/frIipzAZuF7Vj6ia/run-summary.json",
+   "generated_at": "2026-08-17T08:48:38.776733Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260817T073325Z-936412/log/telemetry.ndjson"
+   ],
+   "ticket_events": 93,
+   "bytes": 18795841
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/gLOehj9cyk7n3wwO/run-summary.json",
+   "generated_at": "2026-08-12T02:54:30.978447Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260811T205604Z-3829969/log/telemetry.ndjson"
+   ],
+   "ticket_events": 135,
+   "bytes": 25904615
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/iDtvvw5LVA4jUyr5/run-summary.json",
+   "generated_at": "2026-08-23T20:02:54.797719Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260823T171523Z-1991703/log/telemetry.ndjson"
+   ],
+   "ticket_events": 276,
+   "bytes": 18446055
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/jfrB8LgJlrcWVBZP/run-summary.json",
+   "generated_at": "2026-09-02T06:57:36.355442Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260902T015548Z-1111267/log/telemetry.ndjson"
+   ],
+   "ticket_events": 73,
+   "bytes": 127843344
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/mW4Waq0xw4pc6WIh/run-summary.json",
+   "generated_at": "2026-10-06T07:11:01.767873Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20261006T060935Z-2501533/log/telemetry.ndjson"
+   ],
+   "ticket_events": 738,
+   "bytes": 158252863
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/qjRAr1zh76qJTkdk/run-summary.json",
+   "generated_at": "2026-08-16T19:01:30.951207Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260816T163216Z-2378482/log/telemetry.ndjson"
+   ],
+   "ticket_events": 55,
+   "bytes": 18313620
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/qsJljHIarGfp9r6k/run-summary.json",
+   "generated_at": "2026-08-21T05:01:35.780742Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260821T031301Z-3734101/log/telemetry.ndjson"
+   ],
+   "ticket_events": 33,
+   "bytes": 22447316
+  },
+  {
+   "file": "/home/everdred/.aiur/repo/aiur-team/aiur/analytics/runs/yAq2SXpdYliADdwd/run-summary.json",
+   "generated_at": "2026-08-21T03:05:56.354002Z",
+   "source_files": [
+    "/home/everdred/.aiur/logs/20260820T055748Z-1544574/log/telemetry.ndjson"
+   ],
+   "ticket_events": 31,
+   "bytes": 18326149
+  }
+ ],
+ "github": {
+  "github_repo": "aiur-team/aiur",
+  "identity": "its-everdred (gh, GITHUB_TOKEN/GH_TOKEN unset)",
+  "issue_search": "is:issue updated:2026-10-04..2026-10-10 (day slices) plus every referenced blocker",
+  "issues_fetched": 609,
+  "ci_runs": "actions/runs branch=main event=push created>=2026-10-06"
+ }
+}

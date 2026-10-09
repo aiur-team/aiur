@@ -1,0 +1,55 @@
+{
+  "rework": {
+    "all_program_tickets": {
+      "n": 38,
+      "count": 11,
+      "rate": 0.289
+    },
+    "dependents": {
+      "n": 34,
+      "count": 9,
+      "rate": 0.265
+    }
+  },
+  "discard_pr_closed_unmerged": {
+    "all_program_tickets": {
+      "n": 38,
+      "count": 0,
+      "rate": 0.0
+    },
+    "dependents": {
+      "n": 34,
+      "count": 0,
+      "rate": 0.0
+    }
+  },
+  "agent_error": {
+    "n": 38,
+    "count": 0,
+    "rate": 0.0
+  },
+  "main_red_ci_push_runs": {
+    "completed_non_cancelled": 117,
+    "failures": 45,
+    "failure_rate": 0.385,
+    "by_day_utc": {
+      "2026-10-06": {
+        "failures": 11,
+        "runs": 49
+      },
+      "2026-10-07": {
+        "failures": 0,
+        "runs": 1
+      },
+      "2026-10-08": {
+        "failures": 16,
+        "runs": 39
+      },
+      "2026-10-09": {
+        "failures": 18,
+        "runs": 28
+      }
+    },
+    "cancelled_excluded": 133
+  }
+}
