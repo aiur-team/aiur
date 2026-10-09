@@ -85,7 +85,7 @@
       "id": "github-listeners", "name": "GitHub event ingestion (webhook + pollers)", "layer": 2, "kind": "optional",
       "paths": ["src/lib/aiur_web/routes/github_webhook.ex", "src/lib/aiur_web/controllers/github_webhook_controller.ex", "src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/branch_rewrite_classifier.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/stacking/**", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel", "tracker"], "optional": [],
+      "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel"], "optional": [],
       "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": ["webhook_ingress"]},
       "prior": ["ING"]
     },

@@ -1,7 +1,7 @@
 defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
   use Aiur.TestSupport
   alias Aiur.Events.{GithubCIPoller, GithubWebhook.Deposit}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{BoundedBlockedBy, ResourceStore}
   alias Aiur.Workflow
 
   setup do
@@ -44,8 +44,42 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
     end
   end
 
-  test "unrelated bases and missing dependency or PR evidence are repaired (future regression guard)" do
-    for evidence <- [:unrelated, :no_edges, :no_pr] do
+  test "held direct edges preserve stacks beyond dispatch freshness without blocker issue states" do
+    for mode <- [:rest, :batch], issue_evidence <- [:missing, :stale, :closed] do
+      ResourceStore.reset()
+      blocker_evidence()
+      edges_key = ResourceStore.key(:issue_blocked_by, "owner", "repo", "42")
+      issue_key = ResourceStore.key(:issue, "owner", "repo", "41")
+      ResourceStore.put_resource(edges_key, [%{"number" => 41}])
+      age_resource(edges_key)
+
+      case issue_evidence do
+        :missing -> ResourceStore.drop_data(issue_key)
+        :stale -> age_resource(issue_key)
+        :closed -> ResourceStore.put_resource(issue_key, %{"number" => 41, "state" => "closed"})
+      end
+
+      {:ok, %{data: [%{"number" => 41}], fetched_at_ms: fetched}} = ResourceStore.fetch(edges_key)
+      assert System.system_time(:millisecond) - fetched > BoundedBlockedBy.max_age_ms()
+      {:ok, base} = Agent.start_link(fn -> "aiur/41-blocker" end)
+      {:ok, patches} = Agent.start_link(fn -> [] end)
+      request = request_fun(base, patches)
+
+      for _ <- 1..3 do
+        assert {:ok, %{errors: [], results: [%{decision: :passed}]}} = poll(mode, base, request)
+      end
+
+      assert Agent.get(patches, & &1) == []
+      ResourceStore.put_resource(edges_key, [])
+      assert {:ok, %{errors: [], results: [%{decision: :failed}]}} = poll(mode, base, request)
+      assert Agent.get(patches, & &1) == [%{"base" => "main"}]
+    end
+  end
+
+  test "unrelated bases and missing or malformed dependency or PR evidence are repaired" do
+    malformed_edges = [%{}, [%{"number" => 41}, nil], [%{"number" => 41}, %{}], [%{"number" => 41}, %{"number" => "41"}], [%{"number" => 41}, %{"number" => 0}]]
+
+    for evidence <- [:unrelated, :no_edges, :no_pr] ++ malformed_edges do
       ResourceStore.reset()
       blocker_evidence()
 
@@ -53,6 +87,7 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
         :no_edges -> ResourceStore.drop_data(ResourceStore.key(:issue_blocked_by, "owner", "repo", "42"))
         :no_pr -> ResourceStore.drop_data(ResourceStore.key(:branch_pull_request, "owner", "repo", "41"))
         :unrelated -> :ok
+        malformed -> ResourceStore.put_resource(ResourceStore.key(:issue_blocked_by, "owner", "repo", "42"), malformed)
       end
 
       {:ok, base} = Agent.start_link(fn -> if(evidence == :unrelated, do: "unrelated", else: "aiur/41-blocker") end)
@@ -60,6 +95,12 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
       assert {:ok, %{errors: [], results: [%{decision: :failed}]}} = poll(:batch, base, request_fun(base, patches))
       assert Agent.get(patches, & &1) == [%{"base" => "main"}]
     end
+  end
+
+  defp age_resource(key) do
+    [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+    aged = System.system_time(:millisecond) - BoundedBlockedBy.max_age_ms() - 1
+    :ets.insert(ResourceStore.Table, {key, %{entry | fetched_at_ms: aged, full_body_at_ms: aged}})
   end
 
   defp blocker_evidence do

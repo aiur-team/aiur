@@ -2,8 +2,7 @@ defmodule Aiur.Stacking.StackBaseEvidence do
   @moduledoc "Resolves a CI target's stack base from locally held GitHub evidence."
   require Logger
   alias Aiur.Config
-  alias Aiur.GitHub.{Issues, TicketPullRequest}
-  alias Aiur.Issue
+  alias Aiur.GitHub.{ResourceStore, TicketPullRequest, Transport}
   alias Aiur.Stacking.StackBase
 
   @spec expected_base(String.t(), map(), keyword()) :: String.t()
@@ -22,16 +21,21 @@ defmodule Aiur.Stacking.StackBaseEvidence do
   end
 
   defp blocker_facts(target) do
-    case Issues.hydrate_blocked_by(%Issue{id: target}, revalidate: :cached) do
-      {:ok, %Issue{blocked_by: blockers}} -> Enum.map(blockers, &with_pr/1)
-      _missing -> []
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, %{data: blockers}} when is_list(blockers) <- ResourceStore.fetch(ResourceStore.key(:issue_blocked_by, owner, repo, target)),
+         true <- Enum.all?(blockers, &valid_edge?/1) do
+      Enum.map(blockers, &with_pr/1)
+    else
+      _missing_or_malformed -> []
     end
   end
 
-  defp with_pr(%{id: id}) do
-    case TicketPullRequest.read(id) do
-      {:ok, pr} -> %{id: id, pr: pr}
-      _missing -> %{id: id, pr: nil}
-    end
+  defp valid_edge?(%{"number" => number}) when is_integer(number) and number > 0, do: true
+  defp valid_edge?(_edge), do: false
+
+  defp with_pr(%{"number" => number}) do
+    id = Integer.to_string(number)
+    {:ok, pr} = TicketPullRequest.read(id)
+    %{id: id, pr: pr}
   end
 end

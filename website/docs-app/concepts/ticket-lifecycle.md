@@ -152,7 +152,7 @@ and never deletes ones a repository already has; those keep working as exact pin
 
 ## Build queue
 
-**Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI leaves that base alone. After the blocker merges or closes, or when blocker facts are missing, Aiur repairs it to `tracker.base_branch`. A stacked PR requires integration retargeting before merge.
+**Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
 
 The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
 
