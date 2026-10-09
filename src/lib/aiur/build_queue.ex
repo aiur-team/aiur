@@ -32,6 +32,12 @@ defmodule Aiur.BuildQueue do
   @spec add([String.t()], String.t(), keyword()) :: :ok | {:error, term()}
   def add(ids, queue, opts \\ []), do: mutate({:add, ids, Keyword.put(opts, :queue, queue)})
 
+  @spec adopt(pos_integer()) :: {:ok, list()} | {:error, term()}
+  def adopt(root), do: mutate({:adopt, root})
+
+  @spec unadopt(pos_integer()) :: {:ok, list()} | {:error, term()}
+  def unadopt(root), do: mutate({:unadopt, root})
+
   @spec remove(String.t()) :: :ok | {:error, term()}
   def remove(id), do: mutate({:remove, id})
 

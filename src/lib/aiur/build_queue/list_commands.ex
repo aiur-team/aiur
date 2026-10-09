@@ -8,9 +8,17 @@ defmodule Aiur.BuildQueue.ListCommands do
 
     with {:ok, document, actions} <- edit(state.document, command, state.clock.()),
          :ok <- open_members(state, command) do
-      intents = Enum.map(actions, &intent(&1, observations, state))
-      {:ok, %{document | intents: document.intents ++ intents}, actions, observations}
+      {:ok, record(state, document, actions, observations), actions, observations}
     end
+  end
+
+  @spec queue_id(map()) :: {:ok, String.t()} | {:error, :queue_limit}
+  defdelegate queue_id(document), to: ListMutations
+
+  @spec record(map(), map(), list(), map()) :: map()
+  def record(state, document, actions, observations) do
+    intents = Enum.map(actions, &intent(&1, observations, state))
+    %{document | intents: document.intents ++ intents}
   end
 
   @spec pending(map()) :: list()

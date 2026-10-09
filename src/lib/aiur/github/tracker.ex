@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.Tracker do
 
   @behaviour Aiur.Tracker
 
+  alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.Labels
@@ -13,6 +14,31 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.TestTicketScope
+
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, blockers} <- BoundedBlockedBy.fetch(issue_id, caller: "build_queue_blocked_by") do
+      native_ids(blockers, owner, repo)
+    end
+  end
+
+  defp native_ids(blockers, owner, repo) do
+    Enum.reduce_while(blockers, {:ok, []}, fn blocker, {:ok, ids} ->
+      case native_id(blocker, owner, repo) do
+        {:ok, id} -> {:cont, {:ok, ids ++ [id]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp native_id(%{"number" => number, "repository_url" => url}, owner, repo) when is_integer(number) and number > 0 and is_binary(url) do
+    if String.downcase(URI.parse(url).path || "") == String.downcase("/repos/#{owner}/#{repo}"),
+      do: {:ok, to_string(number)},
+      else: {:error, :external_edge}
+  end
+
+  defp native_id(_blocker, _owner, _repo), do: {:error, :invalid_native_edge}
 
   @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
   def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)

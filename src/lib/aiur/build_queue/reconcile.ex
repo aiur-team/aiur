@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, PRObserver, Settings, Withdrawal}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Planner, PRObserver, Settings, Withdrawal}
 
   @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map()}
 
@@ -16,17 +16,33 @@ defmodule Aiur.BuildQueue.Reconcile do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     promoted = Map.new(input.items, &{&1.issue_id, if(&1.promoted_at, do: DateTime.to_unix(&1.promoted_at, :millisecond))})
 
+    latest_markers =
+      input.intents
+      |> Enum.reverse()
+      |> Enum.filter(&(&1.action in [:mark, :unmark]))
+      |> Enum.uniq_by(& &1.issue_id)
+      |> MapSet.new(& &1.id)
+
     intents =
       Enum.filter(input.intents, fn intent ->
         recent? = state.reconciles - Map.get(state.intent_reconciles, intent.id, 0) < 2
         outstanding? = promoted[intent.issue_id] != nil and intent.recorded_at_ms >= promoted[intent.issue_id]
-        recent? or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
+        recent? or MapSet.member?(latest_markers, intent.id) or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
       end)
 
-    opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
+    opts = [
+      label_prefix: state.settings.tracker.github.label_prefix,
+      observation_max_age_ms: Settings.observation_max_age_ms(state.settings),
+      withdrawal_holds: state.holds,
+      source_verdicts: Map.get(state, :source_verdicts, %{}),
+      merged_open_grace_ms: state.settings.build_queue.merged_open_grace_seconds * 1000
+    ]
+
     {observations, cache} = closures(state, observations)
-    {observations, published} = PRObserver.observe(observations, state)
     input = %{input | opts: opts, observations: observations, intents: intents}
+    {input, cache} = NativeObserver.observe(input, state, cache)
+    {observations, published} = PRObserver.observe(input.observations, %{state | document: %{state.document | edges: input.edges}})
+    input = %{input | observations: observations}
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
     {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published}
