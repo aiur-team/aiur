@@ -960,6 +960,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
@@ -978,9 +979,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     # Sample every failing gate before applying admission priority. A memory or
     # FD hold must not erase the age of an independently persistent load hold;
-    # IssueSync tracks each recorded gate identity across poll cycles, so the
-    # constraint list is deliberately broader than the single binding signal
-    # `admission_gate/1` returns below.
+    # IssueSync records each gate across polls, beyond the binding signal
+    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)

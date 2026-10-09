@@ -2528,7 +2528,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
       test_pid = self()
-      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4, load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, overload_samples: 2}}
 
       held =
         Dispatcher.maybe_choose_under_load(
