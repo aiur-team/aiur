@@ -14,7 +14,7 @@ defmodule AiurWeb.Layouts do
 
     ~H"""
     <!DOCTYPE html>
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="dark" data-palette="gruvbox">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -24,10 +24,13 @@ defmodule AiurWeb.Layouts do
         <title>{@page_title}</title>
         <script>
           (function () {
+            var theme;
+            try { theme = window.localStorage.getItem("aiur-theme"); } catch (_error) {}
+            document.documentElement.dataset.theme = theme === "light" || theme === "dark"
+              ? theme : (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
             try {
-              var stored = window.localStorage.getItem("aiur-theme");
-              if (stored === "light" || stored === "dark") {
-                document.documentElement.dataset.theme = stored;
+              if (window.localStorage.getItem("aiur-palette") === "aiur") {
+                document.documentElement.dataset.palette = "aiur";
               }
             } catch (_error) {}
           })();
@@ -177,6 +180,25 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            Hooks.PaletteToggle = {
+              mounted: function () {
+                this.sync();
+                this.onClick = () => {
+                  var next = document.documentElement.dataset.palette === "gruvbox" ? "aiur" : "gruvbox";
+                  document.documentElement.dataset.palette = next;
+                  try { window.localStorage.setItem("aiur-palette", next); } catch (_error) {}
+                  this.sync();
+                };
+                this.el.addEventListener("click", this.onClick);
+              },
+              updated: function () { this.sync(); },
+              destroyed: function () { this.el.removeEventListener("click", this.onClick); },
+              sync: function () {
+                var state = this.el.getAttribute("role") === "menuitemcheckbox" ? "aria-checked" : "aria-pressed";
+                this.el.setAttribute(state, String(document.documentElement.dataset.palette === "gruvbox"));
+              }
+            };
+
             Hooks.CopyToClipboard = {
               mounted: function () {
                 this.source = this.el.querySelector("[data-copy-source]");
@@ -274,8 +296,26 @@ defmodule AiurWeb.Layouts do
               Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook();
             }
 
+            // LiveView also uses storage during boot; denied storage must not prevent hooks mounting.
+            function availableStorage(name) {
+              try {
+                var storage = window[name];
+                storage.getItem("aiur-storage-probe");
+                return storage;
+              } catch (_error) {
+                var values = {};
+                return {
+                  getItem: key => values[key] ?? null,
+                  setItem: (key, value) => { values[key] = String(value); },
+                  removeItem: key => { delete values[key]; }
+                };
+              }
+            }
+
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
+              localStorage: availableStorage("localStorage"),
+              sessionStorage: availableStorage("sessionStorage"),
               params: {
                 _csrf_token: csrfToken,
                 time_zone: (function () {

@@ -80,14 +80,14 @@ defmodule Aiur.BuildQueue.Planner do
   defp attention_actions(states, context) do
     desired = states |> Enum.flat_map(&(attention_keys(&1, context) ++ failed_keys(&1, context) ++ merged_keys(&1, context))) |> MapSet.new()
     existing = context.input.latches |> Enum.map(& &1.key) |> Enum.filter(&owned_latch?/1) |> MapSet.new()
-    desired = MapSet.union(desired, retained_latches(existing, states, context))
-    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and match?({cause, _} when cause in [:promoted_unauthorized, :merged_issue_open], &1.key))), & &1.key)
+    desired = desired |> MapSet.union(retained_latches(existing, states, context)) |> MapSet.union(write_latches(context))
+    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and owned_latch?(&1.key))), & &1.key)
     opens = desired |> MapSet.difference(MapSet.difference(existing, pending)) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
     resolves = existing |> MapSet.difference(desired) |> Enum.sort() |> Enum.map(&{:attention_resolve, &1})
-    opens ++ resolves
+    resolves ++ opens
   end
 
-  defp owned_latch?({cause, _id}) when cause in [:promoted_unauthorized, :dependency_changed_after_start, :merged_issue_open], do: true
+  defp owned_latch?({cause, _id}) when cause in [:promoted_unauthorized, :dependency_changed_after_start, :merged_issue_open, :write_failed], do: true
   defp owned_latch?({{:prerequisite_failed, _cause}, _id}), do: true
   defp owned_latch?(_key), do: false
 
@@ -97,11 +97,26 @@ defmodule Aiur.BuildQueue.Planner do
 
     existing
     |> Enum.filter(fn
-      {{:prerequisite_failed, _cause}, id} -> id in unknown
-      {:merged_issue_open, id} -> not match?(%Observation{open?: false}, context.input.observations[id])
-      _key -> false
+      {{:prerequisite_failed, _cause}, id} ->
+        id in unknown
+
+      {:dependency_changed_after_start, id} ->
+        Enum.any?(states, &(&1.issue_id == id and &1.state not in [:removed, :completed, :cancelled] and (&1.state == :unknown or &1.verdict != :ready)))
+
+      {:merged_issue_open, id} ->
+        not match?(%Observation{open?: false}, context.input.observations[id])
+
+      _key ->
+        false
     end)
     |> MapSet.new()
+  end
+
+  defp write_latches(context) do
+    for %{key: {:write_failed, id} = key, opened_at_ms: since} <- context.input.latches,
+        not Enum.any?(context.input.intents, &(&1.issue_id == id and &1.outcome == :ok and &1.recorded_at_ms >= since)),
+        into: MapSet.new(),
+        do: key
   end
 
   # Latch a known decline after its planned promotion, so applied effects converge.

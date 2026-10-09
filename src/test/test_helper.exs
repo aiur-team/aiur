@@ -70,6 +70,7 @@ end)
 
 Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
+Code.require_file("support/dashboard_font_assertions.ex", __DIR__)
 Code.require_file("support/muse_fixture.exs", __DIR__)
 Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
 Code.require_file("support/claude_meter_test_support.exs", __DIR__)
