@@ -1,8 +1,8 @@
 defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
-  alias Aiur.BuildOrder.{Dependency, GraphProjection.Snapshot, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
-  alias Aiur.BuildQueue.{Hints, Model, Server}
+  alias Aiur.BuildOrder.{Dependency, GraphProjection, GraphProjection.Snapshot, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildQueue.{Hints, ListMutations, Model, Server}
   alias Aiur.BuildQueue.Sources.BuildOrder
   alias Aiur.Config.Schema
   alias Aiur.TrackerIdentity
@@ -62,7 +62,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     end
 
     def handle_call(:catalog, _, state), do: {:reply, %{data: %{entries: [state.snapshot.data.root]}}, state}
-    def handle_call({:selected_topic, identity}, _, state), do: {:reply, {:ok, Aiur.BuildOrder.GraphProjection.selected_topic(identity)}, state}
+    def handle_call({:selected_topic, identity}, _, state), do: {:reply, {:ok, GraphProjection.selected_topic(identity)}, state}
     def handle_call({verb, _}, _, state) when verb in [:demand, :selected], do: {:reply, {:ok, state.snapshot}, state}
     def handle_call({:release, _}, _, state), do: {:reply, state.release_result, %{state | releases: state.releases + 1}}
     def handle_call({:replace, snapshot}, _, state), do: {:reply, :ok, %{state | snapshot: snapshot}}
@@ -116,7 +116,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     GenServer.call(projection, {:replace, stale})
     deliver_projection(pid, :graph_projection_health, stale)
     assert get(:calls) == []
-    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :stale}}, projections: [%{state: :unknown, verdict: {:unknown, [:stale]}}]}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :stale}}, projections: [%{state: :unknown, verdict: {:unknown, [:stale]}}]}} = GenServer.call(Server, :show)
   end
 
   test "external edge makes its dependent unknown and never promotes it" do
@@ -125,7 +125,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     pid = server(projection)
     assert {:ok, []} = Aiur.BuildQueue.adopt(99)
     reconcile(pid)
-    assert {:ok, %{projections: [%{issue_id: "2", state: :unknown, verdict: {:unknown, [:external_edge]}}]}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{projections: [%{issue_id: "2", state: :unknown, verdict: {:unknown, [:external_edge]}}]}} = GenServer.call(Server, :show)
     refute {:add, "2", "agent:todo"} in get(:calls)
   end
 
@@ -137,7 +137,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert {:ok, []} = Aiur.BuildQueue.adopt(99)
     reconcile(pid)
     assert {:add, "2", "agent:todo"} in get(:calls)
-    assert {:ok, %{projections: projections}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{projections: projections}} = GenServer.call(Server, :show)
     assert Enum.find(projections, &(&1.issue_id == "2")).verdict == :ready
   end
 
@@ -154,7 +154,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     GenServer.call(projection, {:replace, stale})
     deliver_projection(pid, :graph_projection_health, stale)
     assert get(:calls) == []
-    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :stale}}, projections: [%{state: :unknown}]}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :stale}}, projections: [%{state: :unknown}]}} = GenServer.call(Server, :show)
   end
 
   test "OQ-7 adoption withdraws blocked unclaimed todo after holding dispatch, leaving claimed todo alone" do
@@ -242,7 +242,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
     pid = server(:missing_build_order_projection)
     reconcile(pid)
-    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :projection_down}}, projections: projections}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :projection_down}}, projections: projections}} = GenServer.call(Server, :show)
     assert Enum.find(projections, &(&1.issue_id == "2")).state == :unknown
     assert {:add, "4", "agent:todo"} in get(:calls)
     refute {:add, "2", "agent:todo"} in get(:calls)
@@ -257,13 +257,13 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     partial = snapshot([member(1)], ProviderHealth.new(2, :healthy, false))
     GenServer.call(projection, {:replace, partial})
     reconcile(pid)
-    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :partial}}}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :partial}}}} = GenServer.call(Server, :show)
     assert get(:calls) == []
     closed = snapshot([member(1)])
     closed = %{closed | data: %{closed.data | root: %{closed.data.root | lifecycle: %Lifecycle{state: :closed, state_reason: :completed}}}}
     GenServer.call(projection, {:replace, closed})
     reconcile(pid)
-    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :completed}}}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{sources: %{"build_order:99" => {:unavailable, :completed}}}} = GenServer.call(Server, :show)
     assert get(:calls) == []
     assert length(get(:document).items) == 1
   end
@@ -286,7 +286,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     for _ <- 1..5 do
       reconcile(pid)
       assert Enum.sort(Enum.map(get(:document).items, & &1.issue_id)) == ["1", "2"]
-      assert {:ok, %{projections: projections}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+      assert {:ok, %{projections: projections}} = GenServer.call(Server, :show)
       assert Enum.all?(projections, &(&1.reason == :marker_pending))
     end
 
@@ -354,7 +354,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
   test "an unresponsive projection is tried once per cycle while an independent list promotes" do
     queues = [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]
-    {:ok, document, _} = Aiur.BuildQueue.ListMutations.add(%{@empty | queues: queues}, ["4"], [queue: "list"], DateTime.from_unix!(0))
+    {:ok, document, _} = ListMutations.add(%{@empty | queues: queues}, ["4"], [queue: "list"], DateTime.from_unix!(0))
     update(:document, document)
     update(:labels, Map.put(get(:labels), "4", ["agent:queued"]))
     projection = start_supervised!({Projection, snapshot([member(1)])})
@@ -362,7 +362,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     server(projection)
     assert get(:catalog_calls) == 1
     assert {:add, "4", "agent:todo"} in get(:calls)
-    assert {:ok, %{sources: sources}} = GenServer.call(Aiur.BuildQueue.Server, :show)
+    assert {:ok, %{sources: sources}} = GenServer.call(Server, :show)
     assert sources == %{"build_order:99" => {:unavailable, :projection_unavailable}, "build_order:100" => {:unavailable, :projection_unavailable}}
   end
 
@@ -414,7 +414,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
   defp deliver_projection(pid, kind, snapshot) do
     {:selected, identity} = snapshot.scope
-    Phoenix.PubSub.broadcast(Aiur.PubSub, Aiur.BuildOrder.GraphProjection.selected_topic(identity), {kind, snapshot})
+    Phoenix.PubSub.broadcast(Aiur.PubSub, GraphProjection.selected_topic(identity), {kind, snapshot})
     token = :sys.get_state(pid).pending
     assert is_reference(token)
     send(pid, {:reconcile, token})
