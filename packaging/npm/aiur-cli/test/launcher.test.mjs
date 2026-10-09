@@ -16,7 +16,6 @@ import { tmpdir } from "node:os";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
 const realShim = fileURLToPath(new URL("../bin/aiur.js", import.meta.url));
 
 const HOST_TRIPLE = {
@@ -361,6 +360,7 @@ function setupRealLauncher() {
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-queue.sh"), path.join(root, "libexec", "aiur-queue.sh"));
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-epic.sh"), path.join(root, "libexec", "aiur-epic.sh"));
 
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";

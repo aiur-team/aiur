@@ -20,6 +20,22 @@ defmodule Aiur.Config.PathsTest do
     assert Paths.build_history_state_dir() == {:ok, Path.join(decisions, "build-history")}
   end
 
+  test "epic override path honors override and decision-root isolation" do
+    root = Aiur.TestSupport.tmp_root!("epic-path")
+    original = Application.get_env(:aiur, :epic_overrides_state_dir)
+
+    on_exit(fn ->
+      if is_nil(original), do: Application.delete_env(:aiur, :epic_overrides_state_dir), else: Application.put_env(:aiur, :epic_overrides_state_dir, original)
+      File.rm_rf!(root)
+    end)
+
+    Application.put_env(:aiur, :epic_overrides_state_dir, root)
+    assert Paths.epic_overrides_state_dir() == {:ok, root}
+    Application.delete_env(:aiur, :epic_overrides_state_dir)
+    {:ok, decisions} = Paths.decision_state_dir()
+    assert Paths.epic_overrides_state_dir() == {:ok, Path.join(decisions, "epic-overrides")}
+  end
+
   describe "log_root_dir/0" do
     setup do
       original = Application.get_env(:aiur, :log_file)
