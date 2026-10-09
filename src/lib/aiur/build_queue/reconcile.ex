@@ -1,16 +1,17 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, Planner, Settings}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, Settings}
 
-  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map()}
+  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map(), map()}
   def plan(state) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
-    input = %{input | opts: opts, observations: observations(state), claims: state.claim_probe.status(ids)}
+    {observations, cache} = Observer.observe(state)
+    input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids)}
     {projections, actions} = Planner.plan(input)
-    {projections, actions, input.observations}
+    {projections, actions, input.observations, cache}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true

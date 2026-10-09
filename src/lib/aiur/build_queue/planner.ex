@@ -112,7 +112,9 @@ defmodule Aiur.BuildQueue.Planner do
   defp failed_keys(%{state: state}, _context) when state in [:removed, :completed, :cancelled], do: []
 
   defp failed_keys(%{issue_id: id}, context) do
-    for edge <- Map.get(context.edges, id, []), match?({:failed, _}, edge_verdict(edge, context)), do: {{:prerequisite_failed, elem(edge_verdict(edge, context), 1)}, edge.prerequisite}
+    for edge <- Map.get(context.edges, id, []),
+        match?({:failed, _}, edge_verdict(edge, context)) or edge_verdict(edge, context) == {:unknown, :duplicate},
+        do: {{:prerequisite_failed, elem(edge_verdict(edge, context), 1)}, edge.prerequisite}
   end
 
   defp member?(nil, _opts), do: false

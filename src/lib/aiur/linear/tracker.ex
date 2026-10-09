@@ -41,6 +41,9 @@ defmodule Aiur.Linear.Tracker do
   }
   """
 
+  @spec issue_closure(String.t()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(_issue_id), do: {:error, :unsupported}
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.project_slug()
 

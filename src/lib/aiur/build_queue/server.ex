@@ -36,6 +36,7 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       actions: [],
       holds: MapSet.new(),
+      closure_cache: %{},
       reconciles: 0
     }
 
@@ -109,7 +110,8 @@ defmodule Aiur.BuildQueue.Server do
   defp request(state), do: state
 
   defp reconcile(state) do
-    {projections, actions, observations} = Reconcile.plan(state)
+    {projections, actions, observations, cache} = Reconcile.plan(state)
+    state = %{state | closure_cache: cache}
     state = write(state, actions, observations)
 
     holds =
