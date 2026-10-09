@@ -11,7 +11,7 @@ defmodule Aiur.BuildOrder.Component do
   def child_specs(:early, _opts), do: [{GraphProjection, runtime_config?: true}]
 
   def child_specs(:history, _opts) do
-    [History, {History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)}, Features]
+    [History, History.Feeder, {History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)}, Features]
   end
 
   def child_specs(:late, _opts) do

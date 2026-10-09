@@ -79,6 +79,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.TicketActivity,
     Aiur.Claude.Telemetry,
     Aiur.BuildOrder.History,
+    Aiur.BuildOrder.History.Feeder,
     {Aiur.BuildOrder.History.Backfill, [enabled?: true]},
     Aiur.BuildOrder.Features,
     {Aiur.BuildOrder.TicketHistoryProvider, [runtime_config?: true]},
@@ -93,7 +94,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.CurrentRunProjections,
     Aiur.Events.LsRemoteTicker,
     Aiur.PRLifecycle.HealthScanner,
-    Aiur.Orchestrator.ReworkRequeue,
+    Aiur.PRLifecycle.ReworkRequeue,
     Aiur.ProgressCheckin.Worker,
     Aiur.Executor.TakeoverAlert.Store,
     Aiur.Executor.TakeoverAlert.Monitor,
@@ -155,7 +156,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
   test "component specs retain configured polling and import switches" do
     Enum.each(@config_keys, &Application.put_env(:aiur, &1, false))
-    assert Component.child_specs(:history, []) == [Aiur.BuildOrder.History, {Aiur.BuildOrder.History.Backfill, enabled?: false}, Aiur.BuildOrder.Features]
+    assert Component.child_specs(:history, []) == [Aiur.BuildOrder.History, Aiur.BuildOrder.History.Feeder, {Aiur.BuildOrder.History.Backfill, enabled?: false}, Aiur.BuildOrder.Features]
     assert Component.child_specs(:late, []) == [{Aiur.BuildOrder.AdHocSource, poll_on_start: false}, {Aiur.BuildOrder.PackStatus, poll_on_start: false}]
     assert Component.child_specs(:final, []) == [Aiur.BuildOrder.EpicOverrides, {Aiur.BuildOrder.Features.RootImport, enabled?: false}]
   end

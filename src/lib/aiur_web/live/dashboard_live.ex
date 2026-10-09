@@ -729,8 +729,6 @@ defmodule AiurWeb.DashboardLive do
 
     case GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard") do
       {:ok, _status} ->
-        # The orchestrator broadcasts an observability update on success; reload
-        # so the nav toggle reflects the new state even if the broadcast is missed.
         socket
         |> assign(:global_pause_error, nil)
         |> reload_after_action()
@@ -746,6 +744,10 @@ defmodule AiurWeb.DashboardLive do
         assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
     end
   end
+
+  defp global_pause_state(%{fleet: %{error: _error}}), do: nil
+  defp global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
+  defp global_pause_state(_payload), do: nil
 
   defp global_paused?(payload) when is_map(payload) do
     payload |> Map.get(:fleet, %{}) |> Map.get(:globally_paused, false) == true
@@ -916,7 +918,7 @@ defmodule AiurWeb.DashboardLive do
       agent_kind={agent_kind()}
       nav_counts={nav_counts(@units_view, @retained_counts)}
       nav_collapsed={@nav_collapsed}
-      globally_paused={global_paused?(@payload)}
+      globally_paused={global_pause_state(@payload)}
       writable={@writable}
     >
       <:banner>
@@ -1169,9 +1171,7 @@ defmodule AiurWeb.DashboardLive do
     "/?" <> URI.encode_query(params)
   end
 
-  # Nav badges surface live attention counts: active units and open Commands.
-  # Only real, positive integers are emitted; anything unknown is omitted so the
-  # nav never fabricates a count.
+  # Emit only positive known counts; this producer cannot distinguish zero from unknown.
   defp nav_counts(units_view, retained_counts) do
     %{}
     |> put_nav_count(:units, get_in(units_view, [:counts, :active]))

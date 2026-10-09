@@ -50,6 +50,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       :if={is_integer(@open) and @open > 0}
       patch={!@navigate && DecisionPath.inbox(:all)}
       navigate={@navigate && DecisionPath.inbox(:all)}
+      id="decisions-banner"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
       aria-label={"#{@open} Commands awaiting you, #{@blocking} blocking"}
     >
