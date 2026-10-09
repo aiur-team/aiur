@@ -102,6 +102,24 @@ defmodule Aiur.CI.FailureDigestTest do
     refute digest.flake_only
   end
 
+  test "routine coverage exit annotations do not hide known-flake-only jobs" do
+    identity = "Aiur.ExampleTest :: flaky test"
+    exit_annotation = %{"title" => "", "message" => "coverage partition 1 failed with status 2; full log follows in the next step", "annotation_level" => "failure"}
+    assert {:ok, digest} = build([run(1)], %{1 => [exit_annotation, annotation(identity)]}, known: identity)
+    assert digest.flake_only
+    assert {:ok, clean} = build([], %{})
+    assert digest.signature == clean.signature
+  end
+
+  test "timeouts and cancelled checks beside known tests are never flake-only" do
+    identity = "Aiur.ExampleTest :: flaky test"
+    timeout = %{"message" => "coverage partition 1 exceeded its 20m bound and was terminated; partial log follows in the next step", "annotation_level" => "failure"}
+    assert {:ok, digest} = build([run(1)], %{1 => [timeout, annotation(identity)]}, known: identity)
+    refute digest.flake_only
+    assert {:ok, cancelled} = build([Map.put(run(2), "conclusion", "cancelled")], %{2 => [annotation(identity)]}, known: identity)
+    refute cancelled.flake_only
+  end
+
   test "mixed new failures have an order-independent signature, legacy statuses remain check-level" do
     annotations = %{1 => [annotation("Aiur.ExampleTest :: a")], 2 => [annotation("Aiur.ExampleTest :: b")]}
     assert {:ok, first} = build([run(1), run(2, "lint")], annotations)
