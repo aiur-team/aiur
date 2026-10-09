@@ -3,13 +3,14 @@ defmodule Aiur.Config.SemanticChecksTest do
   use Aiur.TestSupport, async: false
 
   defmodule GitHubSpy do
+    alias Aiur.Tracker.SemanticCheck.Settings
     @behaviour Aiur.Config.SemanticCheck
     @impl true
-    def applies?(settings), do: Aiur.GitHub.Config.SemanticCheck.applies?(settings)
+    def applies?(settings), do: settings.tracker.kind == "github"
     @impl true
     def check(settings) do
       send(self(), :github_check)
-      Aiur.GitHub.Config.SemanticCheck.check(settings)
+      Settings.check(settings)
     end
   end
 
@@ -145,7 +146,7 @@ defmodule Aiur.Config.SemanticChecksTest do
     registry = Application.fetch_env!(:aiur, :config_semantic_checks)
 
     spies = %{
-      Aiur.GitHub.Config.SemanticCheck => GitHubSpy,
+      Aiur.Tracker.SemanticCheck.Settings => GitHubSpy,
       Aiur.Claude.Config.SemanticCheck => ClaudeSpy,
       Aiur.Opencode.Config.SemanticCheck => OpencodeSpy
     }

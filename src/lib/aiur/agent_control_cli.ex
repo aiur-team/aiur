@@ -389,19 +389,18 @@ defmodule Aiur.AgentControlCLI do
   def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
 
   @spec analytics(keyword()) :: :ok
-  def analytics(opts \\ []) do
-    guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
-  end
+  def analytics(opts \\ []), do: guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
 
   @spec github_cost(keyword()) :: :ok
   def github_cost(opts \\ []) do
     guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
   end
 
+  @spec capabilities(keyword()) :: :ok
+  def capabilities(opts \\ []), do: guarded("capabilities", fn -> Aiur.CapabilitiesCLI.run(opts) |> exit_marker() end)
+
   @spec github_usage(keyword()) :: :ok
-  def github_usage(opts \\ []) do
-    guarded("github-usage", fn -> GitHubUsageCLI.run(opts) |> exit_marker() end)
-  end
+  def github_usage(opts \\ []), do: guarded("github-usage", fn -> GitHubUsageCLI.run(opts) |> exit_marker() end)
 
   @spec executor_emit(String.t(), String.t()) :: :ok
   def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do

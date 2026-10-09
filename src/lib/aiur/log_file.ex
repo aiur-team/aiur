@@ -55,7 +55,19 @@ defmodule Aiur.LogFile do
       end
     end
 
+    record_session_owner()
     :ok
+  end
+
+  defp record_session_owner do
+    key = System.get_env("AIUR_INSTANCE_KEY")
+    log_file = Application.get_env(:aiur, :log_file)
+
+    if Application.get_env(:aiur, :env) != :test and is_binary(key) and key != "" and is_binary(log_file) do
+      root = log_file |> Path.expand() |> Path.dirname() |> Path.dirname()
+      File.mkdir_p!(root)
+      File.write!(Path.join(root, ".aiur-owner"), "#{key}\n#{:os.getpid()}\n")
+    end
   end
 
   defp resolve_default_root do
