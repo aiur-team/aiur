@@ -3,6 +3,8 @@ defmodule Aiur.CapabilitiesNotificationsTest do
   import ExUnit.CaptureLog
   alias Aiur.Capabilities
   alias Aiur.Capabilities.{Monitor, Table}
+  alias Aiur.Events.{Exchange, Topic}
+  alias Aiur.ExecutorBindings
 
   defmodule Provider do
     @behaviour Aiur.Capabilities.Provider
@@ -54,7 +56,7 @@ defmodule Aiur.CapabilitiesNotificationsTest do
   end
 
   test "default publisher delivers the revision on the system topic", %{opts: opts} do
-    :ok = Aiur.Events.Exchange.subscribe("system.capabilities.changed")
+    :ok = Exchange.subscribe("system.capabilities.changed")
     monitor(Keyword.delete(opts, :publish_fun))
     boot_id = Aiur.Boot.run_id()
     assert_received {:event, %{"revision" => 1, "boot_id" => ^boot_id, topic: "system.capabilities.changed"}}
@@ -92,8 +94,8 @@ defmodule Aiur.CapabilitiesNotificationsTest do
   end
 
   test "future regression guard: capability notifications never match default Executor wake bindings" do
-    for {pattern, _route} <- Aiur.ExecutorBindings.defaults() do
-      refute Aiur.Events.Topic.matches?(pattern, "system.capabilities.changed"), pattern
+    for {pattern, _route} <- ExecutorBindings.defaults() do
+      refute Topic.matches?(pattern, "system.capabilities.changed"), pattern
     end
   end
 
