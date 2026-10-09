@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.TicketTransition do
     writer = Keyword.fetch!(opts, :writer)
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
-    result = tracker.update_issue_state(issue_id, to_state, Keyword.drop(opts, [:writer, :identifier, :tracker]))
+    result = with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, Keyword.drop(opts, [:writer, :identifier, :tracker])) end)
     record(issue_id, :state, to_state, writer, opts, result)
     result
   end
@@ -27,9 +27,20 @@ defmodule Aiur.Orchestrator.TicketTransition do
     writer = Keyword.fetch!(opts, :writer)
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
-    result = if action == :add, do: tracker.add_label(issue_id, label), else: tracker.remove_label(issue_id, label)
+    result = with_writer(writer, fn -> if action == :add, do: tracker.add_label(issue_id, label), else: tracker.remove_label(issue_id, label) end)
     record(issue_id, action, label, writer, opts, result)
     result
+  end
+
+  defp with_writer(writer, fun) do
+    previous = Logger.metadata()[:ticket_writer]
+    Logger.metadata(ticket_writer: writer)
+
+    try do
+      fun.()
+    after
+      Logger.metadata(ticket_writer: previous)
+    end
   end
 
   defp record(issue_id, action, to, writer, opts, result) do

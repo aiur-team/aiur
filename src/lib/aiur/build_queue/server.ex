@@ -344,6 +344,7 @@ defmodule Aiur.BuildQueue.Server do
 
   defp plan(state, observations) do
     {projections, actions, observations, cache, holds, published, edges} = Reconcile.plan(state, observations)
+    Aiur.BuildQueue.Measurement.record(state, projections)
     {state, health_actions} = AttentionHealth.plan(state, projections)
     actions = health_actions ++ actions
     state = %{state | planned_edges: edges}
