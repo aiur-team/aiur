@@ -2,7 +2,8 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
   alias Aiur.{Issue, Tracker, Workflow}
-  alias Aiur.Orchestrator.{PauseResume, ReworkRequeue, TicketTransition}
+  alias Aiur.Orchestrator.{PauseResume, TicketTransition}
+  alias Aiur.PRLifecycle.ReworkRequeue
 
   defmodule ControlServer do
     use GenServer

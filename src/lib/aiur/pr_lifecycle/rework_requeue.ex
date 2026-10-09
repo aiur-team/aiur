@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.ReworkRequeue do
+defmodule Aiur.PRLifecycle.ReworkRequeue do
   @moduledoc """
   The inverse of #2337 cause 2's auto-rework trigger.
 

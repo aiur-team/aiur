@@ -5,8 +5,8 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
-  alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
+  alias Aiur.Conversation.History
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
   alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
@@ -36,7 +36,7 @@ defmodule AiurWeb.ObservabilityApiController do
 
   @spec events(Conn.t(), map()) :: Conn.t()
   def events(conn, %{"issue_identifier" => issue_identifier} = params) do
-    case AgentEventFeed.list(issue_identifier, Map.drop(params, ["issue_identifier"])) do
+    case History.transcript(issue_identifier, Map.drop(params, ["issue_identifier"])) do
       {:ok, payload} -> json(conn, payload)
       {:error, :invalid_limit} -> error_response(conn, 422, "invalid_limit", "limit must be an integer from 1 to 50")
       {:error, :invalid_cursor} -> error_response(conn, 422, "invalid_cursor", "cursor must be a non-negative integer")
