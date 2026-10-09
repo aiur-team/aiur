@@ -284,8 +284,7 @@ defmodule AiurWeb.Presenter do
   defp issue_capabilities(nil), do: nil
   defp issue_capabilities(running), do: Map.get(running, :control)
 
-  defp issue_queue_depth(running, _idle) when is_map(running),
-    do: Map.get(running, :queue_depth, 0)
+  defp issue_queue_depth(running, _idle) when is_map(running), do: Map.get(running, :queue_depth, 0)
 
   defp issue_queue_depth(nil, idle) when is_map(idle), do: Map.get(idle, :queue_depth, 0)
   defp issue_queue_depth(nil, nil), do: 0
