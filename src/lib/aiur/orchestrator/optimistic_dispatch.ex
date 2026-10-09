@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.OptimisticDispatch do
   require Logger
 
   alias Aiur.Events.BranchRefStore
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy}
   alias Aiur.{Issue, OptimisticStart}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy}
 
   @spec prepare(Issue.t(), [map()], keyword()) :: {:ok, Issue.t()} | {:error, atom()}
   def prepare(%Issue{} = issue, optimistic_blockers, opts) do
