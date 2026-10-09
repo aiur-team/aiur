@@ -23,6 +23,10 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
         {result, %{s | calls: s.calls ++ [{:promote, id}], labels: labels}}
       end)
     end
+
+    def remove_label(id, label) do
+      Agent.update(__MODULE__, &%{&1 | calls: &1.calls ++ [{:remove_label, id, label}], labels: Map.update!(&1.labels, id, fn labels -> List.delete(labels, label) end)})
+    end
   end
 
   setup do
@@ -84,22 +88,40 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert Hints.sort_key("1") == {0, 0}
   end
 
-  test "successful and pending matching intents explain own promotion for two reconciles" do
-    for outcome <- [:ok, nil] do
-      intent = %Model.Intent{id: "pending", issue_id: "2", action: :promote, target_labels: ~w(agent:todo agent:queued), recorded_at_ms: 1_000, outcome: outcome}
-      change_document(&%{&1 | intents: [intent]})
-      labels("2", ~w(agent:queued agent:todo))
-      pid = server()
-      reconcile(pid)
-      assert projection(pid, "2").state == :promoted
-      reconcile(pid)
-      assert projection(pid, "2").state == :promoted
-      reconcile(pid)
-      assert projection(pid, "2").state == :overridden
-      assert item("2").override == :manual_promotion
-      stop_supervised!(Server)
-      change_document(fn d -> %{d | items: Enum.map(d.items, &%{&1 | override: nil})} end)
-    end
+  test "a successful matching intent explains own promotion for two reconciles" do
+    intent = %Model.Intent{id: "done", issue_id: "2", action: :promote, target_labels: ~w(agent:todo agent:queued), recorded_at_ms: 1_000, outcome: :ok}
+    # Keep readiness stable while testing promotion evidence expiry.
+    change_document(&%{&1 | intents: [intent], edges: []})
+    labels("2", ~w(agent:queued agent:todo))
+    pid = server()
+    reconcile(pid)
+    assert projection(pid, "2").state == :promoted
+    reconcile(pid)
+    assert projection(pid, "2").state == :promoted
+    reconcile(pid)
+    assert projection(pid, "2").state == :overridden
+    assert item("2").override == :manual_promotion
+  end
+
+  test "a pending matching intent resolved at boot keeps own promotion provenance" do
+    intent = %Model.Intent{id: "pending", issue_id: "2", action: :promote, target_labels: ~w(agent:todo agent:queued), recorded_at_ms: 1_000, outcome: nil}
+    change_document(&%{&1 | intents: [intent], edges: []})
+    labels("2", ~w(agent:queued agent:todo))
+    pid = server()
+    for _ <- 1..3, do: reconcile(pid)
+    assert projection(pid, "2").state == :promoted
+    assert item("2").override == nil
+    assert hd(document().intents).outcome == :ok
+  end
+
+  test "restart does not restore provenance a release cleared after an older successful intent" do
+    intent = %Model.Intent{id: "old", issue_id: "1", action: :promote, target_labels: ~w(agent:todo agent:queued), recorded_at_ms: 500, outcome: :ok}
+    change_document(&%{&1 | intents: [intent]})
+    pid = server()
+    reconcile(pid)
+    assert item("1").hold == nil
+    assert item("1").promoted_at != nil
+    assert calls() == [{:promote, "1"}]
   end
 
   test "queue release clears queue/operator holds and adopts existing manual todo" do
