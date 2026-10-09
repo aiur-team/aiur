@@ -1,7 +1,8 @@
 defmodule Aiur.BuildQueue.Writer do
   @moduledoc "Serial label writes with durable intents and a rolling minute write budget."
+  require Logger
   alias Aiur.BuildQueue.Model.Latch
-  alias Aiur.BuildQueue.{WriteEvidence, WriteProtocol}
+  alias Aiur.BuildQueue.{Attention, WriteEvidence, WriteProtocol}
 
   @spec new() :: map()
   def new, do: %{writes: [], failures: %{}, ensured?: false, paused?: false}
@@ -18,6 +19,19 @@ defmodule Aiur.BuildQueue.Writer do
   defp execute({action, id}, context) when action in [:promote, :mark, :unmark] do
     context = retry(context, action, id, [1_000, 4_000, 16_000])
     if context.status == :running, do: {:cont, context}, else: {:halt, context}
+  end
+
+  defp execute({action, {:promoted_unauthorized, id}}, context) when action in [:attention_open, :attention_resolve] do
+    result = if action == :attention_open, do: Attention.open(:promoted_unauthorized, id, %{ticket: id}), else: Attention.resolve(:promoted_unauthorized, id)
+
+    case context.store.load() do
+      {:ok, document} ->
+        if result != :ok, do: Logger.warning("Build queue unauthorized attention failed for ##{id}: #{inspect(result)}", issue_id: id, issue_identifier: "##{id}", action: action)
+        {:cont, %{context | document: document}}
+
+      {:error, _reason} ->
+        {:halt, %{context | status: :store_unavailable}}
+    end
   end
 
   defp execute(_action, context), do: {:cont, context}

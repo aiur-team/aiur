@@ -85,6 +85,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp promoted(f) do
     cond do
+      f.claim == :unavailable and Enum.any?(f.context.input.latches, &(&1.key == {:promoted_unauthorized, f.item.issue_id})) -> result(:promoted_unauthorized, :unauthorized)
       f.verdict == :ready and not held?(f) -> promoted_ready(f)
       not withdrawing?(f) -> result(:promoted, :withdrawal_pending, {:begin_withdraw, f.item.issue_id})
       f.claim == :unclaimed and fresh?(f) and not match?({:unknown, _}, f.verdict) -> result(:promoted, :withdrawal_pending, {:withdraw, f.item.issue_id})

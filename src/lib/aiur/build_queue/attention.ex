@@ -110,7 +110,7 @@ defmodule Aiur.BuildQueue.Attention do
   defp message(:dependency_changed_after_start, subject, payload),
     do: "##{subject} gained prerequisite ##{payload[:prerequisite]} after it started. Decide whether it pauses; ask the human if unsure."
 
-  defp message(:promoted_unauthorized, subject, _), do: "##{subject} is ready but dispatch is not authorized for it. Ask the human to authorize or hold it."
+  defp message(:promoted_unauthorized, subject, _), do: "##{subject} is ready but dispatch is not authorized for it. An allowed human must apply the marker or agent:todo, or hold it."
   defp message(:merged_issue_open, subject, _), do: "The PR for ##{subject} merged; the issue is still open. Close it or explain why it stays open."
   defp message(:inputs_unavailable, _, _), do: "Queue readiness unknown: inputs unavailable. Wait; do not promote by hand."
   defp message(:store_unavailable, _, _), do: "Queue store unavailable; promotion paused. Report it; do not edit labels by hand."
