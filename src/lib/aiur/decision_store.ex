@@ -10,11 +10,11 @@ defmodule Aiur.DecisionStore do
   request is rejected outright (no audit append, no notification) if
   validation fails or the durable ID reservation itself fails.
 
-  On boot, replays the canonical audit stream, rebuilds the current
-  projection, and repairs `decisions.json` if it doesn't already match.
-  Interior corruption puts the store into a read-only mode: existing
-  reads keep serving the validated prefix, every mutation is rejected,
-  and one Executor alert is emitted — never silently skipped.
+  On boot, replays the canonical `decisions.ndjson` audit stream via `Aiur.Journal`,
+  rebuilds the projection, and repairs `decisions.json` if it doesn't already match.
+  Well-formed unfamiliar records remain intact across version skew via `Aiur.DecisionEvent.Unrecognized`.
+  Interior corruption puts the store into read-only mode: reads serve the validated prefix,
+  every mutation is rejected, and one Executor alert is emitted — never silently skipped.
 
   Version/dedup rules for a request against `decision_id`'s current
   state:
@@ -43,7 +43,6 @@ defmodule Aiur.DecisionStore do
     DecisionDispatchTasks,
     DecisionEnrichment,
     DecisionEvent,
-    DecisionLog,
     DecisionProjection,
     DecisionPubSub,
     DecisionRevision,
@@ -52,6 +51,7 @@ defmodule Aiur.DecisionStore do
     ExecutorCommandAttention,
     ExecutorEvents,
     Issue,
+    Journal,
     SecretRedactor
   }
 
@@ -628,14 +628,14 @@ defmodule Aiur.DecisionStore do
     ndjson_path = Path.join(dir, @ndjson_filename)
     projection_path = Path.join(dir, @projection_filename)
 
-    case DecisionLog.prepare(dir, ndjson_path, filesystem_sync_fun) do
+    case Journal.prepare(dir, ndjson_path, filesystem_sync_fun) do
       :ok -> replay_and_project(ndjson_path, projection_path)
       {:error, reason} -> unavailable_state(ndjson_path, {:directory_unavailable, reason})
     end
   end
 
   defp replay_and_project(ndjson_path, projection_path) do
-    case DecisionLog.replay(ndjson_path, &DecisionProjection.decode_record/1) do
+    case Journal.replay(ndjson_path, &DecisionProjection.decode_record/1) do
       {:ok, records, corruption} ->
         {%{current: current, history: history, audit_history: audit_history}, transition_corruption} =
           DecisionProjection.reduce_checked(records)
@@ -2522,7 +2522,7 @@ defmodule Aiur.DecisionStore do
   defp append_event(%{writable?: false, health: health}, _event), do: {:error, {:store_unavailable, health}}
 
   defp append_event(state, event) do
-    case DecisionLog.append(state.ndjson_path, DecisionEvent.to_json_safe(event), file_ops: state.file_ops) do
+    case Journal.append(state.ndjson_path, DecisionEvent.to_json_safe(event), file_ops: state.file_ops) do
       :accepted -> :ok
       {:failed, reason} -> {:error, reason}
       {:ambiguous, _reason} -> reconcile_append(state, event)
@@ -2532,7 +2532,7 @@ defmodule Aiur.DecisionStore do
   defp reconcile_append(state, event) do
     case verify_journal(state) do
       :ok ->
-        case DecisionLog.reconcile_ambiguous(state.ndjson_path, event.event_id, &DecisionProjection.decode_record/1) do
+        case Journal.reconcile_ambiguous(state.ndjson_path, event.event_id, &DecisionProjection.decode_record/1) do
           :accepted -> :ok
           :failed -> retry_missing_append(state, event)
           {:ambiguous, reason} -> {:error, {:journal_ambiguous, event, reason}}
@@ -2544,7 +2544,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp verify_journal(state) do
-    case DecisionLog.replay(state.ndjson_path, &DecisionProjection.decode_record/1) do
+    case Journal.replay(state.ndjson_path, &DecisionProjection.decode_record/1) do
       {:ok, records, nil} ->
         case DecisionProjection.reduce_checked(records) do
           {_projection, nil} -> :ok
@@ -2560,7 +2560,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp retry_missing_append(state, event) do
-    case DecisionLog.append(state.ndjson_path, DecisionEvent.to_json_safe(event), file_ops: state.file_ops) do
+    case Journal.append(state.ndjson_path, DecisionEvent.to_json_safe(event), file_ops: state.file_ops) do
       :accepted -> :ok
       {:failed, reason} -> {:error, reason}
       {:ambiguous, reason} -> {:error, {:journal_ambiguous, event, reason}}

@@ -25,7 +25,7 @@ defmodule Aiur.DecisionProjectionTest do
 
   # Simulates the exact bytes that would be on disk: encode through
   # to_json_safe/1, then Jason round-trip so every value is the plain
-  # string-keyed map decode_record/1 actually receives from DecisionLog.
+  # string-keyed map decode_record/1 actually receives from Journal.
   defp persisted_raw(decision) do
     decision |> DecisionProjection.to_json_safe() |> Jason.encode!() |> Jason.decode!()
   end
