@@ -3,6 +3,9 @@ import { openVisualRoute } from '../support/visual.mjs'
 import { test, expect } from '@playwright/test'
 import { openDesign, openProduct, selectProductDataset, guardNetwork, parityContextOptions, FIXTURE_META } from '../support/design-parity.mjs'
 
+// Per-action DOM traces dominate the frame sampler; failures retain numeric diffs and screenshots.
+test.use({ trace: 'off' })
+
 const cell = { viewport: { width: 1440, height: 900 }, theme: 'dark', palette: 'gruvbox', dataset: 'live' }
 
 test('clock probe: product connects and patches with preinstalled clock', async ({ browser }) => {
@@ -62,6 +65,13 @@ test('harness self-check: measured position tolerance and missing nodes', () => 
   expect(compareRecords(record(10), record(11.1))).toEqual([{ path: 'probe.samples[0].scrollTop', design: 10, product: 11.1 }])
   const product = record(10); product.dom.nodes.push({ key: 'extra-card' })
   expect(compareRecords(record(10), product).map(diff => diff.path)).toEqual(['probe.dom.nodes[0].key'])
+})
+
+test('harness self-check: column timers allow one frame without losing states', () => {
+  const columns = (at, state = 'present') => ({ name: 'columns.probe', samples: Array.from({ length: 8 }, (_, index) => ({ lane: index < at ? 'leave' : state })), applyAt: 220, removeAt: at * 16 })
+  expect(compareRecords(columns(3), columns(4))).toEqual([])
+  expect(compareRecords(columns(3), columns(5)).map(diff => diff.path)).toEqual(['columns.probe.samples[1].at', 'columns.probe.removeAt'])
+  expect(compareRecords(columns(3), columns(4, 'wrong')).map(diff => diff.path)).toEqual(['columns.probe.samples[1].state.lane'])
 })
 
 test('harness self-check: path allowlist and stale paths', () => {
@@ -128,6 +138,10 @@ for (const name of Object.keys(SEQUENCES)) for (const reduce of [false, true]) {
       expect(record.reason, JSON.stringify(record)).toBeUndefined()
       expect(record.samples.length).toBeGreaterThan(0)
       if (name.startsWith('snap.') && name !== 'snap.scrollbar-drag') expect(record.frame).toHaveLength(name === 'snap.scroll-curve' ? 27 : 41)
+      if (name === 'snap.scroll-curve' && !reduce) for (const frame of record.frame) {
+        const k = Math.min(1, frame.elapsed / 420), expected = record.input.from + (record.input.to - record.input.from) * (1 - (1 - k) ** 3)
+        expect(Math.abs(frame.scrollTop - expected), `scroll curve at ${frame.elapsed}ms`).toBeLessThanOrEqual(1)
+      }
       if (reference) expect(compareRecords(reference, record), `run ${run + 1}`).toEqual([])
       else reference = record
     }
@@ -150,7 +164,7 @@ const plants = [
 ]
 
 async function sequenceOptions(name, selectedCell) {
-  const opts = { motion: true, phase: name === 'loading.spin' ? 'loading' : 'board', query: name.startsWith('columns.') ? '?trees=1&span=7' : '?trees=1' }
+  const opts = { motion: true, phase: name === 'loading.spin' ? 'loading' : 'board', query: name.startsWith('columns.') || name === 'snap.scroll-curve' ? '?trees=1&span=30' : '?trees=1' }
   if (name === 'modal.url') {
     const fixture = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${selectedCell.dataset}.json`, import.meta.url), 'utf8'))
     const ticket = fixture.data.now.find(t => t.agent?.state !== 'active') ?? fixture.data.hist[0]
@@ -181,7 +195,7 @@ for (const plant of plants) test(`harness self-check: planted ${plant[0]}`, asyn
   const changed = await designRecord(browser, plant[1], { reduce, plant })
   expect(design.samples.length, design.reason).toBeGreaterThan(0)
   expect(changed.samples.length, changed.reason).toBeGreaterThan(0)
-  expect(compareRecords(design, changed).filter(diff => plant[5].test(diff.path))).not.toEqual([])
+  expect(compareRecords(design, changed).filter(diff => plant[5].test(diff.path)), JSON.stringify({ design: { applyAt: design.applyAt, removeAt: design.removeAt }, changed: { applyAt: changed.applyAt, removeAt: changed.removeAt } })).not.toEqual([])
 })
 
 test('harness self-check: missing span selector is unreachable', async ({ browser }) => {
@@ -242,7 +256,7 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
     const owner = ownerFor(name), reduce = selectedCell.reducedMotion === 'reduce'
     const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: owner.anchor, productPending: owner.pending })
     try {
-      const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count())
+      const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count()) || ((name.startsWith('columns.') || name === 'snap.scroll-curve') && !await pair.product.locator('.bd-cal [data-span="7"]').count())
       if (absent) missingPorts.add(`${name}: ${owner.owners.join(', ')}`)
       test.fixme(absent, `awaiting ${owner.owners.join(', ')}`)
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)

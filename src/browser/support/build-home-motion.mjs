@@ -6,7 +6,7 @@ const geometry = /(?:scrollTop|top|left|width|height)$/
 function equalValue(design, product, path) {
   if (Object.is(design, product)) return true
   if (typeof design === 'number' && typeof product === 'number') {
-    const tolerance = geometry.test(path) ? 1 : path.endsWith('opacity') ? 0.001 : 0
+    const tolerance = /^columns\..*\.(?:applyAt|removeAt|samples\[\d+\]\.at)$/.test(path) ? 16 : geometry.test(path) ? 1 : path.endsWith('opacity') ? 0.001 : 0
     return Number.isFinite(design) && Number.isFinite(product) && Math.abs(design - product) <= tolerance
   }
   if (typeof design !== 'string' || typeof product !== 'string') return false
@@ -36,6 +36,12 @@ export function compareRecords(design, product, allowlist = []) {
   const name = design?.name ?? product?.name ?? 'record'
   if (!design?.samples?.length || !product?.samples?.length) return [{ path: name, reason: 'unreachable' }]
   const result = []
+  // Column timers may cross a sampling boundary by one frame; retain every state change.
+  if (name.startsWith('columns.')) {
+    const changes = samples => samples.flatMap((state, index) => index === 0 || JSON.stringify(state) !== JSON.stringify(samples[index - 1]) ? [{ at: (index + 1) * 16, state }] : [])
+    design = { ...design, samples: changes(design.samples) }
+    product = { ...product, samples: changes(product.samples) }
+  }
   differences(design, product, name, result)
   const entries = allowlist.filter(entry => entry.kind === 'motion' && (entry.path === '*' || entry.path.startsWith(`${name}.`) || (name === 'reduce.live-toggle' && entry.path.startsWith('modal.reduce.animation.tkin.'))))
   for (const entry of entries) {
@@ -119,9 +125,9 @@ export async function pausedAnimations(page, selector, { trigger, event = 'click
 }
 
 export const OWNER = {
-  'snap.scroll-curve': { owners: ['MP-E8-C9-T08', 'MP-E8-C10-T01'], anchor: '#bd-nowbtn' },
+  'snap.scroll-curve': { owners: ['MP-E8-C9-T08', 'MP-E8-C10-T01', 'MP-E8-C9-T10'], anchor: '#bd-nowbtn' },
   'snap': { owners: ['MP-E8-C9-T08'], anchor: '.bd-now-h > b' },
-  'columns': { owners: ['MP-E8-C9-T04'], anchor: '.bd-content .bd-lane' },
+  'columns': { owners: ['MP-E8-C9-T04', 'MP-E8-C9-T10'], anchor: '.bd-content .bd-lane' },
   'view.span': { owners: ['MP-E8-C9-T10'], anchor: '.bd-zoom [data-z]' },
   'view.switch.graph': { owners: ['MP-E8-C10-T01'], pending: true },
   'view.switch.gantt': { owners: ['MP-E8-C9-T09'], pending: true },
@@ -183,7 +189,8 @@ async function snap(page, ctx, kind) {
   const geometry = await page.evaluate(() => {
     const vp = document.querySelector('#bd-vp'), band = document.querySelector('#bd-now')
     if (!vp || (!band && !document.querySelector('.bd-list'))) throw new Error('unreachable snap viewport')
-    return { top: band ? band.offsetTop - 46 : 0, bottom: band ? band.offsetTop + band.offsetHeight - vp.clientHeight : 0,
+    const hist = document.querySelector('#bd-sec-hist'), natural = hist ? hist.offsetTop + hist.offsetHeight : 0
+    return { top: band ? natural - 46 : 0, bottom: band ? natural + band.offsetHeight - vp.clientHeight : 0,
       tallHeight: band ? band.offsetHeight + 40 : 0 }
   })
   if (kind === 'tall-band') {
@@ -206,11 +213,17 @@ async function snap(page, ctx, kind) {
 }
 
 async function scrollCurve(page, ctx) {
+  await click(page, '.bd-cal [data-span="7"]')
+  await page.clock.runFor(16)
   await page.clock.runFor(704)
+  // A tall band disables liveGuard so it cannot restart the curve midway through.
+  await page.locator('#bd-vp').evaluate(el => {
+    el.style.height = el.style.maxHeight = `${document.querySelector('#bd-now').offsetHeight + 40}px`
+  })
   await scrollTo(page, 270)
   await page.clock.runFor(704)
   const input = await page.evaluate(() => ({ from: document.querySelector('#bd-vp').scrollTop,
-    to: document.querySelector('#bd-now').offsetTop - 46, at: performance.now() }))
+    to: document.querySelector('#bd-sec-hist').offsetTop + document.querySelector('#bd-sec-hist').offsetHeight - 46, at: performance.now() }))
   await click(page, '#bd-nowbtn')
   await ctx.onFrame?.(0, '#bd-vp')
   const frame = []
@@ -242,21 +255,23 @@ async function scrollbarDrag(page, ctx) {
 
 async function columns(page, ctx) {
   if (await page.locator('#bd-content').evaluate(el => el.classList.contains('flow'))) return { samples: [await state(page, ctx)], mode: 'flow' }
+  // Month loads older days; week zoom preserves them without paging during measurement.
+  await click(page, '.bd-cal [data-span="7"]')
+  await page.clock.runFor(16)
   await page.clock.runFor(704)
-  const samples = [], initial = await page.locator('.bd-lane').allTextContents()
-  // Stay above the 260px paging threshold: paging forces layout and bypasses debounce.
+  const samples = [], initial = await page.locator('.bd-lane:not(.leave)').evaluateAll(nodes => nodes.map(el => el.title))
   await scrollTo(page, 270)
   let applyAt = null, removeAt = null, leaving = false, animation = {}
   for (let elapsed = 16; elapsed <= 800; elapsed += 16) {
     await page.clock.runFor(16)
-    const current = await page.locator('.bd-lane').allTextContents()
-    const leave = await page.locator('.bd-lane.leave').count()
+    const lanes = await page.locator('.bd-lane').evaluateAll(nodes => nodes.map(el => ({ key: el.title, classes: [...el.classList].sort(), left: el.style.left, width: el.style.width })))
+    const current = lanes.filter(lane => !lane.classes.includes('leave')).map(lane => lane.key), leave = lanes.some(lane => lane.classes.includes('leave'))
     if (applyAt === null && JSON.stringify(current) !== JSON.stringify(initial)) {
       applyAt = elapsed; animation = await cssMotion(page, '.bd-lanes', ctx)
     }
     if (leave) leaving = true
     if (leaving && !leave && removeAt === null) removeAt = elapsed
-    samples.push(await page.locator('.bd-lane').evaluateAll(nodes => nodes.map(el => ({ key: el.title, classes: [...el.classList].sort(), left: el.style.left, width: el.style.width }))))
+    samples.push(Object.fromEntries(lanes.map(lane => [lane.key, lane])))
   }
   if (applyAt === null || removeAt === null) throw new Error(`unreachable column enter/leave ${JSON.stringify({ initial, applyAt, removeAt, final: await page.locator('.bd-lane').allTextContents() })}`)
   return { samples, dom: await state(page, ctx), applyAt, removeAt, animation }
