@@ -12,7 +12,7 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   alias Aiur.AgentRunner.BootstrapDigest
   alias Aiur.Events.{IdGenerator, Sanitizer}
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{ExternalContent, Issue, Tracker}
 
   @doc """
   Return comment-context events for `issue`.
@@ -26,12 +26,7 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   def events(%Issue{identifier: identifier}, fetchers)
       when is_binary(identifier) do
-    {issue_comments, cutoff} = issue_comment_context(identifier, fetchers)
-
-    issue_events =
-      issue_comments
-      |> comments_after_workpad(cutoff)
-      |> comments_to_events("ticket.#{identifier}.issue.commented")
+    {issue_events, cutoff} = issue_comment_context(identifier, fetchers)
 
     pr_events = pr_comment_context_events(identifier, fetchers, cutoff)
 
@@ -43,11 +38,13 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp issue_comment_context(identifier, fetchers) do
     case fetchers.issue_comments.(identifier) do
       {:ok, comments} when is_list(comments) ->
-        {comments, latest_workpad_comment_datetime(comments)}
+        cutoff = latest_workpad_comment_datetime(comments)
+        events = comments |> comments_after_workpad(cutoff) |> comments_to_events("ticket.#{identifier}.issue.commented")
+        {events, cutoff}
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=ticket.#{identifier}.issue.commented reason=#{inspect(reason)}")
-        {[], nil}
+        {[incomplete_comment_context("ticket.#{identifier}.issue.commented", reason)], nil}
     end
   end
 
@@ -110,8 +107,13 @@ defmodule Aiur.AgentRunner.CommentContext do
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} reason=#{inspect(reason)}")
-        []
+        [incomplete_comment_context(topic, reason)]
     end
+  end
+
+  defp incomplete_comment_context(topic, reason) do
+    message = "comment context incomplete: " <> ExternalContent.wrap(inspect(reason), :comment_body, nil)
+    %{id: IdGenerator.next_id(), topic: topic, source: :system, message: message}
   end
 
   defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number, _cutoff), do: []

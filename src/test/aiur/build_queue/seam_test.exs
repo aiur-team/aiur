@@ -3,6 +3,8 @@ defmodule Aiur.BuildQueue.SeamTest do
 
   @source_root Path.expand("../../../lib/aiur/build_queue", __DIR__)
   @build_order_source Path.join(@source_root, "sources/build_order.ex")
+  # #3306 (U2-T01): the build queue is a sanctioned caller of the lifecycle label-write owner.
+  @sanctioned ["Aiur.Orchestrator.TicketTransition"]
 
   # Future-regression guards; MP-R1's dependency checker will absorb these rules.
   test "no build_queue module references orchestration or GitHub" do
@@ -39,6 +41,7 @@ defmodule Aiur.BuildQueue.SeamTest do
     Enum.flat_map(files, fn file ->
       file
       |> File.read!()
+      |> String.replace(@sanctioned, "")
       |> references(modules)
       |> Enum.map(&{Path.relative_to(file, @source_root), &1})
     end)

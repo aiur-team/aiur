@@ -120,7 +120,7 @@ Remote control is opt-in per agent and local-only in v1.
 ## Core capability report
 
 The read-only capability report describes the current instance without changing any
-operation's gates. Providers read runtime evidence independently, so registration
+operation's gates; providers read runtime evidence independently, so registration
 order does not change the result.
 
 | Capability | Meaning |

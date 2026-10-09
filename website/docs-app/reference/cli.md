@@ -44,8 +44,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur accounts [<harness>] [--json]` | Lists registered accounts and supported identity/usage observations without printing credentials. `muse` has one native login and does not support isolated accounts. | `aiur accounts codex --json` |
 | `aiur logout <harness> <name> [--purge]` | Removes an account from the machine registry. Its profile remains unless `--purge` is specified; `default` is protected. | `aiur logout codex work` |
 | `aiur --todo 142 143` | Requires a running daemon and one or more numeric IDs, with commas also accepted. A stopped daemon exits nonzero. | `aiur --todo 142,143` |
-| `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
-| `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=<n> aiur --todo …` | `--todo` is the one control command whose runtime scales with its request rather than with daemon state, so it does not use the shared 10-second control-RPC deadline. Its default window is 15s, plus 3s per requested ID, plus 90s when `--only` is given. The daemon self-limits 10 seconds inside that window: a run it cannot finish stops itself, names the tickets it never reached, and exits nonzero, so the outcome is always definite rather than "unknown". This variable overrides the whole window when set to a positive integer; a zero or malformed value is ignored in favor of the sizing above. | `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=300 aiur --todo 142 --only` |
+| `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Removing `agent:todo` from a promoted queue member creates an external hold, cleared with `aiur queue release`. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
+| `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=<n> aiur --todo …` | `--todo` sizes its deadline by the request, rather than using the shared 10-second control-RPC deadline. Queue add/remove also use 15s plus 3s per ID and honor this override; their timeout leaves the outcome unknown. Its default window is 15s, plus 3s per requested ID, plus 90s when `--only` is given. The daemon self-limits 10 seconds inside that window: a run it cannot finish stops itself, names the tickets it never reached, and exits nonzero, so the outcome is always definite rather than "unknown". This variable overrides the whole window when set to a positive integer; a zero or malformed value is ignored in favor of the sizing above. | `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=300 aiur --todo 142 --only` |
 | `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
 | `aiur --debug` | Enables debug logs and durable chat-pane recording for this run. | `aiur --debug` |
 | `aiur --pause` | Cold-starts with the global provisioning switch paused. | `aiur --pause` |
@@ -71,9 +71,7 @@ On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A
 
 Event counters, subscriptions, session handles and the alert ledger survive restarts in instance- and repository-scoped runtime state. Central alert and event-publication audit logs remain per launch; `--logs-root` controls those logs.
 
-On upgrade, session handles and subscriptions start empty once, just as they previously did on every restart; state saved from that boot onward is durable.
-
-The event counter seeds above the maximum across all launches' counters, logs, the journal and the clock; the alert ledger adopts only its exact project-scoped filename and backfill marker once.
+On upgrade, session handles and subscriptions start empty once, just as they previously did on every restart; state saved from that boot onward is durable. The event counter seeds above the maximum across all launches' counters, logs, the journal and the clock; the alert ledger adopts only its exact project-scoped filename and backfill marker once.
 
 Launch mode determines which interfaces remain available:
 
@@ -108,7 +106,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur github-usage` | Prints per-actor (daemon vs each agent workspace) GitHub usage: Core, GraphQL and `search` `used`/`limit` with reset times, read from the shared admission broker's `admissions`. Limits are request-count ceilings (the broker sees requests, not GraphQL points); `0` in the config means no ceiling. Issues no GitHub request of its own. | `aiur github-usage` |
 | `aiur github-usage --json` | Emits the per-actor usage as one versioned envelope. | `aiur github-usage --json` |
 | `aiur agents` | Prints each active agent's state and current activity, including startup and scheduled retries. `starting` means a worker was dispatched but no provider turn has started. `retrying` means no worker is live; the row includes the last failure reason and time when known. `aiur status` and `aiur watch` use the same startup and retry distinction. A Codex process that exits before handshake also leaves its numeric exit status and a bounded, redacted diagnostic in the daemon's `<logs-root>/log/<repo>.<ticket>.startup-failures.ndjson`, correlated with the `agent_spinup` telemetry attempt. The file retains the last 50 records. An agent with an open decision, or one that asked for input, reads `waiting` with `(waiting_for_human: <cause>)`, the same wait `aiur status` prints as `waiting=waiting_for_human`. A `rework` label alone is agent-owned work and never reads as waiting for a human. | `aiur agents` |
-| `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished`, choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
+| `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished` (`queued` means waiting for dispatch or retry, unrelated to `agent:queued` membership), choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
 | `aiur units --condition alert` | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |
 | `aiur units --format records` | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur units --format records` |
 | `aiur watch` | Shows changed fleet rows by default. | `aiur watch` |
@@ -123,7 +121,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur resume` | Turns off that global switch. Lifting the pause schedules a prompt poll, so a ramp resumes dispatch within one base interval rather than waiting out the idle poll backoff. | `aiur resume` |
 | `aiur pause 142 143` | Requests a safe-boundary pause for named tickets. | `aiur pause 142,143` |
 | `aiur pause --all` | Requests a pause for every active ticket. | `aiur pause --all` |
-| `aiur resume 142` | Resumes a paused ticket, including one whose pause is still pending, or starts an idle eligible ticket. It also reactivates a deactivated agent and starts a new worker for a completed one, as the dashboard and API do, and names the prior state (`was: deactivated`, `was: completed`). It reports `already running` only when a live worker is working the ticket, and `already running (sleeping ...)` for an idle agent whose stream closed. It refuses by name an agent whose worker failed to start (the retry schedule owns that restart), an agent whose worker is gone, and an idle ticket held by an open blocking decision, which it names by id; answer the decision, then resume. | `aiur resume 142` |
+| `aiur resume 142` | Resumes a paused ticket, including one whose pause is still pending, or starts an idle eligible ticket. It also reactivates a deactivated agent and starts a new worker for a completed one, as the dashboard and API do, and names the prior state (`was: deactivated`, `was: completed`). It reports `already running` only when a live worker is working the ticket, and `already running (sleeping ...)` for an idle agent whose stream closed. A queue-held idle ticket reports `build_queue_hold`; use `aiur queue release` first. It refuses by name an agent whose worker failed to start (the retry schedule owns that restart), an agent whose worker is gone, and an idle ticket held by an open blocking decision, which it names by id; answer the decision, then resume. | `aiur resume 142` |
 | `aiur resume --all` | Resumes every individually paused ticket. | `aiur resume --all` |
 | `aiur reset-budget 142` | Clears a named ticket's dispatch-budget latch. It does not accept `--all`; `resume` cannot clear this latch. | `aiur reset-budget 142` |
 | `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. Text must be nonblank and at most 8,000 characters. The command reports what it observed: `delivered message to #142` once the agent has claimed it, otherwise `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0 — a queued message is normally claimed at the agent's next checkpoint. | `aiur message 142 "Check the latest review"` |
@@ -139,6 +137,10 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. Idle tickets appear alongside running workers and retries.
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
+
+`status`, `agents` and `watch` always print the fleet snapshot age, including fresh snapshots, as in `FLEET SNAPSHOT 2s old` and `CAPACITY OBSERVATION 2s old`. Rows carry their own observation age. A missing observation renders `age unavailable`, never zero. Retry rows read `since daemon start <UTC time>`, because retry state resets on daemon restart.
+
+The JSON `observations` map covers fleet, capacity, per-ticket tracker data, retries and the dispatch sample; each has `observed_at` and `age_ms`. Capacity slot counts use the captured state time; cached load fields use `capacity.dispatch_observation`. Durable launch evidence lives in the run log directory's `<repo>.<ticket>.startup-failures.ndjson`.
 
 The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation.
 
@@ -230,6 +232,12 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 | `aiur units` | Filtered Units catalog; use `--scope`, repeated `--condition`, `--format`, or `--json`. | `aiur units --scope unfinished --condition alert --json` |
 | `aiur commands [decision-id]` | Durable decision inbox, or one selected decision. Use `--filter all\|open\|blocking\|resolved`, `--blocking`, `--ticket`, `--search`, `--cursor`, `--limit`, and `--json`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter blocking --json` |
 | `aiur queue show [--queue NAME] [--json]` | Read held queue state, start order, prerequisites, progress, and source ages; optionally select a named queue. | `aiur queue show --queue paseo --json` |
+| `aiur queue add <ids…> [--after N] [--queue NAME] [--at POS]` | Adds tickets to a list (default name: `default`); `--after` adds local prerequisite edges; positions are zero-based. | `aiur queue add 142 143 --queue paseo --after 141 --at 0` |
+| `aiur queue add --build-order <root> [--queue NAME]` | Adopts a Build Order root, optionally naming its queue. | `aiur queue add --build-order 141 --queue roadmap` |
+| `aiur queue remove <ids…>` | Removes list members and their membership markers. | `aiur queue remove 142 143` |
+| `aiur queue reorder <id> --to POS` | Moves one ticket within its list to a zero-based position. | `aiur queue reorder 143 --to 0` |
+| `aiur queue hold <id\|--queue NAME>` | Persists an item or whole-queue hold, stopping promotion. | `aiur queue hold --queue paseo` |
+| `aiur queue release <id\|--queue NAME>` | Clears holds and overrides on the selected item or every member of the named queue. | `aiur queue release 142` |
 | `aiur build-orders [root]` | Build Order catalog without a root; one root adds graph, execution, and activity detail. | `aiur build-orders 1567 --json` |
 | `aiur analytics` | Analytics snapshot, including whole-host fleet/build pressure. Human output reports peaks, latest measured capacities, the binding admission signal with measured load, and longest live build wait; `--json` includes the timestamped pressure series. Choose `--range run\|full`, an ISO-8601 `--since`/`--until` window, an optional numeric `--build-order`, or `--json`. | `aiur analytics --range full --build-order 1567 --json` |
 | `aiur analytics --range full` | Selects the current run or all retained analytics observations. | `aiur analytics --range full` |
@@ -335,10 +343,7 @@ A stopped daemon is reported separately with the command needed to start it; a l
 
 ### `executor-wait` outcomes
 
-A quiet timeout is a **successful empty result**, not a failure: nothing was
-pending, so nothing was consumed and nothing was lost. Plain mode prints
-`NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json`
-returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
+A quiet timeout is a **successful empty result**, not a failure: nothing was pending, so nothing was consumed and nothing was lost. Plain mode prints `NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json` returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
 
 Under `--json` every outcome carries a `status`: `woken` for a returned batch, `timeout` for a quiet wait, `error` for a failure. Branch on that field rather than on the presence of `records`.
 
@@ -351,9 +356,7 @@ Every nonzero exit names the stage that failed — `claim`, `wait` or `acknowled
 | `1` | Daemon or store failure — an unreadable wake ledger, or a claims store that cannot be written. Retrying repeats it. |
 | `64` | Invalid usage. |
 
-If lease renewal detects that this consumer lost ownership during a wait, the
-wait continues as an observer and leaves the shared cursor untouched. Ownership
-loss discovered only when acknowledging still returns `69`.
+If lease renewal detects that this consumer lost ownership during a wait, the wait continues as an observer and leaves the shared cursor untouched. Ownership loss discovered only when acknowledging still returns `69`.
 
 The `69` diagnostic reports the retry bounds actually spent, read from the live
 configuration: by default the claims lock is retried every 25ms for 5 seconds,
@@ -369,9 +372,7 @@ consumer holds the claim next.
 
 ### Wake ledger bound and lease TTL
 
-The wake ledger is capped at 10,000 records. Consumed records are evicted first.
-
-Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
+The wake ledger is capped at 10,000 records. Consumed records are evicted first. Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
 advanced past them and an `executor.wakes.overflow` alert names the count and id
 range; those wakes are never delivered.
 
@@ -379,11 +380,7 @@ In practice that only happens when a run records for a long time with no
 consumer, or with a stalled one. The roster's `stalled` state is the earlier
 warning.
 
-A claim is a lease with a 10-minute TTL. An `--executor` run registers and
-renews its principal below that TTL; `executor-wait` also renews while it blocks,
-and every claim or acknowledgement renews. A consumer that stops renewing
-is reported `expired` after the TTL lapses, and a successor may take over with no
-operator action.
+A claim is a lease with a 10-minute TTL. An `--executor` run registers and renews its principal below that TTL; `executor-wait` also renews while it blocks, and every claim or acknowledgement renews. A consumer that stops renewing is reported `expired` after the TTL lapses, and a successor may take over with no operator action.
 
 ### Executor roster states
 
@@ -495,6 +492,8 @@ When the script path and current directory point at different checkouts, command
 
 `--json` emits schema version 1 (`page: "build-queue"`): instance, snapshot capture time, server status, sources, and queues with progress and item prerequisites, rank, promotion time, and attention. It includes no ticket titles or bodies.
 
+Mutations print each ticket's outcome; partial success exits 1 and names refusals. Agent workspace mutations and invalid arguments exit 64. Engine and daemon guards block workspace changes; dispatch authorization still applies. Timeouts exit 124: run `aiur queue show` before retrying. Build Order queues cannot be edited as lists.
+
 The build queue uses the `agent:queued` membership marker; `aiur units --condition queued` still means tickets carrying `agent:todo`.
 
-Exit codes: 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, or a refused selection; 64 for invalid launcher arguments; 124 for an RPC timeout. Refusal statuses still print their read model.
+`queue show` exit codes: 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, or a refused selection; 64 for invalid launcher arguments; 124 for an RPC timeout. Refusal statuses still print their read model.
