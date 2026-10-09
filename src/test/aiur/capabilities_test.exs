@@ -1,4 +1,5 @@
 defmodule Aiur.CapabilitiesTest do
+  # One fixture family exercises the registry, provider failures and read path together.
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   import Aiur.TestSupport, only: [receive_barrier: 1]
@@ -213,5 +214,13 @@ defmodule Aiur.CapabilitiesTest do
     :sys.get_state(pid)
     assert Capabilities.report(opts).capabilities["test.fake"].state == :unavailable
     assert Capabilities.refresh() == :ok
+  end
+
+  @tag timeout: 5_000
+  test "periodic scheduling recomputes after the initial report", %{opts: opts} do
+    monitor(Keyword.put(opts, :tick_ms, 0))
+    receive_barrier({:context, _first})
+    receive_barrier({:context, _next})
+    stop_supervised!(Monitor)
   end
 end
