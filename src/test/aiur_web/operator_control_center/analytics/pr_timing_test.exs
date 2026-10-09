@@ -10,7 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PrTimingTest do
       provenance: %{time_range: %{start: "1970-01-01T00:00:01Z", end: "1970-01-01T00:00:05Z"}}
     }
 
-    model = Presenter.model(dataset, buckets: 4, axis: :absolute)
+    model = Presenter.model(dataset, buckets: 4, axis: :absolute, range: :full)
     assert [row] = model.tickets
     assert row.pr_opened_at == 2_000
     assert row.status == :in_review
