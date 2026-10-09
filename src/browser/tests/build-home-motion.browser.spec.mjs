@@ -353,6 +353,7 @@ test('harness self-check: composed animations share each sampled fraction', asyn
   for (const animation of animations) expect(animation.samples.map(sample => sample.width)).toEqual(['100px', '125px', '150px', '175px', '200px'])
 })
 
+// Future regression guard for the existing sampler; paired root coverage awaits its ports.
 test('harness self-check: complete inventory detects an unexpected animation', async ({ browser }) => {
   const context = await browser.newContext()
   try {
