@@ -92,6 +92,13 @@ CLI
 - **R15.** `aiur experiments list [--status s] [--json]`, `show <id> [--json]`, `create --from <file|->` or the quick line form `create --title t --line <type>:<ref>[@<time>] --metric <pack>/<metric>[:<direction>]...`, `freeze <id> [--window before|after|observation] [--reason r]`. Exit codes follow the existing CLI (`0` ok, `1` refused, `64` usage).
 - **R16.** `create` of a before/after experiment freezes the before window in the same call (KD3) unless `--no-freeze` is given; output says what was frozen and its coverage.
 
+Cross-area contract (aligned with the X3, X4 and X5 drafts on the same branch)
+
+- **R19.** A spec may carry a `key`; `create` with an existing key returns the existing experiment (X3 creates automatically and must be idempotent).
+- **R20.** Annotations (deploys, confounders, unit exclusions, notes) are an append-only list per experiment, written by X3 and X6 and read by X4.
+- **R21.** Each metric declares a `kind` (`duration`, `count`, `binary`, `rate`, `bucketed`); duration units still open at freeze are kept as censored rows, so slow tickets are not dropped from the baseline.
+- **R22.** X4 receives one flat, hashed input file per analysis (`report/analysis-input.json`), never the internal snapshots.
+
 Component
 
 - **R17.** One `components.json` entry `experiments` (layer 3, optional) with declared facades; required dependencies only at its own layer or lower; telemetry is an optional dependency.

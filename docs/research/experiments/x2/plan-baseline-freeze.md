@@ -31,6 +31,8 @@ Make experiment data outlive telemetry retention (30 days / 64 MB, `src/lib/aiur
 - **KTD5. Checkpoints protect the after window** (KD8). `Aiur.Experiments.Checkpointer` (`use Aiur.PeriodicWorker`, interval `experiments.checkpoint_interval_ms`, default 1 h) evaluates each `active` experiment over `[last_checkpoint_at − overlap, now)` and appends new observations to `snapshots/<window>.partial.ndjson`, idempotent on `(metric, unit_id)` (a unit's value is final once its `finished_at` is set; unfinished units are not written). When the window closes it writes the frozen `after.r1.json` from the partial file plus a final evaluation.
 - **KTD6. Arm assignment is X2's** (KD10). Before/after: unit → `before` if `at < change.time` and (`assign_by: start`) its `finished_at` ≤ change.time else straddler (excluded, counted); `after` if `at ≥ change.time + washout` (washout default 0). `assign_by: finish` assigns by `finished_at`. A/B: unit evaluated against each cohort predicate (`Aiur.Experiments.Predicate`); 0 matches → `filtered`, >1 → `ambiguous`. Spec `filters` apply first.
 - **KTD7. Source precedence.** `arms/2` uses frozen snapshot → partial checkpoint → live evaluation, and labels each arm with its `source`. Live data is merged only for the part of the window no snapshot covers.
+- **KTD9. Censoring at freeze.** A `duration` unit that started inside the window but has no end at freeze time is written as a censored row (`censored: true`, `value` = elapsed to window end or now). X4 needs these to avoid survivorship bias (slow tickets are exactly the ones still open). Checkpoint partial files still hold only finished units; censored rows exist only in frozen snapshots and are replaced by the finished value in a later revision.
+- **KTD10. X4 handoff file.** `export_analysis_input/1` writes `report/analysis-input.json` (schema `aiur.experiment-analysis-input/v1`): spec, `registered_at`, annotations, and flat rows `{metric, unit_id, group, value, censored, strata, observed_at}` built from `arms/2`, plus `input_sha256`. X4's engine reads only this file, so it never parses snapshots or knows their revisions.
 - **KTD8. Below min samples is reported, not hidden.** `arms/2` returns every arm with `n`; flagging "not enough data" is X4/X5's job using `min_samples` from the spec.
 
 ---
@@ -81,13 +83,15 @@ sequenceDiagram
 **Goal:** the assigned arms X4 consumes.
 **Requirements:** R3, R5, KTD6-KTD8.
 **Dependencies:** U1.
-**Files:** `src/lib/aiur/experiments/arms.ex`, `src/lib/aiur/experiments.ex` (`arms/2`), `src/test/aiur/experiments/arms_test.exs`.
+**Files:** `src/lib/aiur/experiments/arms.ex`, `src/lib/aiur/experiments/analysis_input.ex`, `src/lib/aiur/experiments.ex` (`arms/2`, `export_analysis_input/1`), `src/priv/experiments/analysis-input.v1.schema.json`, `src/test/aiur/experiments/arms_test.exs`, `src/test/aiur/experiments/analysis_input_test.exs`.
 **Test scenarios:**
 - Change 12:00: unit 10:00→11:00 → before; 11:30→12:30 → straddle (excluded, `straddle: 1`); 12:10 → after.
 - Same with `assign_by: finish` → 11:30→12:30 goes to after.
 - A/B claude/codex predicates: a codex unit → `codex`; a unit with `backend: muse` → `filtered`; overlapping predicates → `ambiguous`.
 - Frozen before + live after → arms labelled `frozen` and `live`.
 - Tampered snapshot → `{:error, {:tampered, "before.r1"}}`, no live fallback.
+- Ticket dispatched before freeze and still open → censored row with elapsed value; after it merges, the next revision holds the finished value and `censored: false`.
+- `export_analysis_input/1` → file validates against its JSON Schema; rows carry `group` = arm id and `strata.complexity`; same inputs → same `input_sha256`.
 - Arms with 3 observations and `min_samples: 15` → returned with `n: 3` (no filtering).
 - Covers success criterion "baseline survives retention": freeze from fixture telemetry, delete the fixture telemetry, `arms/2` returns identical before observations.
 

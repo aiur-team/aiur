@@ -50,25 +50,30 @@ Directional signatures (names fixed; exact typespecs are implementation detail):
 
 | Function | Owner ticket | Used by |
 |---|---|---|
-| `list(filters) :: [summary]` | X2-1 | X5 index tabs, CLI |
-| `get(id) :: {:ok, %Spec{}, meta} \| {:error, :not_found}` (`meta`: phase, journal tail, snapshot refs, read_only?) | X2-1 | X5, X6, CLI |
-| `create(attrs, opts) :: {:ok, %Spec{}} \| {:error, errors}` (`opts[:origin]`, `opts[:freeze]` default true for before/after) | X2-1 (freeze wired in X2-4) | X3, X6, CLI |
-| `amend(id, changes, actor) :: {:ok, %Spec{}} \| {:error, _}` | X2-1 | X6 |
+| `status() :: %{available?: bool, store: :ok \| {:error, reason}, capture: :on \| :off}` | X2-1 | X5 banners and component-off state |
+| `list(filters) :: {:ok, [summary]} \| {:error, reason}` | X2-1 | X5 index tabs, X3, CLI |
+| `fetch(id) :: {:ok, detail} \| {:error, :not_found \| reason}` (`detail`: spec, phase, journal tail, annotations, snapshot refs, `read_only?`) | X2-1 | X5, X6, CLI |
+| `create(attrs, opts) :: {:ok, %Spec{}} \| {:error, errors}`; idempotent on `spec.key` (a second create with the same key returns the existing experiment with `existing: true`); `opts[:origin]`; `opts[:freeze]` default true for before/after | X2-1 (freeze wired in X2-4) | X3, X6, CLI |
+| `amend(id, changes, actor) :: {:ok, %Spec{}} \| {:error, _}` (X3 calls this "update": windows, status, line evidence) | X2-1 | X3, X6 |
 | `set_status(id, status, reason, actor)` | X2-1 | X6, operator |
+| `annotate(id, annotation, actor) :: :ok` appends to `annotations.ndjson`; kinds `deploy`, `confounder`, `unit_exclusion`, `note`, each with `at`, `reason`, optional `unit_ids` | X2-1 | X3 (deploys), X6 (confounders, exclusions), X4 reads |
 | `journal(id) :: [entry]` | X2-1 | X6 (amendments are confounders) |
 | `metric_catalog() :: [metric_def]` | X2-2 | X5, X6, CLI validation |
-| `arms(id, opts) :: {:ok, %{metric_id => %{arm_id => arm}}}` where `arm = %{observations: [%Observation{}], coverage, excluded: %{straddle: n, ambiguous: n, filtered: n}, source: :frozen \| :checkpoint \| :live}` | X2-4 | **X4** (only input it needs), X5 |
-| `freeze(id, window, opts) :: {:ok, snapshot_ref} \| {:error, _}` | X2-4 | X3, X6, CLI |
-| `report_dir(id) :: Path.t()` | X2-1 | X6 writes `report.md`, X4 writes `analysis.json` |
-| `subscribe() :: :ok` — `Phoenix.PubSub` topic `"experiments"`, messages `{:experiment_changed, id}` | X2-1 | X5 live updates |
+| `arms(id, opts) :: {:ok, %{metric_ref => %{arm_id => arm}}}`, `arm = %{observations: [%Observation{}], coverage, excluded: %{straddle: n, ambiguous: n, filtered: n}, source: :frozen \| :checkpoint \| :live}` | X2-4 | X5, X6 |
+| `export_analysis_input(id) :: {:ok, path}` writes `report/analysis-input.json`: spec (metric `kind`, `direction`, `mde`, `primary`), `registered_at`, annotations, and one row per observation `{metric, unit_id, group, value, censored, strata, observed_at}` | X2-4 | **X4** runner port (reads this file, writes `report/result.json`) |
+| `freeze(id, window, opts) :: {:ok, snapshot_ref} \| {:error, _}`; callable repeatedly, every revision kept (X3's `freeze_baseline`) | X2-4 | X3, X6, CLI |
+| `report_dir(id) :: Path.t()` | X2-1 | X4 `result.json`, X6 `report.md` |
+| `subscribe() :: :ok`; `Phoenix.PubSub` topic `"experiments"`, messages `{:experiments_changed, id \| :all}` | X2-1 | X5 live updates |
 
-`%Observation{}`: `metric` (`"pack/metric"`), `unit_id` (e.g. `"ticket:3763"`, `"hour:2026-10-09T10"`), `value` (number), `at` (assignment timestamp, UTC ISO-8601), `finished_at` (optional), `attrs` (cohort attributes map, including `complexity`). X4 receives arms already assigned; it never reads the spec's windows or predicates (brainstorm KD10).
+`%Observation{}`: `metric` (`"pack/metric"`), `unit_id` (e.g. `"ticket:3763"`, `"hour:2026-10-09T10"`), `value` (number), `at` (assignment timestamp, UTC ISO-8601; X4's `observed_at`), `finished_at` (optional), `censored` (true for a duration unit still open at snapshot time; `value` is then the elapsed time so far), `attrs` (cohort attributes including `complexity`; the spec's `stratify_by` keys become X4's `strata`). X4 receives arms already assigned (`group`); it never reads windows or predicates (brainstorm KD10).
+
+Names other areas assumed, mapped to this facade: X3 `kind: :line` = `design.kind: "before_after"`; X3 `line{source, at, evidence}` = `design.change{type, ref, time, evidence}`; X3 `update` = `amend/3`; X3 `freeze_baseline` = `freeze/3`; X4 `frozen_at` = `registered_at`; X4 `groups` = arm ids; X4 `snapshot.json` = `report/analysis-input.json` (frozen snapshots stay internal and versioned); X4 `metrics[].kind` is declared by the metric pack (EXP-X2-2). X5 `fetch/1`, `status/0` and `{:experiments_changed, id | :all}` are adopted as written.
 
 Assumed from other areas:
 
-- **X1:** ticket records in the reduced dataset carry `cohort` (`aiur_version backend model epic feature_tags config_hash tags`) and a correct `pr_opened` time (brainstorm A1).
-- **X3:** calls `create/2` with `origin: %{kind: :release | :epic_merge, ref: ...}`; X2 does not decide when.
-- **X4:** a pure `analyze(spec, arms)` that writes nothing; X6 or X5 persist its output under `report_dir/1`.
+- **X1:** ticket records in the reduced dataset carry `cohort` (`aiur_version backend model epic feature_tags config_hash tags`), a correct `pr_opened` time, and still-open tickets with their start time (brainstorm A1).
+- **X3:** calls `create/2` with `origin: %{kind: :release | :epic_merge, ref: ...}` and a deterministic `key`; X2 does not decide when.
+- **X4:** a pure engine over `analysis-input.json` that writes only `report/result.json`.
 
 ---
 
@@ -81,18 +86,20 @@ Assumed from other areas:
 └── <id>/
     ├── spec.json                    current spec, schema_version 1
     ├── journal.ndjson               created | amended | status | frozen | checkpoint
+    ├── annotations.ndjson           deploy | confounder | unit_exclusion | note (X3, X6)
     ├── snapshots/                   (EXP-X2-4) before.r1.json, after.partial.ndjson, after.r1.json
-    └── report/                      reserved: X4 analysis.json, X6 report.md
+    └── report/                      analysis-input.json (X2-4), result.json (X4), report.md (X6)
 ```
 
 Spec v1 shape (directional):
 
 ```text
-schema_version, id, title, hypothesis, owner{kind: human|agent, id}, status, origin{kind, ref},
-design: {kind: "before_after", change: {type, ref, time}, assign_by: start|finish}
+schema_version, id, key (optional idempotency key, unique), title, hypothesis, owner{kind: human|agent, id},
+status, origin{kind, ref},
+design: {kind: "before_after", change: {type, ref, time, evidence?}, assign_by: start|finish}
       | {kind: "ab", cohorts: [{id, label, where: <predicate>}], control: <cohort id>},
-metrics: [{ref: "pack/metric", direction: decrease|increase|none, primary: bool, min_samples?}],
-min_samples (default from config), windows: {before{start,end}, after{start,end|null}} | {observation{start,end|null}},
+metrics: [{ref: "pack/metric", direction: decrease|increase|none, primary: bool, min_samples?, mde?}],
+min_samples (default from config), alpha (0.05), power_target (0.8), windows: {before{start,end}, after{start,end|null}} | {observation{start,end|null}},
 filters: <predicate over units>, stratify_by: ["complexity"], tags: [], notes,
 created_at, updated_at, registered_at
 ```
@@ -142,15 +149,17 @@ Status machine (stored): `draft → active → concluded`, any → `abandoned`. 
 **Requirements:** R8, R9, KD5, KD9, KD11, KTD3-KTD5, KTD7.
 **Dependencies:** U2.
 **Files:** `src/lib/aiur/experiments.ex` (facade), `src/lib/aiur/experiments/store.ex`, `src/lib/aiur/experiments/journal.ex`, `src/lib/aiur/experiments/paths.ex`, `src/lib/aiur.ex` (child spec placement), `src/test/aiur/experiments/store_test.exs`, `src/test/aiur/experiments/journal_test.exs`.
-**Approach:** `Store` serialises writes; each mutation = validate → write `spec.json` atomically → append journal line (with `actor`, `at`, `kind`, diff) → rewrite `index.json` → broadcast `{:experiment_changed, id}` on `Aiur.PubSub` topic `"experiments"`. If the journal append fails after the spec write, the store re-appends on next boot by comparing `spec.updated_at` with the last journal entry (spec is truth for state; journal for history). `Aiur.Experiments.child/1` returns `:ignore`-equivalent (no child) when `experiments.enabled` is false. Reads (`list/1`, `get/1`, `journal/1`) are plain functions over files; a corrupt `spec.json` yields that experiment as `%{id, error: :unreadable}` in `list/1` rather than crashing the listing.
+**Approach:** `Store` serialises writes; each mutation = validate → write `spec.json` atomically → append journal line (with `actor`, `at`, `kind`, diff) → rewrite `index.json` → broadcast `{:experiments_changed, id}` (`:all` after an index rebuild) on `Aiur.PubSub` topic `"experiments"`. If the journal append fails after the spec write, the store re-appends on next boot by comparing `spec.updated_at` with the last journal entry (spec is truth for state; journal for history). `Aiur.Experiments.child/1` returns `:ignore`-equivalent (no child) when `experiments.enabled` is false. Reads (`status/0`, `list/1`, `fetch/1`, `journal/1`) are plain functions over files; a corrupt `spec.json` yields that experiment as `%{id, error: :unreadable}` in `list/1` rather than crashing the listing.
 **Patterns to follow:** `Aiur.BuildQueue.child/1`; `Aiur.BuildProgress` PubSub broadcast; `Aiur.RunTelemetry.Summaries.decode_summary/1` fail-soft read.
 **Test scenarios:**
-- `create/2` writes `spec.json`, one `created` journal line, an index row; a PubSub subscriber receives `{:experiment_changed, id}`.
+- `create/2` writes `spec.json`, one `created` journal line, an index row; a PubSub subscriber receives `{:experiments_changed, id}`.
+- `create/2` twice with the same `key` → one experiment; the second call returns it with `existing: true` and appends no journal line.
+- `annotate/3` appends one line to `annotations.ndjson` and broadcasts; an unknown kind → error.
 - Two creates with the same title on the same day → ids `...-title` and `...-title-2`.
 - `amend/3` before `registered_at` → journal `amended` with `post_registration: false`; after setting `registered_at` → `post_registration: true` and the diff lists `metrics`.
 - `set_status(:concluded)` then `amend` → allowed, journaled; `set_status` to an unknown status → error.
 - Delete `index.json` → `list/1` rebuilds it with the same rows.
-- A `spec.json` with `schema_version: 2` → `get/1` returns `read_only?: true`; `amend/3` → `{:error, {:newer_version, 2}}` and the file is unchanged (byte compare).
+- A `spec.json` with `schema_version: 2` → `fetch/1` returns `read_only?: true`; `amend/3` → `{:error, {:newer_version, 2}}` and the file is unchanged (byte compare).
 - Truncated `spec.json` → `list/1` returns the row with `error: :unreadable`, other experiments still listed.
 - `experiments.enabled: false` → no Store process; `create/2` → `{:error, :disabled}`.
 **Verification:** kill the Store mid-test between spec write and journal append (inject a failing journal writer) → next start repairs the journal.
