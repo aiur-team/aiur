@@ -12,7 +12,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   alias Aiur.BuildOrder.{Catalog, CatalogStore, ProviderHealth, ProviderResult}
   alias Aiur.BuildOrder.GitHubGraph.Settings
-  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, ReconciliationTimer, Snapshot, TaskLifecycle}
+  alias Aiur.BuildOrder.GraphProjection.{CapabilityReader, Configuration, Failure, Options, Policy, ReconciliationTimer, Snapshot, TaskLifecycle}
   alias Aiur.TrackerIdentity
   alias Aiur.Webhooks
 
@@ -128,7 +128,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
-    state = Options.new(opts) |> tap(&Aiur.BuildOrder.GraphProjection.CapabilityReader.publish(&1, catalog_bound_ms(&1)))
+    state = Options.new(opts) |> tap(&CapabilityReader.publish(&1, catalog_bound_ms(&1)))
     subscribe_to_configuration(state)
     subscribe_to_resources(state)
     subscribe_to_mode_events(state)
@@ -1489,7 +1489,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   defp broadcast_all(state, events) do
-    Aiur.BuildOrder.GraphProjection.CapabilityReader.publish(state, catalog_bound_ms(state))
+    CapabilityReader.publish(state, catalog_bound_ms(state))
     Enum.each(events, &broadcast(state, &1))
   end
 
