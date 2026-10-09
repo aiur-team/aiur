@@ -113,5 +113,39 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
     }
+  },
+  {
+    "id": "aa-light-aiur-good-ink",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"light\"][data-palette=\"aiur\"] { --good-ink: #116b33; }",
+    "cells": {
+      "theme": "light",
+      "palette": "aiur"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
+  },
+  {
+    "id": "aa-light-gruvbox-good-ink",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"light\"][data-palette=\"gruvbox\"] { --good-ink: #66620c; }",
+    "cells": {
+      "theme": "light",
+      "palette": "gruvbox"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
   }
 ]
