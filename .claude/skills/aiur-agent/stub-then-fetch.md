@@ -66,8 +66,11 @@ every blocker push is an integration signal.
    tip dropping the blocker commits already included by the squash. Use the
    recorded integrated blocker SHA as the old boundary for
    `git -C "$workspace" rebase --onto <base-tip> <integrated-blocker-sha>`.
-   Inspect the resulting diff to ensure your changes remain, rerun affected
-   tests and push the draft with `--force-with-lease`. If another blocker is
+   For several blockers, recheck every still-unmerged blocker SHA against HEAD
+   using step 1 and reintegrate any missing heads: a plain rebase drops merge
+   commits and can remove another blocker. Refresh the workpad boundaries before
+   validation. Inspect the resulting diff to ensure your changes remain, rerun
+   affected tests and push the draft with `--force-with-lease`. If another blocker is
    unmerged, keep the PR draft and follow steps 2–5; only after all blockers
    merge may you use the normal ready/CI handoff.
 
