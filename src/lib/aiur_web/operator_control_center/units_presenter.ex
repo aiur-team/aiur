@@ -5,10 +5,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   Provider reads happen in `load/2`; projection, selection changes, tokens, and
   lookup remain pure so LiveView rendering never reaches a provider.
   """
-
   alias Aiur.{CurrentRunMembership, TicketActivity, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.{RowToken, UnitsPolicy, UnitsPresentation, UnitsRow}
-  alias AiurWeb.OperatorControlCenter.UnitsRow.Sources
+  alias Aiur.Projections.{UnitsPolicy, UnitsRow}
+  alias Aiur.Projections.UnitsRow.Sources
+  alias AiurWeb.OperatorControlCenter.{RowToken, UnitsPresentation}
 
   @type catalog_status :: :ready | :empty | :stale | :unavailable
 
