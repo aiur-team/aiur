@@ -10,4 +10,4 @@ R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.Dotenv	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.SupervisorToken	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Tracker	MP-R1-C4-T03: compatibility default module for project_identity_source; no direct calls
