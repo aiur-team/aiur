@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.WriteProtocol do
   @moduledoc false
   alias Aiur.BuildQueue.{Events, WriteEvidence}
   alias Aiur.BuildQueue.Model.Intent
+  alias Aiur.Orchestrator.TicketTransition
 
   @spec attempt(map(), atom(), String.t(), map()) :: {map(), :ok | {:error, term()}}
   def attempt(context, action, id, runtime) do
@@ -34,14 +35,16 @@ defmodule Aiur.BuildQueue.WriteProtocol do
   end
 
   defp execute(context, %{action: :withdraw, issue_id: id}, _runtime) do
-    if WriteEvidence.fresh?(context, id), do: context.tracker.remove_label(id, context.todo), else: {:error, :stale_observation}
+    if WriteEvidence.fresh?(context, id), do: marker(context.tracker, :remove, id, context.todo), else: {:error, :stale_observation}
   end
 
   defp execute(context, intent, runtime), do: call(context.tracker, intent.action, intent.issue_id, context.marker, runtime)
 
-  defp call(tracker, :promote, id, _marker, _runtime), do: tracker.update_issue_state(id, "todo", expected_state: :none)
-  defp call(tracker, :mark, id, marker, %{ensured?: true}), do: tracker.add_label(id, marker)
-  defp call(tracker, :unmark, id, marker, _runtime), do: tracker.remove_label(id, marker)
+  defp call(tracker, :promote, id, _marker, _runtime), do: TicketTransition.write_state(id, "todo", writer: :build_queue, tracker: tracker, expected_state: :none)
+  defp call(tracker, :mark, id, marker, %{ensured?: true}), do: marker(tracker, :add, id, marker)
+  defp call(tracker, :unmark, id, marker, _runtime), do: marker(tracker, :remove, id, marker)
+
+  defp marker(tracker, action, id, label), do: TicketTransition.write_marker(id, action, label, writer: :build_queue, tracker: tracker)
 
   defp provenance(document, %{action: :promote, issue_id: id}, :ok, now) do
     %{document | items: Enum.map(document.items, fn item -> if item.issue_id == id, do: %{item | promoted_at: DateTime.from_unix!(now, :millisecond)}, else: item end)}

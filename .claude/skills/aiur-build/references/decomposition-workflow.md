@@ -337,10 +337,10 @@ and any accepted exceptions.
 This stage requires explicit user permission and is not hardcoded machinery.
 The Executor asks whenever the user wants tickets created and encourages
 promotion of every researched, ready-to-begin ticket. For each selected member,
-create the tracker issue from `tickets/<ID>.md` verbatim and apply the configured
-lifecycle todo label (`agent:todo` in the standard workflow) in that same
-creation request. Record its number in the pack's `ticket` field, and freeze the
-document. **After promotion, edits go to the ticket, never the doc.** The Build
+create the tracker issue from `tickets/<ID>.md` verbatim and apply the waiting
+marker or todo label in that same creation request, following `SKILL.md`
+§ Optional GitHub promotion for queue status and root adoption. Record its number
+in the pack's `ticket` field, and freeze the document. **After promotion, edits go to the ticket, never the doc.** The Build
 Order root and explicit `Epic:` containers remain undispatched hierarchy.
 Per-phase promotion is optional user complexity, not an Aiur-imposed workflow.
 

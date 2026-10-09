@@ -18,14 +18,13 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     DecisionAttention,
     DecisionStore,
     EventPublicationLog,
-    Issue,
-    Tracker
+    Issue
   }
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
 
@@ -71,7 +70,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &Tracker.update_issue_state/2)
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool))
     }
 
     event_handlers = %{

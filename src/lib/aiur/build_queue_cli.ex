@@ -2,9 +2,16 @@ defmodule Aiur.BuildQueueCLI do
   @moduledoc "Human and JSON views of the version 1 build queue read model."
   alias Aiur.BuildOrder.ProgressRenderer
   alias Aiur.{BuildQueue, JSONSafe}
+  alias Aiur.BuildQueue.MutationCLI
 
-  @spec run(keyword()) :: 0 | 1
-  def run(opts \\ []) do
+  @spec run(keyword()) :: 0 | 1 | 64 | 124
+  def run(opts \\ [])
+
+  def run(opts) do
+    if Keyword.get(opts, :verb, :show) == :show, do: show(opts), else: MutationCLI.run(opts)
+  end
+
+  defp show(opts) do
     with :ok <- validate(opts),
          envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.BuildQueue.Server)),
          {:ok, envelope} <- select(envelope, Keyword.get(opts, :queue)) do
