@@ -738,7 +738,9 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
-Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads accepted delivered PR evidence locally. CI progress comes from existing CI results and durable passed heads; merges also come from the existing event poller. Only `pr_approved` blockers add strict conditional review reads, at most once per half observation age. An unknown PR identity needs a branch lookup; other triggers add no CI polling. Watches expire after two missed refresh periods. No saving is claimed.
+Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads accepted delivered PR evidence locally. CI progress comes from existing CI results and durable passed heads; merges also come from the existing event poller.
+
+Only `pr_approved` blockers add strict conditional review reads, at most once per half observation age. An unknown PR identity needs a branch lookup; other triggers add no CI polling. Watches expire after two missed refresh periods. No saving is claimed.
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
