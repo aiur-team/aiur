@@ -1,9 +1,9 @@
 defmodule Aiur.BuildQueue.Server do
-  @moduledoc "Owns dispatch hints and coalesces tracker signals into read-only queue plans."
+  @moduledoc "Owns dispatch hints and coalesces tracker signals into queue plans and executes paced label writes."
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Store}
+  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Store, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -20,6 +20,9 @@ defmodule Aiur.BuildQueue.Server do
 
     state = %{
       settings: settings,
+      writer: Writer.new(),
+      write_results: [],
+      sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
       tracker: Keyword.get(opts, :tracker, Aiur.Tracker),
       store: Keyword.get(opts, :store, Store),
       claim_probe: Keyword.get(opts, :claim_probe, ClaimProbe),
@@ -42,18 +45,25 @@ defmodule Aiur.BuildQueue.Server do
   @impl true
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
   def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :projections, :actions, :reconciles])}, state}
+
+  def handle_call({:write, action, id}, _from, %{status: status} = state) when action in [:mark, :unmark] and status in [:running, :writes_paused] do
+    state = write(state, [{action, id}], %{})
+    {:reply, state.write_results |> List.last() |> elem(2), state}
+  end
+
+  def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
   def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
 
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, request(state)}
   def handle_info({:event, _}, state), do: {:noreply, request(state)}
 
-  def handle_info(:tick, %{status: :running} = state) do
+  def handle_info(:tick, %{status: status} = state) when status in [:running, :writes_paused] do
     schedule_tick(state)
     {:noreply, state |> subscribe() |> request()}
   end
 
-  def handle_info({:reconcile, token}, %{pending: token, status: :running} = state) do
+  def handle_info({:reconcile, token}, %{pending: token, status: status} = state) when status in [:running, :writes_paused] do
     {:noreply, reconcile(%{state | pending: nil})}
   end
 
@@ -90,7 +100,7 @@ defmodule Aiur.BuildQueue.Server do
 
   defp schedule_tick(state), do: state.schedule.(self(), :tick, state.settings.build_queue.reconcile_interval_seconds * 1000)
 
-  defp request(%{status: :running, pending: nil} = state) do
+  defp request(%{status: status, pending: nil} = state) when status in [:running, :writes_paused] do
     token = make_ref()
     state.schedule.(self(), {:reconcile, token}, @debounce_ms)
     %{state | pending: token}
@@ -99,7 +109,8 @@ defmodule Aiur.BuildQueue.Server do
   defp request(state), do: state
 
   defp reconcile(state) do
-    {projections, actions} = Reconcile.plan(state)
+    {projections, actions, observations} = Reconcile.plan(state)
+    state = write(state, actions, observations)
 
     holds =
       Enum.reduce(actions, state.holds, fn
@@ -112,7 +123,15 @@ defmodule Aiur.BuildQueue.Server do
     holds = MapSet.intersection(holds, MapSet.new(retained))
     Reconcile.write_hints(projections, holds, state.document)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
-    %{state | projections: projections, actions: actions, holds: holds, reconciles: state.reconciles + 1}
+    %{state | projections: projections, actions: state.actions, holds: holds, reconciles: state.reconciles + 1}
+  end
+
+  defp write(state, actions, observations) do
+    prefix = state.settings.tracker.github.label_prefix
+    context = Map.merge(state, %{observations: observations, marker: "#{prefix}:queued", todo: "#{prefix}:todo", max_writes: state.settings.build_queue.max_writes_per_minute})
+    result = Writer.run(context, actions, state.writer)
+    status = if result.status == :paced, do: :running, else: result.status
+    %{state | document: result.document, writer: result.writer, write_results: result.write_results, status: status, actions: actions ++ result.write_attentions}
   end
 
   defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state

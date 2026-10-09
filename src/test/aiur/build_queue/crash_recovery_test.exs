@@ -5,7 +5,8 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
   alias Aiur.Config.Schema
 
   defmodule Boundary do
-    def open_issue_labels(_age), do: {:ok, Map.new(["1", "2", "3"], &{&1, %{labels: ["agent:queued"], updated_at: nil}}), 1_000}
+    # Claimed rows isolate store recovery from the write protocol.
+    def open_issue_labels(_age), do: {:ok, Map.new(["1", "2", "3"], &{&1, %{labels: ["agent:queued", "agent:in-progress"], updated_at: nil}}), 1_000}
     def status(_ids), do: :unavailable
   end
 
@@ -66,7 +67,8 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
           send(pid, message)
           make_ref()
 
-        _pid, _message, _delay -> make_ref()
+        _pid, _message, _delay ->
+          make_ref()
       end
     ]
 

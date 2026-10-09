@@ -27,10 +27,12 @@ defmodule Aiur.Tracker do
               {:ok, [map()]} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   @callback update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @callback ensure_labels([String.t()]) :: :ok | {:error, term()}
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks open_issue_labels: 1,
+  @optional_callbacks ensure_labels: 1,
+                      open_issue_labels: 1,
                       fetch_issue_states_by_ids_conditional: 2,
                       update_issue_state: 3,
                       add_label: 2,
@@ -121,6 +123,12 @@ defmodule Aiur.Tracker do
           :ok | {:error, term()}
   defp dispatch_update_issue_state(tracker_adapter, issue_id, state_name, opts) do
     tracker_adapter.update_issue_state(issue_id, state_name, opts)
+  end
+
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(labels) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ensure_labels, 1), do: tracker.ensure_labels(labels), else: {:error, :unsupported}
   end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
