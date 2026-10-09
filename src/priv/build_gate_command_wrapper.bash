@@ -284,6 +284,14 @@ if [ -z "$real_command" ]; then
   exit 127
 fi
 
+# Mise discovers its shim target from PATH and inherited self-path variables.
+if [ "$command_name" = mise ]; then
+  PATH=$(aiur_build_gate_wrapper_path_without_self)
+  real_command=$(cd -P "${real_command%/*}" && printf '%s/%s' "$PWD" "${real_command##*/}")
+  MISE_BIN=$real_command __MISE_BIN=$real_command __MISE_EXE=$real_command
+  export PATH MISE_BIN __MISE_BIN __MISE_EXE
+fi
+
 # `elixir -S mix` loads the named script as Elixir source. Remove this shell
 # wrapper from PATH so Elixir resolves the actual Mix script after admission.
 if [ "$command_name" = elixir ] && aiur_build_gate_wrapper_elixir_mix_task "$@" >/dev/null; then
