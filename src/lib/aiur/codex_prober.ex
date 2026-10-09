@@ -102,7 +102,7 @@ defmodule Aiur.CodexProber do
 
   defp try_probe_port(port, opts) do
     os_pid =
-      case Transport.os_pid(port) do
+      case (is_port(port) or is_pid(port)) && Transport.os_pid(port) do
         {:os_pid, pid} -> pid
         _ -> nil
       end
