@@ -28,6 +28,8 @@ parent: ../plan.md (MP-R1), ../component-map.md (row `github`)
 Plans per ticket: [GHA-1](plan-gha-1-manifest.md), [GHA-2](plan-gha-2-settings.md),
 [GHA-3](plan-gha-3-edges.md), [GHA-4](plan-gha-4-facade.md),
 [GHA-5](plan-gha-5-gh-wrapper.md), [GHA-6](plan-gha-6-promotion.md).
+Issues: GHA-1 #3823, GHA-2 #3824, GHA-3 #3825, GHA-4 #3826, GHA-5 #3827, GHA-6 #3828
+(sub-issues of Build Order part 3/3, #3252).
 
 ---
 
