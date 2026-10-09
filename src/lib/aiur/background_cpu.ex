@@ -70,17 +70,19 @@ defmodule Aiur.BackgroundCpu do
     with {:ok, entries} <- File.ls(proc_root),
          pids = Enum.filter(entries, &numeric?/1),
          true <- length(pids) <= @max_processes do
-      Enum.reduce(pids, %{}, fn pid, acc ->
-        # A process may exit between listing and reading; that is not a failure.
-        with {:ok, contents} <- File.read(Path.join([proc_root, pid, "stat"])),
-             {:ok, %{nice: nice, ticks: ticks, start: start}} when nice > daemon_nice <- SystemPriority.parse_stat(contents) do
-          Map.put(acc, {pid, start}, ticks)
-        else
-          _ -> acc
-        end
-      end)
+      Enum.reduce(pids, %{}, &collect(proc_root, daemon_nice, &1, &2))
     else
       _ -> :unavailable
+    end
+  end
+
+  # A process may exit between listing and reading; that is not a failure.
+  defp collect(proc_root, daemon_nice, pid, acc) do
+    with {:ok, contents} <- File.read(Path.join([proc_root, pid, "stat"])),
+         {:ok, %{nice: nice, ticks: ticks, start: start}} when nice > daemon_nice <- SystemPriority.parse_stat(contents) do
+      Map.put(acc, {pid, start}, ticks)
+    else
+      _ -> acc
     end
   end
 
@@ -105,7 +107,12 @@ defmodule Aiur.BackgroundCpu do
   def advance(_previous, _daemon_nice, _processes, _cpu_total, _now_ms), do: %{processes: %{}, reading: :unavailable}
 
   @impl true
+  # Tests inject readings through :background_cpu_source_override; a live scan would leak host CPU into them.
   def init(opts) do
+    if Application.get_env(:aiur, :env) == :test and not Keyword.get(opts, :force?, false), do: :ignore, else: start(opts)
+  end
+
+  defp start(opts) do
     table = :ets.new(@table, [:named_table, :protected, read_concurrency: true])
     :ets.insert(table, {:latest, :unavailable})
     state = %{previous: nil, interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms), proc_root: Keyword.get(opts, :proc_root, "/proc")}

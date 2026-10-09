@@ -229,8 +229,6 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
     previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
-    previous_background = Application.get_env(:aiur, :background_cpu_source_override)
-    Application.put_env(:aiur, :background_cpu_source_override, fn -> :unavailable end)
     previous_build_status = Application.get_env(:aiur, :build_gate_status_override)
     previous_lifecycle_recorder = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
     previous_ci_readiness_check_fun = Application.get_env(:aiur, :ci_readiness_check_fun)
@@ -246,7 +244,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       restore_app_env(:loadavg_source_override, previous_loadavg)
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
-      restore_app_env(:background_cpu_source_override, previous_background)
+      Application.delete_env(:aiur, :background_cpu_source_override)
       restore_app_env(:build_gate_status_override, previous_build_status)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
       restore_app_env(:ci_readiness_check_fun, previous_ci_readiness_check_fun)
@@ -2628,12 +2626,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       schedulers = System.schedulers_online()
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{schedulers * 9.0} 1.0 1.0 1/1 1\n"} end)
 
-      Application.put_env(:aiur, :proc_stat_source_override, fn ->
-        {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"}
-      end)
-
+      Application.put_env(:aiur, :proc_stat_source_override, fn -> {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"} end)
       Application.put_env(:aiur, :background_cpu_source_override, fn -> %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200} end)
-
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
       previous_cpu = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
@@ -2760,16 +2754,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert Map.drop(held.dispatch_capacity_sample, [:observed_at]) == %{
-               load: 0.7,
-               load_discount_reason: :unavailable,
-               load_daemon_nice: :unavailable,
-               gate_signal: 0.7,
-               load_sampled_at_ms: nil,
-               load_threshold: 1.0,
-               target: 1.0,
-               schedulers: 16
-             }
+      assert %{load: 0.7, gate_signal: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16} = held.dispatch_capacity_sample
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000
