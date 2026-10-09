@@ -5,6 +5,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   alias Aiur.BuildQueue.{Hints, ListMutations, Model, Server}
   alias Aiur.BuildQueue.Sources.BuildOrder
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.TrackerIdentity
 
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
@@ -189,8 +190,8 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
   test "a member leaving the Build Order is dequeued with a removed event" do
     owner = self()
-    :ok = Aiur.Events.Exchange.subscribe("ticket.2.queue.removed")
-    on_exit(fn -> GenServer.call(Aiur.Events.Exchange, {:unsubscribe, "ticket.2.queue.removed", owner}) end)
+    :ok = Exchange.subscribe("ticket.2.queue.removed")
+    on_exit(fn -> GenServer.call(Exchange, {:unsubscribe, "ticket.2.queue.removed", owner}) end)
     projection = start_supervised!({Projection, snapshot([member(1), member(2)])})
     pid = server(projection)
     assert {:ok, []} = Aiur.BuildQueue.adopt(99)
