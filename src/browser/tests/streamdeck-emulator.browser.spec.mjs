@@ -27,7 +27,7 @@ async function openStreamdeck(page, mode = 'read_only') {
 async function anchor(locator) {
   await locator.scrollIntoViewIfNeeded()
   await locator.evaluate((element) => {
-    const topbar = document.querySelector('.topbar')
+    const topbar = document.querySelector('header.ax-top')
     if (!topbar) return
 
     const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
@@ -160,7 +160,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
     const spacer = document.createElement('div')
     spacer.style.height = '2000px'
     spacer.setAttribute('aria-hidden', 'true')
-    document.querySelector('.shell-content').appendChild(spacer)
+    document.querySelector('section.dashboard-shell').appendChild(spacer)
   })
   await page.waitForTimeout(50)
 

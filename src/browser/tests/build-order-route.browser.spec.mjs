@@ -418,7 +418,7 @@ for (const width of [1440, 1100, 900]) {
       // The panes sharing the graph's track stay inside the content column
       // rather than being dragged out to the stage's width.
       const contained = await page.evaluate(() => {
-        const limit = document.querySelector('.shell-content').getBoundingClientRect().right
+        const limit = document.querySelector('section.dashboard-shell').getBoundingClientRect().right
         return ['.bo-selected-summary', '.bo-graph-pane'].every(
           (selector) => document.querySelector(selector).getBoundingClientRect().right <= limit + 1
         )
