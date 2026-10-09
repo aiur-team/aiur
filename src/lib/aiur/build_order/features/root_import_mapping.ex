@@ -57,7 +57,7 @@ defmodule Aiur.BuildOrder.Features.RootImportMapping do
     # Retained epics also follow root renames after their members have left.
     case Regex.run(~r/^f-bo-[0-9]+-(.+)$/, epic.key) do
       [_, lane] -> %{epic | label: lane_label(label, lane)}
-      nil -> %{epic | label: label}
+      nil -> if Regex.match?(~r/^f-bo-[0-9]+$/, epic.key), do: %{epic | label: label}, else: epic
     end
   end
 

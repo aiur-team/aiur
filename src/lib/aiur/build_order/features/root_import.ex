@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.Features.RootImport do
   @moduledoc "Imports Build Order roots from local History into the feature registry."
   use GenServer
-  alias Aiur.BuildOrder.{Features, History}
+  alias Aiur.BuildOrder.{CatalogStore, Features, History}
   alias Aiur.BuildOrder.Features.{RootImportMapping, RootImportPlan, RootImportWrites}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -83,7 +83,7 @@ defmodule Aiur.BuildOrder.Features.RootImport do
   end
 
   defp summary(plan, history) do
-    roots = Enum.count(history.rows, fn {_, row} -> is_list(row.labels) and Aiur.BuildOrder.CatalogStore.root_label() in row.labels end)
+    roots = Enum.count(history.rows, fn {_, row} -> is_list(row.labels) and CatalogStore.root_label() in row.labels end)
 
     %{
       at: DateTime.utc_now(),

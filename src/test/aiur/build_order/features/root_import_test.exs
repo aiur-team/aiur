@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.Features.RootImportTest do
   use ExUnit.Case, async: true
-  alias Aiur.BuildOrder.Features.{RootImport, RootImportWrites}
   alias Aiur.BuildOrder.{Features, History, Metadata}
+  alias Aiur.BuildOrder.Features.{RootImport, RootImportWrites}
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
   @at ~U[2026-09-01 10:00:00Z]
   @later ~U[2026-09-03 10:00:00Z]
@@ -120,6 +120,7 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
   test "real journal re-runs are idempotent; rename and lane updates keep original join times" do
     {pid, writer} = store()
     assert :ok = RootImportWrites.apply(RootImport.plan(history(), @empty, %{}), writer)
+    assert {:ok, _} = Features.add_epic("bo-2573", %{key: "custom", label: "Operator epic"}, server: pid, source: "cli:kev", actor: "kev")
     assert {:ok, snapshot} = Features.snapshot(server: pid)
     assert snapshot.features["bo-2573"].baseline == :none
     assert snapshot.owners[11].source == "import:build-order"
@@ -134,6 +135,7 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
     update = Enum.find(p.updates, &(&1.slug == "bo-2573"))
     assert update.label == "Renamed"
     assert %{key: "f-bo-2573-runtime", label: "Renamed · Runtime"} in update.epics
+    assert %{key: "custom", label: "Operator epic"} in update.epics
     assert {"bo-2573", %{key: "f-bo-2573-platform", label: "Renamed · Platform"}} in p.new_epics
     assert :ok = RootImportWrites.apply(p, writer)
     assert {:ok, owner} = Features.owner(10, server: pid)
