@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.MaxAgentsWakeTest do
       state = pending_state()
       {:reply, {:ok, %{max: 24}}, next} = control(unquote(operation), state, unquote(value))
       on_exit(fn -> Process.cancel_timer(next.tick_timer_ref) end)
-      assert next.next_poll_due_at_ms - state.last_dispatch_poll_at_ms in 60_000..61_000
+      assert (next.next_poll_due_at_ms - state.last_dispatch_poll_at_ms) in 60_000..61_000
       assert Process.read_timer(next.tick_timer_ref) in 25_000..30_000
       assert Process.read_timer(state.tick_timer_ref) == false
     end
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.MaxAgentsWakeTest do
     state = pending_state(%{session_max_concurrent_agents: 8})
     {:reply, {:ok, %{max: 12}}, next} = Slots.set_max_concurrent_agents_call(state, 12)
     on_exit(fn -> Process.cancel_timer(next.tick_timer_ref) end)
-    assert next.next_poll_due_at_ms - state.last_dispatch_poll_at_ms in 60_000..61_000
+    assert (next.next_poll_due_at_ms - state.last_dispatch_poll_at_ms) in 60_000..61_000
     assert Process.read_timer(state.tick_timer_ref) == false
   end
 
