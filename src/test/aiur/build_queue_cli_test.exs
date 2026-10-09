@@ -79,6 +79,15 @@ defmodule Aiur.BuildQueueCLITest do
     refute output =~ "0 downstream"
   end
 
+  test "items follow planner start order, and a stale observation hides held projections" do
+    observations = Map.new(["1", "2"], &{&1, %Model.Observation{issue_id: &1, open?: true, labels: ["agent:queued"], state_reason: nil, pr: nil, observed_at_ms: 1_500}})
+    projections = [%{issue_id: "2", state: :waiting, verdict: :waiting, rank: {0, 3, 2, 0, "2"}}, %{issue_id: "1", state: :ready, verdict: :ready, rank: {-1, 3, 1, 0, "1"}}]
+    current = %{state() | projections: projections, observations: observations}
+    assert [%{number: 2, state: :waiting}, %{number: 1, state: :ready, downstream_open: 1}] = hd(ReadModel.build(current).queues).items
+    stale = %{current | clock: fn -> 1_500 + 86_400_000 end}
+    assert Enum.all?(hd(ReadModel.build(stale).queues).items, &(&1.state == :unknown and &1.rank == nil))
+  end
+
   test "disabled still prints JSON status and exits one through control marker" do
     pid = start_supervised!({Server, name: nil, settings: {:ok, %{settings() | build_queue: %Schema.BuildQueue{enabled: false}}}})
     output = capture_io(fn -> assert BuildQueueCLI.run(server: pid, json: true) == 1 end)

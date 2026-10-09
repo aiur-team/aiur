@@ -29,6 +29,10 @@ defmodule Aiur.BuildQueue.WriteProtocol do
     if WriteEvidence.fresh?(context, id), do: call(context.tracker, intent.action, id, context.marker, runtime), else: {:error, :stale_observation}
   end
 
+  defp execute(context, %{action: :withdraw, issue_id: id}, _runtime) do
+    if WriteEvidence.fresh?(context, id), do: context.tracker.remove_label(id, context.todo), else: {:error, :stale_observation}
+  end
+
   defp execute(context, intent, runtime), do: call(context.tracker, intent.action, intent.issue_id, context.marker, runtime)
 
   defp call(tracker, :promote, id, _marker, _runtime), do: tracker.update_issue_state(id, "todo", expected_state: :none)
@@ -52,6 +56,7 @@ defmodule Aiur.BuildQueue.WriteProtocol do
       :promote -> Enum.uniq(labels ++ [context.todo])
       :mark -> Enum.uniq(labels ++ [context.marker])
       :unmark -> Enum.reject(labels, &(&1 == context.marker))
+      :withdraw -> Enum.reject(labels, &(&1 == context.todo))
     end
   end
 

@@ -9,9 +9,13 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.TestTicketScope
+
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)
 
   @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
   def issue_closure(issue_id, max_age_ms) do

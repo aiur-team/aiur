@@ -1,24 +1,35 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, Settings}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, PRObserver, Settings, Withdrawal}
 
-  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map(), map()}
+  @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map()}
+
+  @spec plan(map()) :: plan()
   def plan(state) do
     {freshness, observations} = snapshot(state)
     plan(Map.put(state, :freshness, freshness), observations)
   end
 
-  @spec plan(map(), map()) :: {[Planner.item_state()], [Planner.action()], map(), map()}
+  @spec plan(map(), map()) :: plan()
   def plan(state, observations) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
-    intents = Enum.filter(input.intents, &(state.reconciles - Map.get(state.intent_reconciles, &1.id, 0) < 2))
+    promoted = Map.new(input.items, &{&1.issue_id, if(&1.promoted_at, do: DateTime.to_unix(&1.promoted_at, :millisecond))})
+
+    intents =
+      Enum.filter(input.intents, fn intent ->
+        recent? = state.reconciles - Map.get(state.intent_reconciles, intent.id, 0) < 2
+        outstanding? = promoted[intent.issue_id] != nil and intent.recorded_at_ms >= promoted[intent.issue_id]
+        recent? or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
+      end)
+
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
-    ids = Enum.map(input.items, & &1.issue_id)
     {observations, cache} = closures(state, observations)
-    input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids), intents: intents}
+    {observations, published} = PRObserver.observe(observations, state)
+    input = %{input | opts: opts, observations: observations, intents: intents}
+    {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
-    {projections, actions, input.observations, cache}
+    {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
