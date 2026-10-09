@@ -294,7 +294,14 @@ else:
                 verify(root, command)
             print(f'PASS: {name}')
 
-    reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1, ('R-forbid experiments -> Aiur.Orchestrator',))
+    def use_experiments_contract(root):
+        manifest = json.loads((root / 'components.json').read_text())
+        shipped = next(c for c in json.loads((repo / 'components.json').read_text())['components'] if c['id'] == 'experiments')
+        manifest['components'][0]['forbid'] = shipped['forbid']
+        (root / 'components.json').write_text(json.dumps(manifest))
+
+    reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1,
+                    ('R-forbid experiments -> Aiur.Orchestrator',), change=use_experiments_contract)
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.

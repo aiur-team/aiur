@@ -91,7 +91,7 @@ function setupPackage({
   return { shim: path.join(root, "bin", "aiur.js"), fakeBin };
 }
 
-function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false } = {}) {
+function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false, cwd = root } = {}) {
   const fullEnv = {
     ...process.env,
     AIUR_TEST_OUT: captureFile,
@@ -119,7 +119,7 @@ function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = fals
             `require(${JSON.stringify(path.join(root, "bin", "aiur.js"))});`,
         ]
       : [path.join(root, "bin", "aiur.js"), ...args];
-  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv });
+  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv, cwd });
 }
 
 beforeEach(() => {
@@ -261,6 +261,7 @@ for (const command of nonLaunchCommands) {
   const guard = ["init", "--version"].includes(command) ? " (future-regression guard)" : "";
   test(`non-launch ${command} never probes or provisions interactive tools${guard}`, () => {
     const { fakeBin } = setupPackage();
+    if (command === "experiments") mkdirSync(path.join(root, command));
     for (const tool of ["tmux", "opencode", "npm"]) {
       const executable = path.join(fakeBin, tool);
       writeFileSync(executable, `#!/bin/bash\necho '${tool}:$*' >>"$AIUR_TEST_OUT"\nexit 1\n`);
