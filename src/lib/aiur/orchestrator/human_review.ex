@@ -5,9 +5,8 @@ defmodule Aiur.Orchestrator.HumanReview do
   """
 
   require Logger
-
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{Issue}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -16,6 +15,7 @@ defmodule Aiur.Orchestrator.HumanReview do
     Reconciler,
     ReworkGate,
     State,
+    TicketTransition,
     TrackerTasks
   }
 
@@ -239,7 +239,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   end
 
   defp write_human_review_revert({issue, issue_key, target_state}) do
-    Tracker.update_issue_state(to_string(issue_key), target_state, expected_state: issue.state)
+    TicketTransition.write_state(to_string(issue_key), target_state, writer: :human_review, expected_state: issue.state)
   end
 
   defp apply_human_review_revert(

@@ -6,10 +6,10 @@ defmodule Aiur.ExecutorWakeInbox do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.DecisionLog
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.Fs
+  alias Aiur.Journal
   alias Aiur.JsonStore
 
   @default_debounce_ms 2_000
@@ -107,7 +107,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
     StatePaths.ensure()
 
-    with :ok <- DecisionLog.prepare(Path.dirname(path), path),
+    with :ok <- Journal.prepare(Path.dirname(path), path),
          {:ok, pending} <- read_pending(pending_path),
          {:ok, summary} <- journal_summary(path, pending, cursor_path) do
       state = %{
@@ -331,7 +331,7 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp durable_records(state) do
-    case DecisionLog.replay(state.path, &validate_record/1) do
+    case Journal.replay(state.path, &validate_record/1) do
       {:ok, records, nil} -> {:ok, records}
       {:ok, _records, corruption} -> {:error, corruption}
       {:error, reason} -> {:error, reason}
@@ -353,14 +353,14 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp append_record(path, record, :ok) do
-    case DecisionLog.append(path, record) do
+    case Journal.append(path, record) do
       :ok -> {:cont, :ok}
       {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
   defp durable_wake_ids(path) do
-    case DecisionLog.replay(path, &validate_record/1) do
+    case Journal.replay(path, &validate_record/1) do
       {:ok, records, nil} -> {:ok, MapSet.new(records, & &1["wake_id"])}
       {:ok, _records, corruption} -> {:error, corruption}
       {:error, reason} -> {:error, reason}
@@ -427,7 +427,7 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp journal_summary(path, pending, cursor_path) do
-    case DecisionLog.replay(path, &validate_record/1) do
+    case Journal.replay(path, &validate_record/1) do
       {:ok, records, nil} ->
         cursor = read_cursor(cursor_path)
         durable_ids = Enum.map(records, & &1["wake_id"])
@@ -556,7 +556,7 @@ defmodule Aiur.ExecutorWakeInbox do
   # dropped range so a consumer's next read is honest about where the stream now
   # begins rather than replaying a gap it cannot fill.
   defp trim_consumed(state) do
-    case DecisionLog.replay(state.path, &validate_record/1) do
+    case Journal.replay(state.path, &validate_record/1) do
       {:ok, records, nil} -> trim_records(state, records)
       _error -> state
     end

@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
   alias Aiur.{Alerts, Config, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator.{DispatchPolicy, ReviewFindings, ReworkGate}
+  alias Aiur.Orchestrator.{DispatchPolicy, ReviewFindings, ReworkGate, TicketTransition}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation
 
   @spec run(Issue.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | {:defer, term()}
@@ -86,7 +86,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       (review["state"] == "CHANGES_REQUESTED" or (review["state"] == "COMMENTED" and ReviewFindings.blocking_body?(review["body"])))
   end
 
-  defp guarded_update(identifier, target, expected), do: Tracker.update_issue_state(identifier, target, expected_state: expected)
+  defp guarded_update(identifier, target, expected), do: TicketTransition.write_state(identifier, target, writer: :startup_claim_reconciler, expected_state: expected)
 
   defp lifecycle_state_name(slug, opts) do
     opts |> Keyword.get_lazy(:active_states, &Config.active_states/0) |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))

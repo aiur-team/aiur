@@ -1,7 +1,7 @@
 defmodule Aiur.UsageLedger.Paths do
   @moduledoc false
 
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
 
   @segment_name "00000001.ndjson"
   @digest_chunk_bytes 64 * 1_024
@@ -11,8 +11,8 @@ defmodule Aiur.UsageLedger.Paths do
     segments_dir = Path.join(root, "segments")
     segment_path = Path.join(segments_dir, @segment_name)
 
-    with :ok <- DecisionLog.ensure_directory(root),
-         :ok <- DecisionLog.prepare(segments_dir, segment_path, sync_fun) do
+    with :ok <- Journal.ensure_directory(root),
+         :ok <- Journal.prepare(segments_dir, segment_path, sync_fun) do
       {:ok,
        %{
          root: root,
@@ -28,7 +28,7 @@ defmodule Aiur.UsageLedger.Paths do
 
   @spec quarantine(String.t(), String.t(), (-> :ok | {:error, term()})) :: :ok | {:error, term()}
   def quarantine(path, quarantine_dir, sync_fun) when is_binary(path) and is_binary(quarantine_dir) and is_function(sync_fun, 0) do
-    with :ok <- DecisionLog.ensure_directory(quarantine_dir),
+    with :ok <- Journal.ensure_directory(quarantine_dir),
          {:ok, %File.Stat{type: :regular}} <- File.lstat(path),
          {:ok, digest} <- file_digest(path),
          destination = quarantine_path(path, quarantine_dir, digest),

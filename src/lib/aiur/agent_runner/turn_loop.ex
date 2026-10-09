@@ -2,7 +2,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
-
   alias Aiur.AgentRunner.{MessageHandler, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -10,9 +9,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.Config
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate}
+  alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Tracker
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
 
@@ -445,7 +443,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         return_completed(turn_context, issue)
 
       state_name ->
-        case Tracker.update_issue_state(issue.identifier, state_name) do
+        case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
           :ok ->
             failed_issue = %{issue | state: state_name}
             emit_noop_bound_alert(failed_issue, workspace, worker_host, progress, witness, cap, turn_number)
@@ -478,7 +476,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     case stopped_agent_handoff(refreshed_issue, workspace, worker_host, opts) do
       {:handoff, state} ->
-        case Tracker.update_issue_state(refreshed_issue.identifier, state) do
+        case TicketTransition.write_state(refreshed_issue.identifier, state, writer: :turn_loop) do
           :ok ->
             TurnAlerts.emit_rework_handoff_alert(refreshed_issue, workspace, worker_host, state)
             {:handoff, return_completed(turn_context, %{refreshed_issue | state: state})}
