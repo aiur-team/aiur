@@ -1,5 +1,6 @@
 defmodule Aiur.TestSupport.WebhookPollFixture do
   @moduledoc false
+  # Keep polling stubs and webhook fixtures together so both paths describe the same events.
   import ExUnit.Assertions
   import Aiur.TestSupport.EventTicket
   alias Aiur.Events.GithubCommentsPoller

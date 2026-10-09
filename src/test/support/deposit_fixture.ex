@@ -1,5 +1,6 @@
 defmodule Aiur.TestSupport.DepositFixture do
   @moduledoc false
+  # Keep delivery builders together so their resource identifiers stay consistent.
   import Aiur.TestSupport.EventTicket
   @repo "owner/repo"
   @human "its-everdred"

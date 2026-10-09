@@ -1,5 +1,6 @@
 defmodule Aiur.TestSupport.EventTicket do
   @moduledoc false
+  # Fixture builders run in the test process; capture the ID before spawning callbacks.
 
   defmacro __using__(_opts) do
     quote do

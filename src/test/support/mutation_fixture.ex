@@ -1,5 +1,6 @@
 defmodule Aiur.TestSupport.MutationFixture do
   @moduledoc false
+  # Keep mutation responses and webhook fixtures together so they describe the same resources.
   import ExUnit.Assertions
   import ExUnit.Callbacks
   import Aiur.TestSupport.EventTicket
