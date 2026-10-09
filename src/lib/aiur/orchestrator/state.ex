@@ -208,8 +208,7 @@ defmodule Aiur.Orchestrator.State do
           prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
-  # The Orchestrator is the single owner of the correlated control lifecycle;
-  # keeping that aggregate here avoids a second process/state authority.
+  # Single Orchestrator ownership avoids a second control lifecycle authority.
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
@@ -439,6 +438,7 @@ defmodule Aiur.Orchestrator.State do
         updated_running_entry =
           running_entry
           |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
+          |> maybe_put_runtime_value(:repl_tmux_socket, info[:tmux_socket])
           |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
           |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
           |> maybe_put_runtime_value(:headless_process_group_id, info[:headless_process_group_id])

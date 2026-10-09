@@ -11,6 +11,8 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   require Logger
 
+  alias Aiur.Tmux.Socket
+  alias Aiur.Claude.HookEvents
   alias Aiur.ProcessTree
   alias Aiur.Tmux
 
@@ -71,8 +73,9 @@ defmodule Aiur.Claude.Repl.Reaper do
     result = cleanup_result(group_result, kill_result, pane_gone?, pid_gone?, group_gone?)
 
     if result == {:ok, :cleanup_proven} do
-      Aiur.ProcessReaper.unregister({:pane, pane_id})
+      Aiur.ProcessReaper.unregister(Socket.pane_ref(tmux, pane_id))
       Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+      clear_spool(session[:identifier])
     end
 
     Aiur.Perf.event(:repl_agent_teardown,
@@ -99,7 +102,7 @@ defmodule Aiur.Claude.Repl.Reaper do
   `Aiur.Claude.RemoteControl.reap_orphaned_servers/0`.
   """
   @spec reap_orphaned_panes(GenServer.server()) :: :ok
-  def reap_orphaned_panes(tmux \\ Tmux) do
+  def reap_orphaned_panes(tmux \\ Socket.agents()) do
     sweep_repl_panes(tmux, fn owner_pid -> not os_pid_alive?(owner_pid) end)
   end
 
@@ -112,7 +115,7 @@ defmodule Aiur.Claude.Repl.Reaper do
   this BEAM's os pid so a side-by-side aiur instance is never touched.
   """
   @spec sweep_own_panes(GenServer.server()) :: :ok
-  def sweep_own_panes(tmux \\ Tmux) do
+  def sweep_own_panes(tmux \\ Socket.agents()) do
     self_pid = beam_os_pid()
     sweep_repl_panes(tmux, fn owner_pid -> owner_pid == self_pid end)
   end
@@ -126,6 +129,15 @@ defmodule Aiur.Claude.Repl.Reaper do
   @spec pane_alive?(map()) :: boolean()
   def pane_alive?(%{tmux: tmux, pane_id: pane_id}) do
     match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
+  end
+
+  defp clear_spool(nil), do: :ok
+
+  defp clear_spool(identifier) do
+    case HookEvents.clear_spool(identifier) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("claude hook spool cleanup failed: #{inspect(reason)}")
+    end
   end
 
   defp sweep_repl_panes(tmux, owner_match?) do

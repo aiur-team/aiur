@@ -91,9 +91,9 @@
     },
     {
       "id": "harness-adapters", "name": "Harness adapter package (MP-R7)", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
+      "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex", "src/priv/claude_hook_spool.py"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["identity", "agent-sandbox", "config", "kernel"], "optional": ["accounting"],
+      "requires": ["identity", "agent-sandbox", "agent-runner", "config", "kernel"], "optional": ["accounting"],
       "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": ["remote_control"]},
       "prior": ["CA", "CDX", "CLD", "OAI"],
       "shared_with": ["orchestration"]

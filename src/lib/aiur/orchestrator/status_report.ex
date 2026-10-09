@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   Owns orchestrator StatusReport behavior.
   All functions execute inside the orchestrator GenServer process.
   """
+  alias Aiur.Tmux.Socket
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
@@ -35,8 +36,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Workspace.Ownership.HoldStatus
 
   # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
-  # node, so the work itself is microseconds; the only thing this budget has to
-  # cover is queueing. 100 ms did not: behind a burst of ticket events, or any
+  # node, so the work itself is microseconds; the only thing this budget has to cover is queueing. 100 ms did not: behind a burst of ticket events, or any
   # ordinary VM pause, the call timed out and the whole fleet's progress
   # collapsed to a single failure value at once.
   #
@@ -243,9 +243,8 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.put(:status_observed_at, DateTime.utc_now())
   end
 
-  # The asynchronous projection needs only the cached result for rows it can
-  # render. Keeping the rest of this lifecycle map out of the cast prevents
-  # historical CI data from being copied along with every dashboard refresh.
+  # Project only rendered cached CI rows to avoid copying historical data
+  # along with every dashboard refresh.
   defp snapshot_ci_lifecycle(%State{} = state) do
     identifiers = snapshot_identifiers(state)
     poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(identifiers)
@@ -500,6 +499,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(metadata, :worker_host),
       workspace_path: Map.get(metadata, :workspace_path),
       session_id: Map.get(metadata, :session_id),
+      repl_attach_command: Socket.attach_command(metadata),
       live_conversation: Map.get(metadata, :live_conversation),
       codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
       agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),

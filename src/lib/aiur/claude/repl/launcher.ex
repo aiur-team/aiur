@@ -7,6 +7,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   require Logger
 
+  alias Aiur.Tmux.Socket
   alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
   alias Aiur.Claude.Config
   alias Aiur.Claude.Repl.Command
@@ -20,7 +21,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   @spec start_session(Path.t(), keyword()) :: {:ok, Aiur.Claude.ReplAgent.session()} | {:error, term()}
   def start_session(workspace, opts \\ []) when is_binary(workspace) do
-    tmux = Keyword.get(opts, :tmux, Tmux)
+    tmux = Keyword.get(opts, :tmux, Socket.agents())
     expanded = Path.expand(workspace)
     model = Keyword.get(opts, :model) || Config.model()
     effort = Keyword.get(opts, :effort)
@@ -235,7 +236,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         # The pane runs `exec claude`, so the pane pid IS the REPL; register
         # both so shutdown reaps survive either teardown path going stale.
         actor_meta = [ticket: ctx.identifier, backend: "claude-repl", worker_host: nil, remote: false]
-        ProcessReaper.register(ctx.process_reaper, :agent, {:pane, pane_id}, actor_meta)
+        ProcessReaper.register(ctx.process_reaper, :agent, Socket.pane_ref(ctx.tmux, pane_id), actor_meta)
         ProcessReaper.register(ctx.process_reaper, :agent, {:os_pid, os_pid}, [comm: "claude"] ++ actor_meta)
 
         build_ready_session(ctx, pane_id, os_pid, process_group_id, process_group_identity)
@@ -313,7 +314,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       # Set only when lifecycle hooks were injected (see maybe_hook_settings/2);
       # its presence is what routes run_turn to hook-driven detection.
       identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),
-      tmux: ctx.tmux
+      tmux: ctx.tmux,
+      tmux_socket: Socket.name(ctx.tmux)
     }
   end
 

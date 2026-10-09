@@ -2,12 +2,6 @@ defmodule Aiur.Tmux do
   @moduledoc """
   tmux integration via shell-out commands.
 
-  Phase 1 keeps things simple: each command shells out via `System.cmd/3` to
-  `tmux <args>`. Control-mode (`tmux -CC attach`) was tried first but requires
-  a TTY for the attached client, which a BEAM Port does not provide. The
-  shell-out path works without a TTY and is fast enough for human-paced pane
-  operations.
-
   Targets the session named by `AIUR_TMUX_SESSION` (set by the `aiur`
   wrapper). Tests inject a `:transport` of `{:mock, pid}` and observe outbound
   command strings as `{:tmux_mock_out, command}` messages while
@@ -18,6 +12,7 @@ defmodule Aiur.Tmux do
 
   use GenServer
   require Logger
+  alias Aiur.Tmux.Socket
 
   @default_session_env "AIUR_TMUX_SESSION"
   @default_session_fallback "aiur"
@@ -31,9 +26,9 @@ defmodule Aiur.Tmux do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
   end
 
-  @spec command(GenServer.server(), String.t(), timeout()) :: command_response()
+  @spec command(Socket.server(), String.t(), timeout()) :: command_response()
   def command(server \\ __MODULE__, command, timeout \\ 5_000) when is_binary(command) do
-    GenServer.call(server, {:command, command}, timeout)
+    Socket.call(server, {:command, command}, timeout)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -47,19 +42,19 @@ defmodule Aiur.Tmux do
   never reach `log/`. The generic `command/3` path logs every exec at
   debug (and logs args on error), so it can't carry this value.
   """
-  @spec set_pane_border(GenServer.server(), String.t(), String.t() | nil) ::
+  @spec set_pane_border(Socket.server(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
   def set_pane_border(server \\ __MODULE__, pane_id, text)
       when is_binary(pane_id) and (is_binary(text) or is_nil(text)) do
-    GenServer.call(server, {:set_pane_border, pane_id, text})
+    Socket.call(server, {:set_pane_border, pane_id, text})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
-  @spec subscribe_events(GenServer.server()) :: :ok | {:error, term()}
+  @spec subscribe_events(Socket.server()) :: :ok | {:error, term()}
   def subscribe_events(server \\ __MODULE__) do
-    GenServer.call(server, {:subscribe, self()})
+    Socket.call(server, {:subscribe, self()})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
   end
@@ -77,7 +72,7 @@ defmodule Aiur.Tmux do
     a hidden window because it drags the attached client there.
   """
   @spec split_pane(
-          GenServer.server(),
+          Socket.server(),
           String.t(),
           :horizontal | :vertical,
           pos_integer(),
@@ -91,7 +86,7 @@ defmodule Aiur.Tmux do
              is_list(opts) do
     silent? = Keyword.get(opts, :silent, false)
 
-    GenServer.call(
+    Socket.call(
       server,
       {:split_pane, target_pane_id, direction, percent, command_to_run, silent?},
       10_000
@@ -106,10 +101,10 @@ defmodule Aiur.Tmux do
   process running `command_to_run`. Pane id stays the same, so the
   physical position in the tmux layout doesn't change.
   """
-  @spec respawn_pane(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec respawn_pane(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def respawn_pane(server \\ __MODULE__, pane_id, command_to_run)
       when is_binary(pane_id) and is_binary(command_to_run) do
-    GenServer.call(server, {:respawn_pane, pane_id, command_to_run}, 10_000)
+    Socket.call(server, {:respawn_pane, pane_id, command_to_run}, 10_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -123,11 +118,11 @@ defmodule Aiur.Tmux do
   warm window at boot; `move_pane_visible/2` later promotes background
   panes from this window into the visible agents window.
   """
-  @spec new_hidden_window(GenServer.server(), String.t(), String.t()) ::
+  @spec new_hidden_window(Socket.server(), String.t(), String.t()) ::
           {:ok, String.t()} | {:error, term()}
   def new_hidden_window(server \\ __MODULE__, window_name, command_to_run)
       when is_binary(window_name) and is_binary(command_to_run) do
-    GenServer.call(server, {:new_hidden_window, window_name, command_to_run}, 10_000)
+    Socket.call(server, {:new_hidden_window, window_name, command_to_run}, 10_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -138,11 +133,11 @@ defmodule Aiur.Tmux do
   them. This is the capability-bearing REPL spawn path; callers must never put
   those values in `command_to_run`.
   """
-  @spec new_hidden_window_with_env(GenServer.server(), String.t(), String.t(), [{String.t(), String.t() | false}]) ::
+  @spec new_hidden_window_with_env(Socket.server(), String.t(), String.t(), [{String.t(), String.t() | false}]) ::
           {:ok, String.t()} | {:error, term()}
   def new_hidden_window_with_env(server \\ __MODULE__, window_name, command_to_run, env)
       when is_binary(window_name) and is_binary(command_to_run) and is_list(env) do
-    GenServer.call(server, {:new_hidden_window_with_env, window_name, command_to_run, env}, 10_000)
+    Socket.call(server, {:new_hidden_window_with_env, window_name, command_to_run, env}, 10_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -153,10 +148,10 @@ defmodule Aiur.Tmux do
   process and the pane id — verified against tmux 3.5a on aiur's
   isolated socket.
   """
-  @spec join_pane(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec join_pane(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def join_pane(server \\ __MODULE__, source_pane, target_window)
       when is_binary(source_pane) and is_binary(target_window) do
-    GenServer.call(server, {:join_pane, source_pane, target_window}, 10_000)
+    Socket.call(server, {:join_pane, source_pane, target_window}, 10_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -171,10 +166,10 @@ defmodule Aiur.Tmux do
   Used by `Aiur.PaneManager` close path and by `Aiur.Opencode.Slot`
   workers when their attached pane goes hidden.
   """
-  @spec move_pane_hidden(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec move_pane_hidden(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def move_pane_hidden(server \\ __MODULE__, source_pane, target_window)
       when is_binary(source_pane) and is_binary(target_window) do
-    GenServer.call(server, {:move_pane_hidden, source_pane, target_window}, 10_000)
+    Socket.call(server, {:move_pane_hidden, source_pane, target_window}, 10_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -190,10 +185,10 @@ defmodule Aiur.Tmux do
   shifting the active pane, so a background pane's title can be updated
   without yanking focus.
   """
-  @spec set_pane_title(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec set_pane_title(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def set_pane_title(server \\ __MODULE__, pane_id, title)
       when is_binary(pane_id) and is_binary(title) do
-    GenServer.call(server, {:set_pane_title, pane_id, title})
+    Socket.call(server, {:set_pane_title, pane_id, title})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -204,10 +199,10 @@ defmodule Aiur.Tmux do
   horizontally next to existing panes. Caller is responsible for any
   follow-up layout reflow.
   """
-  @spec move_pane_visible(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec move_pane_visible(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def move_pane_visible(server \\ __MODULE__, source_pane, target_window)
       when is_binary(source_pane) and is_binary(target_window) do
-    GenServer.call(server, {:move_pane_visible, source_pane, target_window}, 10_000)
+    Socket.call(server, {:move_pane_visible, source_pane, target_window}, 10_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -218,10 +213,10 @@ defmodule Aiur.Tmux do
   `send-keys -l`). Bypasses the string-split parsing in `command/3` which
   would mangle whitespace and quote characters.
   """
-  @spec send_keys_literal(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec send_keys_literal(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def send_keys_literal(server \\ __MODULE__, pane_id, text)
       when is_binary(pane_id) and is_binary(text) do
-    GenServer.call(server, {:send_keys_literal, pane_id, text})
+    Socket.call(server, {:send_keys_literal, pane_id, text})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -236,10 +231,10 @@ defmodule Aiur.Tmux do
   does) receives it as a single paste rather than a keystroke-by-keystroke
   burst.
   """
-  @spec paste_text(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec paste_text(Socket.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def paste_text(server \\ __MODULE__, pane_id, text)
       when is_binary(pane_id) and is_binary(text) do
-    GenServer.call(server, {:paste_text, pane_id, text})
+    Socket.call(server, {:paste_text, pane_id, text})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -250,9 +245,9 @@ defmodule Aiur.Tmux do
   the named key — not literal text). Submits a line previously staged
   with `send_keys_literal/3`.
   """
-  @spec send_enter(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  @spec send_enter(Socket.server(), String.t()) :: :ok | {:error, term()}
   def send_enter(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:send_enter, pane_id})
+    Socket.call(server, {:send_enter, pane_id})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -263,9 +258,9 @@ defmodule Aiur.Tmux do
   discard any partially-landed keystrokes before re-typing a prompt, so a
   retry can't concatenate onto a stale buffer.
   """
-  @spec clear_input(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  @spec clear_input(Socket.server(), String.t()) :: :ok | {:error, term()}
   def clear_input(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:clear_input, pane_id})
+    Socket.call(server, {:clear_input, pane_id})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -276,9 +271,9 @@ defmodule Aiur.Tmux do
   the foreground program; for the interactive `claude` REPL this stops the
   current turn at its next safe point so a queued message is consumed.
   """
-  @spec send_interrupt(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  @spec send_interrupt(Socket.server(), String.t()) :: :ok | {:error, term()}
   def send_interrupt(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:send_interrupt, pane_id})
+    Socket.call(server, {:send_interrupt, pane_id})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -289,9 +284,9 @@ defmodule Aiur.Tmux do
   Dismisses an in-REPL dialog (e.g. the `/rc` Remote Control panel) without
   touching the input line.
   """
-  @spec send_escape(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  @spec send_escape(Socket.server(), String.t()) :: :ok | {:error, term()}
   def send_escape(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:send_escape, pane_id})
+    Socket.call(server, {:send_escape, pane_id})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -302,9 +297,9 @@ defmodule Aiur.Tmux do
   (tmux's `capture-pane -p`). Used for coarse lifecycle signals
   (REPL readiness / idle prompt) where the transcript has no marker.
   """
-  @spec capture_pane(GenServer.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  @spec capture_pane(Socket.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def capture_pane(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:capture_pane, pane_id}, 5_000)
+    Socket.call(server, {:capture_pane, pane_id}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -314,9 +309,9 @@ defmodule Aiur.Tmux do
   Kill `pane_id` (tmux's `kill-pane`). Returns `:ok` even when the pane
   is already gone, so teardown is idempotent.
   """
-  @spec kill_pane(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  @spec kill_pane(Socket.server(), String.t()) :: :ok | {:error, term()}
   def kill_pane(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:kill_pane, pane_id}, 5_000)
+    Socket.call(server, {:kill_pane, pane_id}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -327,9 +322,9 @@ defmodule Aiur.Tmux do
   (tmux's `\#{pane_pid}`). Used to graceful-kill the REPL's `claude`
   process on teardown.
   """
-  @spec pane_pid(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec pane_pid(Socket.server(), String.t()) :: {:ok, integer()} | {:error, term()}
   def pane_pid(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:pane_pid, pane_id}, 5_000)
+    Socket.call(server, {:pane_pid, pane_id}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -340,16 +335,16 @@ defmodule Aiur.Tmux do
   (tmux's `list-windows -a`). Used by the REPL pane reaper/sweep to find
   `aiur-repl-*` windows across all sessions.
   """
-  @spec list_windows(GenServer.server()) :: {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  @spec list_windows(Socket.server()) :: {:ok, [{String.t(), String.t()}]} | {:error, term()}
   def list_windows(server \\ __MODULE__) do
-    GenServer.call(server, :list_windows, 5_000)
+    Socket.call(server, :list_windows, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
-  @spec session(GenServer.server()) :: String.t()
-  def session(server \\ __MODULE__), do: GenServer.call(server, :session)
+  @spec session(Socket.server()) :: String.t()
+  def session(server \\ __MODULE__), do: Socket.call(server, :session)
 
   @doc """
   Resolve the pane id of the BEAM's own tmux pane via `tmux
@@ -363,9 +358,9 @@ defmodule Aiur.Tmux do
   the legacy "split rightmost" path — that mode was the root cause of
   the regression issue #34 tracks.
   """
-  @spec resolve_self_pane(GenServer.server()) :: {:ok, String.t()} | {:error, term()}
+  @spec resolve_self_pane(Socket.server()) :: {:ok, String.t()} | {:error, term()}
   def resolve_self_pane(server \\ __MODULE__) do
-    GenServer.call(server, :resolve_self_pane, 5_000)
+    Socket.call(server, :resolve_self_pane, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -376,11 +371,11 @@ defmodule Aiur.Tmux do
   same format as `tmux list-windows -F '\#{window_layout}'` returns,
   including the 4-char hex checksum prefix.
   """
-  @spec select_layout(GenServer.server(), String.t(), String.t()) ::
+  @spec select_layout(Socket.server(), String.t(), String.t()) ::
           :ok | {:error, term()}
   def select_layout(server \\ __MODULE__, window_target, layout_string)
       when is_binary(window_target) and is_binary(layout_string) do
-    GenServer.call(server, {:select_layout, window_target, layout_string}, 5_000)
+    Socket.call(server, {:select_layout, window_target, layout_string}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -390,10 +385,10 @@ defmodule Aiur.Tmux do
   Return the pixel-cell dimensions of the window containing `pane_id`,
   as `{:ok, {width, height}}`. Used by the layout-string builder.
   """
-  @spec window_size(GenServer.server(), String.t()) ::
+  @spec window_size(Socket.server(), String.t()) ::
           {:ok, {pos_integer(), pos_integer()}} | {:error, term()}
   def window_size(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:window_size, pane_id}, 5_000)
+    Socket.call(server, {:window_size, pane_id}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -404,10 +399,10 @@ defmodule Aiur.Tmux do
   `pane_id`. The window-id format is stable across pane rearrangements,
   so the result is safe to cache.
   """
-  @spec window_for(GenServer.server(), String.t()) ::
+  @spec window_for(Socket.server(), String.t()) ::
           {:ok, String.t()} | {:error, term()}
   def window_for(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
-    GenServer.call(server, {:window_for, pane_id}, 5_000)
+    Socket.call(server, {:window_for, pane_id}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -420,9 +415,9 @@ defmodule Aiur.Tmux do
   chat pane so stale state from externally closed panes does not distort
   the next layout pass.
   """
-  @spec list_panes(GenServer.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  @spec list_panes(Socket.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def list_panes(server \\ __MODULE__, window_target) when is_binary(window_target) do
-    GenServer.call(server, {:list_panes, window_target}, 5_000)
+    Socket.call(server, {:list_panes, window_target}, 5_000)
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -447,6 +442,11 @@ defmodule Aiur.Tmux do
   end
 
   @impl true
+  def handle_call({:on_socket, socket, message}, from, state) do
+    {:reply, reply, next} = handle_call(message, from, Map.put(state, :socket, socket))
+    {:reply, reply, next |> Map.delete(:socket) |> Map.merge(Map.take(state, [:socket]))}
+  end
+
   def handle_call({:command, cmd}, _from, state) do
     {:reply, Exec.run_command(state, cmd), state}
   end

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Interrupts do
   All functions execute inside the orchestrator GenServer process.
   """
 
+  alias Aiur.Tmux.Socket
   alias Aiur.Claude.ReplAgent
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
@@ -69,7 +70,7 @@ defmodule Aiur.Orchestrator.Interrupts do
   def interrupt_agent_reply(state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       %{repl_pane_id: pane_id} when is_binary(pane_id) ->
-        ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id})
+        ReplAgent.interrupt(%{tmux: Socket.agents(), pane_id: pane_id})
 
       running_entry when is_map(running_entry) ->
         {:error, :interrupt_not_supported}
@@ -141,7 +142,7 @@ defmodule Aiur.Orchestrator.Interrupts do
     # the error makes the bridge controller map it to :close_pane and the
     # helper kill the pane, dropping the queued input. Keep the pane open so
     # the message folds at the next turn boundary.
-    _ = ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id})
+    _ = ReplAgent.interrupt(%{tmux: Socket.agents(), pane_id: pane_id})
     {{:ok, :interrupted}, state}
   end
 

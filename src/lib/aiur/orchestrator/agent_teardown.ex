@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   require Logger
 
+  alias Aiur.Tmux.Socket
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
@@ -198,7 +199,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     pane_id = Map.get(running_entry, :repl_pane_id)
     os_pid = Map.get(running_entry, :repl_os_pid)
 
-    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
+    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(Socket.agents(), pane_id)
 
     # The REPL pane's `exec claude` can spawn tool/MCP children that would
     # orphan and keep working on a single-pid kill, so reap the subtree.

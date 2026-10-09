@@ -14,8 +14,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # headless wrapper's bash pid) is owned by this runner task. An
   # abort/shutdown brutally kills the task, skipping the `after
   # stop_session` cleanup, so report it to the orchestrator's running
-  # entry — the only place an abort path can still reach it. What gets
-  # reported is the backend's registry-declared `runtime_report`
+  # entry for abort cleanup. Report the registry-declared `runtime_report`
   # capability (`Aiur.CodingAgent.runtime_report/1`).
   defp report_repl_session(recipient, %Issue{id: issue_id}, session)
        when is_binary(issue_id) and is_pid(recipient) do
@@ -70,6 +69,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       :repl_pane ->
         %{
           pane_id: Map.get(session, :pane_id),
+          tmux_socket: Map.get(session, :tmux_socket),
           os_pid: Map.get(session, :os_pid),
           session_url: Map.get(session, :session_url)
         }
