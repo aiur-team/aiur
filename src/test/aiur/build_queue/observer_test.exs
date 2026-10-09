@@ -61,6 +61,7 @@ defmodule Aiur.BuildQueue.ObserverTest do
     Process.put(:closure, {:error, :timeout})
     {observations, cache} = Observer.observe(state)
     assert verdict(observations["1"]) == {:unknown, :closed_reason}
+    assert observations["1"].open? == :unknown
     assert cache == %{}
     Process.put(:closure, {:ok, %{open?: false, state_reason: "completed"}})
     {observations, cache} = Observer.observe(%{state | closure_cache: cache})
