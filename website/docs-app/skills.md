@@ -44,6 +44,8 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 ## Executor skills
 
+`aiur-build` creates waiting members with `agent:queued` and adopts their root; `aiur-run` audits queue status, holds and attentions. A disabled queue uses todo labels instead.
+
 These stay with the Executor and are not copied into ticket workspaces.
 
 | Skill | Trigger | Covers |

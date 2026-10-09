@@ -78,6 +78,16 @@ def _validate_label_sets(
         )
         normalized = [label.casefold() for label in labels]
         actual = set(normalized)
+        ticket = by_id.get(identity, {})
+        if (
+            ticket.get("kind") in RUNNABLE_KINDS
+            and ticket.get("depends_on")
+            and "agent:queued" in actual
+        ):
+            expected_labels = expected_labels | {"agent:queued"}
+            todo = f"{normalized_lifecycle_prefix}:todo"
+            if todo not in actual:
+                expected_labels = expected_labels - {todo}
         if len(normalized) != len(actual):
             report.error(
                 f"github_reconciliation.{field}_labels.{identity} "
