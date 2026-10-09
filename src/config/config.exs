@@ -9,7 +9,14 @@ config :aiur, :capability_providers, [
   Aiur.Orchestrator.CapabilityProvider,
   Aiur.DecisionStore.CapabilityProvider,
   Aiur.Tracker.CapabilityProvider,
-  Aiur.Executor.CapabilityProvider
+  Aiur.Executor.CapabilityProvider,
+  Aiur.BuildOrder.CapabilityProvider,
+  Aiur.ElevenLabs.CapabilityProvider,
+  AiurWeb.StreamdeckCapabilityProvider,
+  Aiur.Webhooks.CapabilityProvider,
+  Aiur.Claude.RemoteControl.CapabilityProvider,
+  Aiur.ProviderMeterProjection.CapabilityProvider,
+  Aiur.LiveConversation.CapabilityProvider
 ]
 
 config :aiur, :project_identity_source, Aiur.Tracker

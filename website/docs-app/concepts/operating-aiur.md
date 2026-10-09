@@ -117,7 +117,7 @@ retries and raise an attention.
 Remote control is opt-in per agent and local-only in v1.
 
 
-## Core capability report
+## Capability report
 
 The read-only capability report describes the current instance without changing any
 operation's gates; providers read runtime evidence independently, so registration
@@ -134,6 +134,14 @@ order does not change the result.
 | `commands.answer` | Commands can be answered with dashboard writes enabled. With orchestration down, answers can be recorded but delivery is degraded. Available answers advertise version 1. |
 | `commands.supervisor_api` | A valid Supervisor token is configured and HTTP is available. The token is never reported. |
 | `tracker.github`, `tracker.linear` | The matching tracker is configured. This does not claim upstream connectivity. |
+| `build_orders` | GitHub Build Order catalog projection is running and healthy. Other trackers report `unsupported_tracker`; unhealthy catalogs are degraded with their observation time. |
+| `build_orders.progress` | A healthy catalog contains a root. No root reports `not_configured`, with no numeric progress value. |
+| `voice.stt`, `voice.tts` | HTTP and an ElevenLabs key are configured; TTS also requires a voice ID. Unreadable settings report unknown. |
+| `streamdeck` | HTTP and dashboard credentials are configured. The daemon cannot observe whether the sidecar is installed or connected. |
+| `webhook_ingress` | The configured repository has proven webhook delivery. Unproven delivery is degraded/unknown; degraded delivery reports `not_running`; unconfigured ingress is unavailable. |
+| `remote_control` | Remote Control is enabled in agent configuration or a `+remote` route, and HTTP is bound. Otherwise it reports `disabled` or an unavailable HTTP dependency. |
+| `accounting.meters` | The meter projection is running and at least one provider API or management key is configured. Credential presence does not prove upstream connectivity. |
+| `conversations.read` | HTTP is bound. A missing live conversation process is degraded because disk history remains readable. |
 | `executor.wakes` | The Executor wake inbox is running. |
 | `executor.conversation` | Reports `executor_not_managed` until managed conversation support is installed. |
 
