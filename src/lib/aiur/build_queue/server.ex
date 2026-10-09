@@ -3,7 +3,8 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Events, Hints, ListCommands, ReadModel, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, BuildOrderCommands, ClaimProbe, Events, Hints, ListCommands, ReadModel, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
+  alias Aiur.BuildQueue.Sources.BuildOrder, as: BuildOrderSource
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -40,6 +41,10 @@ defmodule Aiur.BuildQueue.Server do
       observed_at_ms: nil,
       actions: [],
       holds: MapSet.new(),
+      build_order_projection: Keyword.get(opts, :build_order_projection, BuildOrderSource.projection()),
+      sources: %{},
+      source_verdicts: %{},
+      source_refreshes: %{},
       published_pr_versions: %{},
       merged_at_ms: %{},
       hold_ages: %{},
@@ -54,7 +59,12 @@ defmodule Aiur.BuildQueue.Server do
   @impl true
   def handle_call(:read_model, _from, state), do: {:reply, ReadModel.build(state), state}
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
-  def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :phase, :freshness, :projections, :actions, :reconciles])}, state}
+
+  def handle_call(:show, _from, state) do
+    model = Map.take(state, [:status, :phase, :freshness, :projections, :actions, :reconciles, :sources])
+    model = Map.put(model, :build_queue, %{build_order_source: BuildOrderSource.available?(state.build_order_projection)})
+    {:reply, {:ok, model}, state}
+  end
 
   def handle_call({:write, action, id}, _from, %{status: status} = state) when action in [:mark, :unmark] and status == :running and state.phase == :ready do
     state = write(state, [{action, id}], Reconcile.observations(state))
@@ -91,6 +101,21 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
 
+  def handle_call({:mutate, {verb, root} = command}, _from, %{status: :running} = state) when verb in [:adopt, :unadopt] do
+    case BuildOrderCommands.prepare(state, command) do
+      {:ok, document, actions, observations, updates} ->
+        {reply, state} = commit_mutation(state, document, actions, observations)
+        if state.status != :store_unavailable and verb == :unadopt, do: BuildOrderCommands.release(root, state)
+        state = if state.status != :store_unavailable, do: Map.merge(state, Map.delete(updates, :refusals)), else: state
+        state = if verb == :adopt, do: BuildOrderCommands.refresh_unavailable(state), else: state
+        reply = if reply == :ok, do: {:ok, updates.refusals}, else: reply
+        {:reply, reply, request(state)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
   def handle_call({:mutate, command}, _from, %{status: :running} = state) do
     case ListCommands.prepare(state, command) do
       {:ok, document, actions, observations} ->
@@ -122,7 +147,8 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:release, _target}, _from, state), do: {:reply, {:error, state.status}, state}
 
   @impl true
-  def handle_info({:open_issues_recorded, _}, state), do: {:noreply, request(state)}
+  def handle_info({:open_issues_recorded, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
+  def handle_info({:graph_projection_reset, _}, state), do: {:noreply, request(state)}
 
   def handle_info({:event, %{topic: "ticket." <> topic}}, state) do
     state =
@@ -131,10 +157,15 @@ defmodule Aiur.BuildQueue.Server do
         _ -> state
       end
 
-    {:noreply, request(state)}
+    {:noreply, state |> BuildOrderCommands.hint() |> request()}
   end
 
-  def handle_info({:event, _}, state), do: {:noreply, request(state)}
+  def handle_info({:event, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
+
+  def handle_info({kind, snapshot}, state) when kind in [:graph_projection_generation, :graph_projection_health] do
+    root = BuildOrderCommands.generation_root(snapshot)
+    if state.document && Enum.any?(state.document.queues, &(&1.kind == :build_order and &1.root == root)), do: {:noreply, request(state)}, else: {:noreply, state}
+  end
 
   def handle_info(:tick, %{status: status} = state) when status in [:running, :writes_paused] do
     schedule_tick(state)
@@ -210,14 +241,30 @@ defmodule Aiur.BuildQueue.Server do
   defp reconcile(state) do
     {freshness, observations, observed_at_ms} = Reconcile.observed_snapshot(state)
     state = Recovery.resolve(%{state | freshness: freshness, observed_at_ms: observed_at_ms}, observations)
-    state |> replay_list_markers(observations) |> plan(observations)
+    state = state |> sync_sources(observations) |> replay_list_markers(observations)
+    plan(state, Reconcile.observations(state))
   end
 
+  defp sync_sources(%{phase: :ready, status: status} = state, observations) when status in [:running, :writes_paused] do
+    {document, actions, sources, verdicts} = BuildOrderCommands.sync(state)
+    state = %{state | sources: sources, source_verdicts: verdicts} |> BuildOrderCommands.refresh_unavailable()
+
+    if document == state.document do
+      state
+    else
+      document = ListCommands.record(state, document, actions, observations)
+      {_reply, state} = commit_mutation(state, document, actions, observations)
+      state
+    end
+  end
+
+  defp sync_sources(state, _observations), do: state
+
   # Marker requests survive pacing and restarts; replay them only once recovery has resolved the store.
-  defp replay_list_markers(%{phase: :ready, status: :running} = state, observations) do
+  defp replay_list_markers(%{phase: :ready, status: status} = state, observations) when status in [:running, :writes_paused] do
     case ListCommands.pending(state.document) do
       [] -> state
-      pending -> write(state, pending, observations)
+      pending -> write(state, Enum.reject(pending, &Map.has_key?(state.source_verdicts, elem(&1, 1))), observations)
     end
   end
 
