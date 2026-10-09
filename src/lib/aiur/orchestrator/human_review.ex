@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.HumanReview do
 
   require Logger
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.{Issue}
+  alias Aiur.Issue
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
