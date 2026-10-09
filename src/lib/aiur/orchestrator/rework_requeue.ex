@@ -61,7 +61,6 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.TicketTransition
 
   @default_interval_ms 30 * 60 * 1_000
@@ -134,7 +133,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   end
 
   defp default_enabled? do
-    GitHubConfig.pr_health_enabled?() and Tracker.adapter() == GitHubTracker
+    GitHubConfig.pr_health_enabled?() and Aiur.CodeHost.available?()
   rescue
     _error -> false
   catch
@@ -143,7 +142,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
 
   defp default_tickets, do: Tracker.fetch_issues_by_states(["rework"])
 
-  defp default_open_pr(issue_key), do: Tracker.fetch_open_pull_request_for_branch(issue_key)
+  defp default_open_pr(issue_key), do: Aiur.CodeHost.fetch_open_pull_request_for_branch(issue_key)
 
   # `fetch_pull_request_reviews/2` was retired (#2326) in favour of the
   # conditional reader; adapt its 3-tuple back to the `{:ok, list}` shape the

@@ -1,9 +1,9 @@
 defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   @moduledoc false
 
-  alias Aiur.Bounded
+  alias Aiur.{Bounded, DisplaySanitizer}
   alias Aiur.BuildOrder.Lifecycle
-  alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure, Sanitizer, Snapshot}
+  alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure, Snapshot}
   alias Aiur.TrackerIdentity
 
   @default_max_description_bytes 16_384
@@ -114,7 +114,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   defp matching_number?(_identity, _raw_issue), do: :provider_identity_mismatch
 
   defp title(value) when is_binary(value) do
-    with {:ok, sanitized} <- Sanitizer.sanitize(value, 512),
+    with {:ok, sanitized} <- DisplaySanitizer.sanitize(value, 512),
          {:ok, _} <- Bounded.title(sanitized) do
       {:ok, sanitized}
     else
@@ -127,7 +127,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   defp description("", _max_bytes), do: {:ok, nil}
 
   defp description(value, max_bytes) when is_binary(value) and is_integer(max_bytes) and max_bytes > 0 do
-    case Sanitizer.sanitize(value, max_bytes) do
+    case DisplaySanitizer.sanitize(value, max_bytes) do
       {:ok, sanitized} -> {:ok, if(sanitized == "", do: nil, else: sanitized)}
       :error -> {:error, %Failure{kind: :validation}}
     end

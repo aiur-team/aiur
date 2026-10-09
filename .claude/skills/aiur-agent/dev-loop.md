@@ -171,9 +171,9 @@ focused test runner, test-tree paths and CI gate at each step.
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
    - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
-   - From the repository root, after committing: resolve `base` with
+   - After committing and after every base integration, run the structural gate before marking the PR ready:
      `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
-     `python3 scripts/check-file-size.py --base "$base"` (the CI workflow-security command).
+     `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components).
 
    When a change must touch an oversized text file (over 500 lines), keep that
    file the same length or shorter. Put new code in a new small module and new
@@ -205,11 +205,11 @@ focused test runner, test-tree paths and CI gate at each step.
    collect the sibling `test/aiur/github_client_test.exs`. A large green
    directory-scoped run does not prove those root-level files ran.
 5. Fix every verification failure from the scoped local gate before continuing.
-   When any Markdown file under `website/docs-app/` changes (including nested
-   pages), run `node scripts/check-docs-prose.mjs` from the repository root
-   before pushing. It shares the Website / guards paragraph check and rejects
-   prose paragraphs over 360 characters without installing dependencies or
-   starting a browser. Split dense paragraphs before pushing.
+   The structural gate shares Website / guards' prose/table rules and runs
+   `check-components.py --require-elixir`. Split paragraphs over 360 characters
+   and keep at most one sentence above tables; assign every new source file
+   a component owner. Install its toolchain once with
+   `npm ci --prefix scripts/components --ignore-scripts`; use a clean worktree.
 
    Do not loop on unrelated suite flakes. Use the target repository's required
    CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
@@ -441,7 +441,7 @@ the target repository's required local checks pass. In Aiur's Elixir core,
 use compile, format and affected tests with the four-case cap, plus
 `mise exec -- mix lint` from `src/` and
 `python3 scripts/check-bare-assert-receive.py` and
-`python3 scripts/check-file-size.py --base "$base"` from the repository root
+`mise exec -- python3 scripts/check-pr-structure.py --base "$base"` from the repository root
 (resolve `base` as above and check the committed head).
 Use the target repository's full CI gate, which is
 `make ci` for Aiur's Elixir core; do not loop locally on unrelated suite flakes.
