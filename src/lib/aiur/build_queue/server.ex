@@ -12,6 +12,7 @@ defmodule Aiur.BuildQueue.Server do
     Events,
     Hints,
     ListCommands,
+    Progress,
     ReadModel,
     Reconcile,
     Recovery,
@@ -330,6 +331,7 @@ defmodule Aiur.BuildQueue.Server do
     Reconcile.write_hints(projections, holds, state.document)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
     state = %{state | projections: projections, observations: observations, actions: state.actions, holds: holds, hold_ages: ages, reconciles: state.reconciles + 1}
+    Progress.publish(state)
     if Enum.any?(actions, &match?({:dequeue, _}, &1)), do: request(state), else: state
   end
 
