@@ -73,10 +73,7 @@ defmodule Aiur.CI.FailureDigestDerivedTest do
         String.contains?(url, "/annotations?") ->
           [_, id] = Regex.run(~r{/check-runs/(\d+)/annotations}, url)
 
-          case annotations[String.to_integer(id)] do
-            nil -> {:ok, %{status: 403, body: %{}}}
-            body -> ok(body)
-          end
+          annotation_response(annotations[String.to_integer(id)])
 
         String.contains?(url, "/contents/") ->
           ok(%{"encoding" => "base64", "content" => Base.encode64(identity)})
@@ -88,6 +85,9 @@ defmodule Aiur.CI.FailureDigestDerivedTest do
 
     FailureDigest.build(Keyword.get(opts, :id, "rollup"), request_fun: request)
   end
+
+  defp annotation_response(nil), do: {:ok, %{status: 403, body: %{}}}
+  defp annotation_response(body), do: ok(body)
 
   defp ok(body), do: {:ok, %{status: 200, body: body, headers: []}}
 end

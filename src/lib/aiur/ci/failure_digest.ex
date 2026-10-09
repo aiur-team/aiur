@@ -84,6 +84,8 @@ defmodule Aiur.CI.FailureDigest do
     tests = parsed |> Enum.reject(&(&1 == :truncated)) |> Enum.map(&classify(&1, known, issues))
     unknown = is_nil(annotations) or :unknown in parsed
     tests = if unknown, do: :unknown, else: tests
+    proven = run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations)
+    upstream = derived_from(annotations)
 
     %{
       id: run["id"],
@@ -91,12 +93,12 @@ defmodule Aiur.CI.FailureDigest do
       url: run["html_url"],
       tests: tests,
       truncated: truncated,
-      derived_from: if(run["conclusion"] == "failure" and not unknown and not truncated and tests == [] and not other_failures?(annotations), do: derived_from(annotations), else: []),
-      flake_only:
-        run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations) and derived_from(annotations) == [] and tests != [] and
-          Enum.all?(tests, &(&1.classification == :known_flake))
+      derived_from: if(proven and tests == [], do: upstream, else: []),
+      flake_only: proven and upstream == [] and known_tests?(tests)
     }
   end
+
+  defp known_tests?(tests), do: tests != [] and Enum.all?(tests, &(&1.classification == :known_flake))
 
   defp other_failures?(annotations) do
     coverage_exit? = Enum.any?(annotations || [], &routine_coverage_exit?/1)
@@ -122,13 +124,17 @@ defmodule Aiur.CI.FailureDigest do
   defp derived_from(annotations) do
     case Enum.filter(annotations || [], &(&1["title"] == "aiur-derived-failure")) do
       [%{"annotation_level" => "failure", "message" => message}] when is_binary(message) ->
-        case Jason.decode(message) do
-          {:ok, names} when is_list(names) -> if names != [] and Enum.all?(names, &(is_binary(&1) and &1 != "")), do: Enum.uniq(names), else: []
-          _ -> []
-        end
+        decode_names(message)
 
       _ ->
         []
+    end
+  end
+
+  defp decode_names(message) do
+    case Jason.decode(message) do
+      {:ok, names} when is_list(names) and names != [] -> if Enum.all?(names, &(is_binary(&1) and &1 != "")), do: Enum.uniq(names), else: []
+      _ -> []
     end
   end
 
