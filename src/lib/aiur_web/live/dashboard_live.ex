@@ -84,8 +84,6 @@ defmodule AiurWeb.DashboardLive do
   @usage_drill_limit 25
   @usage_drill_dimensions ~w(by_provider by_ticket by_agent_family by_model by_account_generation)a
 
-  # Matches the Tickets panel's own `maxlength`, so the control and the filter
-  # agree on where a query stops.
   @max_ticket_query_length 128
   @provider_meters_flush_ms 250
   @current_run_outcomes_flush_ms 250
@@ -926,6 +924,7 @@ defmodule AiurWeb.DashboardLive do
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
         </div>
+        <AiurWeb.OperatorControlCenter.CodeownersTrust.banner now={@now} />
         <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       </:banner>
 

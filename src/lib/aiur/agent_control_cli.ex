@@ -2520,7 +2520,7 @@ defmodule Aiur.AgentControlCLI do
         path = snapshot |> Map.get(:path) |> trust_path()
         accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
         suffix = if path, do: " path=#{path}", else: ""
-        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}#{CodeOwners.status_suffix(snapshot)}")
 
       _ ->
         :ok

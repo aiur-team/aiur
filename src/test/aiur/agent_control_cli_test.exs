@@ -2001,14 +2001,14 @@ defmodule Aiur.AgentControlCLITest do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 
     Application.put_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
-      %{trusted: ["its-applekid", "its-everdred"], source: :file, path: path}
+      %{trusted: ["its-applekid", "its-everdred"], source: :file, path: path, degradation: %{cause: :repo_owner_unknown, observed_at: nil}}
     end)
 
     on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_trust_snapshot_fun) end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "COMMENT TRUST source=file trusted=[@its-applekid, @its-everdred] path=.github/CODEOWNERS"
+    assert output =~ "COMMENT TRUST source=file trusted=[@its-applekid, @its-everdred] path=.github/CODEOWNERS degraded=Repository owner is unknown age unknown"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert Process.alive?(pid)
   end
