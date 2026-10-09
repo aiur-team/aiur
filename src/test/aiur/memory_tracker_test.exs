@@ -16,6 +16,12 @@ defmodule Aiur.MemoryTrackerTest do
     :ok
   end
 
+  test "native prerequisites come from the configured issue" do
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "42", identifier: "42", blocked_by: [%{id: "7", state: "open"}]}])
+    assert Tracker.blocked_by("42") == {:ok, ["7"]}
+    assert Tracker.blocked_by("missing") == {:error, :issue_not_found}
+  end
+
   test "expected_state :none only matches an issue with no state" do
     Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "42", identifier: "42", state: nil}])
     assert :ok = Tracker.update_issue_state("42", "todo", expected_state: :none)

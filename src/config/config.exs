@@ -2,7 +2,24 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :capability_providers, [Aiur.Capabilities.IdentityProvider, Aiur.BuildQueue.CapabilityProvider]
+
+config :aiur, :project_identity_source, Aiur.Tracker
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
+
+# Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :config_semantic_checks,
+  exclusive: [
+    Aiur.Tracker.SemanticCheck.MissingKind,
+    Aiur.Tracker.SemanticCheck.UnsupportedKind,
+    Aiur.CodingAgent.SemanticCheck.Dispatchable,
+    Aiur.Tracker.SemanticCheck.LinearToken,
+    Aiur.Tracker.SemanticCheck.LinearSlug,
+    Aiur.GitHub.Config.SemanticCheck,
+    Aiur.Claude.Config.SemanticCheck
+  ],
+  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
 
 config :phoenix, :json_library, Jason
 
@@ -27,6 +44,11 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  # Install before app boot: accidental tracker/provider calls must never dial
+  # public hosts. Tests opt in per request with a fake :plug/:adapter, or
+  # adapter: Req.Finch for explicitly tagged live-provider checks.
+  config :req, :default_options, adapter: Aiur.TestHTTPGuard
+
   # Library code must never register real pids/panes into the reaper during
   # unit tests — a draining sweep would kill live host processes. Reaper
   # tests force-enable this against their own dedicated instances.

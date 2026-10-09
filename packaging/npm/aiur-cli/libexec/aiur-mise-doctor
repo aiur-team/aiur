@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Read-only by default; --repair is explicit operator consent to run reshim.
+set -euo pipefail
+mode=${1:---check}
+[[ $# -le 1 && ( $mode == --check || $mode == --repair ) ]] || {
+  echo 'usage: aiur doctor [--repair]' >&2
+  exit 64
+}
+shim_dir=${MISE_SHIMS_DIR:-${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims}
+bad=0
+for shim in "$shim_dir"/*; do
+  [[ -L $shim ]] || continue
+  target=$shim
+  # Follow relative and chained links, including dangling workspace links.
+  for ((depth=0; depth<40; depth++)); do
+    [[ -L $target ]] || break
+    link=$(readlink "$target")
+    if [[ $link == /* ]]; then target=$link; else target=${target%/*}/$link; fi
+  done
+  if [[ $target == */.aiur-runtime/build-bin/* ]]; then
+    printf 'aiur: unsafe mise shim %s -> %s\n' "$shim" "$target" >&2
+    bad=1
+  fi
+done
+((bad)) || exit 0
+if [[ $mode != --repair ]]; then
+  echo 'aiur: run aiur doctor --repair to consent to regenerating mise shims' >&2
+  exit 1
+fi
+# Never trust a workspace wrapper (or its inherited self identity) for repair.
+IFS=: read -r -a entries <<< "$PATH"
+real_mise=
+clean_path=
+for entry in "${entries[@]}"; do
+  entry=${entry:-.}
+  candidate=$entry/mise
+  if [[ -r $candidate ]] && head -c 4096 "$candidate" | grep -q 'aiur-build-gate-command-wrapper-marker'; then
+    continue
+  fi
+  clean_path=${clean_path:+$clean_path:}$entry
+  [[ -n $real_mise || ! -x $candidate ]] || real_mise=$candidate
+done
+[[ -n $real_mise ]] || { echo 'aiur: cannot repair: real mise unavailable on PATH' >&2; exit 127; }
+real_mise=$(cd -P "${real_mise%/*}" && printf '%s/%s' "$PWD" "${real_mise##*/}")
+# Run outside any project config; preserve the operator's mise data directories.
+(cd /; PATH=$clean_path MISE_BIN=$real_mise __MISE_BIN=$real_mise __MISE_EXE=$real_mise "$real_mise" reshim)
+bash "$0" --check

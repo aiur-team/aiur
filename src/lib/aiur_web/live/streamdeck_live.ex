@@ -968,7 +968,7 @@ defmodule AiurWeb.StreamdeckLive do
     %{
       kind: :provider,
       provider: provider,
-      label: descriptor.label,
+      label: Enum.join(Enum.filter([descriptor.label, StreamdeckStrip.summary_label(meter)], &is_binary/1), " · "),
       logo: descriptor.logo,
       observed?: observed_provider?(meter),
       meters: [provider_meter("session", "Session", meter), provider_meter("weekly", "Weekly", meter)]

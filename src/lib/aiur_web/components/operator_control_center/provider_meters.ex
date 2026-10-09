@@ -82,23 +82,21 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         </div>
       </dl>
 
+      <p :if={@card.summary_label} class="provider-meter-coverage">{@card.summary_label}</p>
+
       <div :if={@card.account_usage} class="provider-meter-account-usage">
         <div class="provider-meter-account-usage-header">
           <span class="provider-meter-account-count">×{@card.account_usage.count}</span>
           <span :if={is_number(@card.account_usage.total_percent)}>
-            Average weekly use: {Float.round(@card.account_usage.total_percent, 1)}%
+            Weekly · worst of {@card.account_usage.count} accounts: {@card.account_usage.total_percent}%
           </span>
-          <span :if={!is_number(@card.account_usage.total_percent)}>Average weekly use: unknown</span>
+          <span :if={!is_number(@card.account_usage.total_percent)}>Weekly · worst of {@card.account_usage.count} accounts: unknown</span>
         </div>
-        <div class="provider-meter-account-bar" role="img" aria-label={@card.account_usage.title} title={@card.account_usage.title}>
-          <span
-            :for={account <- @card.account_usage.accounts}
-            class={["provider-meter-account-segment", "account-color-#{rem(account.index, 6)}"]}
-            style={"width: #{100 / @card.account_usage.count}%"}
-            title={account_usage_title(account)}
-          >
+        <div :for={account <- @card.account_usage.accounts} class="provider-meter-account-bar" title={account_usage_title(account)}>
+          <b>{account.name}</b>
+          <div class="provider-meter-account-segment" role="progressbar" aria-label={"#{account.name} weekly usage"} aria-valuemin="0" aria-valuemax="100" aria-valuenow={account.percent}>
             <span :if={is_number(account.percent)} class="provider-meter-account-fill" style={"width: #{account.percent}%"}></span>
-          </span>
+          </div>
         </div>
         <ul class="provider-meter-account-labels">
           <li :for={account <- @card.account_usage.accounts}>

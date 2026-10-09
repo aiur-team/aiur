@@ -250,7 +250,7 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
   "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
-  "build-orders", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
+  "build-orders", "queue", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
   "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
@@ -354,13 +354,13 @@ test("failed pin install remains non-fatal with an accurate pinned manual hint",
   expect(result.stderr).not.toContain("opencode was not found");
 });
 
-// Builds a minimal fake OTP release whose `elixir` records its argv, so the
-// REAL launcher's init routing can be exercised end to end.
+// Builds a fake OTP release recording argv to exercise the real launcher routing.
 function setupRealLauncher() {
   const launcherSrc = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-queue.sh"), path.join(root, "libexec", "aiur-queue.sh"));
 
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";

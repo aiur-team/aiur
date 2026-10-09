@@ -396,7 +396,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
     cond do
       not is_integer(event_id) or event_id <= cursor ->
-        # Stale redelivery or malformed event — drop.
+        Logger.debug("SubscriptionStore(#{state.identifier}): dropping event #{inspect(event_id)} at cursor #{cursor}")
         {:noreply, state}
 
       state.stall != nil ->
@@ -476,19 +476,16 @@ defmodule Aiur.Events.SubscriptionStore do
     %{state | stalled_buffer: state.stalled_buffer ++ [{event_id, event}]}
   end
 
-  # Clear the stall, advance the cursor past the stalled event, and hand the
-  # events held behind the stall back to the normal delivery path. They are
-  # re-sent to this process's own FIFO mailbox in order, so ordering is
-  # preserved; if one fails enqueue again, a fresh stall forms and the rest
-  # are buffered behind it.
+  # Drain before returning to the mailbox, where newer events may already wait.
   defp resolve_stall(state, event_id) do
     new_state = advance_cursor_inline(%{state | stall: nil, stalled_buffer: []}, event_id)
 
-    for {_buffered_id, buffered_event} <- state.stalled_buffer do
-      send(self(), {:event, buffered_event})
-    end
-
-    new_state
+    state.stalled_buffer
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce(new_state, fn {_id, event}, acc ->
+      {:noreply, next} = handle_info({:event, event}, acc)
+      next
+    end)
   end
 
   defp error_kind(:no_orchestrator), do: :transient

@@ -240,25 +240,24 @@ canonical references.
 
 ## Step 1 — Ticket is created and labelled `agent:todo`
 
-A ticket needs an **explicit** state label to be dispatchable. An open,
-correctly-labelled, unblocked ticket with no `agent:*` state label is simply
-invisible.
-
-`DispatchAuthorization.authorize/5` derives the trigger label from the issue's
-current state and denies `:missing_trigger_label` when there is none
+An open, unblocked ticket needs an **explicit** state label to be dispatchable.
+`DispatchAuthorization.authorize/5` denies `:missing_trigger_label` otherwise
 (`src/lib/aiur/github/dispatch_authorization.ex:74-82`).
 
-**Label provenance** surprises people, so it is worth stating plainly:
+**Label provenance:**
 
-- Dispatch is authorized by *who applied the trigger label*, verified against
-  the GitHub issue timeline. There is deliberately **no trusted-creator
-  short-circuit** — the comment at `dispatch_authorization.ex:35-50` explains
-  why: agents file issues with the same credential, so a creator short-circuit
-  made agent-filed work self-authorizing.
-- Aiur moves the state label itself on every transition, so the latest applier
-  is routinely the bot. An Aiur-applied label **carries forward** the original
-  triage decision — authorized only if some allowed user ever applied an
-  `agent:*` label to that issue (`dispatch_authorization.ex:88-126`).
+- Dispatch trusts *who applied the trigger label*, verified against the GitHub timeline.
+  There is **no trusted-creator short-circuit**: agents share the credential,
+  so trusting creators would make agent-filed work self-authorizing
+  (`dispatch_authorization.ex:35-50`).
+- Aiur's state transitions routinely make the bot the latest label applier.
+  Its label **carries forward** triage only if an allowed user previously applied
+  an `agent:*` label (`dispatch_authorization.ex:88-126`).
+- Queue promotion does not grant authorization: an allowed human must apply the marker or `agent:todo`.
+  An unauthorized decline shows `promoted_unauthorized` and raises one queue attention.
+  It resolves when the decline clears or the issue is claimed; an unavailable probe preserves it.
+- Detection requires a free dispatch slot: declines are recorded only while slots
+  are available. Until then, the queue shows `promoted`.
 - A relabel by anyone else **revokes** authorization, and `Orchestrator.Reconciler`
   terminates the running agent on the next poll.
 - A label applied when an issue is created can appear in the issue response

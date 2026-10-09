@@ -363,10 +363,10 @@ defmodule Aiur.OrchestratorStatusTest do
     :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
 
     # The symmetric failure to a backlogged orchestrator: this one wedges with
-    # an empty mailbox, so there is no backlog to corroborate the stall. A
-    # depth-gated rule would keep serving this snapshot as `:current` forever,
-    # which is the "stale renders as current" defect the Units page exists to
-    # prevent. Age alone must be enough.
+    # an empty mailbox, so no backlog corroborates the stall; a depth-gated rule
+    # would serve it as `:current` forever. Age alone must be enough. Drain the
+    # init startup-cleanup task first, or its reply and :DOWN fill the mailbox.
+    assert eventually?(fn -> :sys.get_state(pid).tracker_tasks == %{} end)
     :sys.suspend(pid)
     Process.sleep(90)
 
@@ -3882,6 +3882,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     on_exit(fn ->
       File.touch(release_file)
+      SubscriptionStore.stop(issue.identifier)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
     end)
@@ -3906,8 +3907,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     state = :sys.get_state(pid)
     replacement = Map.fetch!(state.running, "issue-completed-resume")
-    assert is_pid(replacement.pid)
-    assert Process.alive?(replacement.pid)
+    assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert replacement.pid != old_worker
     assert is_reference(replacement.ref)
     assert replacement.ref != old_ref
