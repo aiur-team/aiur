@@ -86,7 +86,9 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
   for {name, issue, state} <- [
         {"human pause", %{paused: true, labels: ["agent:in-progress", "agent:paused"]}, %{}},
         {"parked ticket", %{parked: true}, %{}},
-        {"scheduled retry", %{}, %{retry_attempts: %{"issue-3622" => %{attempt: 1}}}}
+        {"scheduled retry", %{}, %{retry_attempts: %{"issue-3622" => %{attempt: 1}}}},
+        # RetryEngine stages a released workspace wait by issue id, not identifier.
+        {"staged redispatch", %{}, %{dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{"issue-3622" => %{}}}, codex_thrash_budget: %{}}}}
       ] do
     test "protects #{name} across periodic recovery" do
       ticket = struct(issue(), unquote(Macro.escape(issue)))
