@@ -177,3 +177,26 @@ for (const key of ['Enter', ' ']) {
     await expect(toggle).toBeFocused()
   })
 }
+
+// Dark cases guard existing behavior; light cases reproduce #3664.
+for (const palette of ['aiur', 'gruvbox']) {
+  for (const theme of ['light', 'dark']) {
+    test(`History outcome chips clear text contrast in ${theme} ${palette}`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await openCommands(page)
+      await page.goto('/commands/decision-123')
+      await page.locator('html').evaluate((html, { palette, theme }) => {
+        html.dataset.palette = palette
+        html.dataset.theme = theme
+      }, { palette, theme })
+
+      await expect(page.locator('.command-history .chip.good').first()).toBeVisible()
+      const audit = await new AxeBuilder({ page })
+        .include('.command-history .chip')
+        .withRules(['color-contrast'])
+        .analyze()
+      expectAuditClean(audit)
+      expect(audit.passes.some((result) => result.id === 'color-contrast')).toBe(true)
+    })
+  }
+}
