@@ -14,7 +14,9 @@ defmodule Aiur.BuildQueue.PRObserverTest do
   end
 
   defmodule Snapshot do
-    def open_issue_labels(_age), do: {:ok, %{"1" => %{labels: ["agent:queued"]}, Application.fetch_env!(:aiur, :pr_observer_ticket) => %{labels: []}}, Application.fetch_env!(:aiur, :pr_observer_observed_at)}
+    def open_issue_labels(_age),
+      do: {:ok, %{"1" => %{labels: ["agent:queued"]}, Application.fetch_env!(:aiur, :pr_observer_ticket) => %{labels: []}}, Application.fetch_env!(:aiur, :pr_observer_observed_at)}
+
     def ticket_pull_request(id), do: Tracker.ticket_pull_request(id)
   end
 
@@ -34,10 +36,12 @@ defmodule Aiur.BuildQueue.PRObserverTest do
     observed_at = System.system_time(:millisecond)
     Application.put_env(:aiur, :pr_observer_ticket, ticket)
     Application.put_env(:aiur, :pr_observer_observed_at, observed_at)
+
     on_exit(fn ->
       Application.delete_env(:aiur, :pr_observer_ticket)
       Application.delete_env(:aiur, :pr_observer_observed_at)
     end)
+
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     ResourceStore.reset()
     on_exit(&ResourceStore.reset/0)
