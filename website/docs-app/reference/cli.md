@@ -1,7 +1,6 @@
 ---
 pageClass: cli-reference
 ---
-
 # CLI
 
 When no repository-local config exists, `aiur` and `aiurdev` use `~/.aiur/config` without requiring `init` in each repository. Global GitHub launches announce the config and `origin` target, then ensure workflow/marker and complexity labels before dispatch. They do not seed model labels.
@@ -16,6 +15,7 @@ Keep shared credentials in `~/.aiur/.env`; exported values win. If required labe
 | Surface parity | The CLI targets feature parity with the [GUI](/guide/gui) and [TUI](/guide/tui). |
 
 Run the command from the repository that owns the run. An instance is keyed to that project, so control commands address that repository's daemon.
+
 ## What the CLI does
 
 | Job | Commands | Notes |
