@@ -256,15 +256,8 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   # blocker) and `manual:agent` (a sibling an agent chose to watch), neither of
   # which may interrupt a live turn.
   #
-  # Fail-safe: the snapshot is a call into a per-ticket GenServer, and a
-  # missing, restarting, or timing-out store yields no blockers rather than an
-  # exception. The polled set still stands, so the worst case is exactly the
-  # behaviour before this union.
-  #
-  # A caller that already holds the bindings passes them as `subscriptions`.
-  # The ticket's own store must do this: it calls the Orchestrator and waits,
-  # so a snapshot read back into it blocks the Orchestrator until that call
-  # times out.
+  # Read the Registry mirror when bindings were not supplied by the sender.
+  # The store may already be waiting on this Orchestrator.
   @spec direct_blockers_for(State.t(), String.t(), [map()] | nil) :: [String.t()]
   def direct_blockers_for(state, identifier, subscriptions \\ nil)
 
@@ -296,15 +289,7 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
     do: blocker_identifiers(subscriptions)
 
   defp subscribed_direct_blockers(identifier, nil) do
-    case SubscriptionStore.snapshot(identifier) do
-      %{subscribed_to: subscriptions} when is_list(subscriptions) -> blocker_identifiers(subscriptions)
-      _no_store -> []
-    end
-  catch
-    :exit, reason ->
-      Logger.warning("direct_blockers_for subscription snapshot failed: identifier=#{identifier} reason=#{inspect(reason)}")
-
-      []
+    identifier |> SubscriptionStore.subscriptions() |> blocker_identifiers()
   end
 
   defp blocker_identifiers(subscriptions) do
