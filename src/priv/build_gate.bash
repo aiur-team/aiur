@@ -7,6 +7,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   AIUR_BUILD_GATE_HOOK_LOADED=1
 
   source "$(dirname "${BASH_SOURCE[0]}")/browser_build_gate.bash"
+  source "$(dirname "${BASH_SOURCE[0]}")/build_priority.bash"
   aiur_build_gate_log() {
     printf 'aiur_build_gate %s\n' "$*" >&2
   }
@@ -501,7 +502,6 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   aiur_build_gate_run_or_reuse() {
     local phase=$1 executable=$2 lease_result
     shift 2
-
     if aiur_build_gate_live_lease; then
       "$executable" "$@"
     else
@@ -509,7 +509,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       if ((lease_result == 1)); then
         unset AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN
-        aiur_build_gate_run "$phase" "$executable" "$@"
+        aiur_build_gate_run_with_priority "$phase" "$executable" "$@"
       else
         return "$lease_result"
       fi
