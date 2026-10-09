@@ -140,7 +140,7 @@ defmodule Aiur.BuildQueue.ServerTest do
     send(pid, message)
     GenServer.call(pid, :status)
     assert :ets.tab2list(Hints.table_name()) == []
-    GenServer.stop(pid)
+    stop_supervised!(Server)
     assert :ets.whereis(Hints.table_name()) == :undefined
     refute Hints.held?("2")
   end

@@ -1,8 +1,6 @@
 defmodule Aiur.BuildQueue.Writer do
   @moduledoc "Serial label writes with durable intents and a rolling minute write budget."
-  require Logger
-  alias Aiur.BuildQueue.{Attention, Bookkeeping, Events, WriteEvidence, WriteProtocol}
-  alias Aiur.BuildQueue.Model.Latch
+  alias Aiur.BuildQueue.{AttentionActions, Bookkeeping, Events, WriteEvidence, WriteProtocol}
 
   @spec new() :: map()
   def new, do: %{writes: [], failures: %{}, ensured?: false, paused?: false}
@@ -11,7 +9,8 @@ defmodule Aiur.BuildQueue.Writer do
   def run(context, actions, runtime) do
     context = Map.merge(context, %{writer: runtime, status: if(runtime.paused?, do: :writes_paused, else: :running), promoted: [], write_attentions: [], write_results: []})
     {bookkeeping, writes} = Enum.split_with(actions, fn {action, _} -> action in [:mark_override, :mark_external_hold, :dequeue] end)
-    context = Enum.reduce_while(bookkeeping ++ writes, context, &execute/2)
+    {attentions, writes} = Enum.split_with(writes, fn {action, _} -> action in [:attention_open, :attention_resolve] end)
+    context = Enum.reduce_while(attentions ++ bookkeeping ++ writes, context, &execute/2)
     promoted = Enum.reverse(context.promoted)
     if promoted != [], do: context.claim_probe.notify_demand(promoted)
     context
@@ -33,17 +32,9 @@ defmodule Aiur.BuildQueue.Writer do
     end
   end
 
-  defp execute({action, {cause, id}}, context) when action in [:attention_open, :attention_resolve] and cause in [:promoted_unauthorized, :merged_issue_open] do
-    result = if action == :attention_open, do: Attention.open(cause, id, %{ticket: id}), else: Attention.resolve(cause, id)
-
-    case context.store.load() do
-      {:ok, document} ->
-        if result != :ok, do: Logger.warning("Build queue #{cause} attention failed issue_id=#{id} issue_identifier=##{id} action=#{action}: #{inspect(result)}")
-        {:cont, %{context | document: document}}
-
-      {:error, _reason} ->
-        {:halt, %{context | status: :store_unavailable}}
-    end
+  defp execute({action, _key} = command, context) when action in [:attention_open, :attention_resolve] do
+    context = AttentionActions.execute(context, command)
+    if context.status == :store_unavailable, do: {:halt, context}, else: {:cont, context}
   end
 
   defp execute({action, _id} = command, context) when action in [:mark_override, :mark_external_hold, :withdraw_observed, :dequeue] do
@@ -123,7 +114,8 @@ defmodule Aiur.BuildQueue.Writer do
   defp success(context, action, id) do
     writer = %{context.writer | failures: Map.delete(context.writer.failures, id), paused?: false}
     promoted = if action == :promote, do: [id | context.promoted], else: context.promoted
-    %{context | writer: writer, promoted: promoted, status: :running}
+    context = %{context | writer: writer, promoted: promoted, status: :running}
+    AttentionActions.execute(context, {:attention_resolve, {:write_failed, id}})
   end
 
   defp failed(context, action, id, delays) do
@@ -143,16 +135,8 @@ defmodule Aiur.BuildQueue.Writer do
 
   defp latch(context, id) do
     key = {:write_failed, id}
-    if Enum.any?(context.document.latches, &(&1.key == key)), do: context, else: save_latch(context, key)
-  end
-
-  defp save_latch(context, key) do
-    latch = %Latch{key: key, opened_at_ms: context.clock.()}
-    document = %{context.document | latches: context.document.latches ++ [latch]}
-
-    case context.store.save(document) do
-      :ok -> %{context | document: document, write_attentions: context.write_attentions ++ [{:attention_open, key}]}
-      {:error, _reason} -> %{context | status: :store_unavailable}
-    end
+    pending? = not Enum.any?(context.document.latches, &(&1.key == key and &1.emitted?))
+    context = AttentionActions.execute(context, {:attention_open, key})
+    if pending?, do: %{context | write_attentions: context.write_attentions ++ [{:attention_open, key}]}, else: context
   end
 end

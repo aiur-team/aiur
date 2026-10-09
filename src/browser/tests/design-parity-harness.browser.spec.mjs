@@ -99,7 +99,7 @@ test('time zone guard', async ({ browser }) => {
 for (const missing of ['font file', 'stylesheet']) {
   test(`font guard: missing ${missing}`, async ({ browser }) => {
     const page = await pageFor(browser)
-    await page.route(missing === 'font file' ? '**/SpaceGrotesk-Variable.woff2' : 'https://fonts.googleapis.com/**', route => route.fulfill({ status: missing === 'font file' ? 404 : 200, contentType: 'text/css', body: '' }))
+    await page.route(missing === 'font file' ? '**/spacegrotesk/**' : 'https://fonts.googleapis.com/**', route => route.fulfill({ status: missing === 'font file' ? 404 : 200, contentType: 'text/css', body: '' }))
     await expect(openDesign(page, cell)).rejects.toThrow(/font not loaded:/)
   })
 }

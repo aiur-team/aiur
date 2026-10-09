@@ -113,6 +113,15 @@ if config_env() == :test do
   # overrides (Aiur.TestSupport, subscription_store_test) still win;
   # test_helper.exs verifies this value and removes the directory in
   # after_suite.
+  Code.require_file("../test/support/test_log_tmp.exs", __DIR__)
+  {test_uid, 0} = System.cmd("id", ["-u"])
+  Aiur.TestLogTmp.sweep!(System.tmp_dir!(), test_uid |> String.trim() |> String.to_integer())
+
+  # Isolated HOME/XDG roots must not become fresh tool-download caches per VM.
+  System.put_env("MISE_AUTO_INSTALL", "0")
+  System.put_env("MISE_OFFLINE", "1")
+  System.put_env("npm_config_offline", "true")
+
   test_log_root =
     Path.join(
       System.tmp_dir!(),
