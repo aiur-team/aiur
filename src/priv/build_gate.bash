@@ -464,7 +464,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
     AIUR_BUILD_GATE_LEASE_PATH=$lease_path \
       AIUR_BUILD_GATE_LEASE_TOKEN=$lease_token \
-      "$@"
+      aiur_build_gate_execute_with_priority "$@"
   }
 
   aiur_build_gate_execute_with_ephemeral_lease() {
@@ -800,14 +800,13 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local holder_script
     shift 14
 
-    # A Linux subreaper becomes the parent of daemonized Mix descendants. It
-    # owns the slot descriptor, reports the direct command status promptly,
-    # then keeps the lease until every adopted descendant has exited.
+    # The subreaper owns the lease until every adopted descendant has exited.
+    aiur_build_gate_priority_args "$@" || return $?
     holder_script="$(dirname "${BASH_SOURCE[0]}")/build_gate_holder.py"
 
     exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
       "$command_ready_path" "$status_path" "$status_ack_path" "$owner_path" "$token" \
-      "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "$@"
+      "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "${aiur_build_gate_prioritized_command[@]}"
   }
 
   aiur_build_gate_wait_for_holder_value() {
