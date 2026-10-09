@@ -440,8 +440,7 @@ defmodule Aiur.Application do
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
-      # Webhook deduplication state must be replayed before any receiver can
-      # admit a delivery.
+      # Webhook deduplication state must be replayed before any receiver can admit a delivery.
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
@@ -462,6 +461,7 @@ defmodule Aiur.Application do
       # Claude telemetry must be available before the Orchestrator starts owned workers.
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.History,
+      Aiur.BuildOrder.History.Feeder,
       {Aiur.BuildOrder.History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)},
       Aiur.BuildOrder.Features,
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
