@@ -6,8 +6,8 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
-  alias Aiur.TestSupport.DashboardFontAssertions
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.DashboardFontAssertions
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
