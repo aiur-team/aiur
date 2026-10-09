@@ -5,6 +5,9 @@ defmodule Aiur.Memory.Tracker do
 
   @behaviour Aiur.Tracker.IssueTracker
 
+  @spec config_module() :: module()
+  def config_module, do: Aiur.Memory.Config
+
   alias Aiur.Issue
 
   @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}

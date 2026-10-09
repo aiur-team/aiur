@@ -1,7 +1,3 @@
 # rule	target_module	reason
-R-declared	Aiur.GitHub.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Linear.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TestTicketScope	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.TestTicketScope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.Tracker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Linear.Tracker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

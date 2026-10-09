@@ -55,6 +55,15 @@ defmodule Aiur.Linear.Config do
     end
   end
 
+  @impl Aiur.TrackerConfig
+  def validate_settings(settings) do
+    cond do
+      not is_binary(settings.tracker.linear.api_key) -> {:error, :missing_linear_api_token}
+      not is_binary(settings.tracker.linear.project_slug) -> {:error, :missing_linear_project_slug}
+      true -> :continue
+    end
+  end
+
   defp section_value(key) do
     Aiur.Config.settings!().tracker.linear
     |> Map.from_struct()
