@@ -5,5 +5,4 @@ R-declared	AiurWeb.ObservabilityPubSub	baseline 4aba33f8aae03cdaec432d6614e70a57
 R-down	AiurWeb.ObservabilityPubSub	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.ObservabilityPubSub	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.LiveConversation.Source	MP-R1-C8-T03 moved unchanged handle validation from the Units row; optional-provider extraction is deferred
 R-optional	Aiur.PollCadence	MP-R1-C8-T03 moved unchanged fleet freshness policy; cadence ownership remains github-listeners

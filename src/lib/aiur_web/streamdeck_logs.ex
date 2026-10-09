@@ -46,7 +46,7 @@ defmodule AiurWeb.StreamdeckLogs do
   parallel array, so there is no off-by-one to get wrong when the anchors move.
   """
 
-  alias Aiur.AgentEventFeed
+  alias Aiur.{AgentEventFeed, Conversation.History}
   alias Aiur.Conversation.Anchors
 
   # LIVE is pinned to the rightmost key, so each page of events shows one fewer
@@ -553,11 +553,11 @@ defmodule AiurWeb.StreamdeckLogs do
   @spec load(String.t()) :: map()
   def load(identifier) when is_binary(identifier) do
     transcript =
-      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+      case History.transcript(identifier, %{"limit" => 50}) do
         {:ok, %{events: events}} -> events
         _ -> []
       end
 
-    project(%{events: AgentEventFeed.bus_events(identifier), transcript: transcript})
+    project(%{events: History.bus_events(identifier), transcript: transcript})
   end
 end
