@@ -3,6 +3,7 @@ defmodule Aiur.Capabilities.GraphProjectionCapabilityTest do
 
   alias Aiur.BuildOrder.CapabilityProvider
   alias Aiur.BuildOrder.GraphProjection
+  alias Aiur.BuildOrder.GraphProjection.{CapabilityReader, Policy}
 
   test "default capability read preserves projection state and timers despite changed authority" do
     parent = self()
@@ -32,6 +33,7 @@ defmodule Aiur.Capabilities.GraphProjectionCapabilityTest do
 
     receive_barrier({:catalog_reader_started, reader})
     before = :sys.get_state(projection)
+    assert CapabilityReader.catalog(projection) == Policy.snapshot(before.catalog, before.active_repository, before.authority_epoch, 0, 120_000)
     assert before.catalog.inflight != nil
     assert before.active_repository == {"test-owner", "read-only-catalog"}
     epoch = before.authority_epoch
@@ -43,6 +45,10 @@ defmodule Aiur.Capabilities.GraphProjectionCapabilityTest do
     assert caps["build_orders"].state == :degraded
     assert :sys.get_state(projection) == before
     refute_received {:capability_projection_event, _event}
+    Agent.update(authority, fn _ -> %{repository: {"test-owner", "read-only-catalog"}, generation: 1} end)
     send(reader, :finish)
+    receive_barrier({:capability_projection_event, {:graph_projection_health, snapshot}})
+    assert snapshot.health.failure != nil
+    assert CapabilityReader.catalog(projection) == snapshot
   end
 end

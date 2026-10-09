@@ -749,7 +749,7 @@ Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#clos
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
-Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; marker writes and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving the item unclaimed; `agent:queued` remains. No quota saving is claimed.
+Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; markers and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. No saving is claimed ([cost](/concepts/build-orders#queue-cost)).
 
 Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
 

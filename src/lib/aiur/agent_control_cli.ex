@@ -206,6 +206,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
     end
 
+    SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
 
@@ -2216,9 +2217,7 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
   # Every admission measurement is rendered with the age of the sample it came
-  # from. The figure alone is indistinguishable from a current one, which is how
-  # a `load=24.14` taken minutes earlier sat unnoticed beside a live `LOAD 7.23`
-  # line four times smaller (#2527).
+  # from; otherwise old readings look current beside the live LOAD line (#2527).
   defp capacity_binding_label({:admission, hold}),
     do: admission_detail(hold) <> admission_sample_age(hold)
 
