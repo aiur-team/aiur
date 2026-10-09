@@ -29,7 +29,7 @@ defmodule Aiur.BuildQueue.Withdrawal do
       since = Map.get(previous, id, now)
 
       if now - since >= 3 * interval_seconds * 1_000 do
-        Logger.warning("Build queue withdrawal held for #{id}: claim check or withdrawal observation unavailable; retaining dispatch hold")
+        Logger.warning("Build queue withdrawal held for #{id}: no confirmed release; retaining dispatch hold")
         {id, now}
       else
         {id, since}

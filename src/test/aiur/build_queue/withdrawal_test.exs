@@ -11,11 +11,11 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
     def save(document), do: Agent.update(__MODULE__, &%{&1 | document: document, now: &1.now + Map.get(&1, :save_advance_ms, 0)})
 
     def open_issue_labels(_age) do
-      Agent.get(__MODULE__, fn state ->
-        if Map.get(state, :snapshot_unavailable, false),
-          do: {:error, :unavailable},
-          else: {:ok, Map.new(state.labels, fn {id, labels} -> {id, %{labels: labels, updated_at: nil}} end), state.observed_at}
-      end)
+      state = Agent.get(__MODULE__, & &1)
+
+      if Map.get(state, :snapshot_unavailable, false),
+        do: {:error, :unavailable},
+        else: {:ok, Map.new(state.labels, fn {id, labels} -> {id, %{labels: labels, updated_at: nil}} end), state.observed_at}
     end
 
     def status(ids) do

@@ -22,6 +22,10 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
         {result, %{s | calls: s.calls ++ [{:promote, id}], labels: labels}}
       end)
     end
+
+    def remove_label(id, label) do
+      Agent.update(__MODULE__, &%{&1 | calls: &1.calls ++ [{:remove_label, id, label}], labels: Map.update!(&1.labels, id, fn labels -> List.delete(labels, label) end)})
+    end
   end
 
   setup do
@@ -83,7 +87,8 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
   test "successful and pending matching intents explain own promotion for two reconciles" do
     for outcome <- [:ok, nil] do
       intent = %Model.Intent{id: "pending", issue_id: "2", action: :promote, target_labels: ~w(agent:todo agent:queued), recorded_at_ms: 1_000, outcome: outcome}
-      change_document(&%{&1 | intents: [intent]})
+      # Keep readiness stable while testing promotion evidence expiry.
+      change_document(&%{&1 | intents: [intent], edges: []})
       labels("2", ~w(agent:queued agent:todo))
       pid = server()
       reconcile(pid)
