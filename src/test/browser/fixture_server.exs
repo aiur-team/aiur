@@ -1,4 +1,6 @@
+Code.require_file("../support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
+Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
@@ -1456,36 +1458,6 @@ defmodule Aiur.BrowserHarness.VoiceSTT do
   def handle_cast(:stop, channel), do: {:stop, :normal, channel}
 end
 
-defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
-  @moduledoc """
-  Lets one browser spec opt its own fixture server into a writable dashboard.
-
-  Stream Deck key presses only reach the agent control facade when the
-  dashboard is writable, so the operator-flow spec needs that gate open to
-  prove a pause actually pauses. Every `run-browser-tests.mjs` invocation gets
-  its own fixture server, so flipping it here cannot leak into another spec.
-  """
-
-  use Phoenix.Controller, formats: []
-
-  import Plug.Conn
-
-  alias Aiur.BrowserHarness.FixtureServer
-
-  @modes %{"writable" => true, "read_only" => false}
-
-  def configure(conn, %{"mode" => mode}) when is_map_key(@modes, mode) do
-    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Map.fetch!(@modes, mode))
-    FixtureServer.reset_streamdeck_pauses()
-
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(200, "streamdeck fixture control: #{mode}")
-  end
-
-  def configure(conn, _params), do: send_resp(conn, 404, "unknown streamdeck fixture control mode")
-end
-
 defmodule Aiur.BrowserHarness.FixtureAssets do
   use Phoenix.Controller, formats: []
 
@@ -2147,6 +2119,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
     get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
   end
@@ -2248,6 +2221,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
+    Application.put_env(:aiur, :build_data_source, Aiur.TestSupport.BuildHome.FixtureSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     configure_forwarded_dashboard()
 

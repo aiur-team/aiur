@@ -42,6 +42,7 @@ defmodule AiurWeb.Routes.DashboardPages do
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
           live("/build-orders", AiurWeb.BuildOrderLive, :build_orders)
           live("/build-orders/:root_number", AiurWeb.BuildOrderLive, :build_order)
+          live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
           live("/streamdeck", AiurWeb.StreamdeckLive, :streamdeck)
         end
