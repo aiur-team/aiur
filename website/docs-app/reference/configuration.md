@@ -405,9 +405,21 @@ Local Codex turns use Aiur's shared build admission.
 | Browser tests | Playwright CLI runs (including `src/browser`) share the host cap and serialize per workspace; only the wrapper holds the workspace lock, so a crashed run's surviving browser child does not keep it. Run only affected browser specs locally; CI runs the full harness. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
-Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+` or legacy comma separators,
+Build admission covers direct `mix compile`, `mix test`, `mix lint`, `mix credo`, and `mix dialyzer`, `mix do` compounds using `+` or legacy comma separators,
 `elixir -S mix`, and `mise exec` / `mise x` commands after `--` or in a simple `-c` / `--command` string.
 One compound or nested wrapper chain holds one live-token lease.
+
+Executor reviewer worktrees can run `scripts/build-gate mise exec -- mix lint`
+from the worktree's `src/` directory (use the script's absolute path).
+Set `AIUR_BUILD_GATE_DIR` and `AIUR_BUILD_GATE_SLOTS` to the running fleet's
+metadata directory and `agent.max_concurrent_builds`; the wrapper requires both
+instead of guessing a separate cap. The host-owned lock directory defaults to
+`$AIUR_BUILD_GATE_DIR.locks` and must already be prepared by Aiur.
+Copy the fleet's `AIUR_BUILD_START_STAGGER_SECONDS`, `AIUR_MIN_FREE_MEMORY_MB`,
+`AIUR_BUILD_GATE_MAX_HOLD_SECONDS`, and `AIUR_BUILD_GATE_RETAIN_SECONDS` when set
+so reviewer commands use the same pacing, memory floor, and lease backstops.
+The wrapper admits the entire command as one `review` lease, visible in
+`aiur status`, preserves its exit status, and fails closed when admission fails.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are

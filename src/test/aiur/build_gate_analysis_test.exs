@@ -1,0 +1,101 @@
+defmodule Aiur.BuildGateAnalysisTest do
+  use ExUnit.Case, async: false
+
+  alias Aiur.{AgentBuildGuard, BuildGate}
+
+  setup do
+    root = Path.join(System.tmp_dir!(), "analysis-gate-#{System.unique_integer([:positive])}")
+    bin = Path.join(root, "bin")
+    File.mkdir_p!(bin)
+    :ok = AgentBuildGuard.install(root)
+
+    write_command(bin, "mix", ~s(printf 'ran:%s\\n' "$*"; if [ -n "${AIUR_BUILD_GATE_LEASE_PATH:-}" ]; then cat "$AIUR_BUILD_GATE_LEASE_PATH"; fi; exit 7))
+    write_command(bin, "elixir", ~s(shift 2; exec "#{bin}/mix" "$@"))
+    write_command(bin, "mise", ~s|shift; case "$1" in --) shift; exec "$@";; --command=*) eval "${1#--command=}";; *) shift; eval "$1";; esac|)
+
+    env =
+      BuildGate.shell_env(
+        gate_dir: root,
+        slots: 1,
+        stagger_seconds: 0,
+        min_free_memory_mb: 0,
+        max_hold_seconds: 30,
+        retain_seconds: 0
+      ) ++
+        [
+          {"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(root)},
+          {"AIUR_BUILD_GATE_LEASE_PATH", ""},
+          {"AIUR_BUILD_GATE_LEASE_TOKEN", ""},
+          {"PATH", "#{AgentBuildGuard.bin_dir(root)}:#{bin}:#{System.get_env("PATH")}"}
+        ]
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+      File.chmod(BuildGate.lock_dir(root), 0o755)
+      File.rm_rf!(BuildGate.lock_dir(root))
+    end)
+
+    %{root: root, bin: bin, env: env}
+  end
+
+  test "static analysis acquires leases through shell and PATH entrypoints", %{env: env} do
+    for task <- ~w(lint credo dialyzer),
+        command <- [
+          "mix #{task}",
+          "mix do format + #{task}",
+          "mix do format, #{task}",
+          "elixir -S mix #{task}",
+          "mise exec -- mix #{task}",
+          "mise exec -c 'mix #{task}'",
+          "mise exec --command='mix #{task}'"
+        ],
+        shell <- ~w(bash sh) do
+      assert {output, 7} = System.cmd(shell, ["-c", command], env: env, stderr_to_stdout: true)
+      assert output =~ "phase=#{task}", "#{shell}: #{command}\n#{output}"
+      assert output =~ "ran:"
+      assert length(Regex.scan(~r/aiur_build_gate acquired slot=/, output)) == 1
+    end
+  end
+
+  test "cheap Mix tasks bypass admission", %{env: env} do
+    assert {output, 7} = System.cmd("sh", ["-c", "mix format"], env: env, stderr_to_stdout: true)
+    assert output =~ "ran:format"
+    refute output =~ "aiur_build_gate acquired"
+  end
+
+  test "review wrapper publishes a live holder and preserves failure", %{root: root, bin: bin, env: env} do
+    write_command(bin, "review-work", ~s(touch "#{root}/started"; while [ ! -e "#{root}/release" ]; do sleep 0.02; done; exit 7))
+    script = Path.expand("../../../scripts/build-gate", __DIR__)
+    run = Task.async(fn -> System.cmd(script, ["review-work", "review-work"], env: env, stderr_to_stdout: true) end)
+
+    try do
+      wait_for_file(Path.join(root, "started"), 500)
+
+      assert %{active: 1, holders: [%{phase: "review", command: command}]} =
+               BuildGate.status(gate_dir: root, capacity: 1, stagger_seconds: 0, min_free_memory_mb: 0, max_hold_seconds: 30, retain_seconds: 0)
+
+      assert command =~ "review-work"
+    after
+      File.touch!(Path.join(root, "release"))
+    end
+
+    assert {output, 7} = Task.await(run, 30_000)
+    assert output =~ "aiur_build_gate acquired slot="
+    assert %{active: 0} = BuildGate.status(gate_dir: root, capacity: 1, stagger_seconds: 0, min_free_memory_mb: 0, max_hold_seconds: 30, retain_seconds: 0)
+  end
+
+  defp write_command(bin, name, body) do
+    path = Path.join(bin, name)
+    File.write!(path, "#!/bin/sh\n#{body}\n")
+    File.chmod!(path, 0o755)
+  end
+
+  defp wait_for_file(_path, 0), do: flunk("command did not start")
+
+  defp wait_for_file(path, attempts) do
+    unless File.exists?(path) do
+      Process.sleep(20)
+      wait_for_file(path, attempts - 1)
+    end
+  end
+end

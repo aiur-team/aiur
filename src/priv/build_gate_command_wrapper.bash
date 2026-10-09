@@ -1,6 +1,6 @@
 #!/bin/sh
 # PATH entrypoint for Elixir/Mix admission. Cheap commands pass straight through
-# this POSIX dispatcher; only compile/test work starts Bash and loads the hook.
+# this POSIX dispatcher; only build/static analysis work starts Bash and loads the hook.
 #
 # aiur-build-gate-command-wrapper-marker: this literal identifies a copy of this
 # script to another copy of it. Resolution below refuses to hand a command to a
@@ -157,7 +157,7 @@ aiur_build_gate_needs_wrapper() {
       elixir_mix_task=$(aiur_build_gate_wrapper_elixir_mix_task "$@") || return 1
 
       case $elixir_mix_task in
-        compile | test | do) return 0 ;;
+        compile | test | lint | credo | dialyzer | do) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -166,7 +166,7 @@ aiur_build_gate_needs_wrapper() {
 
     mix)
       case ${1:-} in
-        compile | test | do) return 0 ;;
+        compile | test | lint | credo | dialyzer | do) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -186,7 +186,7 @@ aiur_build_gate_needs_wrapper() {
             if [ "${1##*/}" = mix ]; then
               shift
               case ${1:-} in
-                compile | test | do) return 0 ;;
+                compile | test | lint | credo | dialyzer | do) return 0 ;;
                 *) return 1 ;;
               esac
             fi
@@ -212,7 +212,7 @@ aiur_build_gate_needs_wrapper() {
             [ "$#" -gt 0 ] || return 0
             aiur_build_gate_wrapper_ambiguous_string "$1" && return 0
             case $1 in
-              mix\ compile* | mix\ test* | mix\ do* | */mix\ compile* | */mix\ test* | */mix\ do* | env\ *mix*)
+              mix\ compile* | mix\ test* | mix\ do* | mix\ lint* | mix\ credo* | mix\ dialyzer* | */mix\ compile* | */mix\ test* | */mix\ do* | */mix\ lint* | */mix\ credo* | */mix\ dialyzer* | env\ *mix*)
                 return 0
                 ;;
               *) return 1 ;;
@@ -223,7 +223,7 @@ aiur_build_gate_needs_wrapper() {
             command_string=${1#--command=}
             aiur_build_gate_wrapper_ambiguous_string "$command_string" && return 0
             case $command_string in
-              mix\ compile* | mix\ test* | mix\ do* | */mix\ compile* | */mix\ test* | */mix\ do* | env\ *mix*)
+              mix\ compile* | mix\ test* | mix\ do* | mix\ lint* | mix\ credo* | mix\ dialyzer* | */mix\ compile* | */mix\ test* | */mix\ do* | */mix\ lint* | */mix\ credo* | */mix\ dialyzer* | env\ *mix*)
                 return 0
                 ;;
               *) return 1 ;;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sourced through BASH_ENV for local Aiur coding-agent shells and by the
 # shell-independent command wrappers. It gates Mix
-# compile/test and browser work; other commands stay free to run.
+# compile/test/static analysis and browser work; other commands stay free to run.
 
 if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   AIUR_BUILD_GATE_HOOK_LOADED=1
@@ -39,7 +39,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
   aiur_build_gate_needs_slot() {
     case ${1:-} in
-      compile | test) return 0 ;;
+      compile | test | lint | credo | dialyzer) return 0 ;;
       *) return 1 ;;
     esac
   }
