@@ -18,6 +18,9 @@ defmodule AiurWeb.BuildOrderLive do
     UsageRuntime
   }
 
+  alias AiurWeb.BuildQueue.Panel, as: QueuePanel
+  alias AiurWeb.BuildQueue.Runtime, as: QueueRuntime
+
   alias AiurWeb.FinancialData
   alias AiurWeb.Presenter
 
@@ -48,6 +51,7 @@ defmodule AiurWeb.BuildOrderLive do
     socket =
       socket
       |> AwaitingCommands.mount(connected)
+      |> QueueRuntime.mount()
       |> assign(:route_state, route_state)
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
@@ -116,7 +120,7 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info(:build_order_ui_tick, socket) do
     schedule_ui_tick()
-    {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick()}
+    {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick() |> QueueRuntime.tick()}
   end
 
   def handle_info({:ticket_activity_changed, _payload}, socket),
@@ -146,9 +150,16 @@ defmodule AiurWeb.BuildOrderLive do
       when event in [:ticket_detail_coordinator_reset, :ticket_history_reset],
       do: {:noreply, ContextRuntime.refresh(socket)}
 
+  def handle_info({event, _payload}, socket) when event in [:build_queue_changed, :build_progress_changed],
+    do: {:noreply, QueueRuntime.schedule(socket)}
+
+  def handle_info(:refresh_build_queue, socket), do: {:noreply, QueueRuntime.refresh(socket)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_async(:build_queue_view, result, socket), do: {:noreply, QueueRuntime.complete(socket, result)}
+
   def handle_async(:build_order_sources, {:ok, {token, sources}}, socket) do
     {:noreply, SourceRuntime.complete_reload(socket, token, sources)}
   end
@@ -277,6 +288,7 @@ defmodule AiurWeb.BuildOrderLive do
         data-build-order-root={RouteState.root_identifier(@route_state)}
         data-build-order-catalog-state={BuildOrderCatalog.catalog_state(RouteState.catalog_snapshot(@route_state))}
       >
+        <QueuePanel.panel :if={RouteState.route(@route_state) == :catalog} view={@queue_view} now={@now} />
         <BuildOrderCatalog.build_order_catalog
           :if={RouteState.route(@route_state) == :catalog}
           route_state={@route_state}

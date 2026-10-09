@@ -7,6 +7,11 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
+from components.reference_rules import RULES, edge_rules, report_cycles
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
+from import_rules import client_imports, reverse_resources
 
 ROOTS = ('src/lib', 'packages', 'packaging')
 EXCLUDED = {'node_modules', '_build', 'deps', 'dist'}
@@ -143,6 +148,7 @@ def ownership(manifest, files):
     matched = set()
     counts = {c['id']: 0 for c in manifest['components']}
     problems = []
+    file_owners = {}
     for path in files:
         candidates = [(owner, pattern, specificity) for owner, pattern, regex, specificity in patterns
                       if regex.fullmatch(path)]
@@ -160,10 +166,105 @@ def ownership(manifest, files):
             problems.append((path, f'ambiguous ownership: {", ".join(owners)}'))
         else:
             counts[owners[0]] += 1
+            file_owners[path] = owners[0]
     for owner, pattern, _, _ in patterns:
         if (owner, pattern) not in matched:
             problems.append((pattern, f'stale path ({owner})'))
-    return problems, counts
+    return problems, counts, file_owners
+
+
+def module_violations(root, manifest, file_owners):
+    walker = Path(__file__).parent / 'components/module_references.exs'
+    files = sorted(path for path in file_owners if path.startswith('src/lib/') and path.endswith('.ex'))
+    started = time.monotonic()
+    try:
+        result = subprocess.run(['elixir', str(walker), str(root), '--files', *files], capture_output=True, text=True)
+    except FileNotFoundError as error:
+        raise ValueError('Elixir missing; install via mise') from error
+    if result.returncode:
+        raise ValueError(f'module walker failed: {result.stderr.strip()}')
+    modules, references = {}, []
+    for row in result.stdout.splitlines():
+        fields = row.split('\t')
+        if len(fields) == 3 and fields[0] == 'M':
+            _, path, module = fields
+            if path in file_owners:
+                modules[module] = file_owners[path]
+        elif len(fields) == 6 and fields[0] == 'R':
+            references.append(fields)
+        else:
+            raise ValueError(f'invalid walker row: {row!r}')
+    components = {c['id']: c for c in manifest['components']}
+    graph = {cid: set() for cid in components}
+    violations, unresolved = {}, set()
+    for _, path, source_module, target, _, line in references:
+        # Match ownership's tracked-file boundary, including in dirty worktrees.
+        if path not in file_owners:
+            continue
+        if target not in modules:
+            if target.startswith(('Aiur.', 'AiurWeb.')):
+                unresolved.add(target)
+            continue
+        source, destination = file_owners[path], modules[target]
+        if source == destination:
+            continue
+        component, provider = components[source], components[destination]
+        graph[source].add(destination)
+        if path == 'src/lib/aiur.ex':
+            continue
+        for rule in edge_rules(component, provider, target):
+            violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
+    print(f'components: Elixir: {len(modules)} modules, {len(references)} references; '
+          f'{len(unresolved)} unresolved internal targets; {time.monotonic() - started:.3f} s')
+    report_cycles(graph)
+    return violations
+
+
+def read_allowlist(root, manifest):
+    allowed = set()
+    ids = {c['id'] for c in manifest['components']}
+    for path in sorted((root / 'scripts/components/allowlist').glob('*.tsv')):
+        if path.stem not in ids:
+            raise ValueError(f'{path}: unknown source component')
+        for number, row in enumerate(path.read_text().splitlines(), 1):
+            if not row.strip() or row.startswith('#'):
+                continue
+            fields = row.split('\t')
+            if len(fields) != 3 or fields[0] not in RULES or not all(fields):
+                raise ValueError(f'{path}:{number}: expected rule, target_module, reason TSV')
+            allowed.add((fields[0], path.stem, fields[1]))
+    return allowed
+
+
+def write_baseline(root, manifest, violations, rules):
+    directory = root / 'scripts/components/allowlist'
+    if any(key[0] in rules for key in read_allowlist(root, manifest)):
+        raise ValueError('baseline already exists; refusing to overwrite allowlist')
+    sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+    directory.mkdir(parents=True, exist_ok=True)
+    for component in manifest['components']:
+        source = component['id']
+        path = directory / f'{source}.tsv'
+        existing = path.read_text() if path.exists() else '# rule\ttarget_module\treason\n'
+        rows = []
+        rows.extend(f'{rule}\t{target}\tbaseline {sha}'
+                    for rule, owner, target in sorted(violations) if owner == source and rule in rules)
+        path.write_text(existing + ('\n' if existing and not existing.endswith('\n') else '')
+                        + ''.join(row + '\n' for row in rows))
+
+
+def check_references(root, manifest, file_owners, baseline, rules):
+    violations = module_violations(root, manifest, file_owners)
+    violations = {key: location for key, location in violations.items() if key[0] in rules}
+    if baseline:
+        write_baseline(root, manifest, violations, rules)
+    allowed = read_allowlist(root, manifest)
+    for (rule, source, target), location in sorted(violations.items()):
+        if (rule, source, target) not in allowed:
+            print(f'components: {rule} {source} -> {target}: {location}')
+    for rule in rules:
+        print(f'components: {rule}: {sum(key[0] == rule for key in violations)} baseline keys')
+    return bool(violations.keys() - allowed)
 
 
 def declaration_ownership(root, manifest):
@@ -229,27 +330,41 @@ def format_manifest(manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--rules', choices=['ownership'], default='ownership')
+    parser.add_argument('--rules', default='all', help='ownership, elixir, all, or comma-separated declared,private,down,optional')
+    parser.add_argument('--require-elixir', action='store_true', help='require Elixir reference checks')
+    parser.add_argument('--write-baseline', action='store_true')
     parser.add_argument('--format', action='store_true')
     args = parser.parse_args()
+    rules = RULES if args.rules in ('all', 'elixir', 'ownership') else tuple('R-' + rule for rule in args.rules.split(','))
+    if not rules or any(rule not in RULES for rule in rules) or len(rules) != len(set(rules)):
+        parser.error('invalid --rules selection')
+    if args.rules == 'ownership' and (args.require_elixir or args.write_baseline):
+        parser.error('--require-elixir/--write-baseline cannot be used with ownership alone')
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
     try:
         manifest = load_manifest(root)
         files = source_files(root)
         if args.format:
             (root / 'components.json').write_text(format_manifest(manifest))
-        problems, counts = ownership(manifest, files)
-        declaration_problems, declaration_counts = declaration_ownership(root, manifest)
-        problems.extend(declaration_problems)
+        problems, counts, file_owners = ownership(manifest, files)
+        declaration_counts = {}
+        if args.rules in ('all', 'ownership'):
+            declaration_problems, declaration_counts = declaration_ownership(root, manifest)
+            problems.extend(declaration_problems)
+        if args.rules == 'all' and not args.format:
+            problems += client_imports(root) + reverse_resources(root, files)
+        for path, reason in problems:
+            print(f'components: {path}: {reason}')
+        if problems:
+            return 1
+        if args.rules != 'ownership' and check_references(root, manifest, file_owners, args.write_baseline, rules):
+            return 1
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f'components: components.json: {error}', file=sys.stderr)
         return 2
-    for path, reason in problems:
-        print(f'components: {path}: {reason}')
-    if problems:
-        return 1
     print(f'components: all {sum(counts.values())} source files owned')
-    print('components: ' + ', '.join(f'{count} {kind}' for kind, count in declaration_counts.items()) + ' owned once')
+    if declaration_counts:
+        print('components: ' + ', '.join(f'{count} {kind}' for kind, count in declaration_counts.items()) + ' owned once')
     for owner, count in counts.items():
         print(f'components: {owner}: {count} files')
     return 0

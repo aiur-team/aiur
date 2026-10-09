@@ -23,13 +23,8 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   # src/test/aiur/regression -> src/lib
   @lib_root Path.expand("../../../lib", __DIR__)
 
-  # file (relative to src/lib) => trimmed matching lines: the currently
-  # legitimate sites, captured 2026-08-09 at these locations:
-  # aiur/agent_build_guard.ex:14,15; aiur/agent_github_guard.ex:14-23;
-  # aiur/github/budget.ex:17-18;
-  # aiur/agent_skills.ex:13,16,49,56-58,79;
-  # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
-  # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
+  # File relative to src/lib => exact compile-time-only resource declarations.
+  # Relative resource paths preserve invalidation when warm test builds move.
   @allowlist %{
     # The wrapper is embedded into the release at compile time and installed
     # from that embedded content; the source path is never read at runtime.
@@ -53,24 +48,24 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
       "`priv/`, not the repo's `.claude` tree. (A runtime `__DIR__`-relative read",
       "@skills_root Path.expand(\"../../../\#{@bundled_skills_dir}\", __DIR__)",
-      "@external_resource @compound_engineering_version_file",
-      "@external_resource @compound_engineering_manifest_file",
-      "@external_resource @compound_engineering_license_file",
-      "for path <- bundled_paths, do: @external_resource(path)"
+      "@external_resource Path.relative_to(@compound_engineering_version_file, File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(@compound_engineering_manifest_file, File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(@compound_engineering_license_file, File.cwd!(), force: true)",
+      "for path <- bundled_paths, do: @external_resource(Path.relative_to(path, File.cwd!(), force: true))"
     ],
     "aiur/init/templates.ex" => [
       "@prompt_example_path Path.expand(\"../../../../.aiur/examples/prompt.md.example\", __DIR__)",
-      "@external_resource @prompt_example_path",
+      "@external_resource Path.relative_to(@prompt_example_path, File.cwd!(), force: true)",
       "@example_path Path.expand(\"../../../../.aiur/examples/config.example\", __DIR__)",
-      "@external_resource @example_path",
+      "@external_resource Path.relative_to(@example_path, File.cwd!(), force: true)",
       "@aiurhooks_example_path Path.expand(\"../../../../.aiur/examples/hooks.example\", __DIR__)",
-      "@external_resource @aiurhooks_example_path",
+      "@external_resource Path.relative_to(@aiurhooks_example_path, File.cwd!(), force: true)",
       "@alerts_macos_example_path Path.expand(\"../../../../.aiur/examples/alerts.macos.example\", __DIR__)",
       "@alerts_linux_example_path Path.expand(\"../../../../.aiur/examples/alerts.linux.example\", __DIR__)",
-      "@external_resource @alerts_macos_example_path",
-      "@external_resource @alerts_linux_example_path",
+      "@external_resource Path.relative_to(@alerts_macos_example_path, File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(@alerts_linux_example_path, File.cwd!(), force: true)",
       "@executor_handoff_example_path Path.expand(\"../../../../.aiur/examples/executor-handoff.md.example\", __DIR__)",
-      "@external_resource @executor_handoff_example_path"
+      "@external_resource Path.relative_to(@executor_handoff_example_path, File.cwd!(), force: true)"
     ],
     "aiur/prompt_builder.ex" => [
       "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",
@@ -79,6 +74,10 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur_web/static_assets.ex" => [
       "@dashboard_css_path Path.expand(\"../../priv/static/dashboard.css\", __DIR__)",
       "@external_resource @dashboard_css_path",
+      "@dashboard_fonts_path Path.expand(\"../../priv/static/dashboard-fonts.css\", __DIR__)",
+      "@dashboard_palette_path Path.expand(\"../../priv/static/dashboard-palette.css\", __DIR__)",
+      "@external_resource @dashboard_fonts_path",
+      "@external_resource @dashboard_palette_path",
       "@dom_svg_layout_adapter_path Path.expand(\"../../priv/static/aiur-dom-svg-layout-adapter.js\", __DIR__)",
       "@external_resource @dom_svg_layout_adapter_path",
       "@external_resource @phoenix_html_js_path",
@@ -93,7 +92,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     # compile time via File.read!/1. Nothing reads @contract_path at runtime.
     "aiur_web/streamdeck_key_face_contract.ex" => [
       "@contract_path Path.expand(\"../../../packages/streamdeck/src/key-face-contract.json\", __DIR__)",
-      "@external_resource @contract_path"
+      "@external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)"
     ]
   }
 

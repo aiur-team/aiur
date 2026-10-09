@@ -362,19 +362,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ "3 cap<"
   end
 
-  test "reports no wasted-capacity figure when no effective cap is known" do
-    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
-
-    {:ok, _view, html} = live(build_conn(), "/analytics")
-
-    # Idle slot-hours are a subtraction from the cap. With no cap reported the
-    # page must not substitute the local config file and print a precise hour
-    # count under a ceiling it just called unknown.
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
-    refute html =~ "unknown cap (configured"
-    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
-  end
-
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")

@@ -3,7 +3,7 @@ defmodule Aiur.Config.Schema.Github do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Aiur.AllowedContributors.AllowList
+  alias Aiur.Config.Schema.AllowedContributorsParser
   alias Aiur.Config.Schema.GithubApp
   alias Aiur.Config.Schema.GithubCredential
 
@@ -158,7 +158,7 @@ defmodule Aiur.Config.Schema.Github do
   defp validate_allowed_contributors(changeset) do
     case fetch_change(changeset, :allowed_contributors) do
       {:ok, value} ->
-        case AllowList.from_config(value) do
+        case AllowedContributorsParser.from_config(value) do
           {:ok, _list} -> changeset
           {:error, message} -> add_error(changeset, :allowed_contributors, message)
         end

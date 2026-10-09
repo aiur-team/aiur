@@ -18,16 +18,30 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
 
   # These files define or populate the RootSummary progress contract itself
   # rather than presenting it, so they name the resolution fields by necessity.
+  # `progress_observer.ex` is a producer: it copies each catalog root's contract
+  # fields unchanged into a BuildProgress fact, which validates them itself. It
+  # must not go through ProgressRenderer, whose fail-closed display projection
+  # would turn a partial or unknown reading into a different fact. The queue
+  # CLI and the dashboard queue copy map a queue's progress into the contract
+  # shape and then render it through ProgressRenderer.
   @contract_boundary_files [
+    "aiur/build_queue_cli.ex",
+    "aiur/build_queue/read_model.ex",
+    "aiur/build_queue/sources/build_order.ex",
     "aiur/build_order/catalog_store.ex",
     "aiur/build_order/github_graph/normalizer.ex",
+    "aiur/build_order/progress_observer.ex",
     "aiur/build_order/progress_renderer.ex",
     "aiur/build_order/root_summary.ex",
     "aiur_web/build_order/planning_source.ex",
+    "aiur_web/build_queue/copy.ex",
     "aiur_web/components/operator_control_center/build_order_grid_model.ex"
   ]
 
   @renderer_calls %{
+    "aiur/build_queue_cli.ex" => ["ProgressRenderer.terminal("],
+    "aiur/build_queue/sources/build_order.ex" => ["ProgressRenderer.json("],
+    "aiur_web/build_queue/copy.ex" => ["ProgressRenderer.html("],
     "aiur/build_orders_cli.ex" => [
       "ProgressRenderer.terminal(",
       "ProgressRenderer.terminal(",
