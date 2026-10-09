@@ -319,7 +319,7 @@ ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_b
 `planning` is recommended as `0` (on-demand), so the most expensive query in the
 system runs only when a page opens or a degradation needs a re-list.
 
-<!--@include: ./_includes/github-view-state.md-->
+<!--@include: ../.vitepress/includes/github-view-state.md-->
 
 The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
 moment a delivery deposits the changed issue; the sweep's only other
