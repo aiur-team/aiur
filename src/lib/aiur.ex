@@ -2,7 +2,6 @@ defmodule Aiur do
   @moduledoc """
   Entry point for the Aiur orchestrator.
   """
-
   @doc """
   Start the orchestrator in the current BEAM node.
   """
@@ -508,10 +507,11 @@ defmodule Aiur.Application do
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       # Allowed-contributor intake (#2957) feeds the Executor wake path armed
-      # above; BuildProgress has no dependents. Both run with recording and are
+      # above; BuildProgress and its observer run with recording and are
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
-      if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress])
+      if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress, Aiur.BuildOrder.ProgressObserver]),
+      Aiur.BuildOrder.EpicOverrides
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)

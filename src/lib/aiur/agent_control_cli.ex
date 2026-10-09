@@ -45,11 +45,7 @@ defmodule Aiur.AgentControlCLI do
   @exit_marker "__AIUR_CONTROL_EXIT__:"
   @error_marker "__AIUR_CONTROL_ERROR__:"
   @status_timeout_ms 5_000
-  # Synchronous `set max-agents` queues behind a wedged or polling orchestrator for up to the
-  # 5s control-call budget. When the mailbox backlog is deep enough to mean real
-  # contention, say so up front so the operator sees progress instead of silence
-  # (#2137). A healthy idle orchestrator holds only a handful of queued messages
-  # (pubsub, timers), so this fires only under genuine load.
+  # A deep orchestrator mailbox means `set max-agents` queues behind real contention; say so up front (#2137).
   @orchestrator_busy_mailbox_threshold 20
   # Leave the launcher watchdog room to receive and render the daemon's explicit
   # timeout result instead of racing it at the shared 10-second edge. Eight
@@ -367,6 +363,9 @@ defmodule Aiur.AgentControlCLI do
   def units(opts \\ []) do
     UnitsCLI.run(opts) |> exit_marker()
   end
+
+  @spec epic(keyword()) :: :ok
+  def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)
 
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []) do
