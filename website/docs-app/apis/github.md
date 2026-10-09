@@ -751,9 +751,7 @@ Build queue closure reads use caller `build_queue_observe` and the configured ob
 
 Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; marker writes and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving the item unclaimed; `agent:queued` remains. No quota saving is claimed.
 
-Orphan-claim recovery reads the ticket's open PR listing, then fresh PR mergeability and current review evidence. It uses guarded state swaps (add before remove), posts a reason comment and emits an Executor wake; see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity). No quota saving is claimed.
-
-Aiur posts comments, applies and removes labels, closes tickets, repairs pull request bases, declares dependencies, and replies to and resolves review threads. GitHub's answer to each of those requests already contains the new state, and Aiur keeps it.
+Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
 
 The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
 
