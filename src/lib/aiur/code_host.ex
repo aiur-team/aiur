@@ -8,10 +8,11 @@ defmodule Aiur.CodeHost do
 
   @spec adapter() :: module()
   def adapter do
-    case Aiur.Config.settings!().tracker.kind do
-      "github" -> Aiur.GitHub.Tracker
-      _ -> NullCodeHost
-    end
+    tracker = Aiur.Tracker.adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :code_host, 0),
+      do: tracker.code_host() || NullCodeHost,
+      else: NullCodeHost
   end
 
   @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
