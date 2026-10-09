@@ -74,16 +74,16 @@ defmodule Aiur.BuildQueue.Planner do
   end
 
   defp attention_actions(states, context) do
-    desired = states |> Enum.flat_map(&(attention_keys(&1, context) ++ failed_keys(&1, context))) |> MapSet.new()
+    desired = states |> Enum.flat_map(&(attention_keys(&1, context) ++ failed_keys(&1, context) ++ merged_keys(&1, context))) |> MapSet.new()
     existing = context.input.latches |> Enum.map(& &1.key) |> Enum.filter(&owned_latch?/1) |> MapSet.new()
     desired = MapSet.union(desired, retained_latches(existing, states, context))
-    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and match?({:promoted_unauthorized, _}, &1.key))), & &1.key)
+    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and match?({cause, _} when cause in [:promoted_unauthorized, :merged_issue_open], &1.key))), & &1.key)
     opens = desired |> MapSet.difference(MapSet.difference(existing, pending)) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
     resolves = existing |> MapSet.difference(desired) |> Enum.sort() |> Enum.map(&{:attention_resolve, &1})
     opens ++ resolves
   end
 
-  defp owned_latch?({cause, _id}) when cause in [:promoted_unauthorized, :dependency_changed_after_start], do: true
+  defp owned_latch?({cause, _id}) when cause in [:promoted_unauthorized, :dependency_changed_after_start, :merged_issue_open], do: true
   defp owned_latch?({{:prerequisite_failed, _cause}, _id}), do: true
   defp owned_latch?(_key), do: false
 
@@ -94,6 +94,7 @@ defmodule Aiur.BuildQueue.Planner do
     existing
     |> Enum.filter(fn
       {{:prerequisite_failed, _cause}, id} -> id in unknown
+      {:merged_issue_open, id} -> not match?(%Observation{open?: false}, context.input.observations[id])
       _key -> false
     end)
     |> MapSet.new()
@@ -118,6 +119,18 @@ defmodule Aiur.BuildQueue.Planner do
     for edge <- Map.get(context.edges, id, []),
         match?({:failed, _}, edge_verdict(edge, context)) or edge_verdict(edge, context) == {:unknown, :duplicate},
         do: {{:prerequisite_failed, elem(edge_verdict(edge, context), 1)}, edge.prerequisite}
+  end
+
+  defp merged_keys(%{state: state}, _context) when state in [:removed, :completed, :cancelled], do: []
+
+  defp merged_keys(%{issue_id: id}, context) do
+    for edge <- Map.get(context.edges, id, []),
+        observation = context.input.observations[edge.prerequisite],
+        observation && observation.open? == true && is_integer(observation.merged_at_ms),
+        observation.observed_at_ms <= context.input.now_ms,
+        context.input.now_ms - observation.observed_at_ms <= Keyword.fetch!(context.opts, :observation_max_age_ms),
+        context.input.now_ms - observation.merged_at_ms >= Keyword.get(context.opts, :merged_open_grace_ms, 600_000),
+        do: {:merged_issue_open, edge.prerequisite}
   end
 
   defp member?(nil, _opts), do: false
