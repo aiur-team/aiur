@@ -494,7 +494,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   defp stopped_agent_handoff(issue, workspace, worker_host, opts) do
     ReworkGate.stopped_agent_handoff(issue.identifier, Keyword.get(opts, :rework_head_sha),
-      open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1),
+      open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1),
       commit_ci_status_fetcher: Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1),
       workspace: workspace,
       worker_host: worker_host

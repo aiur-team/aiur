@@ -1,5 +1,6 @@
 defmodule Aiur.TrackerTest do
   use Aiur.TestSupport
+  alias Aiur.Tracker.IssueTracker
   alias Aiur.{GitHub.OpenIssueSnapshot, Issue, Tracker, Workflow}
 
   test "GitHub facade reads the held snapshot" do
@@ -37,6 +38,6 @@ defmodule Aiur.TrackerTest do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
     assert {:error, :unsupported} = Tracker.open_issue_labels(60_000)
     assert {:error, :unsupported} = Aiur.Linear.Tracker.open_issue_labels(60_000)
-    assert {:open_issue_labels, 1} in Tracker.behaviour_info(:optional_callbacks)
+    assert {:open_issue_labels, 1} in IssueTracker.behaviour_info(:optional_callbacks)
   end
 end

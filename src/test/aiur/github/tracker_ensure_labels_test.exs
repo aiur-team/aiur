@@ -2,6 +2,7 @@ Code.require_file("../../support/build_queue_fake_tracker.ex", __DIR__)
 
 defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
   use Aiur.TestSupport
+  alias Aiur.Tracker.IssueTracker
   alias Aiur.BuildQueue.Writer
   alias Aiur.BuildQueueFakeTracker, as: Fake
   alias Aiur.Linear.Tracker, as: LinearTracker
@@ -84,6 +85,6 @@ defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
     assert {:error, {:github_api_status, 422, "agent:queued"}} = Tracker.ensure_labels(["agent:queued"])
     assert :ok = MemoryTracker.ensure_labels(["agent:queued"])
     assert {:error, :unsupported} = LinearTracker.ensure_labels(["agent:queued"])
-    assert {:ensure_labels, 1} in Tracker.behaviour_info(:optional_callbacks)
+    assert {:ensure_labels, 1} in IssueTracker.behaviour_info(:optional_callbacks)
   end
 end

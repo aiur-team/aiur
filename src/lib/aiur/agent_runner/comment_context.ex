@@ -94,10 +94,10 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp comment_context_fetchers do
     %{
       issue_comments: &Tracker.fetch_classified_issue_comments/1,
-      open_pr: &Tracker.fetch_open_pull_request_for_branch/1,
-      pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1,
-      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1,
-      pr_reviews: &Tracker.fetch_classified_pr_reviews/1
+      open_pr: &Aiur.CodeHost.fetch_open_pull_request_for_branch/1,
+      pr_review_comments: &Aiur.CodeHost.fetch_classified_pr_review_comments/1,
+      unaddressed_pr_review_thread_comments: &Aiur.CodeHost.fetch_unaddressed_pr_review_thread_comments/1,
+      pr_reviews: &Aiur.CodeHost.fetch_classified_pr_reviews/1
     }
   end
 

@@ -224,7 +224,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
           {:ok, String.t()} | {:error, term()}
   def merged_ticket_target(identifier, opts) when is_binary(identifier) or is_integer(identifier) do
     open_pull_requests_fun =
-      Keyword.get(opts, :open_pull_requests_fun, &Tracker.fetch_open_pull_requests_for_branch/1)
+      Keyword.get(opts, :open_pull_requests_fun, &Aiur.CodeHost.fetch_open_pull_requests_for_branch/1)
 
     case open_pull_requests_fun.(to_string(identifier)) do
       {:ok, []} ->
