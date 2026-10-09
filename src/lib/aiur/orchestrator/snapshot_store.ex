@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   alias Aiur.Orchestrator.{SnapshotPublisher, StatusReport}
   alias Aiur.PollCadence
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.Signal
 
   @cache_key __MODULE__
   @global_pause_key {__MODULE__, :global_pause}
@@ -120,7 +120,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         %{generation: generation, global_pause: global_pause}
       )
 
-      :ok = ObservabilityPubSub.broadcast_update()
+      :ok = Signal.refresh()
     end
 
     :ok
@@ -144,7 +144,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     generation = active_generation(orchestrator)
     put_snapshot(orchestrator, generation, snapshot, source_state)
     cache_global_pause(orchestrator, generation, snapshot)
-    :ok = ObservabilityPubSub.broadcast_update()
+    :ok = Signal.refresh()
     :ok
   end
 
@@ -260,7 +260,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot, source_state}}, %{task_ref: ref} = store) do
     if generation == active_generation(orchestrator) do
       put_snapshot(orchestrator, generation, snapshot, source_state)
-      :ok = ObservabilityPubSub.broadcast_update()
+      :ok = Signal.refresh()
     end
 
     {:noreply, store |> clear_task() |> schedule_projection()}

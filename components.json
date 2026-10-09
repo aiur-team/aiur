@@ -35,8 +35,8 @@
     },
     {
       "id": "signal", "name": "Signal and telemetry port", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/log_file.ex", "src/lib/aiur/perf.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur/log_file.ex", "src/lib/aiur/perf.ex", "src/lib/aiur/signal.ex"],
+      "facades": ["Aiur.LogFile", "Aiur.Perf", "Aiur.Signal"], "facade_pending": null,
       "requires": ["kernel", "event-bus"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": []
@@ -215,7 +215,7 @@
       "id": "projections", "name": "Current-run read models", "layer": 3, "kind": "required",
       "paths": ["src/lib/aiur/current_run*.ex", "src/lib/aiur/current_run*/**", "src/lib/aiur/open_ticket_source.ex", "src/lib/aiur/open_ticket_source/**", "src/lib/aiur/progress_retention.ex", "src/lib/aiur/progress_tracker.ex", "src/lib/aiur/ticket_activity.ex", "src/lib/aiur/ticket_activity/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["event-bus", "tracker", "kernel"], "optional": [],
+      "requires": ["event-bus", "tracker", "kernel", "signal"], "optional": [],
       "owns": {"config": [], "env": [], "state": ["current_run_membership_state_dir", "progress_retention_state_dir"], "capabilities": []},
       "prior": ["PRJ"]
     },
@@ -263,7 +263,7 @@
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-shell", "projections"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
+      "requires": ["web-shell", "projections", "signal"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },

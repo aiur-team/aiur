@@ -2,6 +2,8 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :signal, alert_sink: Aiur.Alerts
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 config :phoenix, :json_library, Jason

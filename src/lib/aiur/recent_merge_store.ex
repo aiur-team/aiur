@@ -14,7 +14,7 @@ defmodule Aiur.RecentMergeStore do
   require Logger
 
   alias Aiur.{Alerts, Config, DecisionLog, Fs, RecentMerge}
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.Signal
 
   @filename "recent_merges.ndjson"
   @retention_limit 100
@@ -380,7 +380,7 @@ defmodule Aiur.RecentMergeStore do
   end
 
   defp notify do
-    ObservabilityPubSub.broadcast_update()
+    Signal.refresh()
   rescue
     error -> Logger.warning("aiur_recent_merge_store phase=notify_failed error=#{Exception.message(error)}")
   end
