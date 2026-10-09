@@ -57,17 +57,20 @@ defmodule Aiur.BuildQueue.Recovery do
 
   defp provenance(_intent, document), do: document
 
-  @spec rebuild(map()) :: {:ok, Model.t()} | {:error, term()}
-  def rebuild(state) do
+  @spec rebuild(map(), boolean()) :: {:ok, Model.t()} | {:error, term()}
+  def rebuild(state, force \\ false) do
     case Reconcile.snapshot(state) do
       {:fresh, observations} ->
         document = recovered(observations, state.settings.tracker.github.label_prefix, state.clock.())
-        with :ok <- state.store.rebuild(document), do: {:ok, document}
+        with :ok <- persist(state.store, document, force), do: {:ok, document}
 
       {:unknown, _} ->
         {:error, :observation_unavailable}
     end
   end
+
+  defp persist(store, document, true), do: store.save(document)
+  defp persist(store, document, false), do: store.rebuild(document)
 
   defp recovered(observations, prefix, now) do
     created = DateTime.from_unix!(now, :millisecond)

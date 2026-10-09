@@ -1,7 +1,6 @@
-defmodule Aiur.DecisionLog do
+defmodule Aiur.Journal do
   @moduledoc """
-  Crash-aware append/replay primitives for the canonical
-  `decisions.ndjson` audit stream.
+  Crash-aware append/replay primitives for an append-only NDJSON journal.
 
   Every accepted event is one newline-terminated JSON object, appended
   through a raw file descriptor and fsynced before the caller is told
@@ -22,8 +21,7 @@ defmodule Aiur.DecisionLog do
   Whether a record is *damaged* or merely *unfamiliar* is the validator's
   call, not this module's. A validator that can recognize a well-formed
   record it does not yet understand should return `{:ok, opaque_record}`
-  so the stream stays intact across version skew; see
-  `Aiur.DecisionEvent.Unrecognized`. This module never rewrites the file
+  so the stream stays intact across version skew. This module never rewrites the file
   except to truncate an unacknowledged torn tail, so a record an older
   binary skipped is still byte-identical for a newer one.
 
