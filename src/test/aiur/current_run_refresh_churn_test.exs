@@ -34,10 +34,12 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
     Phoenix.PubSub.subscribe(pubsub, CurrentRunSummary.topic())
     {_source, owner, builds, reads} = start_owner(pubsub: pubsub)
     :sys.suspend(owner)
+    requested_at = System.monotonic_time(:millisecond)
     for _ <- 1..100, do: send(owner, {:status_changed, %{}})
     :sys.resume(owner)
     _ = CurrentRunSummary.snapshot(server: owner)
     {:current_run_summary_changed, snapshot} = receive_barrier({:current_run_summary_changed, _})
+    assert System.monotonic_time(:millisecond) - requested_at >= 100
     assert snapshot.health.status == :healthy
     state = :sys.get_state(owner)
     refute state.refresh_pending?
