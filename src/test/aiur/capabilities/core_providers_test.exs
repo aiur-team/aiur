@@ -26,6 +26,17 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
     assert Orchestration.evaluate(@context, inputs(lookup_fun: fn _ -> nil end))["orchestration"] == %{state: :unavailable, reason: :not_running}
   end
 
+  test "orchestration: a fresh snapshot behind a busy mailbox stays available" do
+    name = :"capability_orchestrator_#{System.unique_integer([:positive])}"
+    pid = spawn(fn -> Process.sleep(:infinity) end)
+    Process.register(pid, name)
+    send(pid, :backlog)
+    :ok = Aiur.Orchestrator.SnapshotStore.publish(name, %{})
+    on_exit(fn -> Aiur.Orchestrator.SnapshotStore.discard(name) end)
+    Process.sleep(5)
+    assert Orchestration.evaluate(@context, orchestrator: name)["orchestration"] == @available
+  end
+
   for {condition, snapshot, expected} <- [
         {"unpublished", :snapshot_unpublished, %{state: :degraded, reason: :snapshot_unpublished}},
         {"stale", {:stale, %{}, %{observed_at: "2026-10-09T00:00:00Z"}}, %{state: :degraded, reason: :snapshot_stale, observed_at: "2026-10-09T00:00:00Z"}},

@@ -24,9 +24,11 @@ defmodule Aiur.Orchestrator.CapabilityProvider do
 
   defp orchestration(opts) do
     lookup = Keyword.get(opts, :lookup_fun, &Process.whereis/1)
+    name = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
-    if lookup.(Aiur.Orchestrator) do
-      case Keyword.get(opts, :snapshot_fun, fn -> SnapshotStore.read(Aiur.Orchestrator, 0) end).() do
+    # The dashboard's 15 s floor: a 0 floor marks any snapshot stale while the mailbox is nonempty.
+    if lookup.(name) do
+      case Keyword.get(opts, :snapshot_fun, fn -> SnapshotStore.read(name, 15_000) end).() do
         {:current, _snapshot, _meta} -> %{state: :available}
         {:stale, _snapshot, meta} -> %{state: :degraded, reason: :snapshot_stale, observed_at: meta.observed_at}
         :snapshot_unpublished -> %{state: :degraded, reason: :snapshot_unpublished}
