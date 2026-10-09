@@ -14,10 +14,9 @@ defmodule Aiur.CurrentRunProjections.Projector do
   end
 
   def full(state, results) do
-    if state.checkpoint_health == :healthy and is_nil(state.last_race_signature) and
-         state.input_fingerprint == fingerprint(results) do
+    if state.checkpoint_health == :healthy and state.input_fingerprint == fingerprint(results) do
       {projected, _force_full?, changes} = clock(canonical_state(state), Map.take(results, [:run]))
-      {projected, nil, changes}
+      {projected, state.last_race_signature, changes}
     else
       project_full(state, results)
     end

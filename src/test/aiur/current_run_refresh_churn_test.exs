@@ -18,6 +18,7 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
     assert CurrentRunSummary.snapshot(server: owner).run.elapsed_wall_ms == 2_000
     assert CurrentRunSummary.snapshot(server: owner).generation > initial.generation
     refute CurrentRunSummary.snapshot(server: owner).sources[:refreshing?]
+    assert CurrentRunProjections.snapshot(:outcomes, server: owner).state == :healthy_empty
     Agent.update(source, &put_in(&1, [:membership, :health], {:unavailable, :outage}))
     assert :ok = CurrentRunProjections.refresh(owner)
     assert Agent.get(builds, & &1) == 2
@@ -26,6 +27,19 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
     assert :ok = CurrentRunProjections.refresh(owner)
     assert Agent.get(builds, & &1) == 3
     assert CurrentRunSummary.health(server: owner).status == :healthy
+
+    identity = %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "aiur-team", repository: "aiur", provider_id: "I-42", identifier: "42", reason: nil}
+
+    Agent.update(source, fn sources ->
+      sources
+      |> put_in([:membership, :generation], 1)
+      |> put_in([:membership, :members], [%{identity: identity, lifecycle: :running, terminal?: false}])
+      |> put_in([:status, :running], [%{tracker_identity: identity}])
+    end)
+
+    for _ <- 1..20, do: assert(:ok = CurrentRunProjections.refresh(owner))
+    assert Agent.get(builds, & &1) == 4
+    assert :sys.get_state(owner).last_race_signature != nil
   end
 
   test "notification burst collects sources once" do
