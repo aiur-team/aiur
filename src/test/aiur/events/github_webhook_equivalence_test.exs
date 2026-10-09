@@ -25,14 +25,14 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   """
 
   use Aiur.TestSupport
+  use Aiur.TestSupport.EventTicket
+  import Aiur.TestSupport.WebhookEquivalenceFixture
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubFirehose, GithubWebhook, Publisher}
-  alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CommentPolling, ReadyForReviewTransitions, ReviewFreshness, State}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, ReviewFreshness, State}
   alias Aiur.Workflow
 
   @repo "owner/repo"
-  @dedup_table Aiur.Events.Publisher.Dedup
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -61,7 +61,11 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   end
 
   test "issue comment: polling and webhook publish indistinguishable events" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    number = ticket_number()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "https://github.com/owner/repo/issues/#{ticket}#issuecomment-1001"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     # `html_url` is present because `CommentPollBatch.normalize_comments/1`
     # always emits it; a fixture without it is a shape the poller never produces.
@@ -70,38 +74,41 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       "body" => "please rework this",
       "created_at" => "2026-06-24T12:00:00Z",
       "updated_at" => "2026-06-24T12:00:00Z",
-      "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-1001",
+      "html_url" => fixture_value1,
       "user" => %{"login" => "its-everdred"}
     }
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
-               comment_batch: %{"42" => %{issue_comments: [comment], open_pull_request: nil}}
+               comment_batch: %{ticket => %{issue_comments: [comment], open_pull_request: nil}}
              )
 
-    polled = await_event("ticket.42.issue.commented")
+    polled = await_event(fixture_topic0)
     clear_dedup()
 
     delivery = %{
       "action" => "created",
       "repository" => %{"full_name" => @repo},
-      "issue" => %{"number" => 42, "title" => "a ticket"},
+      "issue" => %{"number" => number, "title" => "a ticket"},
       "comment" => comment,
       "sender" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.issue.commented"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
 
-    pushed = await_event("ticket.42.issue.commented")
+    pushed = await_event(fixture_topic0)
 
     assert_indistinguishable(polled, pushed)
   end
 
   test "pull request review submission: polling and webhook publish indistinguishable events" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    fixture_value2 = "aiur/#{ticket}-some-slug"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     review = %{
       "id" => 55_001,
@@ -120,35 +127,38 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     end
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
                request_fun: request_fun,
-               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
-               comment_batch: %{"42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
+               open_pull_requests_by_target: %{ticket => %{"number" => 901}},
+               comment_batch: %{ticket => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
              )
 
-    polled = await_event("ticket.42.pr.review_comment")
+    polled = await_event(fixture_topic0)
     clear_dedup()
 
     delivery = %{
       "action" => "submitted",
       "repository" => %{"full_name" => @repo},
       "review" => review,
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => fixture_value2, "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review", delivery, repo: @repo)
 
-    pushed = await_event("ticket.42.pr.review_comment")
+    pushed = await_event(fixture_topic0)
 
     assert_indistinguishable(polled, pushed)
   end
 
   test "pull request review comment: polling and webhook publish indistinguishable events" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    fixture_value2 = "aiur/#{ticket}-some-slug"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     comment = %{
       "id" => 7_007,
@@ -160,31 +170,31 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     }
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
                review_submission_targets: MapSet.new([]),
-               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+               open_pull_requests_by_target: %{ticket => %{"number" => 901}},
                comment_batch: %{
-                 "42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [comment]}
+                 ticket => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [comment]}
                }
              )
 
-    polled = await_event("ticket.42.pr.review_comment")
+    polled = await_event(fixture_topic0)
     clear_dedup()
 
     delivery = %{
       "action" => "created",
       "repository" => %{"full_name" => @repo},
       "comment" => comment,
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => fixture_value2, "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review_comment", delivery, repo: @repo)
 
-    pushed = await_event("ticket.42.pr.review_comment")
+    pushed = await_event(fixture_topic0)
 
     assert_indistinguishable(polled, pushed)
   end
@@ -445,7 +455,10 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   # shared review map, so it cannot see that. This one gives each producer its
   # real casing.
   test "realistic producer shapes: a lower-case delivery state is published as the poller's upper case" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    fixture_value2 = "aiur/#{ticket}-some-slug"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     polled_review = %{
       "id" => 55_003,
@@ -464,29 +477,29 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     end
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
                request_fun: request_fun,
-               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
-               comment_batch: %{"42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
+               open_pull_requests_by_target: %{ticket => %{"number" => 901}},
+               comment_batch: %{ticket => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
              )
 
-    polled = await_event("ticket.42.pr.review_comment")
+    polled = await_event(fixture_topic0)
     clear_dedup()
 
     delivery = %{
       "action" => "submitted",
       "repository" => %{"full_name" => @repo},
       "review" => %{polled_review | "state" => "changes_requested"},
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => fixture_value2, "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review", delivery, repo: @repo)
 
-    pushed = await_event("ticket.42.pr.review_comment")
+    pushed = await_event(fixture_topic0)
 
     assert pushed.comment["state"] == "CHANGES_REQUESTED"
     assert_indistinguishable(polled, pushed)
@@ -499,25 +512,30 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   # poller, GitHub's full REST object for the delivery — so the assertion is
   # about the normalizer rather than about the fixture.
   test "realistic producer shapes: a full REST delivery still matches the poller's normalized comment" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    number = ticket_number()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "https://github.com/owner/repo/issues/#{ticket}#issuecomment-1001"
+    fixture_value4 = "https://api.github.com/repos/owner/repo/issues/#{ticket}"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     polled_comment = %{
       "id" => 1_001,
       "body" => "please rework this",
       "created_at" => "2026-06-24T12:00:00Z",
       "updated_at" => "2026-06-24T12:00:00Z",
-      "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-1001",
+      "html_url" => fixture_value1,
       "user" => %{"login" => "its-everdred"}
     }
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
-               comment_batch: %{"42" => %{issue_comments: [polled_comment], open_pull_request: nil}}
+               comment_batch: %{ticket => %{issue_comments: [polled_comment], open_pull_request: nil}}
              )
 
-    polled = await_event("ticket.42.issue.commented")
+    polled = await_event(fixture_topic0)
     clear_dedup()
 
     # Everything GitHub actually puts on the wire, including the fields a
@@ -526,14 +544,14 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     delivery = %{
       "action" => "created",
       "repository" => %{"full_name" => @repo},
-      "issue" => %{"number" => 42, "title" => "a ticket"},
+      "issue" => %{"number" => number, "title" => "a ticket"},
       "sender" => %{"login" => "its-everdred"},
       "comment" => %{
         "id" => 1_001,
         "node_id" => "IC_kwDOabc123",
         "url" => "https://api.github.com/repos/owner/repo/issues/comments/1001",
-        "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-1001",
-        "issue_url" => "https://api.github.com/repos/owner/repo/issues/42",
+        "html_url" => fixture_value1,
+        "issue_url" => fixture_value4,
         "body" => "please rework this",
         "created_at" => "2026-06-24T12:00:00Z",
         "updated_at" => "2026-06-24T12:00:00Z",
@@ -552,10 +570,10 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       }
     }
 
-    assert %{status: :published, published: ["ticket.42.issue.commented"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
 
-    pushed = await_event("ticket.42.issue.commented")
+    pushed = await_event(fixture_topic0)
 
     # The delivery's extra fields must not reach consumers, and `user` must be
     # the bare login the poller publishes.
@@ -594,11 +612,14 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   # REST review comment including its own `node_id`, which the resolver turns
   # back into `@thread_id`.
   defp thread_comment_delivery(comment) do
+    ticket = ticket_id()
+    fixture_value0 = "aiur/#{ticket}-some-slug"
+
     %{
       "action" => "created",
       "repository" => %{"full_name" => @repo},
       "comment" => comment,
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => fixture_value0, "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
     }
   end
@@ -634,22 +655,24 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   end
 
   test "review thread comment: poller and webhook coalesce to one wake" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     polled_comment = thread_comment()
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
                review_submission_targets: MapSet.new([]),
-               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+               open_pull_requests_by_target: %{ticket => %{"number" => 901}},
                comment_batch: %{
-                 "42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [polled_comment]}
+                 ticket => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [polled_comment]}
                }
              )
 
-    assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"review_thread_id" => @thread_id}}},
+    assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"review_thread_id" => @thread_id}}},
                    500
 
     # The webhook delivery carries the comment's own node id; the resolver maps
@@ -669,11 +692,13 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
              )
 
     # One comment, one wake — whether it arrived by poll or by webhook.
-    refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+    refute_receive {:event, %{topic: ^fixture_topic0}}, 200
   end
 
   test "a review thread comment delivered by webhook is not re-published by the poll" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     comment = %{
       "id" => 7_007,
@@ -687,13 +712,13 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       "user" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review_comment", thread_comment_delivery(comment),
                repo: @repo,
                request_fun: thread_resolver(@thread_id)
              )
 
-    assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"review_thread_id" => @thread_id}}},
+    assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"review_thread_id" => @thread_id}}},
                    500
 
     # The reconciliation poll then reads the same thread. The in-memory replay
@@ -704,17 +729,17 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     thread = Map.put(comment, "review_thread_id", @thread_id)
 
     assert {:ok, %{count: 0}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
                review_submission_targets: MapSet.new([]),
-               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+               open_pull_requests_by_target: %{ticket => %{"number" => 901}},
                comment_batch: %{
-                 "42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [thread]}
+                 ticket => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [thread]}
                }
              )
 
-    refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+    refute_receive {:event, %{topic: ^fixture_topic0}}, 200
   end
 
   # Acceptance criterion 4, and the half of the change a reviewer must evaluate
@@ -723,19 +748,21 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   # previous behaviour, now changed — before #2081 a second comment on the same
   # thread was a distinct per-comment key and woke again.
   test "several comments on one review thread produce one agent wake" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     first = comment_on_thread(7_007, "2026-06-24T12:00:00Z")
     second = comment_on_thread(7_008, "2026-06-24T12:05:00Z")
 
     # First comment wakes the agent once...
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review_comment", thread_comment_delivery(first),
                repo: @repo,
                request_fun: thread_resolver(@thread_id)
              )
 
-    assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 7_007}}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 7_007}}}, 500
 
     # ...a follow-up comment on the same thread within the replay window does
     # not wake a second time. Newer `updated_at`, so only the thread key — not
@@ -746,7 +773,7 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
                request_fun: thread_resolver(@thread_id)
              )
 
-    refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+    refute_receive {:event, %{topic: ^fixture_topic0}}, 200
   end
 
   # The fail-open degradation, pinned deliberately. Thread granularity is the
@@ -757,22 +784,27 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   # dropped delivery is not, so a failure must cost a possible extra wake, never
   # a lost comment.
   test "an unresolvable review thread delivery falls back to per-comment keying" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     # No `node_id`, so the resolver is never consulted and the delivery keys per
     # comment, as before #2081.
     delivery =
       thread_comment_delivery(thread_comment() |> Map.delete("review_thread_id"))
 
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review_comment", delivery, repo: @repo)
 
-    assert_receive {:event, %{topic: "ticket.42.pr.review_comment"} = event}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0} = event}, 500
     refute Map.has_key?(event.comment, "review_thread_id")
   end
 
   test "the same event seen by both producers wakes a consumer exactly once" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    number = ticket_number()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     comment = %{
       "id" => 2_002,
@@ -785,26 +817,26 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     delivery = %{
       "action" => "created",
       "repository" => %{"full_name" => @repo},
-      "issue" => %{"number" => 42},
+      "issue" => %{"number" => number},
       "comment" => comment,
       "sender" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.issue.commented"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
 
-    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0}}, 500
 
     # The reconciliation poll then sees the same comment. Sharing the poller's
     # dedup key is what keeps this from becoming a second wake.
     assert {:ok, %{count: 0}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
-               comment_batch: %{"42" => %{issue_comments: [comment], open_pull_request: nil}}
+               comment_batch: %{ticket => %{issue_comments: [comment], open_pull_request: nil}}
              )
 
-    refute_receive {:event, %{topic: "ticket.42.issue.commented"}}, 200
+    refute_receive {:event, %{topic: ^fixture_topic0}}, 200
   end
 
   # Known divergence, pinned deliberately. `reviewDecision` is a GraphQL field,
@@ -820,7 +852,10 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   # If someone adds that fetch, this test fails and must be rewritten as a plain
   # `assert_indistinguishable/2` case. That failure is the point.
   test "known divergence: review_decision cannot ride on a delivery, and consumers can tell" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    fixture_value2 = "aiur/#{ticket}-some-slug"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     review = %{
       "id" => 55_002,
@@ -839,31 +874,31 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     end
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: @repo,
                request_fun: request_fun,
                open_pull_requests_by_target: %{
-                 "42" => %{"number" => 901, "review_decision" => "APPROVED", "head_committed_at" => "2026-06-24T10:00:00Z"}
+                 ticket => %{"number" => 901, "review_decision" => "APPROVED", "head_committed_at" => "2026-06-24T10:00:00Z"}
                },
-               comment_batch: %{"42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
+               comment_batch: %{ticket => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
              )
 
-    polled = await_event("ticket.42.pr.review_comment")
+    polled = await_event(fixture_topic0)
     clear_dedup()
 
     delivery = %{
       "action" => "submitted",
       "repository" => %{"full_name" => @repo},
       "review" => review,
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => fixture_value2, "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
     }
 
-    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+    assert %{status: :published, published: [^fixture_topic0]} =
              GithubWebhook.handle_delivery("pull_request_review", delivery, repo: @repo)
 
-    pushed = await_event("ticket.42.pr.review_comment")
+    pushed = await_event(fixture_topic0)
 
     # The payloads differ in exactly one key, and only in the GraphQL-only half.
     assert %{"review_decision" => "APPROVED"} = polled.pull_request
@@ -874,107 +909,5 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     # rework on one path and triggers it on the other.
     assert ReviewFreshness.rework_skip_reason(polled) == :approved_pull_request
     assert ReviewFreshness.rework_skip_reason(pushed) == nil
-  end
-
-  defp assert_indistinguishable(polled, pushed) do
-    volatile = [:id, :ticket_observation]
-
-    assert Map.drop(polled, volatile) == Map.drop(pushed, volatile),
-           """
-           webhook and polling payloads diverge
-
-           only in polling: #{inspect(Map.drop(polled, volatile) |> Map.drop(Map.keys(Map.drop(pushed, volatile))))}
-           only in webhook: #{inspect(Map.drop(pushed, volatile) |> Map.drop(Map.keys(Map.drop(polled, volatile))))}
-
-           polling: #{inspect(Map.drop(polled, volatile), pretty: true)}
-           webhook: #{inspect(Map.drop(pushed, volatile), pretty: true)}
-           """
-  end
-
-  # Drives the real comment poller the way the orchestrator does (ledger
-  # snapshot in the options) over a batch that carries the ticket's open PR,
-  # then folds the result into orchestrator state as the async poll does.
-  # `history` answers the PR's issue-events read, which reports itself.
-  defp poll_draft_flag(%State{} = state, target, pr_number, head_sha, draft?, history \\ []) do
-    test_pid = self()
-
-    pull_request = %{
-      "number" => pr_number,
-      "state" => "open",
-      "draft" => draft?,
-      "head" => %{"ref" => "aiur/#{target}", "sha" => head_sha}
-    }
-
-    request_fun = fn %{url: url} ->
-      if url =~ "/issues/#{pr_number}/events" do
-        send(test_pid, {:history_read, url})
-        history_response(history)
-      else
-        flunk("unexpected GitHub request #{url}")
-      end
-    end
-
-    poll_result =
-      GithubCommentsPoller.poll([target],
-        since: "2026-06-24T11:00:00Z",
-        repo: @repo,
-        request_fun: request_fun,
-        review_submission_targets: MapSet.new(),
-        pr_ready_ledger: ReadyForReviewTransitions.ledger(state),
-        comment_batch: %{
-          target => %{
-            issue_comments: [],
-            open_pull_request: pull_request,
-            pr_issue_comments: [],
-            review_thread_comments: []
-          }
-        }
-      )
-
-    assert {:ok, %{errors: []}} = poll_result
-
-    ref = make_ref()
-    CommentPolling.apply_async(%{state | github_comment_poll: %{ref: ref}}, ref, {:ok, %{}, [], {[target], poll_result}})
-  end
-
-  defp history_response({:status, status}), do: {:ok, %{status: status, body: %{"message" => "Not Found"}}}
-  defp history_response(events) when is_list(events), do: {:ok, %{status: 200, body: events}}
-
-  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
-  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
-
-  defp await_event(topic) do
-    receive do
-      {:event, %{topic: ^topic} = event} -> event
-    after
-      1_000 -> flunk("no event published on #{topic}")
-    end
-  end
-
-  # Empties only the volatile replay window, leaving the durable resource marks
-  # in place — the state a daemon restart actually produces.
-  defp clear_replay_window do
-    case :ets.whereis(@dedup_table) do
-      :undefined -> :ok
-      table -> :ets.delete_all_objects(table)
-    end
-
-    :ok
-  end
-
-  # These tests deliberately drive both pipes over the *same* comment so the two
-  # published events can be compared field by field. In production that second
-  # publish is exactly what must not happen — it is the double-processing #2069
-  # removes — so every suppression layer has to be cleared between the halves,
-  # not just the in-memory window.
-  defp clear_dedup do
-    case :ets.whereis(@dedup_table) do
-      :undefined -> :ok
-      _table -> :ets.delete_all_objects(@dedup_table)
-    end
-
-    ResourceStore.reset()
-
-    :ok
   end
 end

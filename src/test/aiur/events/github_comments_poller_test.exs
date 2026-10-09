@@ -1,8 +1,10 @@
 defmodule Aiur.Events.GithubCommentsPollerTest do
   use Aiur.TestSupport
+  use Aiur.TestSupport.EventTicket
+  import Aiur.TestSupport.CommentsPollerFixture
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, Publisher}
-  alias Aiur.GitHub.{CodeOwners, ResourceStore}
+  alias Aiur.GitHub.{ResourceStore}
   alias Aiur.Workflow
 
   setup do
@@ -53,19 +55,21 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "normalizes and deduplicates watched targets before polling" do
+    ticket = ticket_id()
+    fixture_value0 = "/issues/#{ticket}/comments?"
     parent = self()
 
     request_fun = fn %{url: url} ->
       send(parent, {:requested, url})
 
       cond do
-        String.contains?(url, "/issues/42/comments?") -> {:ok, %{status: 200, body: []}}
+        String.contains?(url, fixture_value0) -> {:ok, %{status: 200, body: []}}
         String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: []}}
       end
     end
 
-    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42", " 42 ", ""],
+    assert {:ok, %{count: 0, since: %{^ticket => "2026-06-24T11:00:00Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket, " #{ticket} ", ""],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -75,7 +79,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     assert_receive {:requested, pulls_url}, 1000
     refute_receive {:requested, _url}, 100
 
-    assert String.contains?(issue_comments_url, "/issues/42/comments?")
+    assert String.contains?(issue_comments_url, fixture_value0)
     # One listing, not two. The `head=<owner>:aiur/42` probe that used to run in
     # front of this listing could only find branches the listing's own filter
     # already matches, so it was a billed request per target per poll cycle that
@@ -85,13 +89,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "keeps a per-target issue ETag when comments are unchanged" do
+    ticket = ticket_id()
+    fixture_value0 = "/issues/#{ticket}/comments?"
     parent = self()
 
     request_fun = fn request ->
       send(parent, {:requested, request})
 
       cond do
-        String.contains?(request.url, "/issues/42/comments?") ->
+        String.contains?(request.url, fixture_value0) ->
           assert request.etag == ~s("previous-etag")
           {:ok, %{status: 304, headers: [{"etag", ~s("previous-etag")}]}}
 
@@ -104,26 +110,29 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
             %{
               count: 0,
               errors: [],
-              etags: %{"42" => %{issue: ~s("previous-etag")}}
+              etags: %{^ticket => %{issue: ~s("previous-etag")}}
             }} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
-               etags: %{"42" => %{issue: ~s("previous-etag")}},
+               etags: %{ticket => %{issue: ~s("previous-etag")}},
                repo: "owner/repo",
                request_fun: request_fun
              )
 
     assert_receive {:requested, %{url: issue_comments_url}}, 1000
-    assert String.contains?(issue_comments_url, "/issues/42/comments?")
+    assert String.contains?(issue_comments_url, fixture_value0)
   end
 
   test "polls issue comments directly and publishes issue.commented" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -142,8 +151,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T11:59:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 1, since: %{^ticket => "2026-06-24T11:59:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -151,7 +160,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
     assert_receive {:event,
                     %{
-                      topic: "ticket.42.issue.commented",
+                      topic: ^fixture_topic0,
                       author_trusted?: true,
                       source: :github,
                       message: "please rework this",
@@ -163,12 +172,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "skips Agent Workpad issue comments" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -187,8 +199,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:59:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 0, since: %{^ticket => "2026-06-24T11:59:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -199,19 +211,23 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "polls unaddressed PR review threads without requiring a fresh comment timestamp" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    fixture_value2 = "aiur/#{ticket}"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
           {:ok,
            %{
              status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             body: [%{"number" => 77, "head" => %{"ref" => fixture_value2, "repo" => %{"full_name" => "owner/repo"}}}]
            }}
 
         String.contains?(url, "/issues/77/comments?") ->
@@ -237,8 +253,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-25T00:00:00Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 1, since: %{^ticket => "2026-06-25T00:00:00Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-25T00:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -246,7 +262,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
     assert_receive {:event,
                     %{
-                      topic: "ticket.42.pr.review_comment",
+                      topic: ^fixture_topic0,
                       author_trusted?: true,
                       source: :github,
                       message: "old unresolved thread",
@@ -261,19 +277,23 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "polls open PR conversation comments and publishes issue.commented under ticket id" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    fixture_value2 = "aiur/#{ticket}"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
           {:ok,
            %{
              status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             body: [%{"number" => 77, "head" => %{"ref" => fixture_value2, "repo" => %{"full_name" => "owner/repo"}}}]
            }}
 
         String.contains?(url, "/issues/77/comments?") ->
@@ -298,8 +318,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:01:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 1, since: %{^ticket => "2026-06-24T12:01:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -307,7 +327,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
     assert_receive {:event,
                     %{
-                      topic: "ticket.42.issue.commented",
+                      topic: ^fixture_topic0,
                       author_trusted?: true,
                       source: :github,
                       message: "conversation needs rework",
@@ -319,13 +339,16 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "uses supplied open PR without fetching it again" do
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
     parent = self()
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
@@ -354,17 +377,17 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:01:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 1, since: %{^ticket => "2026-06-24T12:01:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun,
-               open_pull_requests_by_target: %{"42" => %{"number" => 77}}
+               open_pull_requests_by_target: %{ticket => %{"number" => 77}}
              )
 
     assert_receive {:event,
                     %{
-                      topic: "ticket.42.issue.commented",
+                      topic: ^fixture_topic0,
                       author_trusted?: true,
                       source: :github,
                       message: "conversation from supplied pr",
@@ -441,19 +464,23 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "skips Agent Workpad PR conversation comments" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    fixture_value2 = "aiur/#{ticket}"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
           {:ok,
            %{
              status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             body: [%{"number" => 77, "head" => %{"ref" => fixture_value2, "repo" => %{"full_name" => "owner/repo"}}}]
            }}
 
         String.contains?(url, "/issues/77/comments?") ->
@@ -478,8 +505,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T12:01:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 0, since: %{^ticket => "2026-06-24T12:01:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -490,14 +517,17 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "trusts configured accounts when CODEOWNERS does not include the commenter" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
 
     configure_github(trusted_accounts: ["its-everdred"])
     codeowners = ensure_configured_codeowners!("* @someone-else\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -516,8 +546,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:02:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 1, since: %{^ticket => "2026-06-24T12:02:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -525,7 +555,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
     assert_receive {:event,
                     %{
-                      topic: "ticket.42.issue.commented",
+                      topic: ^fixture_topic0,
                       author_trusted?: true,
                       source: :github,
                       message: "trusted by config",
@@ -537,12 +567,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "dedupes comments already published by another source" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -562,16 +595,16 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
 
     assert {:ok, %{count: 1}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
              )
 
-    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0}}, 500
 
     assert {:ok, %{count: 0}} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -582,12 +615,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "keeps cursor unchanged when published comments have no valid timestamp" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -606,27 +642,30 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 1, since: %{^ticket => "2026-06-24T11:00:00Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
              )
 
-    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0}}, 500
     stop_codeowners(codeowners)
   end
 
   test "ignores open PR results without a usable PR number" do
+    ticket = ticket_id()
+    fixture_value0 = "/issues/#{ticket}/comments?"
+
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") -> {:ok, %{status: 200, body: []}}
+        String.contains?(url, fixture_value0) -> {:ok, %{status: 200, body: []}}
         String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: [%{}]}}
       end
     end
 
-    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
+    assert {:ok, %{count: 0, since: %{^ticket => "2026-06-24T11:00:00Z"}, errors: []}} =
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -634,12 +673,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "advances successful target cursor when another target fails" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -671,29 +713,32 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
             %{
               count: 1,
               since: %{
-                "42" => "2026-06-24T12:03:59Z",
+                ^ticket => "2026-06-24T12:03:59Z",
                 "43" => "2026-06-24T11:00:00Z"
               },
               errors: [{"43", {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]
             }} =
-             GithubCommentsPoller.poll(["42", "43"],
-               since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
+             GithubCommentsPoller.poll([ticket, "43"],
+               since: %{ticket => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
                repo: "owner/repo",
                request_fun: request_fun,
                max_concurrency: 2
              )
 
-    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0}}, 500
     stop_codeowners(codeowners)
   end
 
   test "keeps successful target isolated when another target task crashes" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -719,13 +764,13 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
             %{
               count: 1,
               since: %{
-                "42" => "2026-06-24T12:04:59Z",
+                ^ticket => "2026-06-24T12:04:59Z",
                 "43" => "2026-06-24T11:00:00Z"
               },
               errors: errors
             }} =
-             GithubCommentsPoller.poll(["42", "43"],
-               since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
+             GithubCommentsPoller.poll([ticket, "43"],
+               since: %{ticket => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
                repo: "owner/repo",
                request_fun: request_fun,
                max_concurrency: 2
@@ -734,14 +779,17 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     assert [{"43", {:target, {:exit, {%RuntimeError{message: "target 43 crash"}, [_ | _]}}}}] =
              errors
 
-    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0}}, 500
     stop_codeowners(codeowners)
   end
 
   test "reports timed out target task as target-local error" do
+    ticket = ticket_id()
+    fixture_value0 = "/issues/#{ticket}/comments?"
+
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value0) ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
@@ -756,13 +804,13 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
             %{
               count: 0,
               since: %{
-                "42" => "2026-06-24T11:00:00Z",
+                ^ticket => "2026-06-24T11:00:00Z",
                 "43" => "2026-06-24T11:00:00Z"
               },
               errors: [{"43", {:target, {:exit, :timeout}}}]
             }} =
-             GithubCommentsPoller.poll(["42", "43"],
-               since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
+             GithubCommentsPoller.poll([ticket, "43"],
+               since: %{ticket => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
                repo: "owner/repo",
                request_fun: request_fun,
                max_concurrency: 2,
@@ -771,12 +819,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "reports an error and leaves target cursor unchanged when any watched endpoint fails" do
-    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    ticket = ticket_id()
+    fixture_topic0 = "ticket.#{ticket}.issue.commented"
+    fixture_value1 = "/issues/#{ticket}/comments?"
+    :ok = Exchange.subscribe(fixture_topic0)
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") ->
+        String.contains?(url, fixture_value1) ->
           {:ok,
            %{
              status: 200,
@@ -798,23 +849,26 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     assert {:ok,
             %{
               count: 1,
-              since: %{"42" => "2026-06-24T11:00:00Z"},
-              errors: [{"42", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
+              since: %{^ticket => "2026-06-24T11:00:00Z"},
+              errors: [{^ticket, {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
             }} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
              )
 
-    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    assert_receive {:event, %{topic: ^fixture_topic0}}, 500
     stop_codeowners(codeowners)
   end
 
   test "reports an error when issue comment polling fails" do
+    ticket = ticket_id()
+    fixture_value0 = "/issues/#{ticket}/comments?"
+
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "/issues/42/comments?") -> {:error, :timeout}
+        String.contains?(url, fixture_value0) -> {:error, :timeout}
         String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: []}}
       end
     end
@@ -822,10 +876,10 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     assert {:ok,
             %{
               count: 0,
-              since: %{"42" => "2026-06-24T11:00:00Z"},
-              errors: [{"42", {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]
+              since: %{^ticket => "2026-06-24T11:00:00Z"},
+              errors: [{^ticket, {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]
             }} =
-             GithubCommentsPoller.poll(["42"],
+             GithubCommentsPoller.poll([ticket],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
                request_fun: request_fun
@@ -834,13 +888,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
   describe "PR review submission polling" do
     test "publishes pr.review_comment for CHANGES_REQUESTED from a trusted reviewer" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_001, "its-everdred", "CHANGES_REQUESTED", "please rework this section")
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
@@ -848,7 +904,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         author_trusted?: true,
                         source: :github,
                         comment: %{
@@ -865,13 +921,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     # so the review decision and head commit date the batch resolved have to
     # ride along on every published PR comment and review event.
     test "carries the pull request review context onto published review events" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_010, "its-everdred", "CHANGES_REQUESTED", "please rework this section")
 
       batch = %{
-        "42" => %{
+        ticket => %{
           open_pull_request: %{
             "number" => 77,
             "review_decision" => "CHANGES_REQUESTED",
@@ -884,7 +942,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       }
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  comment_batch: batch,
@@ -893,7 +951,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         pull_request: %{
                           "review_decision" => "CHANGES_REQUESTED",
                           "head_committed_at" => "2026-08-10T04:29:00Z"
@@ -905,13 +963,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
 
     test "publishes pr.review_comment for COMMENTED from a trusted reviewer" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_002, "its-everdred", "COMMENTED", "left some thoughts in review body")
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
@@ -919,7 +979,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         author_trusted?: true,
                         source: :github,
                         comment: %{"state" => "COMMENTED"}
@@ -930,13 +990,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
 
     test "publishes pr.review_comment with author_trusted? false for untrusted reviewer" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_003, "outsider", "CHANGES_REQUESTED", "some feedback")
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
@@ -944,7 +1006,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         author_trusted?: false
                       }},
                      500
@@ -953,41 +1015,47 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
 
     test "does not publish pr.review_comment for APPROVED review" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_004, "its-everdred", "APPROVED", "lgtm")
 
       assert {:ok, %{count: 0, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
                )
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
     test "does not publish pr.review_comment for DISMISSED review" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_005, "its-everdred", "DISMISSED", "")
 
       assert {:ok, %{count: 0, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
                )
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
     test "publishes only the most recent review per reviewer when multiple exist" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       older = pr_review(9_006, "its-everdred", "COMMENTED", "first pass", "2026-06-24T10:00:00Z")
@@ -1002,7 +1070,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         )
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([older, newer])
@@ -1010,17 +1078,19 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         comment: %{"id" => 9_007, "state" => "CHANGES_REQUESTED"}
                       }},
                      500
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
     test "does not publish pr.review_comment when reviewer's latest is APPROVED after CHANGES_REQUESTED" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       older =
@@ -1036,18 +1106,20 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         pr_review(9_011, "its-everdred", "APPROVED", "lgtm after fixes", "2026-06-24T14:00:00Z")
 
       assert {:ok, %{count: 0, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([older, newer])
                )
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
     test "a later blank-bodied COMMENTED container does not mask an earlier CHANGES_REQUESTED" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       changes_requested =
@@ -1064,7 +1136,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       inline_container = pr_review(9_013, "its-everdred", "COMMENTED", "", "2026-06-24T13:00:00Z")
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([changes_requested, inline_container])
@@ -1072,62 +1144,66 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         comment: %{"id" => 9_012, "state" => "CHANGES_REQUESTED"}
                       }},
                      500
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
     test "publishes one review per reviewer when multiple trusted reviewers" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred @other-reviewer\n")
 
       review_a = pr_review(9_008, "its-everdred", "CHANGES_REQUESTED", "feedback from A")
       review_b = pr_review(9_009, "other-reviewer", "CHANGES_REQUESTED", "feedback from B")
 
       assert {:ok, %{count: 2, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review_a, review_b])
                )
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_008}}},
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_008}}},
                      500
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_009}}},
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_009}}},
                      500
 
       stop_codeowners(codeowners)
     end
 
     test "deduplicates PR review submissions on repeated polls" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_020, "its-everdred", "CHANGES_REQUESTED", "please rework")
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
                )
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_020}}},
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_020}}},
                      500
 
       assert {:ok, %{count: 0, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([review])
                )
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
@@ -1138,14 +1214,16 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     # `submitted_at` instead, and re-polling the same pair afterwards has to
     # stay silent.
     test "publishes a second body-only CHANGES_REQUESTED review on a later head" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       first_head_review = pr_review(9_040, "its-everdred", "CHANGES_REQUESTED", "first pass", "2026-09-10T00:10:30Z")
       second_head_review = pr_review(9_041, "its-everdred", "CHANGES_REQUESTED", "still not right", "2026-09-10T00:46:36Z")
 
       poll = fn reviews, seen_at ->
-        GithubCommentsPoller.poll(["42"],
+        GithubCommentsPoller.poll([ticket],
           since: "2026-09-10T00:00:00Z",
           repo: "owner/repo",
           pr_review_seen_at: seen_at,
@@ -1154,36 +1232,39 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
 
       assert {:ok, %{count: 1, errors: [], pr_review_seen_at: after_first}} = poll.([first_head_review], %{})
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_040}}}, 500
-      assert after_first == %{"42" => "2026-09-10T00:10:30Z"}
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_040}}}, 500
+      assert after_first == %{ticket => "2026-09-10T00:10:30Z"}
 
       # The rework turn finished on a new head and the reviewer submitted again.
       assert {:ok, %{count: 1, errors: [], pr_review_seen_at: after_second}} =
                poll.([first_head_review, second_head_review], after_first)
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_041}}}, 500
-      assert after_second == %{"42" => "2026-09-10T00:46:36Z"}
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_041}}}, 500
+      assert after_second == %{ticket => "2026-09-10T00:46:36Z"}
 
       # Redelivery of the identical pair is a no-op.
       assert {:ok, %{count: 0, errors: []}} = poll.([first_head_review, second_head_review], after_second)
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
 
       stop_codeowners(codeowners)
     end
 
     test "reports an error and zero count when PR reviews fetch fails" do
+      ticket = ticket_id()
+      fixture_value0 = "/issues/#{ticket}/comments?"
+      fixture_value1 = "aiur/#{ticket}"
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       request_fun = fn %{url: url} ->
         cond do
-          String.contains?(url, "/issues/42/comments?") ->
+          String.contains?(url, fixture_value0) ->
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
             {:ok,
              %{
                status: 200,
-               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+               body: [%{"number" => 77, "head" => %{"ref" => fixture_value1, "repo" => %{"full_name" => "owner/repo"}}}]
              }}
 
           String.contains?(url, "/issues/77/comments?") ->
@@ -1197,8 +1278,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         end
       end
 
-      assert {:ok, %{count: 0, errors: [{"42", {:pr_reviews, _}}]}} =
-               GithubCommentsPoller.poll(["42"],
+      assert {:ok, %{count: 0, errors: [{^ticket, {:pr_reviews, _}}]}} =
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun
@@ -1208,14 +1289,18 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
 
     test "a transient PR reviews failure does not stall the issue-comment watermark" do
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.issue.commented"
+      fixture_value1 = "/issues/#{ticket}/comments?"
+      fixture_value2 = "aiur/#{ticket}"
       # Regression for #1389 P0: if /reviews 403s, the issue-comment since must
       # still advance. Previously errors == [] gated advance_since unconditionally.
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       request_fun = fn %{url: url} ->
         cond do
-          String.contains?(url, "/issues/42/comments?") ->
+          String.contains?(url, fixture_value1) ->
             {:ok,
              %{
                status: 200,
@@ -1233,7 +1318,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
             {:ok,
              %{
                status: 200,
-               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+               body: [%{"number" => 77, "head" => %{"ref" => fixture_value2, "repo" => %{"full_name" => "owner/repo"}}}]
              }}
 
           String.contains?(url, "/issues/77/comments?") ->
@@ -1247,26 +1332,30 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         end
       end
 
-      assert {:ok, %{since: %{"42" => since}, errors: [{"42", {:pr_reviews, _}}]}} =
-               GithubCommentsPoller.poll(["42"],
+      assert {:ok, %{since: %{^ticket => since}, errors: [{^ticket, {:pr_reviews, _}}]}} =
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun
                )
 
       assert since > "2026-06-24T11:00:00Z", "since must advance past the new comment even when /reviews fails"
-      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      assert_receive {:event, %{topic: ^fixture_topic0}}, 500
       stop_codeowners(codeowners)
     end
 
     test "a review remains discoverable after issue comments advance while review reads are disabled" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      fixture_value1 = "/issues/#{ticket}/comments?"
+      fixture_value2 = "aiur/#{ticket}"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
       review = pr_review(9_081, "its-everdred", "CHANGES_REQUESTED", "please rework", "2026-06-24T12:00:00Z")
 
       first_request = fn %{url: url} ->
         cond do
-          String.contains?(url, "/issues/42/comments?") ->
+          String.contains?(url, fixture_value1) ->
             {:ok,
              %{
                status: 200,
@@ -1284,7 +1373,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
             {:ok,
              %{
                status: 200,
-               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+               body: [%{"number" => 77, "head" => %{"ref" => fixture_value2, "repo" => %{"full_name" => "owner/repo"}}}]
              }}
 
           String.contains?(url, "/issues/77/comments?") ->
@@ -1298,8 +1387,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         end
       end
 
-      assert {:ok, %{since: %{"42" => issue_since}, pr_review_seen_at: review_seen_at}} =
-               GithubCommentsPoller.poll(["42"],
+      assert {:ok, %{since: %{^ticket => issue_since}, pr_review_seen_at: review_seen_at}} =
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  review_submission_targets: MapSet.new(),
@@ -1309,23 +1398,25 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       assert issue_since > "2026-06-24T12:00:00Z"
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
-                 since: %{"42" => issue_since},
+               GithubCommentsPoller.poll([ticket],
+                 since: %{ticket => issue_since},
                  pr_review_seen_at: review_seen_at,
                  repo: "owner/repo",
-                 review_submission_targets: MapSet.new(["42"]),
+                 review_submission_targets: MapSet.new([ticket]),
                  request_fun: request_fun_with_reviews([review])
                )
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_081}}}, 500
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_081}}}, 500
       stop_codeowners(codeowners)
     end
 
     test "blank-bodied COMMENTED reviews are not published (avoid double-wake for inline-only reviews)" do
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
       # GitHub creates an empty COMMENTED review as the container for inline
       # comments. Those inline comments are already published via review threads;
       # publishing the blank container too would double-wake the agent.
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       blank_commented = pr_review(9_030, "its-everdred", "COMMENTED", "")
@@ -1333,18 +1424,20 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       request_fun = request_fun_with_reviews([blank_commented])
 
       assert {:ok, %{count: 0, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun
                )
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 100
       stop_codeowners(codeowners)
     end
 
     test "COMMENTED review with a body is published" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       commented_with_body = pr_review(9_032, "its-everdred", "COMMENTED", "minor nit: fix the spacing")
@@ -1352,13 +1445,13 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       request_fun = request_fun_with_reviews([commented_with_body])
 
       assert {:ok, %{count: 1, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  since: "2026-06-24T11:00:00Z",
                  repo: "owner/repo",
                  request_fun: request_fun
                )
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_032}}}, 500
+      assert_receive {:event, %{topic: ^fixture_topic0, comment: %{"id" => 9_032}}}, 500
       stop_codeowners(codeowners)
     end
   end
@@ -1383,22 +1476,24 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     @cursor_before_outage "2026-07-12T17:00:00Z"
 
     test "recovers a review submitted while the daemon was down from a cursor predating it" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_101, "its-everdred", "CHANGES_REQUESTED", "reviewed during the outage", @review_during_outage)
 
       assert {:ok, %{count: 1, errors: [], pr_review_seen_at: seen_at}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  repo: "owner/repo",
                  boot_time: @outage_boot_time,
-                 pr_review_seen_at: %{"42" => @cursor_before_outage},
+                 pr_review_seen_at: %{ticket => @cursor_before_outage},
                  request_fun: request_fun_with_reviews([review])
                )
 
       assert_receive {:event,
                       %{
-                        topic: "ticket.42.pr.review_comment",
+                        topic: ^fixture_topic0,
                         author_trusted?: true,
                         comment: %{"id" => 9_101, "state" => "CHANGES_REQUESTED"}
                       }},
@@ -1406,165 +1501,29 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       # The cursor advances past the recovered review, so the next sweep does
       # not republish it.
-      assert seen_at == %{"42" => @review_during_outage}
+      assert seen_at == %{ticket => @review_during_outage}
 
       stop_codeowners(codeowners)
     end
 
     test "drops the same review when no cursor survived the restart" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = ticket_id()
+      fixture_topic0 = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(fixture_topic0)
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       review = pr_review(9_102, "its-everdred", "CHANGES_REQUESTED", "reviewed during the outage", @review_during_outage)
 
       assert {:ok, %{count: 0, errors: []}} =
-               GithubCommentsPoller.poll(["42"],
+               GithubCommentsPoller.poll([ticket],
                  repo: "owner/repo",
                  boot_time: @outage_boot_time,
                  request_fun: request_fun_with_reviews([review])
                )
 
-      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+      refute_receive {:event, %{topic: ^fixture_topic0}}, 200
 
       stop_codeowners(codeowners)
-    end
-  end
-
-  defp ensure_codeowners!(contents) do
-    case Process.whereis(CodeOwners) do
-      pid when is_pid(pid) ->
-        previous_allowlist = CodeOwners.snapshot(pid)
-        :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(["its-everdred"])})
-
-        %{pid: pid, path: nil, owned?: false, previous_allowlist: previous_allowlist}
-
-      nil ->
-        path =
-          Aiur.TestSupport.tmp_root!("aiur-codeowners")
-
-        File.write!(path, contents)
-
-        {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3600)
-
-        %{pid: pid, path: path, owned?: true}
-    end
-  end
-
-  defp ensure_configured_codeowners!(contents) do
-    path = Aiur.TestSupport.tmp_root!("aiur-codeowners")
-    File.write!(path, contents)
-
-    case Process.whereis(CodeOwners) do
-      pid when is_pid(pid) ->
-        previous_state = :sys.get_state(pid)
-
-        :sys.replace_state(pid, fn state ->
-          %{state | allowlist: MapSet.new(["__codeowners_bootstrap__"]), codeowners_path: path}
-        end)
-
-        :ok = CodeOwners.refresh(pid)
-
-        %{pid: pid, path: path, owned?: false, previous_state: previous_state}
-
-      nil ->
-        {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3600)
-        %{pid: pid, path: path, owned?: true}
-    end
-  end
-
-  defp configure_github(opts) do
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "github",
-      tracker_repo: "owner/repo",
-      tracker_label_prefix: "aiur",
-      tracker_bot_account: Keyword.get(opts, :bot_account),
-      tracker_trusted_accounts: Keyword.get(opts, :trusted_accounts, [])
-    )
-  end
-
-  defp stop_codeowners(%{pid: pid, owned?: false, previous_allowlist: previous_allowlist}) do
-    if Process.alive?(pid) do
-      :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(previous_allowlist)})
-    end
-  end
-
-  defp stop_codeowners(%{pid: pid, path: path, owned?: false, previous_state: previous_state}) do
-    if Process.alive?(pid) do
-      :sys.replace_state(pid, fn _state -> previous_state end)
-    end
-
-    File.rm(path)
-  end
-
-  defp stop_codeowners(%{pid: pid, path: path, owned?: true}) do
-    Aiur.TestSupport.safe_stop(pid)
-    File.rm(path)
-  end
-
-  defp empty_review_threads_response, do: review_threads_response([])
-
-  defp review_threads_response(nodes) do
-    {:ok,
-     %{
-       status: 200,
-       body: %{
-         "data" => %{
-           "repository" => %{
-             "pullRequest" => %{
-               "reviewThreads" => %{
-                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
-                 "nodes" => nodes
-               }
-             }
-           }
-         }
-       }
-     }}
-  end
-
-  defp review_thread_comment(id, login, body) do
-    %{
-      "databaseId" => id,
-      "body" => body,
-      "createdAt" => "2026-06-24T10:00:00Z",
-      "updatedAt" => "2026-06-24T10:00:00Z",
-      "url" => "https://github.test/discussion_r#{id}",
-      "author" => %{"login" => login}
-    }
-  end
-
-  defp pr_review(id, login, state, body, submitted_at \\ "2026-06-24T12:00:00Z") do
-    %{
-      "id" => id,
-      "state" => state,
-      "body" => body,
-      "submitted_at" => submitted_at,
-      "user" => %{"login" => login}
-    }
-  end
-
-  defp request_fun_with_reviews(reviews) do
-    fn %{url: url} ->
-      cond do
-        String.contains?(url, "/issues/42/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
-        String.contains?(url, "/pulls?") ->
-          {:ok,
-           %{
-             status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
-           }}
-
-        String.contains?(url, "/issues/77/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
-        String.contains?(url, "/graphql") ->
-          empty_review_threads_response()
-
-        String.contains?(url, "/pulls/77/reviews") ->
-          {:ok, %{status: 200, body: reviews}}
-      end
     end
   end
 end

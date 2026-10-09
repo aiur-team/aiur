@@ -27,7 +27,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     )
   end
 
-  defp comment(body), do: %{issue_number: "42", comment: %{"body" => body}}
+  defp comment(ticket, body), do: %{issue_number: ticket, comment: %{"body" => body}}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -63,13 +63,15 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "an agent's own comment, carrying the marker, does not wake the agent" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
       body = "Rework applied, pushed as 1a2b3c4.\n\n" <> AgentMarker.marker()
 
       assert :filtered =
-               Publisher.publish("ticket.42.issue.commented", comment(body),
-                 issue_number: "42",
+               Publisher.publish(ticket_topic, comment(ticket, body),
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -77,32 +79,36 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a human comment from the same login is delivered" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
       assert {:ok, _id, count} =
                Publisher.publish(
-                 "ticket.42.issue.commented",
-                 comment("Please use the batched query instead."),
-                 issue_number: "42",
+                 ticket_topic,
+                 comment(ticket, "Please use the batched query instead."),
+                 issue_number: ticket,
                  actor: @bot
                )
 
       assert count >= 1
-      assert_receive {:event, %{topic: "ticket.42.issue.commented", comment: %{"body" => delivered}}}, 500
+      assert_receive {:event, %{topic: ^ticket_topic, comment: %{"body" => delivered}}}, 500
       assert delivered == "Please use the batched query instead."
     end
 
     test "an unmarked comment predating the marker reads as human, not as ours" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
       # The absence of a marker is never evidence that Aiur wrote a comment
       # (#2478, #2498). An old comment carries no marker and must still reach
       # the agent.
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      :ok = Exchange.subscribe(ticket_topic)
 
       assert {:ok, _id, _count} =
                Publisher.publish(
-                 "ticket.42.issue.commented",
-                 comment("Comment posted before identity_mode existed."),
-                 issue_number: "42",
+                 ticket_topic,
+                 comment(ticket, "Comment posted before identity_mode existed."),
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -110,13 +116,15 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a body that only resembles the marker is still treated as human" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
       assert {:ok, _id, _count} =
                Publisher.publish(
-                 "ticket.42.issue.commented",
-                 comment("I saw an `<!-- aiur:agent` fragment in the diff — is that intended?"),
-                 issue_number: "42",
+                 ticket_topic,
+                 comment(ticket, "I saw an `<!-- aiur:agent` fragment in the diff — is that intended?"),
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -124,21 +132,23 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a CHANGES_REQUESTED review with a null body reads as human, not as ours" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.review_comment"
       # Reachable, not hypothetical. `GithubCommentsPoller.publish_pr_review_submission/5`
       # puts the raw REST review object under `:comment`, and `actionable_review?/1`
       # passes CHANGES_REQUESTED without inspecting the body — which GitHub returns
       # as null when the reviewer left only inline comments. Since #2473 this is the
       # load-bearing rework signal when there are no threads, so treating it as ours
       # swallows an operator's request for changes outright.
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      :ok = Exchange.subscribe(ticket_topic)
 
       review = %{"state" => "CHANGES_REQUESTED", "body" => nil, "user" => %{"login" => @bot}}
 
       assert {:ok, _id, _count} =
                Publisher.publish(
-                 "ticket.42.pr.review_comment",
-                 %{issue_number: "42", comment: review},
-                 issue_number: "42",
+                 ticket_topic,
+                 %{issue_number: ticket, comment: review},
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -146,13 +156,15 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a comment key whose body is missing entirely reads as human" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
       assert {:ok, _id, _count} =
                Publisher.publish(
-                 "ticket.42.issue.commented",
-                 %{issue_number: "42", comment: %{"user" => %{"login" => @bot}}},
-                 issue_number: "42",
+                 ticket_topic,
+                 %{issue_number: ticket, comment: %{"user" => %{"login" => @bot}}},
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -160,10 +172,12 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a quote-reply that inherits the agent's marker reads as human" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
       # GitHub's "Quote reply" copies the body verbatim, HTML comments included.
       # Quoting an agent to disagree with it is the ordinary review gesture, and
       # must not be read as the agent talking to itself.
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      :ok = Exchange.subscribe(ticket_topic)
 
       quoted = """
       > Rework applied, pushed as 1a2b3c4.
@@ -174,8 +188,8 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
       """
 
       assert {:ok, _id, _count} =
-               Publisher.publish("ticket.42.issue.commented", comment(quoted),
-                 issue_number: "42",
+               Publisher.publish(ticket_topic, comment(ticket, quoted),
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -183,38 +197,42 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "the sanitizer's authorship record survives its own HTML-comment stripping" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.review_comment"
       # `Sanitizer.github_payload/2` deletes HTML comments as hidden-instruction
       # carriers, so on the CommandScan path the marker is gone from the body by
       # the time the gate runs. The pre-strip record is what keeps the self-loop
       # closed there.
       body = "/aiur rerun the failing job\n\n" <> AgentMarker.marker()
-      payload = Sanitizer.github_payload(%{issue_number: "42", comment: %{"body" => body}}, @bot)
+      payload = Sanitizer.github_payload(%{issue_number: ticket, comment: %{"body" => body}}, @bot)
 
       refute payload.comment["body"] =~ "aiur:agent-authored"
       assert payload.aiur_authored? == true
 
       assert :filtered =
-               Publisher.publish("ticket.42.pr.review_comment", payload,
-                 issue_number: "42",
+               Publisher.publish(ticket_topic, payload,
+                 issue_number: ticket,
                  actor: @bot,
                  bypass_contamination: true
                )
     end
 
     test "a sanitized human comment still reaches the agent" do
-      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(ticket_topic)
 
       payload =
         Sanitizer.github_payload(
-          %{issue_number: "42", comment: %{"body" => "/aiur rerun the failing job"}},
+          %{issue_number: ticket, comment: %{"body" => "/aiur rerun the failing job"}},
           @bot
         )
 
       assert payload.aiur_authored? == false
 
       assert {:ok, _id, _count} =
-               Publisher.publish("ticket.42.pr.review_comment", payload,
-                 issue_number: "42",
+               Publisher.publish(ticket_topic, payload,
+                 issue_number: ticket,
                  actor: @bot,
                  bypass_contamination: true
                )
@@ -223,10 +241,12 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a bodyless event from the daemon login is still suppressed on login alone" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.branch.push"
       # No human can author a push into the daemon's own event stream, so there
       # is no ambiguity for a marker to resolve and requiring one would
       # republish every self-emitted event.
-      assert :filtered = Publisher.publish("ticket.42.branch.push", %{}, actor: @bot)
+      assert :filtered = Publisher.publish(ticket_topic, %{}, actor: @bot)
     end
   end
 
@@ -237,13 +257,15 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "the agent's comment is suppressed on the login, with no marker present" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
       assert :filtered =
                Publisher.publish(
-                 "ticket.42.issue.commented",
-                 comment("Rework applied, pushed as 1a2b3c4."),
-                 issue_number: "42",
+                 ticket_topic,
+                 comment(ticket, "Rework applied, pushed as 1a2b3c4."),
+                 issue_number: ticket,
                  actor: @bot
                )
 
@@ -251,11 +273,13 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     end
 
     test "a comment from any other login is delivered" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
       assert {:ok, _id, _count} =
-               Publisher.publish("ticket.42.issue.commented", comment("Please rebase."),
-                 issue_number: "42",
+               Publisher.publish(ticket_topic, comment(ticket, "Please rebase."),
+                 issue_number: ticket,
                  actor: "its-everdred"
                )
 
@@ -265,6 +289,9 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
 
   describe "mode resolution" do
     test "an install with no identity_mode key behaves as separate-account" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -276,8 +303,8 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
       refute GitHubConfig.single_account?()
 
       assert :filtered =
-               Publisher.publish("ticket.42.issue.commented", comment("anything at all"),
-                 issue_number: "42",
+               Publisher.publish(ticket_topic, comment(ticket, "anything at all"),
+                 issue_number: ticket,
                  actor: @bot
                )
     end

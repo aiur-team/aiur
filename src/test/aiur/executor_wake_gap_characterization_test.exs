@@ -7,6 +7,7 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
   alias Aiur.{ExecutorEvents, ExecutorListener, ExecutorWakeInbox, JsonStore}
 
   @listener_name Aiur.ExecutorListener.WakeGapTest
+  @inbox_name Aiur.ExecutorWakeInbox.WakeGapTest
 
   setup do
     previous = Application.get_env(:aiur, :executor_command_alerts?)
@@ -18,22 +19,21 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
         else: Application.put_env(:aiur, :executor_command_alerts?, previous)
     end)
 
-    refute Process.whereis(ExecutorWakeInbox)
-    inbox = start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    assert Process.whereis(ExecutorWakeInbox) == inbox
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
     :ok
   end
 
   # Characterization, deliberately green on main: documents contract §7.1 gap.
   # A Bucket 2 fix must flip the wake-gap test and say so in its PR.
   test "an allowlisted ticket wake published while the listener is down is not replayed (characterization)" do
-    listener = start_listener()
-    assert "ticket.*.pr.merged" in Exchange.bindings_for(listener)
+    id = System.unique_integer([:positive])
+    ticket = "wake-gap-#{id}"
+    pattern = "ticket.#{ticket}.pr.*"
+    listener = start_listener(patterns: [pattern])
+    assert pattern in Exchange.bindings_for(listener)
     stop_supervised!(ExecutorListener)
     refute Process.alive?(listener)
 
-    id = System.unique_integer([:positive])
-    ticket = "wake-gap-#{id}"
     topic = "ticket.#{ticket}.pr.merged"
 
     Exchange.publish(topic, %{
@@ -42,14 +42,14 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
       pr: %{"number" => 7}
     })
 
-    restarted = start_listener()
-    assert "ticket.*.pr.merged" in Exchange.bindings_for(restarted)
+    restarted = start_listener(patterns: [pattern])
+    assert pattern in Exchange.bindings_for(restarted)
     # An unrelated live wake must not invalidate the missing-event witness.
     other_topic = "ticket.#{ticket}.pr.opened"
     Exchange.publish(other_topic, %{id: System.unique_integer([:positive]), topic: other_topic})
     :sys.get_state(restarted)
-    send(ExecutorWakeInbox, :flush)
-    records = ExecutorWakeInbox.pending()
+    send(@inbox_name, :flush)
+    records = ExecutorWakeInbox.pending(@inbox_name)
 
     assert Enum.any?(records, &(&1["topic"] == other_topic))
     refute Enum.any?(records, &(&1["topic"] == topic and &1["event_id"] == id))
@@ -73,8 +73,8 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
     assert is_integer(watermark()) and watermark() >= id
   end
 
-  defp start_listener do
-    start_supervised!({ExecutorListener, name: @listener_name, resubscribe_interval_ms: :infinity})
+  defp start_listener(opts \\ []) do
+    start_supervised!({ExecutorListener, Keyword.merge([name: @listener_name, inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false, resubscribe_interval_ms: :infinity], opts)})
   end
 
   defp command_decision(decision_id) do
