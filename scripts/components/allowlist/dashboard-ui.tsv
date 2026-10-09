@@ -5,7 +5,6 @@ R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent.Models	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Events.GithubWebhook	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ExecutorEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -17,6 +16,4 @@ R-declared	Aiur.RunTelemetry.Dataset	baseline 4aba33f8aae03cdaec432d6614e70a57c9
 R-declared	Aiur.RunTelemetry.Summaries	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Timeline	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Webhooks.DeliveryLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Webhooks.Ingest	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	AiurWeb.GithubWebhook	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
