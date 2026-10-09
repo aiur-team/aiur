@@ -35,8 +35,13 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
   test(`round trip ${kind}: all loaded pages recover design data`, () => {
     const raw = structuredClone(dataFor(kind));
     const snapshot = fixture(kind);
-    // Simulate initial window followed by older pages, deliberately out of order.
-    snapshot.sections.hist.reverse();
+    // Assemble the initial active-day window followed by all earlier day pages.
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: snapshot.history.tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const pages = Map.groupBy(snapshot.sections.hist, row => day.format(row.end));
+    const days = [...pages.keys()].sort().reverse();
+    const initialDays = kind === 'dense' ? 1 : 2;
+    snapshot.sections.hist = days.slice(0, initialDays).flatMap(key => pages.get(key));
+    for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
     assert.deepEqual(actual.epics, raw.epics);
     const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to) }]));
