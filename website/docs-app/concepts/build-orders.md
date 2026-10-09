@@ -171,6 +171,8 @@ Queue and progress events coalesce for 500 ms before the panel rereads local sta
 
 Build Order roots appear as features named `bo-<number>`. Membership follows
 direct sub-issues, and build lanes become feature epics. The import writes no
-GitHub labels and sets no baseline. Explicit feature ownership and an operator’s
+GitHub labels and sets no baseline.
+
+Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;
 unknown start, end, and join times remain unknown.
