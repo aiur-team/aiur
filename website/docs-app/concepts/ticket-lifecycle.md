@@ -254,7 +254,7 @@ An open, unblocked ticket needs an **explicit** state label to be dispatchable.
   Its label **carries forward** triage only if an allowed user previously applied
   an `agent:*` label (`dispatch_authorization.ex:88-126`).
 - Queue promotion does not grant authorization: an allowed human must apply the marker or `agent:todo`.
-  An unauthorized decline shows `promoted_unauthorized` and raises one queue attention.
+  An unauthorized decline shows `promoted_unauthorized` and raises one [queue attention](/concepts/build-orders#queue-attentions).
   It resolves when the decline clears or the issue is claimed; an unavailable probe preserves it.
 - Detection requires a free dispatch slot: declines are recorded only while slots
   are available. Until then, the queue shows `promoted`.
