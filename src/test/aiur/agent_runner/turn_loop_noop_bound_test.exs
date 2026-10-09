@@ -81,7 +81,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
       assert {:completed, %{state: state}} =
                run_loop(ctx,
-                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-existing-pr"}} end,
+                 run_turn: fn _s, _p, _i, _o ->
+                   :ok = Aiur.Memory.Tracker.update_issue_state("614309", "rework")
+                   {:ok, %{session_id: "noop-existing-pr"}}
+                 end,
                  max_turns: nil,
                  workspace_probe: unchanging_probe(),
                  max_consecutive_noop_turns: 3,
@@ -91,7 +94,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                )
 
       assert state == ctx.issue.state
-      refute_receive {:memory_tracker_state_update, _, _}, 100
+      assert_received {:memory_tracker_state_update, "614309", "rework"}
+      identifier = ctx.issue.identifier
+      # Tracker writes finish inside run_loop; the global recipient also gets unrelated tickets.
+      refute_received {:memory_tracker_state_update, ^identifier, _}
     end
 
     test "recognizes waiting, requested, and pending check runs", ctx do
@@ -130,7 +136,8 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                )
 
       assert state == issue.state
-      refute_receive {:memory_tracker_state_update, _, _}, 100
+      identifier = ctx.issue.identifier
+      refute_received {:memory_tracker_state_update, ^identifier, _}
     end
 
     test "hands off a pushed rework PR after three no-op turns", ctx do
