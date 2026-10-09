@@ -608,7 +608,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   describe "poll recovery" do
-    test "a stranded in-progress ticket is released to todo and dispatched with tracker truth" do
+    test "a booted in-progress orphan retains tracker truth during recovery grace" do
       previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
       on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
@@ -635,18 +635,15 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       pid = start_orchestrator(name)
 
       send(pid, :run_poll_cycle)
-      state = await_orchestrator_state(pid, &Map.has_key?(&1.running, issue.id))
+      state = await_orchestrator_state(pid, &Map.has_key?(&1.orphaned_claim_since, issue.identifier))
 
-      # #2076: a restart orphans an in-progress claim (no live runtime owns it),
-      # so the first successful poll's startup reconciliation releases it to
-      # the dispatchable tracker state before dispatch. The entry then reports
-      # truth ("todo"), never the stale claim it was recovered from.
-      assert MapSet.member?(state.claimed, issue.id)
-      assert state.last_polled_issues[issue.id].state == "todo"
-      assert_receive {:memory_tracker_state_update, "L11-ORPHAN", "todo"}, 2000
-
-      assert %{running: [%{identifier: "L11-ORPHAN", state: "todo"}]} =
-               Orchestrator.snapshot(name, 15_000)
+      # Periodic recovery waits for the grace period; the poll must not dispatch
+      # the original claim before its PR state has been checked.
+      refute Map.has_key?(state.running, issue.id)
+      assert state.last_polled_issues[issue.id].state == "in-progress"
+      refute_received {:memory_tracker_state_update, "L11-ORPHAN", _target}
+      assert %{idle: idle} = Orchestrator.snapshot(name, 15_000)
+      assert Enum.any?(idle, &(&1.identifier == "L11-ORPHAN" and &1.waiting_reason == :orphaned_claim))
     end
   end
 

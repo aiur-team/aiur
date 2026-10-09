@@ -242,7 +242,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # Tracker claims survive a daemon restart, while the runtime registry
         # does not. Once both views are fresh, release only claims with no
         # positive current-generation runtime evidence before normal dispatch.
-        {state, issues} = StartupClaimReconciler.reconcile(state, issues)
+        {state, issues} = StartupClaimReconciler.reconcile(state, issues, Keyword.get(opts, :startup_claim_opts, []))
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
@@ -255,9 +255,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # replace a retained snapshot from a prior same-name orchestrator.
         state = %{state | snapshot_ready?: true}
 
-        # The poll just refreshed `last_polled_issues`, so push a fresh
-        # summary out to any open agent-list pane immediately.
+        # Publish all rows, including claims still within the recovery grace period.
         StatusReport.notify_dashboard(state)
+        issues = StartupClaimReconciler.Observation.dispatch_candidates(state, issues)
 
         # Re-dispatch tickets parked on a transient pause/error whose backoff
         # has elapsed (#1453). Runs before normal dispatch so a restored ticket
