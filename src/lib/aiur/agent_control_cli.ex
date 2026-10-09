@@ -35,9 +35,8 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, WaitingReason}
-  alias Aiur.SystemLoad
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
@@ -1262,10 +1261,10 @@ defmodule Aiur.AgentControlCLI do
     %{
       ensure_started: &ensure_todo_runtime_started/0,
       load_config: &load_todo_config/0,
-      fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
-      fetch_active: &GitHubTracker.fetch_issues_by_states/1,
-      add_label: &GitHubTracker.add_label/2,
-      remove_label: &GitHubTracker.remove_label/2,
+      fetch_issue: fn issue_id -> Tracker.fetch_issue_states_by_ids([issue_id]) end,
+      fetch_active: &Tracker.fetch_issues_by_states/1,
+      add_label: &TicketTransition.write_marker(&1, :add, &2, writer: :cli_todo),
+      remove_label: &TicketTransition.write_marker(&1, :remove, &2, writer: :cli_todo),
       request_refresh: &Orchestrator.note_queued_demand/1,
       now_ms: &monotonic_now_ms/0
     }

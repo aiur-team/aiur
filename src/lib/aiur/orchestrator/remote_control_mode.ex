@@ -8,9 +8,8 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.{CodingAgent, Config}
   alias Aiur.HttpServer
   alias Aiur.Issue
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, RetryEngine, State, StatusReport, TrackerTasks}
-  alias Aiur.Tracker
   require Logger
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
@@ -148,7 +147,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   defp do_promote_to_remote(state, running_entry, relabeled, label, opts) do
-    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+    add_label = Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :remote_control_mode))
 
     case add_label.(Map.get(running_entry, :identifier), label) do
       :ok ->
@@ -218,7 +217,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   defp finish_demote(state, running_entry, relabeled, label, opts) do
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+    remove_label = Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :remote_control_mode))
 
     case remove_label.(Map.get(running_entry, :identifier), label) do
       :ok ->
@@ -394,7 +393,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   defp trust_remote_workspace({label, opts, running_entry, trust, workspace}) do
     case trust.(workspace, remote_control_trust_opts()) do
       :ok ->
-        add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+        add_label = Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :remote_control_mode))
 
         case add_label.(Map.get(running_entry, :identifier), label) do
           :ok -> :ok
@@ -417,7 +416,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   defp remove_remote_control_label({label, opts, running_entry}) do
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+    remove_label = Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :remote_control_mode))
 
     case remove_label.(Map.get(running_entry, :identifier), label) do
       :ok -> :ok

@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
@@ -2521,7 +2521,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    state = persist_lifetime_trip(state, issue, fn identifier, target -> Tracker.update_issue_state(identifier, target, expected_state: issue.state) end)
+    state = persist_lifetime_trip(state, issue, fn identifier, target -> TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state) end)
     entry = Map.get(thrash_budget(state), issue.id, %{})
 
     if Map.get(entry, :alert_emitted, false) do

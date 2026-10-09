@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.Issue
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.ReviewFindings
   alias Aiur.RecentMerge
@@ -55,7 +55,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
     update_issue_state_fun =
-      Keyword.get(opts, :update_issue_state_fun, &Tracker.update_issue_state/2)
+      Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     clear_session_handle_fun =
       Keyword.get(opts, :clear_session_handle_fun, &Orchestrator.clear_session_handle/1)
@@ -1372,7 +1372,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
-    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &Tracker.update_issue_state/2)
+    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->

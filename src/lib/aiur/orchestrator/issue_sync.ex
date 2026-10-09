@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TrackerTasks}
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.PollCadence
@@ -712,7 +712,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp guarded_update_fun(issues) do
     fn identifier, target ->
       issue = Enum.find(issues, &(&1.identifier == identifier))
-      Tracker.update_issue_state(identifier, target, expected_state: issue.state)
+      TicketTransition.write_state(identifier, target, writer: :issue_sync, expected_state: issue.state)
     end
   end
 
