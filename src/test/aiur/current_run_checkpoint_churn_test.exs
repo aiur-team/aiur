@@ -32,12 +32,11 @@ defmodule Aiur.CurrentRunCheckpointChurnTest do
     {:checkpoint_started, second_writer, second_at, 2_000} = receive_barrier({:checkpoint_started, _, _, 2_000})
     for _ <- 1..20, do: send(owner, {:status_changed, %{}})
     Agent.update(source, &put_in(&1, [:run, :elapsed_ms], 3_000))
-    final_refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
     send(second_writer, :release_checkpoint)
     assert Task.await(refresh) == :ok
+    # Only the status events queued during the write may produce this trailing write.
     {:checkpoint_started, final_writer, final_at, 3_000} = receive_barrier({:checkpoint_started, _, _, 3_000})
     send(final_writer, :release_checkpoint)
-    assert Task.await(final_refresh) == :ok
     assert :ok = CurrentRunProjections.refresh(owner)
     refute_received {:checkpoint_started, _, _, _}
     assert second_at - first_at >= 200
