@@ -380,9 +380,7 @@ defmodule Aiur.AgentControlCLI do
   def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)
 
   @spec build_orders(keyword()) :: :ok
-  def build_orders(opts \\ []) do
-    guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
-  end
+  def build_orders(opts \\ []), do: guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
 
   @spec queue(keyword()) :: :ok
   def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
@@ -391,9 +389,10 @@ defmodule Aiur.AgentControlCLI do
   def analytics(opts \\ []), do: guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
 
   @spec github_cost(keyword()) :: :ok
-  def github_cost(opts \\ []) do
-    guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
-  end
+  def github_cost(opts \\ []), do: guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
+
+  @spec experiments(keyword()) :: :ok
+  def experiments(opts \\ []), do: guarded("experiments", fn -> Aiur.ExperimentsCLI.run(opts) |> exit_marker() end)
 
   @spec capabilities(keyword()) :: :ok
   def capabilities(opts \\ []), do: guarded("capabilities", fn -> Aiur.CapabilitiesCLI.run(opts) |> exit_marker() end)

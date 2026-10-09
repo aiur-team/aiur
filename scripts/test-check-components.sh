@@ -223,6 +223,13 @@ check('new_section_without_owner_fails', [owner], [], 1, ("'extra' has no owner"
       declarations=dict(declarations, **{'src/lib/aiur/config/schema.ex': declarations['src/lib/aiur/config/schema.ex'] + '    embeds_one(:extra, Extra)\n'}))
 check('new_env_without_owner_fails', [owner], [], 1, ("'AIUR_NEW' has no owner",),
       declarations=dict(declarations, **{'src/lib/aiur/env/schema.ex': declarations['src/lib/aiur/env/schema.ex'] + '    {"AIUR_NEW", type: :string}\n'}))
+repo_declarations = dict(declarations, **{'src/lib/aiur/repo_base.ex': '  def experiments_path(repo), do: repo\n'})
+repo_owner = json.loads(json.dumps(owner))
+repo_owner['paths'].append('src/lib/aiur/repo_base.ex')
+repo_owner['owns']['state'].append('experiments_path')
+check('repo_state_path_owned_passes', [repo_owner], [], declarations=repo_declarations)
+check('repo_state_path_without_owner_fails', [repo_owner], [], 1, ("'experiments_path' has no owner",),
+      change=lambda m: m['components'][0]['owns']['state'].remove('experiments_path'), declarations=repo_declarations)
 check('unknown_shared_component_fails', [dict(owner, shared_with=['absent'])], [], 2,
       ('unknown component absent',), declarations=declarations)
 for kind, name in [('config', 'bad.section'), ('env', 'lowercase'), ('state', 'repo_name')]:
@@ -232,7 +239,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '21 sections, 7 fields, 70 env vars, 15 state paths owned once' in result.stdout
+    assert '22 sections, 7 fields, 70 env vars, 27 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -287,6 +294,7 @@ else:
                 verify(root, command)
             print(f'PASS: {name}')
 
+    reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1, ('R-forbid experiments -> Aiur.Orchestrator',))
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.
