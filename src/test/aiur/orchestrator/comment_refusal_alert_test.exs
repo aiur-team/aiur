@@ -255,7 +255,8 @@ defmodule Aiur.Orchestrator.CommentRefusalAlertTest do
   end
 
   test "PR anchored input deferred by an occupied cap slot is durable" do
-    pr = %{"number" => 42, "title" => "PR", "body" => "", "head" => %{"ref" => "feature"}}
+    ticket = Integer.to_string(System.unique_integer([:positive]))
+    pr = %{"number" => String.to_integer(ticket), "title" => "PR", "body" => "", "head" => %{"ref" => "feature"}}
     occupied = %{control: %{status: :running}}
 
     state = %{
@@ -270,9 +271,9 @@ defmodule Aiur.Orchestrator.CommentRefusalAlertTest do
       open_pull_request_fetcher: fn _number -> {:ok, pr} end
     }
 
-    PrAnchored.maybe_route_pr_anchored_or_legacy(state, "42", :github, event, 1)
+    PrAnchored.maybe_route_pr_anchored_or_legacy(state, ticket, :github, event, 1)
 
-    assert [alert] = Enum.filter(alerts(), &(&1["topic"] == "ticket.42.agent.attention.pr_anchored_dispatch_agent_cap_full"))
+    assert [alert] = Enum.filter(alerts(), &(&1["topic"] == "ticket.#{ticket}.agent.attention.pr_anchored_dispatch_agent_cap_full"))
     assert alert["reason"] =~ "free an agent slot"
   end
 

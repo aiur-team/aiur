@@ -29,7 +29,7 @@
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
       "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**"],
       "facades": ["Aiur.Identity", "Aiur.Capabilities", "Aiur.Capabilities.Provider"], "facade_pending": null,
-      "requires": ["kernel", "config", "web-kit"], "optional": [],
+      "requires": ["kernel", "config", "web-kit", "event-bus"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
       "prior": []
     },
@@ -118,7 +118,7 @@
       "id": "tracker", "name": "Tracker contract", "layer": 2, "kind": "required",
       "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker/**", "src/lib/aiur/tracker_config.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
+      "requires": ["identity", "kernel", "config"], "optional": [],
       "owns": {"config": ["tracker"], "env": [], "state": [], "capabilities": []},
       "prior": ["TRK"]
     },
@@ -293,7 +293,7 @@
     },
     {
       "id": "web-shell", "name": "HTTP endpoint, router, auth, sockets, JSON API", "layer": 4, "kind": "optional",
-      "paths": ["src/lib/aiur/http_server.ex", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
+      "paths": ["src/lib/aiur/http_server.ex", "src/lib/aiur/http_server/**", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["config", "identity", "projections", "web-kit"], "optional": ["github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
       "owns": {"config": ["observability", "server"], "env": ["AIUR_DASHBOARD_PASSWORD", "AIUR_DASHBOARD_USERNAME"], "state": [], "capabilities": []},

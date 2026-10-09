@@ -91,7 +91,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   def schedule(%{refresh_pending?: true} = state, _owner), do: state
 
   def schedule(state, owner) do
-    send(owner, :refresh_sources)
+    Process.send_after(owner, :refresh_sources, 100)
     %{state | refresh_pending?: true}
   end
 
@@ -152,9 +152,12 @@ defmodule Aiur.CurrentRunProjections.Refresh do
 
       state
       |> Map.merge(%{refresh_again?: false, queued_waiters: [], refresh_pending?: false})
-      |> start(:full, waiters, owner)
+      |> continue_with_waiters(waiters, owner)
     else
       state
     end
   end
+
+  defp continue_with_waiters(state, [], owner), do: schedule(state, owner)
+  defp continue_with_waiters(state, waiters, owner), do: start(state, :full, waiters, owner)
 end
