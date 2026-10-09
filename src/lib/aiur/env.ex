@@ -33,10 +33,10 @@ defmodule Aiur.Env do
 
   require Logger
 
+  alias Aiur.Env.Dotenv
   alias Aiur.Env.Schema
   alias Aiur.Env.Types
   alias Aiur.GitHub.Config
-  alias Aiur.Env.Dotenv
 
   @doc "Delegated: every declared env-var spec entry, `{name, spec}`."
   @spec specs() :: [{String.t(), Schema.spec()}]

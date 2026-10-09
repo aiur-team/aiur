@@ -16,7 +16,10 @@ defmodule Aiur.EnvStartupChecksTest do
   end
 
   defmodule Keyring do
-    def keyring_token, do: "fixture-token"
+    def keyring_token do
+      send(self(), :configured_keyring_lookup)
+      "fixture-token"
+    end
   end
 
   setup do
@@ -56,10 +59,13 @@ defmodule Aiur.EnvStartupChecksTest do
   test "configured keyring module supplies the default while explicit functions take precedence" do
     Application.put_env(:aiur, :keyring_token_fun_module, Keyring)
     assert :ok = Env.validate_startup!(%{})
+    assert_received :configured_keyring_lookup
 
     assert_raise ArgumentError, fn ->
       Env.validate_startup!(%{}, keyring_fun: fn -> nil end)
     end
+
+    refute_received :configured_keyring_lookup
   end
 
   test "pure parser and init compatibility delegate preserve empty values, quotes and duplicate order" do
