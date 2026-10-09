@@ -11,5 +11,4 @@ defmodule Aiur.Protocol.ObservationAge do
 
   defp retry_label(%{retry_scope: scope}) when is_binary(scope), do: "; #{scope}"
   defp retry_label(_row), do: ""
-
 end
