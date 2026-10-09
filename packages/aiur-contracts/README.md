@@ -14,7 +14,7 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 ```sh
 npm ci
 npm run generate # after editing schemas
-npm run check    # generation drift, fixture validation, type check
+npm run check    # generation drift, fixture schema and type checks, type check
 npm test
 ```
 

@@ -13,7 +13,7 @@
   },
   "scripts": {
     "generate": "node scripts/generate.mjs",
-    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && tsc --noEmit",
+    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && node scripts/check-fixture-types.mjs && tsc --noEmit",
     "build": "tsc",
     "test": "npm run build && node --test test/*.test.mjs"
   },
