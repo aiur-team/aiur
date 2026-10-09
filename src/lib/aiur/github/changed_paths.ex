@@ -1,12 +1,16 @@
 defmodule Aiur.GitHub.ChangedPaths do
   @moduledoc "Validates complete PR-file collections before deriving ownership."
 
-  @spec decode([term()]) :: {:ok, [String.t()]} | {:error, :invalid_pr_files_response}
+  # GitHub's PR-files endpoint stops at 3000 files without a further `next`
+  # link, so a collection that reaches the cap may be truncated: it is unknown.
+  @github_files_cap 3000
+
+  @spec decode([term()]) :: {:ok, [String.t()]} | {:error, :invalid_pr_files_response | :pr_files_truncated}
   def decode(files) do
-    if Enum.all?(files, &valid_file?/1) do
-      {:ok, Enum.map(files, & &1["filename"])}
-    else
-      {:error, :invalid_pr_files_response}
+    cond do
+      length(files) >= @github_files_cap -> {:error, :pr_files_truncated}
+      Enum.all?(files, &valid_file?/1) -> {:ok, Enum.map(files, & &1["filename"])}
+      true -> {:error, :invalid_pr_files_response}
     end
   end
 

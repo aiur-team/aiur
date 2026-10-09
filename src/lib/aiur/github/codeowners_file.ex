@@ -22,11 +22,12 @@ defmodule Aiur.GitHub.CodeownersFile do
   end
 
   defp parse_line({line, number}, {:ok, rules}) do
-    tokens = line |> String.split(~r/\s+/, trim: true) |> Enum.take_while(&(not String.starts_with?(&1, "#")))
+    # `\ ` escapes a space inside a path pattern, as GitHub allows.
+    tokens = ~r/(?<!\\)\s+/ |> Regex.split(line, trim: true) |> Enum.take_while(&(not String.starts_with?(&1, "#")))
 
     case tokens do
       [] -> {:cont, {:ok, rules}}
-      [pattern | owners] -> parse_rule(pattern, owners, number, rules)
+      [pattern | owners] -> parse_rule(String.replace(pattern, "\\ ", " "), owners, number, rules)
     end
   end
 

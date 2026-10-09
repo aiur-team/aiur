@@ -198,6 +198,38 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     assert Codeowners.authoritative?("direct", context) == nil
   end
 
+  test "a PR-file collection at GitHub's 3000-file cap is unknown, not complete", %{root: root, path: path} do
+    File.write!(path, "* @direct\n")
+    files = for n <- 1..3000, do: %{"filename" => "lib/file_#{n}.ex"}
+    request = fn _ -> {:ok, %{status: 200, body: files, headers: []}} end
+    context = Codeowners.owners_for_pr(42, repo_root: root, repo: "owner/repo", token: "token", request_fun: request)
+    assert context == {:error, :pr_files_truncated}
+    assert Codeowners.authoritative?("direct", context) == nil
+    assert PullRequests.fetch_pull_request_changed_paths(42, request_fun: request) == context
+  end
+
+  test "path ownership follows GitHub's last-match and gitignore semantics", %{root: root, path: path} do
+    File.write!(path, """
+    * @everyone
+    secrets/ @security
+    apps/github @apps
+    docs/* @docs
+    **/logs @logs
+    /my\\ dir/ @spaces
+    """)
+
+    owners = &Codeowners.owners_for_path(&1, repo_root: root)
+    assert owners.("config/secrets/key.pem") == ["security"]
+    assert owners.("secrets") == ["everyone"]
+    assert owners.("apps/github/client.ex") == ["apps"]
+    assert owners.("docs/intro.md") == ["docs"]
+    assert owners.("docs/build/intro.md") == ["everyone"]
+    assert owners.("logs/a.log") == ["logs"]
+    assert owners.("deep/logs/a.log") == ["logs"]
+    assert owners.("my dir/file.txt") == ["spaces"]
+    assert owners.("README.md") == ["everyone"]
+  end
+
   defp start_snapshot(path, request, alert \\ fn _, _, _ -> :ok end) do
     start_supervised!({CodeOwners, name: nil, path: path, request_fun: request, alert_fun: alert, refresh_seconds: 86_400})
   end
