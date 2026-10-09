@@ -979,7 +979,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         probes.cpu_snapshot,
         queued_demand?
       )
-      |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
+      |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
 
     # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
@@ -1003,7 +1003,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, probes.load, probes.target, probes.schedulers, queued_demand?),
+            envelope_hold(state, Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers, queued_demand?),
             now_ms,
             opts
           )
@@ -2179,10 +2179,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     ])
   end
 
-  # `measured_at` moves with the measurements it describes: an extended hold
-  # carries this tick's probe, not the probe that first opened it. Without the
-  # re-stamp the age would report how long the hold has lasted rather than how
-  # fresh the number beside it is (#2527).
   defp merge_capacity_reason(hold, reason, measured_at) do
     hold
     |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
@@ -2298,6 +2294,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
       | dispatch_capacity_sample: %{
           load: probes.load,
+          load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
+          load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
+          gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
+          load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
           load_threshold: probes.load_threshold,
           target: probes.target,
           schedulers: probes.schedulers,
