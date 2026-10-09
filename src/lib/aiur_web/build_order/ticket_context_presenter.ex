@@ -101,8 +101,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   reads provider, process, log, or filesystem state; callers refresh those
   snapshots before asking the component to render.
   """
-
-  alias Aiur.BuildOrder.{Bounded, Lifecycle, TicketHistory}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.{Lifecycle, TicketHistory}
   alias Aiur.BuildOrder.TicketDetail.{Sanitizer, Snapshot, State}
   alias Aiur.BuildOrder.TicketHistory.Entry
   alias Aiur.{OpaqueIdentifier, TrackerIdentity}

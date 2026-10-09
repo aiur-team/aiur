@@ -3,7 +3,6 @@ R-declared	Aiur.Accounts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AlertFeed	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Boot	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.BuildGate	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CIApprovalStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Claude.RemoteControl	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -11,7 +10,6 @@ R-declared	Aiur.Claude.ReplAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade8
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CurrentRunMembership	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Executor.StatePaths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Fs	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.AuthPreflight	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.CIPollBatch	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.CiReadiness	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -30,8 +28,6 @@ R-declared	Aiur.GitHub.StatePolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ad
 R-declared	Aiur.GitHub.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.HttpServer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.AgentCli	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.JSONSafe	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.JsonStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.LiveConversation	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.LiveConversation.Source	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -39,15 +35,11 @@ R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9
 R-declared	Aiur.Opencode.SlotRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.OperatorWaitLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.PauseContainment	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.PeriodicWorker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.ProcessIdentity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProgressRetention	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Protocol.MapAccess	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Lifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.SecretRedactor	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.SystemCpu	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.SystemFileDescriptors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.SystemLoad	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -55,7 +47,6 @@ R-declared	Aiur.SystemMemory	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TestTicketScope	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TicketActivity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.TrackerIdentity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Layout	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Ownership	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
