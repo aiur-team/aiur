@@ -24,7 +24,8 @@ source.
 
 GitHub `pr.opened` anchors use `created_at`, then the event timestamp.
 `pr.merged` uses `merged_at`, then `closed_at`, then the event timestamp.
-Existing summaries need regeneration with `analytics/reduce --all` to pick up fixes.
+Regenerate existing summaries with `analytics/reduce --all`, supplying the original
+`--github-events` inputs if used, to pick up fixes.
 
 ## Outputs — per-repo state node
 
