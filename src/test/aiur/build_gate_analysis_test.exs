@@ -1,5 +1,6 @@
 defmodule Aiur.BuildGateAnalysisTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{AgentBuildGuard, BuildGate}
 
@@ -65,23 +66,35 @@ defmodule Aiur.BuildGateAnalysisTest do
   end
 
   test "review wrapper publishes a live holder and preserves failure", %{root: root, bin: bin, env: env} do
-    write_command(bin, "review-work", ~s(touch "#{root}/started"; while [ ! -e "#{root}/release" ]; do sleep 0.02; done; exit 7))
+    fifo = Path.join(root, "release")
+    assert {"", 0} = System.cmd("mkfifo", [fifo])
+    release = File.open!(fifo, [:read, :write])
+    write_command(bin, "review-work", ~s(printf 'ready\\n'; read -r release < "#{fifo}"; exit 7))
     script = Path.expand("../../../scripts/build-gate", __DIR__)
-    run = Task.async(fn -> System.cmd(script, ["review-work", "review-work"], env: env, stderr_to_stdout: true) end)
+
+    port =
+      Port.open({:spawn_executable, String.to_charlist(script)}, [
+        :binary,
+        :exit_status,
+        line: 1_024,
+        args: [~c"review-work", ~c"review-work"],
+        env: Enum.map(env, fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
+      ])
 
     try do
-      wait_for_file(Path.join(root, "started"), 500)
+      receive_barrier({^port, message})
+      assert message == {:data, {:eol, "ready"}}
 
       assert %{active: 1, holders: [%{phase: "review", command: command}]} =
                BuildGate.status(gate_dir: root, capacity: 1, stagger_seconds: 0, min_free_memory_mb: 0, max_hold_seconds: 30, retain_seconds: 0)
 
       assert command =~ "review-work"
     after
-      File.touch!(Path.join(root, "release"))
+      IO.write(release, "release\n")
+      File.close(release)
     end
 
-    assert {output, 7} = Task.await(run, 30_000)
-    assert output =~ "aiur_build_gate acquired slot="
+    receive_barrier({^port, {:exit_status, 7}})
     assert %{active: 0} = BuildGate.status(gate_dir: root, capacity: 1, stagger_seconds: 0, min_free_memory_mb: 0, max_hold_seconds: 30, retain_seconds: 0)
   end
 
@@ -89,14 +102,5 @@ defmodule Aiur.BuildGateAnalysisTest do
     path = Path.join(bin, name)
     File.write!(path, "#!/bin/sh\n#{body}\n")
     File.chmod!(path, 0o755)
-  end
-
-  defp wait_for_file(_path, 0), do: flunk("command did not start")
-
-  defp wait_for_file(path, attempts) do
-    unless File.exists?(path) do
-      Process.sleep(20)
-      wait_for_file(path, attempts - 1)
-    end
   end
 end
