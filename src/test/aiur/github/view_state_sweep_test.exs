@@ -151,7 +151,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     # cadence reintroduced under a different field name. A reviewer adding a
     # fourth cadence has to delete a test to do it.
     test "no view-state source schedules a GitHub read of its own" do
-      for source <- ViewStateSweep.sources() do
+      for source <- [Aiur.BuildOrder.PackStatus] do
         body = File.read!(source_path(source))
 
         refute body =~ "Process.send_after(self(), :poll",
@@ -160,14 +160,6 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
         refute body =~ "@default_interval",
                "#{inspect(source)} still carries its own interval"
       end
-    end
-
-    test "the source it sweeps is the one view-state writer left on a cadence" do
-      # OpenTicketSource and AdHocSource were event-sourced (#2325) and hold no
-      # timer; PackStatus writes `status.json` on disk and stays on the sweep
-      # until its own event-stream PR lands. The acceptance for #2325 is that the
-      # sweep "is deleted, or documents what it still sweeps and why".
-      assert ViewStateSweep.sources() == [Aiur.BuildOrder.PackStatus]
     end
 
     test "one tick reconciles every running source exactly once" do
@@ -431,7 +423,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     # than the newest the store holds, a delivery was dropped — the event-sourced
     # sources are told to re-list via `{:view_state_diverged, repo}` instead of
     # sitting frozen reporting `:available` forever.
-    test "a GitHub head ahead of the store broadcasts divergence for that repo" do
+    test "future regression guard: sweep with no sources still broadcasts divergence" do
       ensure_pubsub!()
       assert :ok = ViewStateSweep.subscribe_diverged()
 

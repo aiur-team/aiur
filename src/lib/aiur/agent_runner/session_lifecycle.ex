@@ -3,9 +3,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
-  alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
-  alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Tracker}
+  alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
+  alias Aiur.Claude.{DisplayTailer, Telemetry}
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
@@ -145,7 +145,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()} | {:account_selection_wait, String.t()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
-    max_turns = Keyword.get(opts, :max_turns, Config.agent_max_turns_for(issue))
+    max_turns = Keyword.get(opts, :max_turns, TurnBudget.max_turns_for(issue))
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
@@ -666,7 +666,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp maybe_put_provider_processes(provider, worker_host) when is_binary(worker_host), do: provider
 
   defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _worker_host),
-    do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
+    do: Map.put(provider, :descendant_pids, ProcessTree.process_tree(root_pid))
 
   defp maybe_put_provider_processes(provider, _worker_host), do: provider
 

@@ -3,7 +3,7 @@ defmodule Aiur.Linear.Tracker do
   Linear-backed tracker implementation.
   """
 
-  @behaviour Aiur.Tracker
+  @behaviour Aiur.Tracker.IssueTracker
 
   alias Aiur.Linear.Client
   alias Aiur.Linear.Config
@@ -40,6 +40,9 @@ defmodule Aiur.Linear.Tracker do
     }
   }
   """
+
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(_issue_id, _max_age_ms), do: {:error, :unsupported}
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.project_slug()
@@ -88,21 +91,6 @@ defmodule Aiur.Linear.Tracker do
   @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]}
   def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
 
-  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_classified_pr_review_comments(_pr_number), do: {:ok, []}
-
-  @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_classified_pr_reviews(_pr_number), do: {:ok, []}
-
-  @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_unaddressed_pr_review_thread_comments(_pr_number), do: {:ok, []}
-
-  @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
-  def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
-
-  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) :: {:ok, []}
-  def fetch_open_pull_requests_for_branch(_issue_id), do: {:ok, []}
-
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
@@ -133,6 +121,9 @@ defmodule Aiur.Linear.Tracker do
     end
   end
 
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(_issue_id), do: {:ok, nil}
+
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(_max_age_ms) do
     {:error, :unsupported}
@@ -140,6 +131,9 @@ defmodule Aiur.Linear.Tracker do
 
   # The `model:remote` promote/demote toggle is a GitHub-label concept;
   # Linear has no equivalent label op wired here.
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(_labels), do: {:error, :unsupported}
+
   @spec add_label(String.t(), String.t()) :: {:error, term()}
   def add_label(_issue_id, _label), do: {:error, :unsupported}
 

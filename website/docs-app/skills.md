@@ -29,6 +29,8 @@ Muse loads workspace skills and rules only when `agent.backend_configs.muse.trus
 
 Executor skills are deliberately excluded from this set: an issue worker has no reason to run Aiur itself.
 
+For Aiur changes, workers run `mise exec -- python3 scripts/check-pr-structure.py --base <base-sha>` after committing and after every base integration, before marking a PR ready. In a clean worktree it checks file size, docs paragraph/table prose, and component ownership and reference boundaries.
+
 The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is
 resumed automatically; it does not raise a credential attention for a healthy
@@ -57,6 +59,8 @@ These stay with the Executor and are not copied into ticket workspaces.
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
 
 `aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
+
+`aiur-build` creates waiting members with `agent:queued` and adopts their root; `aiur-run` audits queue status, holds and attentions. A disabled queue uses todo labels instead.
 
 ## Codex-native git workflow
 

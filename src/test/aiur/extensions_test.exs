@@ -7,6 +7,7 @@ defmodule Aiur.ExtensionsTest do
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.DashboardFontAssertions
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
@@ -582,8 +583,9 @@ defmodule Aiur.ExtensionsTest do
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
     assert_occ_sections(state_payload)
+    assert %{"snapshot_freshness" => %{"status" => "current", "freshness_window_ms" => 600_000}, "observations" => nil, "daemon_started_at" => nil} = state_payload
 
-    assert without_occ_sections(state_payload) == %{
+    assert state_payload |> without_occ_sections() |> Map.drop(~w(snapshot_freshness observations daemon_started_at)) == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
@@ -658,8 +660,7 @@ defmodule Aiur.ExtensionsTest do
                "next_poll_in_ms" => 480_000,
                "poll_interval_ms" => 120_000
              },
-             # The global pause switch rides along on every state payload so
-             # API consumers can tell a quiet fleet from a held one.
+             # The global pause switch rides on every payload: a quiet fleet reads apart from a held one.
              "globally_paused" => false
            }
 
@@ -1057,8 +1058,7 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     html = html_response(get(build_conn(), "/"), 200)
-    assert html =~ "/dashboard.css"
-    assert html =~ "/build-home/loader.js"
+    DashboardFontAssertions.assert_bootstrap(html)
     assert html =~ "Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook()"
     assert {dashboard_offset, _} = :binary.match(html, "/dashboard.css")
     assert {home_offset, _} = :binary.match(html, "/build-home/home.css")
@@ -1186,9 +1186,7 @@ defmodule Aiur.ExtensionsTest do
     assert response(github_mark, 200) =~ "<svg"
     assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    bungee = get(build_conn(), "/bungee.woff2")
-    assert response(bungee, 200) != ""
-    assert Plug.Conn.get_resp_header(bungee, "content-type") == ["font/woff2"]
+    DashboardFontAssertions.assert_fonts(&get(build_conn(), &1))
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -1598,7 +1596,8 @@ defmodule Aiur.ExtensionsTest do
           "/provider-assets/codex-color.svg",
           "/build-home/loader.js",
           "/build-home/logos/kimi-logo.png",
-          "/build-home/nope.js"
+          "/build-home/nope.js",
+          "/fonts/space-grotesk-v22-latin.woff2"
         ] do
       unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
       assert unauthenticated_asset.status == 401

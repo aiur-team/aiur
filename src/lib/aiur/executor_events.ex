@@ -11,7 +11,6 @@ defmodule Aiur.ExecutorEvents do
 
   alias Aiur.Alerts
   alias Aiur.Decision
-  alias Aiur.DecisionLog
   alias Aiur.Events.Exchange
   alias Aiur.Events.IdGenerator
   alias Aiur.Events.Publisher
@@ -20,6 +19,7 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorWakeProjection
+  alias Aiur.Journal
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
 
@@ -447,7 +447,7 @@ defmodule Aiur.ExecutorEvents do
   defp replay_validator(_event), do: {:error, :invalid_executor_event}
 
   defp journal_events do
-    case DecisionLog.replay(journal_path(), &replay_validator/1) do
+    case Journal.replay(journal_path(), &replay_validator/1) do
       {:ok, events, nil} ->
         {:ok, events}
 
@@ -475,12 +475,12 @@ defmodule Aiur.ExecutorEvents do
   # Deliberately NOT `StatePaths.ensure/0`: this runs on every publish, and the
   # one-time legacy import behind it costs a `mkdir_p` plus a handful of stats
   # per append — enough to push a Command past an operator-visible latency
-  # budget under load. `DecisionLog.prepare/2` below already creates the
+  # budget under load. `Journal.prepare/2` below already creates the
   # directory, and the import runs once from the supervised children's `init/1`
   # (`Claims`, `ExecutorWakeInbox`, `ExecutorListener`).
   defp append_event(event) do
-    with :ok <- DecisionLog.prepare(StatePaths.dir(), journal_path()) do
-      DecisionLog.append(journal_path(), event)
+    with :ok <- Journal.prepare(StatePaths.dir(), journal_path()) do
+      Journal.append(journal_path(), event)
     end
   end
 

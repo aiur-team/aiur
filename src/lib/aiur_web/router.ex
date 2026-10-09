@@ -122,7 +122,6 @@ defmodule AiurWeb.Router do
     get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
     get("/images/github-mark.svg", StaticAssetController, :github_mark)
-    get("/bungee.woff2", StaticAssetController, :bungee_font)
     get("/provider-assets/*provider_asset", StaticAssetController, :provider_asset)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
@@ -192,6 +191,8 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
+    get("/api/v1/capabilities", CapabilitiesController, :show)
+    match(:*, "/api/v1/capabilities", CapabilitiesController, :method_not_allowed)
     get("/api/v1/state", ObservabilityApiController, :state)
     get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
     get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)

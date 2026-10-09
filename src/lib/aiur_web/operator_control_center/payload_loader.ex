@@ -26,7 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
     case cache_server() do
       false -> load_uncached(providers)
-      server -> fetch_cached(server, mode, providers)
+      server -> server |> fetch_cached(mode, providers) |> cache_payload()
     end
   end
 
@@ -98,8 +98,6 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       event_key,
       fn -> load_uncached(providers) end
     )
-  catch
-    :exit, _reason -> load_uncached(providers)
   end
 
   defp fetch_cached(server, mode, providers) do
@@ -111,9 +109,16 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       max_age_ms,
       fn -> load_uncached(providers) end
     )
-  catch
-    :exit, _reason -> load_uncached(providers)
   end
+
+  defp cache_payload(%{error: {:cache_unavailable, reason}}) do
+    ControlCenterPresenter.unavailable_payload()
+    |> Map.put(:stale, true)
+    |> Map.put(:cache_error, reason)
+    |> Map.put(:retained_counts, unavailable_retained_counts())
+  end
+
+  defp cache_payload(payload), do: payload
 
   defp initial_reload_mode({:event, event_key}), do: {:event, MapSet.new([event_key])}
 

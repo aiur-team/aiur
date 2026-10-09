@@ -31,6 +31,10 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 The catalog's **Tickets completed** percentage counts accepted completions over all members. With partial lifecycle coverage, the percentage is a lower bound and the resolved count appears alongside it.
 
+Build Order completion progress announces the highest newly reached 25%, 50%, 75% or 100% milestone on `system.build_order.<root>.progress`, independently of queue adoption.
+
+Events use the catalog’s rounded percent and suppress milestones while provider health is unusable. A fully resolved root falling below 100% after its completion milestone starts a new durable generation.
+
 In a selected Build Order, **Estimated work progress** combines reported work estimates using member complexity weights. It can advance before any ticket is complete. Last-known estimates show their age; unavailable member measurements remain unknown.
 
 Partial aggregates divide known work by the weight of all members, so unresolved members cannot inflate the percentage.
@@ -87,3 +91,98 @@ These paths are machine-local. Do not commit them, and do not expect copying a r
 | Current bottleneck | Named in the hourly filing with evidence-supported follow-up. |
 
 Git history and an old Dashboard capture are not substitutes for current Build Order state.
+
+## Closed prerequisite pull requests
+
+The build queue detects a prerequisite PR closed without merging from its latest fresh GitHub webhook delivery. Its dependents fail readiness with `pr_closed_unmerged` and remain waiting.
+
+Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
+
+This detection makes no GitHub request. In poll-only mode, or with missing, stale, or malformed delivery evidence, the open prerequisite stays pending. A newer open PR delivery replaces the closed body and clears the failed verdict.
+
+## Queueing a Build Order
+
+`aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+
+Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
+
+Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
+
+Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
+
+The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+
+The instance capability report distinguishes queue availability from source availability:
+
+| Capability | State and reason |
+| --- | --- |
+| `build_queue` | `available` when running; `unavailable` with `disabled`, `unsupported_tracker`, or `store_unavailable`; `degraded` with `writes_paused` when queue writes are paused. |
+| `build_queue.build_order_source` | `available` when the queue is available or degraded and its Build Order projection is available. Otherwise `unavailable/dependency_unavailable`, depending on `build_queue` if the queue cannot run, or `build_orders` if the projection is absent. |
+
+An unrecognised queue status or source flag reports `unknown/unknown` for that capability. A failed provider read reports both capabilities as `unknown/unknown`.
+
+These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
+
+## Queue cost
+
+Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+
+Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready` backlog and `newly_ready`: items now ready that were not ready in the previous pass, including the initial population. Both measure demand, not successful writes.
+
+## Merged PRs with open issues
+
+A merged prerequisite PR does not complete its issue. Dependents stay pending until tracker observations confirm closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+
+If the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves when closure is observed; Aiur never closes the issue for this rule.
+
+Merge times are held in memory. After a restart, a fresh merge observation starts the timer again. If the live hint is lost and no fresh PR delivery is available, poll-only mode keeps dependents waiting without this attention.
+
+## Queue attentions
+
+Queue faults emit once per cause and subject, then emit `.resolved` when cleared.
+
+| Cause | Opens | Clears |
+| --- | --- | --- |
+| `prerequisite_failed` | Agent error, closed-unmerged PR, not-planned or duplicate closure | No dependent edge still has that cause; unknown evidence retains the latch |
+| `dependency_changed_after_start` | A promoted, claimed ticket becomes unready | Readiness returns or the ticket completes |
+| `promoted_unauthorized` | Dispatch declines authorization (requires a free slot) | Decline clears or ticket is claimed; an unavailable probe retains it |
+| `write_failed` | Five consecutive queue-label write failures | Next successful write |
+| `merged_issue_open` | A prerequisite PR merged and the issue remains open past the grace | Issue closes |
+| `inputs_unavailable` | Inputs remain unknown for twice the observation age | All inputs become current |
+| `store_unavailable` | Queue store cannot load or save | Store recovers |
+
+A prerequisite failure names the prerequisite and lists direct dependents before
+transitive dependents. Changing that set does not re-fire; changing the failure
+cause does. Durable latches survive restarts.
+
+Ticket topics use `ticket.<id>.queue.attention.<cause>`; input and store faults
+use `system.queue.attention.<cause>`. The store fault uses an in-memory latch:
+a restart with a still-broken store emits once again per boot. Queue promotion
+stays paused while the store is unavailable.
+
+## Downgrading
+
+Before running a release without build queue support, stop the current run and
+set `build_queue.enabled: false` for its next launch. Review `aiur queue show`
+before stopping: existing `agent:todo` labels remain dispatchable without queue
+holds.
+
+Remove `todo` from work that must wait, and retain the local queue store for a
+later upgrade. Releases without the marker read `agent:queued` as a state, so
+also remove it from open issues before you downgrade.
+
+## Build queue dashboard panel
+
+The `/build-orders` catalog includes a read-only Build queue panel. It uses the same held read model as `aiur queue show`: queues, completion progress, items in start order, prerequisite verdicts, rank, and open attentions. Manage membership and holds through the CLI.
+
+Every source shows its observation timestamp, age and freshness. Stale readiness is dimmed; unavailable readings show Unknown rather than zero or ready. Disabled queues, unsupported trackers, store failures and paused writes have distinct notices.
+
+Queue and progress events coalesce for 500 ms before the panel rereads local state. A local refresh every five seconds updates freshness without tracker requests. Resolved attentions remain visible for 60 seconds; connection loss uses the dashboard’s existing disconnected indicator.
+
+Build Order roots appear as features named `bo-<number>`. Membership follows
+direct sub-issues, and build lanes become feature epics. The import writes no
+GitHub labels and sets no baseline.
+
+Explicit feature ownership and an operator’s
+removal of an imported member are preserved. Imports wait for history backfill;
+unknown start, end, and join times remain unknown.

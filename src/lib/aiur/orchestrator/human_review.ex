@@ -5,10 +5,8 @@ defmodule Aiur.Orchestrator.HumanReview do
   """
 
   require Logger
-
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.Issue
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -17,6 +15,7 @@ defmodule Aiur.Orchestrator.HumanReview do
     Reconciler,
     ReworkGate,
     State,
+    TicketTransition,
     TrackerTasks
   }
 
@@ -109,7 +108,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   end
 
   defp verify_human_review_ready_with_tracker(issue_id) do
-    if Tracker.adapter() == GitHubTracker do
+    if Aiur.CodeHost.available?() do
       client = github_client_module()
 
       if function_exported?(client, :verify_human_review_ready, 1) do
@@ -240,7 +239,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   end
 
   defp write_human_review_revert({issue, issue_key, target_state}) do
-    Tracker.update_issue_state(to_string(issue_key), target_state, expected_state: issue.state)
+    TicketTransition.write_state(to_string(issue_key), target_state, writer: :human_review, expected_state: issue.state)
   end
 
   defp apply_human_review_revert(

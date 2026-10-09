@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
-
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -35,25 +35,16 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
-  alias Aiur.SystemLoad
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
-  # One age shape wherever a stale surface appears — reuse #1814's renderer
-  # rather than adding a second one for the CLI.
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
   @error_marker "__AIUR_CONTROL_ERROR__:"
   @status_timeout_ms 5_000
-  # `set max-agents` is a synchronous orchestrator write: if the orchestrator is
-  # wedged in a GitHub-bound poll (the post-restart initial poll or a slow
-  # reconciliation), the write queues behind it and can appear hung for up to the
-  # 5s control-call budget. When the mailbox backlog is deep enough to mean real
-  # contention, say so up front so the operator sees progress instead of silence
-  # (#2137). A healthy idle orchestrator holds only a handful of queued messages
-  # (pubsub, timers), so this fires only under genuine load.
+  # A deep orchestrator mailbox means `set max-agents` queues behind real contention; say so up front (#2137).
   @orchestrator_busy_mailbox_threshold 20
   # Leave the launcher watchdog room to receive and render the daemon's explicit
   # timeout result instead of racing it at the shared 10-second edge. Eight
@@ -117,8 +108,7 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  # The shared shape of every fleet-reading control query: read the view, say so
-  # if it is stale, print the global-pause banner, then render.
+  # Fleet queries render the pause banner, observation age and shared rows.
   defp with_fleet_view(query, opts, timeout_ms, render) do
     case fleet_view(opts, timeout_ms, fleet_rows?: true) do
       {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
@@ -134,11 +124,14 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
-    print_snapshot_freshness(freshness)
-
     case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
-      :ok -> render.(snapshot, statuses)
-      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+      :ok ->
+        print_snapshot_freshness(freshness)
+        StatusObservation.print_groups(snapshot)
+        render.(snapshot, statuses)
+
+      {:error, error} ->
+        report_control_query_failure(error, query, timeout_ms)
     end
   end
 
@@ -173,9 +166,7 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  # A stale fleet view that looks current is worse than the timeout it replaces.
-  # When the read model is serving last-known-good data, say so and say how old,
-  # in the shape #1814 established.
+  # Render retained freshness and current age with the same vocabulary.
   defp print_snapshot_freshness(%{status: :stale} = freshness) do
     IO.puts(
       "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
@@ -183,7 +174,7 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
-  defp print_snapshot_freshness(_freshness), do: :ok
+  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
 
   defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
   defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
@@ -193,6 +184,7 @@ defmodule Aiur.AgentControlCLI do
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     print_executor_wake_status()
+    ProjectionRecovery.print_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -214,6 +206,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
     end
 
+    SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
 
@@ -371,10 +364,16 @@ defmodule Aiur.AgentControlCLI do
     UnitsCLI.run(opts) |> exit_marker()
   end
 
+  @spec epic(keyword()) :: :ok
+  def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)
+
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []) do
     guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
   end
+
+  @spec queue(keyword()) :: :ok
+  def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
 
   @spec analytics(keyword()) :: :ok
   def analytics(opts \\ []) do
@@ -1263,10 +1262,10 @@ defmodule Aiur.AgentControlCLI do
     %{
       ensure_started: &ensure_todo_runtime_started/0,
       load_config: &load_todo_config/0,
-      fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
-      fetch_active: &GitHubTracker.fetch_issues_by_states/1,
-      add_label: &GitHubTracker.add_label/2,
-      remove_label: &GitHubTracker.remove_label/2,
+      fetch_issue: fn issue_id -> Tracker.fetch_issue_states_by_ids([issue_id]) end,
+      fetch_active: &Tracker.fetch_issues_by_states/1,
+      add_label: &TicketTransition.write_marker(&1, :add, &2, writer: :cli_todo),
+      remove_label: &TicketTransition.write_marker(&1, :remove, &2, writer: :cli_todo),
       request_refresh: &Orchestrator.note_queued_demand/1,
       now_ms: &monotonic_now_ms/0
     }
@@ -2116,7 +2115,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix <> WaitingReason.render_wait(status)
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> StatusObservation.row_label(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2218,9 +2217,7 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
   # Every admission measurement is rendered with the age of the sample it came
-  # from. The figure alone is indistinguishable from a current one, which is how
-  # a `load=24.14` taken minutes earlier sat unnoticed beside a live `LOAD 7.23`
-  # line four times smaller (#2527).
+  # from; otherwise old readings look current beside the live LOAD line (#2527).
   defp capacity_binding_label({:admission, hold}),
     do: admission_detail(hold) <> admission_sample_age(hold)
 
@@ -2522,7 +2519,7 @@ defmodule Aiur.AgentControlCLI do
         path = snapshot |> Map.get(:path) |> trust_path()
         accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
         suffix = if path, do: " path=#{path}", else: ""
-        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}#{CodeOwners.status_suffix(snapshot)}")
 
       _ ->
         :ok
@@ -2804,7 +2801,7 @@ defmodule Aiur.AgentControlCLI do
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
         agents_activity(agent),
-        WaitingReason.render_wait(agent)
+        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent)
       ])
     end)
   end

@@ -7,6 +7,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
   alias Aiur.{Issue, Orchestrator}
   alias Aiur.Opencode.{ChatCompletions, TokenRegistry}
+  alias Aiur.Opencode.ChatCompletions.OperatorDispatch
   alias Aiur.Orchestrator.OperatorMessages
 
   @identifier "identity-probe"
@@ -38,7 +39,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
     end)
 
     token = "identity-test-#{System.unique_integer([:positive])}"
-    :ok = TokenRegistry.put(token, 1, 1)
+    :ok = TokenRegistry.put(token, 1, 1, [@identifier])
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(orchestrator)
@@ -139,6 +140,30 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
     assert ChatCompletions.handle(body, connection("invalid-token")).status == 401
     assert :empty = claim()
+  end
+
+  test "a foreign token cannot enqueue a shadowed message or dispatch operator text" do
+    token = "foreign-#{System.unique_integer([:positive])}"
+    :ok = TokenRegistry.put(token, 2, 1, ["other-ticket"])
+    on_exit(fn -> TokenRegistry.delete(token) end)
+
+    for version <- [nil, "1"] do
+      conn = connection(token) |> delete_req_header("x-aiur-input-version")
+      conn = if version, do: put_req_header(conn, "x-aiur-input-version", version), else: conn
+
+      body = %{
+        "model" => "issue-#{@identifier}",
+        "messages" => [
+          %{"role" => "user", "content" => "continue"},
+          %{"role" => "user", "content" => "__aiur_turn__:absent"}
+        ]
+      }
+
+      assert ChatCompletions.handle(body, conn).status == 403
+      assert :empty = claim()
+      assert OperatorDispatch.dispatch_user_text(%{}, conn, @identifier, "continue").status == 403
+      assert :empty = claim()
+    end
   end
 
   # Legacy input lacks InputIdentity's second auth check, so this guards the early authorization repair (#2827).

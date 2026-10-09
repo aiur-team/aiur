@@ -1,7 +1,6 @@
 defmodule Aiur.GitHub.IssueRelationships do
   @moduledoc false
 
-  alias Aiur.BuildOrder.TicketDetail.DestinationNormalizer
   alias Aiur.GitHub.Transport
   alias Aiur.TrackerIdentity
 
@@ -48,7 +47,7 @@ defmodule Aiur.GitHub.IssueRelationships do
          true <- number > 0,
          {:ok, token} <- relationship_token(opts),
          request_fun <- relationship_request_fun(opts),
-         {:ok, response} <- fetch_relationship_response(request_fun, token, owner, repository, number) do
+         {:ok, response} <- fetch_relationship_response(request_fun, token, owner, repository, number, opts) do
       normalize_response(response, provider_id)
     else
       false -> {:error, :invalid_github_issue_relationships_response}
@@ -60,12 +59,12 @@ defmodule Aiur.GitHub.IssueRelationships do
   def fetch_linked_pull_requests(_identity, _repository, _opts),
     do: {:error, :invalid_github_issue_relationships_response}
 
-  defp fetch_relationship_response(request_fun, token, owner, repository, number) do
+  defp fetch_relationship_response(request_fun, token, owner, repository, number, opts) do
     variables = %{
       "owner" => owner,
       "repository" => repository,
       "number" => number,
-      "limit" => DestinationNormalizer.max_pull_requests()
+      "limit" => Keyword.fetch!(opts, :limit)
     }
 
     case Transport.github_graphql_response(
