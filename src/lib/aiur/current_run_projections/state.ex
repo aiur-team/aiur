@@ -46,6 +46,7 @@ defmodule Aiur.CurrentRunProjections.State do
       membership_signature: nil,
       membership_generation: nil,
       membership_index: nil,
+      input_fingerprint: nil,
       summary_generation: 0,
       outcome_generation: 0,
       summary_snapshot: initial_summary(units),
