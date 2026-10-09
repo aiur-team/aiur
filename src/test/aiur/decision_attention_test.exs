@@ -52,6 +52,65 @@ defmodule Aiur.DecisionAttentionTest do
     refute_receive {:decision_alert, _}, 100
   end
 
+  test "answered operator decision resolves its attention on the next reminder" do
+    identifier = "DECISION-ANSWERED-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier}
+    dir = Aiur.TestSupport.tmp_root!("aiur-answered-attention")
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
+    test_pid = self()
+
+    {pid, name} =
+      start_attention(
+        decision_store: store,
+        decision_projector: fn payload, opts -> DecisionStore.project_attention(payload, opts, store) end,
+        alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end,
+        resolution_emitter: fn attention -> send(test_pid, {:decision_resolved, attention}) end
+      )
+
+    assert {:ok, %{decision: decision}} =
+             DecisionAttention.open_with_decision(name, issue, nil, nil, "operator-decision", "Which scope?", [])
+
+    receive_barrier({:decision_alert, %{slug: "operator-decision"}})
+
+    # Both open and deferred decisions still need an answer.
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    :sys.get_state(pid)
+    receive_barrier({:decision_alert, %{slug: "operator-decision"}})
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "test"}], store)
+    assert deferred.decision_status == :deferred
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    :sys.get_state(pid)
+    receive_barrier({:decision_alert, %{slug: "operator-decision"}})
+
+    assert {:ok, %{decision: other}} =
+             DecisionStore.project_attention(
+               %{"source_id" => "unrelated", "kind" => "scope", "question" => "Another ticket?", "blocking" => false, "options" => []},
+               [ticket: %{identifier: identifier <> "-OTHER"}, source: %{}, legacy_attention: %{slug: "operator-decision", topic: "ticket.#{identifier}-OTHER.agent.attention.operator-decision"}],
+               store
+             )
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "answer", "expected_version" => deferred.version, "custom_response" => "Use the current scope."},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
+    assert {:ok, %{decision_status: :open}} = DecisionStore.get(other.decision_id, store)
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    assert :sys.get_state(pid).attentions == %{}
+    receive_barrier({:decision_resolved, %{slug: "operator-decision"}})
+    assert SubscriptionStore.snapshot(identifier).open_attentions == []
+    refute_received {:decision_alert, _}
+
+    send(pid, {:reask, {identifier, "operator-decision"}})
+    assert :sys.get_state(pid).attentions == %{}
+    refute_received {:decision_alert, _}
+  end
+
   test "expires a stale main CI attention instead of re-raising it" do
     identifier = "MAIN-CI-#{System.unique_integer([:positive])}"
     issue = %Issue{identifier: identifier, title: "Main CI observer"}

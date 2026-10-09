@@ -5,6 +5,7 @@ defmodule Aiur.ApplicationTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Identity.Machine
   alias Aiur.PubSub.Boot, as: PubSubBoot
   alias Aiur.Webhooks.{DeliveryMode, ModeTable}
 
@@ -24,11 +25,24 @@ defmodule Aiur.ApplicationTest do
     def node_name, do: nil
   end
 
+  test "machine identity is loaded by application boot into isolated test state" do
+    dir = Application.fetch_env!(:aiur, :machine_state_dir)
+    assert String.starts_with?(dir, System.tmp_dir!())
+    assert {:ok, identity} = Machine.current()
+    assert Jason.decode!(File.read!(Path.join(dir, "identity.json")))["machine_id"] == identity.machine_id
+  end
+
   test "stop/1 is a no-op returning :ok" do
     # `Application.stop/1` is invoked by OTP during application
     # shutdown. There's no cleanup to perform — releases unmount on
     # node halt — so the callback just returns :ok.
     assert :ok = AiurApp.stop(:any_state)
+  end
+
+  test "runs the RTK host-hook check during application startup" do
+    source = File.read!(Path.expand("../../lib/aiur.ex", __DIR__))
+
+    assert source =~ "Aiur.RtkStartupCheck.run()"
   end
 
   test "startup Funnel health check stays quiet while the reconciler owns the route" do

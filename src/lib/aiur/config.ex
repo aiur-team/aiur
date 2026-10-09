@@ -5,10 +5,10 @@ defmodule Aiur.Config do
 
   alias Aiur.AgentEnvironment
   alias Aiur.BuildGate
-  alias Aiur.BuildOrder.Cadence
   alias Aiur.Config.RoutingValue
-  alias Aiur.Config.Schema
+  alias Aiur.Config.{Schema, SemanticChecks}
   alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.Schema.Codex, as: CodexSchema
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.GitHub.Budget
   alias Aiur.Workflow
@@ -485,21 +485,6 @@ defmodule Aiur.Config do
     end
   end
 
-  @doc """
-  Effective turn cap for an issue: the `agent.max_turns_by_complexity` entry for
-  the issue's `complexity:N` level when present, otherwise the flat
-  `agent.max_turns`.
-  """
-  @spec agent_max_turns_for(Aiur.Issue.t()) :: pos_integer() | nil
-  def agent_max_turns_for(%Aiur.Issue{} = issue) do
-    with level when is_integer(level) <- Aiur.CodingAgent.complexity_level(issue),
-         cap when is_integer(cap) <- Map.get(agent_max_turns_by_complexity(), level) do
-      cap
-    else
-      _ -> agent_max_turns()
-    end
-  end
-
   @spec active_states() :: [String.t()]
   def active_states do
     settings!().tracker.active_states
@@ -597,72 +582,6 @@ defmodule Aiur.Config do
   @spec max_log_history_mb() :: pos_integer()
   def max_log_history_mb do
     settings!().max_log_history_mb
-  end
-
-  @doc false
-  @spec build_order_ticket_detail_coordinator_options() :: keyword()
-  def build_order_ticket_detail_coordinator_options do
-    build_order = settings!().build_order
-
-    # Deliberately the *base* interval, unlike the graph cadences below.
-    # `TicketDetailCoordinator` reads these options once, in `init/1`, and never
-    # re-derives them — so a value taken from the effective interval would be
-    # frozen at whatever the cadence happened to be at boot and would never
-    # narrow again. It is also not part of what #2118 was about: this is a
-    # conditional REST staleness window, where an unchanged refresh is a free
-    # `304`, not an unconditional GraphQL read.
-    [
-      freshness_ms:
-        Cadence.resolve(
-          :ticket_detail_freshness_ms,
-          build_order.ticket_detail_freshness_ms,
-          poll_interval_seconds()
-        ),
-      max_entries: build_order.ticket_detail_max_entries,
-      max_description_bytes: build_order.ticket_detail_max_description_bytes
-    ]
-  end
-
-  @doc false
-  @spec build_order_ticket_history_options() :: keyword()
-  def build_order_ticket_history_options do
-    build_order = settings!().build_order
-
-    [
-      history_limit: build_order.ticket_history_limit,
-      max_identities: build_order.ticket_history_max_identities,
-      stale_after_ms: build_order.ticket_history_stale_after_ms
-    ]
-  end
-
-  @doc false
-  @spec build_order_graph_projection_options() :: keyword()
-  def build_order_graph_projection_options do
-    build_order = settings!().build_order
-
-    # Derived from the tracker's *effective* cycle unless the operator said
-    # otherwise — the interval the dispatcher actually scheduled, idle and
-    # webhook widening included. Build Order shows state the tracker produces,
-    # so a cadence faster than the poll re-reads a graph that cannot have moved:
-    # the old 15s and 5s constants did that once #2064 slowed the tracker, and
-    # the base interval did it again whenever the fleet went idle (#2118).
-    #
-    # `GraphProjection` calls this on every reconcile, so it derives once and
-    # reads both keys off the same map rather than deriving twice.
-    derived = Cadence.effective()
-
-    [
-      catalog_refresh_ms: Cadence.prefer_configured(build_order.graph_catalog_refresh_ms, derived, :graph_catalog_refresh_ms),
-      catalog_labels_refresh_ms:
-        Cadence.prefer_configured(
-          build_order.graph_catalog_labels_refresh_ms,
-          derived,
-          :graph_catalog_labels_refresh_ms
-        ),
-      refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
-      max_selected_roots: build_order.graph_max_selected_roots,
-      max_inflight: build_order.graph_max_inflight
-    ]
   end
 
   @spec workspace_hooks() :: map()
@@ -1217,7 +1136,7 @@ defmodule Aiur.Config do
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
-      validate_semantics(settings)
+      SemanticChecks.validate(settings)
     end
   end
 
@@ -1316,45 +1235,9 @@ defmodule Aiur.Config do
   end
 
   defp validate_codex_approval_policy(value) do
-    case Aiur.Codex.Config.validate_approval_policy(value) do
+    case CodexSchema.validate_approval_policy(value) do
       {:ok, trimmed} -> {:ok, trimmed}
       {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
-    end
-  end
-
-  defp validate_semantics(settings) do
-    with :ok <- validate_kinds_and_secrets(settings),
-         :ok <- Schema.validate_turn_sandbox_policy(settings) do
-      Aiur.Opencode.Config.validate!()
-    end
-  end
-
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
-  defp validate_kinds_and_secrets(settings) do
-    cond do
-      is_nil(settings.tracker.kind) ->
-        {:error, :missing_tracker_kind}
-
-      settings.tracker.kind not in ["linear", "github", "memory"] ->
-        {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
-
-      settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(settings.agent.backend_configs) ->
-        {:error, {:unsupported_agent_kind, settings.agent.kind}}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->
-        {:error, :missing_linear_api_token}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.project_slug) ->
-        {:error, :missing_linear_project_slug}
-
-      settings.tracker.kind == "github" ->
-        Aiur.GitHub.Config.validate!()
-
-      settings.agent.kind == "claude" ->
-        Aiur.Claude.Config.validate!()
-
-      true ->
-        :ok
     end
   end
 

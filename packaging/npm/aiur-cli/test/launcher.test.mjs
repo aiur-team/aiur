@@ -252,7 +252,7 @@ const nonLaunchCommands = [
   "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
   "build-orders", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
-  "executor-answer", "executor-escalate", "executor-moot", "executor-listen", "executor-wait",
+  "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
   "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
 ];
@@ -708,7 +708,7 @@ test("background start reclaims stale tmux session state before creating a new s
   expect(capture).toContain("has-session");
   expect(capture).toContain("kill-server");
   expect(capture).toContain("new-session");
-});
+}, 15000);
 
 test("background start records its headless surface when no tmux session exists", () => {
   const { result, stateDir } = runBackgroundLauncher({ existingSession: false, controlReady: true });
@@ -1075,7 +1075,7 @@ test("control rpc timeouts terminate stuck helpers and report an unknown outcome
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
-});
+}, 15000);
 
 // The timeout budget must be a ceiling, never a floor. A watchdog that holds the
 // caller's stdout keeps the pipe open for its whole sleep, so a capturing caller

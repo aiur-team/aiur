@@ -53,6 +53,34 @@ If a turn ends in `agent:ci-wait` with completed work still a draft, mark it
 ready as the first step of the resume turn, then wait for the full required
 checks on the current head SHA.
 
+### Local pre-handoff checks
+
+For changes in the Aiur repository, before marking the PR ready or handing
+off to CI/review, run all required checks and fix any failures:
+
+- From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
+- From the repository root: `python3 scripts/check-bare-assert-receive.py`.
+- From the repository root, after committing: resolve `base` with
+  `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
+  `python3 scripts/check-file-size.py --base "$base"` (the CI workflow-security command).
+
+When a change must touch an oversized text file (over 500 lines), keep that
+file the same length or shorter. Put new code in a new small module and new
+tests in a new test file. Never grow the oversized file.
+
+These checks supplement the scoped compile, format, and affected-test gate; CI still runs the authoritative
+full required-check set. Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
+
+### Unrelated CI flakes
+
+If the only failure is a flaky test unrelated to your change, file the
+flake as its own ticket with the CI run id (or link its existing ticket).
+NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
+A flaky test blocks CI, not the ticket's implementation. State in the PR
+that the only failure is the known flake, link the flake ticket and CI run,
+then hand back to the Executor without declaring a dependency or pausing
+for the flake fix. Keep the full required-check gate for human review.
+
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
 Change your ticket's `agent:*` state **only** with

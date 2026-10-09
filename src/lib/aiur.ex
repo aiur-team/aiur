@@ -26,6 +26,7 @@ defmodule Aiur.Application do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.Config
+  alias Aiur.Identity.Machine
 
   @impl true
   def start(_type, _args) do
@@ -48,6 +49,7 @@ defmodule Aiur.Application do
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    _ = Machine.ensure()
     # Write the initial heartbeat file so the Executor can detect daemon downtime.
     # Best-effort: heartbeat write failure must not crash boot.
     Aiur.DaemonHeartbeat.write!()
@@ -63,6 +65,7 @@ defmodule Aiur.Application do
     _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
     Budget.warn_metering_unavailable()
+    Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -111,6 +114,7 @@ defmodule Aiur.Application do
       )
       |> tap(fn
         {:ok, _supervisor} ->
+          Machine.announce_degraded()
           start_upgrade_check()
           start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
 
@@ -459,16 +463,19 @@ defmodule Aiur.Application do
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.
       Aiur.Claude.Telemetry,
+      # Durable closed-ticket history starts before its feeds (MP-E8 C4-T02/T03).
+      Aiur.BuildOrder.History,
+      {Aiur.BuildOrder.History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)},
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
       # The single view-state cadence, now reconciling only the pack-status
       # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
-      # timer). Starts after its sources so its first tick never races their
-      # boot fill.
+      # timer). Starts after its sources so its first tick never races boot fill.
       Aiur.GitHub.ViewStateSweep,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,

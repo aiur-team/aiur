@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
-  alias Aiur.Events.SubscriptionStore
+  alias Aiur.DecisionStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CapacityBinding
@@ -230,7 +230,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       :auto_resume,
       :released_claims,
       :running,
-      :session_max_concurrent_agents
+      :session_max_concurrent_agents,
+      :waiting_for_human_episodes
     ])
     |> then(&struct!(State, &1))
     |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
@@ -247,6 +248,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     %{
       approved_heads: %{},
+      passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: poll_cache,
@@ -529,6 +531,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
     |> Map.merge(progress_facts(Issue.tracker_identity(metadata.issue), activity_by_identity))
     |> Map.merge(running_execution_facts(metadata))
+    |> WaitingReason.attach(state, metadata)
   end
 
   defp retry_snapshot(
@@ -567,6 +570,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
     |> Map.merge(progress_facts(tracker_identity, activity_by_identity))
     |> Map.merge(issue_execution_facts(issue))
+    |> WaitingReason.attach(state)
   end
 
   defp idle_snapshot(%State{} = state, now_ms, activity_by_identity) do
@@ -623,6 +627,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       tracker_identity: Issue.tracker_identity(issue),
       state: issue.state,
       work_state: idle_issue_work_state(issue),
+      pause_reason: idle_issue_pause_reason(issue),
       tag: State.issue_tag(issue),
       title: issue.title,
       url: issue.url,
@@ -646,6 +651,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
     |> Map.merge(progress_facts(Issue.tracker_identity(issue), activity_by_identity))
     |> Map.merge(issue_execution_facts(issue))
+    |> WaitingReason.attach(state)
   end
 
   # A released claim is the one idle signal that must win over every other
@@ -724,9 +730,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp open_decision_count(identifier) when is_binary(identifier) do
-    case SubscriptionStore.open_attention_count_result(identifier) do
-      {:ok, count} -> {count, :available}
-      {:error, :unavailable} -> {0, :unavailable}
+    case DecisionStore.open_blocking_decision_ids([identifier], DecisionStore, 100) do
+      {:ok, ids} -> {length(ids), :available}
+      {:error, :store_unavailable} -> {0, :unavailable}
     end
   end
 
@@ -1073,6 +1079,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health
     }
+    |> WaitingReason.attach(state, entry)
   end
 
   defp retry_statuses(%State{} = state) do
@@ -1106,6 +1113,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         last_codex_timestamp: nil,
         last_codex_message: nil,
         last_codex_event: nil,
+        error: Map.get(retry, :error),
         retry_attempt: Map.get(retry, :attempt),
         last_failure_at: Map.get(retry, :last_failure_at),
         retry_reason: retry_reason,
@@ -1123,6 +1131,7 @@ defmodule Aiur.Orchestrator.StatusReport do
             retry_reason
           end
       }
+      |> WaitingReason.attach(state)
     end)
   end
 
@@ -1227,6 +1236,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health
     }
+    |> WaitingReason.attach(state)
   end
 
   # A claim-shaped waiting reason IS the reason to show: the row has no live
@@ -1267,42 +1277,11 @@ defmodule Aiur.Orchestrator.StatusReport do
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           dispatch_hold_reason: dispatch_hold_reason,
           capacity_hold_active?: capacity_hold_active?,
-          workspace_recovery?: workspace_recovery?(state, Map.get(issue, :id), Map.get(issue, :identifier)),
+          workspace_recovery?: WaitingReason.workspace_recovery?(state, Map.get(issue, :id), Map.get(issue, :identifier)),
           startup_reconciliation_complete?: state.startup_claim_reconciliation_complete?
         )
     }
   end
-
-  # A ticket whose previous session still owned its workspace when the
-  # redispatch ran is parked here: first in `waits` (keyed by identifier) while
-  # the guardian reaps the old generation, then in `ready` (keyed by issue id)
-  # until the next dispatch poll reclaims it. It has no live agent in either
-  # window by design, so the idle classifier must be told, or it reports the
-  # ticket as an orphaned claim and an operator resumes work that was already
-  # queued to resume itself (#2810).
-  defp workspace_recovery?(%State{} = state, issue_id, identifier) do
-    workspace_ownership = state.dispatch_recovery.workspace_ownership
-
-    waiting_envelope?(workspace_ownership.waits, issue_id, identifier) or
-      waiting_envelope?(workspace_ownership.ready, issue_id, identifier)
-  end
-
-  defp waiting_envelope?(envelopes, issue_id, identifier) when is_map(envelopes) do
-    Enum.any?(envelopes, fn
-      {key, envelope} when is_map(envelope) ->
-        matches_envelope?(envelope, :issue_id, issue_id) or
-          matches_envelope?(envelope, :identifier, identifier) or
-          key == issue_id or (not is_nil(identifier) and key == identifier)
-
-      {key, _envelope} ->
-        key == issue_id or (not is_nil(identifier) and key == identifier)
-    end)
-  end
-
-  defp waiting_envelope?(_envelopes, _issue_id, _identifier), do: false
-
-  defp matches_envelope?(_envelope, _key, nil), do: false
-  defp matches_envelope?(envelope, key, value), do: Map.get(envelope, key) == value
 
   defp track_waiting_for_human_episodes(%State{} = state, statuses, now) do
     current =

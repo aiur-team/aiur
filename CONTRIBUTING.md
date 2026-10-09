@@ -48,8 +48,15 @@ untrusted input.
   work; concrete modules stay thin; dependencies point one direction
   (concrete → base, never back).
 
-These are guiding targets, not a lint rule — they inform review, and CI does
-not fail a build on line count alone.
+Aim for 200 lines and give a cohesion reason above that target. The required
+`workflow security` job rejects new text paths over 500 lines and growth of
+paths already over 500, comparing Git blobs against the event's base commit.
+Existing oversized files may stay unchanged or shrink; renames and copies to
+new paths must fit the limit. Text becoming binary is rejected. Binary files
+are otherwise skipped, and symlinks are reported without following them.
+Lines are LF bytes plus a non-empty unterminated final line (CRLF counts once).
+Run `python3 scripts/check-file-size.py --base <commit>` locally; without
+`--base`, it uses the merge base with `origin/main`.
 
 ## Reuse before invention
 
@@ -120,6 +127,17 @@ not fail a build on line count alone.
   tests; the `quarantined tests (non-blocking)` CI job runs them separately so
   they remain visible. Remove the tag as part of the root-cause fix — it is not
   a permanent exemption.
+- **Coverage rerun evidence.** Each shard uploads an attempt-qualified
+  `shard-flake-evidence-<shard>-<attempt>` artifact, including `attempt.json`
+  and `flakes.ndjson`. On a successful rerun of the same workflow run and SHA,
+  the ledger records each previously failing ExUnit test with its shard, run
+  ID, failed/passed attempts, and seeds (null when the log has no seed).
+  The job summary shows the count and test names. Download these artifacts to
+  count recurrence; they use GitHub's repository artifact retention policy.
+  Ledger and artifact errors are non-blocking so they cannot fail a passing shard.
+  This records observations without relaxing the coverage gate or automatically
+  quarantining tests. Runner loss before upload and failures without a parseable
+  ExUnit test name cannot be recorded.
 - **Extracted modules are not coverage-exempt.** The coverage
   `ignore_modules` list in `src/mix.exs` only shrinks: every module split out
   of a giant ships tests for what it extracts, or CI fails the coverage gate
@@ -269,6 +287,23 @@ shows the owning coverage partition for test files. Review the output before
 rewriting; it is intentionally not an automatic replacement.
 
 ## Enforcement
+
+Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
+to one component in `components.json`. Add new source paths and update moved
+paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
+toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
+unowned files, equally specific competing owners and stale globs fail the check.
+Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
+
+Every root config section and scalar field, env schema name, and public
+`Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
+owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
+as a new declaration; stale and duplicate ownership also fail lint.
+`shared_with` records collaborating components without assigning another owner.
+
+RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
+struct at compile time and `check-config-docs.py` reads those lines. Ownership
+is manifest data; it does not generate or move section modules.
 
 The gate is `make ci` from `src/` (build, `fmt-check`, `lint`, `coverage`,
 `regression`, `dialyzer`). The equivalent dev-loop commands are:

@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
-  alias Aiur.Orchestrator.{CiLifecycle, CommentWake, Lifecycle, PushRouting, State}
+  alias Aiur.Orchestrator.{CiLifecycle, CommentWake, Dispatcher, Lifecycle, PushRouting, State}
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
@@ -29,11 +29,11 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: PushRouting.maybe_pause_on_request(state, identifier, event)
 
   # Answering a blocking Command releases the dispatch gate in DecisionStore.
-  # Wake the normal poll so it refreshes that gate and reclaims a worker that
+  # Refresh the local gate for control calls, then wake the poll to reclaim a worker that
   # reconciliation stopped while the Command was open. The dispatch poll still
   # applies tracker, capacity, and other open-Command guards.
   defp route_classified(state, {:decision_answered, _identifier}, _event),
-    do: Lifecycle.wake_tick(state)
+    do: state |> Dispatcher.refresh_blocked_ticket_ids() |> Lifecycle.wake_tick()
 
   defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
     cond do

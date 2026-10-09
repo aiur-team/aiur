@@ -3,7 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, DecisionStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
@@ -2765,6 +2765,8 @@ defmodule Aiur.OrchestratorStatusTest do
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.add_attention(identifier, "operator-decision")
+    assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Which acceptance boundary applies?", "blocking" => true}, ticket: %{identifier: identifier})
+    on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
     [{store_pid, 1}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
 
     entry =
@@ -3834,6 +3836,7 @@ defmodule Aiur.OrchestratorStatusTest do
         item_id
       end
 
+    receive_barrier({:DOWN, ^old_ref, :process, ^old_worker, _reason})
     refute Process.alive?(old_worker)
 
     state = :sys.get_state(pid)
@@ -3879,6 +3882,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     on_exit(fn ->
       File.touch(release_file)
+      SubscriptionStore.stop(issue.identifier)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
     end)
@@ -3903,8 +3907,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     state = :sys.get_state(pid)
     replacement = Map.fetch!(state.running, "issue-completed-resume")
-    assert is_pid(replacement.pid)
-    assert Process.alive?(replacement.pid)
+    assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert replacement.pid != old_worker
     assert is_reference(replacement.ref)
     assert replacement.ref != old_ref
@@ -4675,7 +4678,9 @@ defmodule Aiur.OrchestratorStatusTest do
       if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
 
+    :ok = AgentPubSub.subscribe_poll_state()
     send(pid, :run_poll_cycle)
+    await_polled_blocker_state(pid, "blocked-1", "In Progress")
 
     assert eventually?(fn ->
              Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2") == :empty
@@ -4949,6 +4954,18 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     release_file
+  end
+
+  defp await_polled_blocker_state(server, issue_id, expected_state) do
+    receive_barrier({:poll_state_changed, _payload})
+    state = :sys.get_state(server)
+    issue = Map.get(state.last_polled_issues, issue_id)
+
+    if issue && Enum.any?(issue.blocked_by, &(&1.state == expected_state)) do
+      state
+    else
+      await_polled_blocker_state(server, issue_id, expected_state)
+    end
   end
 
   defp eventually?(fun, attempts \\ 100)

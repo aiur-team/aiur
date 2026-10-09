@@ -55,11 +55,12 @@ shared [dictated-input note](dictated-input.md).
   has the page map.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
-- Branch freshness is your responsibility. Before handing the PR to CI or
-  human review, and again after rework, fetch its configured base and ensure
-  the current remote base head is an ancestor of your exact PR head. Integrate
-  or re-cut and resolve semantic drift yourself; the Executor and reviewers do
-  not update stale code for you.
+- Integration safety is your responsibility. Before CI or human-review
+  handoff, assess the exact PR head against its configured base. Harmless
+  staleness passes; conflicts or changed-file overlap require integration,
+  at most once per handoff. After new-head CI, another unsafe base change
+  requires an Executor alert rather than another merge/CI cycle. Follow the
+  assessment and durable attempt record in `dev-loop.md`.
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
@@ -74,6 +75,13 @@ shared [dictated-input note](dictated-input.md).
 - **Write a Command for a cold reader:** assume the operator has zero ticket
   context. Lead with the question, explain each option's consequence, name every
   referent, and state what happens without an answer.
+- **Non-blocking questions keep work moving.** Set `blocking: false` when an
+  answer is optional, record the question and raise its attention, then keep
+  working. Never emit `pause.request` or stop your turn for that question.
+  Bare coordination pauses (such as waiting for an upstream PR to merge) and
+  explicit `operator_decision` pauses remain valid, including the legacy
+  `attention.operator-decision` path. Expired or moot
+  Commands cannot hold the worker waiting for human input.
 
 ## What stays in the per-turn prompt (not here)
 

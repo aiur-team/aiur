@@ -78,6 +78,14 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
+When the no-op turn bound or normal turn limit stops an agent, a newly opened or
+moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
+finishes, the ticket goes to `human-review`.
+
+At the no-op bound, verified rework with no new PR head becomes `error`. Other
+no-op-bound tickets keep their state and receive an alert. A normal turn limit
+leaves the state unchanged when no PR head moved.
+
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
 underneath the writer (`issue_state.ex:162-174`), and a state write can never
@@ -110,6 +118,22 @@ time its command runs — the removal then no-ops and leaves the pair behind.
 The tool takes only the target state and makes it the sole `agent:*` state
 label, from the issue Aiur re-reads at write time
 (`GitHub.IssueState.swap_labels/4`).
+
+For `human-review`, the GitHub writer checks the exact PR head against current
+`tracker.base_branch`, in addition to clearing review threads. A stale head
+passes when it has no conflicts and no changed-file overlap with base changes
+since the merge base. Rename checks include old and new paths.
+
+Conflicts or overlap leave labels unchanged and return an update instruction.
+Disjoint paths pass even while GitHub reports `UNKNOWN` mergeability or a lagging
+PR base SHA. Mismatched heads or base branches, malformed observations and
+incomplete comparison data block the write. Harmless base movement needs no
+merge or CI rerun.
+
+Workers assess integration safety before marking the PR ready and after CI.
+They integrate at most once per handoff, validate and push, keep the PR ready,
+then await new-head CI in `ci-wait`. Another unsafe base change after that
+integration requires an Executor alert rather than another merge/CI cycle.
 
 When a pair does form, the heal prefers the label that arrived *since* the
 orchestrator's own claim over the claim itself — whenever the orchestrator can
@@ -216,25 +240,24 @@ canonical references.
 
 ## Step 1 — Ticket is created and labelled `agent:todo`
 
-A ticket needs an **explicit** state label to be dispatchable. An open,
-correctly-labelled, unblocked ticket with no `agent:*` state label is simply
-invisible.
-
-`DispatchAuthorization.authorize/5` derives the trigger label from the issue's
-current state and denies `:missing_trigger_label` when there is none
+An open, unblocked ticket needs an **explicit** state label to be dispatchable.
+`DispatchAuthorization.authorize/5` denies `:missing_trigger_label` otherwise
 (`src/lib/aiur/github/dispatch_authorization.ex:74-82`).
 
-**Label provenance** surprises people, so it is worth stating plainly:
+**Label provenance:**
 
-- Dispatch is authorized by *who applied the trigger label*, verified against
-  the GitHub issue timeline. There is deliberately **no trusted-creator
-  short-circuit** — the comment at `dispatch_authorization.ex:35-50` explains
-  why: agents file issues with the same credential, so a creator short-circuit
-  made agent-filed work self-authorizing.
-- Aiur moves the state label itself on every transition, so the latest applier
-  is routinely the bot. An Aiur-applied label **carries forward** the original
-  triage decision — authorized only if some allowed user ever applied an
-  `agent:*` label to that issue (`dispatch_authorization.ex:88-126`).
+- Dispatch trusts *who applied the trigger label*, verified against the GitHub timeline.
+  There is **no trusted-creator short-circuit**: agents share the credential,
+  so trusting creators would make agent-filed work self-authorizing
+  (`dispatch_authorization.ex:35-50`).
+- Aiur's state transitions routinely make the bot the latest label applier.
+  Its label **carries forward** triage only if an allowed user previously applied
+  an `agent:*` label (`dispatch_authorization.ex:88-126`).
+- Queue promotion does not grant authorization: an allowed human must apply the marker or `agent:todo`.
+  An unauthorized decline shows `promoted_unauthorized` and raises one queue attention.
+  It resolves when the decline clears or the issue is claimed; an unavailable probe preserves it.
+- Detection requires a free dispatch slot: declines are recorded only while slots
+  are available. Until then, the queue shows `promoted`.
 - A relabel by anyone else **revokes** authorization, and `Orchestrator.Reconciler`
   terminates the running agent on the next poll.
 - A label applied when an issue is created can appear in the issue response
@@ -553,8 +576,8 @@ in [GitHub](/apis/github); this page does not duplicate them.
 
 If the run was started with `/aiur-run`, the Executor agent is subscribed to PR
 events and spins up a background agent for code review. `Aiur.ExecutorBindings`
-reconciles a compile-time set of exactly **28** default bindings
-(`src/lib/aiur/executor_bindings.ex:7-32`), each with its delivery channel.
+reconciles a compile-time set of default bindings
+(`src/lib/aiur/executor_bindings.ex`), each with its delivery channel.
 Grouped by channel:
 
 **commands** — the Executor's control-plane catch-all:
@@ -574,6 +597,7 @@ Grouped by channel:
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
+| `system.queue.attention.#` (including `.resolved`) | `dispatch:auto` |
 
 **pr** — pull request lifecycle:
 
@@ -600,6 +624,7 @@ Grouped by channel:
 | Pattern | Channel |
 | --- | --- |
 | `ticket.*.agent.attention.*` | `attention:auto` |
+| `ticket.*.queue.attention.#` (including `.resolved`) | `attention:auto` |
 | `ticket.*.agent.paused` | `attention:auto` |
 | `ticket.*.agent.error.tokens_exhausted` | `attention:auto` |
 | `ticket.*.agent.retry_exhausted` | `attention:auto` |
@@ -625,8 +650,22 @@ daemon is down cannot produce a transition wake.
 The agent is subscribed to its own issue comments and PR review comments and
 unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
-`pause_resume.ex`, `push_routing.ex`). Trusted feedback becomes a rework run;
-an operator comment directs the same agent.
+`pause_resume.ex`, `push_routing.ex`).
+
+Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
+`agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
+reviews without inline threads.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
+
+An operator comment directs the same agent.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)

@@ -631,11 +631,7 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
-    source =
-      @repo_root
-      |> Path.join(".claude/skills/aiur-agent/dev-loop.md")
-      |> File.read!()
-      |> one_line()
+    source = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
 
     assert source =~ "pre-PR"
     assert source =~ "mix compile --warnings-as-errors"
@@ -644,7 +640,8 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "affected tests only"
     assert source =~ "mix test --max-cases 4"
     refute source =~ "mix credo --strict"
-    assert source =~ "Do not run Credo locally"
+    refute source =~ "Do not run Credo locally"
+    refute source =~ "Credo belongs to CI"
     assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
     refute source =~ "mix dialyzer"
 
@@ -652,7 +649,40 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "Re-run the scoped local pre-PR verification gate"
   end
 
-  test "agent prompt delegates Credo to CI after inspecting lint settings" do
+  test "agent dev loop requires the local prose guard before pushing docs changes" do
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
+    assert dev_loop =~ "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
+  end
+
+  test "agent instructions require all local checks and oversized-file fixes before PR handoff" do
+    for path <- [".claude/skills/aiur-agent/dev-loop.md", "src/prompts/shared-agent-instructions.md"] do
+      source = one_line(File.read!(Path.join(@repo_root, path)))
+      assert source =~ "marking the PR ready or handing off to CI/review"
+      assert source =~ "From `src/`: `mise exec -- mix lint`"
+      assert source =~ "From the repository root: `python3 scripts/check-bare-assert-receive.py`"
+      assert source =~ ~s(then run `python3 scripts/check-file-size.py --base "$base"`)
+      assert source =~ ~s|base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"|
+      assert source =~ "run all required checks and fix any failures"
+      assert source =~ "Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness."
+      assert source =~ "file the same length or shorter"
+      assert source =~ "Put new code in a new small module and new tests in a new test file. Never grow the oversized file."
+    end
+  end
+
+  test "unrelated CI flakes never become ticket dependencies" do
+    for path <- [".claude/skills/aiur-agent/dev-loop.md", "src/prompts/shared-agent-instructions.md"] do
+      source = one_line(File.read!(Path.join(@repo_root, path)))
+
+      assert source =~ "file the flake as its own ticket with the CI run id"
+      assert source =~ "NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket."
+      assert source =~ "State in the PR that the only failure is the known flake"
+      assert source =~ "link the flake ticket and CI run"
+      assert source =~ "hand back to the Executor without declaring a dependency or pausing for the flake fix"
+      assert source =~ "Keep the full required-check gate for human review"
+    end
+  end
+
+  test "agent prompt requires local lint checks after inspecting lint settings" do
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
 
     assert repo_prompt =~ "before writing code read `src/.formatter.exs`"
@@ -663,7 +693,9 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "affected tests only"
     assert repo_prompt =~ "mix test --max-cases 4"
     refute repo_prompt =~ "mix credo --strict"
-    assert repo_prompt =~ "Do not run Credo locally"
+    assert repo_prompt =~ "mise exec -- mix lint"
+    assert repo_prompt =~ "python3 scripts/check-bare-assert-receive.py"
+    refute repo_prompt =~ "Do not run Credo locally"
     assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"

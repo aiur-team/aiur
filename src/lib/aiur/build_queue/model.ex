@@ -55,9 +55,10 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Observation do
     @moduledoc "Transient tracker evidence, never stored in a queue document."
     @enforce_keys [:issue_id, :open?, :labels, :state_reason, :pr, :observed_at_ms]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [unavailable_reason: nil]
 
     @type t :: %__MODULE__{
+            unavailable_reason: nil | :closed_reason,
             issue_id: String.t(),
             open?: boolean() | :unknown,
             labels: [String.t()],
@@ -85,8 +86,8 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Latch do
     @moduledoc "A durable attention keyed by cause and subject."
     @enforce_keys [:key, :opened_at_ms]
-    defstruct @enforce_keys
-    @type t :: %__MODULE__{key: {term(), term()}, opened_at_ms: non_neg_integer()}
+    defstruct @enforce_keys ++ [emitted?: false]
+    @type t :: %__MODULE__{key: {term(), term()}, opened_at_ms: non_neg_integer(), emitted?: boolean()}
   end
 
   @type t :: %{queues: [Queue.t()], items: [Item.t()], edges: [Edge.t()], intents: [Intent.t()], latches: [Latch.t()]}

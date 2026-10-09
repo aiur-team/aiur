@@ -2,7 +2,22 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :project_identity_source, Aiur.Tracker
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
+
+# Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :config_semantic_checks,
+  exclusive: [
+    Aiur.Tracker.SemanticCheck.MissingKind,
+    Aiur.Tracker.SemanticCheck.UnsupportedKind,
+    Aiur.CodingAgent.SemanticCheck.Dispatchable,
+    Aiur.Tracker.SemanticCheck.LinearToken,
+    Aiur.Tracker.SemanticCheck.LinearSlug,
+    Aiur.GitHub.Config.SemanticCheck,
+    Aiur.Claude.Config.SemanticCheck
+  ],
+  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
 
 config :phoenix, :json_library, Jason
 
@@ -71,6 +86,7 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  config :aiur, :build_history_backfill_enabled?, false
 
   # The shared app must not replace the singleton BranchRefStore with real
   # remote refs while tests are exercising it with synthetic refs. Ticker
@@ -145,6 +161,7 @@ if config_env() == :test do
   # Durable runtime state (event-ID counter, subscriptions, session handles,
   # alert ledger; #2722) survives a restart by design, so it needs the same
   # per-VM isolation. Aiur.TestSupport gives each case its own root.
+  config :aiur, :machine_state_dir, Path.join(test_log_root, "machine")
   config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 

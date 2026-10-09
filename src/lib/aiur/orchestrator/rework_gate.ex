@@ -118,7 +118,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
     end
   end
 
-  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # A `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review with no inline comments
   # opens no review thread at all, so the thread read below reports zero
   # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
   # much did make (#2473). Where the caller is routing *that review submission*
@@ -156,9 +156,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # it is the one a refactor must not delete.
   #
   # The option defaults to `false`, so every caller that is *not* holding a live
-  # changes-requested review keeps the pre-#2473 behaviour exactly.
+  # blocking review submission keeps the pre-#2473 behaviour exactly.
   defp no_thread_verdict(opts) do
-    if Keyword.get(opts, :changes_requested_review?, false) do
+    if Keyword.get(opts, :blocking_review_submission?, false) do
       {:ok, :rework}
     else
       {:skip, :no_unresolved_review_threads}
@@ -194,9 +194,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
 
-  Pass `changes_requested_review?: true` when the caller is routing a live
-  `CHANGES_REQUESTED` review submission. A body-only review opens no review
-  thread, so the thread read cannot see it (#2473); the submission is itself
+  Pass `blocking_review_submission?: true` when the caller is routing a trusted
+  live `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review submission. A body-only
+  review opens no review thread, so the thread read cannot see it (#2473); the submission is itself
   the outstanding finding and stands in for an unresolved thread.
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
@@ -259,6 +259,42 @@ defmodule Aiur.Orchestrator.ReworkGate do
   end
 
   def head_sha(_pr), do: nil
+
+  @doc "Returns the safest handoff state when a stopped agent has an open PR."
+  @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::
+          :none | {:handoff, String.t()}
+  def stopped_agent_handoff(issue_key, original_head, opts \\ []) do
+    case open_pr(issue_key, opts) do
+      {:ok, pr} ->
+        current_head = head_sha(pr)
+
+        if is_binary(current_head) and current_head != "" and
+             (not is_binary(original_head) or original_head == "" or current_head != original_head) do
+          {:handoff, ci_handoff_state(current_head, opts)}
+        else
+          :none
+        end
+
+      {:error, _reason} ->
+        {:handoff, "human-review"}
+
+      {:skip, :no_open_pr} ->
+        :none
+    end
+  end
+
+  defp ci_handoff_state(head_sha, opts) do
+    fetcher = Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
+
+    case fetcher.(head_sha) do
+      {:ok, %{check_runs: runs, commit_status: status}} ->
+        pending_runs? = Enum.any?(runs, &(Map.get(&1, "status") in ["waiting", "requested", "pending", "in_progress", "queued"]))
+        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
+
+      _ ->
+        "ci-wait"
+    end
+  end
 
   @doc false
   # The thread gate only applies where a live review-thread read is meaningful:

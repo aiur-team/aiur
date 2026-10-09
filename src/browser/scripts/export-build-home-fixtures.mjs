@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import { mapRawToPayload } from './build-home-fixture-map.mjs';
@@ -11,7 +11,11 @@ const ETAG = '1791431544512943';
 const ANCHOR = '  window.AiurBuild = {';
 const DEFAULT_OUT = fileURLToPath(new URL('../../test/fixtures/build_home/', import.meta.url));
 const DATASETS = ['live', 'dense', 'newrepo', 'noqueue', 'offline'];
-const DESIGN_FILES = ['assets/build.js', 'assets/build.css', 'Aiur Dashboard.html'];
+const designFiles = dir => {
+  const entries = readdirSync(dir, { recursive: true, withFileTypes: true });
+  assert.ok(!entries.some(e => e.isSymbolicLink()), 'design source contains a symlink');
+  return entries.filter(e => e.isFile()).map(e => relative(dir, join(e.parentPath, e.name))).sort();
+};
 // build.js:1031–1036: API usage is literal render data, unlike PSETS.
 export const API_ROWS = [
   { tag: 'core', pct: 5, reset: '37m', win: '1h', head: 'GitHub core · resets in 37m', rows: [['Requests left', '4,736 of 5,000']] },
@@ -80,7 +84,7 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   files['manifest.json'] = encode({
     schema: 'build-home-raw/1', now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
     design_etag: ETAG, datasets: DATASETS,
-    design_sha256: Object.fromEntries(DESIGN_FILES.map(f => [f, sha256(readFileSync(join(designDir, f)))])),
+    design_sha256: Object.fromEntries(designFiles(designDir).map(f => [f, sha256(readFileSync(join(designDir, f)))])),
     fixture_sha256: Object.fromEntries(Object.entries(files).map(([f, text]) => [f, sha256(text)])),
     utc_offsets_min: [...offsets].sort((a, b) => a - b), node: process.version,
   });
@@ -92,7 +96,7 @@ function checkFiles(files, out) {
   const old = existsSync(oldManifest) ? JSON.parse(readFileSync(oldManifest, 'utf8')) : {};
   const manifest = JSON.parse(files['manifest.json']);
   const errors = [];
-  for (const f of DESIGN_FILES) {
+  for (const f of new Set([...Object.keys(old.design_sha256 ?? {}), ...Object.keys(manifest.design_sha256)])) {
     if (old.design_sha256?.[f] !== manifest.design_sha256[f]) {
       errors.push(`design file ${f} changed (sha ${manifest.design_sha256[f]}) — run npm run fixtures:build-home`);
     }

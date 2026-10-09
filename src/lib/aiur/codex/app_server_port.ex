@@ -5,8 +5,8 @@ defmodule Aiur.Codex.AppServerPort do
 
   alias Aiur.{AgentEnvironment, Config, PathSafety, ProcessReaper, SSH}
   alias Aiur.AppServer.Adapter
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.Config, as: CodexConfig
+  alias Aiur.ProcessTree
 
   @spec validate_workspace_cwd(Path.t(), String.t() | nil) :: {:ok, Path.t()} | {:error, term()}
   def validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
@@ -110,7 +110,7 @@ defmodule Aiur.Codex.AppServerPort do
       fn port ->
         notify_process_group_started(port, nil, on_process_group_started)
       end,
-      env
+      env: env
     )
   end
 
@@ -168,36 +168,35 @@ defmodule Aiur.Codex.AppServerPort do
 
   @doc false
   @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
-  defdelegate process_group_for_pid(pid), to: RemoteControl
+  defdelegate process_group_for_pid(pid), to: ProcessTree
 
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
-    case :erlang.port_info(port) do
-      :undefined ->
+    os_pid =
+      case :erlang.port_info(port, :os_pid) do
+        {:os_pid, pid} -> pid
+        _ -> nil
+      end
+
+    stop_port(port, os_pid)
+  end
+
+  @doc false
+  @spec stop_port(port(), pos_integer() | nil) :: :ok
+  def stop_port(port, os_pid) when is_port(port) do
+    # Retain the PID before IO: a broken pipe can close the port but leave its child alive.
+    if os_pid do
+      ProcessReaper.unregister({:os_pid, os_pid})
+      # Reap descendants while the root still anchors them, before closing its pipes.
+      ProcessTree.graceful_kill_tree(os_pid)
+    end
+
+    try do
+      Port.close(port)
+      :ok
+    rescue
+      ArgumentError ->
         :ok
-
-      _ ->
-        # Reap the descendant tree (node -> rust app-server) BEFORE closing the
-        # port. `Port.close` only kills the shell wrapper; its children would
-        # reparent to init and keep holding the global ~/.codex/state_5.sqlite
-        # lock, poisoning every subsequent codex agent. Collecting descendants
-        # must happen while the wrapper is still alive to anchor the pgrep walk.
-        case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} ->
-            ProcessReaper.unregister({:os_pid, os_pid})
-            RemoteControl.graceful_kill_tree(os_pid)
-
-          _ ->
-            :ok
-        end
-
-        try do
-          Port.close(port)
-          :ok
-        rescue
-          ArgumentError ->
-            :ok
-        end
     end
   end
 
@@ -311,7 +310,7 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_provider_processes(provider, worker_host) when is_binary(worker_host), do: provider
 
   defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _worker_host),
-    do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
+    do: Map.put(provider, :descendant_pids, ProcessTree.process_tree(root_pid))
 
   defp maybe_put_provider_processes(provider, _worker_host), do: provider
 end

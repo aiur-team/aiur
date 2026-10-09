@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
+  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DecisionStore, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Executor.Claims
@@ -11,7 +11,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, SnapshotStore, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, Lifecycle, SnapshotStore, State, StatusReport}
   alias Aiur.TrackerIdentity
 
   test "executor-wait prints and acknowledges a pending wake" do
@@ -152,6 +152,36 @@ defmodule Aiur.AgentControlCLITest do
     assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
   end
 
+  for prior_role <- ["owner", "observer"] do
+    test "renewer switches a displaced #{prior_role} wait to observer without acknowledging" do
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+      waiter = Task.async(fn -> capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, as: "old-owner") end) end)
+      await_executor_wait(waiter.pid)
+      {:ok, old} = Claims.owner()
+      {:ok, _} = Claims.revoke("old-owner")
+      {:ok, successor} = Claims.claim("successor")
+      expired = old |> Map.put("lease_expires_at", "2000-01-01T00:00:00Z") |> Map.put("role", unquote(prior_role))
+      Aiur.JsonStore.write!(StatePaths.claims_path(), %{"consumers" => %{"old-owner" => expired, "successor" => successor}})
+      {:links, links} = Process.info(waiter.pid, :links)
+      renewer = Enum.find(links, &(&1 != self()))
+      :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, true, [:local])
+      :erlang.trace(renewer, true, [:send, :call])
+      on_exit(fn -> :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, false, [:local]) end)
+      send(renewer, :renew)
+      receive_barrier({:trace, ^renewer, :call, {AgentControlCLI, :renew_lease_forever, _args}})
+      assert_received {:trace, ^renewer, :send, {:executor_ownership_lost, ^renewer}, _destination}
+      :erlang.trace(renewer, false, [:send, :call])
+
+      :ok = ExecutorWakeInbox.enqueue(wake_record(1, "3412", "ticket.3412.pr.opened", "ticket.pr.opened"))
+      output = Task.await(waiter)
+      assert output =~ "not the live owner"
+      assert output =~ ~s("role":"observer")
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert ExecutorWakeInbox.cursor() == 0
+      assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
+    end
+  end
+
   test "executor-wait separates a store failure from contention with exit 1 (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     # An unreadable ledger is a daemon/store failure, not something a caller can
@@ -164,6 +194,12 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ ~s("stage":"wait")
     assert output =~ "executor wake inbox unavailable"
     refute output =~ "__AIUR_CONTROL_EXIT__:69"
+  end
+
+  defp await_executor_wait(pid) do
+    if Enum.any?(:sys.get_state(ExecutorWakeInbox).waiters, fn {{waiter, _tag}, _} -> waiter == pid end),
+      do: :ok,
+      else: await_executor_wait(pid)
   end
 
   defp await_consumer(id, attempts \\ 200) do
@@ -458,9 +494,10 @@ defmodule Aiur.AgentControlCLITest do
     |> Map.put(:last_codex_message, Keyword.get(opts, :last_codex_message))
   end
 
-  setup do
+  setup context do
     pid = Process.whereis(Orchestrator)
-    original_state = :sys.get_state(pid)
+    original_state = orchestrator_state!(pid)
+
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
     original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
@@ -479,6 +516,11 @@ defmodule Aiur.AgentControlCLITest do
 
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      state =
+        if context[:stale_dispatch_poll],
+          do: %{state | last_dispatch_poll_at_ms: System.monotonic_time(:millisecond) - 3_600_000},
+          else: state
 
       %{
         state
@@ -500,6 +542,8 @@ defmodule Aiur.AgentControlCLITest do
           poll_check_in_progress: false,
           poll_frozen: true,
           candidate_snapshot_fresh?: true,
+          # Frozen polling cannot refresh an inherited timestamp during a long suite.
+          last_dispatch_poll_at_ms: System.monotonic_time(:millisecond),
           snapshot_ready?: false,
           # Pin the pre-reconciliation baseline. The "orphaned claim" case below
           # asserts the `[waiting=orphaned_claim]` classification, which only
@@ -521,8 +565,7 @@ defmodule Aiur.AgentControlCLITest do
       if Process.alive?(pid) do
         # Drop anything this case published, then hand the Orchestrator its
         # prior state under the generation that is now active.
-        snapshot_generation = fence_snapshot_read_model()
-        :sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation} end)
+        restore_orchestrator_state(pid, original_state)
       end
 
       if original_health_status_fun do
@@ -539,6 +582,84 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     {:ok, orchestrator: pid}
+  end
+
+  defp orchestrator_state!(pid, timeout \\ 5_000) do
+    :sys.get_state(pid, timeout)
+  catch
+    :exit, reason ->
+      info = Process.info(pid, [:current_function, :current_stacktrace, :message_queue_len, :messages, :status])
+      flunk("Orchestrator fixture state read failed: #{inspect(reason)}; process=#{inspect(info)}")
+  end
+
+  defp restore_orchestrator_state(pid, original_state) do
+    snapshot_generation = fence_snapshot_read_model()
+
+    :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      # Keep the shared test singleton dormant between cases, including
+      # untagged poll work already queued by a resume during the case (#3007).
+      %{original_state | snapshot_generation: snapshot_generation, poll_frozen: true, tick_timer_ref: nil, tick_token: make_ref(), next_poll_due_at_ms: nil, poll_check_in_progress: false}
+    end)
+  end
+
+  test "fixture restoration fences queued ticks and poll cycles between cases (#3007)", %{orchestrator: pid} do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    original_state = %{orchestrator_state!(pid) | poll_frozen: false}
+    :sys.suspend(pid)
+
+    try do
+      state = :sys.replace_state(pid, &Lifecycle.schedule_tick(&1, 60_000))
+      timer = state.tick_timer_ref
+      send(pid, {:tick, state.tick_token})
+      send(pid, :run_poll_cycle)
+
+      restore_orchestrator_state(pid, original_state)
+      assert Process.read_timer(timer) == false
+      :sys.resume(pid)
+
+      # Suspension widens the window across restoration; this system call
+      # is a mailbox barrier after both queued messages, not a timing guess.
+      restored = orchestrator_state!(pid)
+      assert restored.poll_cycles_completed == original_state.poll_cycles_completed
+      assert restored.poll_check_in_progress == false
+      assert restored.next_poll_due_at_ms == nil
+      assert restored.running == original_state.running
+    after
+      :sys.resume(pid)
+    end
+  end
+
+  test "fixture state timeout captures the blocked function and mailbox (#3007)", %{orchestrator: pid} do
+    parent = self()
+    barrier = make_ref()
+
+    blocker =
+      Task.async(fn ->
+        :sys.replace_state(pid, fn state ->
+          send(parent, {:fixture_blocked, barrier})
+
+          receive do
+            ^barrier -> state
+          end
+        end)
+      end)
+
+    receive_barrier({:fixture_blocked, ^barrier})
+    send(pid, {:fixture_mailbox_evidence, barrier})
+
+    try do
+      error = assert_raise ExUnit.AssertionError, fn -> orchestrator_state!(pid, 1) end
+      assert error.message =~ "current_function: {Aiur.AgentControlCLITest,"
+      assert error.message =~ "fixture state timeout captures the blocked function and mailbox"
+      assert error.message =~ "current_stacktrace:"
+      assert error.message =~ "fixture_mailbox_evidence"
+      assert error.message =~ "message_queue_len:"
+    after
+      send(pid, barrier)
+      Task.await(blocker)
+    end
   end
 
   describe "todo/2" do
@@ -1249,7 +1370,7 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "#44    paused"
-    assert output =~ "waiting=waiting_for_human"
+    assert output =~ "waiting=paused"
     assert output =~ "pause_reason=agent_pause_request"
     assert output =~ "#99    idle"
     assert output =~ "waiting=waiting_for_dependency"
@@ -1892,6 +2013,29 @@ defmodule Aiur.AgentControlCLITest do
     assert Process.alive?(pid)
   end
 
+  @tag stale_dispatch_poll: true
+  test "status fixture refreshes an inherited stale dispatch poll", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{"issue-queued" => queued_issue()}, max_concurrent_agents: 10}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: config max_concurrent_agents)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_dispatch_poll_at_ms: System.monotonic_time(:millisecond) - 100_000,
+          poll_interval_ms: 1_000,
+          effective_poll_interval_ms: 1_000
+      }
+    end)
+
+    stale_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert stale_output =~ ~r/AGENTS 0\/10 \(binding: dispatch poll stale \(\d+s ago\)\)/
+    refute stale_output =~ "binding: awaiting dispatch"
+  end
+
   test "status reports active build-gate contention", %{orchestrator: pid} do
     gate_dir = Aiur.TestSupport.tmp_root!("aiur-build-gate-status")
     lock_dir = BuildGate.lock_dir(gate_dir)
@@ -2265,6 +2409,46 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 
+  test "busy handle_info leaves reset-budget and resume outcomes unknown", %{orchestrator: original} do
+    issue = %Issue{id: "issue-49", identifier: "repo#49", state: "in-progress", title: "Budget reset"}
+    :ok = DispatchBudgetStore.put_lifetime(issue.id, 40)
+    state = :sys.get_state(original)
+    state = %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}, last_polled_issues: %{issue.id => issue}}
+    state = put_in(state.dispatch_recovery.codex_thrash_budget[issue.id], %{lifetime: 40, count: 0})
+    previous_timeout = Application.get_env(:aiur, :control_api_call_timeout_ms)
+    Application.put_env(:aiur, :control_api_call_timeout_ms, 20)
+    Process.unregister(Orchestrator)
+    busy = start_supervised!({__MODULE__.BusyOrchestrator, state})
+
+    try do
+      :ok = SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
+      send(busy, {:block, self()})
+      receive_barrier(:blocked)
+
+      for {command, description} <- [
+            {fn -> AgentControlCLI.reset_budget(["49", "49"]) end, "reset lifetime dispatch budget for #49"},
+            {fn -> AgentControlCLI.resume(["44"]) end, "resume #44"}
+          ] do
+        output = capture_io(command)
+        assert output =~ "outcome unknown for #{description}"
+        assert output =~ "may still apply"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+        refute output =~ "failed to"
+      end
+
+      assert {:ok, 40} = DispatchBudgetStore.lifetime(issue.id)
+      send(busy, :release)
+      :sys.get_state(busy)
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(issue.id)
+    after
+      send(busy, :release)
+      stop_supervised!(__MODULE__.BusyOrchestrator)
+      Process.register(original, Orchestrator)
+      SnapshotStore.forget(Orchestrator)
+      if previous_timeout, do: Application.put_env(:aiur, :control_api_call_timeout_ms, previous_timeout), else: Application.delete_env(:aiur, :control_api_call_timeout_ms)
+    end
+  end
+
   describe "global pause switch" do
     test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
@@ -2424,7 +2608,8 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+    assert output =~ "outcome unknown for resume #44"
+    refute output =~ "failed to resume"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -3553,6 +3738,8 @@ defmodule Aiur.AgentControlCLITest do
       # while `agents` said working for both.
       :ok = SubscriptionStore.attach("repo#52")
       :ok = SubscriptionStore.add_attention("repo#52", "github-credential-missing")
+      assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Provide the missing credential?", "blocking" => true}, ticket: %{identifier: "repo#52"})
+      on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
       on_exit(fn -> SubscriptionStore.stop("repo#52") end)
 
       working_rework = fn issue_id, identifier ->
@@ -3599,6 +3786,8 @@ defmodule Aiur.AgentControlCLITest do
       for identifier <- ["repo#46", "repo#47"] do
         :ok = SubscriptionStore.attach(identifier)
         :ok = SubscriptionStore.add_attention(identifier, "github-credential-missing")
+        assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Provide the missing credential?", "blocking" => true}, ticket: %{identifier: identifier})
+        on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
         on_exit(fn -> SubscriptionStore.stop(identifier) end)
       end
 
@@ -4358,4 +4547,21 @@ defmodule Aiur.AgentControlCLITest do
       refute output =~ "#46 ci-wait · needs review/merge"
     end
   end
+end
+
+defmodule Aiur.AgentControlCLITest.BusyOrchestrator do
+  use GenServer
+
+  def start_link(state), do: GenServer.start_link(__MODULE__, state, name: Aiur.Orchestrator)
+  @impl true
+  def init(state), do: {:ok, state}
+  @impl true
+  def handle_info({:block, parent}, state) do
+    send(parent, :blocked)
+    receive do: (:release -> {:noreply, state})
+  end
+
+  def handle_info(message, state), do: Aiur.Orchestrator.handle_info(message, state)
+  @impl true
+  def handle_call(request, from, state), do: Aiur.Orchestrator.handle_call(request, from, state)
 end

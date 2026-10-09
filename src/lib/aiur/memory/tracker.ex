@@ -13,6 +13,9 @@ defmodule Aiur.Memory.Tracker do
     {:ok, labels, System.system_time(:millisecond)}
   end
 
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(_issue_id, _max_age_ms), do: {:error, :unsupported}
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: "memory"
 
@@ -110,6 +113,9 @@ defmodule Aiur.Memory.Tracker do
         {:error, :invalid_expected_state}
     end
   end
+
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(_labels), do: :ok
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) do

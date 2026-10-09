@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorBindingsTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Topic
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
@@ -31,11 +32,25 @@ defmodule Aiur.ExecutorBindingsTest do
     assert ExecutorBindings.allowlisted?("ticket.42.agent.handoff.human_review")
   end
 
+  test "queue attention defaults deliver firing and resolved events to the Executor" do
+    for {reason, topic} <- [
+          {"attention:auto", "ticket.12.queue.attention.prerequisite_failed"},
+          {"dispatch:auto", "system.queue.attention.inputs_unavailable"}
+        ] do
+      assert Enum.any?(ExecutorBindings.defaults(), fn {pattern, channel} ->
+               channel == reason and Topic.matches?(pattern, topic) and Topic.matches?(pattern, topic <> ".resolved")
+             end)
+
+      assert ExecutorBindings.allowlisted?(topic <> ".resolved")
+    end
+  end
+
   test "allowlist accepts exact instances but rejects broader candidate wildcards" do
     assert ExecutorBindings.allowlisted?("ticket.42.pr.opened")
     assert ExecutorBindings.allowlisted?("ticket.*.pr.opened")
     assert ExecutorBindings.allowlisted?("executor.#")
     assert ExecutorBindings.allowlisted?("executor.notice.*")
+    assert ExecutorBindings.allowlisted?("ticket.3028.agent.attention.*")
 
     refute ExecutorBindings.allowlisted?("ticket.#.pr.opened")
     refute ExecutorBindings.allowlisted?("ticket.*.#")

@@ -21,12 +21,15 @@ defmodule Aiur.Orchestrator.State do
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
+          tracker_tasks: %{reference() => map()},
           last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
+            optional(:sample_id) => reference() | integer() | nil,
+            optional(:sampled_at_ms) => integer() | nil,
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()
@@ -68,6 +71,7 @@ defmodule Aiur.Orchestrator.State do
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
+            passed_heads: map(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
@@ -238,6 +242,7 @@ defmodule Aiur.Orchestrator.State do
     human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
+      passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},
@@ -274,6 +279,7 @@ defmodule Aiur.Orchestrator.State do
     contradictory_state_label_alert_active: false,
     running: %{},
     running_issue_cache: %{},
+    tracker_tasks: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
@@ -363,6 +369,7 @@ defmodule Aiur.Orchestrator.State do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+          |> maybe_put_runtime_value(:rework_head_sha, runtime_info[:rework_head_sha])
           |> maybe_put_live_conversation(runtime_info[:live_conversation])
 
         if updated_running_entry == running_entry do

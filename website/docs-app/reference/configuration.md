@@ -226,19 +226,19 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
-| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
+| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
 | `agent.build_gate_retain_seconds` | integer | 120 | Maximum post-command window the lease holder keeps a slot after the wrapped command exits, gated on a descendant still consuming CPU. The holder releases the moment the retained tree goes idle, so this bounds only a genuinely-busy descendant (a runaway build), not an adopted idle daemon; `0` disables the courtesy. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
-| `agent.rtk.enabled` | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. |
+| `agent.rtk.enabled` | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. At daemon startup Aiur also checks the host hook, independent of this setting, and raises an informational alert when it would rewrite `gh`. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
-| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. A productive turn resets the count; 0 disables the bound. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; verified rework with no pushed head becomes `agent:error`; otherwise the current label is kept. A productive turn resets the count; 0 disables the bound. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
@@ -246,9 +246,9 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
 | `agent.max_load_average` | float | 1.5 | Per-scheduler load ceiling. Above it, dispatch holds only when a short-window CPU sample also shows less than 60% reclaimable capacity (idle + niced CPU); null disables it. Until that sample exists — the first dispatch decision after the daemon starts has nothing to compare against — dispatch proceeds, and the next cycle holds if the measured window confirms the contention. |
-| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
+| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. Starts at one slot and widens only on a new below-target sample no older than one dispatch period. Load and CPU probes run outside the Orchestrator with a one-second timeout. |
 | `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
-| `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
+| `agent.load_ramp_step` | integer | 1 | Capacity increase per fresh sample while load is below the target. CPU headroom cannot jump the startup envelope to the full cap. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.budget_broker_rate_window_seconds` | integer | 300 | The sliding window over which budget-broker-timeout retries are counted for the retry-rate signal. The individual retry is uninteresting; the rate is the signal. |
@@ -402,12 +402,12 @@ Local Codex turns use Aiur's shared build admission.
 | Hold-timeout backstop | A slot held past `agent.build_gate_max_hold_seconds` (default 1h) is released by the lease holder itself, which logs and leaves a durable `slot-N.hold-timeout` marker. `aiur status` prints those as `BUILD GATE TIMEOUT` lines, and the daemon raises a needs-attention alert naming the command — the same backstop bounds both a leaked holder waiting on reparented daemons and a `--trace` run that monopolises a slot. |
 | Post-command retain | After the wrapped command exits, the holder keeps the slot only while a descendant is still consuming CPU (`agent.build_gate_retain_seconds`, default 120s, is the ceiling for that busy descendant). A descendant tree that goes idle for one second is treated as an adopted session daemon (`dbus-daemon`, `gnome-keyring-daemon`), so the slot is released immediately and nothing is signalled — the keyring daemon holds the fleet's GitHub credential. The effective retain is observable in `aiur status` (`retain_seconds=`) and in the `lease_retained` gate log line. |
 | Dead holder | A lease whose holder has exited is released automatically: Linux releases the flock with the process, and the PID fallback reclaims a slot whose recorded owner and process group are gone. A legitimately long-running build with a live holder keeps its lease; only the absolute max-hold backstop reaps by elapsed time. |
+| Browser tests | Playwright CLI runs (including `src/browser`) share the host cap and serialize per workspace; only the wrapper holds the workspace lock, so a crashed run's surviving browser child does not keep it. Run only affected browser specs locally; CI runs the full harness. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
-Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
-or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
-`--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
-holds one live-token lease.
+Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+` or legacy comma separators,
+`elixir -S mix`, and `mise exec` / `mise x` commands after `--` or in a simple `-c` / `--command` string.
+One compound or nested wrapper chain holds one live-token lease.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
@@ -751,11 +751,11 @@ The durable repository Executor state also records every daemon start and stop i
 
 ## build_queue
 
-Build queue configuration for GitHub workflows; Linear is unsupported, and the queue reconciler is delivered separately.
+Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. |
+| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. This stage exposes dispatch hints and records planned actions; label-writing executors are delivered separately. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
 | `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
@@ -776,6 +776,29 @@ Build queue configuration for GitHub workflows; Linear is unsupported, and the q
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
+| `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
+| `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
+| `build_order.general_epics.label` | string | required | Column header text, without control characters. |
+| `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
+| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
+| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+
+### General epics
+
+Omitting `build_order`, omitting `general_epics`, or setting `general_epics: null` uses these defaults:
+
+```yaml
+build_order:
+  general_epics:
+    - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
+    - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
+    - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }
+    - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
+```
+
+A configured list replaces all four defaults and keeps its order. Matchers within an entry are normalized; sharing a matcher across entries is a config error. For a ticket carrying different matched labels, config order defines which general epic wins. `enhancement` has no default matcher; add it to an epic if your repository uses it for that work.
+
+These settings define the epic catalogue for the build history home page; its resolver and rendering are delivered separately.
 
 ### Two removed keys
 

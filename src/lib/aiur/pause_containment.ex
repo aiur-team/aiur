@@ -6,7 +6,7 @@ defmodule Aiur.PauseContainment do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.ProcessTree
 
   @default_grace_ms 5_000
   @liveness_poll_ms 1_000
@@ -140,8 +140,8 @@ defmodule Aiur.PauseContainment do
        entries: %{},
        grace_ms: positive_integer(Keyword.get(opts, :grace_ms), @default_grace_ms),
        liveness_poll_ms: positive_integer(Keyword.get(opts, :liveness_poll_ms), @liveness_poll_ms),
-       reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.graceful_kill_process_group/1),
-       pid_alive_fun: Keyword.get(opts, :pid_alive_fun, &RemoteControl.process_alive?/1),
+       reap_fun: Keyword.get(opts, :reap_fun, &ProcessTree.graceful_kill_process_group/1),
+       pid_alive_fun: Keyword.get(opts, :pid_alive_fun, &ProcessTree.process_alive?/1),
        event_fun: Keyword.get(opts, :event_fun, &emit_event/2),
        notify_fun: Keyword.get(opts, :notify_fun, &notify_orchestrator/3)
      }}
