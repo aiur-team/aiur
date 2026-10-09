@@ -97,7 +97,7 @@ defmodule Aiur.BuildQueue.ProgressTest do
     assert Map.take(fact, Map.keys(progress)) == progress
     assert fact.observed_at == DateTime.from_unix!(1_000, :millisecond)
 
-    Agent.update(clock, fn _ -> 200_000 end)
+    Agent.update(clock, fn _ -> 300_000 end)
     send(pid, :tick)
     GenServer.call(pid, :status)
     assert_received {:reconcile, _} = next
