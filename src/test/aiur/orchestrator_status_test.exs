@@ -360,18 +360,13 @@ defmodule Aiur.OrchestratorStatusTest do
       if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
 
-    # Init starts the startup workspace cleanup task. Its reply and :DOWN must
-    # land before the suspend, or they sit in the wedged mailbox and this stops
-    # being the empty-mailbox case.
-    assert eventually?(fn -> :sys.get_state(pid).tracker_tasks == %{} end)
-
     :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
 
     # The symmetric failure to a backlogged orchestrator: this one wedges with
-    # an empty mailbox, so there is no backlog to corroborate the stall. A
-    # depth-gated rule would keep serving this snapshot as `:current` forever,
-    # which is the "stale renders as current" defect the Units page exists to
-    # prevent. Age alone must be enough.
+    # an empty mailbox, so no backlog corroborates the stall; a depth-gated rule
+    # would serve it as `:current` forever. Age alone must be enough. Drain the
+    # init startup-cleanup task first, or its reply and :DOWN fill the mailbox.
+    assert eventually?(fn -> :sys.get_state(pid).tracker_tasks == %{} end)
     :sys.suspend(pid)
     Process.sleep(90)
 
