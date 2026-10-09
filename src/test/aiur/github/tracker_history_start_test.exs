@@ -51,7 +51,7 @@ defmodule Aiur.GitHub.TrackerHistoryStartTest do
     end
   end
 
-  test "store absent leaves state writes unchanged" do
+  test "future regression guard: store absent leaves state writes unchanged" do
     original = Process.whereis(History)
     if original, do: Process.unregister(History)
 

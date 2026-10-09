@@ -40,7 +40,7 @@ defmodule Aiur.Orchestrator.DispatcherHistoryStartTest do
     send(pid, :release)
   end
 
-  test "failed spawn does not journal a dispatch start" do
+  test "future regression guard: failed spawn does not journal a dispatch start" do
     dir = Aiur.TestSupport.tmp_root!("failed-dispatch-history")
     on_exit(fn -> File.rm_rf!(dir) end)
     history = start_supervised!({History, name: __MODULE__.Store, repository: "acme/widgets", state_dir: dir})
