@@ -290,7 +290,8 @@ rewriting; it is intentionally not an automatic replacement.
 
 Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
 to one component in `components.json`. Add new source paths and update moved
-paths in the same PR. The required lint job runs `python3 scripts/check-components.py`;
+paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
+toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
 unowned files, equally specific competing owners and stale globs fail the check.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
 

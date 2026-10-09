@@ -48,8 +48,6 @@ defmodule Aiur.ProcessReaper do
 
   require Logger
 
-  alias Aiur.Claude.RemoteControl
-
   @type kind :: :agent | :serve
   @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()}
 
@@ -286,7 +284,7 @@ defmodule Aiur.ProcessReaper do
 
   defp default_killers do
     %{
-      kill_tree: &RemoteControl.graceful_kill_tree/1,
+      kill_tree: &Aiur.ProcessTree.graceful_kill_tree/1,
       kill_pane: &Aiur.Tmux.kill_pane/1,
       cmdline_reader: &read_cmdline/1
     }
