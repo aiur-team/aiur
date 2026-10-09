@@ -747,7 +747,7 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
   end
 
   describe "CPU sample continuity" do
-    test "cold start seeds the default cap after observing clear CPU headroom" do
+    test "cold start widens additively despite clear CPU headroom" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 10, target_load_average: 1.0)
 
       baseline = %{total: 1_000, idle: 800, runnable: 1}
@@ -760,17 +760,17 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       }
 
       seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 16, 1_000, baseline, true)
-      assert seeded.effective_concurrent_agents == 2
+      assert seeded.effective_concurrent_agents == 1
       assert seeded.load_envelope_state.last_decrease_ms == nil
-      refute seeded.load_envelope_state.bootstrap_complete?
+      assert seeded.load_envelope_state.bootstrap_complete?
 
       ramped = DispatchPolicy.update_load_envelope(seeded, 0.0, 1.0, 16, 2_000, current, true)
-      assert ramped.effective_concurrent_agents == 10
+      assert ramped.effective_concurrent_agents == 2
       assert ramped.load_envelope_state.last_decrease_ms == nil
       assert ramped.load_envelope_state.bootstrap_complete?
     end
 
-    test "cold start seeds from niced headroom despite stale high load" do
+    test "cold start cannot widen above target despite niced headroom" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
 
       previous = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
@@ -784,11 +784,11 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       seeded = DispatchPolicy.update_load_envelope(state, 143.0, 1.0, 16, 2_000, current, true)
 
-      assert seeded.effective_concurrent_agents == 8
+      assert seeded.effective_concurrent_agents == 1
       assert seeded.load_envelope_state.bootstrap_complete?
     end
 
-    test "cold seed adds idle slots to used and reserved capacity" do
+    test "cold start does not add host-sized headroom to occupied slots" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 20, target_load_average: 1.0)
 
       previous = %{total: 1_000, idle: 800, runnable: 1}
@@ -807,12 +807,12 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 16, 2_000, current, true)
 
-      assert seeded.effective_concurrent_agents == 14
-      assert Slots.available_slots(seeded) == 12
+      assert seeded.effective_concurrent_agents == 9
+      assert Slots.available_slots(seeded) == 7
       assert seeded.load_envelope_state.bootstrap_complete?
     end
 
-    test "cold seed never shrinks a warmed envelope on consecutive samples" do
+    test "additive ramp never shrinks a warmed envelope on consecutive samples" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 20, target_load_average: 1.0)
 
       previous = %{total: 1_000, idle: 800, runnable: 1}

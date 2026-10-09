@@ -26,6 +26,7 @@ defmodule Aiur.Application do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.Config
+  alias Aiur.Identity.Machine
 
   @impl true
   def start(_type, _args) do
@@ -48,6 +49,7 @@ defmodule Aiur.Application do
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    _ = Machine.ensure()
     # Write the initial heartbeat file so the Executor can detect daemon downtime.
     # Best-effort: heartbeat write failure must not crash boot.
     Aiur.DaemonHeartbeat.write!()
@@ -112,6 +114,7 @@ defmodule Aiur.Application do
       )
       |> tap(fn
         {:ok, _supervisor} ->
+          Machine.announce_degraded()
           start_upgrade_check()
           start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
 

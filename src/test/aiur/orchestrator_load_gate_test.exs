@@ -162,12 +162,12 @@ defmodule Aiur.OrchestratorLoadGateTest do
                    now_ms: 1_000
                })
 
-      assert {7, 1_000} = Orchestrator.load_envelope(4, 1_000, 13.0, options)
-      assert {8, nil} = Orchestrator.load_envelope(7, 1_000, 13.0, options)
+      assert {7, 1_000} = Orchestrator.load_envelope(4, 1_000, 10.0, options)
+      assert {8, nil} = Orchestrator.load_envelope(7, 1_000, 10.0, options)
       assert {8, nil} = Orchestrator.load_envelope(8, nil, 10.0, options)
     end
 
-    test "treats niced CPU time as reclaimable despite a large runnable queue" do
+    test "does not widen above target despite reclaimable niced CPU time" do
       options =
         envelope_options(
           static_limit: 8,
@@ -180,7 +180,7 @@ defmodule Aiur.OrchestratorLoadGateTest do
           queued_work?: true
         )
 
-      assert {7, 1_000} = Orchestrator.load_envelope(4, 1_000, 143.0, options)
+      assert {4, 1_000} = Orchestrator.load_envelope(4, 1_000, 143.0, options)
     end
 
     test "does not fast-ramp above target before a backoff records recovery state" do
