@@ -12,3 +12,11 @@ R-declared	Aiur.ModelCatalog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Os	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Prewarm.Detect	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-optional	Aiur.Codeowners	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.Codeowners.Edit	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.Executor.Handoff	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.BotIdentity	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.CiReadiness	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.HostCommand	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Labels	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Transport	baseline 1e1891997ac8426b606c104e74869622e8166791

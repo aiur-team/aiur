@@ -14,3 +14,6 @@ R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Layout	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	AiurWeb.ObservabilityPubSub	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-down	Aiur.Init.Templates	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.LaunchStateAdoption	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	AiurWeb.ObservabilityPubSub	baseline 1e1891997ac8426b606c104e74869622e8166791

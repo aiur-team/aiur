@@ -11,3 +11,12 @@ R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Remote	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-down	Aiur.Alerts	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.Orchestrator	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.Tmux	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.Alerts	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.AgentMarker	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Budget	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Config	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Credential	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.Tmux	baseline 1e1891997ac8426b606c104e74869622e8166791

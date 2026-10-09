@@ -12,3 +12,7 @@ R-declared	Aiur.Orchestrator.CommentWake	baseline 4aba33f8aae03cdaec432d6614e70a
 R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TicketBranch	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-down	Aiur.Alerts	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.DaemonLifecycle	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.Orchestrator	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.Orchestrator.CommentWake	baseline 1e1891997ac8426b606c104e74869622e8166791

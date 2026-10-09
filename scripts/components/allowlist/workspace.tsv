@@ -12,3 +12,14 @@ R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Lifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TestTicketScope	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-down	Aiur.Alerts	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.Asks	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.DecisionLog	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.Findings	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-down	Aiur.TestTicketScope	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.Alerts	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.AuthPreflight	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Client	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Config	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.GitHub.Tracker	baseline 1e1891997ac8426b606c104e74869622e8166791
+R-optional	Aiur.RunTelemetry.Lifecycle	baseline 1e1891997ac8426b606c104e74869622e8166791
