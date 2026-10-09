@@ -12,7 +12,8 @@ defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenter do
       |> Enum.map(fn {{name, reading}, index} ->
         percent = weekly_percent(reading)
         age_seconds = age_seconds(reading.observed_at)
-        %{name: name, index: index, percent: percent, freshness: reading.freshness, age_seconds: age_seconds}
+        resets_at = weekly_reset(reading)
+        %{name: name, index: index, percent: percent, freshness: reading.freshness, age_seconds: age_seconds, resets_at: resets_at}
       end)
 
     percentages = Enum.map(accounts, & &1.percent)
@@ -30,6 +31,15 @@ defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenter do
   end
 
   defp weekly_percent(_reading), do: nil
+
+  defp weekly_reset(%{reading: %{windows: windows}}) when is_list(windows) do
+    case Enum.find(windows, &(&1.window == "seven_day")) do
+      %{resets_at: %DateTime{} = resets_at} -> resets_at
+      _missing -> nil
+    end
+  end
+
+  defp weekly_reset(_reading), do: nil
 
   defp age_seconds(%DateTime{} = observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :second), 0)
   defp age_seconds(_observed_at), do: nil
