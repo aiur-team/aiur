@@ -108,7 +108,7 @@ defmodule Aiur.BuildProgress do
          freshness: freshness,
          observed_at: observed_at
        }) do
-    kind in [:queue, :build_order] and valid_identity?(id) and valid_identity?(generation) and
+    kind in [:queue, :build_order] and valid_identity?(id) and valid_generation?(generation) and
       valid_counts?(completed, resolved, total) and
       valid_percent?(percent) and
       resolution in [:resolved, :partial, :unresolved, :unknown] and freshness in [:current, :stale, :unknown] and
@@ -117,6 +117,7 @@ defmodule Aiur.BuildProgress do
 
   defp valid_fact?(_fact), do: false
   defp valid_identity?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value > 0)
+  defp valid_generation?(value), do: (is_integer(value) and value >= 0) or (is_binary(value) and value != "")
   defp valid_percent?(nil), do: true
   defp valid_percent?(percent), do: is_number(percent) and percent >= 0 and percent <= 100
 
@@ -197,7 +198,8 @@ defmodule Aiur.BuildProgress do
   defp valid_latch?({key, milestone}) do
     case Jason.decode(key) do
       {:ok, [kind, id, generation]} ->
-        kind in ["queue", "build_order"] and valid_identity?(id) and valid_identity?(generation) and (milestone in [25, 50, 75, 100] or (kind == "build_order" and milestone == 0))
+        kind in ["queue", "build_order"] and valid_identity?(id) and valid_generation?(generation) and
+          (milestone in [25, 50, 75, 100] or (kind == "build_order" and milestone == 0))
 
       _ ->
         false
