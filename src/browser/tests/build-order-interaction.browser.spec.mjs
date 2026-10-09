@@ -180,6 +180,7 @@ test('cards stay keyboard-openable and dependency highlight pins without mutatio
           document.documentElement.dataset.palette = palette
           document.documentElement.dataset.theme = theme
         }, { palette, theme })
+        await page.waitForFunction(() => document.body.getAnimations().every(animation => animation.playState !== 'running'))
         const results = await new AxeBuilder({ page }).analyze()
         expect(results.violations, `${palette} ${theme}`).toEqual([])
       }
