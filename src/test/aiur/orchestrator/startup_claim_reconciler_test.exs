@@ -263,6 +263,14 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert repeated_log =~ "retry 2/3"
     refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 100
 
+    {deferred_state, [^issue]} =
+      reconcile(repeated_state, [issue],
+        open_pr_fetcher: fn _identifier -> {:error, :read_deferred} end,
+        update_issue_state_fun: fn _, _, _ -> flunk("unavailable PR evidence must not write") end
+      )
+
+    assert deferred_state.startup_claim_reconciliation_failures["2076"].attempts == 2
+
     # The third failure reaches the per-ticket cap: the claim is latched and
     # the pass completes instead of reaping forever.
     final_log =
@@ -270,7 +278,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         send(
           parent,
           {:final_result,
-           reconcile(repeated_state, [issue],
+           reconcile(deferred_state, [issue],
              update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
                {:error, :tracker_unavailable}
              end,

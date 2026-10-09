@@ -172,8 +172,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         {:ok, state, %{issue | state: target, state_labels: [target]}}
 
       {:defer, reason} ->
-        emit_release_failed(state, issue, reason, 0, opts)
-        failures = Map.put(state.startup_claim_reconciliation_failures, issue.identifier, %{reason: reason, attempts: 0})
+        attempts = get_in(state.startup_claim_reconciliation_failures, [issue.identifier, :attempts]) || 0
+        emit_release_failed(state, issue, reason, attempts, opts)
+        failures = Map.put(state.startup_claim_reconciliation_failures, issue.identifier, %{reason: reason, attempts: attempts})
         {:retry, %{state | startup_claim_reconciliation_failures: failures}, issue}
 
       {:error, reason} ->
