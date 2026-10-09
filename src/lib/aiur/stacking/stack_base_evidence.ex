@@ -20,7 +20,8 @@ defmodule Aiur.Stacking.StackBaseEvidence do
     end
   end
 
-  defp blocker_facts(target) do
+  @spec blocker_facts(String.t()) :: [map()]
+  def blocker_facts(target) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, %{data: blockers}} when is_list(blockers) <- ResourceStore.fetch(ResourceStore.key(:issue_blocked_by, owner, repo, target)),
          true <- Enum.all?(blockers, &valid_edge?/1) do

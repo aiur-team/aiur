@@ -146,6 +146,8 @@ The bare `progress` / `progress.checkin` emits that drive the Executor’s
 agent-list bar are a separate, Executor-facing protocol — see "Progress emits"
 and "Executor check-ins" below, not the skill.
 
+On `ticket.<B>.pr.merged`, a live dependent must follow the aiur-agent dev-loop’s “After the blocker merges: restack” recipe before integrating the base. The daemon restacks only idle dependents.
+
 ### Progress emits — 1-of-10 estimate at phase boundaries
 
 The Executor’s only at-a-glance signal for "how far is each agent" is the progress bar in the agent list. You populate it by emitting the bare `progress` event with a numeric percent. The bar is 10 cells wide; each 10% step fills exactly one cell.
@@ -296,3 +298,5 @@ blocker or use focused non-manual tests. Do not retry by copying the repo to
 `/tmp`, cloning another checkout, changing wrapper tmux names, or otherwise
 constructing an alternate harness. Executor-root manual test runs are allowed
 only outside agent turns.
+
+A resumed dependent with `refs/aiur/restack/pending/<branch>` or `refs/aiur/restack/conflict/<branch>` must inspect that receipt and follow the restack recipe before ordinary base integration. The startup hook preserves local divergence and conflict receipts for you to reconcile.
