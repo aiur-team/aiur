@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Writer do
   @moduledoc "Serial label writes with durable intents and a rolling minute write budget."
   alias Aiur.BuildQueue.Model.Latch
-  alias Aiur.BuildQueue.WriteProtocol
+  alias Aiur.BuildQueue.{WriteEvidence, WriteProtocol}
 
   @spec new() :: map()
   def new, do: %{writes: [], failures: %{}, ensured?: false, paused?: false}
@@ -23,19 +23,7 @@ defmodule Aiur.BuildQueue.Writer do
   defp execute(_action, context), do: {:cont, context}
 
   defp retry(context, action, id, delays) do
-    if action == :promote and not fresh?(context, id), do: record(context, action, id, {:error, :stale_observation}), else: attempt(context, action, id, delays)
-  end
-
-  defp fresh?(context, id) do
-    prerequisites = for edge <- context.document.edges, edge.dependent == id, do: edge.prerequisite
-    now = context.clock.()
-
-    Enum.all?([id | prerequisites], fn subject ->
-      case context.observations[subject] do
-        nil -> false
-        observation -> observation.observed_at_ms <= now and now - observation.observed_at_ms <= context.observation_max_age_ms
-      end
-    end)
+    if action == :promote and not WriteEvidence.fresh?(context, id), do: record(context, action, id, {:error, :stale_observation}), else: attempt(context, action, id, delays)
   end
 
   defp attempt(context, action, id, delays) do

@@ -19,6 +19,7 @@ defmodule Aiur.BuildQueueFakeTracker do
     case result do
       :ok ->
         put(:document, document)
+        put(:now, clock() + (get(:save_advance_ms) || 0))
         :ok
 
       error ->

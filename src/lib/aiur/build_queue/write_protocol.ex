@@ -1,6 +1,7 @@
 defmodule Aiur.BuildQueue.WriteProtocol do
   @moduledoc false
   alias Aiur.BuildQueue.Model.Intent
+  alias Aiur.BuildQueue.WriteEvidence
 
   @spec attempt(map(), atom(), String.t(), map()) :: {map(), :ok | {:error, term()}}
   def attempt(context, action, id, runtime) do
@@ -14,7 +15,7 @@ defmodule Aiur.BuildQueue.WriteProtocol do
   end
 
   defp write(context, intent, runtime) do
-    result = call(context.tracker, intent.action, intent.issue_id, context.marker, runtime)
+    result = execute(context, intent, runtime)
     document = %{context.document | intents: Enum.map(context.document.intents, fn row -> if row.id == intent.id, do: %{row | outcome: result}, else: row end)}
     document = provenance(document, intent, result, context.clock.())
 
@@ -23,6 +24,12 @@ defmodule Aiur.BuildQueue.WriteProtocol do
       {:error, reason} -> {%{context | document: document, status: :store_unavailable}, {:error, reason}}
     end
   end
+
+  defp execute(context, %{action: :promote, issue_id: id} = intent, runtime) do
+    if WriteEvidence.fresh?(context, id), do: call(context.tracker, intent.action, id, context.marker, runtime), else: {:error, :stale_observation}
+  end
+
+  defp execute(context, intent, runtime), do: call(context.tracker, intent.action, intent.issue_id, context.marker, runtime)
 
   defp call(tracker, :promote, id, _marker, _runtime), do: tracker.update_issue_state(id, "todo", expected_state: :none)
   defp call(tracker, :mark, id, marker, %{ensured?: true}), do: tracker.add_label(id, marker)
@@ -50,6 +57,7 @@ defmodule Aiur.BuildQueue.WriteProtocol do
 
   @spec classify(:ok | {:error, term()}) :: :ok | :reobserve | :paused | :retry
   def classify(:ok), do: :ok
+  def classify({:error, :stale_observation}), do: :reobserve
   def classify({:error, {:stale_issue_state, :none, _}}), do: :reobserve
   def classify({:error, {:no_state_label_written, _}}), do: :reobserve
   def classify({:error, {:github, kind, _}}) when kind in [:rate_limited, :local_hold], do: :paused

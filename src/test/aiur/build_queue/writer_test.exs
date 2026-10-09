@@ -96,6 +96,15 @@ defmodule Aiur.BuildQueue.WriterTest do
     assert calls() == [{:ensure_labels, ["agent:queued"]}, {:add_label, "1", "agent:queued"}]
   end
 
+  test "slow intent save cannot turn expired evidence into a tracker write", %{document: document} do
+    Fake.put(:save_advance_ms, 10_001)
+    context = Map.put(context(document), :observation_max_age_ms, 10_000)
+    result = Writer.run(context, [{:promote, "1"}], Writer.new())
+    assert calls() == []
+    assert [%{outcome: {:error, :stale_observation}}] = result.document.intents
+    assert result.writer.failures == %{}
+  end
+
   test "intent is saved before call with complete target labels; save failure makes no call", %{document: document} do
     run(document, [{:promote, "1"}])
     [{_, saved}, _] = Fake.get(:calls)
