@@ -35,8 +35,8 @@
     },
     {
       "id": "signal", "name": "Signal and telemetry port", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/log_file.ex", "src/lib/aiur/perf.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur/log_file.ex", "src/lib/aiur/perf.ex", "src/lib/aiur/signal.ex"],
+      "facades": ["Aiur.LogFile", "Aiur.Perf", "Aiur.Signal"], "facade_pending": null,
       "requires": ["kernel", "event-bus"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": []
@@ -234,7 +234,7 @@
       "id": "projections", "name": "Current-run read models", "layer": 3, "kind": "required",
       "paths": ["src/lib/aiur/projections/**", "src/lib/aiur/current_run_projections.ex", "src/lib/aiur/current_run_projections/**", "src/lib/aiur/current_run_projection/**", "src/lib/aiur/current_run_outcome_snapshot.ex", "src/lib/aiur/current_run_outcome_snapshot/**", "src/lib/aiur/current_run_summary.ex", "src/lib/aiur/current_run_summary/**", "src/lib/aiur/progress_retention.ex", "src/lib/aiur/progress_tracker.ex", "src/lib/aiur/ticket_activity.ex", "src/lib/aiur/ticket_activity/**"],
       "facades": ["Aiur.CurrentRunProjections", "Aiur.CurrentRunOutcomeSnapshot", "Aiur.CurrentRunSummary", "Aiur.TicketActivity", "Aiur.ProgressRetention", "Aiur.ProgressTracker", "Aiur.Projections.UnitsRow", "Aiur.Projections.UnitsPolicy", "Aiur.Projections.UnitsRow.Sources"], "facade_pending": null,
-      "requires": ["agent-runner", "event-bus", "tracker", "kernel", "orchestration"], "optional": ["conversations", "github-listeners"],
+      "requires": ["agent-runner", "event-bus", "tracker", "kernel", "orchestration", "signal"], "optional": ["conversations", "github-listeners"],
       "owns": {"config": [], "env": [], "state": ["progress_retention_state_dir"], "capabilities": []},
       "prior": ["PRJ"]
     },
@@ -282,7 +282,7 @@
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur_web/routes/dashboard_pages.ex", "src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-kit", "web-shell", "projections", "kernel", "orchestration"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server", "github", "ticket-context"],
+      "requires": ["web-kit", "web-shell", "projections", "kernel", "orchestration", "signal"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server", "github", "ticket-context"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },

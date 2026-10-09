@@ -49,14 +49,12 @@ R-declared	Aiur.Workspace.Layout	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade8
 R-declared	Aiur.Workspace.Ownership	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Ownership.HoldStatus	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.WipPreservation	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	AiurWeb.ObservabilityPubSub	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.HttpServer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Init.AgentCli	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.SlotRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.TestTicketScope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-down	AiurWeb.ObservabilityPubSub	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts.UsageReadings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -99,4 +97,3 @@ R-optional	Aiur.SystemMemory	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	AiurWeb.ObservabilityPubSub	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

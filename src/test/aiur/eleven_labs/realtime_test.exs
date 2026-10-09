@@ -30,25 +30,23 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
     @impl true
     def connect(url, headers) do
-      send(observer(), {:transport_connect, url, headers})
-      {:ok, self()}
+      # GenServer records its starter even when the session has a different owner.
+      [observer | _] = Process.get(:"$ancestors")
+      send(observer, {:transport_connect, url, headers})
+      {:ok, observer}
     end
 
     @impl true
     def send_text(conn, text) do
-      send(observer(), {:transport_send, text})
+      send(conn, {:transport_send, text})
       {:ok, conn}
     end
 
     @impl true
-    def close(_conn) do
-      if observer = observer(), do: send(observer, :transport_close)
+    def close(conn) do
+      send(conn, :transport_close)
       :ok
     end
-
-    # The transport runs inside the session process, so it reaches the test
-    # through a registered name rather than a closure.
-    defp observer, do: Process.whereis(:realtime_test_observer)
   end
 
   defmodule FailingTransport do
@@ -74,24 +72,26 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
     @behaviour Aiur.ElevenLabs.Realtime.Transport
 
     @impl true
-    def connect(url, headers) do
-      send(Process.whereis(:realtime_test_observer), {:transport_connect, url, headers})
-      {:ok, self()}
-    end
+    def connect(url, headers), do: FakeTransport.connect(url, headers)
 
     @impl true
     def send_text(_conn, _text), do: {:error, :closed}
 
     @impl true
-    def close(_conn) do
-      send(Process.whereis(:realtime_test_observer), :transport_close)
-      :ok
-    end
+    def close(conn), do: FakeTransport.close(conn)
   end
 
-  setup do
-    Process.register(self(), :realtime_test_observer)
-    :ok
+  test "transport observation works while the former shared name is occupied" do
+    observer = start_supervised!({Agent, fn -> :unused end})
+    true = Process.register(observer, :realtime_test_observer)
+
+    for transport <- [FakeTransport, FailingSendTransport] do
+      session = ready_session(transport: transport)
+      Realtime.stop(session)
+      assert_receive :transport_close, 1000
+    end
+
+    assert Process.whereis(:realtime_test_observer) == observer
   end
 
   describe "the credential" do
