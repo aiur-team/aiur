@@ -156,6 +156,13 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     refute output =~ "not found"
   end
 
+  test "an unreachable queue server never reports success" do
+    for opts <- [[verb: :add, ids: ["1"]], [verb: :remove, ids: ["1"]], [verb: :hold, queue: "default"]] do
+      output = capture_io(fn -> assert Aiur.BuildQueueCLI.run([{:server, :absent_queue_server}, {:error_fun, &IO.puts/1} | opts]) == 1 end)
+      refute output =~ ": ok"
+    end
+  end
+
   test "invalid direct RPC arguments cannot mutate", %{server: pid} do
     for opts <- [
           [verb: :add, ids: ["1", "1"]],

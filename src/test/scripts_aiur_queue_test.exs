@@ -38,6 +38,12 @@ defmodule Aiur.ScriptsQueueTest do
     for verb <- ["hold", "release"], do: assert({_, 0} = command([verb, "--queue", "paseo"]))
   end
 
+  test "a failed or timed-out RPC exits non-zero" do
+    assert {_, 1} = command(["add", "1"], [{"TEST_QUEUE_RPC_STATUS", "1"}])
+    assert {output, 124} = command(["remove", "1"], [{"TEST_QUEUE_RPC_STATUS", "124"}])
+    assert output =~ "outcome unknown"
+  end
+
   # Refusal-only inputs also passed the old show-only parser; valid verb wiring is covered above.
   test "future regression: malformed verbs flags and incompatible targets never attempt RPC" do
     for args <- [
@@ -59,10 +65,10 @@ defmodule Aiur.ScriptsQueueTest do
 
   defp command(args, overrides \\ []) do
     script =
-      "source \"$1\"; shift; PWD=${TEST_QUEUE_PWD:-$PWD}; run_control_rpc() { echo \"RPC:$1 TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}\"; }; todo_rpc_seconds() { echo $((15 + 3 * $1)); }; cmd_queue \"$@\""
+      "source \"$1\"; shift; PWD=${TEST_QUEUE_PWD:-$PWD}; run_control_rpc() { echo \"RPC:$1 TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}\"; return ${TEST_QUEUE_RPC_STATUS:-0}; }; todo_rpc_seconds() { echo $((15 + 3 * $1)); }; cmd_queue \"$@\""
 
     env =
-      [{"AIUR_AGENT_WORKSPACE", ""}, {"AIUR_PROJECT_ROOT", ""}, {"AIUR_REPO_ROOT", ""}, {"PWD", "/tmp"}, {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", nil}]
+      [{"AIUR_AGENT_WORKSPACE", ""}, {"AIUR_PROJECT_ROOT", ""}, {"AIUR_REPO_ROOT", ""}, {"TEST_QUEUE_RPC_STATUS", nil}, {"PWD", "/tmp"}, {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", nil}]
       |> Map.new()
       |> Map.merge(Map.new(overrides))
       |> Map.to_list()

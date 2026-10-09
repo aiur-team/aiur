@@ -179,6 +179,12 @@ focused test runner, test-tree paths and CI gate at each step.
    file the same length or shorter. Put new code in a new small module and new
    tests in a new test file. Never grow the oversized file.
 
+   Append new `Aiur.Application.child_specs/1` children after the existing
+   children (including CLI children). `application_child_order_test.exs` pins
+   their `:rest_for_one` order: a middle insertion restarts later siblings on
+   crash. An earlier startup requires a commented `@early_start_exceptions`
+   entry in that test explaining the dependency; never extend its baseline.
+
    CI's `make ci` is the authoritative full lint and full-suite gate.
 
    **Use `--trace` only with a specific `file:line`, never with a bare file or
