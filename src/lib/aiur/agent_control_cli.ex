@@ -1348,19 +1348,7 @@ defmodule Aiur.AgentControlCLI do
 
   @doc "Parks paused tickets without changing their workflow state."
   @spec park([String.t()]) :: :ok
-  def park(targets) when is_list(targets) do
-    guarded("park", fn ->
-      results = Enum.map(targets, fn id -> {id, Orchestrator.park_agent(to_string(id))} end)
-
-      Enum.each(results, fn
-        {id, {:ok, :pending}} -> IO.puts("parking ##{id}; tracker marker write pending")
-        {id, {:ok, :already_parked}} -> IO.puts("##{id} already parked")
-        {id, {:error, reason}} -> IO.puts(:stderr, "✗ ##{id} could not be parked: #{Reasons.format_reason(reason)}")
-      end)
-
-      exit_marker(if Enum.any?(results, &match?({_, {:error, _}}, &1)), do: 1, else: 0)
-    end)
-  end
+  defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
 
   # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
   # dispatch latch. Clears the in-memory + durable budget entries so a latched

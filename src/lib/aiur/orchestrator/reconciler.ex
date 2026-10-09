@@ -712,7 +712,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         PauseResume.replace_completed_issue(state, running_entry, issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
-        if deactivated_issue_parked?(running_entry, issue),
+        if Issue.parked?(issue, running_entry),
           do: refresh_running_entry_issue(state, issue, running_entry),
           else: reactivate_deactivated_issue(state, running_entry, issue)
 
@@ -727,9 +727,6 @@ defmodule Aiur.Orchestrator.Reconciler do
         refresh_running_issue_state(state, issue)
     end
   end
-
-  defp deactivated_issue_parked?(running_entry, issue),
-    do: Issue.parked?(issue) or Map.get(running_entry, :operator_parked) == true
 
   defp reactivate_deactivated_issue(state, running_entry, issue) do
     new_entry = Map.put(running_entry, :issue, issue)

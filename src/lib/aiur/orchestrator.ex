@@ -768,8 +768,7 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_identifier),
       do: PauseResume.pause_agent_call(state, issue_identifier)
 
-  def handle_call({:park_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
-    do: PauseResume.park_agent_call(state, issue_identifier)
+  def handle_call({:park_agent, issue_identifier}, _from, state) when is_binary(issue_identifier), do: PauseResume.park_agent_call(state, issue_identifier)
 
   def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
     do: PauseResume.pause_agent_call(state, identity)
