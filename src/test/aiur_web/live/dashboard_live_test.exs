@@ -1502,7 +1502,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     cache = AiurWeb.Endpoint.config(:control_center_cache)
     touch_cached_payloads(cache)
-    assert map_size(:sys.get_state(cache)) == 1
+    assert map_size(:sys.get_state(cache).entries) == 1
     assert cached_payloads_fresh?(cache, 400)
 
     restarted_payload = PayloadLoader.load(:cached)
@@ -1523,7 +1523,7 @@ defmodule AiurWeb.DashboardLiveTest do
       end)
 
     assert GenServer.whereis(metrics_name) == final_metrics
-    assert map_size(:sys.get_state(cache)) == 8
+    assert map_size(:sys.get_state(cache).entries) == 8
     drain_metrics_notifications()
   end
 
@@ -6564,10 +6564,9 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp expire_cached_payloads(cache) do
-    :sys.replace_state(cache, fn entries ->
-      Map.new(entries, fn {key, entry} ->
-        {key, %{entry | loaded_at_ms: entry.loaded_at_ms - 60_000}}
-      end)
+    :sys.replace_state(cache, fn state ->
+      entries = Map.new(state.entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: entry.loaded_at_ms - 60_000}} end)
+      %{state | entries: entries}
     end)
   end
 
@@ -6626,16 +6625,16 @@ defmodule AiurWeb.DashboardLiveTest do
   defp touch_cached_payloads(cache) do
     loaded_at_ms = System.monotonic_time(:millisecond)
 
-    :sys.replace_state(cache, fn entries ->
-      Map.new(entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: loaded_at_ms}} end)
+    :sys.replace_state(cache, fn state ->
+      entries = Map.new(state.entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: loaded_at_ms}} end)
+      %{state | entries: entries}
     end)
   end
 
   defp cached_payloads_fresh?(cache, max_age_ms) do
     now_ms = System.monotonic_time(:millisecond)
 
-    cache
-    |> :sys.get_state()
+    :sys.get_state(cache).entries
     |> Map.values()
     |> Enum.all?(&(now_ms - &1.loaded_at_ms < max_age_ms))
   end

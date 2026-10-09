@@ -17,7 +17,7 @@ defmodule Aiur.BuildQueue.Codec do
      ]},
     {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :native]}]},
     {:intents, Intent, [id: :string, issue_id: :issue_id, action: {:enum, [:promote, :withdraw, :mark, :unmark]}, target_labels: :strings, recorded_at_ms: :nonnegative, outcome: :outcome]},
-    {:latches, Latch, [key: :key, opened_at_ms: :nonnegative]}
+    {:latches, Latch, [key: :key, opened_at_ms: :nonnegative, emitted?: {:default, :boolean, true}]}
   ]
 
   @spec encode(Model.t()) :: map()
@@ -34,6 +34,7 @@ defmodule Aiur.BuildQueue.Codec do
   end
 
   defp encode_value(nil, _type), do: nil
+  defp encode_value(value, {:default, type, _}), do: encode_value(value, type)
   defp encode_value(value, {:nullable, type}), do: encode_value(value, type)
   defp encode_value(value, {:enum, _}), do: Atom.to_string(value)
   defp encode_value(value, :datetime), do: DateTime.to_iso8601(value)
@@ -105,7 +106,7 @@ defmodule Aiur.BuildQueue.Codec do
     Enum.reduce_while(fields, {:ok, %{}}, fn {field, type}, {:ok, acc} ->
       field_path = path ++ [Atom.to_string(field)]
 
-      with {:ok, value} <- Map.fetch(record, Atom.to_string(field)),
+      with {:ok, value} <- fetch_field(record, field, type),
            {:ok, decoded} <- decode_value(value, type) do
         {:cont, {:ok, Map.put(acc, field, decoded)}}
       else
@@ -118,6 +119,12 @@ defmodule Aiur.BuildQueue.Codec do
   defp decode_record(_, _, _, path), do: invalid(path)
   defp build_record({:ok, fields}, module), do: {:ok, struct!(module, fields)}
   defp build_record(error, _module), do: error
+
+  # Older latches predate retry tracking and represent already-open attentions.
+  defp fetch_field(record, field, {:default, _, default}), do: {:ok, Map.get(record, Atom.to_string(field), default)}
+  defp fetch_field(record, field, _), do: Map.fetch(record, Atom.to_string(field))
+
+  defp decode_value(value, {:default, type, _}), do: decode_value(value, type)
 
   defp decode_value(nil, {:nullable, _}), do: {:ok, nil}
   defp decode_value(value, {:nullable, type}), do: decode_value(value, type)

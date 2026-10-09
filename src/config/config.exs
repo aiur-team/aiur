@@ -141,6 +141,7 @@ if config_env() == :test do
   # Durable runtime state (event-ID counter, subscriptions, session handles,
   # alert ledger; #2722) survives a restart by design, so it needs the same
   # per-VM isolation. Aiur.TestSupport gives each case its own root.
+  config :aiur, :machine_state_dir, Path.join(test_log_root, "machine")
   config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
