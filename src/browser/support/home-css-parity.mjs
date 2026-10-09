@@ -54,6 +54,7 @@ export async function transplant(browser, cell) {
         const prefix = /^(kimi|deepseek)-logo/.test(file) ? '/build-home/logos/' : '/provider-assets/'
         e.setAttribute('src', prefix + file)
       })
+      document.getAnimations().forEach(a => { if (!(a instanceof CSSTransition)) { a.pause(); a.currentTime = 0 } })
     }, data)
     await pair.product.evaluate(() => document.fonts.ready)
     await pair.product.evaluate(() => document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish() }))
@@ -70,10 +71,12 @@ export async function transplant(browser, cell) {
       Object.entries(data.inherited).forEach(([k, v]) => wrapper.style.setProperty(k, v))
       document.body.replaceChildren(wrapper)
       nodes.forEach(root => (root.id === 'build-root' ? wrapper : document.body).append(root))
+      document.getAnimations().forEach(a => { if (!(a instanceof CSSTransition)) { a.pause(); a.currentTime = 0 } })
     }, { roots: ROOTS, data })
     for (const page of [pair.design, pair.product]) await page.evaluate(({ roots, scroll }) => {
       [...document.querySelectorAll(roots)].flatMap(root => [root, ...root.querySelectorAll('*')]).forEach((e, i) => { e.scrollLeft = scroll[i][0]; e.scrollTop = scroll[i][1] })
     }, { roots: ROOTS, scroll: data.scroll })
+    for (const page of [pair.design, pair.product]) await page.mouse.move(0, 0)
     for (const page of [pair.design, pair.product]) await page.evaluate(() => { document.getAnimations().forEach(a => { a.pause(); a.currentTime = 0 }) })
     return pair
   } catch (error) { await pair.close(); throw error }
