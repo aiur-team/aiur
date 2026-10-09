@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import time
-from components.reference_rules import RULES, edge_rules, report_cycles
+from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -102,6 +102,13 @@ def load_manifest(root):
         for pattern in component['paths']:
             if pattern.startswith('/') or any(p in ('', '.', '..') for p in pattern.split('/')) or '\\' in pattern:
                 raise InvalidManifest(f'/components/{index}/paths: expected repository-relative glob')
+    for collection in ('seams', 'ports'):
+        for index, edge in enumerate(manifest.get(collection, [])):
+            if edge['from'] not in ids:
+                raise InvalidManifest(f'/{collection}/{index}/from: unknown component {edge["from"]}')
+            for pattern in edge.get('only_paths', []):
+                if pattern.startswith('/') or any(p in ('', '.', '..') for p in pattern.split('/')) or '\\' in pattern:
+                    raise InvalidManifest(f'/{collection}/{index}/only_paths: expected repository-relative glob')
     return manifest
 
 
@@ -197,15 +204,24 @@ def module_violations(root, manifest, file_owners):
     components = {c['id']: c for c in manifest['components']}
     graph = {cid: set() for cid in components}
     violations, unresolved = {}, set()
-    for _, path, source_module, target, _, line in references:
+    for _, path, source_module, target, kind, line in references:
         # Match ownership's tracked-file boundary, including in dirty worktrees.
         if path not in file_owners:
+            continue
+        source = file_owners[path]
+        component = components[source]
+        strict, seam = seam_rules(manifest, component, target,
+                                  'reference' if kind in ('alias', 'literal') else kind, path)
+        for rule in strict:
+            violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
+        # Preserve the structural graph's exclusion of declarations and literals.
+        if kind in ('alias', 'literal'):
             continue
         if target not in modules:
             if target.startswith(('Aiur.', 'AiurWeb.')):
                 unresolved.add(target)
             continue
-        source, destination = file_owners[path], modules[target]
+        destination = modules[target]
         if source == destination:
             continue
         component, provider = components[source], components[destination]
@@ -213,6 +229,8 @@ def module_violations(root, manifest, file_owners):
         if path == 'src/lib/aiur.ex':
             continue
         for rule in edge_rules(component, provider, target):
+            if seam and rule in ('R-declared', 'R-optional'):
+                continue
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
     print(f'components: Elixir: {len(modules)} modules, {len(references)} references; '
           f'{len(unresolved)} unresolved internal targets; {time.monotonic() - started:.3f} s')
@@ -255,7 +273,7 @@ def write_baseline(root, manifest, violations, rules):
 
 def check_references(root, manifest, file_owners, baseline, rules):
     violations = module_violations(root, manifest, file_owners)
-    violations = {key: location for key, location in violations.items() if key[0] in rules}
+    violations = {key: location for key, location in violations.items() if key[0] in rules + STRICT_RULES}
     if baseline:
         write_baseline(root, manifest, violations, rules)
     allowed = read_allowlist(root, manifest)

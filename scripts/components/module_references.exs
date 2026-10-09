@@ -1,8 +1,8 @@
 # Ported from research/refactor-findings f09e6e5d0, tooling/module_references.exs.
 # Parse source without compiling/loading project modules. Output is TSV:
 # M path module; R path source target kind line. This is a source-reference
-# graph, not a runtime call graph. Docs and alias declarations are excluded
-# from reference edges; imports, uses, behaviours and type references remain.
+# graph, not a runtime call graph. Docs are excluded; aliases/literals are
+# emitted separately for non-allowlistable namespace restrictions.
 defmodule ComponentModuleReferences do
   def run(root, paths \\ nil) do
     (paths || Path.wildcard(Path.join(root, "src/lib/**/*.ex")))
@@ -33,9 +33,10 @@ defmodule ComponentModuleReferences do
 
   defp walk({:__block__, _, expressions}, env), do: Enum.reduce(expressions, env, &walk/2)
 
-  defp walk({:alias, _, [target | opts]}, env) do
+  defp walk({:alias, metadata, [target | opts]}, env) do
     options = List.flatten(opts)
     names = alias_names(target, env)
+    Enum.each(names, &emit(&1, "alias", metadata[:line] || 0, env))
 
     aliases =
       Enum.reduce(names, env.aliases, fn name, aliases ->
@@ -53,11 +54,13 @@ defmodule ComponentModuleReferences do
 
   defp walk({:@, _, [{attribute, _, _}]}, env) when attribute in [:doc, :moduledoc, :typedoc], do: env
 
-  defp walk({:__aliases__, metadata, _} = reference, env) do
-    if env.module do
-      IO.puts(Enum.join(["R", env.path, env.primary, resolve(reference, env), "reference", metadata[:line] || 0], "\t"))
-    end
+  defp walk({:@, metadata, [{:behaviour, _, [target]}]}, env) do
+    emit(resolve(target, env), "behaviour", metadata[:line] || 0, env)
+    env
+  end
 
+  defp walk({:__aliases__, metadata, _} = reference, env) do
+    emit(resolve(reference, env), "reference", metadata[:line] || 0, env)
     env
   end
 
@@ -75,7 +78,17 @@ defmodule ComponentModuleReferences do
     env
   end
 
+  defp walk(value, env) when is_binary(value) or is_atom(value) do
+    value = to_string(value) |> String.trim_leading("Elixir.")
+    if Regex.match?(~r/^(Aiur|AiurWeb)(\.[A-Z][A-Za-z0-9_]*)+$/, value), do: emit(value, "literal", 0, env)
+    env
+  end
+
   defp walk(_, env), do: env
+
+  defp emit(target, kind, line, env) do
+    if env.module, do: IO.puts(Enum.join(["R", env.path, env.primary, target, kind, line], "\t"))
+  end
 
   defp alias_names({{:., _, [prefix, :{}]}, _, children}, env) do
     for child <- children, do: resolve(prefix, env) <> "." <> resolve(child, %{env | aliases: %{}})

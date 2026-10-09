@@ -141,10 +141,11 @@
     {
       "id": "build-queue", "name": "Build queue (MP-E1, new; ships before the refactor on a seam)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur/build_queue/**", "src/lib/aiur_web/build_queue/**"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "facades": ["Aiur.BuildQueue", "Aiur.BuildQueue.Hints", "Aiur.BuildQueue.ClaimProbe", "Aiur.BuildQueueCLI", "AiurWeb.BuildQueue.Runtime"], "facade_pending": null,
       "requires": ["tracker", "event-bus", "config", "identity", "kernel", "executor-attention"], "optional": ["build-orders"],
       "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
-      "prior": []
+      "prior": [],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "Aiur.GitHub", "Aiur.GitHub.*"]
     },
     {
       "id": "commands", "name": "Commands (code: Decisions) and Asks", "layer": 3, "kind": "required",
@@ -176,7 +177,8 @@
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["harness-adapters", "event-bus", "config", "identity"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
-      "prior": []
+      "prior": [],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "AiurWeb.Router", "AiurWeb.Endpoint"]
     },
     {
       "id": "machine-gateway", "name": "Machine gateway process and the `aiur_machine` store library (MP-N2)", "layer": 3, "kind": "optional",
@@ -371,5 +373,7 @@
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": []
     }
-  ]
+  ],
+  "seams": [{"from": "orchestration", "to_module": "Aiur.BuildQueue.Hints", "kind": "reference", "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "behaviour", "reason": "MP-E1 X-1: orchestration implements the claim-probe port"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder.*", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "reference", "only_paths": ["src/lib/aiur/orchestrator/build_queue_claim_probe.ex"], "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"}],
+  "ports": [{"from": "orchestration", "to_module": "Aiur.Listener.DeliveryTarget", "kind": "behaviour", "reason": "RC-36: orchestration implements listener delivery; listener-modes must not depend on orchestration"}, {"from": "orchestration", "to_module": "Aiur.Commands.DeliveryTarget", "kind": "behaviour", "reason": "CR-C8-3: orchestration implements Command delivery; activation belongs to MP-R1-C8-T02"}, {"from": "web-shell", "to_module": "AiurWeb.Routes.*", "kind": "reference", "reason": "RC-39: downward composition of optional component routes"}, {"from": "web-shell", "to_module": "AiurWeb.Sockets.*", "kind": "reference", "reason": "RC-39: downward composition of optional component sockets"}]
 }
