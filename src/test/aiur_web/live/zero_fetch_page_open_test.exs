@@ -72,9 +72,9 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   setup context do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
-    # Drop prior comment retries/tasks before installing the VM-wide counter.
+    # Keep comment retries and startup cleanup outside the VM-wide measurement.
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
-    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
+    on_exit(fn -> {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator) end)
 
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
     # and asserts it reaches the transport. That URL is now cacheable
