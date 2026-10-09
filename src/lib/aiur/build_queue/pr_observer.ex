@@ -59,6 +59,8 @@ defmodule Aiur.BuildQueue.PRObserver do
     end
   end
 
+  defp publish(_id, _pr, state), do: state
+
   defp publish_event(id, payload) do
     Publisher.publish("ticket.#{id}.pr.closed_unmerged", payload)
   rescue
@@ -66,6 +68,4 @@ defmodule Aiur.BuildQueue.PRObserver do
   catch
     :exit, reason -> {:error, {:publication_unavailable, reason}}
   end
-
-  defp publish(_id, _pr, state), do: state
 end
