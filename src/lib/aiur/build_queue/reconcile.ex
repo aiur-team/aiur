@@ -23,7 +23,13 @@ defmodule Aiur.BuildQueue.Reconcile do
         recent? or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
       end)
 
-    opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
+    opts = [
+      label_prefix: state.settings.tracker.github.label_prefix,
+      observation_max_age_ms: Settings.observation_max_age_ms(state.settings),
+      withdrawal_holds: state.holds,
+      merged_open_grace_ms: state.settings.build_queue.merged_open_grace_seconds * 1000
+    ]
+
     {observations, cache} = closures(state, observations)
     {observations, published} = PRObserver.observe(observations, state)
     input = %{input | opts: opts, observations: observations, intents: intents}
