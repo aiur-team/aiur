@@ -154,7 +154,17 @@ defmodule Aiur.BuildQueue.PRObserverTest do
   end
 
   defp deposit(changes) do
-    body = %{"number" => 77, "state" => "closed", "merged" => false, "merged_at" => nil, "updated_at" => "2026-10-08T00:00:00Z", "head" => %{"ref" => "aiur/#{ticket_id()}-pr-evidence"}}
+    body = %{
+      "number" => 77,
+      "state" => "closed",
+      "draft" => false,
+      "merged" => false,
+      "merged_at" => nil,
+      "updated_at" => "2026-10-08T00:00:00Z",
+      "head" => %{"ref" => "aiur/#{ticket_id()}-pr-evidence", "repo" => %{"full_name" => "owner/repo"}}
+    }
+
     Deposit.deposit("pull_request", %{"action" => "closed", "pull_request" => Map.merge(body, changes)}, "owner/repo")
+    :sys.get_state(Aiur.StartTrigger.ProgressStore)
   end
 end

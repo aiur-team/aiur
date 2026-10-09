@@ -129,7 +129,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
+  alias Aiur.GitHub.{BlockerProgress, PollSnapshots, ReadCache, ResourceStore}
   alias Aiur.TicketBranch
 
   @typedoc """
@@ -212,7 +212,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   end
 
   def deposit(_event_type, _payload, _repo, _opts), do: []
-
   # ---------------------------------------------------------------------------
   # What each delivery type carries
   # ---------------------------------------------------------------------------
@@ -643,7 +642,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   end
 
   # -- Build Order graph edges (#2313) --------------------------------------
-  #
   # `sub_issues` and `issue_dependencies` deliveries carry no `updated_at` on
   # either issue — the payload is pure edge facts — so the deposit versions each
   # edge with the delivery's arrival time (threaded as `:at`, falling back to
@@ -742,9 +740,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  # ---------------------------------------------------------------------------
   # Writing
-  # ---------------------------------------------------------------------------
 
   defp merge_review_thread(repo, pr_number, thread) do
     key = PollSnapshots.review_threads_key(repo, pr_number)
@@ -811,8 +807,12 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
       key ->
         case deposit_unless_older(key, body, version) do
-          :unchanged -> []
-          :ok -> confirm(key)
+          :unchanged ->
+            []
+
+          :ok ->
+            if type == :branch_pull_request, do: BlockerProgress.delivery(body, repo)
+            confirm(key)
         end
     end
   end

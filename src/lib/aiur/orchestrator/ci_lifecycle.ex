@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   require Logger
   alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
-  alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
+  alias Aiur.GitHub.{BlockerProgress, CIPollBatch, Client, MergeQueue}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -1310,8 +1310,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Held failures are never silently swallowed: the reviewed head and the failing
-  # checks stay in the log so a genuine red PR in review is still visible.
+  # Held failures retain the reviewed head and failing checks so a red PR in review stays visible.
   defp log_replayed_human_review_ci_failure(%Issue{} = issue, result) do
     checks =
       result
@@ -1330,6 +1329,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       target when is_binary(target) ->
         approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
         ci_lifecycle = Map.put(state.ci_lifecycle, :approved_heads, approved_heads)
+        BlockerProgress.ci(target, result)
 
         ci_lifecycle =
           if Map.get(result, :decision) == :passed do

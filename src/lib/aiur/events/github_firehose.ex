@@ -37,6 +37,7 @@ defmodule Aiur.Events.GithubFirehose do
   alias Aiur.Events.{GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.StartTrigger.ProgressStore
 
   @repo_events_per_page 30
 
@@ -252,6 +253,7 @@ defmodule Aiur.Events.GithubFirehose do
         :not_merge
 
       {:ok, merge} ->
+        if merge.ticket_id, do: ProgressStore.record(merge.ticket_id, %{pr_number: merge.number, stage: :pr_merged, source: :merge})
         call_recent_merge_store(merge, opts)
 
       {:error, reason} ->
