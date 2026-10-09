@@ -45,6 +45,7 @@ defmodule Aiur.BuildQueue do
     GenServer.call(Server, {:mutate, command}, 30_000)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
+    :exit, {:timeout, _} -> {:error, :outcome_unknown}
   end
 
   defp absent_status do

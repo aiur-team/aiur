@@ -56,16 +56,8 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:mutate, command}, _from, %{status: :running} = state) do
     case ListCommands.prepare(state, command) do
       {:ok, document, actions, observations} ->
-        case state.store.save(document) do
-          :ok ->
-            state = write(%{state | document: document}, actions, observations)
-            failures = Enum.reject(state.write_results, &(elem(&1, 2) == :ok))
-            reply = if failures == [], do: :ok, else: {:error, {:marker_write_failed, failures}}
-            {:reply, reply, request(state)}
-
-          {:error, _} ->
-            {:reply, {:error, :store_unavailable}, %{state | status: :store_unavailable}}
-        end
+        {reply, state} = commit_mutation(state, document, actions, observations)
+        {:reply, reply, request(state)}
 
       error ->
         {:reply, error, state}
@@ -90,6 +82,26 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_info({:DOWN, _ref, :process, pid, _reason}, %{exchange_pid: pid} = state), do: {:noreply, %{state | exchange_pid: nil}}
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp commit_mutation(state, document, actions, observations) do
+    case state.store.save(document) do
+      :ok ->
+        state = write(%{state | document: document}, actions, observations)
+
+        failures =
+          state.write_results
+          |> Enum.reverse()
+          |> Enum.uniq_by(&{elem(&1, 0), elem(&1, 1)})
+          |> Enum.reject(&(elem(&1, 2) == :ok))
+          |> Enum.reverse()
+
+        reply = if failures == [], do: :ok, else: {:error, {:marker_write_failed, failures}}
+        {reply, state}
+
+      {:error, _} ->
+        {{:error, :store_unavailable}, %{state | status: :store_unavailable}}
+    end
+  end
 
   defp initialize(%{settings: %{build_queue: %{enabled: false}}} = state), do: state
 
