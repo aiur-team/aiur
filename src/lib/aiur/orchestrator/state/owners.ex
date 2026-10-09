@@ -144,7 +144,8 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],
-    github_listeners: [Aiur.Orchestrator.CommentPolling, Aiur.Orchestrator.CommandScan, Aiur.Events.GithubFirehose, Aiur.Events.GithubCommentsPoller]
+    # Listener names are data; this table neither loads nor calls the optional component.
+    github_listeners: [Aiur.Orchestrator.CommentPolling, Aiur.Orchestrator.CommandScan, :"Elixir.Aiur.Events.GithubFirehose", :"Elixir.Aiur.Events.GithubCommentsPoller"]
   }
 
   @spec owner(atom()) :: atom() | nil
