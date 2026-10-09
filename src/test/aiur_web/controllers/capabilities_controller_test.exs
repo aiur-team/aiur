@@ -10,7 +10,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
     def capability_ids, do: ["orchestration"]
     @impl true
     def capabilities(_context) do
-      %{"orchestration" => %{state: :unavailable, reason: :not_running}}
+      %{"orchestration" => %{state: :unavailable, reason: :not_running, observed_at: ~U[2026-10-09 12:00:00Z]}}
     end
   end
 
@@ -68,7 +68,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
     assert response.status == 200
     body = Jason.decode!(response.resp_body)
     assert body["freshness"] == "stale"
-    assert body["capabilities"]["orchestration"] == %{"state" => "unavailable", "reason" => "not_running"}
+    assert body["capabilities"]["orchestration"] == %{"state" => "unavailable", "reason" => "not_running", "observed_at" => "2026-10-09T12:00:00Z"}
   end
 
   test "public payload contains no private keys or secret-shaped values" do

@@ -11,7 +11,17 @@ defmodule Aiur.CapabilitiesWireTest do
       instance: %{instance_id: nil, run_shape: %{http_listener: true, dashboard_pages: false}},
       repository: nil,
       executor: %{state: :active, harness: nil},
-      capabilities: %{"commands.answer" => %{state: :degraded, reason: :dependency_unavailable, depends_on: ["orchestration"], version: 1, route: "/commands", detail: "ghp_secret"}},
+      capabilities: %{
+        "commands.answer" => %{
+          state: :degraded,
+          reason: :dependency_unavailable,
+          observed_at: ~U[2026-10-09 12:00:00Z],
+          depends_on: ["orchestration"],
+          version: 1,
+          route: "/commands",
+          detail: "ghp_secret"
+        }
+      },
       detail: "sk-secret"
     }
 
@@ -24,7 +34,16 @@ defmodule Aiur.CapabilitiesWireTest do
              "instance" => %{"instance_id" => nil, "run_shape" => %{"http_listener" => true, "dashboard_pages" => false}},
              "repository" => nil,
              "executor" => %{"state" => "active", "harness" => nil},
-             "capabilities" => %{"commands.answer" => %{"state" => "degraded", "reason" => "dependency_unavailable", "depends_on" => ["orchestration"], "version" => 1, "route" => "/commands"}}
+             "capabilities" => %{
+               "commands.answer" => %{
+                 "state" => "degraded",
+                 "reason" => "dependency_unavailable",
+                 "observed_at" => "2026-10-09T12:00:00Z",
+                 "depends_on" => ["orchestration"],
+                 "version" => 1,
+                 "route" => "/commands"
+               }
+             }
            }
   end
 end

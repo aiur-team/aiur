@@ -40,17 +40,11 @@ defmodule Aiur.Capabilities do
           {id, Map.take(entry, ~w(state reason depends_on version observed_at route mode v retention)a)}
         end)
     })
-    |> wire_value()
+    |> Aiur.JSONSafe.normalize()
   end
 
   defp section(nil, _keys), do: nil
   defp section(value, keys), do: Map.take(value, keys)
-
-  defp wire_value(value) when is_map(value), do: Map.new(value, fn {key, item} -> {to_string(key), wire_value(item)} end)
-  defp wire_value(value) when is_list(value), do: Enum.map(value, &wire_value/1)
-  defp wire_value(value) when value in [nil, true, false], do: value
-  defp wire_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp wire_value(value), do: value
 
   defp stored_report(table, opts, now) do
     case :ets.lookup(table, :report) do
