@@ -2168,8 +2168,8 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
-  describe "Build Order planning graph reads" do
-    test "delegates catalog reads to the separate bounded planning adapter" do
+  describe "bounded Build Order planning adapter" do
+    test "reads the catalog through the separate bounded planning adapter" do
       request_fun = fn %{method: :post, body: body} ->
         assert body["query"] =~ "AiurBuildOrderCatalog"
 
@@ -2191,7 +2191,7 @@ defmodule Aiur.GitHub.ClientTest do
       end
 
       assert {:ok, %{candidate: %{entries: []}, calls: 1, pages: 1}} =
-               Client.fetch_build_order_catalog(request_fun: request_fun)
+               Aiur.BuildOrder.GitHubGraph.fetch_catalog(request_fun: request_fun)
     end
   end
 
