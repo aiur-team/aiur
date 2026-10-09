@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State, TrackerTasks}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -117,26 +117,22 @@ defmodule Aiur.Orchestrator.PushRouting do
       )
       when is_map(blockee) and is_map(blocker) and clearance in [:terminal, :removed] and
              is_function(blocked_by_hydrator, 1) do
-    # The caller on this path already holds the freshly polled blockee, so the
-    # blocker set read by `cleared_dependency_match/3` is current — once the
-    # blockee's `blocked_by` has been hydrated. GitHub polls never populate it,
-    # and `other_open_blockers?/2` below decides whether a second blocker keeps
-    # the agent parked, so without hydration every GitHub blockee looks
-    # unblocked and gets auto-resumed while a second blocker is still open
-    # (#1631).
-    case hydrate_blockee_blocked_by(blockee, blocked_by_hydrator) do
-      {:ok, %Issue{} = hydrated_blockee} ->
-        case cleared_dependency_match(state, hydrated_blockee, blocker) do
-          {:ok, match} ->
-            resume_cleared_dependency_blockee(state, match, hydrated_blockee, blocker, clearance)
+    expected = Map.get(state.running, blockee.id)
 
-          :error ->
-            state
-        end
-
-      :unavailable ->
-        state
-    end
+    TrackerTasks.run(
+      state,
+      {:dependency_hydration, blockee.id},
+      fn ->
+        hydrate_dependency_blockee({blocked_by_hydrator, blockee})
+      end,
+      fn arg1, arg2 ->
+        apply_dependency_blockee(
+          arg1,
+          arg2,
+          {blockee, blocker, clearance, expected}
+        )
+      end
+    )
   end
 
   def maybe_resume_blockee_on_cleared_dependency(%State{} = state, _blockee, _blocker, _clearance, _hydrator),
@@ -164,18 +160,21 @@ defmodule Aiur.Orchestrator.PushRouting do
       )
       when is_function(fetch_issue_states_fun, 1) and is_list(polled_issues) and
              is_function(blocked_by_hydrator, 1) do
-    with [_ | _] = blocker_identifiers <- paused_blocker_identifiers(state),
-         {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
-      # This path exists for blockers absent from the active poll, so the
-      # blockee snapshot stored in the running entry is exactly the one most
-      # likely to be stale. Resolve the freshest blockee issue up front and
-      # fail closed when none is obtainable, rather than waking an agent on a
-      # stale `blocked_by`.
-      blockee_issues = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
+    case paused_blocker_identifiers(state) do
+      [] ->
+        state
 
-      Enum.reduce(blockers, state, &resume_blockees_for_terminal_blocker(&1, &2, blockee_issues, blocked_by_hydrator))
-    else
-      _ -> state
+      blocker_identifiers ->
+        expected = state.running
+
+        TrackerTasks.run(
+          state,
+          :dependency_recheck,
+          fn ->
+            fetch_cleared_dependencies({blocked_by_hydrator, blocker_identifiers, fetch_issue_states_fun, polled_issues, state})
+          end,
+          fn arg1, arg2 -> apply_cleared_dependencies(arg1, arg2, {expected}) end
+        )
     end
   end
 
@@ -1094,5 +1093,93 @@ defmodule Aiur.Orchestrator.PushRouting do
       _ ->
         state
     end
+  end
+
+  defp hydrate_dependency_blockee({blocked_by_hydrator, blockee}) do
+    hydrate_blockee_blocked_by(blockee, blocked_by_hydrator)
+  end
+
+  defp apply_dependency_blockee(current, {:ok, %Issue{} = hydrated}, {blockee, blocker, clearance, expected}) do
+    if Map.get(current.running, blockee.id) == expected do
+      resume_matching_dependency(current, hydrated, blocker, clearance)
+    else
+      current
+    end
+  end
+
+  defp apply_dependency_blockee(current, _result, _context), do: current
+
+  defp resume_matching_dependency(current, hydrated, blocker, clearance) do
+    case cleared_dependency_match(current, hydrated, blocker) do
+      {:ok, match} -> resume_cleared_dependency_blockee(current, match, hydrated, blocker, clearance)
+      :error -> current
+    end
+  end
+
+  defp fetch_cleared_dependencies({blocked_by_hydrator, blocker_identifiers, fetch_issue_states_fun, polled_issues, state}) do
+    with {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
+      blockees = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
+
+      hydrated =
+        Map.new(blockees, fn arg1 ->
+          hydrate_dependency_entry(arg1, {blocked_by_hydrator})
+        end)
+
+      {:ok, blockers, hydrated}
+    end
+  end
+
+  defp apply_cleared_dependencies(
+         current,
+         {:ok, blockers, hydrated},
+         {expected}
+       ) do
+    blockees =
+      Enum.reduce(hydrated, %{}, fn arg1, arg2 ->
+        retain_current_dependency_entry(
+          arg1,
+          arg2,
+          {current, expected}
+        )
+      end)
+
+    Enum.reduce(
+      blockers,
+      current,
+      &resume_blockees_for_terminal_blocker(&1, &2, blockees, fn issue -> {:ok, issue} end)
+    )
+  end
+
+  defp apply_cleared_dependencies(current, _, {_expected}) do
+    current
+  end
+
+  defp hydrate_dependency_entry(
+         {id, issue},
+         {blocked_by_hydrator}
+       ) do
+    {id, hydrate_blockee_blocked_by(issue, blocked_by_hydrator)}
+  end
+
+  defp retain_current_dependency_entry(
+         {id, {:ok, %Issue{} = issue}},
+         acc,
+         {current, expected}
+       ) do
+    key = State.find_running_key_by_identifier(current.running, id)
+
+    if Map.get(current.running, key) == Map.get(expected, key) do
+      Map.put(acc, id, issue)
+    else
+      acc
+    end
+  end
+
+  defp retain_current_dependency_entry(
+         _,
+         acc,
+         {_current, _expected}
+       ) do
+    acc
   end
 end

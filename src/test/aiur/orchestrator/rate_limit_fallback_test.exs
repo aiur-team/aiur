@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{RateLimitFallback, State}
+  alias Aiur.Orchestrator.{RateLimitFallback, State, TrackerTasks}
 
   # Matches the test fixture's tracker.github.label_prefix ("agent").
   @marker_label "agent:rate-limit-fallback"
@@ -825,6 +826,45 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
     end
   end
 
+  test "pending fallback label writes leave owner responsive and cannot tear down a replaced runner" do
+    parent = self()
+    owner = {__MODULE__, make_ref()}
+    :yes = :global.register_name(owner, parent)
+    on_exit(fn -> :global.unregister_name(owner) end)
+    state = fallback_state([], "codex")
+    state = %{state | snapshot_key: {:global, owner}}
+
+    pending =
+      RateLimitFallback.reconcile(
+        state,
+        reconcile_opts(
+          state: %{"backends" => %{}},
+          add_label_fun: fn _, label ->
+            if label == @marker_label do
+              send(parent, {:fallback_writer, self()})
+
+              receive do
+                :release -> :ok
+              end
+            else
+              :ok
+            end
+          end,
+          teardown_fun: fn _, _, _ -> flunk("replacement runner was torn down") end
+        )
+      )
+
+    receive_barrier({:fallback_writer, worker})
+    refute worker == self()
+    replacement = Map.put(state.running["1"], :session_id, "replacement")
+    current = %{pending | running: %{"1" => replacement}, globally_paused: true}
+    send(worker, :release)
+    receive_barrier({task_ref, result})
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
+    assert applied.running["1"] == replacement
+    assert applied.globally_paused
+  end
+
   defp fallback_state(labels, selected_backend \\ nil, status \\ :paused) do
     issue = %Issue{id: "1", identifier: "repo#1", labels: labels, selected_backend: selected_backend}
 
@@ -893,7 +933,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   defp assert_label_ops(expected) do
     actual =
       Enum.map(expected, fn _operation ->
-        assert_receive {:label_op, operation}, 1000
+        receive_barrier({:label_op, operation})
         operation
       end)
 

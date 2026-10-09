@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
   alias Aiur.GitHub.{Errors, GraphQLCost, Transport}
 
   @spec page(map(), String.t(), String.t(), map()) ::
-          {:ok, map(), map()} | {:error, atom(), map()}
+          {:ok, map(), map()} | {:error, term(), map()}
   def page(%{pages: pages} = state, _token, _query, _variables) when pages >= state.page_budget,
     do: {:error, :page_budget_exhausted, state}
 
