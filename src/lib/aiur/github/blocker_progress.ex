@@ -1,9 +1,8 @@
 defmodule Aiur.GitHub.BlockerProgress do
   @moduledoc false
   alias Aiur.GitHub.{HumanReviewGate, ResourceStore, Transport}
-  alias Aiur.StartTrigger.ProgressStore
 
-  @spec approval(String.t(), ProgressStore.row() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
+  @spec approval(String.t(), map() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
   def approval(id, row, opts \\ [])
   def approval(_id, %{closed_unmerged?: true}, _opts), do: {:ok, nil}
 
