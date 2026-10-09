@@ -9,6 +9,8 @@
 | [CLI](/reference/cli) | Agent-driven operation and terminal automation. |
 | [Stream Deck](/guide/stream-deck) | Physical or browser fleet controls and event logs. |
 
+[Capabilities](/concepts/capabilities) describes how clients discover available instance features.
+
 ## Hourly meta-check
 
 `aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.
