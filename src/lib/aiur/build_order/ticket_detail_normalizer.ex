@@ -1,7 +1,8 @@
 defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{Bounded, Lifecycle}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.Lifecycle
   alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure, Sanitizer, Snapshot}
   alias Aiur.TrackerIdentity
 

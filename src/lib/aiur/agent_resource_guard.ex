@@ -11,9 +11,8 @@ defmodule Aiur.AgentResourceGuard do
 
   use GenServer
 
+  alias Aiur.ProcessTree
   require Logger
-
-  alias Aiur.Claude.RemoteControl
 
   @default_interval_ms 1_000
   @load_generator_comms ~w(yes stress stress-ng)
@@ -102,7 +101,7 @@ defmodule Aiur.AgentResourceGuard do
 
   defp trim_root(root_pid, cap, opts) do
     info_fun = Keyword.get(opts, :process_info_fun, &proc_info/1)
-    kill_fun = Keyword.get(opts, :kill_fun, &RemoteControl.graceful_kill/1)
+    kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.graceful_kill/1)
 
     load_pids =
       root_pid
