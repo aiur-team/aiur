@@ -31,7 +31,9 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 The catalog's **Tickets completed** percentage counts accepted completions over all members. With partial lifecycle coverage, the percentage is a lower bound and the resolved count appears alongside it.
 
-Build Order completion progress announces the highest newly reached 25%, 50%, 75% or 100% milestone on `system.build_order.<root>.progress`, independently of queue adoption. Events use the catalog’s rounded percent and suppress milestones while provider health is unusable. A fully resolved root falling below 100% after its completion milestone starts a new durable generation.
+Build Order completion progress announces the highest newly reached 25%, 50%, 75% or 100% milestone on `system.build_order.<root>.progress`, independently of queue adoption.
+
+Events use the catalog’s rounded percent and suppress milestones while provider health is unusable. A fully resolved root falling below 100% after its completion milestone starts a new durable generation.
 
 In a selected Build Order, **Estimated work progress** combines reported work estimates using member complexity weights. It can advance before any ticket is complete. Last-known estimates show their age; unavailable member measurements remain unknown.
 
@@ -136,4 +138,3 @@ Adoption brings pre-labelled blocked members under queue control: the queue hold
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
-

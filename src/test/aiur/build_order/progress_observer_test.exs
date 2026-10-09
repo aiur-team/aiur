@@ -77,10 +77,11 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
 
     for resolution <- [:partial, :unknown, :unresolved] do
       [root] = snapshot.data.entries
-      root = %{root | progress: if(resolution == :unresolved, do: nil, else: 50), progress_resolution: resolution}
+      expected = if(resolution == :unresolved, do: nil, else: 50)
+      root = %{root | progress: expected, progress_resolution: resolution}
       send(observer, {:graph_projection_generation, %{snapshot | data: %{snapshot.data | entries: [root]}}})
       :sys.get_state(observer)
-      assert [%{generation: 1, resolution: ^resolution}] = BuildProgress.facts(context.scope, store)
+      assert [%{generation: 1, resolution: ^resolution, percent: ^expected}] = BuildProgress.facts(context.scope, store)
     end
 
     refute_received {:event, %{topic: _}}
@@ -111,6 +112,14 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     scope = context.scope
     receive_barrier({:build_progress_changed, %{scope: ^scope, percent: 75}})
     assert [%{percent: 75}] = BuildProgress.facts(context.scope, store)
+
+    for generation <- 3..4, do: send(observer, {:graph_projection_reset, generation})
+    :sys.get_state(observer)
+
+    for topic <- [GraphProjection.reset_topic(), GraphProjection.catalog_topic(snapshot.repository)] do
+      assert Enum.count(Registry.lookup(Aiur.PubSub, topic), &(elem(&1, 0) == observer)) == 1
+    end
+
     on_exit(fn -> Enum.each([observer, projection, store], &Aiur.TestSupport.safe_stop/1) end)
   end
 

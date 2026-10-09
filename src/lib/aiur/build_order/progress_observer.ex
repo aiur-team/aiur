@@ -13,9 +13,8 @@ defmodule Aiur.BuildOrder.ProgressObserver do
 
   @impl true
   def init(opts) do
-    state = %{projection: Keyword.get(opts, :projection, GraphProjection), progress: Keyword.get(opts, :progress, BuildProgress)}
-    observe(state)
-    {:ok, state}
+    state = %{projection: Keyword.get(opts, :projection, GraphProjection), progress: Keyword.get(opts, :progress, BuildProgress), repository: nil}
+    {:ok, observe(state)}
   end
 
   @impl true
@@ -24,17 +23,24 @@ defmodule Aiur.BuildOrder.ProgressObserver do
     {:noreply, state}
   end
 
+  # PubSub keeps duplicate subscriptions, so drop the old ones before resubscribing.
   def handle_info({:graph_projection_reset, _generation}, state) do
-    observe(state)
-    {:noreply, state}
+    :ok = Phoenix.PubSub.unsubscribe(Aiur.PubSub, GraphProjection.reset_topic())
+    if match?({_, _}, state.repository), do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, GraphProjection.catalog_topic(state.repository))
+    {:noreply, observe(%{state | repository: nil})}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
 
   defp observe(state) do
     case GraphProjection.subscribe_catalog(state.projection) do
-      :ok -> publish(GraphProjection.catalog(state.projection), state)
-      {:error, %Failure{kind: :configuration}} -> :ok
+      :ok ->
+        snapshot = GraphProjection.catalog(state.projection)
+        publish(snapshot, state)
+        %{state | repository: snapshot.repository}
+
+      {:error, %Failure{kind: :configuration}} ->
+        state
     end
   end
 
