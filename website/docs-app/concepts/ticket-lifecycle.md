@@ -152,9 +152,9 @@ and never deletes ones a repository already has; those keep working as exact pin
 
 ## Build queue
 
-The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks
-membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence
-proves readiness and no other state is present. Membership and promotion grant no authorization.
+**Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI leaves that base alone. After the blocker merges or closes, or when blocker facts are missing, Aiur repairs it to `tracker.base_branch`. A stacked PR requires integration retargeting before merge.
+
+The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
 
 Item states are projections, not tracker labels:
 
