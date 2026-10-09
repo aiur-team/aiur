@@ -34,6 +34,9 @@ every blocker push is an integration signal.
    rewritten blocker branch. Resolve conflicts without discarding either
    ticket's intent. The local ancestry check is authoritative on every push;
    `branch.force-push` is only a hint, including delayed or missing verdicts.
+   After every rewrite, recheck every still-unmerged blocker SHA against HEAD
+   using step 1 and reintegrate missing heads before recording or validation:
+   a plain rebase can drop merges or rewrite another blocker's commits.
 3. **Record, validate and publish.** After successful integration, record the
    new integrated SHA immediately, with validation pending; this boundary must
    match HEAD even if tests fail. Inspect `git -C "$workspace" diff <old> <new>`
