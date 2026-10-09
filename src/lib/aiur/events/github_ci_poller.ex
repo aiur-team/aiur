@@ -12,6 +12,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   alias Aiur.CIApprovalStore
   alias Aiur.GitHub.{CiReadiness, Client}
+  alias Aiur.Stacking.StackBaseEvidence
 
   @type target :: String.t() | integer()
   @type decision :: :pending | :passed | :failed
@@ -131,7 +132,7 @@ defmodule Aiur.Events.GithubCIPoller do
        when is_map(pr) and is_list(check_runs) and is_map(commit_status) do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
          {:ok, head_sha} <- head_sha(pr) do
-      expected_base = Aiur.Stacking.StackBaseEvidence.expected_base(target, pr, opts)
+      expected_base = StackBaseEvidence.expected_base(target, pr, opts)
 
       case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
@@ -187,7 +188,7 @@ defmodule Aiur.Events.GithubCIPoller do
   defp poll_open_pull_request(target, pr, opts) do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
          {:ok, head_sha} <- head_sha(pr) do
-      expected_base = Aiur.Stacking.StackBaseEvidence.expected_base(target, pr, opts)
+      expected_base = StackBaseEvidence.expected_base(target, pr, opts)
 
       case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
@@ -251,7 +252,7 @@ defmodule Aiur.Events.GithubCIPoller do
          commit_status,
          opts
        ) do
-    expected_base = Aiur.Stacking.StackBaseEvidence.expected_base(target, current_pr, opts)
+    expected_base = StackBaseEvidence.expected_base(target, current_pr, opts)
 
     case head_sha(current_pr) do
       {:ok, current_head_sha} ->

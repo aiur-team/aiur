@@ -89,12 +89,14 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
     GithubCIPoller.poll(["42"], opts)
   end
 
+  defp replace_base(_base, new_base), do: new_base
+
   defp request_fun(base, patches) do
     fn request ->
       cond do
         request.method == :patch ->
           Agent.update(patches, &[request.body | &1])
-          Agent.update(base, fn _ -> request.body["base"] end)
+          Agent.update(base, &replace_base(&1, request.body["base"]))
           {:ok, %{status: 200, body: pr(request.body["base"])}}
 
         String.contains?(request.url, "/pulls?") ->
