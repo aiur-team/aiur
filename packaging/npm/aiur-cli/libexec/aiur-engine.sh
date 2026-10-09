@@ -89,10 +89,8 @@ legacy_config_path() {
         ;;
     esac
   done
-
   local target_root="${AIUR_REPO_ROOT:-}" home_real
   home_real="$(cd "${HOME:-}" 2>/dev/null && pwd -P || printf '%s' "${HOME:-}")"
-
   if [ -n "$target_root" ]; then
     if [ -f "$target_root/.aiur/config" ]; then
       return
@@ -105,7 +103,6 @@ legacy_config_path() {
     local pwd_real d
     pwd_real="$(pwd -P 2>/dev/null || printf '%s' "$PWD")"
     d="$pwd_real"
-
     while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
       if [ -f "$d/.aiur/config" ]; then
         return
@@ -117,7 +114,6 @@ legacy_config_path() {
       d="$(dirname "$d")"
     done
   fi
-
   if [ -n "$home_real" ] && [ ! -f "$home_real/.aiur/config" ] && [ -f "$home_real/.aiurconfig" ]; then
     printf '%s' "$home_real/.aiurconfig"
   fi
@@ -488,6 +484,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
+       aiur doctor [--repair]         check mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 
@@ -2651,6 +2648,7 @@ parse_issue_targets() {
 }
 
 cmd_status() {
+  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   [ "$#" -eq 0 ] || die "status does not accept arguments"
   run_control_rpc "Aiur.AgentControlCLI.status()"
 }
@@ -4180,6 +4178,7 @@ cmd_upgrade() {
 # --- dispatch ----------------------------------------------------------------
 
 dispatch_run() {
+  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   local mode="foreground" arg
   local args=()
 
@@ -4246,6 +4245,7 @@ aiur_engine_main() {
       shift
       dispatch_run "$@"
       ;;
+    doctor) shift; exec bash "$engine_dir/aiur-mise-doctor" "$@" ;;
     status)
       shift
       cmd_status "$@"
