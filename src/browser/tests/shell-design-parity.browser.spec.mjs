@@ -107,9 +107,9 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
         // Settle the expanding handle before placing the pointer in its final bounds.
         await finishTransitions(pair)
         for (const page of [pair.design, pair.product]) await page.locator('#ax-drag').hover()
-        await finishTransitions(pair)
         await expect.poll(() => Promise.all([pair.design, pair.product].map(page =>
           page.locator('#ax-drag').evaluate(node => node.matches(':hover'))))).toEqual([true, true])
+        await finishTransitions(pair)
         await equalStyle(pair, '#ax-drag', ['width', 'position', 'top', 'bottom', 'right', 'cursor'])
         await equalStyle(pair, '#ax-drag', ['width', 'backgroundColor', 'opacity', 'transition'], '::after')
         // Clip just the handle; whole desktop nav differs until C12-T01.
