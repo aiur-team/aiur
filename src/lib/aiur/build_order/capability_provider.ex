@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.CapabilityProvider do
   @moduledoc "Read-only Build Order catalog and progress availability."
   @behaviour Aiur.Capabilities.Provider
   alias Aiur.BuildOrder.GraphProjection
+  alias Aiur.BuildOrder.GraphProjection.CapabilityReader
   alias Aiur.Capabilities.Provider
 
   @impl true
@@ -22,11 +23,13 @@ defmodule Aiur.BuildOrder.CapabilityProvider do
   defp orders(_settings, opts) do
     lookup = Keyword.get(opts, :lookup_fun, &Process.whereis/1)
 
-    if lookup.(GraphProjection) do
-      snapshot = Keyword.get(opts, :catalog_fun, &GraphProjection.catalog/0).()
-      {health(snapshot.health), snapshot.data}
-    else
-      {%{state: :unavailable, reason: :not_running}, nil}
+    case lookup.(GraphProjection) do
+      nil ->
+        {%{state: :unavailable, reason: :not_running}, nil}
+
+      server ->
+        snapshot = Keyword.get(opts, :catalog_fun, fn -> CapabilityReader.catalog(server) end).()
+        {health(snapshot.health), snapshot.data}
     end
   end
 
