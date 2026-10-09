@@ -342,9 +342,7 @@ defmodule Aiur.Orchestrator.State do
     rework_attempt_alerted: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
-    # Idle backoff requires a completed cycle, so a freshly
-    # restarted daemon — which has observed no idleness yet — polls at the base
-    # interval first instead of starting already backed off (#2138).
+    # Idle backoff requires a completed cycle; a fresh daemon first polls at the base interval (#2138).
     poll_cycles_completed: 0,
     last_dispatch_poll_at_ms: nil,
     # Tickets queued locally (`aiur --todo`) that the tracker poll has not yet
