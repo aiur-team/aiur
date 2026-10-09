@@ -80,15 +80,20 @@ defmodule Aiur.BuildQueue.ListMutations do
   defp queue(_, _, _), do: {:error, :invalid_queue}
 
   defp new_queue(document, name, now) do
+    with {:ok, id} <- queue_id(document), do: {:ok, %Queue{id: id, name: name, kind: :list, root: nil, held: false, generation: 0, created_at: now}}
+  end
+
+  @spec queue_id(Model.t()) :: {:ok, String.t()} | {:error, :queue_limit}
+  def queue_id(document) do
     used = MapSet.new(document.queues, & &1.id)
 
     id =
       Enum.find_value(0..65_535, fn n ->
-        candidate = ("q-" <> String.pad_leading(Integer.to_string(n, 16), 4, "0")) |> String.downcase()
+        candidate = "q-" <> String.pad_leading(Integer.to_string(n, 16), 4, "0")
         if not MapSet.member?(used, candidate), do: candidate
       end)
 
-    if id, do: {:ok, %Queue{id: id, name: name, kind: :list, root: nil, held: false, generation: 0, created_at: now}}, else: {:error, :queue_limit}
+    if id, do: {:ok, id}, else: {:error, :queue_limit}
   end
 
   defp member(document, id) do

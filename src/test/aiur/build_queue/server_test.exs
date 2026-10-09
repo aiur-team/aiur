@@ -269,7 +269,7 @@ defmodule Aiur.BuildQueue.ServerTest do
   end
 
   defp fixture do
-    queue = %Model.Queue{id: "q", name: "Q", kind: :build_order, root: 1, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
+    queue = %Model.Queue{id: "q", name: "Q", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
 
     items =
       for id <- ["1", "2", "3"],

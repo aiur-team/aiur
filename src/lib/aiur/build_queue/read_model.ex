@@ -1,13 +1,14 @@
 defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
   alias Aiur.BuildQueue.{Readiness, Settings}
-  alias Aiur.BuildQueue.Sources.ProjectionRead
+  alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
   def build(state) do
     now = state.clock.()
     document = state.document || %{queues: [], items: [], edges: [], latches: []}
-    build_orders = Map.new(document.queues |> Enum.filter(&(&1.kind == :build_order)), &{&1.root, ProjectionRead.read(&1.root, now)})
+    projection = Map.get(state, :build_order_projection, BuildOrder.projection())
+    build_orders = Map.new(document.queues |> Enum.filter(&(&1.kind == :build_order)), &{&1.root, ProjectionRead.read(&1.root, now, projection)})
     context = %{cycles: Readiness.cyclic_items(document.edges), build_orders: build_orders, state: state, document: document, now: now, observations: Map.get(state, :observations, %{})}
     context = Map.put(context, :tracker_source, tracker_source(context))
     queues = Enum.map(document.queues, &queue(&1, context))
@@ -19,6 +20,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       instance: System.get_env("AIUR_INSTANCE_KEY"),
       snapshot: %{captured_at: DateTime.from_unix!(now, :millisecond)},
       status: state.status,
+      build_queue: %{build_order_source: BuildOrder.available?(projection)},
       sources: Map.put(sources, "tracker_observation", context.tracker_source),
       queues: queues
     }

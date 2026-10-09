@@ -95,3 +95,11 @@ The build queue detects a prerequisite PR closed without merging from its latest
 Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
 
 This detection makes no GitHub request. In poll-only mode, or with missing, stale, or malformed delivery evidence, the open prerequisite stays pending. A newer open PR delivery replaces the closed body and clears the failed verdict.
+
+## Queueing a Build Order
+
+The optional Build Order queue source adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+
+Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
+
+Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes. The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
