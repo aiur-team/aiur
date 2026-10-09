@@ -2236,7 +2236,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{BuildQueueFixture, FixtureEndpoint, VoiceSTT}
+  alias Aiur.BrowserHarness.{FixtureEndpoint, VoiceSTT}
   alias Aiur.IssueLog
 
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
@@ -2249,7 +2249,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
-    Application.put_env(:aiur, :build_queue_dashboard_reader, &BuildQueueFixture.read/0)
     configure_forwarded_dashboard()
 
     {:ok, _} =

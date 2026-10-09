@@ -16,8 +16,6 @@ defmodule Aiur.BrowserHarness.BuildQueueFixture do
 
   def configure(conn, _params), do: send_resp(conn, 400, "Unknown queue fixture state")
 
-  def read, do: view("empty")
-
   def view(state) when state in @states do
     freshness = if state in ~w(stale unknown), do: String.to_existing_atom(state), else: :current
     source = %{state: :ok, observed_at: @now, age_ms: 12_000, freshness: freshness, reasons: []}
