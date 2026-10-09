@@ -8,7 +8,7 @@ node() (
 
   for script in "$@"; do
     case $script in
-    */playwright/cli.js | */playwright-core/cli.js | */playwright/cli.mjs | */.bin/playwright | playwright)
+    */@playwright/test/cli.js | */playwright/cli.js | */playwright-core/cli.js | */playwright/cli.mjs | */.bin/playwright | playwright)
       browser=1; break ;;
     esac
   done

@@ -103,6 +103,12 @@ try:
     assert line(second.stdout) == "started\n"
     release(second)
 
+    for script in ("/pkg/@playwright/test/cli.js", "/pkg/playwright-core/cli.js", "/pkg/node_modules/.bin/playwright"):
+        cli = start(script=script, action="exit")
+        assert line(cli.stdout) == "started\n"
+        assert cli.wait(timeout=15) == 0
+        assert b"acquired" in cli.stderr.read(), f"CLI bypassed admission: {script}"
+
     nested = start(action="nested")
     assert line(nested.stdout) == "started\n"
     assert nested.wait(timeout=15) == 0
