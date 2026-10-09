@@ -50,6 +50,10 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     assert ProgressStore.lookup("12") == nil
     deposit(%{pr | "draft" => false})
     assert %{stage: :pr_opened} = ProgressStore.lookup("12")
+    ProgressStore.record("12", %{pr_number: 99, stage: :pr_ci_green})
+    deposit(%{pr | "number" => 100})
+    assert %{pr_number: 100, stage: nil} = ProgressStore.lookup("12")
+    pr = %{pr | "number" => 100}
     deposit(%{pr | "state" => "closed", "merged" => true})
     assert %{stage: :pr_merged} = row = ProgressStore.lookup("12")
     evidence = %StartTrigger.Evidence{issue_open?: true, stage_reached: row.stage, observed_at_ms: 100}

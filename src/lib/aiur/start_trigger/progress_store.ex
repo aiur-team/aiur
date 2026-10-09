@@ -34,6 +34,7 @@ defmodule Aiur.StartTrigger.ProgressStore do
       pr["merged"] == true -> record(id, Map.put(attrs, :stage, :pr_merged))
       pr["state"] == "closed" -> record(id, Map.put(attrs, :closed_unmerged?, true))
       pr["state"] == "open" and pr["draft"] == false -> record(id, Map.put(attrs, :stage, :pr_opened))
+      pr["state"] == "open" and pr["draft"] == true -> record(id, Map.put(attrs, :draft?, true))
       true -> :ok
     end
   end
@@ -68,7 +69,10 @@ defmodule Aiur.StartTrigger.ProgressStore do
   def handle_cast({:record, id, attrs}, state) do
     configured_repo = state.repo.()
     incoming_repo = Map.get(attrs, :repo)
-    if is_nil(configured_repo) or is_nil(incoming_repo) or String.downcase(configured_repo) == String.downcase(incoming_repo), do: put(id, Map.delete(attrs, :repo), state.clock.())
+    previous = lookup(id)
+    record? = not Map.get(attrs, :draft?, false) or (previous && previous.pr_number != attrs.pr_number)
+    same_repo? = is_nil(configured_repo) or is_nil(incoming_repo) or String.downcase(configured_repo) == String.downcase(incoming_repo)
+    if same_repo? and record?, do: put(id, Map.drop(attrs, [:repo, :draft?]), state.clock.())
     {:noreply, state}
   end
 
