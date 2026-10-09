@@ -10,7 +10,6 @@ R-declared	Aiur.Orchestrator.StatusReport	baseline 4aba33f8aae03cdaec432d6614e70
 R-declared	Aiur.PollCadence	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TailscaleFunnel	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.TicketActivity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TicketObservation	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Usage.GroupedScopes	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Usage.GroupedScopes.Scope	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
