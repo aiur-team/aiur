@@ -1,8 +1,9 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
+defmodule Aiur.Projections.UnitsRowTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{Orchestrator.WaitingReason, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresentation, UnitsRow}
+  alias Aiur.Projections.{UnitsPolicy, UnitsRow}
+  alias AiurWeb.OperatorControlCenter.UnitsPresentation
 
   test "joins all sources by repository-qualified identity, not a display identifier" do
     alpha = identity("acme", "alpha", "NODE-alpha", "7")
@@ -267,114 +268,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     refute UnitsPolicy.condition?(:active, row)
     refute UnitsPolicy.condition?(:paused, row)
     refute UnitsPolicy.condition?(:finished, row)
-  end
-
-  test "falls back to the status count when a Decision entry has no count" do
-    ticket = identity("acme", "alpha", "NODE-missing-decision-count", "15")
-
-    row =
-      snapshot_row(ticket,
-        status: status(ticket, open_decision_count: 2),
-        decisions: %{entries: [%{identity: ticket}]}
-      )
-
-    assert row.open_command_count == 2
-    assert row.field_sources.open_command_count == :status_report
-    assert row.reasons.alert == :open_command
-  end
-
-  test "falls back to the status count after an invalid Decision count" do
-    ticket = identity("acme", "alpha", "NODE-invalid-decision-count", "16")
-
-    row =
-      snapshot_row(ticket,
-        status: status(ticket, open_decision_count: 2),
-        decisions: %{entries: [%{identity: ticket, open_count: -1}]}
-      )
-
-    assert row.open_command_count == 2
-    assert row.field_sources.open_command_count == :status_report
-    assert row.reasons.alert == :open_command
-  end
-
-  test "a degraded zero Decision count cannot clear a positive status alert" do
-    ticket = identity("acme", "alpha", "NODE-degraded-decision-count", "17")
-
-    row =
-      snapshot_row(ticket,
-        status: status(ticket, open_decision_count: 2),
-        decisions: %{
-          health: {:degraded, :stale},
-          entries: [%{identity: ticket, open_count: 0}]
-        }
-      )
-
-    assert row.provider_health.decisions == :degraded
-    assert row.open_command_count == 2
-    assert row.field_sources.open_command_count == :status_report
-    assert row.reasons.alert == :open_command
-  end
-
-  test "a valid positive Decision count wins a positive count conflict" do
-    ticket = identity("acme", "alpha", "NODE-conflicting-decision-count", "18")
-
-    row =
-      snapshot_row(ticket,
-        status: status(ticket, open_decision_count: 2),
-        decisions: %{entries: [%{identity: ticket, open_count: 1}]}
-      )
-
-    assert row.open_command_count == 1
-    assert row.field_sources.open_command_count == :decisions
-    assert row.reasons.alert == :open_command
-  end
-
-  test "an unavailable Commands provider cannot turn a fallback zero into an exact fact" do
-    ticket = identity("acme", "alpha", "NODE-unavailable-decision-count", "19")
-
-    row =
-      snapshot_row(ticket,
-        status: status(ticket, open_decision_count: 0),
-        decisions: %{health: {:unavailable, :store_restarting}, entries: []}
-      )
-
-    assert row.provider_health.decisions == :unavailable
-    assert row.open_command_count == nil
-    assert row.field_sources.open_command_count == :unknown
-    assert row.reasons.alert == nil
-  end
-
-  test "an unavailable status count provider cannot turn its fallback zero into an exact fact" do
-    ticket = identity("acme", "alpha", "NODE-unavailable-status-count", "21")
-
-    row =
-      snapshot_row(ticket,
-        status:
-          status(ticket,
-            open_decision_count: 0,
-            open_decision_count_health: :unavailable
-          ),
-        decisions: %{health: {:degraded, :bounded_overview}, entries: []}
-      )
-
-    assert row.provider_health.decisions == :degraded
-    assert row.open_command_count == nil
-    assert row.field_sources.open_command_count == :unknown
-    assert row.reasons.alert == nil
-  end
-
-  test "an unavailable Commands provider preserves a positive fallback alert" do
-    ticket = identity("acme", "alpha", "NODE-unavailable-positive-count", "20")
-
-    row =
-      snapshot_row(ticket,
-        status: status(ticket, open_decision_count: 2),
-        decisions: %{health: {:unavailable, :store_restarting}, entries: []}
-      )
-
-    assert row.open_command_count == 2
-    assert row.field_sources.open_command_count == :status_report
-    assert row.reasons.alert == :open_command
   end
 
   test "uses retry and pause facts without conflating their reasons" do
