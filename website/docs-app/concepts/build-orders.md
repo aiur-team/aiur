@@ -112,3 +112,11 @@ The instance capability report distinguishes queue availability from source avai
 | `build_queue.build_order_source` | `available` when the queue is available or degraded and its Build Order projection is available. Otherwise `unavailable/dependency_unavailable`, depending on `build_queue` if the queue cannot run, or `build_orders` if the projection is absent. |
 
 An unrecognised queue status or source flag reports `unknown/unknown` for that capability. A failed provider read reports both capabilities as `unknown/unknown`. These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
+
+## Merged PRs with open issues
+
+A merged prerequisite PR does not complete its issue. Dependents stay pending until tracker observations confirm closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+
+If the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves when closure is observed; Aiur never closes the issue for this rule.
+
+Merge times are held in memory. After a restart, a fresh merge observation starts the timer again. If the live hint is lost and no fresh PR delivery is available, poll-only mode keeps dependents waiting without this attention.

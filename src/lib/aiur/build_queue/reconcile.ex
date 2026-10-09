@@ -34,7 +34,8 @@ defmodule Aiur.BuildQueue.Reconcile do
       label_prefix: state.settings.tracker.github.label_prefix,
       observation_max_age_ms: Settings.observation_max_age_ms(state.settings),
       withdrawal_holds: state.holds,
-      source_verdicts: Map.get(state, :source_verdicts, %{})
+      source_verdicts: Map.get(state, :source_verdicts, %{}),
+      merged_open_grace_ms: state.settings.build_queue.merged_open_grace_seconds * 1000
     ]
 
     {observations, cache} = closures(state, observations)

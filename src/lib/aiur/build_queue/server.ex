@@ -46,6 +46,7 @@ defmodule Aiur.BuildQueue.Server do
       source_verdicts: %{},
       source_refreshes: %{},
       published_pr_versions: %{},
+      merged_at_ms: %{},
       hold_ages: %{},
       closure_cache: %{},
       intent_reconciles: %{},
@@ -148,12 +149,23 @@ defmodule Aiur.BuildQueue.Server do
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
   def handle_info({:graph_projection_reset, _}, state), do: {:noreply, request(state)}
-  def handle_info({:event, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
 
   def handle_info({kind, snapshot}, state) when kind in [:graph_projection_generation, :graph_projection_health] do
     root = BuildOrderCommands.generation_root(snapshot)
     if state.document && Enum.any?(state.document.queues, &(&1.kind == :build_order and &1.root == root)), do: {:noreply, request(state)}, else: {:noreply, state}
   end
+
+  def handle_info({:event, %{topic: "ticket." <> topic}}, state) do
+    state =
+      case String.split(topic, ".") do
+        [id, "pr", "merged"] -> %{state | merged_at_ms: Map.put_new(state.merged_at_ms, id, state.clock.())}
+        _ -> state
+      end
+
+    {:noreply, state |> BuildOrderCommands.hint() |> request()}
+  end
+
+  def handle_info({:event, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
 
   def handle_info(:tick, %{status: status} = state) when status in [:running, :writes_paused] do
     schedule_tick(state)
@@ -260,7 +272,9 @@ defmodule Aiur.BuildQueue.Server do
 
   defp plan(state, observations) do
     {projections, actions, observations, cache, holds, published} = Reconcile.plan(state, observations)
-    state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published}
+    ids = Enum.map(state.document.edges, & &1.prerequisite)
+    merged = Enum.reduce(observations, state.merged_at_ms, fn {id, row}, acc -> if row.merged_at_ms, do: Map.put_new(acc, id, row.merged_at_ms), else: acc end)
+    state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published, merged_at_ms: Map.take(merged, ids)}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
 
     holds =

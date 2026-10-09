@@ -33,12 +33,12 @@ defmodule Aiur.BuildQueue.Writer do
     end
   end
 
-  defp execute({action, {:promoted_unauthorized, id}}, context) when action in [:attention_open, :attention_resolve] do
-    result = if action == :attention_open, do: Attention.open(:promoted_unauthorized, id, %{ticket: id}), else: Attention.resolve(:promoted_unauthorized, id)
+  defp execute({action, {cause, id}}, context) when action in [:attention_open, :attention_resolve] and cause in [:promoted_unauthorized, :merged_issue_open] do
+    result = if action == :attention_open, do: Attention.open(cause, id, %{ticket: id}), else: Attention.resolve(cause, id)
 
     case context.store.load() do
       {:ok, document} ->
-        if result != :ok, do: Logger.warning("Build queue unauthorized attention failed issue_id=#{id} issue_identifier=##{id} action=#{action}: #{inspect(result)}")
+        if result != :ok, do: Logger.warning("Build queue #{cause} attention failed issue_id=#{id} issue_identifier=##{id} action=#{action}: #{inspect(result)}")
         {:cont, %{context | document: document}}
 
       {:error, _reason} ->
