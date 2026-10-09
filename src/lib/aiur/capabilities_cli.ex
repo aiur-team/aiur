@@ -44,6 +44,5 @@ defmodule Aiur.CapabilitiesCLI do
     "#{String.pad_trailing(id, 25)}#{value(entry, :state)}#{reason}#{needs}"
   end
 
-  defp value(nil, _key), do: "unknown"
-  defp value(section, key), do: Map.get(section, key) || "unknown"
+  defp value(section, key), do: (section && Map.get(section, key)) || "unknown"
 end
