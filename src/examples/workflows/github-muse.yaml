@@ -158,6 +158,7 @@ prompt_file: github-muse.prompt.md
 
 # Build queue (GitHub only; defaults shown).
 # build_queue:
+#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes

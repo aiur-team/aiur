@@ -20,7 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, TicketRow}
 
   @default_buckets 180
   @max_series_actors 8
@@ -259,7 +259,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
     rows =
       tickets
-      |> Enum.map(fn {id, t} -> ticket_row(id, t, timeline) end)
+      |> Enum.map(fn {id, t} -> TicketRow.build(id, t, &Timeline.project(timeline, &1)) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.sort_by(& &1.start_ms)
 
@@ -738,42 +738,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   # ---- ticket lifecycle rows ----
 
-  defp ticket_row(id, ticket, timeline) do
-    intervals = Map.get(ticket, :intervals, [])
-    starts = intervals |> Enum.map(&Map.get(&1, :start_ms)) |> Enum.filter(&is_integer/1)
-
-    if starts == [] do
-      nil
-    else
-      ends = intervals |> Enum.map(fn iv -> Map.get(iv, :end_ms) || Map.get(iv, :start_ms) end) |> Enum.filter(&is_integer/1)
-      start_ms = Enum.min(starts)
-      work_ms = phase_start(intervals, ["implement", "agent_spinup", "build_test"]) || start_ms
-      merged_at = phase_start(intervals, ["pr_merged"])
-      end_ms = merged_at || Enum.max([start_ms | ends])
-      project = &Timeline.project(timeline, &1)
-
-      %{
-        id: id,
-        start_ms: project.(start_ms),
-        work_ms: project.(work_ms),
-        end_ms: project.(end_ms),
-        merged_at: merged_at && project.(merged_at),
-        status: ticket_status(intervals, merged_at)
-      }
-    end
-  end
-
-  defp ticket_status(intervals, merged_at) do
-    phases = intervals |> Enum.map(&Map.get(&1, :phase)) |> MapSet.new()
-
-    cond do
-      merged_at -> :merged
-      MapSet.member?(phases, "rework_start") -> :rework
-      MapSet.member?(phases, "agent_pause") -> :paused
-      true -> :active
-    end
-  end
-
   defp merged?(ticket) do
     ticket |> Map.get(:intervals, []) |> Enum.any?(&(Map.get(&1, :phase) == "pr_merged"))
   end
@@ -848,16 +812,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp average_integer([]), do: nil
   defp average_integer(values), do: round(Enum.sum(values) / length(values))
-
-  defp phase_start(intervals, phases) do
-    intervals
-    |> Enum.filter(&(Map.get(&1, :phase) in phases and is_integer(Map.get(&1, :start_ms))))
-    |> Enum.map(&Map.get(&1, :start_ms))
-    |> case do
-      [] -> nil
-      list -> Enum.min(list)
-    end
-  end
 
   # ---- window + axis ----
 

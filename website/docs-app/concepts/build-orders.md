@@ -98,7 +98,7 @@ The build queue detects a prerequisite PR closed without merging from its latest
 
 Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
 
-This detection makes no GitHub request. In poll-only mode, or with missing, stale, or malformed delivery evidence, the open prerequisite stays pending. A newer open PR delivery replaces the closed body and clears the failed verdict.
+This detection makes no GitHub request. Missing, stale, or malformed PR deliveries supply no PR stage; fresh lifecycle labels can still satisfy an optimistic queue trigger. A newer open PR delivery replaces the closed body and clears the failed verdict.
 
 ## Queueing a Build Order
 
@@ -131,9 +131,9 @@ Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready`
 
 ## Merged PRs with open issues
 
-A merged prerequisite PR does not complete its issue. Dependents stay pending until tracker observations confirm closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
 
-If the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves when closure is observed; Aiur never closes the issue for this rule.
+For `issue_closed` queues, if the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves on closure or when no dependent requires `issue_closed`; Aiur never closes the issue for this rule.
 
 Merge times are held in memory. After a restart, a fresh merge observation starts the timer again. If the live hint is lost and no fresh PR delivery is available, poll-only mode keeps dependents waiting without this attention.
 
@@ -147,7 +147,7 @@ Queue faults emit once per cause and subject, then emit `.resolved` when cleared
 | `dependency_changed_after_start` | A promoted, claimed ticket becomes unready | Readiness returns or the ticket completes |
 | `promoted_unauthorized` | Dispatch declines authorization (requires a free slot) | Decline clears or ticket is claimed; an unavailable probe retains it |
 | `write_failed` | Five consecutive queue-label write failures | Next successful write |
-| `merged_issue_open` | A prerequisite PR merged and the issue remains open past the grace | Issue closes |
+| `merged_issue_open` | An `issue_closed` prerequisite PR merged and its issue remains open past grace | Issue closes or no dependent requires `issue_closed` |
 | `inputs_unavailable` | Inputs remain unknown for twice the observation age | All inputs become current |
 | `store_unavailable` | Queue store cannot load or save | Store recovers |
 

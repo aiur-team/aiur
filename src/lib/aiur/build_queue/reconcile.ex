@@ -31,6 +31,7 @@ defmodule Aiur.BuildQueue.Reconcile do
       end)
 
     opts = [
+      start_trigger: Settings.start_trigger(state.settings),
       label_prefix: state.settings.tracker.github.label_prefix,
       observation_max_age_ms: Settings.observation_max_age_ms(state.settings),
       withdrawal_holds: state.holds,
@@ -40,12 +41,21 @@ defmodule Aiur.BuildQueue.Reconcile do
 
     {observations, cache} = closures(state, observations)
     input = %{input | opts: opts, observations: observations, intents: intents}
-    {input, cache} = NativeObserver.observe(input, state, cache)
-    {observations, published} = PRObserver.observe(input.observations, %{state | document: %{state.document | edges: input.edges}})
-    input = %{input | observations: observations}
+    {input, cache, published} = enrich_prerequisites(input, state, cache)
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
     {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published, input.edges}
+  end
+
+  defp enrich_prerequisites(input, state, cache) do
+    # Keep existing PR evidence fixed while selecting native-dependency candidates.
+    {observations, published} = PRObserver.observe(input.observations, state)
+    {input, cache} = NativeObserver.observe(%{input | observations: observations}, state, cache)
+    known = MapSet.new(state.document.edges, & &1.prerequisite)
+    new_edges = Enum.reject(input.edges, &MapSet.member?(known, &1.prerequisite))
+    state = %{state | document: %{state.document | edges: new_edges}} |> Map.put(:published_pr_versions, published)
+    {observations, published} = PRObserver.observe(input.observations, state)
+    {%{input | observations: observations}, cache, published}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
