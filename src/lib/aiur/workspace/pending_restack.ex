@@ -5,6 +5,10 @@ defmodule Aiur.Workspace.PendingRestack do
 
   @spec apply(Path.t()) :: :ok | :skip_hook | {:error, term()}
   def apply(workspace) do
+    if File.dir?(Path.join(workspace, ".git")) or File.regular?(Path.join(workspace, ".git")), do: apply_checkout(workspace), else: :ok
+  end
+
+  defp apply_checkout(workspace) do
     git = fn args -> GitCommand.run(workspace, args) end
     {branch, _status} = git.(["symbolic-ref", "--quiet", "--short", "HEAD"])
     ref = "refs/aiur/restack/pending/#{String.trim(branch)}"

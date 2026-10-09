@@ -16,6 +16,14 @@ defmodule Aiur.Stacking.GitCommandTest do
     assert {_output, 0} = GitCommand.run(workspace, ["-c", "alias.assertclean=#{command}", "assertclean"])
   end
 
+  test "a failed OS spawn releases ownership without a provider hold" do
+    ticket = "restack-spawn-fail-#{System.unique_integer([:positive])}"
+    assert {:ok, lease} = Ownership.claim(ticket)
+    assert {"git command unavailable", 127} = GitCommand.run(System.tmp_dir!(), [nil], lease)
+    assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
+    assert Ownership.current(ticket) == :none
+  end
+
   test "cancelled git retains the workspace lock until its process group drains" do
     workspace = Aiur.TestSupport.tmp_root!("restack-cancel")
     File.mkdir_p!(workspace)

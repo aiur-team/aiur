@@ -39,7 +39,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     case Config.tracker_kind() do
       # See `CommentPolling.poll_github_comments/2`: CI polling also keeps the
-      # configured cadence rather than widening on quiet.
       "github" ->
         if within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
           state

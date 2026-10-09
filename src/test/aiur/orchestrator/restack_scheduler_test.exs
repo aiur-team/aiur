@@ -36,7 +36,12 @@ defmodule Aiur.Orchestrator.RestackSchedulerTest do
   end
 
   test "a newly delivered dependent head is rechecked after prior completion", ctx do
-    state = %State{restack_completed: %{{"20", "merged", "old"} => :done}}
+    old_opts = Keyword.put(ctx.opts, :read_pr, fn "20" -> {:ok, %{state: :open, head_ref: "dependent", head_sha: "old"}} end)
+    old_pending = RestackScheduler.reconcile(%State{}, [ctx.issue], old_opts)
+    receive_barrier({:started, old_worker})
+    send(old_worker, {:release, {:ok, :already_contained}})
+    receive_barrier({old_ref, old_result})
+    assert {:handled, state} = TrackerTasks.result(old_pending, old_ref, old_result)
     opts = Keyword.put(ctx.opts, :read_pr, fn "20" -> {:ok, %{state: :open, head_ref: "dependent", head_sha: "new"}} end)
     pending = RestackScheduler.reconcile(state, [ctx.issue], opts)
     receive_barrier({:started, worker})
@@ -112,22 +117,17 @@ defmodule Aiur.Orchestrator.RestackSchedulerTest do
       :ok
     end
 
-    failing = [write_state: writes, comment: fn _, _ -> {:error, :unavailable} end]
-    assert {:report_failed, :unavailable, ["shared"], [:state]} = RestackScheduler.report_conflict(ctx.issue, 42, ["shared"], failing)
+    failing = Keyword.merge(ctx.opts, write_state: writes, comment: fn _, _ -> {:error, :unavailable} end)
+    initial = RestackScheduler.reconcile(%State{}, [ctx.issue], failing)
+    receive_barrier({:started, worker})
+    send(worker, {:release, {:conflict, ["shared"]}})
+    receive_barrier({ref, result})
+    assert {:handled, reporting} = TrackerTasks.result(initial, ref, result)
     receive_barrier(:reworked)
-
-    opts =
-      Keyword.merge(ctx.opts,
-        completed_steps: [:state],
-        write_state: writes,
-        comment: fn _, _ ->
-          send(owner, :commented)
-          :ok
-        end,
-        publish: fn _, _ -> :ok end
-      )
-
-    state = %State{restack_completed: %{{"20", "merged", nil} => %{issue: ctx.issue, number: 42, paths: ["shared"], steps: [:state]}}}
+    receive_barrier({report_ref, report_result})
+    assert {:report_failed, :unavailable, ["shared"], [:state]} = report_result
+    assert {:handled, state} = TrackerTasks.result(reporting, report_ref, report_result)
+    opts = Keyword.merge(ctx.opts, write_state: writes, comment: fn _, _ -> send(owner, :commented); :ok end, publish: fn _, _ -> :ok end)
     retry = RestackScheduler.reconcile(state, [], opts)
     receive_barrier(:commented)
     receive_barrier({ref, result})
