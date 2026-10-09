@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.StatusObservation do
 
   @spec attach(map(), map(), DateTime.t()) :: map()
   def attach(snapshot, state, now) do
-    captured = Map.get(state, :status_observed_at, now)
+    captured = Map.get(state, :status_observed_at) || now
     tracker = oldest_observation(Map.values(state.tracker_observations))
     observations = Map.new(@groups, &{&1, observation(captured, now)})
     observations = Map.put(observations, :per_ticket, observation(tracker, now))
