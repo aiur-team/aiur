@@ -1,7 +1,7 @@
-defmodule Aiur.BuildOrder.BoundedTest do
+defmodule Aiur.BoundedTest do
   use Aiur.TestSupport
 
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias Aiur.TrackerIdentity
 
   test "accepts only bounded same-origin relative routes" do

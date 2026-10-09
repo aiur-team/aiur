@@ -68,8 +68,8 @@ When a change must touch an oversized text file (over 500 lines), keep that
 file the same length or shorter. Put new code in a new small module and new
 tests in a new test file. Never grow the oversized file.
 
-These checks supplement the scoped compile, format, and affected-test gate;
-CI still runs the authoritative full required-check set.
+These checks supplement the scoped compile, format, and affected-test gate; CI still runs the authoritative
+full required-check set. Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
 
 ### Unrelated CI flakes
 

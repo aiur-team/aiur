@@ -87,3 +87,11 @@ These paths are machine-local. Do not commit them, and do not expect copying a r
 | Current bottleneck | Named in the hourly filing with evidence-supported follow-up. |
 
 Git history and an old Dashboard capture are not substitutes for current Build Order state.
+
+## Closed prerequisite pull requests
+
+The build queue detects a prerequisite PR closed without merging from its latest fresh GitHub webhook delivery. Its dependents fail readiness with `pr_closed_unmerged` and remain waiting.
+
+Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
+
+This detection makes no GitHub request. In poll-only mode, or with missing, stale, or malformed delivery evidence, the open prerequisite stays pending. A newer open PR delivery replaces the closed body and clears the failed verdict.

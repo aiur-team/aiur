@@ -18,6 +18,7 @@
   "files": [
     "bin/aiur.js",
     "libexec/aiur-engine.sh",
+    "libexec/aiur-queue.sh",
     "libexec/aiur-pane-ctrlc",
     "scripts/postinstall.mjs",
     "share/aiur.tmux.conf"

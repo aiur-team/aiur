@@ -29,6 +29,14 @@ defmodule Aiur.BuildQueue.AttentionTest do
     {:ok, document: document, root: root}
   end
 
+  test "duplicate closure attention preserves and names its unknown completion cause" do
+    payload = %{@payload | cause: :duplicate}
+    assert :ok = Attention.open(:prerequisite_failed, "12", payload)
+    assert_received {:event, %{topic: @topic, cause: :duplicate}}
+    assert [alert] = alerts(@topic)
+    assert alert["message"] =~ "closed as duplicate (completion unknown)"
+  end
+
   test "open twice emits once and preserves unrelated store records", %{document: document} do
     edge = %Edge{prerequisite: "12", dependent: "13", source: :native}
     other = %Latch{key: {:write_failed, "99"}, opened_at_ms: 1, emitted?: true}

@@ -7374,21 +7374,19 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .provider-meter-account-bar {
-  display: flex;
-  width: 100%;
-  height: var(--progress-bar-height);
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) 1fr;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 0.4rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--surface-3);
 }
 
 .provider-meter-account-segment {
   display: block;
-  flex: 0 0 auto;
-  height: 100%;
-  border-right: 1px solid var(--surface-1);
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface-3));
+  height: var(--progress-bar-height);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
 }
 
 .provider-meter-account-fill {
@@ -7396,12 +7394,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   height: 100%;
   background: var(--accent);
 }
-
-.provider-meter-account-segment.account-color-1 .provider-meter-account-fill { background: var(--good); }
-.provider-meter-account-segment.account-color-2 .provider-meter-account-fill { background: var(--attention); }
-.provider-meter-account-segment.account-color-3 .provider-meter-account-fill { background: #b08cff; }
-.provider-meter-account-segment.account-color-4 .provider-meter-account-fill { background: #f28b62; }
-.provider-meter-account-segment.account-color-5 .provider-meter-account-fill { background: #55c4c8; }
 
 .provider-meter-account-labels {
   display: flex;
