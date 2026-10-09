@@ -3,6 +3,7 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
   import ExUnit.CaptureLog
   alias Aiur.BuildQueue.{Hints, Model, Server}
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Orchestrator.{IssueSync, State}
 
@@ -62,11 +63,14 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
   end
 
   test "AC4: withdrawal keeps queued marker and real IssueSync does not heal todo" do
+    :ok = Exchange.subscribe("ticket.1.queue.withdrawn")
     pid = server()
     reconcile(pid)
     assert labels() == ["agent:queued"]
     assert [{"1", "agent:todo", %{action: :withdraw, outcome: nil, target_labels: ["agent:queued"]}}] = get(:calls)
     assert [%{action: :withdraw, outcome: :ok}] = get(:document).intents
+    Exchange.bindings_for(self())
+    assert_received {:event, %{"ticket" => "1", "queue_id" => "q", "cause" => "withdraw", topic: "ticket.1.queue.withdrawn"}}
     assert Hints.held?("1")
     previous = %Issue{id: "1", identifier: "1", state: "todo", state_labels: ["agent:todo"], labels: ["agent:queued", "agent:todo"], queued: true}
     observed = %{previous | state: nil, state_labels: [], labels: labels()}

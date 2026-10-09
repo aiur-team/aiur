@@ -2,7 +2,7 @@ Code.require_file("../../support/build_queue_fake_tracker.ex", __DIR__)
 
 defmodule Aiur.BuildQueue.EventsTest do
   use Aiur.TestSupport
-  alias Aiur.BuildQueue.{Bookkeeping, Events, Model, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, Events, Model, Recovery, Writer}
   alias Aiur.BuildQueueFakeTracker, as: Fake
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -51,6 +51,19 @@ defmodule Aiur.BuildQueue.EventsTest do
     saved = %{pending | intents: [%{intent | outcome: :ok}]}
     :ok = Events.saved(pending, saved)
     event(id, "withdrawn", "withdraw")
+  end
+
+  test "recovery publishes a newly resolved intent once", %{document: document, id: id} do
+    intent = %Model.Intent{id: Ecto.UUID.generate(), issue_id: id, action: :promote, target_labels: ["agent:queued", "agent:todo"], recorded_at_ms: 1_000, outcome: nil}
+    state = %{phase: :awaiting_first_observation, freshness: :fresh, document: %{document | intents: [intent]}, settings: %{tracker: %{github: %{label_prefix: "agent"}}}, store: Fake}
+    observations = %{id => %{labels: ["agent:queued", "agent:todo"]}}
+    recovered = Recovery.resolve(state, observations)
+    assert [%{outcome: :ok}] = Fake.get(:document).intents
+    event(id, "promoted", "promote")
+    assert Recovery.resolve(recovered, observations) == recovered
+    barrier()
+    topic = "ticket.#{id}.queue.promoted"
+    refute_received {:event, %{topic: ^topic}}
   end
 
   test "future guard: tracker and outcome-save failures emit no promotion", %{document: document, id: id} do
