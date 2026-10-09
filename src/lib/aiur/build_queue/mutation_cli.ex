@@ -22,7 +22,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
   @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:error, term()}}]} | {:error, term()}
   def execute(opts) do
-    with :ok <- guard_workspace(opts), :ok <- validate(opts) do
+    with :ok <- guard_workspace(opts), :ok <- validate(opts), :ok <- confirm(opts) do
       if opts[:build_order], do: adopt(opts), else: dispatch(Keyword.fetch!(opts, :verb), opts)
     end
   end
@@ -43,6 +43,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
     allowed =
       case opts[:verb] do
         :add -> [:ids, :queue, :after, :at, :build_order]
+        :recover -> [:force]
+        :clear -> [:remove_markers, :yes]
         :remove -> [:ids]
         :reorder -> [:ids, :to]
         verb when verb in [:hold, :release] -> [:ids, :queue]
@@ -60,6 +62,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
+  defp valid_command?(:recover, [], opts), do: Keyword.get(opts, :force, false) in [true, false]
+  defp valid_command?(:clear, [], opts), do: opts[:remove_markers] == true and Keyword.get(opts, :yes, false) in [true, false]
   defp valid_command?(:remove, ids, opts), do: ids != [] and is_nil(opts[:queue])
   defp valid_command?(:reorder, [_], opts), do: position?(opts[:to]) and is_nil(opts[:queue])
   defp valid_command?(verb, ids, opts) when verb in [:hold, :release], do: (length(ids) == 1 and is_nil(opts[:queue])) or (ids == [] and is_binary(opts[:queue]))
@@ -83,6 +87,13 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
     {:ok, results}
   end
+
+  defp confirm(opts) do
+    if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
+  end
+
+  defp dispatch(:recover, opts), do: {:ok, [{"recover", call({:recover, Keyword.get(opts, :force, false)}, opts)}]}
+  defp dispatch(:clear, opts), do: {:ok, [{"clear", call({:mutate, {:clear, Keyword.take(opts, [:remove_markers, :yes])}}, opts)}]}
 
   defp dispatch(:add, opts) do
     {results, _} =
@@ -143,6 +154,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     :exit, {:timeout, _} -> {:error, :outcome_unknown}
   end
 
+  defp message({:error, :confirmation_required}), do: "clear requires --yes; removes all queue membership and markers, keeping todo"
   defp message(:ok), do: "ok"
   defp message({:error, {:already_queued, name}}), do: "already in queue #{name}"
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"

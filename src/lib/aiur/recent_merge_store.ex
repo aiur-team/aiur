@@ -13,7 +13,7 @@ defmodule Aiur.RecentMergeStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionLog, Fs, RecentMerge}
+  alias Aiur.{Alerts, Config, Fs, Journal, RecentMerge}
   alias Aiur.Signal
 
   @filename "recent_merges.ndjson"
@@ -66,7 +66,7 @@ defmodule Aiur.RecentMergeStore do
     retention_limit = positive_limit(opts, :retention_limit, @retention_limit)
 
     %{
-      append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+      append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
       compact_fun: Keyword.get(opts, :compact_fun, &compact_log/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
@@ -96,14 +96,14 @@ defmodule Aiur.RecentMergeStore do
   defp boot(dir, persistence) do
     path = Path.join(dir, @filename)
 
-    case DecisionLog.prepare(dir, path, persistence.sync_fun) do
+    case Journal.prepare(dir, path, persistence.sync_fun) do
       :ok -> replay(path, persistence)
       {:error, reason} -> unavailable_state(path, persistence, {:directory_unavailable, reason})
     end
   end
 
   defp replay(path, persistence) do
-    case DecisionLog.replay(path, &RecentMerge.decode_record/1) do
+    case Journal.replay(path, &RecentMerge.decode_record/1) do
       {:ok, records, corruption} ->
         state =
           records
