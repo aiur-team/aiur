@@ -30,7 +30,7 @@ export async function transplant(browser, cell) {
     }, ROOTS)
     const origin = new URL(test.info().project.use.baseURL).origin
     await guardNetwork(pair.product, [origin])
-    await pair.product.route(`${origin}/home-css-transplant`, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/build-home/home.css"></head><body></body></html>' }))
+    await pair.product.route(`${origin}/home-css-transplant`, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/build-home/home.css"></head><body></body></html>' }))
     await pair.product.clock.setFixedTime(FIXTURE_META.now)
     await pair.product.goto(`${origin}/home-css-transplant`)
     await pair.product.evaluate(data => {
