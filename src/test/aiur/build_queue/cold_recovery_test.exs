@@ -20,7 +20,8 @@ defmodule Aiur.BuildQueue.ColdRecoveryTest do
     IO.puts("cold recovery decoded")
     """
 
-    ebin = :code.which(Aiur.BuildQueue.Server) |> List.to_string() |> Path.dirname()
+    # Coverage runs cover-compile modules in memory, so :code.which/1 has no path; the app ebin always does.
+    ebin = Application.app_dir(:aiur, "ebin")
     {output, status} = System.cmd(System.find_executable("elixir"), ["-pa", ebin, "-e", script], stderr_to_stdout: true)
     assert status == 0, output
     assert output =~ "cold recovery decoded"
