@@ -57,7 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     assert Floki.text(Floki.find(doc, "a[href='/commands'] .sr-only")) == ", 3 need a command"
   end
 
-  test "unknown command counts omit the dot and preserve the unavailable notice" do
+  test "future regression guard: unknown command counts omit the dot and preserve the unavailable notice" do
     doc = shell(nav_counts: %{commands: nil})
     assert Floki.find(doc, "a[href='/commands'] .snav-c") == []
     banner = render_component(&Overview.decisions_banner/1, %{retained_counts: %{awaiting: nil, awaiting_blocking: nil, health: %{status: :unavailable}}})
