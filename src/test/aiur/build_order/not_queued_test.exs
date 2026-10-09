@@ -69,7 +69,7 @@ defmodule Aiur.BuildOrder.NotQueuedTest do
   end
 
   test "queue store unavailable gives no rows" do
-    assert %{state: :unavailable, reasons: [:queue_unavailable], rows: []} = build([ticket(31)], %{status: :store_unavailable})
+    assert %{state: :unavailable, reasons: [:queue_unavailable], observed_at: nil, rows: []} = build([ticket(31)], %{status: :store_unavailable})
   end
 
   test "disabled or unsupported queues have no membership" do
@@ -81,10 +81,10 @@ defmodule Aiur.BuildOrder.NotQueuedTest do
 
   test "unknown queue shape and failed reads have distinct reasons" do
     for queue <- [:error, %{}, %{status: :paused}, %{"status" => "running"}, nil] do
-      assert %{state: :unavailable, reasons: [:queue_status_unknown], rows: []} = build([ticket(31)], queue)
+      assert %{state: :unavailable, reasons: [:queue_status_unknown], observed_at: nil, rows: []} = build([ticket(31)], queue)
     end
 
-    assert %{state: :unavailable, reasons: [:queue_read_failed], rows: []} = build([ticket(31)], {:error, :timeout})
+    assert %{state: :unavailable, reasons: [:queue_read_failed], observed_at: nil, rows: []} = build([ticket(31)], {:error, :timeout})
   end
 
   test "stale reasons accumulate and observation is the oldest across every source" do
