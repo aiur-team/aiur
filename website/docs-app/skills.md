@@ -44,8 +44,6 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 ## Executor skills
 
-`aiur-build` creates waiting members with `agent:queued` and adopts their root; `aiur-run` audits queue status, holds and attentions. A disabled queue uses todo labels instead.
-
 These stay with the Executor and are not copied into ticket workspaces.
 
 | Skill | Trigger | Covers |
@@ -59,6 +57,8 @@ These stay with the Executor and are not copied into ticket workspaces.
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
 
 `aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
+
+`aiur-build` creates waiting members with `agent:queued` and adopts their root; `aiur-run` audits queue status, holds and attentions. A disabled queue uses todo labels instead.
 
 ## Codex-native git workflow
 

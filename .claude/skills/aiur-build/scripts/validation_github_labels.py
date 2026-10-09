@@ -82,9 +82,9 @@ def _validate_label_sets(
         if (
             ticket.get("kind") in RUNNABLE_KINDS
             and ticket.get("depends_on")
-            and "agent:queued" in actual
+            and f"{normalized_lifecycle_prefix}:queued" in actual
         ):
-            expected_labels = expected_labels | {"agent:queued"}
+            expected_labels = expected_labels | {f"{normalized_lifecycle_prefix}:queued"}
             todo = f"{normalized_lifecycle_prefix}:todo"
             if todo not in actual:
                 expected_labels = expected_labels - {todo}
