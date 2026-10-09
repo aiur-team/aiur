@@ -17,7 +17,16 @@ defmodule Aiur.BuildQueue.PRObserver do
         {observations, state}
       end
 
-    {observations, state.published_pr_versions}
+    {merged_observations(observations, state), state.published_pr_versions}
+  end
+
+  defp merged_observations(observations, state) do
+    previous = Map.get(state, :merged_at_ms, %{})
+
+    Map.new(observations, fn {id, observation} ->
+      at = previous[id] || if(observation.pr == :merged, do: state.clock.())
+      {id, %{observation | merged_at_ms: at}}
+    end)
   end
 
   defp observe_ticket(id, {observations, state}) do
