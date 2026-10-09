@@ -136,6 +136,9 @@ defmodule Aiur.Linear.Tracker do
     end
   end
 
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(_issue_id), do: {:ok, nil}
+
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(_max_age_ms) do
     {:error, :unsupported}
