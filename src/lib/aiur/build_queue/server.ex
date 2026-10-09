@@ -3,7 +3,25 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, BuildOrderCommands, ClaimProbe, Events, Hints, ListCommands, Progress, ReadModel, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
+  alias Aiur.BuildQueue.{
+    AttentionActions,
+    AttentionHealth,
+    Bookkeeping,
+    BuildOrderCommands,
+    ClaimProbe,
+    Events,
+    Hints,
+    ListCommands,
+    Progress,
+    ReadModel,
+    Reconcile,
+    Recovery,
+    Settings,
+    Store,
+    Withdrawal,
+    Writer
+  }
+
   alias Aiur.BuildQueue.Sources.BuildOrder, as: BuildOrderSource
   alias Aiur.Events.Exchange
 
@@ -50,10 +68,13 @@ defmodule Aiur.BuildQueue.Server do
       hold_ages: %{},
       closure_cache: %{},
       intent_reconciles: %{},
+      inputs_unknown_since_ms: nil,
+      store_attention?: false,
+      planned_edges: [],
       reconciles: 0
     }
 
-    {:ok, initialize(state)}
+    {:ok, state |> initialize() |> AttentionHealth.store()}
   end
 
   @impl true
@@ -75,27 +96,20 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call(:recover, _from, %{status: status} = state) when status in [:disabled, :unsupported_tracker], do: {:reply, {:error, status}, state}
 
-  def handle_call(:recover, _from, state) do
-    case Recovery.rebuild(state) do
+  def handle_call(:recover, from, %{status: :store_unavailable} = state) do
+    case state.store.load() do
       {:ok, document} ->
-        if state.status == :store_unavailable do
-          Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
-          schedule_tick(state)
-        end
+        Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+        schedule_tick(state)
+        state = %{state | document: document, status: :running, phase: :awaiting_first_observation, pending: nil, writer: Writer.new()}
+        {:reply, :ok, state |> AttentionHealth.store() |> subscribe() |> request()}
 
-        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
-        {projections, _, _, _, _, published} = Reconcile.plan(state)
-        state = %{state | published_pr_versions: published}
-        Reconcile.write_hints(projections, state.holds, document)
-        {:reply, :ok, state |> subscribe() |> request()}
-
-      {:error, reason} = error when reason in [:store_present, :observation_unavailable] ->
-        {:reply, error, state}
-
-      {:error, _reason} = error ->
-        {:reply, error, %{state | status: :store_unavailable}}
+      {:error, _} ->
+        rebuild(from, state)
     end
   end
+
+  def handle_call(:recover, from, state), do: rebuild(from, state)
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
 
@@ -140,7 +154,7 @@ defmodule Aiur.BuildQueue.Server do
       {:reply, :ok, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
     else
       {:error, reason} when reason in [:not_found, :observation_unavailable] -> {:reply, {:error, reason}, state}
-      {:error, reason} -> {:reply, {:error, reason}, %{state | status: :store_unavailable}}
+      {:error, reason} -> {:reply, {:error, reason}, AttentionHealth.store(%{state | status: :store_unavailable})}
     end
   end
 
@@ -179,6 +193,28 @@ defmodule Aiur.BuildQueue.Server do
   def handle_info({:DOWN, _ref, :process, pid, _reason}, %{exchange_pid: pid} = state), do: {:noreply, %{state | exchange_pid: nil}}
   def handle_info(_message, state), do: {:noreply, state}
 
+  defp rebuild(_from, state) do
+    case Recovery.rebuild(state) do
+      {:ok, document} ->
+        if state.status == :store_unavailable do
+          Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+          schedule_tick(state)
+        end
+
+        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
+        {projections, _, _, _, _, published, _edges} = Reconcile.plan(state)
+        state = %{state | published_pr_versions: published}
+        Reconcile.write_hints(projections, state.holds, document)
+        {:reply, :ok, state |> AttentionHealth.store() |> subscribe() |> request()}
+
+      {:error, reason} = error when reason in [:store_present, :observation_unavailable] ->
+        {:reply, error, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, AttentionHealth.store(%{state | status: :store_unavailable})}
+    end
+  end
+
   defp commit_mutation(state, document, actions, observations) do
     case state.store.save(document) do
       :ok ->
@@ -196,7 +232,7 @@ defmodule Aiur.BuildQueue.Server do
         {reply, state}
 
       {:error, _} ->
-        {{:error, :store_unavailable}, %{state | status: :store_unavailable}}
+        {{:error, :store_unavailable}, AttentionHealth.store(%{state | status: :store_unavailable})}
     end
   end
 
@@ -224,7 +260,7 @@ defmodule Aiur.BuildQueue.Server do
 
       {:error, reason} ->
         Logger.error("Build queue store unavailable: #{inspect(reason)}")
-        %{state | status: :store_unavailable}
+        AttentionHealth.store(%{state | status: :store_unavailable})
     end
   end
 
@@ -271,11 +307,16 @@ defmodule Aiur.BuildQueue.Server do
   defp replay_list_markers(state, _observations), do: state
 
   defp plan(state, observations) do
-    {projections, actions, observations, cache, holds, published} = Reconcile.plan(state, observations)
+    {projections, actions, observations, cache, holds, published, edges} = Reconcile.plan(state, observations)
+    {state, health_actions} = AttentionHealth.plan(state, projections)
+    actions = health_actions ++ actions
+    state = %{state | planned_edges: edges}
     ids = Enum.map(state.document.edges, & &1.prerequisite)
     merged = Enum.reduce(observations, state.merged_at_ms, fn {id, row}, acc -> if row.merged_at_ms, do: Map.put_new(acc, id, row.merged_at_ms), else: acc end)
     state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published, merged_at_ms: Map.take(merged, ids)}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
+    state = if state.phase != :ready and state.status != :store_unavailable, do: Enum.reduce(health_actions, state, &AttentionActions.execute(&2, &1)), else: state
+    state = AttentionHealth.store(state)
 
     holds =
       Enum.reduce(actions, state.holds, fn
@@ -309,7 +350,16 @@ defmodule Aiur.BuildQueue.Server do
     result = Writer.run(context, actions, state.writer)
     status = if result.status == :paced, do: :running, else: result.status
     ages = Map.new(result.document.intents, &{&1.id, Map.get(state.intent_reconciles, &1.id, state.reconciles)})
-    %{state | document: result.document, writer: result.writer, write_results: result.write_results, status: status, actions: actions ++ result.write_attentions, intent_reconciles: ages}
+
+    AttentionHealth.store(%{
+      state
+      | document: result.document,
+        writer: result.writer,
+        write_results: result.write_results,
+        status: status,
+        actions: actions ++ result.write_attentions,
+        intent_reconciles: ages
+    })
   end
 
   defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state

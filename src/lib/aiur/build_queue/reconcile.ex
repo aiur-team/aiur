@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Planner, PRObserver, Settings, Withdrawal}
 
-  @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map()}
+  @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map(), list()}
 
   @spec plan(map()) :: plan()
   def plan(state) do
@@ -45,7 +45,7 @@ defmodule Aiur.BuildQueue.Reconcile do
     input = %{input | observations: observations}
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
-    {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published}
+    {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published, input.edges}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
