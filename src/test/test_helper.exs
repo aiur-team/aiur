@@ -11,6 +11,7 @@ contaminating_env_vars = [
   "AIUR_TMUX_CONF",
   "AIUR_TMUX_SESSION",
   "AIUR_TMUX_SOCKET",
+  "AIUR_AGENT_TMUX_SOCKET",
   "AIUR_LOGS_ROOT"
 ]
 
