@@ -96,7 +96,7 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(dashboard).toContain('| **Commands** | `/commands`')
   expect(dashboard).toContain('| **Build Order** | `/build-orders`')
   expect(dashboard).toContain('| **Analytics** | `/analytics`')
-  expect(dashboard).toContain('| **Streamdeck+** | `/streamdeck`')
+  expect(dashboard).toContain('| **Streamdeck** | `/streamdeck`')
   expect(dashboard).toContain('browser emulator for the physical Stream Deck + sidecar')
   expect(streamDeck).toContain('Mic is press-and-hold, not a click')
   expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')

@@ -88,6 +88,7 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  config :aiur, :build_order_root_import_enabled?, false
   config :aiur, :build_history_backfill_enabled?, false
 
   # The shared app must not replace the singleton BranchRefStore with real
