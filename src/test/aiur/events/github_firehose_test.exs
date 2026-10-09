@@ -26,10 +26,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       end
     end)
 
-    # Ticket 42 is the suite-wide fixture id: other tests publish trusted
-    # `ticket.42.*` comments on this shared bus, and the app-level Orchestrator
-    # answers them asynchronously, sometimes after that test ended (#3598).
-    # Refutes key on an id no other test can publish for.
+    # Not 42: other tests' ticket.42 comments get late orchestrator alerts (#3598).
     {:ok, ticket: Integer.to_string(System.unique_integer([:positive]))}
   end
 
@@ -62,13 +59,9 @@ defmodule Aiur.Events.GithubFirehoseTest do
     end
 
     test "304 returns previously-cached etag, no publishes" do
-      # Every topic this poller publishes; a 304 names no ticket, so no id.
       :ok = Exchange.subscribe("ticket.*.pr.#")
       :ok = Exchange.subscribe("system.*.branch.push")
-
-      stub = fn %{etag: ~s("e1")} ->
-        {:ok, %{status: 304, headers: [{"ETag", ~s("e1")}], body: ""}}
-      end
+      stub = fn %{etag: ~s("e1")} -> {:ok, %{status: 304, headers: [{"ETag", ~s("e1")}], body: ""}} end
 
       assert {:ok, %{etag: ~s("e1"), count: 0}} =
                GithubFirehose.poll(etag: ~s("e1"), request_fun: stub)
