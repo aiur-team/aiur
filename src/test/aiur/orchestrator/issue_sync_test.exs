@@ -1213,7 +1213,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
     assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
-    assert event["reason"] =~ "binding constraint=load envelope (effective cap=3)"
+    assert event["reason"] =~ "binding constraint=adaptive envelope (effective cap=3)"
   end
 
   test "reports a per-state ceiling as the binding constraint" do

@@ -115,7 +115,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
-  def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
+  def initial_load_envelope_limit(%{target_load_average: nil, target_cpu_pressure: nil}), do: nil
   def initial_load_envelope_limit(_agent), do: 1
 
   @doc false

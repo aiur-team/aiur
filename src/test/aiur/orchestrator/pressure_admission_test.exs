@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.PressureAdmissionTest do
   use Aiur.TestSupport
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.{Issue, SystemPressure, Workflow}
+  alias Aiur.{Issue, Orchestrator, SystemPressure, Workflow}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, PressureAdmission, Slots, State}
 
   setup do
@@ -133,6 +133,47 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
 
     quiet = IssueSync.sync_fleet_capacity_starved_alert(recovered, ready, 1_000)
     assert quiet.fleet_capacity_starvation.since_ms == nil
+  end
+
+  test "lifecycle seeds PSI ramp when the fallback target is disabled" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, String.replace(File.read!(path), "agent:\n", "agent:\n  target_load_average: null\n"))
+    :ok = Aiur.WorkflowStore.force_reload()
+    pid = start_supervised!({Orchestrator, name: nil, initial_poll?: false})
+    initial = :sys.get_state(pid)
+    assert initial.effective_concurrent_agents == 1
+    assert update(initial, 15.0, 60_000).effective_concurrent_agents == 1
+    assert DispatchPolicy.initial_load_envelope_limit(%{target_load_average: nil, target_cpu_pressure: nil}) == nil
+  end
+
+  test "a timed-out PSI transition cannot lend its overload streak to load fallback" do
+    initial = %State{max_concurrent_agents: 20, effective_concurrent_agents: 20}
+    two = initial |> dispatch(probes(11.0), 60_000) |> dispatch(probes(11.0), 120_000)
+    assert two.load_envelope_state.overload_samples == 2
+    timeout = Map.merge(probes(11.0), %{cpu_pressure: :unavailable, load: :unavailable, target: 1.0, sampled_at_ms: nil, sample_id: nil})
+    unavailable = Dispatcher.maybe_choose_under_load(two, [], fn current, _ -> current end, now_ms: 180_000, admission_probes_fun: fn -> timeout end)
+    assert unavailable.load_envelope_state.overload_samples == 0
+    fallback = dispatch(unavailable, %{probes(11.0) | cpu_pressure: :unavailable, target: 1.0}, 240_000)
+    assert fallback.effective_concurrent_agents == 20
+    assert fallback.load_envelope_state.overload_samples == 1
+  end
+
+  test "the exact PSI recovery boundary reports the adaptive cap as stalled" do
+    state = %State{poll_interval_ms: 5_000, max_concurrent_agents: 20, effective_concurrent_agents: 5}
+
+    sampled =
+      Dispatcher.maybe_choose_under_load(state, [], fn current, _ -> current end, now_ms: 60_000, admission_probes_fun: fn -> Map.merge(probes(8.0), %{sampled_at_ms: 60_000, sample_id: 60_000}) end)
+
+    sampled = %{sampled | running: Map.new(1..5, fn id -> {"active#{id}", %{control: %{status: :working}}} end)}
+    ready = [%Issue{id: "ready", identifier: "repo#ready", title: "ready", state: "todo"}]
+    stalled = IssueSync.sync_fleet_capacity_starved_alert(sampled, ready, 1_000)
+    assert stalled.fleet_capacity_starvation.since_ms == 1_000
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+    alerted = IssueSync.sync_fleet_capacity_starved_alert(stalled, ready, 6_000)
+    assert alerted.fleet_capacity_starvation.alert_active
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
+    assert event["reason"] =~ "binding constraint=adaptive envelope"
   end
 
   defp update(state, pressure, now), do: PressureAdmission.update(state, probes(pressure), now, true, true)

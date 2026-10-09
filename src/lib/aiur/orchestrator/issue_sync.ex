@@ -1935,9 +1935,9 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp envelope_ramping?(_context), do: false
 
-  defp load_below_or_at_target?(%{load: load, ramp_threshold: target, schedulers: schedulers})
+  defp load_below_or_at_target?(%{load: load, ramp_threshold: target, schedulers: schedulers} = context)
        when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0,
-       do: load <= target * schedulers
+       do: if(context.metric == "CPU PSI some avg60 (%)", do: load < target, else: load <= target * schedulers)
 
   defp load_below_or_at_target?(_context), do: false
 
@@ -2012,7 +2012,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp fleet_capacity_constraint(%{effective_cap: effective, configured_cap: configured, live_count: live})
        when effective <= live and effective < configured,
-       do: "load envelope (effective cap=#{effective})"
+       do: "adaptive envelope (effective cap=#{effective})"
 
   defp fleet_capacity_constraint(%{effective_cap: effective, configured_cap: configured, live_count: live})
        when effective <= live and effective == configured,

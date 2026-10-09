@@ -891,7 +891,7 @@ defmodule Aiur.Config do
   end
 
   @doc """
-  Number of dispatch slots added by each sample below 80% of the envelope target.
+  Slots added below 80% of the PSI target, or at/below the load fallback target.
   """
   @spec load_ramp_step() :: pos_integer()
   def load_ramp_step do

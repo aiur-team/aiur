@@ -952,6 +952,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    previous_signal = Map.get(state.load_envelope_state, :signal)
     overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
@@ -963,7 +964,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> maybe_record_load_envelope_constraint(envelope_value, envelope_target, envelope_schedulers)
 
     # Reusing a sample neither confirms nor interrupts sustained overload.
-    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
+    state = if fresh? or previous_signal != state.load_envelope_state[:signal], do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
