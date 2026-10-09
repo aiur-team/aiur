@@ -24,6 +24,7 @@ defmodule AiurWeb.Layouts do
         <title>{@page_title}</title>
         <script>
           (function () {
+            try { if (window.localStorage.getItem("aiur-nav-collapsed") === "true" && window.matchMedia("(min-width: 961px)").matches) document.documentElement.classList.add("nav-collapsed"); } catch (_error) {}
             var theme;
             try { theme = window.localStorage.getItem("aiur-theme"); } catch (_error) {}
             document.documentElement.dataset.theme = theme === "light" || theme === "dark"
@@ -104,29 +105,124 @@ defmodule AiurWeb.Layouts do
               }
             };
 
-            // The server owns the collapsed state (assigns -> data-nav-collapsed on
-            // the shell). This hook only mirrors it to localStorage and replays the
-            // stored value once on mount, so cross-navigation persistence survives
-            // without any client-written attribute for LiveView to strip.
             Hooks.NavToggle = {
               mounted: function () {
-                try {
-                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
-                  if (stored === "true" || stored === "false") {
-                    var collapsed = stored === "true";
-                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
-                      this.pushEvent("restore-nav", { collapsed: collapsed });
-                    }
-                  }
-                } catch (_error) {}
+                this.root = document.documentElement;
+                this.media = window.matchMedia("(min-width: 961px)");
+                this.onMedia = () => this.mirror();
+                this.media.addEventListener("change", this.onMedia);
+                this.onKey = (e) => {
+                  if (!["Enter", " ", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+                  e.preventDefault();
+                  this.commit(e.key === "ArrowLeft" || (e.key !== "ArrowRight" && !this.root.classList.contains("nav-collapsed")));
+                };
+                this.onDown = (e) => {
+                  if (e.button !== 0 || !this.media.matches) return;
+                  e.preventDefault();
+                  this.drag = {id: e.pointerId, x: e.clientX, width: this.root.classList.contains("nav-collapsed") ? 60 : 188};
+                  this.el.setPointerCapture(e.pointerId);
+                  this.root.classList.add("nav-drag");
+                };
+                this.onMove = (e) => {
+                  if (!this.drag || e.pointerId !== this.drag.id) return;
+                  var width = Math.max(50, Math.min(204, this.drag.width + e.clientX - this.drag.x));
+                  this.root.style.setProperty("--navw", width + "px");
+                  this.root.classList.toggle("nav-collapsed", width < 124);
+                };
+                this.onUp = (e) => {
+                  if (!this.drag || e.pointerId !== this.drag.id) return;
+                  var width = parseFloat(this.root.style.getPropertyValue("--navw")) || this.drag.width;
+                  var collapsed = Math.abs(e.clientX - this.drag.x) > 3 ? width < 124 : !this.root.classList.contains("nav-collapsed");
+                  this.cleanDrag();
+                  void this.root.offsetWidth;
+                  this.commit(collapsed);
+                };
+                this.onCancel = () => { if (this.drag) { this.cleanDrag(); this.mirror(); } };
+                this.el.addEventListener("keydown", this.onKey);
+                this.el.addEventListener("pointerdown", this.onDown);
+                this.el.addEventListener("pointermove", this.onMove);
+                this.el.addEventListener("pointerup", this.onUp);
+                this.el.addEventListener("pointercancel", this.onCancel);
+                this.el.addEventListener("lostpointercapture", this.onCancel);
+                var stored;
+                try { stored = window.localStorage.getItem("aiur-nav-collapsed"); } catch (_error) {}
+                if ((stored === "true" || stored === "false") && (stored === "true") !== this.collapsed()) {
+                  this.pending = stored === "true";
+                  this.pushEvent("restore-nav", {collapsed: this.pending}, () => {});
+                } else this.mirror();
+              },
+              reconnected: function () { this.mirror(); },
+              collapsed: function () { return this.el.dataset.navCollapsed === "true"; },
+              mirror: function () {
+                if (!this.drag) this.root.classList.toggle("nav-collapsed", this.media.matches && this.collapsed());
               },
               updated: function () {
-                try {
-                  window.localStorage.setItem(
-                    "aiur-nav-collapsed",
-                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
-                  );
-                } catch (_error) {}
+                if (this.pending !== undefined && this.collapsed() !== this.pending) return;
+                this.pending = undefined;
+                this.mirror();
+                try { window.localStorage.setItem("aiur-nav-collapsed", String(this.collapsed())); } catch (_error) {}
+              },
+              commit: function (collapsed) {
+                this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
+                this.pushEvent("restore-nav", {collapsed: collapsed}, () => {});
+                clearTimeout(this.resizeTimer);
+                this.resizeTimer = setTimeout(() => window.dispatchEvent(new Event("resize")), 260);
+              },
+              cleanDrag: function () {
+                var drag = this.drag;
+                this.drag = null;
+                this.root.classList.remove("nav-drag");
+                this.root.style.removeProperty("--navw");
+                if (drag && this.el.hasPointerCapture(drag.id)) this.el.releasePointerCapture(drag.id);
+              },
+              destroyed: function () {
+                this.cleanDrag();
+                clearTimeout(this.resizeTimer);
+                this.media.removeEventListener("change", this.onMedia);
+                this.el.removeEventListener("keydown", this.onKey);
+                this.el.removeEventListener("pointerdown", this.onDown);
+                this.el.removeEventListener("pointermove", this.onMove);
+                this.el.removeEventListener("pointerup", this.onUp);
+                this.el.removeEventListener("pointercancel", this.onCancel);
+                this.el.removeEventListener("lostpointercapture", this.onCancel);
+              }
+            };
+            Hooks.AxMenu = {
+              mounted: function () {
+                this.cog = this.el.querySelector("#ax-cog");
+                this.menu = this.el.querySelector("#ax-menu");
+                this.onClick = (e) => {
+                  if (this.cog.contains(e.target)) this.setOpen(!this.el.classList.contains("open"));
+                  else if (!this.el.contains(e.target)) this.setOpen(false);
+                };
+                this.onKey = (e) => {
+                  if (!this.el.contains(e.target)) return;
+                  var items = Array.from(this.menu.querySelectorAll("button:not(:disabled)"));
+                  var index = items.indexOf(document.activeElement);
+                  var onCog = this.cog.contains(e.target);
+                  if (e.key === "Escape") { e.preventDefault(); this.setOpen(false); this.cog.focus(); return; }
+                  if (e.key === "Tab") { this.setOpen(false); return; }
+                  if (onCog && ["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) {
+                    e.preventDefault(); this.setOpen(true);
+                    items[e.key === "ArrowUp" ? items.length - 1 : 0]?.focus();
+                  } else if (!onCog && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+                    e.preventDefault();
+                    var next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 :
+                      (index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                    items[next]?.focus();
+                  }
+                };
+                document.addEventListener("click", this.onClick);
+                document.addEventListener("keydown", this.onKey);
+              },
+              setOpen: function (open) {
+                this.el.classList.toggle("open", open);
+                this.cog.setAttribute("aria-expanded", String(open));
+                this.menu.inert = !open;
+              },
+              destroyed: function () {
+                document.removeEventListener("click", this.onClick);
+                document.removeEventListener("keydown", this.onKey);
               }
             };
 
@@ -166,7 +262,6 @@ defmodule AiurWeb.Layouts do
                   var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
                   var next = current === "light" ? "dark" : "light";
                   document.documentElement.dataset.theme = next;
-                  this.el.setAttribute("aria-label", "Switch to " + current + " theme");
 
                   try {
                     window.localStorage.setItem("aiur-theme", next);

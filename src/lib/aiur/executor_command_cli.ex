@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
-  alias Aiur.{DecisionStore, ExecutorCommandAttention}
+  alias Aiur.{Commands, ExecutorCommandAttention}
 
   @default_executor_id "aiur-cli"
 
@@ -147,15 +147,15 @@ defmodule Aiur.ExecutorCommandCLI do
     answer_fun =
       if normalized.supersede do
         Keyword.get(deps, :supersede_fun, fn decision_id, answer_payload, opts, store ->
-          DecisionStore.supersede(decision_id, answer_payload, opts, store)
+          Commands.supersede(decision_id, answer_payload, opts, store)
         end)
       else
         Keyword.get(deps, :answer_fun, fn decision_id, answer_payload, opts, store ->
-          DecisionStore.answer(decision_id, answer_payload, opts, store)
+          Commands.answer(decision_id, answer_payload, opts, store)
         end)
       end
 
-    store = Keyword.get(deps, :decision_store, DecisionStore)
+    store = Keyword.get(deps, :decision_store, Commands.default_store())
     answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}], store)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
@@ -170,13 +170,13 @@ defmodule Aiur.ExecutorCommandCLI do
 
     escalate_fun =
       Keyword.get(deps, :escalate_fun, fn decision_id, escalation_payload, store ->
-        DecisionStore.escalate_executor_command(decision_id, escalation_payload, store)
+        Commands.escalate_executor_command(decision_id, escalation_payload, store)
       end)
 
     escalate_fun.(
       normalized.decision_id,
       payload,
-      Keyword.get(deps, :decision_store, DecisionStore)
+      Keyword.get(deps, :decision_store, Commands.default_store())
     )
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
@@ -191,14 +191,14 @@ defmodule Aiur.ExecutorCommandCLI do
 
     moot_fun =
       Keyword.get(deps, :moot_fun, fn decision_id, moot_payload, opts, store ->
-        DecisionStore.moot(decision_id, moot_payload, opts, store)
+        Commands.moot(decision_id, moot_payload, opts, store)
       end)
 
     moot_fun.(
       normalized.decision_id,
       payload,
       [actor: %{kind: :executor, id: normalized.executor_id}],
-      Keyword.get(deps, :decision_store, DecisionStore)
+      Keyword.get(deps, :decision_store, Commands.default_store())
     )
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}

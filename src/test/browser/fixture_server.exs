@@ -1,5 +1,6 @@
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
+Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
@@ -1899,9 +1900,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
   @reset ~U[2026-07-18 12:00:00Z]
 
   @impl true
-  def mount(params, _session, socket) do
-    {:ok, socket |> assign(:now, @now) |> assign(:extra_provider?, Map.get(params, "extra") == "true")}
-  end
+  def mount(params, _session, socket), do: {:ok, socket |> assign(:now, @now) |> assign(:extra_provider?, Map.get(params, "extra") == "true")}
 
   @impl true
   def render(assigns) do
@@ -2164,6 +2163,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
+    live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
     live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)

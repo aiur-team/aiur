@@ -176,10 +176,6 @@ defmodule Aiur.Tracker do
 
   @spec adapter() :: module()
   def adapter do
-    case Config.settings!().tracker.kind do
-      "github" -> Aiur.GitHub.Tracker
-      "memory" -> Aiur.Memory.Tracker
-      _ -> Aiur.Linear.Tracker
-    end
+    Aiur.Tracker.Registry.adapter_for(Config.settings!().tracker.kind)
   end
 end

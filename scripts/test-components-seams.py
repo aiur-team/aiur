@@ -37,7 +37,7 @@ def check(name, source, expected=0, message='', source_component='orchestration'
         files = {path: preamble + 'defmodule Aiur.Fixture do\n' + source + '\nend\n',
                  'src/lib/providers/queue.ex': '\n'.join('defmodule ' + name + ' do\nend' for name in
                      ['Aiur.BuildQueue.Hints', 'Aiur.BuildQueue.ClaimProbe', 'Aiur.BuildQueue.Server']),
-                 'src/lib/providers/order.ex': 'defmodule Aiur.BuildOrder.Graph do\nend\n'}
+                 'src/lib/providers/order.ex': 'defmodule Aiur.BuildOrder.GraphProjection do\nend\n'}
         for file, content in files.items():
             target = root / file
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -97,9 +97,9 @@ check('listener_reverse_direction_fails', 'Aiur.Orchestrator.State.f()', 1,
 # The allowed-path case is the positive half of the restriction's mutation guard.
 for path, expected in [('src/lib/aiur/build_queue/server.ex', 1),
                        ('src/lib/aiur/build_queue/sources/build_order.ex', 0)]:
-    check('build_order_only_in_source_module_' + str(expected), 'Aiur.BuildOrder.Graph.f()', expected,
+    check('build_order_only_in_source_module_' + str(expected), 'Aiur.BuildOrder.GraphProjection.f()', expected,
           'R-seam' if expected else '', source_component='build-queue', path=path)
-check('build_order_unused_alias_also_restricted', 'alias Aiur.BuildOrder.Graph', 1, 'R-seam',
+check('build_order_unused_alias_also_restricted', 'alias Aiur.BuildOrder.GraphProjection', 1, 'R-seam',
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex')
 # Future-regression guards preserve existing private/layer rules when applying seams.
 check('seam_does_not_suppress_private', 'Aiur.BuildQueue.Server.f()', 1,
