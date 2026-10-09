@@ -140,13 +140,19 @@ defmodule Aiur.AppServer.RelayPort do
          "spawn_nonce" => nonce,
          "journal_end" => finish,
          "acked_offset" => ack
-       })
-       when is_integer(relay) and relay > 0 and is_integer(provider) and provider > 0 and
-              is_integer(pgid) and pgid > 0 and is_binary(id) and is_binary(nonce) and
-              is_integer(finish) and finish >= 0 and is_integer(ack) and ack >= 0 and ack <= finish,
-       do: :ok
+       }),
+       do: validate_identity([relay, provider, pgid], id, nonce, finish, ack)
 
   defp validate_hello(hello), do: {:error, {:relay_incompatible, hello}}
+
+  defp validate_identity(pids, id, nonce, finish, ack) do
+    valid_pids = Enum.all?(pids, &(is_integer(&1) and &1 > 0))
+    valid_offsets = Enum.all?([finish, ack], &(is_integer(&1) and &1 >= 0))
+
+    if valid_pids and valid_offsets and ack <= finish and is_binary(id) and is_binary(nonce),
+      do: :ok,
+      else: {:error, :invalid_relay_identity}
+  end
 
   defp connect_socket(_path, 0), do: {:error, :relay_socket_missing}
 

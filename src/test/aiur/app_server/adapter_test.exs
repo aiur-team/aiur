@@ -495,7 +495,7 @@ defmodule Aiur.AppServer.AdapterTest do
     try do
       assert_received {:port_registered_at_spawn, ^port}
     after
-      Port.close(port)
+      Aiur.AppServer.Transport.close(port)
     end
   end
 

@@ -2,6 +2,7 @@ defmodule Aiur.AppServer.RelayReaperTest do
   use Aiur.TestSupport
 
   alias Aiur.AppServer.{RelayPort, Transport}
+  alias Aiur.Config.Paths
   alias Aiur.{ProcessReaper, ProcessTree}
 
   @moduletag :real_proc
@@ -97,7 +98,7 @@ defmodule Aiur.AppServer.RelayReaperTest do
     time.sleep(600)
     """)
 
-    {:ok, runtime_root} = Aiur.Config.Paths.runtime_state_dir()
+    {:ok, runtime_root} = Paths.runtime_state_dir()
     on_exit(fn -> cleanup_launches(runtime_root, root) end)
     assert {:ok, relay} = RelayPort.start(root, "exec python3 #{Aiur.Shell.escape(provider)}", [])
     metadata = Transport.metadata(relay)
