@@ -2,6 +2,9 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck]
+config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
+
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
   Aiur.BuildQueue.CapabilityProvider,
@@ -9,7 +12,14 @@ config :aiur, :capability_providers, [
   Aiur.Orchestrator.CapabilityProvider,
   Aiur.DecisionStore.CapabilityProvider,
   Aiur.Tracker.CapabilityProvider,
-  Aiur.Executor.CapabilityProvider
+  Aiur.Executor.CapabilityProvider,
+  Aiur.BuildOrder.CapabilityProvider,
+  Aiur.ElevenLabs.CapabilityProvider,
+  AiurWeb.StreamdeckCapabilityProvider,
+  Aiur.Webhooks.CapabilityProvider,
+  Aiur.Claude.RemoteControl.CapabilityProvider,
+  Aiur.ProviderMeterProjection.CapabilityProvider,
+  Aiur.LiveConversation.CapabilityProvider
 ]
 
 config :aiur, :project_identity_source, Aiur.Tracker
