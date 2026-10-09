@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.HumanReviewApprovalTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{HumanReviewGate, ResourceStore}
+  alias Aiur.GitHub.{BlockerProgress, HumanReviewGate, ResourceStore}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
@@ -52,6 +52,30 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
 
     assert {:ok, true} = HumanReviewGate.approved_pull_request?(77, request_fun: request_fun)
     assert_received {:requested, ~s("reviews-v1")}
+  end
+
+  test "unknown blocker identity discovers the canonical PR before reading approval" do
+    request = fn req ->
+      if String.contains?(req.url, "/reviews"),
+        do: {:ok, %{status: 200, body: [review("owner", "APPROVED")]}},
+        else: {:ok, %{status: 200, body: [%{"number" => 88, "draft" => false, "head" => %{"ref" => "aiur/12-progress", "sha" => "head", "repo" => %{"full_name" => "owner/repo"}}}]}}
+    end
+
+    assert {:ok, %{pr_number: 88, stage: :pr_approved, head_sha: "head"}} = BlockerProgress.approval("12", nil, request_fun: request)
+  end
+
+  test "a fork branch cannot supply watched approval and triggers no review read" do
+    parent = self()
+
+    request = fn req ->
+      send(parent, {:request, req.url})
+      {:ok, %{status: 200, body: [%{"number" => 88, "draft" => false, "head" => %{"ref" => "aiur/12-progress", "repo" => %{"full_name" => "fork/repo"}}}]}}
+    end
+
+    assert {:ok, nil} = BlockerProgress.approval("12", nil, request_fun: request)
+    assert_received {:request, url}
+    refute url =~ "/reviews"
+    refute_received {:request, _second}
   end
 
   defp approval(reviews) do

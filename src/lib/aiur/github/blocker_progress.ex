@@ -3,21 +3,25 @@ defmodule Aiur.GitHub.BlockerProgress do
   alias Aiur.GitHub.{HumanReviewGate, PullRequests, ResourceStore, Transport}
   alias Aiur.StartTrigger.ProgressStore
 
-  @spec approval(String.t(), ProgressStore.row() | nil) :: {:ok, map() | nil} | {:error, term()}
-  def approval(_id, %{closed_unmerged?: true}), do: {:ok, nil}
+  @spec approval(String.t(), ProgressStore.row() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def approval(id, row, opts \\ [])
+  def approval(_id, %{closed_unmerged?: true}, _opts), do: {:ok, nil}
 
-  def approval(_id, %{pr_number: number} = row) when is_integer(number) do
-    with {:ok, approved?} <- HumanReviewGate.approved_pull_request?(number) do
+  def approval(_id, %{pr_number: number} = row, opts) when is_integer(number) do
+    with {:ok, approved?} <- HumanReviewGate.approved_pull_request?(number, opts) do
       {:ok, %{pr_number: number, head_sha: row.head_sha, stage: if(approved?, do: :pr_approved, else: :pr_opened), source: :review}}
     end
   end
 
-  def approval(id, _row) do
-    with {:ok, %{"number" => number, "draft" => false} = pr} <- PullRequests.fetch_open_pull_request_for_branch(id),
-         {:ok, approved?} <- HumanReviewGate.approved_pull_request?(number) do
+  def approval(id, _row, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, %{"number" => number, "draft" => false} = pr} <- PullRequests.fetch_open_pull_request_for_branch(id, opts),
+         true <- same_repo?(pr, "#{owner}/#{repo}"),
+         {:ok, approved?} <- HumanReviewGate.approved_pull_request?(number, opts) do
       {:ok, %{pr_number: number, head_sha: get_in(pr, ["head", "sha"]), stage: if(approved?, do: :pr_approved, else: :pr_opened), source: :review}}
     else
       {:ok, _absent_or_draft} -> {:ok, nil}
+      false -> {:ok, nil}
       {:error, _reason} = error -> error
     end
   end
