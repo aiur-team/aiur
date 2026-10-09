@@ -40,6 +40,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.agent.unblocked",
     "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
+    "ticket.*.branch.force-push",
     "system.*.branch.push"
   ]
   @empty_agent_totals %{

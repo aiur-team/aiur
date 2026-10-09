@@ -4,6 +4,7 @@
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
   base_branch: {{BASE_BRANCH}}           # required integration branch; `aiur init` offers the repository default read from GitHub
+  # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
