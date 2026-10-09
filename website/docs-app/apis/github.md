@@ -19,7 +19,7 @@ Label read/create failures stop startup before agents start and explain the requ
 | Poll | What it tracks | Why it exists |
 | --- | --- | --- |
 | Tracker state | Issue labels, active tickets, blockers, and pull requests | Keeps dispatch and the Units page aligned with GitHub. |
-| Ticket branches | The validated ref and commit for each active ticket | Lets dependent agents inspect the exact code another ticket pushed. |
+| Ticket branches | Validated refs and commits; subscribed known-ref changes trigger async compare (`per_page=1`, caller `ticket_branch_rewrite`) | `behind`/`diverged` or 404 emits `ticket.N.branch.force-push` (404: `previous_missing`). Errors/holds log and count `[:aiur, :events, :branch_rewrite, :error]`; new/unsubscribed refs skip compare. |
 | Comments and reviews | Trusted issue comments, PR comments, reviews, and unresolved threads | Wakes the correct agent for operator direction or rework. |
 | CI | Terminal checks while a ticket is in `agent:ci-wait` or `agent:human-review` | Returns passed work for human review and failed work for repair. |
 | Repository events | Default-branch pushes and opened or merged pull requests | Refreshes work whose base or review state changed. |
