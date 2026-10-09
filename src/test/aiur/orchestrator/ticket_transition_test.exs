@@ -2,7 +2,14 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
   alias Aiur.{Issue, Tracker, Workflow}
-  alias Aiur.Orchestrator.{ReworkRequeue, TicketTransition}
+  alias Aiur.Orchestrator.{PauseResume, ReworkRequeue, TicketTransition}
+
+  defmodule ControlServer do
+    use GenServer
+    def init(state), do: {:ok, state}
+    def handle_call({:reset_dispatch_budget, id}, _from, state), do: {:reply, {:tracker_io, {:reset_budget, id, :fetched}, :fetch_issue_states_by_ids, [[id]]}, state}
+    def handle_call({:tracker_control_result, :reset_budget, _id, :fetched, result}, _from, state), do: {:reply, result, state}
+  end
 
   defmodule Client do
     def update_issue_state(id, state, opts) do
@@ -122,6 +129,11 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
     assert_raise MatchError, fn -> TicketTransition.write_marker("7", :add, "agent:paused", writer: "cli") end
     refute_received {:memory_tracker_state_update, _, _}
     refute_received {:memory_tracker_add_label, _, _}
+  end
+
+  test "control tracker reads remain available after dynamic dispatch is replaced" do
+    server = start_supervised!({ControlServer, nil})
+    assert {:ok, [%Issue{id: "7", state: "todo"}]} = PauseResume.reset_dispatch_budget(server, "7")
   end
 
   defp use_client do

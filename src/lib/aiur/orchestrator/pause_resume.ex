@@ -2608,6 +2608,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp perform_tracker_io(:update_issue_state, [id, state]), do: TicketTransition.write_state(id, state, writer: :pause_resume)
   defp perform_tracker_io(:remove_label, [id, label]), do: TicketTransition.write_marker(id, :remove, label, writer: :pause_resume)
+  defp perform_tracker_io(:fetch_issue_states_by_ids, [ids]), do: Tracker.fetch_issue_states_by_ids(ids)
 
   defp control_caller_work(action, identifier, fun) do
     {:ok, fun.()}
