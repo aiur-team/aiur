@@ -235,9 +235,16 @@ defmodule Aiur.ProviderMeterProbe do
         {name, usage_result}
       end)
 
-    case List.keyfind(results, "default", 0) || Enum.find(results, fn {_name, result} -> match?({:ok, _}, result) end) do
-      {_name, {:ok, reading}} -> publish_usage_api_reading(provider, reading, opts)
-      _ -> :ok
+    successful = Enum.filter(results, fn {_name, result} -> match?({:ok, _}, result) end)
+
+    case Enum.max_by(successful, fn {_name, {:ok, reading}} -> account_used_percent(reading) end, fn -> nil end) do
+      {name, {:ok, reading}} ->
+        label = if length(successful) == length(names), do: "worst of #{length(names)} accounts · #{name}", else: "#{name} · #{length(successful)}/#{length(names)} accounts observed"
+        entry = Accounts.UsageReadings.snapshot("claude", [name])[name]
+        publish_usage_api_reading(provider, reading, Keyword.merge(opts, observed_at: entry.observed_at, ingested_at: observed_at, summary_label: label))
+
+      nil ->
+        :ok
     end
 
     case Enum.find(results, fn {_name, result} -> match?({:ok, _}, result) end) do
@@ -249,6 +256,15 @@ defmodule Aiur.ProviderMeterProbe do
         outcome(provider, false, reason)
     end
   end
+
+  defp account_used_percent(%{windows: windows}) when is_list(windows) do
+    case Enum.find(windows, &(&1.window == "seven_day")) do
+      %{used_percent: percent} when is_number(percent) -> percent
+      _ -> windows |> Enum.map(& &1.used_percent) |> Enum.filter(&is_number/1) |> Enum.max(fn -> -1 end)
+    end
+  end
+
+  defp account_used_percent(reading), do: Map.get(reading, :used_percent, -1)
 
   defp account_usage_result(api, api_opts, observed_at) do
     if Code.ensure_loaded?(api) and function_exported?(api, :fetch_with_metadata, 1) do
@@ -299,9 +315,10 @@ defmodule Aiur.ProviderMeterProbe do
       backend: @backend,
       provider_account_generation: nil,
       observed_at: observed_at,
-      ingested_at: observed_at,
+      ingested_at: Keyword.get(opts, :ingested_at, observed_at),
       auth_mode: :subscription,
       source: :usage_api,
+      summary_label: Keyword.get(opts, :summary_label),
       update_kind: :snapshot,
       freshness: :fresh,
       health: %{
