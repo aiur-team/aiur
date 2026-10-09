@@ -71,9 +71,12 @@ The `sort` query parameter preserves the selected table, column, and direction i
 
 The temporary, unlinked `/build` route previews the build timeline loading shell.
 It requires dashboard authentication; the production data source is not wired yet.
+
 Its links retain view, span, feature focus, filters and ticket selection in
 `view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
-`live`, `trees` and `ticket`. Invalid values are removed. Legacy Units
+`live`, `trees` and `ticket`. Invalid values are removed.
+
+Legacy Units
 parameters (`v`, `scope`, `conditions`) at this preview route become agent-state
 or ticket-state presets. The hook bridge replaces the current history entry.
 
