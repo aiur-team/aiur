@@ -18,11 +18,11 @@ on:
   # (#2397). Checks attach to the head commit either way.
   workflow_dispatch:
 
-# Initial main pushes share a group so newer commits supersede older main runs.
+# Main pushes finish the running run; only the newest pending run is kept.
 # Initial PR runs share a group; other events and all reruns stay independent.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1) || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
 # Job timeouts (#2461): 3-4x observed duration, rounded to five minutes.
 # Re-measure completed job spans when profiles change. Release smoke has
@@ -444,7 +444,7 @@ jobs:
 
   coverage:
     needs: [coverage-partition, changes]
-    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -547,7 +547,7 @@ jobs:
 
   test:
     needs: [coverage, changes]
-    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
