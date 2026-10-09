@@ -59,3 +59,5 @@ R-optional	Aiur.RunTelemetry.Lifecycle	baseline 22b2fa407c5d4218d25d63b1aa17472a
 R-optional	Aiur.Usage.Headless.Emitter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-declared	Aiur.Commands	#3312 delivery and request callers retain upward Commands dependency until the agent-side port
 R-down	Aiur.Commands	#3312 delivery and request callers retain upward Commands dependency until the agent-side port
+R-private	Aiur.BuildOrder.EpicOverrides	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:12 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.EpicOverrides.Override	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:17 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
