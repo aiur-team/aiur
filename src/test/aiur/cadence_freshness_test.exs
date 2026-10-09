@@ -18,8 +18,8 @@ defmodule Aiur.CadenceFreshnessTest do
   alias Aiur.BuildOrder.TicketHistoryProvider.Options, as: TicketHistoryOptions
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.PollCadence
+  alias Aiur.Projections.UnitsRow.Sources
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
-  alias AiurWeb.OperatorControlCenter.UnitsRow.Sources
 
   @read_timeout_ms 15_000
 

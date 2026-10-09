@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Only marked, inactive runs of the requested instance are eligible for deletion.
+set -euo pipefail
+logs_parent="${1:?logs parent required}"
+instance_key="${2:-}"
+if [[ ! "$instance_key" =~ ^[a-f0-9]{10}$ ]]; then
+  echo 'aiurdev: refusing log cleanup without a valid instance key' >&2
+  exit 64
+fi
+for root in "$logs_parent"/*; do
+  [ -d "$root" ] && [ ! -L "$root" ] || continue
+  owner="$root/.aiur-owner"
+  [ -f "$owner" ] && [ ! -L "$owner" ] || continue
+  { IFS= read -r key && IFS= read -r pid; } < "$owner" || continue
+  [ "$key" = "$instance_key" ] || continue
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
+  if kill -0 "$pid" 2>/dev/null || ps -p "$pid" -o pid= >/dev/null 2>&1; then
+    echo "aiurdev: preserving live log root $root (PID $pid)" >&2
+    continue
+  fi
+  rm -rf -- "$root"
+done

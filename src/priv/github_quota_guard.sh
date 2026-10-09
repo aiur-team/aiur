@@ -580,7 +580,7 @@ fi
 dispatch_disposition() {
   label=$1
   case "$label" in
-    "$dispatch_prefix:todo"|human:todo|needs-triage|build-order|epic) return 0 ;;
+    "$dispatch_prefix:todo"|"$dispatch_prefix:queued"|human:todo|needs-triage|build-order|epic) return 0 ;;
     *) return 1 ;;
   esac
 }
