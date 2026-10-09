@@ -14,15 +14,17 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
       key = RetainedCache.identity(current)
       retained = RetainedCache.fetch(__MODULE__, key, fn -> load_retained(summaries) end, max_value_bytes: 24 * 1024 * 1024)
 
-      with {:ok, dataset} <- retained do
-        case Dataset.build(file, session: :current, boot_id: current) do
-          {:ok, live} -> {:ok, merge([live, dataset]) |> Map.put(:retained_runs, dataset.retained_runs)}
-          {:error, _reason} -> {:ok, dataset}
-        end
-      end
+      with {:ok, dataset} <- retained, do: {:ok, merge_live(file, current, dataset)}
     end
   rescue
     _error -> {:error, :retained_unreadable}
+  end
+
+  defp merge_live(file, current, dataset) do
+    case Dataset.build(file, session: :current, boot_id: current) do
+      {:ok, live} -> merge([live, dataset]) |> Map.put(:retained_runs, dataset.retained_runs)
+      {:error, _reason} -> dataset
+    end
   end
 
   defp load_retained(summaries) do

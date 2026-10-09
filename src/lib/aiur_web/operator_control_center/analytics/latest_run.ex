@@ -64,7 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   # `prior_loader/0` returns `{datasets, unreadable?}` so tests can inject both
   # halves; the default reads the real summaries through `Summaries`.
   defp prior_datasets(opts, current_boot, analyzable?) do
-    identity = Keyword.get_lazy(opts, :cache_identity, fn -> cache_identity(current_boot) end)
+    identity = Keyword.get_lazy(opts, :cache_identity, fn -> RetainedCache.identity(current_boot) end)
 
     identity = {identity, Keyword.get(opts, :tickets)}
 
@@ -96,12 +96,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
       {:error, _reason} ->
         {newest, true}
     end
-  end
-
-  @doc "File metadata identity for retained summaries excluding the current boot."
-  @spec cache_identity(String.t() | nil) :: tuple()
-  def cache_identity(current_boot) do
-    RetainedCache.identity(current_boot)
   end
 
   defp observed_at(dataset), do: get_in(dataset, [:provenance, :time_range, :end]) || ""

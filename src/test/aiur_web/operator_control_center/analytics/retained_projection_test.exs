@@ -1,7 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.RunTelemetry.{Dataset, Summaries, SummaryMerge}
+  alias Aiur.RunTelemetry.{Dataset, RetainedCache, Summaries, SummaryMerge}
   alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, Presenter}
 
   @fixture Path.expand("../../../fixtures/analytics/runs/boot-a/run-summary.json", __DIR__)
@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
 
     assert {:ok, dataset} = LatestRun.load(Path.join(root, "missing.ndjson"), "live", &analyzable?/1)
     assert dataset.provenance.time_range.end == "2026-07-12T00:00:16Z"
-    assert [{_key, {[cached], false}}] = :ets.lookup(LatestRun, {LatestRun.cache_identity("live"), nil})
+    assert [{_key, {[cached], false}}] = :ets.lookup(LatestRun, {RetainedCache.identity("live"), nil})
     assert cached.provenance.time_range.end == dataset.provenance.time_range.end
   end
 
