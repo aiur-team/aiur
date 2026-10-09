@@ -23,7 +23,7 @@ defmodule Aiur.Claude.HookSpool do
     with {:ok, path} <- HookSettings.spool_path(identifier) do
       helper = Application.app_dir(:aiur, "priv/claude_hook_spool.py")
 
-      case System.cmd("python3", [helper, "--reset", path], stderr_to_stdout: true) do
+      case System.cmd("python3", [helper, "--clear", path], stderr_to_stdout: true) do
         {_output, 0} -> :ok
         {output, status} -> {:error, {:spool_reset_failed, status, output}}
       end

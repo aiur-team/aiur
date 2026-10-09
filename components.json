@@ -127,7 +127,7 @@
       "paths": ["src/lib/aiur/agent_scratch.ex", "src/lib/aiur/prewarm/**", "src/lib/aiur/repo_base.ex", "src/lib/aiur/workspace.ex", "src/lib/aiur/workspace/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "agent-sandbox", "tracker"], "optional": [],
-      "owns": {"config": ["hooks", "prewarm", "workspace"], "env": ["GIT_AUTHOR_EMAIL", "GIT_AUTHOR_NAME", "TEMP", "TMP", "TMPDIR"], "state": [], "capabilities": []},
+      "owns": {"config": ["hooks", "prewarm", "workspace"], "env": ["GIT_AUTHOR_EMAIL", "GIT_AUTHOR_NAME", "TEMP", "TMP", "TMPDIR", "AIUR_REAL_GIT"], "state": [], "capabilities": []},
       "prior": ["WS"]
     },
     {
@@ -307,7 +307,7 @@
       "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/events/debug_log.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["orchestration", "projections", "harness-adapters", "config"], "optional": [],
-      "owns": {"config": ["max_vertical_panes", "opencode", "pre_warmed_sessions"], "env": ["AIUR_TMUX_SESSION", "AIUR_TMUX_SOCKET", "COLORTERM", "COLUMNS", "LINES", "TMUX_PANE"], "state": [], "capabilities": []},
+      "owns": {"config": ["max_vertical_panes", "opencode", "pre_warmed_sessions"], "env": ["AIUR_AGENT_TMUX_SOCKET", "AIUR_TMUX_CONF", "AIUR_TMUX_SESSION", "AIUR_TMUX_SOCKET", "COLORTERM", "COLUMNS", "LINES", "TMUX_PANE"], "state": [], "capabilities": []},
       "prior": ["TUI", "OC"]
     },
     {

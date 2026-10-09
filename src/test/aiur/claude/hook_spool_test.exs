@@ -82,6 +82,6 @@ defmodule Aiur.Claude.HookSpoolTest do
     assert offset == File.stat!(path).size
     assert_received {:claude_hook, ^id, %{event: :post_tool_use}}
     assert :ok = HookEvents.clear_spool(id)
-    assert File.read!(path) == ""
+    refute File.exists?(path)
   end
 end

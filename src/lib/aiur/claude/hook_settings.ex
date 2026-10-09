@@ -24,8 +24,8 @@ defmodule Aiur.Claude.HookSettings do
   end
 
   @doc """
-  The hook command claude runs for each event. It durably spools the event JSON
-  before piping it to the dashboard. Three invariants make it Claude-safe:
+  The hook command claude runs for each event. It spools the required event fields
+  before POST, falling back to live delivery when the spool cannot be written. Three invariants make it Claude-safe:
 
     * **stdout-silent** — claude injects a `UserPromptSubmit` hook's stdout as extra
       prompt context and lets a `Stop` hook's stdout block stopping, so the command

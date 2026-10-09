@@ -9,12 +9,20 @@ import tempfile
 import uuid
 
 MAX_BYTES = 16 * 1024 * 1024
+EVENT_FIELDS = {
+    "hook_event_name", "session_id", "cwd", "prompt", "last_assistant_message",
+    "tool_name", "transcript_path", "timestamp", "transcript_offset",
+}
 
 
-def append(path, payload, reset=False):
+def append(path, payload, reset=False, clear=False):
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     with open(path + ".lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if clear:
+            if os.path.exists(path):
+                os.unlink(path)
+            return
         size = os.path.getsize(path) if os.path.exists(path) else 0
         if reset or size + len(payload) > MAX_BYTES:
             if not reset:
@@ -39,16 +47,22 @@ def append(path, payload, reset=False):
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "--reset":
-        append(sys.argv[2], b"", reset=True)
+    if len(sys.argv) == 3 and sys.argv[1] in {"--reset", "--clear"}:
+        append(sys.argv[2], b"", reset=True, clear=sys.argv[1] == "--clear")
         return
 
-    event = json.load(sys.stdin)
+    event = {key: value for key, value in json.load(sys.stdin).items() if key in EVENT_FIELDS}
     event["aiur_hook_id"] = uuid.uuid4().hex
     payload = (json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
-    if len(payload) > MAX_BYTES:
-        raise ValueError("Claude hook exceeds spool capacity")
-    append(sys.argv[1], payload)
+    try:
+        if len(payload) > MAX_BYTES:
+            raise ValueError("Claude hook exceeds spool capacity")
+        append(sys.argv[1], payload)
+    except (OSError, ValueError):
+        # Without durable replay, use the legacy direct-POST delivery path.
+        del event["aiur_hook_id"]
+        payload = (json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+        print("Claude hook spool unavailable; forwarding live event", file=sys.stderr)
     sys.stdout.buffer.write(payload)
 
 

@@ -429,7 +429,8 @@ defmodule AiurWeb.Presenter do
     }
   end
 
-  # Unresolved review threads behind `human-review` remain a one-shot check by
+  # Review status is derived from tracker state only. The unresolved-thread
+  # detail behind `human-review` remains a one-shot check performed by
   # `Aiur.GitHub.HumanReviewGate` at the transition moment, not a cached
   # per-row poll target — surfacing it live per row would mean a new GitHub
   # call on every dashboard refresh, duplicating that existing check.

@@ -917,26 +917,23 @@ run_session() {
   export AIUR_ARGV_FILE="$argv_file"
 
   build_release_cmd
-
   # Force +fnu when no locale is set so the BEAM does not mangle non-ASCII paths.
   if [ -z "${LANG:-}" ] && [ -z "${LC_ALL:-}" ] && [ -z "${LC_CTYPE:-}" ]; then
     export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-} +fnu"
   fi
-
   preflight_stale_manual_smoke
-
   mkdir -p "$AIUR_BG_STATE_DIR"
   printf '%s\n' "$session" >"$AIUR_BG_STATE_DIR/state"
   export AIUR_TMUX_SESSION="$session"
   export AIUR_TMUX_SOCKET="$socket" AIUR_AGENT_TMUX_SOCKET="${socket}-agents"
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="${BASH_SOURCE[0]}"
-
   local session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
   export AIUR_SESSION_TMPFILE="${session_root}/aiur-${$}-sessions"
   : >"$AIUR_SESSION_TMPFILE"
-
-  # Agent pidfile lets the watchdog reap headless agents after BEAM death.
+  # Agent pidfile: the BEAM appends one line per spawned agent (pane or headless
+  # os_pid) via Aiur.ProcessReaper. The BEAM-death watchdog and session_cleanup
+  # reap from it after the BEAM is gone — a crashed BEAM can kill nothing itself.
   export AIUR_AGENT_TMPFILE="${session_root}/aiur-${$}-agents"
   : >"$AIUR_AGENT_TMPFILE"
 
@@ -3700,6 +3697,8 @@ cmd_stop() {
   # Tell the background BEAM-death watchdog this exit is intentional before we
   # kill the BEAM, so it consumes the sentinel instead of recording a crash. The
   # watchdog removes the sentinel when it fires; a fresh start also clears it.
+  # Clear any prior crash marker too — `status` should report a clean stop, not
+  # a stale orphan from an earlier dead run.
   mkdir -p "$AIUR_BG_STATE_DIR" 2>/dev/null || true
   : >"$(aiur_stop_sentinel_path)" 2>/dev/null || true
   rm -f "$(aiur_crash_marker_path)" 2>/dev/null || true
@@ -3722,7 +3721,10 @@ cmd_stop() {
   # to wait for an overloaded daemon before it starts tearing workers down.
   reap_workspace_cwd_from_file "$workspace_root_file"
 
-  # Kill both private servers after graceful BEAM cleanup.
+  # The BEAM (alive until the TERM above) reaped its own headless agents through
+  # ProcessReaper on Application.stop. kill-server is the guarantee the earlier
+  # kill-session can't give for mid-turn agents: every pane agent across all
+  # windows dies and no live aiur tmux server is left behind.
   if [ -n "$tmux_bin" ]; then
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
     "$tmux_bin" -L "${AIUR_AGENT_TMUX_SOCKET:-${socket}-agents}" kill-server 2>/dev/null || true
