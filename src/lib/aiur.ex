@@ -472,10 +472,10 @@ defmodule Aiur.Application do
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
       # The single view-state cadence, now reconciling only the pack-status
       # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
-      # timer). Starts after its sources so its first tick never races their
-      # boot fill.
+      # timer). Starts after its sources so its first tick never races boot fill.
       Aiur.GitHub.ViewStateSweep,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,

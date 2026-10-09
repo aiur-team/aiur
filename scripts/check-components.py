@@ -9,6 +9,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
+from import_rules import client_imports, reverse_resources
+
 ROOTS = ('src/lib', 'packages', 'packaging')
 EXCLUDED = {'node_modules', '_build', 'deps', 'dist'}
 
@@ -341,6 +344,8 @@ def main():
         if args.rules != 'elixir':
             declaration_problems, declaration_counts = declaration_ownership(root, manifest)
             problems.extend(declaration_problems)
+        if args.rules == 'all' and not args.format:
+            problems += client_imports(root) + reverse_resources(root, files)
         for path, reason in problems:
             print(f'components: {path}: {reason}')
         if problems:
