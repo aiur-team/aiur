@@ -71,9 +71,7 @@ On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A
 
 Event counters, subscriptions, session handles and the alert ledger survive restarts in instance- and repository-scoped runtime state. Central alert and event-publication audit logs remain per launch; `--logs-root` controls those logs.
 
-On upgrade, session handles and subscriptions start empty once, just as they previously did on every restart; state saved from that boot onward is durable.
-
-The event counter seeds above the maximum across all launches' counters, logs, the journal and the clock; the alert ledger adopts only its exact project-scoped filename and backfill marker once.
+On upgrade, session handles and subscriptions start empty once, just as they previously did on every restart; state saved from that boot onward is durable. The event counter seeds above the maximum across all launches' counters, logs, the journal and the clock; the alert ledger adopts only its exact project-scoped filename and backfill marker once.
 
 Launch mode determines which interfaces remain available:
 
@@ -140,8 +138,12 @@ Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason,
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
 
-`status`, `agents`, and `watch` always show the fleet snapshot age, including fresh snapshots. The shared read model includes `observations` for fleet, capacity, per-ticket tracker data, retries, and the dispatch sample; each has `observed_at` and `age_ms`. Rows carry their own observation age. Capacity slot counts use the captured state time; cached load fields use `capacity.dispatch_observation` and the dispatch sample age. Missing observations render `age unavailable`, never zero. For example: `FLEET SNAPSHOT 2s old`, `CAPACITY OBSERVATION 2s old`. Retry failures retain their last failure observation and are labelled `since daemon start <UTC time>`. Retry state resets on daemon restart; durable launch evidence lives in the run log directory's `<repo>.<ticket>.startup-failures.ndjson`.
+`status`, `agents` and `watch` always print the fleet snapshot age, including fresh snapshots, as in `FLEET SNAPSHOT 2s old` and `CAPACITY OBSERVATION 2s old`. Rows carry their own observation age. A missing observation renders `age unavailable`, never zero. Retry rows read `since daemon start <UTC time>`, because retry state resets on daemon restart.
+
+The JSON `observations` map covers fleet, capacity, per-ticket tracker data, retries and the dispatch sample; each has `observed_at` and `age_ms`. Capacity slot counts use the captured state time; cached load fields use `capacity.dispatch_observation`. Durable launch evidence lives in the run log directory's `<repo>.<ticket>.startup-failures.ndjson`.
+
 The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation.
+
 Existing `waiting_reason` atoms remain unchanged. A pending lifecycle fence changes the owner, cause and since, and adds sorted `pending_item_ids` to JSON and text output. Review events queued for a completed worker start its replacement at once, so a new turn can acknowledge delivery; live workers keep their provider-delivery fences during long turns.
 
 For completed or exited providers, a fence expires on the first dispatch poll two minutes after its first pending input, so lifecycle reconciliation continues without claiming delivery succeeded; the `lifecycle_fence_expired` alert names the stuck IDs. Unacknowledged failed or claimed items return to pending for rework; acknowledged items are not replayed.
@@ -369,9 +371,7 @@ consumer holds the claim next.
 
 ### Wake ledger bound and lease TTL
 
-The wake ledger is capped at 10,000 records. Consumed records are evicted first.
-
-Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
+The wake ledger is capped at 10,000 records. Consumed records are evicted first. Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
 advanced past them and an `executor.wakes.overflow` alert names the count and id
 range; those wakes are never delivered.
 
