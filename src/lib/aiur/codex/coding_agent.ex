@@ -166,6 +166,13 @@ defmodule Aiur.Codex.CodingAgent do
     collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "")
   end
 
+  defp recover_startup_exit(port, {:response_error, _} = reason) when is_pid(port) do
+    case collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "") do
+      :port_closed -> reason
+      exit -> exit
+    end
+  end
+
   defp recover_startup_exit(_port, reason), do: reason
 
   defp collect_startup_exit(port, deadline, pending) do
