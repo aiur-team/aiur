@@ -242,7 +242,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # Tracker claims survive a daemon restart, while the runtime registry
         # does not. Once both views are fresh, release only claims with no
         # positive current-generation runtime evidence before normal dispatch.
-        {state, issues} = StartupClaimReconciler.reconcile(state, issues)
+        {state, issues} = StartupClaimReconciler.reconcile(state, issues, Keyword.get(opts, :startup_claim_opts, []))
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
@@ -255,9 +255,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # replace a retained snapshot from a prior same-name orchestrator.
         state = %{state | snapshot_ready?: true}
 
-        # The poll just refreshed `last_polled_issues`, so push a fresh
-        # summary out to any open agent-list pane immediately.
+        # Publish all rows, including claims still within the recovery grace period.
         StatusReport.notify_dashboard(state)
+        issues = StartupClaimReconciler.Observation.dispatch_candidates(state, issues)
 
         # Re-dispatch tickets parked on a transient pause/error whose backoff
         # has elapsed (#1453). Runs before normal dispatch so a restored ticket
@@ -960,6 +960,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
@@ -976,11 +977,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
       |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
 
-    # Sample every failing gate before applying admission priority. A memory or
-    # FD hold must not erase the age of an independently persistent load hold;
-    # IssueSync tracks each recorded gate identity across poll cycles, so the
-    # constraint list is deliberately broader than the single binding signal
-    # `admission_gate/1` returns below.
+    # Reusing a sample neither confirms nor interrupts sustained overload.
+    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)

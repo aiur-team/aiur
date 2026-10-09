@@ -7,6 +7,12 @@ defmodule Aiur.Codex.DynamicTool.Errors do
   alias Aiur.Codex.DynamicTool.TicketState
 
   @spec payload(term()) :: map()
+  def payload(:invalid_epic_arguments), do: %{"error" => %{"message" => "Invalid epic arguments; choose an epic or clear, without actor or source fields."}}
+  def payload({:unknown_epic, epic, known}), do: %{"error" => %{"message" => "Unknown general epic #{inspect(epic)}", "epic" => epic, "known" => known}}
+  def payload(:epic_overrides_unavailable), do: %{"error" => %{"message" => "Epic overrides unavailable; no assignments were changed."}}
+  def payload(:epic_overrides_outcome_unknown), do: %{"error" => %{"message" => "Epic write outcome is unknown. Retry the identical set to observe changed or unchanged."}}
+  def payload(:epic_config_unavailable), do: %{"error" => %{"message" => "Epic config unavailable; no default catalog is assumed."}}
+
   def payload(:missing_query) do
     %{
       "error" => %{

@@ -41,7 +41,7 @@ release_stamp="$release_dir/AIUR_BUILD_STAMP"
 build_lock_dir="$elixir_dir/_build/.aiurdev-build.lock"
 engine="$repo_root/packaging/npm/aiur-cli/libexec/aiur-engine.sh"
 mise_bin="${AIUR_MISE_BIN:-$(command -v mise 2>/dev/null || true)}"
-
+[ ! -f "$repo_root/packaging/npm/aiur-cli/libexec/aiur-mise-doctor" ] || bash "$repo_root/packaging/npm/aiur-cli/libexec/aiur-mise-doctor" --check || true
 # --- checkout targeting -------------------------------------------------------
 # repo_root is derived from this script's path, which is deliberate: a globally
 # symlinked `aiurdev` (~/.local/bin/aiurdev -> <checkout>/scripts/aiurdev) has to
@@ -109,10 +109,10 @@ effective_command() {
 targets_release_deliberately() {
   case "${1:-}" in
     build | restart) return 0 ;;
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
     watch | init | findings | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    ask | asks | usage | commands | units | build-orders | analytics | github-cost | github-usage) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | epic | queue | analytics | github-cost | github-usage) return 1 ;;
     executor-*) return 1 ;;
     *) return 0 ;;
   esac
@@ -242,7 +242,7 @@ requires_pinned_opencode() {
   case "$cmd" in
     "" | run | restart | --bg) return 0 ;;
     help | -h | -help | --h | --help | --version | --todo | --only | init | findings) return 1 ;;
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget) return 1 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget | epic) return 1 ;;
     -*) return 0 ;;
     *) [ -e "$cmd" ] ;;
   esac
@@ -501,7 +501,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage) return 0 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | epic) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -60,8 +60,8 @@ in the workpad rather than falling back to raw label edits.
    be overhead, but err on the side of using these skills when in doubt.
 9. Before CI or review handoff, assess the exact PR head against the configured
    base using `dev-loop.md`'s integration checklist. Harmless staleness passes;
-   conflicts or changed-file overlap require integration, at most once per
-   handoff. Record the attempt in the workpad; unavailable assessments block
+   conflicts or changed-file overlap allow up to 3 integrations per handoff
+   without asking. Record attempts in the workpad; unavailable assessments block
    handoff rather than imply safety.
 10. When implementation and draft-PR self-review are complete and only CI
     remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
@@ -73,9 +73,10 @@ in the workpad rather than falling back to raw label edits.
 11. On a delivered full required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. No overlap or
     conflicts permits `agent:human-review` even if the head is stale. If unsafe,
-    integrate once and await new-head CI in `agent:ci-wait`; if already
-    integrated for this handoff, alert the Executor instead of repeating the
-    merge/CI cycle. Use `aiur_set_ticket_state` for that
+    follow `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. After
+    the third integration, emit a non-blocking Executor alert; keep going if the
+    base is safe. Never open a blocking decision for base integration. Use
+    `aiur_set_ticket_state` for that
     move: the daemon's CI-pass handoff has
     already relabelled the ticket `agent:in-progress`, so a hand-written
     `--remove-label agent:ci-wait` removes nothing and strands the pair.
