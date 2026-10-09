@@ -123,6 +123,12 @@ An unrecognised queue status or source flag reports `unknown/unknown` for that c
 
 These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
 
+## Queue cost
+
+Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+
+Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready` backlog and `newly_ready`: items now ready that were not ready in the previous pass, including the initial population. Both measure demand, not successful writes.
+
 ## Merged PRs with open issues
 
 A merged prerequisite PR does not complete its issue. Dependents stay pending until tracker observations confirm closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
