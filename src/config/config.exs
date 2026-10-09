@@ -8,6 +8,8 @@ config :aiur, :turn_sandbox_root_contributors, [
   Aiur.BuildGate.SandboxRoots
 ]
 
+config :aiur, :project_identity_source, Aiur.Tracker
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 config :phoenix, :json_library, Jason

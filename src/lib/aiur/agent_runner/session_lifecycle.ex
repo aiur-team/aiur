@@ -4,7 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
-  alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
+  alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
@@ -145,7 +145,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()} | {:account_selection_wait, String.t()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
-    max_turns = Keyword.get(opts, :max_turns, Config.agent_max_turns_for(issue))
+    max_turns = Keyword.get(opts, :max_turns, TurnBudget.max_turns_for(issue))
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
