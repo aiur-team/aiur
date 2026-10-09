@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   require Logger
 
   alias Aiur.{Alerts, CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
-  alias Aiur.Orchestrator.LifecycleFenceExpiry
+  alias Aiur.Orchestrator.{LifecycleFenceExpiry, Parking}
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
@@ -712,7 +712,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         PauseResume.replace_completed_issue(state, running_entry, issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
-        reactivate_deactivated_issue(state, running_entry, issue)
+        Parking.reconcile_deactivated(state, running_entry, issue, &refresh_running_entry_issue/3, &reactivate_deactivated_issue/3)
 
       %{control: %{status: :paused}, paused_reason: :before_run_failure} = running_entry ->
         resume_before_run_failure(state, running_entry, issue)

@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake, Parking}
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
@@ -762,9 +762,9 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_identifier),
       do: OM.control_capabilities_call(state, issue_identifier)
 
-  def handle_call({:pause_agent, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.pause_agent_call(state, issue_identifier)
+  def handle_call({action, issue_identifier}, _from, state)
+      when action in [:pause_agent, :park_agent] and is_binary(issue_identifier),
+      do: if(action == :park_agent, do: Parking.park_agent_call(state, issue_identifier), else: PauseResume.pause_agent_call(state, issue_identifier))
 
   def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
     do: PauseResume.pause_agent_call(state, identity)

@@ -108,6 +108,9 @@ defmodule Aiur.Issue do
   def parked?(%__MODULE__{parked: parked}), do: parked == true
   def parked?(_issue), do: false
 
+  @spec parked?(t(), map()) :: boolean()
+  def parked?(issue, running_entry), do: parked?(issue) or Map.get(running_entry, :operator_parked) == true
+
   @doc "Returns whether the issue carries the build-queue marker."
   @spec queued?(t()) :: boolean()
   def queued?(%__MODULE__{queued: queued}), do: queued == true
