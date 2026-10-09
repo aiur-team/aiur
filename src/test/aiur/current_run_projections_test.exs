@@ -479,15 +479,15 @@ defmodule Aiur.CurrentRunProjectionsTest do
     :ok = CurrentRunProjections.refresh(owner)
     assert_receive :projection_checkpoint_written, 2_000
     assert Agent.get(source, & &1.run_reads) == 1
-
+    Agent.update(source, &update_in(&1, [:run, :elapsed_ms], fn ms -> ms + 1_000 end))
     :ok = :sys.suspend(owner)
     send(owner, {:ticket_activity_changed, %{}})
     send(owner, {:status_changed, %{}})
     send(owner, {:running_changed, %{}})
     :ok = :sys.resume(owner)
 
-    await_projection_idle(owner)
-    refute_receive :projection_checkpoint_written, 50
+    assert_receive :projection_checkpoint_written, 2_000
+    refute_received :projection_checkpoint_written
     assert Agent.get(source, & &1.run_reads) == 2
     assert CurrentRunSummary.health(server: owner).status == :healthy
     assert Process.alive?(owner)
@@ -705,10 +705,10 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert Agent.get(source, &Map.get(&1, :membership_reads, 0)) == 1
     assert Agent.get(source, &Map.get(&1, :merges_reads, 0)) == 1
 
+    Agent.update(source, &update_in(&1, [:run, :elapsed_ms], fn ms -> ms + 1_000 end))
     send(owner, :clock_tick)
-
-    await_projection_idle(owner)
-    refute_receive :projection_checkpoint_written, 50
+    assert_receive :projection_checkpoint_written, 2_000
+    assert is_nil(:sys.get_state(owner).refresh)
 
     assert Agent.get(source, &Map.get(&1, :membership_reads, 0)) == 1
     assert Agent.get(source, &Map.get(&1, :merges_reads, 0)) == 1

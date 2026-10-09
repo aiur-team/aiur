@@ -1,5 +1,6 @@
 defmodule Aiur.CurrentRunCheckpointChurnTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.{CurrentRunProjections, CurrentRunSummary}
 
   test "identical refreshes write one checkpoint and a changed source writes another" do
@@ -13,23 +14,34 @@ defmodule Aiur.CurrentRunCheckpointChurnTest do
   end
 
   test "bursts coalesce while changed clock content remains checkpointed" do
-    {source, owner, writes} = start_owner(checkpoint_interval_ms: 200)
-    assert :ok = CurrentRunProjections.refresh(owner)
+    test_pid = self()
+
+    writer = fn _, checkpoint ->
+      send(test_pid, {:checkpoint_started, self(), System.monotonic_time(:millisecond), checkpoint.sources.run.elapsed_ms})
+      receive_barrier(:release_checkpoint)
+      :ok
+    end
+
+    {source, owner, _writes} = start_owner(checkpoint_interval_ms: 200, checkpoint_writer: writer)
+    initial = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+    {:checkpoint_started, first_writer, first_at, 1_000} = receive_barrier({:checkpoint_started, _, _, 1_000})
+    send(first_writer, :release_checkpoint)
+    assert Task.await(initial) == :ok
     Agent.update(source, &put_in(&1, [:run, :elapsed_ms], 2_000))
     refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
-    await_write(owner)
+    {:checkpoint_started, second_writer, second_at, 2_000} = receive_barrier({:checkpoint_started, _, _, 2_000})
     for _ <- 1..20, do: send(owner, {:status_changed, %{}})
     Agent.update(source, &put_in(&1, [:run, :elapsed_ms], 3_000))
     final_refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+    send(second_writer, :release_checkpoint)
     assert Task.await(refresh) == :ok
+    {:checkpoint_started, final_writer, final_at, 3_000} = receive_barrier({:checkpoint_started, _, _, 3_000})
+    send(final_writer, :release_checkpoint)
     assert Task.await(final_refresh) == :ok
-    checkpoints = Agent.get(writes, &Enum.reverse/1)
-    assert length(checkpoints) == 3
-    assert Enum.map(checkpoints, fn {_, checkpoint} -> checkpoint.sources.run.elapsed_ms end) == [1_000, 2_000, 3_000]
-
-    for [{earlier, _}, {later, _}] <- Enum.chunk_every(checkpoints, 2, 1, :discard) do
-      assert later - earlier >= 200
-    end
+    assert :ok = CurrentRunProjections.refresh(owner)
+    refute_received {:checkpoint_started, _, _, _}
+    assert second_at - first_at >= 200
+    assert final_at - second_at >= 200
   end
 
   test "a failed write is retried for identical content" do
@@ -88,18 +100,6 @@ defmodule Aiur.CurrentRunCheckpointChurnTest do
 
     owner = start_supervised!({CurrentRunProjections, Keyword.merge(opts, extra_opts)})
     {source, owner, writes}
-  end
-
-  defp await_write(owner, attempts \\ 1_000)
-  defp await_write(_owner, 0), do: flunk("checkpoint did not start")
-
-  defp await_write(owner, attempts) do
-    if is_map(:sys.get_state(owner).checkpoint_write) do
-      :ok
-    else
-      Process.sleep(1)
-      await_write(owner, attempts - 1)
-    end
   end
 
   defp sources do

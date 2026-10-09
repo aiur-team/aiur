@@ -29,7 +29,8 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
     timeout_ms = state.checkpoint_timeout_ms
     now = System.monotonic_time(:millisecond)
     delay_ms = if state.checkpoint_completed_at, do: max(0, state.checkpoint_completed_at + state.checkpoint_interval_ms - now), else: 0
-    checkpoint = Checkpoint.dump(candidate)
+    deadline = now + delay_ms + timeout_ms
+    checkpoint = candidate |> Checkpoint.dump() |> Map.put(:checkpoint_deadline_monotonic_ms, deadline)
 
     ref = make_ref()
     writer = state.checkpoint_writer
@@ -38,7 +39,6 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
     pid =
       start_task(state.task_supervisor, fn ->
         Process.sleep(delay_ms)
-        checkpoint = Map.put(checkpoint, :checkpoint_deadline_monotonic_ms, System.monotonic_time(:millisecond) + timeout_ms)
         result = Checkpoint.write(writer, run_id, checkpoint)
         send(owner, {:current_run_checkpoint_result, ref, generation, result})
       end)
@@ -47,7 +47,7 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
       Process.send_after(
         owner,
         {:current_run_checkpoint_deadline, ref, generation},
-        delay_ms + timeout_ms
+        max(0, deadline - System.monotonic_time(:millisecond))
       )
 
     canonical = restore_canonical(state)
