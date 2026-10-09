@@ -7,6 +7,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   alias Aiur.CodingAgent
   alias Aiur.ModelAvailability
+  alias AiurWeb.OperatorControlCenter.ModelProviders
+  alias AiurWeb.OperatorControlCenter.ModelsPanel
   alias AiurWeb.OperatorControlCenter.Money
 
   # The dispatch-limits ledger's buckets, used to find the governing one when a
@@ -31,18 +33,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
   attr(:now, :any, required: true)
+  # Provider families the workflow routes work to; nil reads the live config.
+  attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    assigns =
-      assigns
-      |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
-      |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
+    assigns = assign(assigns, :cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
 
     ~H"""
     <section class="run-summary" aria-label="Provider and API usage">
       <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} now={@now} />
-      <.models_card :if={@cards != []} cards={@cards} usage_ready?={@usage_ready?} now={@now} />
+      <ModelsPanel.models_panel :if={@cards != []} cards={@cards} now={@now} />
     </section>
     """
   end
@@ -152,6 +153,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
   attr(:now, :any, required: true)
+  attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_compact(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_compact(assigns) do
@@ -165,7 +167,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:remaining, remaining)
       |> assign(:run_percent, run_percent(assigns.run))
       |> assign(:progress_label, progress_label(assigns.run))
-      |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))
+      |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters, assigns.configured_providers)))
 
     ~H"""
     <section :if={@remaining && @remaining > 0} class="rs-block rs-summary-compact" aria-label="Run summary">
@@ -205,104 +207,33 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
-  attr(:cards, :list, required: true)
-  attr(:usage_ready?, :boolean, required: true)
-  attr(:now, :any, required: true)
-
-  defp models_card(assigns) do
-    ~H"""
-    <div class="rs-block rs-models" aria-label="Model providers">
-      <div class="rs-group-head">
-        <span class="rs-group-title">Models</span>
-        <span class="rs-group-count">{model_count_label(length(@cards))}</span>
-      </div>
-      <div class="rs-models-rows">
-        <.model_row :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
-      </div>
-    </div>
-    """
-  end
-
-  attr(:card, :map, required: true)
-  attr(:usage_ready?, :boolean, required: true)
-  attr(:now, :any, required: true)
-
-  defp model_row(assigns) do
-    assigns =
-      assigns
-      |> assign(:usage, provider_usage(assigns.card))
-      |> assign(:windows, meter_windows(assigns.card))
-
-    ~H"""
-    <div class="rs-model rs-provider-row" data-provider={@card.provider}>
-      <div class="rs-head">
-        <%!-- One logo per row, on the far left, so every row starts with the same landmark. Decorative: the name beside it already identifies the provider. --%>
-        <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
-        <span class="rs-name">{@card.provider_label}</span>
-        <span :if={get_in(@card, [:identity, :state]) == :unverified} class="rs-limit-meta">Account unverified</span>
-        <span :if={get_in(@card, [:health, :age_label])} class="rs-limit-meta">{@card.health.age_label}</span>
-      </div>
-      <p :if={@card[:summary_label]} class="rs-limit-meta">{@card.summary_label}</p>
-      <div class="rs-provider-body">
-        <div class="rs-limits">
-          <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
-            <span class="rs-limit-label">Limits</span>
-            <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)), 80, 90)} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
-            <span class="rs-limit-meta rs-limit-meta-wide">{durable_percent(durable_record(@card))}%</span>
-            <span class="rs-limit-meta rs-limit-meta-compact">{durable_percent(durable_record(@card))}%</span>
-          </div>
-          <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
-            <span class="rs-limit-label">Limits</span>
-            <div class="rs-meter" aria-label="Usage not observed"></div>
-            <span :if={@card.provider == :muse} class="rs-limit-meta">Not observed</span>
-          </div>
-          <AiurWeb.OperatorControlCenter.AccountMeters.rows accounts={get_in(@card, [:account_usage, :accounts]) || []} />
-          <div :for={window <- @windows} class="rs-limit">
-            <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{min(max(meter_percent(window), 0), 100)}%"}></i></div>
-            <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now)}</span>
-            <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
   # --- helpers -------------------------------------------------------------
 
-  defp model_count_label(1), do: "1 model"
-  defp model_count_label(count), do: "#{count} models"
+  # The MODELS pane shows only real, accessible allocations (#3751): see
+  # `ModelProviders` for the rule. Each card carries its own registry logo and
+  # only the windows the pane draws.
+  defp provider_cards(usage, meters, configured) do
+    configured = configured || ModelProviders.configured_families()
 
-  defp model_window_meta(window, now) do
-    window_meta(window, now)
+    usage
+    |> raw_cards(meters)
+    |> Enum.map(&Map.merge(&1, %{logo: provider_logo(&1.provider), windows: meter_windows(&1)}))
+    |> ModelProviders.visible(configured)
+    |> order_cards()
   end
 
-  defp model_window_compact_meta(window, now) do
-    window
-    |> model_window_meta(now)
-    |> String.replace("resets in ", "")
-    |> String.replace(" used", "")
-  end
-
-  defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
-    cards
-    |> Enum.map(fn card ->
+  defp raw_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
+    Enum.map(cards, fn card ->
       card
       |> Map.put(:usage, get_in(usage, [:providers, card.provider]))
       |> put_durable_observation()
     end)
-    |> keyed_cards()
-    |> order_cards()
   end
 
-  defp provider_cards(_usage, _meters) do
-    CodingAgent.provider_families()
-    |> Enum.map(fn provider ->
+  defp raw_cards(_usage, _meters) do
+    Enum.map(CodingAgent.provider_families(), fn provider ->
       %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
     end)
-    |> keyed_cards()
-    |> order_cards()
   end
 
   defp api_count_label(true), do: "2 APIs"
@@ -432,34 +363,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     |> String.replace_prefix("resets in ", "")
   end
 
-  # A provider card only occupies strip space when the provider is actually
-  # connected. OpenAI-compatible providers gate on their configured credential
-  # env — `api_key_env` / `management_api_key_env` resolving to a non-empty
-  # value, the same "keyed" notion the meter probe uses. App-server providers
-  # (codex, claude) authenticate by session rather than an env key, so they
-  # always show.
-  defp keyed_cards(cards), do: Enum.filter(cards, &provider_keyed?(&1.provider))
-
-  defp provider_keyed?(provider) do
-    case get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat]) do
-      %{} = compat ->
-        case Map.get(compat, :management_api_key_env) || Map.get(compat, :api_key_env) do
-          env when is_binary(env) and env != "" -> env_present?(env)
-          _ -> false
-        end
-
-      _ ->
-        true
-    end
-  end
-
-  defp env_present?(env) do
-    case System.get_env(env) do
-      value when is_binary(value) and value != "" -> true
-      _ -> false
-    end
-  end
-
   # DeepSeek leads the strip: it takes the position the Summary block used to
   # occupy, so it sorts ahead of the registry card order while the rest keep
   # their relative order.
@@ -486,10 +389,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp put_durable_observation(card), do: card
-
-  # The card's attached durable record, when present.
-  defp durable_record(%{durable_observation: observation}), do: observation
-  defp durable_record(_card), do: nil
 
   # The durable record is keyed by backend family and carries the last used/limit
   # per window plus an observed timestamp. `ModelAvailability` is a public read
@@ -528,9 +427,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end)
     |> Enum.max_by(& &1.percent, fn -> nil end)
   end
-
-  defp provider_usage(%{usage: usage}), do: usage
-  defp provider_usage(_card), do: nil
 
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
@@ -582,32 +478,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       nil -> true
       limit_id -> limit_id |> to_string() |> String.split(":") |> List.first() == to_string(provider)
     end
-  end
-
-  # The label above a model bar names the window. Most providers publish a
-  # single budget whose name is enough; when two windows share a name (Codex
-  # reports an account-wide "Primary" and a per-model "Primary" that differ only
-  # in scope), the scope is what tells them apart, so it replaces the name.
-  defp window_label(window, windows) do
-    name = Map.get(window, :name, "Limit")
-
-    if Enum.count(windows, &(Map.get(&1, :name) == name)) > 1 do
-      window |> Map.get(:limit_id) |> window_scope() || name
-    else
-      name
-    end
-  end
-
-  # `limit_id` is "<scope>:<name>"; the scope is the part worth showing when the
-  # name cannot tell two windows apart.
-  defp window_scope(nil), do: nil
-
-  defp window_scope(limit_id) do
-    limit_id
-    |> to_string()
-    |> String.split(":")
-    |> List.first()
-    |> String.replace("_", " ")
   end
 
   # Whether the remaining ticket count is a known value at all, as opposed to
@@ -693,44 +563,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
 
-  # A prepaid-balance window carries its spend percentage as `used_percent`
-  # (the probe attaches it only once a durable baseline exists); the bar renders
-  # that measured value rather than an empty 0%. Measured rate-limit windows
-  # carry the same percentage under `meter.now`. Credit percentages are rounded
-  # to one decimal so a float measurement never renders a noisy bar width.
-  defp meter_percent(%{kind: :credit, used_percent: percent}) when is_number(percent), do: Float.round(percent, 1)
-  defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
-  defp meter_percent(_window), do: 0
-
-  # A bar that is fully consumed reads as critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one. Three stage colours:
-  # caution (yellow) from 80% used, warning (orange) from 90%, critical (red)
-  # at 100% (operator directive). Credit percentages arrive as floats (e.g.
-  # 100.0), so the guards accept any number at/above 100.
-  # A credit window is a dollar balance. When a durable baseline exists the
-  # window carries a measured `used_percent` and renders a real spend bar
-  # alongside the dollar amount; without a baseline the bar stays empty and the
-  # meta carries the balance, so a prepaid provider never reads as a fabricated
-  # "0% consumed" (issue #1436).
-  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}}, _now)
-       when is_number(amount) and is_number(used_percent) do
-    "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
-  end
-
-  defp window_meta(%{kind: :credit, credits: %{amount: amount}} = window, now) when is_number(amount) do
-    "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
-  end
-
-  defp window_meta(%{kind: :credit, credits: %{status: status}} = _window, _now) do
-    to_string(status) <> " balance"
-  end
-
-  defp window_meta(%{used_percent: percent, meter: %{kind: :exact}} = window, now) when is_number(percent),
-    do: "#{percent}% · #{reset_text(window.resets_at, now)}"
-
-  defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
-  defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
-
   defp format_used_percent(percent) when is_number(percent) do
     percent = percent |> max(0) |> min(100)
     rounded = Float.round(percent, 1)
@@ -741,8 +573,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       :erlang.float_to_binary(rounded, decimals: 1)
     end
   end
-
-  defp durable_percent(%{percent: percent}), do: percent
 
   defp reset_text(%DateTime{} = reset, %DateTime{} = now) do
     seconds = DateTime.diff(reset, now, :second)
