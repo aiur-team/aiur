@@ -4,7 +4,6 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.Commands
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
@@ -15,6 +14,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
+  alias Aiur.Commands
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary

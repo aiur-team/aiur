@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, GithubBudgetPause, IssueSync, PauseResume, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State, TrackerTasks}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)

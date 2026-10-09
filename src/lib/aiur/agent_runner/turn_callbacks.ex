@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.TurnCallbacks do
   @moduledoc false
 
-  alias Aiur.Commands
   alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, SessionLifecycle}
+  alias Aiur.Commands
   alias Aiur.Issue
 
   @type callbacks :: %{

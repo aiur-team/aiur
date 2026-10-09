@@ -19,10 +19,10 @@ defmodule Aiur.RepoBase do
   use GenServer
   require Logger
 
-  alias Aiur.Commands
   alias Aiur.AgentEnvironment
   alias Aiur.AgentPubSub
 
+  alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Findings
   alias Aiur.Fs

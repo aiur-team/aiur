@@ -3,13 +3,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   Owns orchestrator StatusReport behavior.
   All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.Commands
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.AlertFeed
   alias Aiur.Alerts
   alias Aiur.CodingAgent
+  alias Aiur.Commands
   alias Aiur.Config
 
   alias Aiur.Issue

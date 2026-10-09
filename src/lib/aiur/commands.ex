@@ -3,7 +3,8 @@ defmodule Aiur.Commands do
   Public entry point for Commands and Asks.
 
   The existing Decision services retain persistence, validation and delivery
-  ownership; this facade preserves their arguments and results.
+  ownership; this facade preserves their arguments and results. All supported
+  arities stay together so the public delegation contract is easy to audit.
   """
 
   @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -330,4 +331,9 @@ defmodule Aiur.Commands do
 
   @spec validate_delivery(map(), GenServer.server()) :: {:ok, :accepted | :ignored} | {:error, term()}
   defdelegate validate_delivery(item, server), to: Aiur.DecisionStore
+  @spec capability_ids() :: [String.t()]
+  defdelegate capability_ids(), to: Aiur.DecisionStore.CapabilityProvider
+
+  @spec capabilities(Aiur.Capabilities.Provider.context()) :: map()
+  defdelegate capabilities(context), to: Aiur.DecisionStore.CapabilityProvider
 end

@@ -9,9 +9,9 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
 
   require Logger
 
-  alias Aiur.Commands
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.Codex.SessionRecovery
+  alias Aiur.Commands
   alias Aiur.Issue
 
   # Mid-turn delivery for the persistent-REPL backend: when an Executor
