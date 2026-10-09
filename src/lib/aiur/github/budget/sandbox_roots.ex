@@ -2,8 +2,8 @@ defmodule Aiur.GitHub.Budget.SandboxRoots do
   @moduledoc false
   @behaviour Aiur.Config.TurnSandboxRoots
 
-  alias Aiur.GitHub.Budget
   alias Aiur.Config.Schema
+  alias Aiur.GitHub.Budget
 
   @impl true
   def contribute(turn_sandbox_policy, _settings, opts) do

@@ -1236,12 +1236,14 @@ defmodule Aiur.Config do
 
   defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
     with {:ok, policy} <- Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-      Enum.reduce_while(Application.get_env(:aiur, :turn_sandbox_root_contributors, []), {:ok, policy}, fn contributor, {:ok, policy} ->
-        case contributor.contribute(policy, settings, opts) do
-          {:ok, policy} -> {:cont, {:ok, policy}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
+      Enum.reduce_while(Application.get_env(:aiur, :turn_sandbox_root_contributors, []), {:ok, policy}, &contribute_sandbox_roots(&1, &2, settings, opts))
+    end
+  end
+
+  defp contribute_sandbox_roots(contributor, {:ok, policy}, settings, opts) do
+    case contributor.contribute(policy, settings, opts) do
+      {:ok, policy} -> {:cont, {:ok, policy}}
+      {:error, _reason} = error -> {:halt, error}
     end
   end
 
