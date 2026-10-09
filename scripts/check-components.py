@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
+from components.ratchet import growth_errors, stale_entries, write_summary
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -234,8 +235,8 @@ def module_violations(root, manifest, file_owners):
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
     print(f'components: Elixir: {len(modules)} modules, {len(references)} references; '
           f'{len(unresolved)} unresolved internal targets; {time.monotonic() - started:.3f} s')
-    report_cycles(graph)
-    return violations
+    largest_scc = report_cycles(graph)
+    return violations, largest_scc
 
 
 def read_allowlist(root, manifest):
@@ -271,18 +272,22 @@ def write_baseline(root, manifest, violations, rules):
                         + ''.join(row + '\n' for row in rows))
 
 
-def check_references(root, manifest, file_owners, baseline, rules):
-    violations = module_violations(root, manifest, file_owners)
+def check_references(root, manifest, file_owners, baseline, rules, prune=False, growth_base=None):
+    started = time.monotonic()
+    violations, largest_scc = module_violations(root, manifest, file_owners)
     violations = {key: location for key, location in violations.items() if key[0] in rules + STRICT_RULES}
     if baseline:
         write_baseline(root, manifest, violations, rules)
     allowed = read_allowlist(root, manifest)
+    stale = stale_entries(root, allowed, violations, rules, prune)
+    growth_failed = growth_errors(root, growth_base) if growth_base else False
     for (rule, source, target), location in sorted(violations.items()):
         if (rule, source, target) not in allowed:
             print(f'components: {rule} {source} -> {target}: {location}')
     for rule in rules:
         print(f'components: {rule}: {sum(key[0] == rule for key in violations)} baseline keys')
-    return bool(violations.keys() - allowed)
+    write_summary(violations, allowed, stale, rules, largest_scc, time.monotonic() - started)
+    return bool(violations.keys() - allowed or stale or growth_failed)
 
 
 def declaration_ownership(root, manifest):
@@ -352,12 +357,18 @@ def main():
     parser.add_argument('--require-elixir', action='store_true', help='require Elixir reference checks')
     parser.add_argument('--write-baseline', action='store_true')
     parser.add_argument('--format', action='store_true')
+    parser.add_argument('--prune', action='store_true', help='remove only stale allowlist entries')
+    parser.add_argument('--growth-base', help='require ticket reasons for allowlist additions since this SHA')
     args = parser.parse_args()
     rules = RULES if args.rules in ('all', 'elixir', 'ownership') else tuple('R-' + rule for rule in args.rules.split(','))
     if not rules or any(rule not in RULES for rule in rules) or len(rules) != len(set(rules)):
         parser.error('invalid --rules selection')
     if args.rules == 'ownership' and (args.require_elixir or args.write_baseline):
         parser.error('--require-elixir/--write-baseline cannot be used with ownership alone')
+    if args.prune and args.write_baseline:
+        parser.error('--prune cannot be combined with --write-baseline')
+    if args.rules == 'ownership' and (args.prune or args.growth_base):
+        parser.error('--prune/--growth-base require reference checks')
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
     try:
         manifest = load_manifest(root)
@@ -375,7 +386,7 @@ def main():
             print(f'components: {path}: {reason}')
         if problems:
             return 1
-        if args.rules != 'ownership' and check_references(root, manifest, file_owners, args.write_baseline, rules):
+        if args.rules != 'ownership' and check_references(root, manifest, file_owners, args.write_baseline, rules, args.prune, args.growth_base):
             return 1
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f'components: components.json: {error}', file=sys.stderr)

@@ -85,5 +85,7 @@ def drain_component(node, stack, active):
 
 
 def report_cycles(graph):
-    for group in strongly_connected(graph):
+    groups = strongly_connected(graph)
+    for group in groups:
         print(f'scc: {len(group)} components: {group}')
+    return max((len(group) for group in groups), default=0)

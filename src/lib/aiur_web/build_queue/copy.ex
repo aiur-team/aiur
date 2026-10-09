@@ -76,7 +76,19 @@ defmodule AiurWeb.BuildQueue.Copy do
 
   @spec reason(term()) :: String.t()
   def reason(nil), do: text(:none)
-  def reason(value), do: value |> inspect() |> String.replace("_", " ")
+  def reason([]), do: text(:none)
+  def reason(value) when is_list(value), do: Enum.map_join(value, ", ", &reason/1)
+  def reason(value) when is_atom(value), do: value |> Atom.to_string() |> humanize()
+  def reason(value) when is_binary(value), do: humanize(value)
+  def reason(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map_join(" · ", &reason/1)
+  def reason(value), do: inspect(value)
+
+  @spec source_name(String.t()) :: String.t()
+  def source_name("tracker_observation"), do: "Tracker"
+  def source_name("build_order:" <> root), do: "Build Order ##{root}"
+  def source_name(name) when is_binary(name), do: humanize(name)
+
+  defp humanize(value), do: value |> String.replace("_", " ") |> String.capitalize()
 
   @spec prerequisite(map()) :: String.t()
   def prerequisite(edge), do: "##{edge.number} · #{label(edge.verdict)} · #{reason(edge.source)}"
