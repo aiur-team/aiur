@@ -169,4 +169,8 @@ Dashboard credentials never grant machine-API authority, and the bearer token ne
 
 The Analytics ticket timeline marks the earliest PR-open time. Open PRs appear in review; merged, rework, and paused states take precedence.
 
-Retained Analytics charts use at most 180 evenly spaced resource observations per actor, including the first and last. Chart detail is sampled; headline CPU totals and resource peaks use the full retained profiles. Full log combines materialized prior runs with the current telemetry stream. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse. Retained summaries that exceed the read budget also report unavailable.
+Retained Analytics charts use at most 180 evenly spaced resource observations per actor, including the first and last. Chart detail is sampled; headline CPU totals and resource peaks use the full retained profiles.
+
+Full log combines materialized prior runs with the current telemetry stream. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
+
+Retained summaries that exceed the read budget also report unavailable.

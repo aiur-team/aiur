@@ -41,13 +41,18 @@ defmodule Aiur.RunTelemetry.ResourceSamples do
     until = field(previous, :covered_until_ms) || field(previous, :timestamp_ms)
     timestamp = field(sample, :timestamp_ms)
 
-    if measured?(previous) and measured?(sample) and field(previous, :boot_id) == field(sample, :boot_id) and
-         is_integer(until) and is_integer(timestamp) and timestamp >= until and timestamp - until <= @gap_ms do
+    if same_segment?(previous, sample) and adjacent?(until, timestamp) do
       put(previous, :covered_until_ms, field(sample, :covered_until_ms) || timestamp)
     else
       previous
     end
   end
+
+  defp same_segment?(previous, sample),
+    do: measured?(previous) and measured?(sample) and field(previous, :boot_id) == field(sample, :boot_id)
+
+  defp adjacent?(until, timestamp),
+    do: is_integer(until) and is_integer(timestamp) and timestamp >= until and timestamp - until <= @gap_ms
 
   defp measured?(nil), do: false
   defp measured?(sample), do: field(sample, :availability) == "measured"
