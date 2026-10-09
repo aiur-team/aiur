@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Sourced through BASH_ENV for local Aiur coding-agent shells and by the
-# shell-independent Mix/mise command wrappers. It intentionally gates only Mix
-# compile/test work; editing, Git, and other shell commands stay free to run
-# while a verification command holds a lease.
+# shell-independent command wrappers. It gates Mix
+# compile/test and browser work; other commands stay free to run.
 
 if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   AIUR_BUILD_GATE_HOOK_LOADED=1
 
+  source "$(dirname "${BASH_SOURCE[0]}")/browser_build_gate.bash"
   aiur_build_gate_log() {
     printf 'aiur_build_gate %s\n' "$*" >&2
   }

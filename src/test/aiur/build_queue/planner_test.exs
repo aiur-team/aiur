@@ -33,7 +33,7 @@ defmodule Aiur.BuildQueue.PlannerTest do
   end
 
   test "external removal holds once and matching withdrawal intent permits management" do
-    input = F.input() |> F.update_item(promoted_at: ~U[2026-10-08 00:00:00Z])
+    input = F.input() |> F.update_item(promoted_at: DateTime.from_unix!(9_000, :millisecond))
     assert {[%{state: :held, reason: :external}], [{:mark_external_hold, "1"}]} = Planner.plan(input)
     assert {[%{state: :held}], []} = input |> F.update_item(hold: :external) |> Planner.plan()
     assert {[%{state: :ready}], [{:promote, "1"}]} = input |> F.intent(:withdraw) |> Planner.plan()

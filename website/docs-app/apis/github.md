@@ -749,7 +749,7 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
-There is a third path, and it is the cheapest one: a change Aiur makes.
+Build queue writes promote ready issues conditionally to `agent:todo` and add/remove `agent:queued`, paced by `build_queue.max_writes_per_minute` (default 20). Each promotion attempt uses up to three issue GETs and one label POST; marker writes cost one request. Label creation is ensured before the first mark each boot. No quota saving is claimed.
 
 Aiur posts comments, applies and removes labels, closes tickets, repairs pull request bases, declares dependencies, and replies to and resolves review threads. GitHub's answer to each of those requests already contains the new state, and Aiur keeps it.
 
