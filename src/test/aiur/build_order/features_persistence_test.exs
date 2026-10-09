@@ -164,6 +164,22 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
     end
   end
 
+  test "schema-valid journal events must obey fold invariants", %{dir: dir} do
+    for {name, events} <- [
+          {"owner-epic", [%{"type" => "member.added", "feature" => "a", "number" => 2, "epic" => "f-missing", "at" => DateTime.to_iso8601(@now), "confirmed" => true}]},
+          {"downgrade", [%{"type" => "member.added", "feature" => "a", "number" => 1, "epic" => "f-a", "at" => DateTime.to_iso8601(@now), "confirmed" => false}]},
+          {"baseline", [%{"type" => "baseline.set", "feature" => "a", "at" => DateTime.to_iso8601(@now), "members" => [999]}]}
+        ] do
+      state_dir = Path.join(dir, name)
+      pid = seeded(state_dir)
+      GenServer.stop(pid)
+      path = Path.join(state_dir, "features.ndjson")
+      record = %{v: 1, seq: 3, recorded_at: DateTime.to_iso8601(@now), source: "cli:executor", actor: "executor", events: events}
+      File.write!(path, Jason.encode!(record) <> "\n", [:append])
+      assert {:error, %ProviderHealth{failure: :features_corrupt}} = Features.snapshot(server: start_store(state_dir))
+    end
+  end
+
   defp records(path), do: path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
   defp meta(pid), do: [server: pid, source: "cli:executor", actor: "executor"]
 

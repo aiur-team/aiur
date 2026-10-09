@@ -160,13 +160,15 @@ defmodule Aiur.BuildOrder.FeaturesTest do
   test "V-17 backfill defaults unconfirmed and cannot downgrade or move a confirmed owner", %{pid: pid, dir: dir, meta: m} do
     create("a", m)
     create("b", m)
-    backfill = Keyword.put(m, :source, "backfill-agent")
+    backfill = Keyword.merge(m, source: "backfill-agent", at: DateTime.add(@now, -3600), at_basis: :first_observed)
     assert {:ok, _} = Features.add("a", [1], backfill)
     assert {:ok, original} = Features.owner(1, server: pid)
     refute original.confirmed
     assert {:ok, _} = Features.add("a", [1], Keyword.put(m, :confirmed, true))
     assert {:ok, confirmed} = Features.owner(1, server: pid)
     assert confirmed.confirmed
+    assert confirmed.joined_at == DateTime.add(@now, -3600)
+    assert confirmed.at_basis == :first_observed
     assert confirmed.joined_at == original.joined_at
     before = File.read!(Path.join(dir, "features.ndjson"))
     assert {:ok, %{changed: []}} = Features.add("a", [1], backfill)
