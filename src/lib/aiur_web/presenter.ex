@@ -176,7 +176,7 @@ defmodule AiurWeb.Presenter do
     %{
       available?: false,
       path: nil,
-      message: "Telemetry analytics are available after a debug telemetry run."
+      message: "Telemetry analytics are available after a run telemetry run."
     }
   end
 

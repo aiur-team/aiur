@@ -5,8 +5,7 @@ defmodule Aiur.Config do
 
   alias Aiur.AgentEnvironment
   alias Aiur.BuildGate
-  alias Aiur.Config.RoutingValue
-  alias Aiur.Config.{Schema, SemanticChecks}
+  alias Aiur.Config.{Capture, RoutingValue, Schema, SemanticChecks}
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.Codex, as: CodexSchema
   alias Aiur.Config.Schema.EnvResolver
@@ -1025,12 +1024,12 @@ defmodule Aiur.Config do
   @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
   @spec telemetry_enabled?() :: boolean()
   @spec telemetry_enabled?(term()) :: boolean()
-  def telemetry_enabled?(settings \\ settings_uncached()) do
-    case settings do
-      {:ok, %{observability: observability}} -> observability.telemetry_enabled
-      _other -> true
-    end
-  end
+  def telemetry_enabled?(settings \\ settings_uncached()), do: Capture.telemetry_enabled?(settings)
+
+  @doc "Whether analytics GitHub fact reads are enabled. Defaults to true when configuration is unreadable."
+  @spec capture_github_facts?() :: boolean()
+  @spec capture_github_facts?(term()) :: boolean()
+  def capture_github_facts?(settings \\ settings_uncached()), do: Capture.capture_github_facts?(settings)
 
   @doc "Whether startup should verify the persisted Tailscale Funnel target."
   @spec build_order_funnel_health_check_enabled?(term()) :: boolean()

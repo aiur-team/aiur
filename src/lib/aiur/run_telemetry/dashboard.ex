@@ -151,7 +151,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
     <a class="skip-link" href="#run-evidence">Skip to run evidence</a>
     <header class="hero">
       <div class="hero-copy">
-        <p class="eyebrow"><span class="signal" aria-hidden="true"></span>Aiur / debug telemetry</p>
+        <p class="eyebrow"><span class="signal" aria-hidden="true"></span>Aiur / run telemetry</p>
         <h1>Run evidence, without the blind spots.</h1>
         <p class="lede">Daemon-recorded resource and lifecycle evidence, reduced into one durable, offline artifact.</p>
         <p class="generated">Generated <time id="generated-at">—</time></p>
