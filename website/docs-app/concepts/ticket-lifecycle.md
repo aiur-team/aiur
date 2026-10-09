@@ -154,13 +154,9 @@ and never deletes ones a repository already has; those keep working as exact pin
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
 
-**Optimistic dependents.** A worker explicitly started on an unmerged blocker
-receives an Optimistic start prompt block. It integrates blocker pushes at safe
-checkpoints, rebases after rewritten history, and keeps its PR draft while any
-blocker PR is unmerged. When its own work is done it parks until blocker merge,
-then restacks onto the integration branch before the normal CI handoff. The
-[agent skill's canonical loop](https://github.com/aiur-team/aiur/blob/main/.claude/skills/aiur-agent/stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker)
-owns the procedure.
+**Optimistic dependents.** An explicit Optimistic start prompt block tells a worker to integrate blocker pushes,
+rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
+it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
 The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
 
@@ -181,19 +177,14 @@ Item states are projections, not tracker labels:
 | `cancelled` | Tracker closure is confirmed as not planned. |
 | `removed` | The membership marker was removed. |
 
-If a promoted item becomes unready, Aiur first holds dispatch and checks claims. It withdraws only
-`agent:todo`, only from an unclaimed item with fresh, known readiness evidence. Unknown evidence
-retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it
-becomes unready.
+If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
 
 A manual `todo` sets an override (Build Order adoption first withdraws pre-labelled, unclaimed
 blocked members). External removal of a queue-owned `todo` creates an external hold;
 `aiur queue release` clears holds and overrides. Removing `agent:queued` dequeues the item.
 Optimistic writes re-observe races instead of overwriting another writer's transition.
 
-Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains
-`promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable
-claim probe preserves a recorded decline.
+Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains `promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable claim probe preserves a recorded decline.
 
 [Queue attentions](/concepts/build-orders#queue-attentions) cover `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
 `write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
