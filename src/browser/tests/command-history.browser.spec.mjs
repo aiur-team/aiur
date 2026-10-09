@@ -190,13 +190,19 @@ for (const palette of ['aiur', 'gruvbox']) {
         html.dataset.theme = theme
       }, { palette, theme })
 
-      await expect(page.locator('.command-history .chip.good').first()).toBeVisible()
-      const audit = await new AxeBuilder({ page })
-        .include('.command-history .chip')
-        .withRules(['color-contrast'])
-        .analyze()
-      expectAuditClean(audit)
-      expect(audit.passes.some((result) => result.id === 'color-contrast')).toBe(true)
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 })
+        const goodChip = page.locator('.command-history .chip.good').first()
+        await expect(goodChip).toBeVisible()
+        // At 390 the table scrolls sideways; axe skips off-screen text.
+        await goodChip.scrollIntoViewIfNeeded()
+        const audit = await new AxeBuilder({ page })
+          .include('.command-history .chip')
+          .withRules(['color-contrast'])
+          .analyze()
+        expectAuditClean(audit)
+        expect(audit.passes.some((result) => result.id === 'color-contrast')).toBe(true)
+      }
     })
   }
 }
