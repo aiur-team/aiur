@@ -20,13 +20,13 @@ defmodule Aiur.AppServer.RelayPortTest do
     assert_stopped(metadata.provider_pid)
   end
 
-  test "disabled relay retains the direct Port path" do
+  test "future guard: disabled relay retains the direct Port path" do
     {:ok, port} = Adapter.start_port(File.cwd!(), "printf 'direct\\n'", fn _ -> :ok end, relay: false)
     assert is_port(port)
     assert_receive {^port, {:data, {:eol, "direct"}}}, 5_000
   end
 
-  test "missing relay script falls back once to direct Port" do
+  test "future guard: missing relay script falls back once to direct Port" do
     {:ok, port} = Adapter.start_port(File.cwd!(), "printf 'fallback\\n'", fn _ -> :ok end, relay_script: "/missing/agent_relay.py")
     assert is_port(port)
     assert_receive {^port, {:data, {:eol, "fallback"}}}, 5_000

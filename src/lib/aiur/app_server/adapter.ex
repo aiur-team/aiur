@@ -14,8 +14,8 @@ defmodule Aiur.AppServer.Adapter do
   @port_line_bytes 1_048_576
 
   @callback backend_label() :: String.t()
-  @callback send_frame(port(), map()) :: :ok | {:error, :port_closed}
-  @callback metadata_from_message(port(), term()) :: map()
+  @callback send_frame(port() | pid(), map()) :: :ok | {:error, :port_closed}
+  @callback metadata_from_message(port() | pid(), term()) :: map()
   @callback start_turn(session :: map(), prompt :: String.t(), issue :: map()) ::
               {:ok, String.t()} | {:error, term()}
   @callback loop_state_extras(session :: map()) :: map()
@@ -28,7 +28,7 @@ defmodule Aiur.AppServer.Adapter do
               payload_string :: String.t(),
               method :: String.t()
             ) :: term()
-  @callback handle_malformed(state :: map(), payload_string :: String.t(), port()) ::
+  @callback handle_malformed(state :: map(), payload_string :: String.t(), port() | pid()) ::
               {:continue, map()}
 
   @doc """
@@ -167,11 +167,11 @@ defmodule Aiur.AppServer.Adapter do
 
   def classify_stream_failure(_backend, _diagnostics), do: :unclassified
 
-  @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
+  @spec start_port(Path.t(), String.t()) :: {:ok, port() | pid()} | {:error, :bash_not_found}
   def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])
 
   @doc false
-  @spec start_port(Path.t(), String.t(), (port() -> term()), keyword()) :: {:ok, port()} | {:error, :bash_not_found}
+  @spec start_port(Path.t(), String.t(), (port() | pid() -> term()), keyword()) :: {:ok, port() | pid()} | {:error, :bash_not_found}
   def start_port(workspace, command, on_port_started, opts \\ []) when is_function(on_port_started, 1) and is_list(opts) do
     if Config.settings!().agent.relay and Keyword.get(opts, :relay, true) do
       env = AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, []))

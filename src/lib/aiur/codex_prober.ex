@@ -9,6 +9,7 @@ defmodule Aiur.CodexProber do
 
   require Logger
 
+  alias Aiur.AppServer.Transport
   alias Aiur.Codex.{AppServerPort, Handshake}
   alias Aiur.{Config, ModelAvailability, Workspace}
 
@@ -101,7 +102,7 @@ defmodule Aiur.CodexProber do
 
   defp try_probe_port(port, opts) do
     os_pid =
-      case is_port(port) && Port.info(port, :os_pid) do
+      case Transport.os_pid(port) do
         {:os_pid, pid} -> pid
         _ -> nil
       end
