@@ -1,5 +1,5 @@
 defmodule Aiur.BuildOrder.EpicOverridesTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import Bitwise
   alias Aiur.BuildOrder.EpicOverrides, as: Store
   @p %{actor: "cli:kevin", source: "cli:kevin"}
@@ -10,11 +10,26 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
-    opts = [name: name, state_dir: dir, repository: "acme/app", settings_fun: fn -> settings() end]
-    %{dir: dir, path: Path.join(dir, "epic-overrides.json"), opts: opts, read: [server: name], write: [server: name, now: @time]}
+
+    opts = [
+      name: name,
+      state_dir: dir,
+      repository: "acme/app",
+      settings_fun: fn -> settings() end
+    ]
+
+    %{
+      dir: dir,
+      path: Path.join(dir, "epic-overrides.json"),
+      opts: opts,
+      read: [server: name],
+      write: [server: name, now: @time]
+    }
   end
 
-  defp settings(keys \\ ["bugs", "infra", "docs", "unsorted"]), do: {:ok, %{build_order: %{general_epics: Enum.map(keys, &%{key: &1, label: String.capitalize(&1)})}}}
+  defp settings(keys \\ ["bugs", "infra", "docs", "unsorted"]),
+    do: {:ok, %{build_order: %{general_epics: Enum.map(keys, &%{key: &1, label: String.capitalize(&1)})}}}
+
   defp start(ctx, extra \\ []), do: start_supervised!({Store, Keyword.merge(ctx.opts, extra)})
 
   defp raw(ctx, changes) do
@@ -25,13 +40,35 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
   test "V-1 set journals every provenance field and deduplicates ids", c do
     start(c)
     assert Aiur.BuildOrder.ProviderHealth.usable?(Store.health(c.read))
-    assert {:ok, %{generation: 1, results: [%{number: 12, status: :changed, previous: nil}]}} = Store.set("bugs", [12, "#12"], @p, c.write)
+
+    assert {:ok, %{generation: 1, results: [%{number: 12, status: :changed, previous: nil}]}} =
+             Store.set("bugs", [12, "#12"], @p, c.write)
+
     assert {:ok, %{12 => o}, h} = Store.get_many([12], c.read)
-    assert Map.from_struct(o) == %{number: 12, epic: "bugs", actor: "cli:kevin", source: "cli:kevin", confirmed: true, at: @time, seq: 1}
+
+    assert Map.from_struct(o) == %{
+             number: 12,
+             epic: "bugs",
+             actor: "cli:kevin",
+             source: "cli:kevin",
+             confirmed: true,
+             at: @time,
+             seq: 1
+           }
+
     assert h.state == :healthy and h.complete?
 
     assert Jason.decode!(File.read!(c.path))["entries"] == [
-             %{"op" => "set", "number" => 12, "epic" => "bugs", "actor" => "cli:kevin", "source" => "cli:kevin", "confirmed" => true, "at" => "2026-10-08T10:00:00Z", "seq" => 1}
+             %{
+               "op" => "set",
+               "number" => 12,
+               "epic" => "bugs",
+               "actor" => "cli:kevin",
+               "source" => "cli:kevin",
+               "confirmed" => true,
+               "at" => "2026-10-08T10:00:00Z",
+               "seq" => 1
+             }
            ]
 
     assert (File.stat!(c.path).mode &&& 0o777) == 0o600
@@ -39,7 +76,10 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
 
   test "V-2 V-3 V-4 reject unknown, reserved and invalid batch inputs without writes", c do
     start(c)
-    assert {:error, {:unknown_epic, "bugz", ["bugs", "infra", "docs", "unsorted"]}} = Store.set("bugz", [12], @p, c.write)
+
+    assert {:error, {:unknown_epic, "bugz", ["bugs", "infra", "docs", "unsorted"]}} =
+             Store.set("bugz", [12], @p, c.write)
+
     assert {:error, {:unknown_epic, "unsorted", _}} = Store.set("unsorted", [12], @p, c.write)
 
     for ids <- [[12, 0], [12, "abc"], [12, -1], [12, 10_000_000_000], []] do
@@ -50,13 +90,24 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     assert empty == %{}
     refute File.exists?(c.path)
     assert {:error, :invalid_epic_arguments} = Store.set(nil, [12], @p, c.write)
-    assert {:error, :invalid_epic_arguments} = Store.set("bugs", [12], Map.put(@p, :extra, true), c.write)
-    assert {:error, :invalid_epic_arguments} = Store.set("bugs", [12], %{actor: "cli:", source: "cli:"}, c.write)
+
+    assert {:error, :invalid_epic_arguments} =
+             Store.set("bugs", [12], Map.put(@p, :extra, true), c.write)
+
+    assert {:error, :invalid_epic_arguments} =
+             Store.set("bugs", [12], %{actor: "cli:", source: "cli:"}, c.write)
   end
 
   test "V-5 concurrent writes retain both entries and the later sequence wins", c do
     start(c)
-    tasks = for epic <- ["bugs", "infra"], do: Task.async(fn -> Store.set(epic, [12], %{actor: "agent:77", source: "agent:77"}, c.write) end)
+
+    tasks =
+      for epic <- ["bugs", "infra"],
+          do:
+            Task.async(fn ->
+              Store.set(epic, [12], %{actor: "agent:77", source: "agent:77"}, c.write)
+            end)
+
     results = Enum.map(tasks, &Task.await/1)
     assert Enum.sort(Enum.map(results, fn {:ok, r} -> r.generation end)) == [1, 2]
     assert {:ok, entries} = Store.journal([12], c.read)
@@ -64,7 +115,9 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     assert {:ok, %{12 => current}, _} = Store.all(c.read)
     assert current.epic == List.last(entries).epic
     assert current.seq == 2
-    assert {:ok, %{results: [%{previous: %{seq: 1}}]}} = Enum.find(results, fn {:ok, r} -> r.generation == 2 end)
+
+    assert {:ok, %{results: [%{previous: %{seq: 1}}]}} =
+             Enum.find(results, fn {:ok, r} -> r.generation == 2 end)
   end
 
   test "V-6 V-7 V-8 no-op is not journaled but source change confirms backfill", c do
@@ -72,8 +125,13 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     p = %{actor: "agent:77", source: "backfill-agent"}
     assert {:ok, %{generation: 1}} = Store.set("bugs", [12], p, c.write)
     assert {:ok, %{12 => %{confirmed: false}}, _} = Store.all(c.read)
-    assert {:ok, %{generation: 1, results: [%{status: :unchanged}]}} = Store.set("bugs", [12], p, c.write)
-    assert {:ok, %{generation: 2, results: [%{status: :changed, previous: %{confirmed: false}}]}} = Store.set("bugs", [12], @p, c.write)
+
+    assert {:ok, %{generation: 1, results: [%{status: :unchanged}]}} =
+             Store.set("bugs", [12], p, c.write)
+
+    assert {:ok, %{generation: 2, results: [%{status: :changed, previous: %{confirmed: false}}]}} =
+             Store.set("bugs", [12], @p, c.write)
+
     assert {:ok, %{12 => %{confirmed: true, source: "cli:kevin"}}, _} = Store.all(c.read)
     assert {:ok, entries} = Store.journal([12], c.read)
     assert length(entries) == 2
@@ -85,7 +143,10 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     Store.set("infra", [13], @p, c.write)
     assert {:ok, %{generation: 3}} = Store.clear([13], @p, c.write)
     bytes = File.read!(c.path)
-    assert {:ok, %{generation: 3, results: [%{status: :unchanged}]}} = Store.clear([13], @p, c.write)
+
+    assert {:ok, %{generation: 3, results: [%{status: :unchanged}]}} =
+             Store.clear([13], @p, c.write)
+
     assert File.read!(c.path) == bytes
     stop_supervised!(Store)
     start(c)
@@ -99,7 +160,10 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
   test "V-11 corrupt file stays untouched and refuses all reads and writes", c do
     File.write!(c.path, "{bad")
     start(c)
-    assert {:error, %{state: :unavailable, failure: :epic_overrides_corrupt}} = Store.get_many([12], c.read)
+
+    assert {:error, %{state: :unavailable, failure: :epic_overrides_corrupt}} =
+             Store.get_many([12], c.read)
+
     assert {:error, %{failure: :epic_overrides_corrupt}} = Store.journal([12], c.read)
     assert {:error, :epic_overrides_unavailable} = Store.set("bugs", [12], @p, c.write)
     assert File.read!(c.path) == "{bad"
@@ -169,7 +233,10 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     start(c)
     Store.subscribe()
     Store.set("bugs", [12, 13], @p, c.write)
-    assert_receive {:epic_overrides_changed, %{generation: 2, changed: [12, 13], health: %{state: :healthy}}}, 1000
+
+    assert_receive {:epic_overrides_changed, %{generation: 2, changed: [12, 13], health: %{state: :healthy}}},
+                   1000
+
     Store.set("bugs", [12, 13], @p, c.write)
     refute_receive {:epic_overrides_changed, _}, 30
   end
@@ -203,5 +270,32 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
     stop_supervised!(Store)
     start(c, repository: nil)
     assert Store.health(c.read).failure == :epic_overrides_unsupported_tracker
+  end
+
+  test "first persisted assignment syncs its directory before acknowledgment, once", c do
+    parent = self()
+
+    start(c,
+      sync: fn ->
+        send(parent, {:barrier, Jason.decode!(File.read!(c.path))["next_seq"]})
+        :ok
+      end
+    )
+
+    assert {:ok, %{generation: 1}} = Store.set("bugs", [12], @p, c.write)
+    assert_received {:barrier, 2}
+    assert {:ok, %{generation: 2}} = Store.set("infra", [13], @p, c.write)
+    refute_received {:barrier, _}
+  end
+
+  test "first-write sync failure makes uncertain durable state unavailable", c do
+    start(c, sync: fn -> {:error, :sync_failed} end)
+    assert {:error, {:durability_unknown, :sync_failed}} = Store.set("bugs", [12], @p, c.write)
+    assert {:error, %{failure: :epic_overrides_durability_unknown}} = Store.all(c.read)
+    assert {:error, :epic_overrides_unavailable} = Store.set("infra", [13], @p, c.write)
+    assert [%{"number" => 12}] = Jason.decode!(File.read!(c.path))["entries"]
+    stop_supervised!(Store)
+    start(c)
+    assert {:ok, %{12 => %{epic: "bugs"}}, %{generation: 1}} = Store.all(c.read)
   end
 end

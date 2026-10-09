@@ -1,6 +1,5 @@
 defmodule Aiur.Codex.DynamicToolTest do
   use Aiur.TestSupport
-
   alias Aiur.Codex.DynamicTool
 
   test "tool_specs advertises the linear_graphql, review thread, and emit_alert contracts" do
