@@ -11,10 +11,10 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   require Logger
 
-  alias Aiur.Tmux.Socket
   alias Aiur.Claude.HookEvents
   alias Aiur.ProcessTree
   alias Aiur.Tmux
+  alias Aiur.Tmux.Socket
 
   # REPL panes live in their own tmux window named `aiur-repl-<beam_os_pid>-<n>`.
   # Embedding the owning BEAM's os pid lets the boot reaper kill only panes

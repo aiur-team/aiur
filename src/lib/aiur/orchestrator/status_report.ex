@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   Owns orchestrator StatusReport behavior.
   All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.Tmux.Socket
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.CodingAgent
   alias Aiur.Commands
   alias Aiur.Config
+  alias Aiur.Tmux.Socket
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume

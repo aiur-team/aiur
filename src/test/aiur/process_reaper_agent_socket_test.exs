@@ -1,7 +1,7 @@
 defmodule Aiur.ProcessReaperAgentSocketTest do
   use ExUnit.Case, async: false
-  alias Aiur.{ProcessReaper, Tmux}
   alias Aiur.Claude.Repl.Launcher
+  alias Aiur.{ProcessReaper, Tmux}
 
   test "REPL launcher defaults to agent socket context and records that socket" do
     previous = System.get_env("AIUR_AGENT_TMUX_SOCKET")
@@ -36,11 +36,11 @@ defmodule Aiur.ProcessReaperAgentSocketTest do
   end
 
   test "socket pane registrations reap the correct server even without a tmux GenServer" do
-    socket = "aiur-reaper-unit-#{System.unique_integer([:positive])}"
+    socket = "aiur-reaper-unit-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
     sibling = socket <> "-sibling"
     previous = Application.get_env(:aiur, :process_reaper_registrations)
     Application.put_env(:aiur, :process_reaper_registrations, true)
-    name = Module.concat(__MODULE__, :"Reaper#{System.unique_integer([:positive])}")
+    name = Module.concat(__MODULE__, :"Reaper#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}")
     {:ok, reaper} = start_supervised({ProcessReaper, name: name})
 
     on_exit(fn ->

@@ -7,13 +7,13 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   require Logger
 
-  alias Aiur.Tmux.Socket
   alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
   alias Aiur.Claude.Config
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
   alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   @ready_prompt "❯"
   @ready_poll_ms 200

@@ -1,10 +1,10 @@
 defmodule Aiur.TmuxAgentSocketTest do
   use ExUnit.Case, async: true
-  alias Aiur.Tmux.Socket
   alias Aiur.Tmux
+  alias Aiur.Tmux.Socket
 
   test "agent calls target their own server despite colliding pane ids" do
-    socket = "aiur-unit-#{System.unique_integer([:positive])}"
+    socket = "aiur-unit-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
     agent_socket = socket <> "-agents"
     {:ok, server} = start_supervised({Tmux, session: socket})
     daemon = {:socket, server, socket}
@@ -29,7 +29,7 @@ defmodule Aiur.TmuxAgentSocketTest do
   end
 
   test "attached REPL Ctrl+C interrupts its process and Ctrl+Q detaches without killing agents" do
-    socket = "aiur-bind-unit-#{System.unique_integer([:positive])}-agents"
+    socket = "aiur-bind-unit-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}-agents"
     wrapper = socket <> "-driver"
     conf = Path.expand("../../../packaging/npm/aiur-cli/share/aiur.tmux.conf", __DIR__)
     {:ok, server} = start_supervised({Tmux, session: socket})

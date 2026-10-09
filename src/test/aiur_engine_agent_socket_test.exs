@@ -3,7 +3,7 @@ defmodule AiurEngineAgentSocketTest do
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
 
   test "reap tears down daemon and agent servers without touching a sibling" do
-    socket = "aiur-reap-unit-#{System.unique_integer([:positive])}"
+    socket = "aiur-reap-unit-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
     names = [socket, socket <> "-agents", socket <> "-sibling"]
     for name <- names, do: assert({_, 0} = System.cmd("tmux", ["-L", name, "new-session", "-d", "-s", "test", "sleep 120"]))
 
@@ -44,7 +44,7 @@ defmodule AiurEngineAgentSocketTest do
   end
 
   test "BEAM-death watchdog removes both servers after its observed process is killed" do
-    socket = "aiur-watch-unit-#{System.unique_integer([:positive])}"
+    socket = "aiur-watch-unit-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
 
     on_exit(fn ->
       for name <- [socket, socket <> "-agents"], do: System.cmd("tmux", ["-L", name, "kill-server"], stderr_to_stdout: true)
@@ -70,8 +70,8 @@ defmodule AiurEngineAgentSocketTest do
                  wait "$beam" 2>/dev/null || true
                  for ((i=0; i<250; i++)); do
                    if ! tmux -L "$socket" has-session 2>/dev/null && ! tmux -L "$socket-agents" has-session 2>/dev/null; then
-                     daemon_state=$(ps -o stat= -p "$daemon_pid" | tr -d ' ')
-                     agent_state=$(ps -o stat= -p "$agent_pid" | tr -d ' ')
+                     daemon_state=$(ps -o stat= -p "$daemon_pid" | tr -d ' ' || true)
+                     agent_state=$(ps -o stat= -p "$agent_pid" | tr -d ' ' || true)
                      [[ -z "$daemon_state" || "$daemon_state" == Z* ]] || { sleep 0.02; continue; }
                      [[ -z "$agent_state" || "$agent_state" == Z* ]] || { sleep 0.02; continue; }
                      echo reaped

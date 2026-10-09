@@ -223,9 +223,10 @@ defmodule Aiur.ProcessReaperTest do
     end
 
     test "appends an agent os_pid with no comm as a bare line", %{reaper: reaper, pidfile: path} do
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 99}, [])
+      # Teardown uses real killers, so a synthetic fixture must not name a live PID.
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, [])
 
-      assert wait_for_lines(path) == ["pid 99"]
+      assert wait_for_lines(path) == ["pid 2147480000"]
     end
 
     test "appends an agent pane ref", %{reaper: reaper, pidfile: path} do

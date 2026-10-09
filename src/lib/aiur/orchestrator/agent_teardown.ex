@@ -6,12 +6,12 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   require Logger
 
-  alias Aiur.Tmux.Socket
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, WorkspaceCleanup}
   alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   # Broadcast `aiur_turn_done` for every currently-active aiur turn on
   # `identifier`. The opencode bridge's chat-completion SSE handlers

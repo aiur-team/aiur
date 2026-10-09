@@ -4,10 +4,10 @@ defmodule Aiur.Orchestrator.Interrupts do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.Tmux.Socket
   alias Aiur.Claude.ReplAgent
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
+  alias Aiur.Tmux.Socket
 
   @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
   def interrupt_agent(issue_identifier),
