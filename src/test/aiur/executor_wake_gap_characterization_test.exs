@@ -74,7 +74,7 @@ defmodule Aiur.ExecutorWakeGapCharacterizationTest do
   end
 
   defp start_listener(opts \\ []) do
-    start_supervised!({ExecutorListener, Keyword.merge([name: @listener_name, inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false, resubscribe_interval_ms: :infinity], opts)})
+    start_supervised!({ExecutorListener, Keyword.merge([name: @listener_name, inbox: @inbox_name, patterns: ["executor.#"], resubscribe_interval_ms: :infinity], opts)})
   end
 
   defp command_decision(decision_id) do

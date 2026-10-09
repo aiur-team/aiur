@@ -4,7 +4,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   import Aiur.TestSupport.CommentsPollerFixture
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, Publisher}
-  alias Aiur.GitHub.{ResourceStore}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Workflow
 
   setup do

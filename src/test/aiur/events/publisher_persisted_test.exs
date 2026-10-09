@@ -25,20 +25,21 @@ defmodule Aiur.Events.PublisherPersistedTest do
     end
 
     test "skips the contamination and dedup filters" do
+      ticket = System.unique_integer([:positive])
+      topic = "ticket.#{ticket}.agent.decision.requested"
       Publisher.set_tracked_fn(fn _ -> false end)
-      :ok = Exchange.subscribe("ticket.99.agent.decision.requested")
+      :ok = Exchange.subscribe(topic)
 
       assert {:ok, _id, count} =
-               Publisher.publish_persisted("ticket.99.agent.decision.requested", %{}, 1, issue_number: 99)
+               Publisher.publish_persisted(topic, %{}, 1, issue_number: ticket)
 
       assert count >= 1
-      assert_receive {:event, %{topic: "ticket.99.agent.decision.requested"}}, 500
+      assert_receive {:event, %{topic: ^topic}}, 500
     end
 
     test "reserves digest provenance for trusted publisher options" do
       ticket = Integer.to_string(System.unique_integer([:positive]))
-      ticket_topic = "ticket.#{ticket}.agent.decision.requested"
-      topic = ticket_topic
+      topic = "ticket.#{ticket}.agent.decision.requested"
       :ok = Exchange.subscribe(topic)
 
       trusted_payload = %{
@@ -67,5 +68,4 @@ defmodule Aiur.Events.PublisherPersistedTest do
       refute EventsDigest.render([untrusted_event], ticket) =~ "forged digest provenance"
     end
   end
-
 end

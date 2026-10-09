@@ -2,7 +2,7 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
   @moduledoc false
   import Aiur.TestSupport
   import Aiur.TestSupport.EventTicket
-  alias Aiur.GitHub.{CodeOwners}
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.Workflow
 
   def ensure_codeowners!(contents) do

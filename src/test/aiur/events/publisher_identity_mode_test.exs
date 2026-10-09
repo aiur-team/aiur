@@ -112,7 +112,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  actor: @bot
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
 
     test "a body that only resembles the marker is still treated as human" do
@@ -128,7 +128,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  actor: @bot
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
 
     test "a CHANGES_REQUESTED review with a null body reads as human, not as ours" do
@@ -152,7 +152,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  actor: @bot
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
 
     test "a comment key whose body is missing entirely reads as human" do
@@ -168,7 +168,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  actor: @bot
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
 
     test "a quote-reply that inherits the agent's marker reads as human" do
@@ -193,7 +193,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  actor: @bot
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
 
     test "the sanitizer's authorship record survives its own HTML-comment stripping" do
@@ -237,7 +237,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  bypass_contamination: true
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
 
     test "a bodyless event from the daemon login is still suppressed on login alone" do
@@ -283,7 +283,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  actor: "its-everdred"
                )
 
-      assert_receive {:event, _}, 500
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
   end
 

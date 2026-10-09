@@ -2,7 +2,7 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
   @moduledoc false
   import ExUnit.Assertions
   import Aiur.TestSupport.EventTicket
-  alias Aiur.Events.{GithubCommentsPoller}
+  alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.ResourceStore
   @repo "owner/repo"
 
