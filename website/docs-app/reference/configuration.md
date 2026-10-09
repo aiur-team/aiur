@@ -316,9 +316,6 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
 
-Failed automatic fallback label writes back off per ticket from one dispatch poll, doubling up to ten minutes. Other tickets remain eligible. The third consecutive failure raises `rate_limit_fallback_write_failed` once; a successful write clears the backoff. Backoff is in memory and resets on restart.
-
-
 A Claude reset timestamp that already passed is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
 
 A Codex usage-limit refusal (`codexErrorInfo: usageLimitExceeded` on an `error` notification or a failed `turn/completed`) takes the same path. Aiur reads only the error fields, never assistant or tool text. The ticket status reads `provider_limited`, not `waiting_for_human`.

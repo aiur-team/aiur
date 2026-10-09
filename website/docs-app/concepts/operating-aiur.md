@@ -43,6 +43,8 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
 
+Automatic fallback label writes back off per ticket from one dispatch poll, doubling up to ten minutes. Other tickets remain eligible. The third consecutive failure raises `rate_limit_fallback_write_failed` once; a successful write clears the backoff. Backoff is in memory and resets on restart.
+
 ### Retrospective daemon heartbeat gaps
 
 At Executor startup, Aiur compares the last heartbeat with its lifecycle
