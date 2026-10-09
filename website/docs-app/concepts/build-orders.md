@@ -102,7 +102,9 @@ The optional Build Order queue source adopts a root and tracks its open members 
 
 Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
-Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes. The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
+
+The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
 
 The instance capability report distinguishes queue availability from source availability:
 
@@ -111,7 +113,9 @@ The instance capability report distinguishes queue availability from source avai
 | `build_queue` | `available` when running; `unavailable` with `disabled`, `unsupported_tracker`, or `store_unavailable`; `degraded` with `writes_paused` when queue writes are paused. |
 | `build_queue.build_order_source` | `available` when the queue is available or degraded and its Build Order projection is available. Otherwise `unavailable/dependency_unavailable`, depending on `build_queue` if the queue cannot run, or `build_orders` if the projection is absent. |
 
-An unrecognised queue status or source flag reports `unknown/unknown` for that capability. A failed provider read reports both capabilities as `unknown/unknown`. These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
+An unrecognised queue status or source flag reports `unknown/unknown` for that capability. A failed provider read reports both capabilities as `unknown/unknown`.
+
+These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
 
 ## Merged PRs with open issues
 
