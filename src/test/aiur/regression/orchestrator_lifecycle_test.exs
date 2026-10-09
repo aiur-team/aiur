@@ -635,7 +635,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       pid = start_orchestrator(name)
 
       send(pid, :run_poll_cycle)
-      state = :sys.get_state(pid, 15_000)
+      state = await_orchestrator_state(pid, &Map.has_key?(&1.running, issue.id))
 
       # #2076: a restart orphans an in-progress claim (no live runtime owns it),
       # so the first successful poll's startup reconciliation releases it to

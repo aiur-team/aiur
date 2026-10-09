@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TrackedSet
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry.Lifecycle
   require Logger
 
@@ -86,7 +87,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_agent(GenServer.server(), String.t()) ::
           {:ok, :resumed | :started | :reactivated} | {:error, term()}
   def resume_agent(server, issue_identifier),
-    do: control_api_call(server, {:resume_agent, issue_identifier})
+    do: resume_api_call(server, {:resume_agent, issue_identifier})
 
   @spec resume_agent_with_receipt(String.t()) ::
           {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
@@ -96,7 +97,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
           {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
   def resume_agent_with_receipt(server, issue_identifier),
-    do: control_api_call(server, {:resume_agent_with_receipt, issue_identifier})
+    do: resume_api_call(server, {:resume_agent_with_receipt, issue_identifier})
 
   # `reset-budget <id>` is the documented exit from the lifetime dispatch
   # latch. It runs as a synchronous orchestrator call so the CLI reports the
@@ -115,71 +116,6 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
 
-  @doc false
-  @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
-  def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    case resolve_reset_issue(state, issue_identifier) do
-      {:ok, issue, state} ->
-        issue_id = issue.id
-        alert_issue_id = if is_binary(issue_id), do: issue_id, else: issue_identifier
-        was_latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue_id))
-        {state, reset_result} = Dispatcher.reset_lifetime_budget(state, issue_id)
-        reply_for_reset(state, issue, alert_issue_id, issue_identifier, was_latched?, reset_result)
-
-      {:error, reason, state} ->
-        emit_reset_failure_alert(reset_alert_issue_id(state, issue_identifier), issue_identifier, reason)
-        {:reply, {:error, reason}, state}
-    end
-  end
-
-  def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  @doc false
-  # Retained for the async surface (the orchestrator's cast handler). The
-  # apply — including the completion/failure alert, which must fire on apply,
-  # not on enqueue — lives in `reset_dispatch_budget_call/2`, so both the
-  # synchronous CLI path and this cast path acknowledge identically.
-  @spec reset_dispatch_budget_cast(State.t(), String.t()) :: State.t()
-  def reset_dispatch_budget_cast(%State{} = state, issue_identifier) do
-    case reset_dispatch_budget_call(state, issue_identifier) do
-      {:reply, _result, next_state} -> next_state
-    end
-  end
-
-  # Resolves the issue a lifetime-budget reset targets. `reset-budget` must
-  # work even when the latched ticket is not in the polled set: a ticket left
-  # in `agent:error` (a non-active state) is dropped from `last_polled_issues`
-  # by the disappearing-issue reconciliation, so the in-memory lookup alone
-  # would resolve a real latched ticket as `:unknown_issue` and the reset
-  # would silently no-op while the CLI reported success (#2435). Fall back to
-  # a direct tracker fetch so the durable latch is cleared for any open ticket,
-  # whether or not it is currently polled.
-  defp resolve_reset_issue(%State{} = state, issue_identifier) do
-    case find_issue_id_by_identifier(state, issue_identifier) do
-      {:ok, issue_id} ->
-        {:ok, Map.get(state.last_polled_issues, issue_id), state}
-
-      {:error, :unknown_issue} ->
-        fetch_reset_issue(state, issue_identifier)
-    end
-  end
-
-  defp fetch_reset_issue(%State{} = state, issue_identifier) do
-    case Tracker.fetch_issue_states_by_ids([issue_identifier]) do
-      {:ok, [%Issue{} = issue | _]} ->
-        state = %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, issue)}
-        {:ok, issue, state}
-
-      {:ok, []} ->
-        {:error, :unknown_issue, state}
-
-      {:error, reason} ->
-        {:error, {:tracker_refresh_failed, reason}, state}
-    end
-  end
-
   defp reset_alert_issue_id(%State{} = state, issue_identifier) do
     case find_issue_id_by_identifier(state, issue_identifier) do
       {:ok, issue_id} -> issue_id
@@ -187,23 +123,14 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp reply_for_reset(state, issue, alert_issue_id, issue_identifier, was_latched?, :ok) do
-    case restore_latched_error_state(state, issue, was_latched?) do
-      {:ok, state} ->
-        Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
-        emit_reset_success_alert(alert_issue_id, issue_identifier)
-        StatusReport.notify_dashboard(state)
-        {:reply, {:ok, :reset}, state}
-
-      {:error, reason} ->
-        Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
-
-        emit_reset_failure_alert(alert_issue_id, issue_identifier, {:state_restore_failed, reason})
-        {:reply, {:error, {:state_restore_failed, reason}}, state}
-    end
+  defp reply_for_reset(state, issue, alert_issue_id, issue_identifier, :ok) do
+    Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
+    emit_reset_success_alert(alert_issue_id, issue_identifier)
+    StatusReport.notify_dashboard(state)
+    {:reply, {:ok, :reset}, state}
   end
 
-  defp reply_for_reset(state, _issue, alert_issue_id, issue_identifier, _was_latched?, {:error, reason}) do
+  defp reply_for_reset(state, _issue, alert_issue_id, issue_identifier, {:error, reason}) do
     Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
 
     emit_reset_failure_alert(alert_issue_id, issue_identifier, {:budget_reset_failed, reason})
@@ -234,33 +161,6 @@ defmodule Aiur.Orchestrator.PauseResume do
     )
   end
 
-  # A lifetime-latched ticket is durably moved to `agent:error` when it trips
-  # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
-  # so clearing the budget alone leaves the ticket undispatchable. Restore a
-  # latched error ticket to `todo` (the "pick it up again" state) so
-  # `reset-budget` actually returns it to the board (#1453 review P2c).
-  #
-  # The restore deliberately writes `todo`, never `rework`: a lifetime dispatch
-  # latch is an exhaustion of retry budget, not a reviewer's rejection, so a
-  # `rework` verdict would be a lie — and on a ticket with no open PR it would
-  # strand the ticket in a state nothing selects (#2075).
-  defp restore_latched_error_state(state, %Issue{state: tracker_state} = issue, true) do
-    if DispatchPolicy.normalize_issue_state(tracker_state) == "error" and is_binary(issue.identifier) do
-      case Tracker.update_issue_state(issue.identifier, "todo") do
-        :ok ->
-          refreshed = %{issue | state: "todo"}
-          {:ok, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      {:ok, state}
-    end
-  end
-
-  defp restore_latched_error_state(state, _issue, _was_latched?), do: {:ok, state}
-
   defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
     case Enum.find(state.last_polled_issues, fn
            {issue_id, %Issue{identifier: identifier}} ->
@@ -290,27 +190,213 @@ defmodule Aiur.Orchestrator.PauseResume do
   def control_lifecycle(server, issue_identifier),
     do: control_api_call(server, {:control_lifecycle, issue_identifier})
 
-  @spec resume_issue_call(State.t(), String.t()) :: {:reply, term(), State.t()}
-  # Global-hold-wins: while the daemon is globally paused, an individual resume
-  # cannot override the single switch. Unpause the daemon to resume agents.
-  def resume_issue_call(%State{globally_paused: true} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    {:reply, {:error, :globally_paused}, state}
-  end
-
-  def resume_issue_call(%State{} = state, issue_identifier) do
-    guard_control_call(state, :resume, issue_identifier, fn ->
-      {reply, state} = resume_issue(state, issue_identifier)
-      StatusReport.notify_dashboard(state)
-      {:reply, reply, state}
+  # Tracker reads and writes run in the control caller, between short serialized
+  # state transitions; a slow tracker must not hold the Orchestrator mailbox.
+  @doc false
+  @spec tracker_control_call(State.t(), atom(), String.t(), term(), term()) :: {:reply, term(), State.t()}
+  def tracker_control_call(state, action, identifier, stage \\ :start, result \\ nil) do
+    guard_control_call(state, action, identifier, fn ->
+      tracker_control_step(state, action, identifier, stage, result)
     end)
   end
 
-  @spec resume_issue_with_receipt_call(State.t(), String.t()) :: {:reply, term(), State.t()}
-  def resume_issue_with_receipt_call(%State{} = state, issue_identifier) do
-    {:reply, reply, state} = resume_issue_call(state, issue_identifier)
-    {:reply, attach_resume_receipt(reply, state, issue_identifier), state}
+  defp tracker_control_step(state, :reset_budget, identifier, :start, _) do
+    case find_issue_id_by_identifier(state, identifier) do
+      {:ok, issue_id} ->
+        reset_resolved_issue(state, identifier, Map.fetch!(state.last_polled_issues, issue_id))
+
+      {:error, :unknown_issue} ->
+        tracker_io(state, :reset_budget, identifier, :fetched, :fetch_issue_states_by_ids, [[identifier]])
+    end
   end
+
+  defp tracker_control_step(state, :reset_budget, identifier, :fetched, result) do
+    case result do
+      {:ok, [%Issue{} = issue | _]} ->
+        state = put_in(state.last_polled_issues[issue.id], issue)
+        reset_resolved_issue(state, identifier, issue)
+
+      other ->
+        reason = tracker_refresh_error(other, :unknown_issue)
+        emit_reset_failure_alert(reset_alert_issue_id(state, identifier), identifier, reason)
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp tracker_control_step(state, :reset_budget, identifier, {:restored, issue}, result) do
+    case result do
+      :ok ->
+        # A poll or another control may have updated the issue while the write ran.
+        state = if state.last_polled_issues[issue.id] == issue, do: put_in(state.last_polled_issues[issue.id], %{issue | state: "todo"}), else: state
+        reply_for_reset(state, issue, issue.id, identifier, :ok)
+
+      {:error, reason} ->
+        emit_reset_failure_alert(issue.id, identifier, {:state_restore_failed, reason})
+        {:reply, {:error, {:state_restore_failed, reason}}, state}
+    end
+  end
+
+  # Global-hold-wins: while the daemon is globally paused, an individual resume
+  # cannot override the single switch. Unpause the daemon to resume agents.
+  defp tracker_control_step(%State{globally_paused: true} = state, action, _identifier, _stage, _result)
+       when action in [:resume, :resume_with_receipt],
+       do: {:reply, {:error, :globally_paused}, state}
+
+  defp tracker_control_step(state, action, identifier, :start, _) when action in [:resume, :resume_with_receipt] do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{issue: %Issue{} = issue} = entry ->
+        if Issue.paused?(issue) do
+          tracker_io(state, action, identifier, {:running_cleared, issue.id, Map.get(entry, :ref)}, :remove_label, [issue.identifier, pause_override_label()])
+        else
+          resume_control_reply(state, action, identifier, entry)
+        end
+
+      nil ->
+        case find_issue_id_by_identifier(state, identifier) do
+          {:ok, issue_id} ->
+            cached = Map.fetch!(state.last_polled_issues, issue_id)
+            tracker_io(state, action, identifier, {:queued_fetched, cached}, :fetch_issue_states_by_ids, [[issue_id]])
+
+          {:error, :unknown_issue} ->
+            {:reply, {:error, :no_running_agent}, state}
+        end
+
+      entry ->
+        resume_control_reply(state, action, identifier, entry)
+    end
+  end
+
+  defp tracker_control_step(state, action, identifier, {:running_cleared, issue_id, ref}, result) do
+    case {result, State.find_running_by_identifier(state.running, identifier)} do
+      {:ok, %{issue: %Issue{id: ^issue_id} = issue, ref: ^ref} = entry} ->
+        issue = cleared_pause_issue(issue)
+        entry = Map.put(entry, :issue, issue)
+        state = put_running_entry(state, issue_id, entry)
+        resume_control_reply(state, action, identifier, entry)
+
+      {{:error, reason}, _entry} ->
+        {:reply, {:error, {:pause_override_clear_failed, reason}}, state}
+
+      {:ok, _changed_entry} ->
+        {:reply, {:error, :no_running_agent}, state}
+    end
+  end
+
+  defp tracker_control_step(state, action, identifier, {:completed_refreshed, issue_id, ref}, result) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{issue: %Issue{id: ^issue_id}, ref: ^ref} = entry ->
+        if State.completed_provenance?(entry) do
+          finish_resume_control(action, identifier, restart_revalidated_completed_issue(state, entry, result))
+        else
+          {:reply, {:error, :no_running_agent}, state}
+        end
+
+      _changed_entry ->
+        {:reply, {:error, :no_running_agent}, state}
+    end
+  end
+
+  defp tracker_control_step(state, action, identifier, {:queued_fetched, cached}, result) do
+    case result do
+      {:ok, [%Issue{id: issue_id} = issue | _]} when issue_id == cached.id ->
+        state = put_in(state.last_polled_issues[issue.id], issue)
+
+        case queued_issue_resumability(state, issue) do
+          :ok ->
+            refresh_queued_resume(state, action, identifier, issue)
+
+          {:error, reason} ->
+            {:reply, {:error, maybe_stale_tracker_reason(reason, cached, issue)}, state}
+        end
+
+      other ->
+        state = if other == {:ok, []} and state.last_polled_issues[cached.id] == cached, do: %{state | last_polled_issues: Map.delete(state.last_polled_issues, cached.id)}, else: state
+        {:reply, {:error, tracker_refresh_error(other, :tracker_issue_not_found)}, state}
+    end
+  end
+
+  defp tracker_control_step(state, action, identifier, {:queued_cleared, issue}, :ok) do
+    cleared = cleared_pause_issue(issue)
+    state = if state.last_polled_issues[issue.id] == issue, do: put_in(state.last_polled_issues[issue.id], cleared), else: state
+    tracker_io(state, action, identifier, {:queued_refreshed, cleared}, :fetch_issue_states_by_ids, [[issue.id]])
+  end
+
+  defp tracker_control_step(state, _action, _identifier, {:queued_cleared, _issue}, {:error, reason}),
+    do: {:reply, {:error, {:pause_override_clear_failed, reason}}, state}
+
+  defp tracker_control_step(state, _action, _identifier, {:queued_refreshed, cleared}, result) do
+    case result do
+      {:ok, [%Issue{id: issue_id} = issue | _]} when issue_id == cleared.id ->
+        state = put_in(state.last_polled_issues[issue.id], issue)
+
+        {reply, state} =
+          case DispatchPolicy.manual_resume_decision(issue, state) do
+            :dispatch -> Dispatcher.dispatch_prevalidated_issue(state, issue)
+            {:skip, reason} -> {{:error, maybe_stale_tracker_reason(resume_decline_reason(reason, issue, state), cleared, issue)}, state}
+          end
+
+        StatusReport.notify_dashboard(state)
+        {:reply, reply, state}
+
+      other ->
+        state = if other == {:ok, []} and state.last_polled_issues[cleared.id] == cleared, do: %{state | last_polled_issues: Map.delete(state.last_polled_issues, cleared.id)}, else: state
+        {:reply, {:error, tracker_refresh_error(other, :tracker_issue_not_found)}, state}
+    end
+  end
+
+  defp refresh_queued_resume(state, action, identifier, issue) do
+    if Issue.paused?(issue) do
+      tracker_io(state, action, identifier, {:queued_cleared, issue}, :remove_label, [issue.identifier, pause_override_label()])
+    else
+      tracker_io(state, action, identifier, {:queued_refreshed, issue}, :fetch_issue_states_by_ids, [[issue.id]])
+    end
+  end
+
+  # A lifetime-latched ticket is durably moved to `agent:error` when it trips
+  # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
+  # so clearing the budget alone leaves the ticket undispatchable. Restore a
+  # latched error ticket to `todo` (the "pick it up again" state) so
+  # `reset-budget` actually returns it to the board (#1453 review P2c).
+  #
+  # The restore deliberately writes `todo`, never `rework`: a lifetime dispatch
+  # latch is an exhaustion of retry budget, not a reviewer's rejection, so a
+  # `rework` verdict would be a lie — and on a ticket with no open PR it would
+  # strand the ticket in a state nothing selects (#2075).
+  defp reset_resolved_issue(state, identifier, issue) do
+    latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id))
+    {state, result} = Dispatcher.reset_lifetime_budget(state, issue.id)
+
+    if result == :ok and latched? and DispatchPolicy.normalize_issue_state(issue.state) == "error" do
+      tracker_io(state, :reset_budget, identifier, {:restored, issue}, :update_issue_state, [issue.identifier, "todo"])
+    else
+      reply_for_reset(state, issue, issue.id, identifier, result)
+    end
+  end
+
+  defp resume_control_reply(state, action, identifier, entry) do
+    if State.completed_provenance?(entry) do
+      issue = Map.fetch!(entry, :issue)
+      tracker_io(state, action, identifier, {:completed_refreshed, issue.id, Map.get(entry, :ref)}, :revalidate_completed, [issue])
+    else
+      finish_resume_control(action, identifier, do_resume_running_issue(state, entry))
+    end
+  end
+
+  defp finish_resume_control(action, identifier, {reply, state}) do
+    reply = if action == :resume_with_receipt, do: attach_resume_receipt(reply, state, identifier), else: reply
+    StatusReport.notify_dashboard(state)
+    {:reply, reply, state}
+  end
+
+  defp tracker_io(state, action, identifier, stage, function, args),
+    do: {:reply, {:tracker_io, {action, identifier, stage}, function, args}, state}
+
+  defp cleared_pause_issue(issue),
+    do: issue |> RemoteControlMode.remove_issue_label(pause_override_label()) |> Map.put(:paused, false)
+
+  defp tracker_refresh_error({:ok, []}, missing), do: missing
+  defp tracker_refresh_error({:error, reason}, _missing), do: {:tracker_refresh_failed, reason}
+  defp tracker_refresh_error(_result, _missing), do: {:tracker_refresh_failed, :invalid_tracker_issue}
 
   defp attach_resume_receipt({:ok, :resumed} = reply, state, issue_identifier) do
     with %{issue: %{id: issue_id}} <- State.find_running_by_identifier(state.running, issue_identifier),
@@ -567,7 +653,30 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec resume_issue(State.t(), String.t()) ::
           {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
-  def resume_issue(%State{} = state, issue_identifier), do: resume_issue_with_opts(state, issue_identifier, [])
+  def resume_issue(%State{} = state, issue_identifier) do
+    if TrackerTasks.owner?(state) do
+      {:reply, reply, next} = run_control_effect(state, :resume, issue_identifier)
+      {reply, next}
+    else
+      resume_issue_with_opts(state, issue_identifier, [])
+    end
+  end
+
+  defp run_control_effect(state, action, identifier, stage \\ :start, result \\ nil) do
+    case tracker_control_call(state, action, identifier, stage, result) do
+      {:reply, {:tracker_io, {action, identifier, next_stage}, function, args}, next} ->
+        next =
+          TrackerTasks.start(next, {:control_effect, identifier}, fn -> perform_tracker_io(function, args) end, fn current, response ->
+            {:reply, _reply, current} = run_control_effect(current, action, identifier, next_stage, response)
+            current
+          end)
+
+        {:reply, {:ok, :pending}, next}
+
+      reply ->
+        reply
+    end
+  end
 
   defp resume_issue_with_opts(%State{} = state, issue_identifier, opts) do
     if Keyword.get(opts, :probe_provider_limits?, true) do
@@ -585,15 +694,34 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp resume_running_issue(%State{} = state, running_entry) do
-    case clear_tracker_pause_override(state, running_entry) do
-      {:ok, state, running_entry} ->
-        do_resume_running_issue(state, running_entry)
+    issue = Map.get(running_entry, :issue)
 
-      {:error, reason} ->
-        Logger.warning("Pause override clear failed: #{pause_log_context(running_entry)} reason=#{inspect(reason)}")
-        {{:error, {:pause_override_clear_failed, reason}}, state}
+    if is_struct(issue, Issue) and Issue.paused?(issue) do
+      run_running_effect(state, running_entry, :clear_pause, fn -> fetch_resuming_issue({running_entry}) end, fn arg1, arg2, arg3 ->
+        apply_resuming_issue(arg1, arg2, arg3, {issue})
+      end)
+    else
+      do_resume_running_issue(state, running_entry)
     end
   end
+
+  defp run_running_effect(state, running_entry, key, fetch, apply_result) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    generation = running_generation(running_entry)
+
+    if TrackerTasks.owner?(state) do
+      next =
+        TrackerTasks.start(state, {key, issue_id}, fetch, fn arg1, arg2 ->
+          apply_running_effect(arg1, arg2, {apply_result, generation, issue_id})
+        end)
+
+      {{:ok, :pending}, next}
+    else
+      apply_result.(state, running_entry, fetch.())
+    end
+  end
+
+  defp running_generation(entry), do: Map.take(entry, [:pid, :ref, :control, :paused_reason])
 
   defp do_resume_running_issue(state, running_entry) do
     cond do
@@ -1313,25 +1441,28 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp revalidate_completed_replacement(state, running_entry, issue) do
-    case Dispatcher.revalidate_issue_for_dispatch(
-           issue,
-           &Tracker.fetch_issue_states_by_ids/1,
-           DispatchPolicy.terminal_state_set()
-         ) do
-      {:ok, refreshed_issue} ->
-        dispatch_completed_replacement(state, running_entry, refreshed_issue)
+    {_reply, next} =
+      run_running_effect(state, running_entry, :completed_revalidation, fn -> perform_tracker_io(:revalidate_completed, [issue]) end, fn current, entry, result ->
+        next =
+          case result do
+            {:ok, refreshed_issue} ->
+              dispatch_completed_replacement(current, entry, refreshed_issue)
 
-      {:skip, %Issue{} = refreshed_issue} ->
-        Reconciler.refresh_running_entry_issue(state, refreshed_issue, running_entry)
+            {:skip, %Issue{} = refreshed_issue} ->
+              Reconciler.refresh_running_entry_issue(current, refreshed_issue, entry)
 
-      {:skip, :missing} ->
-        state
+            {:skip, :missing} ->
+              current
 
-      {:error, reason} ->
-        Logger.warning("Completed runner replacement skipped; issue refresh failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+            {:error, reason} ->
+              Logger.warning("Completed runner replacement skipped; issue refresh failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+              current
+          end
 
-        state
-    end
+        {{:ok, :pending}, next}
+      end)
+
+    next
   end
 
   @doc false
@@ -1377,9 +1508,11 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp classify_completed_replacement({result, %State{} = state}, _issue), do: {result, state}
 
   defp classify_completed_replacement(%State{} = state, issue) do
-    if live_replacement?(state, issue.id),
-      do: {{:ok, :started}, state},
-      else: {{:error, {:redispatch_deferred, redispatch_start_failure_reason(state, issue)}}, state}
+    cond do
+      live_replacement?(state, issue.id) -> {{:ok, :started}, state}
+      TrackerTasks.issue_pending?(state, issue.id) -> {{:ok, :pending}, state}
+      true -> {{:error, {:redispatch_deferred, redispatch_start_failure_reason(state, issue)}}, state}
+    end
   end
 
   defp redispatch_start_failure_reason(state, issue) do
@@ -1447,11 +1580,16 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> dispatch_fun.(issue, nil, worker_host)
 
-    if live_replacement?(next_state, issue_id) do
-      {{:ok, :started}, next_state}
-    else
-      reason = redispatch_start_failure_reason(next_state, issue)
-      {{:error, {:redispatch_deferred, reason}}, restore_completed_entry(next_state, running_entry, issue)}
+    cond do
+      live_replacement?(next_state, issue_id) ->
+        {{:ok, :started}, next_state}
+
+      TrackerTasks.issue_pending?(next_state, issue_id) ->
+        {{:ok, :pending}, next_state}
+
+      true ->
+        reason = redispatch_start_failure_reason(next_state, issue)
+        {{:error, {:redispatch_deferred, reason}}, restore_completed_entry(next_state, running_entry, issue)}
     end
   end
 
@@ -1487,12 +1625,11 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp restart_completed_issue(state, running_entry) do
     issue = Map.fetch!(running_entry, :issue)
+    run_running_effect(state, running_entry, :completed_restart, fn -> perform_tracker_io(:revalidate_completed, [issue]) end, &restart_revalidated_completed_issue/3)
+  end
 
-    case Dispatcher.revalidate_issue_for_dispatch(
-           issue,
-           &Tracker.fetch_issue_states_by_ids/1,
-           DispatchPolicy.terminal_state_set()
-         ) do
+  defp restart_revalidated_completed_issue(state, running_entry, result) do
+    case result do
       {:ok, refreshed_issue} ->
         dispatch_completed_replacement_result(state, running_entry, refreshed_issue)
 
@@ -2369,6 +2506,9 @@ defmodule Aiur.Orchestrator.PauseResume do
           MapSet.member?(next_state.claimed, issue.id) ->
             {{:ok, :started}, next_state}
 
+          TrackerTasks.issue_pending?(next_state, issue.id) ->
+            {{:ok, :pending}, next_state}
+
           match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
             {{:error, :lifetime_dispatch_latch}, next_state}
 
@@ -2455,11 +2595,36 @@ defmodule Aiur.Orchestrator.PauseResume do
     "issue_id=#{issue_id} issue_identifier=#{Map.get(entry, :identifier)}"
   end
 
+  defp resume_api_call(server, {_action, identifier} = request) do
+    if GenServer.whereis(server) do
+      with {:ok, _result} <- control_caller_work(:resume, identifier, fn -> ModelAvailability.probe_stale_limits(DispatchPolicy.read_provider_backends(), []) end) do
+        control_api_call(server, request)
+      end
+    else
+      {:error, :unavailable}
+    end
+  end
+
+  defp perform_tracker_io(:revalidate_completed, [issue]),
+    do: Dispatcher.revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, DispatchPolicy.terminal_state_set())
+
+  defp perform_tracker_io(function, args), do: apply(Tracker, function, args)
+
+  defp control_caller_work(action, identifier, fun) do
+    {:ok, fun.()}
+  catch
+    kind, reason ->
+      action = if action == :resume_with_receipt, do: :resume, else: action
+      summary = control_crash_summary(kind, reason, __STACKTRACE__)
+      emit_control_crash_alert(action, identifier, summary)
+      {:error, {:control_call_crashed, action, summary}}
+  end
+
   defp control_api_call(server, request) do
     timeout_ms = Application.get_env(:aiur, :control_api_call_timeout_ms, 5_000)
 
     if GenServer.whereis(server) do
-      GenServer.call(server, request, timeout_ms)
+      finish_control_api_call(server, GenServer.call(server, request, timeout_ms))
     else
       {:error, :unavailable}
     end
@@ -2475,6 +2640,14 @@ defmodule Aiur.Orchestrator.PauseResume do
     :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
   end
 
+  defp finish_control_api_call(server, {:tracker_io, {action, identifier, stage}, function, args}) do
+    with {:ok, result} <- control_caller_work(action, identifier, fn -> perform_tracker_io(function, args) end) do
+      control_api_call(server, {:tracker_control_result, action, identifier, stage, result})
+    end
+  end
+
+  defp finish_control_api_call(_server, reply), do: reply
+
   @doc false
   @spec put_running_control_status(State.t(), String.t(), :paused | :working) :: State.t()
   def put_running_control_status(%State{} = state, issue_id, status)
@@ -2488,4 +2661,33 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   def put_running_control_status(%State{} = state, _issue_id, _status), do: state
+
+  defp fetch_resuming_issue({running_entry}) do
+    clear_pause_override(running_entry)
+  end
+
+  defp apply_resuming_issue(current, entry, result, {issue}) do
+    case result do
+      {:ok, cleared_entry} ->
+        cleared_entry = Map.put(entry, :issue, Map.fetch!(cleared_entry, :issue))
+        current = put_running_entry(current, issue.id, cleared_entry)
+        do_resume_running_issue(current, cleared_entry)
+
+      {:error, reason} ->
+        Logger.warning("Pause override clear failed: #{pause_log_context(entry)} reason=#{inspect(reason)}")
+
+        {{:error, {:pause_override_clear_failed, reason}}, current}
+    end
+  end
+
+  defp apply_running_effect(current, result, {apply_result, generation, issue_id}) do
+    entry = Map.get(current.running, issue_id)
+
+    if is_map(entry) and running_generation(entry) == generation do
+      {_reply, next} = apply_result.(current, entry, result)
+      next
+    else
+      current
+    end
+  end
 end
