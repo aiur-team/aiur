@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, ListCommands, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -82,6 +82,21 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
+
+  def handle_call({:mutate, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
+
+  def handle_call({:mutate, command}, _from, %{status: :running} = state) do
+    case ListCommands.prepare(state, command) do
+      {:ok, document, actions, observations} ->
+        {reply, state} = commit_mutation(state, document, actions, observations)
+        {:reply, reply, request(state)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:mutate, _}, _from, state), do: {:reply, {:error, state.status}, state}
   def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
 
   def handle_call({:release, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
@@ -114,6 +129,26 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_info({:DOWN, _ref, :process, pid, _reason}, %{exchange_pid: pid} = state), do: {:noreply, %{state | exchange_pid: nil}}
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp commit_mutation(state, document, actions, observations) do
+    case state.store.save(document) do
+      :ok ->
+        state = write(%{state | document: document}, actions, observations)
+
+        failures =
+          state.write_results
+          |> Enum.reverse()
+          |> Enum.uniq_by(&{elem(&1, 0), elem(&1, 1)})
+          |> Enum.reject(&(elem(&1, 2) == :ok))
+          |> Enum.reverse()
+
+        reply = if failures == [], do: :ok, else: {:error, {:marker_write_failed, failures}}
+        {reply, state}
+
+      {:error, _} ->
+        {{:error, :store_unavailable}, %{state | status: :store_unavailable}}
+    end
+  end
 
   defp initialize(%{settings: %{build_queue: %{enabled: false}}} = state), do: state
 
@@ -156,8 +191,18 @@ defmodule Aiur.BuildQueue.Server do
   defp reconcile(state) do
     {freshness, observations} = Reconcile.snapshot(state)
     state = Recovery.resolve(%{state | freshness: freshness}, observations)
-    plan(state, observations)
+    state |> replay_list_markers(observations) |> plan(observations)
   end
+
+  # Marker requests survive pacing and restarts; replay them only once recovery has resolved the store.
+  defp replay_list_markers(%{phase: :ready, status: :running} = state, observations) do
+    case ListCommands.pending(state.document) do
+      [] -> state
+      pending -> write(state, pending, observations)
+    end
+  end
+
+  defp replay_list_markers(state, _observations), do: state
 
   defp plan(state, observations) do
     {projections, actions, observations, cache, holds} = Reconcile.plan(state, observations)
