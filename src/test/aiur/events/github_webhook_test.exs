@@ -1,6 +1,8 @@
 defmodule Aiur.Events.GithubWebhookTest do
   use Aiur.TestSupport
 
+  import Aiur.TestSupport.WebhookDeliveries
+
   alias Aiur.Events.{Exchange, GithubWebhook, Publisher}
   alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe
@@ -40,29 +42,32 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   describe "tracked-repo filter" do
     test "a delivery for an untracked repository is dropped and never publishes" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
-      delivery = issue_comment_delivery(%{"full_name" => "someone-else/other-repo"})
+      delivery = issue_comment_delivery(ticket, %{"full_name" => "someone-else/other-repo"})
 
       assert %{status: :dropped, reason: {:untracked_repository, "someone-else/other-repo"}} =
                GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
 
-      refute_receive {:event, %{topic: "ticket.42.issue.commented"}}, 200
+      refute_receive {:event, %{topic: ^ticket_topic}}, 200
     end
 
     test "the tracked repository matches case-insensitively" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert {:publish, [_triple]} =
-               Normalizer.normalize("issue_comment", issue_comment_delivery(%{"full_name" => "Owner/Repo"}), repo: @repo)
+               Normalizer.normalize("issue_comment", issue_comment_delivery(ticket, %{"full_name" => "Owner/Repo"}), repo: @repo)
     end
 
-    # Resolving a review comment's thread costs a GraphQL point. A delivery for
-    # a repository the fleet does not track is dropped anyway, so the resolver
-    # must never be consulted for one (#2081).
     test "a review comment for an untracked repository never consults the thread resolver" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery = %{
         "action" => "created",
         "repository" => %{"full_name" => "someone-else/other-repo"},
-        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug"}},
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-some-slug"}},
         "comment" => %{
           "id" => 7_007,
           "node_id" => "PRRC_kwDOabc123",
@@ -79,20 +84,26 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a delivery with no repository is rejected as malformed" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert %{status: :error, reason: :missing_repository} =
-               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(), "repository"), repo: @repo)
+               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(ticket), "repository"), repo: @repo)
     end
   end
 
   describe "unrecognized and malformed deliveries" do
     test "an unrecognized event type is ignored without crashing" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert %{status: :dropped, reason: {:unsupported_event, "deployment_status"}} =
-               GithubWebhook.handle_delivery("deployment_status", issue_comment_delivery(), repo: @repo)
+               GithubWebhook.handle_delivery("deployment_status", issue_comment_delivery(ticket), repo: @repo)
     end
 
     test "a non-string event type is ignored" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert %{status: :dropped, reason: {:unsupported_event, nil}} =
-               GithubWebhook.handle_delivery(nil, issue_comment_delivery(), repo: @repo)
+               GithubWebhook.handle_delivery(nil, issue_comment_delivery(ticket), repo: @repo)
     end
 
     test "a non-map payload is rejected without raising" do
@@ -101,7 +112,8 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a partial payload missing the comment is rejected" do
-      partial = Map.delete(issue_comment_delivery(), "comment")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      partial = Map.delete(issue_comment_delivery(ticket), "comment")
 
       assert %{status: :error, reason: {:malformed_payload, "issue_comment"}} =
                GithubWebhook.handle_delivery("issue_comment", partial, repo: @repo)
@@ -119,8 +131,10 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "an exception raised inside the publish tail is contained" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert %{status: :error, reason: {:exception, "boom"}} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(),
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket),
                  repo: @repo,
                  publish_fun: fn _topic, _payload, _opts -> raise "boom" end
                )
@@ -129,8 +143,10 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   describe "issue comments" do
     test "an Agent Workpad comment is dropped, matching the poller" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery =
-        issue_comment_delivery(%{"full_name" => @repo}, %{
+        issue_comment_delivery(ticket, %{"full_name" => @repo}, %{
           "id" => 1,
           "body" => "## Agent Workpad\n\n- [x] pushed",
           "user" => %{"login" => "its-everdred"}
@@ -141,24 +157,29 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a deleted-comment action does not publish" do
-      delivery = Map.put(issue_comment_delivery(), "action", "deleted")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      delivery = Map.put(issue_comment_delivery(ticket), "action", "deleted")
 
       assert %{status: :dropped, reason: {:uninteresting_action, "issue_comment", "deleted"}} =
                GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
     end
 
     test "an edited comment publishes, matching the poller's updated_at cursor behaviour" do
-      delivery = Map.put(issue_comment_delivery(), "action", "edited")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      delivery = Map.put(issue_comment_delivery(ticket), "action", "edited")
 
-      assert {:publish, [{"ticket.42.issue.commented", _payload, _opts}]} =
+      assert {:publish, [{^ticket_topic, _payload, _opts}]} =
                Normalizer.normalize("issue_comment", delivery, repo: @repo)
     end
 
     # A PR-attached issue_comment carries no head ref, so the ticket comes from
     # the closing keyword every Aiur PR description opens with.
     test "a comment on a pull request maps to the ticket named by the PR body" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery =
-        issue_comment_delivery()
+        issue_comment_delivery(ticket)
         |> put_in(["issue"], %{
           "number" => 901,
           "body" => "Closes #1678\n\n# Problem\n...",
@@ -174,8 +195,10 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a pull request comment whose body names no ticket is dropped for the poller to pick up" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery =
-        issue_comment_delivery()
+        issue_comment_delivery(ticket)
         |> put_in(["issue"], %{"number" => 901, "body" => "no keyword here", "pull_request" => %{}})
 
       assert {:drop, {:unresolved_ticket, "issue_comment", "901"}} =
@@ -185,22 +208,30 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   describe "pull request reviews" do
     test "an APPROVED review does not wake an agent, matching the poller's actionable filter" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert {:drop, {:non_actionable_review, "APPROVED"}} =
-               Normalizer.normalize("pull_request_review", review_delivery("APPROVED", "looks good"), repo: @repo)
+               Normalizer.normalize("pull_request_review", review_delivery(ticket, "APPROVED", "looks good"), repo: @repo)
     end
 
     test "an empty-bodied COMMENTED container does not wake an agent" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert {:drop, {:non_actionable_review, "COMMENTED"}} =
-               Normalizer.normalize("pull_request_review", review_delivery("COMMENTED", ""), repo: @repo)
+               Normalizer.normalize("pull_request_review", review_delivery(ticket, "COMMENTED", ""), repo: @repo)
     end
 
     test "a COMMENTED review with a body wakes an agent" do
-      assert {:publish, [{"ticket.42.pr.review_comment", _payload, _opts}]} =
-               Normalizer.normalize("pull_request_review", review_delivery("COMMENTED", "one thought"), repo: @repo)
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.review_comment"
+
+      assert {:publish, [{^ticket_topic, _payload, _opts}]} =
+               Normalizer.normalize("pull_request_review", review_delivery(ticket, "COMMENTED", "one thought"), repo: @repo)
     end
 
     test "a review on a non-ticket branch is dropped" do
-      delivery = put_in(review_delivery(), ["pull_request", "head", "ref"], "someone/experiment")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      delivery = put_in(review_delivery(ticket), ["pull_request", "head", "ref"], "someone/experiment")
 
       assert {:drop, {:unresolved_ticket, "pull_request", 901}} =
                Normalizer.normalize("pull_request_review", delivery, repo: @repo)
@@ -209,6 +240,9 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   describe "pull request lifecycle" do
     test "closed + merged publishes pr.merged with contamination bypassed, matching the firehose" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.merged"
+
       delivery = %{
         "action" => "closed",
         "repository" => %{"full_name" => @repo},
@@ -217,11 +251,11 @@ defmodule Aiur.Events.GithubWebhookTest do
           "number" => 901,
           "merged" => true,
           "updated_at" => "2026-06-24T12:00:00Z",
-          "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef"}
+          "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "deadbeef"}
         }
       }
 
-      assert {:publish, [{"ticket.42.pr.merged", payload, opts}]} =
+      assert {:publish, [{^ticket_topic, payload, opts}]} =
                Normalizer.normalize("pull_request", delivery, repo: @repo)
 
       assert payload.action == "closed"
@@ -230,6 +264,8 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "closed without merge publishes nothing, matching the firehose" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery = %{
         "action" => "closed",
         "repository" => %{"full_name" => @repo},
@@ -237,7 +273,7 @@ defmodule Aiur.Events.GithubWebhookTest do
         "pull_request" => %{
           "number" => 901,
           "merged" => false,
-          "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef"}
+          "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "deadbeef"}
         }
       }
 
@@ -248,74 +284,83 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   describe "state-owned events reconcile rather than publishing a parallel shape" do
     test "an issues labeled delivery asks the orchestrator to reconcile now" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       parent = self()
 
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"},
+        "issue" => %{"number" => String.to_integer(ticket), "updated_at" => "2026-06-24T12:00:00Z"},
         "label" => %{"name" => "agent:rework"}
       }
 
-      assert %{status: :reconciled, hint: %{kind: :issue_state, ticket: "42", action: "labeled"}} =
+      assert %{status: :reconciled, hint: %{kind: :issue_state, ticket: ^ticket, action: "labeled"}} =
                GithubWebhook.handle_delivery("issues", delivery,
                  repo: @repo,
                  reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
                )
 
-      assert_receive {:reconcile, %{kind: :issue_state, ticket: "42"}}, 1000
+      assert_receive {:reconcile, %{kind: :issue_state, ticket: ^ticket}}, 1000
     end
 
     test "unlabeled, closed, reopened and opened reconcile the same way, so out-of-order deliveries converge" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       for action <- ["unlabeled", "closed", "reopened", "opened"] do
         delivery = %{
           "action" => action,
           "repository" => %{"full_name" => @repo},
-          "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+          "issue" => %{"number" => String.to_integer(ticket), "updated_at" => "2026-06-24T12:00:00Z"}
         }
 
-        assert {:reconcile, %{kind: :issue_state, ticket: "42", action: ^action}} =
+        assert {:reconcile, %{kind: :issue_state, ticket: ^ticket, action: ^action}} =
                  Normalizer.normalize("issues", delivery, repo: @repo)
       end
     end
 
     test "a completed check suite reconciles the CI lifecycle for its ticket" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery = %{
         "action" => "completed",
         "repository" => %{"full_name" => @repo},
         "check_suite" => %{
           "head_sha" => "deadbeef",
           "conclusion" => "failure",
-          "pull_requests" => [%{"number" => 901, "head" => %{"ref" => "aiur/42-slug"}}]
+          "pull_requests" => [%{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-slug"}}]
         }
       }
 
-      assert {:reconcile, %{kind: :ci, tickets: ["42"], head_sha: "deadbeef", conclusion: "failure"}} =
+      assert {:reconcile, %{kind: :ci, tickets: [^ticket], head_sha: "deadbeef", conclusion: "failure"}} =
                Normalizer.normalize("check_suite", delivery, repo: @repo)
     end
 
     test "a completed check run reconciles the same way" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery = %{
         "action" => "completed",
         "repository" => %{"full_name" => @repo},
         "check_run" => %{
           "head_sha" => "deadbeef",
           "conclusion" => "success",
-          "pull_requests" => [%{"number" => 901, "head" => %{"ref" => "aiur/42-slug"}}]
+          "pull_requests" => [%{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-slug"}}]
         }
       }
 
-      assert {:reconcile, %{kind: :ci, tickets: ["42"], source: "check_run"}} =
+      assert {:reconcile, %{kind: :ci, tickets: [^ticket], source: "check_run"}} =
                Normalizer.normalize("check_run", delivery, repo: @repo)
     end
 
     test "a resolved pull request review thread reconciles without publishing a comment" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery = %{
         "action" => "resolved",
         "repository" => %{"full_name" => @repo},
         "pull_request" => %{
           "number" => 901,
-          "head" => %{"ref" => "aiur/42-slug", "repo" => %{"full_name" => @repo}}
+          "head" => %{"ref" => "aiur/#{ticket}-slug", "repo" => %{"full_name" => @repo}}
         },
         "thread" => %{"node_id" => "PRRT_resolved", "is_resolved" => true, "updated_at" => "2026-08-21T10:00:00Z"}
       }
@@ -323,7 +368,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert {:reconcile,
               %{
                 kind: :review_thread,
-                ticket: "42",
+                ticket: ^ticket,
                 action: "resolved",
                 thread_id: "PRRT_resolved",
                 generation: "2026-08-21T10:00:00Z"
@@ -343,28 +388,31 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a synchronize push invalidates review state through the CI reconciler" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       delivery = %{
         "action" => "synchronize",
         "repository" => %{"full_name" => @repo},
         "sender" => %{"login" => "its-everdred"},
-        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug", "sha" => "newsha"}}
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "newsha"}}
       }
 
-      assert {:reconcile, %{kind: :ci, ticket: "42", head_sha: "newsha", action: "synchronize"}} =
+      assert {:reconcile, %{kind: :ci, ticket: ^ticket, head_sha: "newsha", action: "synchronize"}} =
                Normalizer.normalize("pull_request", delivery, repo: @repo)
     end
 
     test "review-thread resolution changes request targeted comment reconciliation" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       parent = self()
 
       for action <- ["resolved", "unresolved"] do
-        delivery = review_thread_delivery(action)
+        delivery = review_thread_delivery(ticket, action)
 
         assert %{
                  status: :reconciled,
                  hint: %{
                    kind: :review_thread,
-                   ticket: "42",
+                   ticket: ^ticket,
                    action: ^action,
                    thread_id: "PRRT_kwDOabc",
                    generation: "2026-08-21T12:00:00Z"
@@ -375,12 +423,13 @@ defmodule Aiur.Events.GithubWebhookTest do
                    reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
                  )
 
-        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}, 1000
+        assert_receive {:reconcile, %{kind: :review_thread, ticket: ^ticket, action: ^action}}, 1000
       end
     end
 
     test "review-thread reconciliation uses the admitted delivery id when the timestamp is null" do
-      delivery = Map.put(review_thread_delivery("unresolved"), "updated_at", nil)
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      delivery = Map.put(review_thread_delivery(ticket, "unresolved"), "updated_at", nil)
 
       assert %{hint: %{generation: "delivery-123"}} =
                GithubWebhook.handle_delivery("pull_request_review_thread", delivery,
@@ -391,7 +440,8 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "review-thread deliveries reject malformed, irrelevant, and unmapped payloads" do
-      delivery = review_thread_delivery("unresolved")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      delivery = review_thread_delivery(ticket, "unresolved")
 
       assert {:drop, {:uninteresting_action, "pull_request_review_thread", "created"}} =
                delivery
@@ -410,7 +460,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       # the field.
       assert {:error, {:malformed_payload, "pull_request_review_thread"}} =
                delivery
-               |> put_in(["pull_request", "head"], %{"ref" => "aiur/42-slug"})
+               |> put_in(["pull_request", "head"], %{"ref" => "aiur/#{ticket}-slug"})
                |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
 
       assert {:drop, {:unresolved_ticket, "pull_request_review_thread", "unresolved"}} =
@@ -425,12 +475,13 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "review-thread hints bypass the generic reconcile debounce" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
       for action <- ["resolved", "unresolved"] do
         assert %{status: :reconciled} =
-                 GithubWebhook.handle_delivery("pull_request_review_thread", review_thread_delivery(action),
+                 GithubWebhook.handle_delivery("pull_request_review_thread", review_thread_delivery(ticket, action),
                    repo: @repo,
                    orchestrator: self()
                  )
@@ -442,13 +493,14 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a reconcile delivery wakes the dispatcher once per quiet period" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+        "issue" => %{"number" => String.to_integer(ticket), "updated_at" => "2026-06-24T12:00:00Z"}
       }
 
       request_refresh_fun = fn -> send(self(), :request_refresh) end
@@ -464,6 +516,8 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a PR state change publish wakes the dispatcher" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.opened"
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -473,16 +527,18 @@ defmodule Aiur.Events.GithubWebhookTest do
         "action" => "opened",
         "repository" => %{"full_name" => @repo},
         "sender" => %{"login" => "its-everdred"},
-        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug", "sha" => "abc123"}}
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "abc123"}}
       }
 
-      assert %{status: :published, published: ["ticket.42.pr.opened"]} =
+      assert %{status: :published, published: [^ticket_topic]} =
                GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
 
       assert_receive :request_refresh, 500
     end
 
     test "a PR merge publish wakes the dispatcher" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.pr.merged"
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -495,25 +551,27 @@ defmodule Aiur.Events.GithubWebhookTest do
         "pull_request" => %{
           "number" => 901,
           "merged" => true,
-          "head" => %{"ref" => "aiur/42-slug", "sha" => "abc123"},
+          "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "abc123"},
           "updated_at" => "2026-06-24T12:00:00Z"
         }
       }
 
-      assert %{status: :published, published: ["ticket.42.pr.merged"]} =
+      assert %{status: :published, published: [^ticket_topic]} =
                GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
 
       assert_receive :request_refresh, 500
     end
 
     test "a comment publish does not wake the dispatcher" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
       request_refresh_fun = fn -> send(self(), :request_refresh) end
 
-      assert %{status: :published, published: ["ticket.42.issue.commented"]} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(),
+      assert %{status: :published, published: [^ticket_topic]} =
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket),
                  repo: @repo,
                  request_refresh_fun: request_refresh_fun
                )
@@ -522,6 +580,7 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a newly-opened ticket that already carries an active state label wakes the dispatcher" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -531,19 +590,20 @@ defmodule Aiur.Events.GithubWebhookTest do
         "action" => "opened",
         "repository" => %{"full_name" => @repo},
         "issue" => %{
-          "number" => 42,
+          "number" => String.to_integer(ticket),
           "updated_at" => "2026-06-24T12:00:00Z",
           "labels" => [%{"name" => "aiur:todo"}]
         }
       }
 
-      assert %{status: :reconciled, hint: %{kind: :issue_state, ticket: "42", action: "opened"}} =
+      assert %{status: :reconciled, hint: %{kind: :issue_state, ticket: ^ticket, action: "opened"}} =
                GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
 
       assert_receive :request_refresh, 500
     end
 
     test "a newly-opened issue with no actionable label is dropped and never wakes" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -552,7 +612,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "opened",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z", "labels" => [%{"name" => "size:s"}]}
+        "issue" => %{"number" => String.to_integer(ticket), "updated_at" => "2026-06-24T12:00:00Z", "labels" => [%{"name" => "size:s"}]}
       }
 
       assert %{status: :dropped, reason: {:uninteresting_action, "issues", "opened"}} =
@@ -562,13 +622,14 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a delivery with the default wake never raises, whatever the orchestrator answers" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42}
+        "issue" => %{"number" => String.to_integer(ticket)}
       }
 
       # The default `request_refresh_fun` is `Orchestrator.request_refresh/0`.
@@ -591,6 +652,7 @@ defmodule Aiur.Events.GithubWebhookTest do
     # `agent_chat_broadcast_test` performs for its fake) and asserts the wake is
     # a `:request_refresh` GenServer call, not a raw `:run_poll_cycle` message.
     test "the real default wake is a request_refresh call, never a raw run_poll_cycle send" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -628,7 +690,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42}
+        "issue" => %{"number" => String.to_integer(ticket)}
       }
 
       assert %{status: :reconciled} =
@@ -643,6 +705,7 @@ defmodule Aiur.Events.GithubWebhookTest do
     # after that cycle read would otherwise wait out the full poll interval. A
     # trailing wake at window close picks it up.
     test "a delivery folded into the coalesce window still gets a trailing wake" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
       override_reconcile_debounce(200)
@@ -656,7 +719,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+        "issue" => %{"number" => String.to_integer(ticket), "updated_at" => "2026-06-24T12:00:00Z"}
       }
 
       # Leading edge: the first delivery wakes immediately.
@@ -686,6 +749,7 @@ defmodule Aiur.Events.GithubWebhookTest do
     # the window is 3s, so a delivery at 2.4s — past the flat floor, inside the
     # sized window — must still coalesce.
     test "the coalesce window is sized from the poll interval, not a flat floor" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -718,14 +782,13 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+        "issue" => %{"number" => String.to_integer(ticket), "updated_at" => "2026-06-24T12:00:00Z"}
       }
 
       assert %{status: :reconciled} =
                GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
 
       assert_receive :request_refresh, 500
-
       # Past a flat 2s floor, still inside the 3s window the 15s poll interval
       # implies. A flat-floor mutant claims a fresh leading edge here and wakes.
       Process.sleep(2_400)
@@ -741,10 +804,10 @@ defmodule Aiur.Events.GithubWebhookTest do
     # suppressed the next window's worth of wakes. Releasing the window on
     # failure lets the next delivery retry.
     test "a wake that fails to land does not consume the coalesce window" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
       override_reconcile_debounce(60_000)
-
       parent = self()
 
       request_refresh_fun = fn ->
@@ -755,14 +818,13 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "labeled",
         "repository" => %{"full_name" => @repo},
-        "issue" => %{"number" => 42}
+        "issue" => %{"number" => String.to_integer(ticket)}
       }
 
       assert %{status: :reconciled} =
                GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
 
       assert_receive :request_refresh_attempted, 500
-
       # With a 60s window a stuck failed claim would coalesce this second
       # delivery; the release means it claims a fresh leading edge and wakes.
       assert %{status: :reconciled} =
@@ -790,23 +852,23 @@ defmodule Aiur.Events.GithubWebhookTest do
   # rather than the return value, so dropping the call turns them red.
   describe "webhook proof of life" do
     test "a delivery retires the read-cache entries for the issue it carries" do
-      request = graphql_request(42)
-
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      request = graphql_request(String.to_integer(ticket))
       assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(), repo: @repo)
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket), repo: @repo)
 
       assert {:ok, %{body: "second"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
     test "a delivery for the tracked repo promotes it from configured-unproven to webhook-backed" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       registry = start_mode_registry([@repo])
-
       assert Webhooks.polling_reason(@repo, server: registry) == :configured_unproven
 
       assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(), repo: @repo, server: registry)
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket), repo: @repo, server: registry)
 
       assert Webhooks.transport(@repo, server: registry) == :webhook
       assert Webhooks.polling_reason(@repo, server: registry) == nil
@@ -825,11 +887,12 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a delivery for an untracked repository proves nothing for either repo" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       untracked = "someone-else/other-repo"
       registry = start_mode_registry([@repo, untracked])
 
       assert %{status: :dropped, reason: {:untracked_repository, ^untracked}} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(%{"full_name" => untracked}),
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket, %{"full_name" => untracked}),
                  repo: @repo,
                  server: registry
                )
@@ -839,12 +902,12 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "a malformed delivery records nothing and does not crash the tail" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
       registry = start_mode_registry([@repo])
-
       assert %{status: :error} = GithubWebhook.handle_delivery("issue_comment", "not-a-map", repo: @repo, server: registry)
 
       assert %{status: :error, reason: :missing_repository} =
-               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(), "repository"),
+               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(ticket), "repository"),
                  repo: @repo,
                  server: registry
                )
@@ -853,8 +916,10 @@ defmodule Aiur.Events.GithubWebhookTest do
     end
 
     test "the tail is unaffected when no mode registry is running" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+
       assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(),
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket),
                  repo: @repo,
                  server: :no_mode_registry_here
                )
@@ -887,70 +952,6 @@ defmodule Aiur.Events.GithubWebhookTest do
     end)
   end
 
-  defp graphql_request(number) do
-    %{
-      method: :post,
-      url: "https://api.github.com/graphql",
-      token: "t",
-      body: %{
-        "query" => "query Q($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: #{number}) { ... on Issue { title } } } }",
-        "variables" => %{"owner" => "owner", "repo" => "repo"}
-      },
-      caller: "issue_relationships"
-    }
-  end
-
-  defp issue_comment_delivery(repository \\ %{"full_name" => @repo}, comment \\ nil) do
-    %{
-      "action" => "created",
-      "repository" => repository,
-      "issue" => %{"number" => 42, "title" => "a ticket"},
-      "comment" =>
-        comment ||
-          %{
-            "id" => 1_001,
-            "body" => "please rework this",
-            "created_at" => "2026-06-24T12:00:00Z",
-            "updated_at" => "2026-06-24T12:00:00Z",
-            "user" => %{"login" => "its-everdred"}
-          },
-      "sender" => %{"login" => "its-everdred"}
-    }
-  end
-
-  defp review_delivery(state \\ "CHANGES_REQUESTED", body \\ "needs work") do
-    %{
-      "action" => "submitted",
-      "repository" => %{"full_name" => @repo},
-      "sender" => %{"login" => "its-everdred"},
-      "review" => %{
-        "id" => 55_001,
-        "state" => state,
-        "body" => body,
-        "submitted_at" => "2026-06-24T12:00:00Z",
-        "user" => %{"login" => "its-everdred"}
-      },
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef"}}
-    }
-  end
-
-  defp review_thread_delivery(action) do
-    %{
-      "action" => action,
-      "repository" => %{"full_name" => @repo},
-      "thread" => %{
-        "id" => 88_001,
-        "node_id" => "PRRT_kwDOabc",
-        "comments" => 1
-      },
-      "updated_at" => "2026-08-21T12:00:00Z",
-      "pull_request" => %{
-        "number" => 901,
-        "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
-      }
-    }
-  end
-
   defp clear_dedup do
     case :ets.whereis(@dedup_table) do
       :undefined -> :ok
@@ -971,7 +972,6 @@ defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
   `:run_poll_cycle` send would fail the `refute_receive`., 100
   """
   use GenServer
-
   # `start_link/1` is the conventional constructor, not a GenServer callback.
   def start_link(test) do
     GenServer.start_link(__MODULE__, test, name: Aiur.Orchestrator)
@@ -979,7 +979,6 @@ defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
 
   @impl true
   def init(test), do: {:ok, test}
-
   @impl true
   def handle_call(:request_refresh, _from, test) do
     send(test, :request_refresh_called)
@@ -990,7 +989,6 @@ defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
   # caller must get a fast reply rather than a 5s GenServer timeout.
   @impl true
   def handle_call(_request, _from, test), do: {:reply, :unavailable, test}
-
   @impl true
   def handle_info(:run_poll_cycle, test) do
     send(test, :run_poll_cycle_received)

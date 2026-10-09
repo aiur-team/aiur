@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   use GenServer
   require Logger
 
-  alias Aiur.Orchestrator.{SnapshotPublisher, StatusReport}
+  alias Aiur.Orchestrator.{SnapshotPublisher, StatusObservation, StatusReport}
   alias Aiur.PollCadence
   alias AiurWeb.ObservabilityPubSub
 
@@ -218,7 +218,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} = cached ->
         snapshot = orchestrator |> overlay_global_pause(snapshot) |> maybe_put_fleet_rows(cached, opts)
         metadata = metadata(orchestrator, cached, observed_at, observed_at_ms, timeout)
-        snapshot = advance_dispatch_poll_age(snapshot, metadata.age_ms)
+        snapshot = advance_dispatch_poll_age(snapshot, metadata.age_ms) |> StatusObservation.refresh()
 
         case metadata.status do
           :stale ->
