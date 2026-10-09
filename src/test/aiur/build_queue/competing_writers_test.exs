@@ -5,10 +5,10 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
   alias Aiur.Events.Exchange
 
   defmodule Boundary do
-    def blocked_by(_id), do: {:ok, []}
     def open_issue_labels(_age), do: Agent.get(__MODULE__, fn s -> {:ok, Map.new(s.labels, fn {id, labels} -> {id, %{labels: labels}} end), s.now} end)
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
+    def blocked_by(_id), do: {:ok, []}
     def notify_demand(_ids), do: :ok
 
     def save(document) do

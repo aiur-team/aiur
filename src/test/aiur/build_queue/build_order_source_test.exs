@@ -5,12 +5,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   alias Aiur.BuildQueue.{Hints, ListMutations, Model, Server}
   alias Aiur.BuildQueue.Sources.BuildOrder
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.TrackerIdentity
 
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
 
   defmodule Boundary do
-    def blocked_by(_id), do: {:ok, []}
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
 
     def save(document) do
@@ -20,6 +20,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
     def open_issue_labels(_age), do: Agent.get(__MODULE__, &{:ok, Map.new(&1.labels, fn {id, labels} -> {id, %{labels: labels}} end), &1.now})
     def issue_closure(_id, _age), do: {:error, :unavailable}
+    def blocked_by(_id), do: {:ok, []}
 
     def status(ids) do
       Agent.get_and_update(__MODULE__, fn state ->
@@ -185,6 +186,27 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert Enum.map(get(:document).items, & &1.issue_id) == ["1"]
     assert {:remove, "4", "agent:queued"} in get(:calls)
     assert :sys.get_state(projection).releases == 1
+  end
+
+  test "a member leaving the Build Order is dequeued with a removed event" do
+    owner = self()
+    :ok = Exchange.subscribe("ticket.2.queue.removed")
+    on_exit(fn -> GenServer.call(Exchange, {:unsubscribe, "ticket.2.queue.removed", owner}) end)
+    projection = start_supervised!({Projection, snapshot([member(1), member(2)])})
+    pid = server(projection)
+    assert {:ok, []} = Aiur.BuildQueue.adopt(99)
+    reconcile(pid)
+    changed = snapshot([member(1)])
+    GenServer.call(projection, {:replace, changed})
+    deliver_projection(pid, :graph_projection_generation, changed)
+    assert Enum.map(get(:document).items, & &1.issue_id) == ["1"]
+    assert {:remove, "2", "agent:queued"} in get(:calls)
+    assert_receive {:event, %{topic: "ticket.2.queue.removed"}}, 1_000
+  end
+
+  test "generated queue ids stay lowercase hex" do
+    queues = Enum.map(0..9, &%{queue() | id: "q-000#{&1}"})
+    assert {:ok, "q-000a"} = ListMutations.queue_id(%{@empty | queues: queues})
   end
 
   test "missing projection isolates list promotion and hints coalesce per interval" do
