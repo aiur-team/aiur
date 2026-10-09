@@ -44,6 +44,14 @@ defmodule Aiur.CapabilitiesTest do
     def sections(_context), do: %{executor: %{state: :active}}
   end
 
+  defmodule KilledProvider do
+    @behaviour Aiur.Capabilities.Provider
+    @impl true
+    def capability_ids, do: ["test.killed"]
+    @impl true
+    def capabilities(_context), do: Process.exit(self(), :kill)
+  end
+
   defmodule DuplicateProvider do
     @behaviour Aiur.Capabilities.Provider
     @impl true
@@ -123,6 +131,16 @@ defmodule Aiur.CapabilitiesTest do
       end)
 
     assert length(Regex.scan(~r/capability_registry.*failed/, log)) == 1
+  end
+
+  test "killed provider is unknown while the monitor and table keep serving", %{opts: opts} do
+    opts = Keyword.put(opts, :providers, [KilledProvider, FakeProvider])
+    pid = monitor(opts)
+    tick(pid)
+    assert Process.alive?(pid)
+    caps = Capabilities.report(opts).capabilities
+    assert caps["test.killed"] == %{state: :unknown, reason: :unknown}
+    assert caps["test.fake"].state == :available
   end
 
   test "undeclared IDs are dropped and sections and context come from providers", %{opts: opts} do
