@@ -66,6 +66,8 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       await openVisualRoute(pair.product, { theme, palette, route: '/palette-probe?paused=false&writable=true&awaiting=3', mode: 'writable' })
       pair.allowlist = await loadAllowlist()
       await applyAllowlist(pair, cell)
+      // Transparent chrome must not sample the unrelated demo table beneath it.
+      const shellBackdrops = await Promise.all([pair.design, pair.product].map(page => page.addStyleTag({ content: 'section.dashboard-shell { visibility: hidden !important; }' })))
       await finishTransitions(pair)
       await equalStyle(pair, 'header.ax-top')
       await equalStyle(pair, '.ax-brand')
@@ -112,6 +114,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
         await equalStyle(pair, 'aside.sidenav', ['position', 'bottom', 'height', 'padding', 'backgroundColor', 'border', 'boxShadow'])
       }
 
+      for (const backdrop of shellBackdrops) await backdrop.evaluate(node => node.remove())
       await pair.design.addStyleTag({ content: '.sidenav-nav { visibility: visible !important; }' })
       await pair.design.evaluate(() => {
         window.AiurHost.switchTab('analytics')
