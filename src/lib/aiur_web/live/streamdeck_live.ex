@@ -19,8 +19,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentPubSub, CodingAgent, Config, Orchestrator, PollCadence}
-  alias Aiur.Conversation.History
+  alias Aiur.{AgentChat, AgentPubSub, CodingAgent, Config, Conversation.History, Orchestrator, PollCadence}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
 
   alias AiurWeb.{
