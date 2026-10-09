@@ -217,19 +217,13 @@ These commands read or write **local overrides**, not effective epic assignments
 | `aiur epic show [<ids…>] [--json]` | Read stored assignments, actor, source, confirmation and write time. |
 | `aiur epic list [--json]` | List configured general epic keys and labels in config order. |
 
-The actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to that actor. `--source backfill-agent` records an unconfirmed guess.
-
-Agents use `aiur_set_epic`, which binds their actor to the acting ticket; the CLI cannot claim an agent identity.
-
-Feature epics and `unsorted` are not override targets. Repeated ids count once. Repeating the same epic, source and confirmation is unchanged. Changed writes retain their previous assignment in the result and journal.
-
-Unreadable or unsafe journals are unavailable, never an empty registry. If the first-write filesystem sync fails after rename, the write outcome is uncertain and reads/writes remain unavailable until restart.
-
-To recover a corrupt journal, move `epic-overrides.json` aside in the instance's `epic-overrides` state directory and restart; local overrides cannot be rebuilt from GitHub.
-
-Removed catalog keys remain stored but are marked ignored. If config is unreadable, `show --json` reports `epic_known: null`; writes and `list` fail without defaults.
-
-Exit codes are 0 for success, 1 for refusal/unavailability, 64 for usage and 124 for RPC timeout (the write outcome is unknown; retrying an identical set is safe).
+- Actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to the actor; `--source backfill-agent` records an unconfirmed guess.
+- Agents use `aiur_set_epic`, which binds their actor to the acting ticket. The CLI cannot claim an agent identity.
+- Feature epics and `unsorted` are refused. IDs may start with `#`; repeats count once. Identical epic/source/confirmation is unchanged. Changed results include the previous assignment.
+- Unsafe journals are unavailable. A first-write sync failure after rename makes the outcome uncertain; reads/writes remain unavailable until restart.
+- To recover a corrupt journal, move `epic-overrides.json` aside in the instance’s `epic-overrides` state directory and restart. GitHub cannot rebuild local overrides.
+- Removed catalog keys remain stored but ignored. Unreadable config makes `show --json` report `epic_known: null`; writes and `list` fail without defaults.
+- Exit: 0 success, 1 refusal/unavailability, 64 usage, 124 RPC timeout with unknown outcome. Retrying an identical set is safe.
 
 ## Dashboard page commands
 
