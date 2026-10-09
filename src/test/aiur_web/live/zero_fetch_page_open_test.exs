@@ -69,7 +69,13 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @repository {"owner", "repo"}
 
-  setup do
+  setup context do
+    inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
+
+    # Drop prior comment retries/tasks before installing the VM-wide counter.
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
+    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
+
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
     # and asserts it reaches the transport. That URL is now cacheable
     # (`:issue`, #2352), and the read cache is a shared application child, so a
@@ -123,7 +129,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       end
     end)
 
-    {:ok, counter: counter}
+    {:ok, counter: counter, inherited_task: inherited_task}
   end
 
   describe "opening a dashboard page" do
@@ -193,9 +199,15 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     # tracker path is proven explicitly here, or the zero would be trivially
     # true for the wrong reason (the "zero, provably" trap the reviewer flagged).
 
-    test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter} do
+    @tag :inherited_tracker_task
+    test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter, inherited_task: inherited_task} do
       workflow_path = Aiur.Workflow.workflow_file_path()
       :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
+
+      # Release the prior test's read and observe its completion before counting.
+      ref = Process.monitor(inherited_task)
+      send(inherited_task, :continue)
+      receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
 
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell", "/ did not render the dashboard shell"
@@ -350,6 +362,22 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     assert length(Agent.get(counter, & &1)) > before,
            "the transport sent nothing for a request that must always send, so the zero above " <>
              "may be an exhausted budget rather than a page that did not fetch"
+  end
+
+  # Reproduce a prior event consumer still waiting to read when this test starts.
+  defp start_inherited_tracker_task do
+    test_pid = self()
+
+    fetcher = fn ["33189"] ->
+      send(test_pid, {:inherited_tracker_task, self()})
+      receive_barrier(:continue)
+      Issues.fetch_issue_raw_conditional(33_189, repository: {"aiur-team", "aiur"}, token: "test-token")
+      {:ok, []}
+    end
+
+    send(Aiur.Orchestrator, {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}})
+    receive_barrier({:inherited_tracker_task, pid})
+    pid
   end
 
   defp identity(number) do
