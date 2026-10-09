@@ -442,7 +442,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
-  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+  test "the first candidate poll holds orphaned claims during recovery grace" do
     restore_workflow_file_after_test()
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
 
@@ -465,9 +465,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         max_concurrent_agents: 1
       })
 
-    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}, 1000
-    assert next.startup_claim_reconciliation_complete?
-    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute_received {:memory_tracker_state_update, ^candidate_identifier, _target}
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "in-progress"
     refute next.initial_dispatch_cycle
   end
 
