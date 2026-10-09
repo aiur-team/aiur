@@ -404,7 +404,6 @@ defmodule Aiur.Application do
       Aiur.GitHub.AgentCacheBridge,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
-      if(recording?, do: Aiur.BuildProgress),
       Aiur.Capabilities.Monitor,
       # Per-repo delivery mode. Starts before anything that polls or receives
       # so a repo always has a mode to read; with no configured repos every
@@ -512,7 +511,10 @@ defmodule Aiur.Application do
       # above, so it runs whenever recording does. It is last in this
       # `:rest_for_one` list so a restart of it can never cascade into the
       # dashboard, the Principal, or the opencode supervisors.
-      if(recording?, do: Aiur.AllowedContributors)
+      if(recording?, do: Aiur.AllowedContributors),
+      # Progress facts and milestone latches have no dependents yet; last so a
+      # restart of it cannot cascade into anything above.
+      if(recording?, do: Aiur.BuildProgress)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)

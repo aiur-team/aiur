@@ -272,11 +272,12 @@ defmodule Aiur.ApplicationTest do
       assert Aiur.Executor.Principal in executor, "an --executor run must register its principal claim"
     end
 
-    test "BuildProgress is armed with recording after its event publisher" do
+    test "BuildProgress is armed with recording after its event publisher and the Orchestrator" do
       opts = [interactive_cli?: false, headless?: true, dashboard?: false]
       mods = modules(AiurApp.child_specs(Keyword.put(opts, :recording?, true)))
       assert Aiur.BuildProgress in mods
       assert Enum.find_index(mods, &(&1 == Aiur.Events.Publisher)) < Enum.find_index(mods, &(&1 == Aiur.BuildProgress))
+      assert Enum.find_index(mods, &(&1 == Aiur.Orchestrator)) < Enum.find_index(mods, &(&1 == Aiur.BuildProgress))
       refute Aiur.BuildProgress in modules(AiurApp.child_specs(Keyword.put(opts, :recording?, false)))
     end
 
