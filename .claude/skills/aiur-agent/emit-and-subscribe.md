@@ -322,6 +322,11 @@ directions of the dependency, idempotently:
 | You (blocked) watch the blocker | `ticket.N.branch.push`, `.branch.force-push`, `.pr.opened`, `.pr.merged`, `.agent.decision.*`, `.agent.blocked`, `.agent.unblocked`, `.agent.attention.*`, `.issue.commented` |
 | Blocker watches you | `ticket.<self>.agent.blocked`, `.agent.unblocked` |
 
+Dispatch also creates these `blocker:auto` bindings for known blockers; do not
+declare an existing edge again just to subscribe. For an **Optimistic start**
+prompt block, `branch.push` is an integration signal: follow [the canonical
+loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker).
+
 Removing the dependency edge removes those automatic bindings; a manually-added
 binding on the same topic survives because removal is scoped by the reason it
 was created with.

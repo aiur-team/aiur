@@ -130,7 +130,7 @@ defmodule Aiur.BuildOrder.NotQueuedTest do
 
   test "design dataset parity" do
     for {dataset, count} <- [{"live", 22}, {"newrepo", 6}] do
-      data = __DIR__ |> Path.join("../../fixtures/build_home/#{dataset}.json") |> File.read!() |> Jason.decode!() |> Map.fetch!("data")
+      data = __DIR__ |> Path.join("../../fixtures/build_home/#{dataset}.json") |> File.read!() |> Jason.decode!() |> Map.fetch!("sections")
       tickets = Enum.map(data["nq"] ++ data["plan"] ++ data["now"], &ticket(&1["num"], ["complexity:#{&1["cx"]}"]))
       items = Enum.map(data["plan"], &%{number: &1["num"], state: :waiting})
       rows = build(tickets, %{queue() | queues: [%{items: items}]}, active: MapSet.new(data["now"], & &1["num"])).rows
