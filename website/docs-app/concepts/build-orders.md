@@ -102,9 +102,9 @@ This detection makes no GitHub request. In poll-only mode, or with missing, stal
 
 ## Queueing a Build Order
 
-The optional Build Order queue source adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+`aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
-Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
+Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue). Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
@@ -129,16 +129,6 @@ If the issue is still open after `build_queue.merged_open_grace_seconds` (defaul
 
 Merge times are held in memory. After a restart, a fresh merge observation starts the timer again. If the live hint is lost and no fresh PR delivery is available, poll-only mode keeps dependents waiting without this attention.
 
-## Queueing a Build Order
-
-The optional Build Order queue source adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
-
-Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
-
-Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
-
-The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
-
 ## Queue attentions
 
 Queue faults emit once per cause and subject, then emit `.resolved` when cleared.
@@ -147,6 +137,7 @@ Queue faults emit once per cause and subject, then emit `.resolved` when cleared
 | --- | --- | --- |
 | `prerequisite_failed` | Agent error, closed-unmerged PR, not-planned or duplicate closure | No dependent edge still has that cause; unknown evidence retains the latch |
 | `dependency_changed_after_start` | A promoted, claimed ticket becomes unready | Readiness returns or the ticket completes |
+| `promoted_unauthorized` | Dispatch declines authorization (requires a free slot) | Decline clears or ticket is claimed; an unavailable probe retains it |
 | `write_failed` | Five consecutive queue-label write failures | Next successful write |
 | `merged_issue_open` | A prerequisite PR merged and the issue remains open past the grace | Issue closes |
 | `inputs_unavailable` | Inputs remain unknown for twice the observation age | All inputs become current |
@@ -160,6 +151,14 @@ Ticket topics use `ticket.<id>.queue.attention.<cause>`; input and store faults
 use `system.queue.attention.<cause>`. The store fault uses an in-memory latch:
 a restart with a still-broken store emits once again per boot. Queue promotion
 stays paused while the store is unavailable.
+
+## Downgrading
+
+Before running a release without build queue support, stop the current run and
+set `build_queue.enabled: false` for its next launch. Review `aiur queue show`
+before stopping: existing `agent:todo` labels remain dispatchable without queue
+holds. Remove `todo` from work that must wait, and retain the local queue store
+for a later upgrade. The `agent:queued` marker alone does not dispatch work.
 
 ## Build queue dashboard panel
 

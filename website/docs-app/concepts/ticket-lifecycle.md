@@ -51,14 +51,11 @@ watch  paused  parked  queued  rate-limit-fallback
 | `agent:watch` | Opt-in PR-watch marker: Aiur watches a PR for comments. |
 | `agent:paused` | Per-issue pause override: suppress Aiur work while preserving the current state. |
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
-| `agent:queued` | Reserved for the build queue; not a state. |
+| `agent:queued` | Build queue membership; does not authorize or trigger dispatch. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
 
-Markers **survive every state swap by design**: `IssueState` preserves any
-prefixed label whose suffix is a marker when it swaps in the new state label
-(`src/lib/aiur/github/issue_state.ex:276,300,385-397`). That is exactly why they
-are not states — `agent:paused`, `agent:parked`, and `agent:watch` **overlay**
-a state; they never replace one.
+Markers **survive state swaps** (`GitHub.IssueState`): they overlay a state
+rather than replacing it.
 
 ### Who writes each transition
 
@@ -91,74 +88,33 @@ relabel or reopen a closed issue (`issue_state.ex:118,237,287`).
 
 ### The invariant: exactly one state label
 
-An issue carries **exactly one** state label. `DispatchAuthorization.authorize/5`
-head-matches on two-or-more state labels and denies before any other check:
+Dispatch denies an issue carrying two or more state labels. Agents use
+`aiur_set_ticket_state` to make the target the sole state label from a fresh
+read (`GitHub.IssueState.swap_labels/4`); naming an old label to remove can race
+with an orchestrator transition and leave contradictory labels behind.
 
-```elixir
-def authorize(%Issue{state_labels: [_, _ | _] = state_labels} = issue, _owner, _repo, _prefix, _opts) do
-  deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
-end
-```
+For `human-review`, the writer also checks review threads and the exact PR head
+against `tracker.base_branch`. Stale heads pass only with no conflicts or
+changed-file overlap since the merge base, including both paths of renames.
+Incomplete evidence, mismatched heads or bases, conflicts and overlap leave
+labels unchanged. Harmless base movement needs no merge or CI rerun.
 
-— `src/lib/aiur/github/dispatch_authorization.ex:31-33`
+Workers check before handoff and after CI. Up to three integrations per handoff
+need no approval; each runs local tests and format, size and components gates,
+then awaits new-head CI. After the third, emit a non-blocking Executor alert.
+Base integration never opens a blocking decision.
 
-The consequence: a stale or hand-edited label set carrying **two state labels
-at once** denies dispatch. A poll-time repair heals the pair to its winner
-(`agent:todo` wins).
+A contradictory pair is healed by preferring a label added since the recorded
+orchestrator claim. Without claim evidence, deterministic precedence applies
+(`agent:todo` wins); a provenance win never promotes terminal `done`.
+Zero-label tickets are repaired only with workflow evidence: restore the last
+state, or `todo` if only a released claim survives. Parked or untriaged tickets
+without that evidence are alerted and left alone. An open workflow ticket with
+no live agent or scheduled claim is re-queued and alerted.
 
-Agents use `aiur_set_epic` to set or clear local general-epic overrides for their ticket or a batch of up to 200 ids. The daemon records `agent:<acting ticket>` as actor; `backfill: true` marks an unconfirmed guess. These overrides do not change GitHub labels. See [epic commands](../reference/cli.md#build-history-epic-commands).
-
-Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
-raw label edits.
-
-An agent cannot safely name the label to remove. The orchestrator writes state
-transitions too, so the label the agent last saw may already be gone by the
-time its command runs — the removal then no-ops and leaves the pair behind.
-
-The tool takes only the target state and makes it the sole `agent:*` state
-label, from the issue Aiur re-reads at write time
-(`GitHub.IssueState.swap_labels/4`).
-
-For `human-review`, the GitHub writer checks the exact PR head against current
-`tracker.base_branch`, in addition to clearing review threads. A stale head
-passes when it has no conflicts and no changed-file overlap with base changes
-since the merge base. Rename checks include old and new paths.
-
-Conflicts or overlap leave labels unchanged and return an update instruction.
-Disjoint paths pass even while GitHub reports `UNKNOWN` mergeability or a lagging
-PR base SHA. Mismatched heads or base branches, malformed observations and
-incomplete comparison data block the write. Harmless base movement needs no
-merge or CI rerun.
-
-Workers check integration safety before handoff and after CI. Up to 3
-integrations per handoff need no approval; each runs local tests and the format, size and components gates,
-then awaits new-head CI in `ci-wait`. After the third, workers send a non-blocking Executor alert and
-continue if the base is safe. Base integration never opens a blocking decision.
-
-When a pair does form, the heal prefers the label that arrived *since* the
-orchestrator's own claim over the claim itself — whenever the orchestrator can
-identify its claim, from its running entry or the previous poll.
-
-A statically ordered winner is provenance-blind. On the CI-pass handoff, where
-the orchestrator writes `in-progress` and the agent then adds `human-review`, it
-kept the stale claim and deleted the agent's deliberate handoff.
-
-With no such evidence the deterministic precedence order still decides, and a
-provenance win can never promote the terminal `done`.
-
-A **zero**-label ticket is repaired only when there is evidence it was in the
-agent workflow — its last known state is restored, or `agent:todo` when only a
-released claim survives.
-
-Deliberately parked tickets (`needs-triage`, `human:todo`, `Epic:`) and
-untriaged tickets with no workflow record are left alone and surfaced with an
-alert instead of being silently re-dispatched.
-
-An open ticket with no live agent and no scheduled claim is re-queued and
-alerted.
-
-Markers sit *beside* the single state label, which is why they are kept out of
-`@state_suffixes` in the first place.
+Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
+These preserve GitHub labels and record the acting ticket; `backfill: true`
+marks an unconfirmed guess. See [epic commands](../reference/cli.md#build-history-epic-commands).
 
 ### Model labels
 
@@ -191,6 +147,52 @@ could not be read — and which model ran instead.
 `aiur init` creates `model:<backend>`, the effort labels, `model:remote`, and a
 `model:<family>` for each family your CLIs report. It creates no version-specific labels
 and never deletes ones a repository already has; those keep working as exact pins.
+
+## Build queue
+
+The build queue manages future work in named lists or adopted Build Orders.
+`agent:queued` marks membership; `agent:todo` remains the dispatch state.
+Promotion adds `todo` only when fresh evidence proves readiness and no other
+state is present. Queue membership and promotion do not grant authorization.
+
+Queue item states are projections, not additional tracker state labels:
+| Item state | Meaning |
+| --- | --- |
+| `waiting` | At least one prerequisite is still pending. |
+| `ready` | Current evidence permits promotion. |
+| `promoted` | Queue-owned `agent:todo`; waiting for a claim. |
+| `promoted_unauthorized` | Dispatch declined the promotion for lack of authorization. |
+| `claimed` | The orchestrator owns the ticket or it has advanced beyond `todo`. |
+| `held` | An item, queue, parking marker or unresolved claim check stops promotion. |
+| `overridden` | A competing writer promoted it manually; the queue yields. |
+| `failed_prerequisite` | A prerequisite has a known failure. |
+| `unknown` | Missing, stale or ambiguous evidence prevents a readiness decision. |
+| `completed` | Tracker closure is confirmed as completed. |
+| `cancelled` | Tracker closure is confirmed as not planned. |
+| `removed` | The membership marker was removed. |
+
+If a promoted item becomes unready, Aiur first holds dispatch and checks claims.
+It withdraws only `agent:todo`, only from an unclaimed item with fresh, known
+readiness evidence. Unknown evidence retains the hold; claimed work keeps its
+labels and raises `dependency_changed_after_start` when it becomes unready.
+
+A manual `todo` addition normally sets an override; Build Order adoption first
+withdraws pre-labelled, unclaimed blocked members. External removal of a
+queue-owned `todo` creates an external hold. `aiur queue release` clears holds
+and overrides. Removing `agent:queued` dequeues the item. Optimistic writes
+re-observe state races instead of overwriting another writer's transition.
+
+Unauthorized detection needs a free dispatch slot; until dispatch can check,
+the item remains `promoted`. An allowed human must apply the marker or `todo`,
+or hold the ticket. An unavailable claim probe preserves a recorded decline.
+
+[Queue attentions](/concepts/build-orders#queue-attentions) cover
+`prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
+`write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
+See [Queueing a Build Order](/concepts/build-orders#queueing-a-build-order) for adoption
+and [Downgrading](/concepts/build-orders#downgrading) before using an older release.
+Closed-unmerged prerequisite PR detection is [webhook-only](/concepts/build-orders#closed-prerequisite-pull-requests);
+polling alone leaves the prerequisite pending.
 
 ## The state diagram
 
@@ -234,9 +236,7 @@ assigns the Executor role to your own agent; `/aiur-monitor` watches a run you
 are already Executor for.
 
 See [Executor](/concepts/executor) for the role and [Skills](/skills) for the
-`aiur-run` and `aiur-monitor` workflow skills. There is no separate glossary
-page or dedicated `/guide/aiur-run` page — the executor and skills pages are the
-canonical references.
+`aiur-run` and `aiur-monitor` workflow skills.
 
 ## Step 1 — Ticket is created and labelled `agent:todo`
 
