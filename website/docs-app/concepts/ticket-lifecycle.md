@@ -93,9 +93,6 @@ Dispatch denies an issue carrying two or more state labels. Agents use
 read (`GitHub.IssueState.swap_labels/4`); naming an old label to remove can race
 with an orchestrator transition and leave contradictory labels behind.
 
-`Aiur.Orchestrator.TicketTransition` owns daemon, agent-tool, build-queue,
-dashboard and CLI label writes, recording the caller and outcome in logs and telemetry.
-
 For `human-review`, the writer also checks review threads and the exact PR head
 against `tracker.base_branch`. Stale heads pass only with no conflicts or
 changed-file overlap since the merge base, including both paths of renames.
