@@ -22,36 +22,45 @@ def strongly_connected(graph):
     for start in sorted(graph):
         if start in indices:
             continue
-        indices[start] = low[start] = len(indices)
-        stack.append(start)
-        active.add(start)
-        frames = [(start, iter(sorted(graph[start])))]
-        while frames:
-            node, children = frames[-1]
-            child = next(children, None)
-            if child is not None:
-                if child not in indices:
-                    indices[child] = low[child] = len(indices)
-                    stack.append(child)
-                    active.add(child)
-                    frames.append((child, iter(sorted(graph[child]))))
-                elif child in active:
-                    low[node] = min(low[node], indices[child])
-                continue
-            frames.pop()
-            if low[node] == indices[node]:
-                group = []
-                while True:
-                    member = stack.pop()
-                    active.remove(member)
-                    group.append(member)
-                    if member == node:
-                        break
-                groups.append(sorted(group))
-            if frames:
-                parent = frames[-1][0]
-                low[parent] = min(low[parent], low[node])
+        frames = []
+        enter(start, graph, frames, indices, low, active, stack)
+        traverse(graph, frames, indices, low, active, stack, groups)
     return sorted(groups, key=lambda group: (-len(group), group))
+
+
+def enter(node, graph, frames, indices, low, active, stack):
+    indices[node] = low[node] = len(indices)
+    stack.append(node)
+    active.add(node)
+    frames.append((node, iter(sorted(graph[node]))))
+
+
+def traverse(graph, frames, indices, low, active, stack, groups):
+    while frames:
+        node, children = frames[-1]
+        child = next(children, None)
+        if child is not None and child not in indices:
+            enter(child, graph, frames, indices, low, active, stack)
+        elif child in active:
+            low[node] = min(low[node], indices[child])
+        if child is not None:
+            continue
+        frames.pop()
+        if low[node] == indices[node]:
+            groups.append(drain_component(node, stack, active))
+        if frames:
+            parent = frames[-1][0]
+            low[parent] = min(low[parent], low[node])
+
+
+def drain_component(node, stack, active):
+    group = []
+    while True:
+        member = stack.pop()
+        active.remove(member)
+        group.append(member)
+        if member == node:
+            return sorted(group)
 
 
 def report_cycles(graph):
