@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { HOME_MATRIX, BASE } from '../support/home-css-states.mjs'
 import { transplant, compareStyles, styleSnapshot } from '../support/home-css-parity.mjs'
 import { DEAD } from '../support/home-css-census.mjs'
@@ -105,7 +105,7 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
         return { selector, ink: style.color, fill: style.backgroundColor, ratio: (Math.max(ink, fill) + .05) / (Math.min(ink, fill) + .05) }
       })
     })
-    await test.info().attach('white-on-fill-contrast.json', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+    await writeFile(test.info().outputPath('white-on-fill-contrast.json'), JSON.stringify(measurements, null, 2))
     for (const m of measurements) { expect(m.ink).toBe('rgb(255, 255, 255)'); expect(m.ratio).toBeGreaterThan(1) }
   } finally { await pair.close() }
 })
@@ -114,7 +114,7 @@ for (const theme of ['dark', 'light']) test(`hover styles match the design: ${th
   test.setTimeout(240_000)
   const { census, ownsBuildLine } = await import('../support/home-css-census.mjs')
   const covered = new Set()
-  for (const state of [{}, { query: 'view=list' }, { interaction: 'command' }, { interaction: 'nq' }, { interaction: 'filter' }, { interaction: 'usage' }, { interaction: 'tree' }]) {
+  for (const state of [{}, { query: 'view=list' }, { query: 'span=30' }, { query: 'live=min' }, { interaction: 'command' }, { interaction: 'nq' }, { interaction: 'filter' }, { interaction: 'usage' }, { interaction: 'tree' }]) {
     const pair = await transplant(browser, { ...BASE, theme, ...state })
     try {
       const rules = (await census(pair.design)).filter(r => r.selector && (r.source !== 'C' || ownsBuildLine(r.line)))
@@ -126,7 +126,21 @@ for (const theme of ['dark', 'light']) test(`hover styles match the design: ${th
         const candidates = pair.design.locator(target)
         for (let i = 0; i < await candidates.count(); i++) {
           if (!await candidates.nth(i).isVisible()) continue
-          for (const page of [pair.design, pair.product]) await page.locator(target).nth(i).hover({ force: true })
+          const subject = m.selector.split(':hover')[0]
+          for (const page of [pair.design, pair.product]) {
+            const handle = await page.locator(target).nth(i).evaluateHandle((e, selector) => e.closest(selector) ?? (e.previousElementSibling?.matches(selector) ? e.previousElementSibling : null), subject)
+            const element = handle.asElement()
+            expect(element, `hover subject missing: ${m.selector}`).not.toBeNull()
+            const point = await element.evaluate(e => {
+              if (!(e instanceof SVGPathElement)) return null
+              const p = e.getPointAtLength(e.getTotalLength() / 2).matrixTransform(e.getScreenCTM())
+              return { x: p.x, y: p.y }
+            })
+            if (point) await page.mouse.move(point.x, point.y)
+            else await element.hover({ force: true })
+            expect(await element.evaluate(e => e.matches(':hover')), `hover did not activate: ${m.selector}`).toBe(true)
+            await handle.dispose()
+          }
           // Finish hover transitions at the same endpoint; keep declared timings observable.
           for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish() }))
           await compareStyles(pair, target, i)
@@ -137,7 +151,7 @@ for (const theme of ['dark', 'light']) test(`hover styles match the design: ${th
     } finally { await pair.close() }
   }
   expect(covered.size, 'hover exercise had no targets').toBeGreaterThan(10)
-  await test.info().attach('hover-coverage.json', { body: JSON.stringify([...covered], null, 2), contentType: 'application/json' })
+  await writeFile(test.info().outputPath('hover-coverage.json'), JSON.stringify([...covered], null, 2))
 })
 
 
