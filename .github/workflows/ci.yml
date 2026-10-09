@@ -684,8 +684,8 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
         run: npm run verify:failure-artifacts
-      - name: Upload browser failure evidence
-        if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
+      - name: Upload browser evidence
+        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-harness-artifacts
