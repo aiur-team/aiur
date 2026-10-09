@@ -1,8 +1,8 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
+defmodule Aiur.Projections.UnitsRow.Sources do
   @moduledoc false
 
   alias Aiur.{Issue, PollCadence, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.UnitsRow.Value
+  alias Aiur.Projections.UnitsRow.Value
 
   # Two effective poll intervals: an idle Orchestrator only republishes on a
   # poll tick, so a retained fleet view is not "genuinely old" until two ticks
