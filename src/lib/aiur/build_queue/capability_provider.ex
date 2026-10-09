@@ -17,16 +17,17 @@ defmodule Aiur.BuildQueue.CapabilityProvider do
     :exit, _reason -> unknown()
   end
 
-  defp queue_capability(status) do
-    case status do
-      :running -> %{state: :available}
-      :disabled -> %{state: :unavailable, reason: :disabled}
-      :unsupported_tracker -> %{state: :unavailable, reason: :unsupported_tracker}
-      :store_unavailable -> %{state: :unavailable, reason: :store_unavailable}
-      :writes_paused -> %{state: :degraded, reason: :writes_paused}
-      _ -> @unknown
-    end
-  end
+  # A map lookup keeps the unknown fallback for an unrecognised status reply,
+  # which dialyzer would reject as an unreachable case clause.
+  @queue_states %{
+    running: %{state: :available},
+    disabled: %{state: :unavailable, reason: :disabled},
+    unsupported_tracker: %{state: :unavailable, reason: :unsupported_tracker},
+    store_unavailable: %{state: :unavailable, reason: :store_unavailable},
+    writes_paused: %{state: :degraded, reason: :writes_paused}
+  }
+
+  defp queue_capability(status), do: Map.get(@queue_states, status, @unknown)
 
   defp source_capability(%{state: state}) when state in [:available, :degraded] do
     case Aiur.BuildQueue.show().build_queue.build_order_source do
