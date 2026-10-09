@@ -329,7 +329,15 @@ system runs only when a page opens or a degradation needs a re-list.
 | Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, resolving promoted members by issue number across roots. Successful batches are retained across budget-limited cycles; unfetched members keep their previous state and source health stays incomplete. Moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-Build-history catch-up has a local admission upper bound of **131 points/page** (13,100 connection nodes: 100 issues, 3,000 labels, and 10,000 blockers). Each boot or backfill-completion run reads **1–5 pages** when eligible, or zero while backfill is incomplete; signal recovery allows at most **5 pages/hour**. That is at most **655 locally estimated points/run or recovery hour**, with no periodic catch-up. For B eligible boots in a day, the conservative upper bound is **655 × (B + 24) local estimated points/day**, including at most 24 signal runs. [GitHub’s connection formula](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api#predicting-the-point-value-of-a-query) predicts about **2 actual points/page** for this shape (one issues connection plus 100 label and 100 blocker connections: round(201/100)); this is a prediction, not a live receipt. The transport bills the returned `rateLimit.cost` to `build_history_catch_up`; actual first-boot pages and cost still require running-daemon evidence.
+Build-history catch-up has a local admission bound of **131 points/page**: 13,100 connection nodes (100 issues, 3,000 labels, and 10,000 blockers).
+
+Each eligible boot or backfill-completion run reads **1–5 pages**; incomplete backfills read none. Recovery signals permit at most **5 pages/hour**. The bound is **655 locally estimated points/run or recovery hour**.
+
+For B eligible boots/day, the conservative bound is **655 × (B + 24) local estimated points/day**, including at most 24 signal runs. Catch-up adds no periodic polling.
+
+[GitHub’s connection formula](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api#predicting-the-point-value-of-a-query) predicts about **2 points/page**: one issues connection plus 100 label and 100 blocker connections, round(201/100).
+
+This is a prediction, not a live receipt. Transport bills returned `rateLimit.cost` to `build_history_catch_up`. Actual first-boot pages and cost still require running-daemon evidence.
 
 The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
 moment a delivery deposits the changed issue; the sweep's only other

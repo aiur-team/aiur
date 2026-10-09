@@ -123,6 +123,14 @@ defmodule Aiur.BuildOrder.History.CatchUpTest do
       assert result.watermark == nil
     end
 
+    # Existing-behavior guard: cursor tracking must still reject repeated cursors.
+    loop = CatchUp.run("acme/widgets", @t, opts(fn _, _, _, _, _ -> page([issue_node()], true, "repeated") end))
+    assert loop.status == :failed
+    assert loop.reason == :invalid_catch_up_cursor
+    assert loop.pages == 2
+    assert loop.events == []
+    assert loop.watermark == nil
+
     result = CatchUp.run("acme/widgets", @t, token_fun: fn -> {:error, :no_token} end)
     assert result.status == :failed
     assert result.reason == :no_token

@@ -36,7 +36,7 @@ defmodule Aiur.BuildOrder.History.CatchUp do
     variables = %{"owner" => owner, "name" => name, "since" => DateTime.to_iso8601(since), "after" => continuation["after"]}
 
     case Keyword.get(opts, :token_fun, &Transport.require_token/0).() do
-      {:ok, token} -> pages(%{repo: repo, variables: variables, token: token, opts: opts, started: now, events: [], count: 0, cursors: MapSet.new()})
+      {:ok, token} -> pages(%{repo: repo, variables: variables, token: token, opts: opts, started: now, events: [], count: 0, cursors: []})
       {:error, reason} -> result(:failed, now, reason, 0, nil, [])
     end
   end
@@ -78,7 +78,7 @@ defmodule Aiur.BuildOrder.History.CatchUp do
       Enum.any?(normalized, &match?({:error, _}, &1)) ->
         result(:failed, started, :invalid_catch_up_node, count, nil, [])
 
-      more and (nodes == [] or not is_binary(cursor) or MapSet.member?(cursors, cursor)) ->
+      more and (nodes == [] or not is_binary(cursor) or Enum.member?(cursors, cursor)) ->
         result(:failed, started, :invalid_catch_up_cursor, count, nil, [])
 
       true ->
@@ -98,7 +98,7 @@ defmodule Aiur.BuildOrder.History.CatchUp do
   end
 
   defp next_page(true, cursor, context),
-    do: pages(%{context | variables: %{context.variables | "after" => cursor}, cursors: MapSet.put(context.cursors, cursor)})
+    do: pages(%{context | variables: %{context.variables | "after" => cursor}, cursors: [cursor | context.cursors]})
 
   defp result(status, at, reason, pages, watermark, events), do: %{status: status, at: at, reason: reason, pages: pages, watermark: watermark, events: events}
 end
