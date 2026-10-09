@@ -11,7 +11,8 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
     def open_issue_labels(_age) do
       Agent.get(__MODULE__, fn s ->
         labels = %{"1" => %{labels: ["agent:queued"]}}
-        if s.available, do: {:ok, if(s.open, do: Map.put(labels, "2", %{labels: []}), else: labels), s.now}, else: {:error, :offline}
+        labels = if s.open, do: Map.put(labels, "2", %{labels: []}), else: labels
+        if s.available, do: {:ok, labels, s.now}, else: {:error, :offline}
       end)
     end
 
