@@ -36,6 +36,11 @@ defmodule Aiur.Orchestrator.DispatchChainOutcomeTest do
     after_first = apply_next_task_result(pending)
     assert TrackerTasks.running?(after_first, {:dispatch, :batch_yield}), "a deep mailbox must yield, not end the batch"
 
+    # A poll tick while the batch yields must wait for it, not start a second chain.
+    {:noreply, polled} = Dispatcher.run_poll_cycle(after_first)
+    assert polled.tracker_tasks == after_first.tracker_tasks, "a yielding batch must block a concurrent poll cycle"
+    Process.cancel_timer(polled.tick_timer_ref)
+
     # The owner drains its mailbox while the yield task runs.
     for _ <- 1..100, do: receive(do: (:webhook_burst_3683 -> :ok))
 
