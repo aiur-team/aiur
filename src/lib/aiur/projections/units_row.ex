@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow do
+defmodule Aiur.Projections.UnitsRow do
   @moduledoc """
   Pure, provenance-rich projection for one current-run Units snapshot.
 
@@ -9,8 +9,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow do
   key, never a display identifier.
   """
 
+  alias Aiur.Projections.UnitsRow.{Projection, Sources}
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.UnitsRow.{Projection, Sources}
 
   @version 1
 

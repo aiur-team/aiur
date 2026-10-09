@@ -1,7 +1,7 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow.ResumeReason do
+defmodule Aiur.Projections.UnitsRow.ResumeReason do
   @moduledoc false
 
-  alias AiurWeb.OperatorControlCenter.UnitsRow.Value
+  alias Aiur.Projections.UnitsRow.Value
 
   @spec project(map() | term(), term()) :: map() | nil
   def project(status_row, pause) do

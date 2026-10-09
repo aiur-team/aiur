@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow.URL do
+defmodule Aiur.Projections.UnitsRow.URL do
   @moduledoc false
 
   alias Aiur.TrackerIdentity

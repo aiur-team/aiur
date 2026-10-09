@@ -1,7 +1,7 @@
-defmodule Aiur.Orchestrator.PRHealthScannerTest do
+defmodule Aiur.PRLifecycle.HealthScannerTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.PRHealthScanner
+  alias Aiur.PRLifecycle.HealthScanner
 
   @now ~U[2026-08-22 22:00:00Z]
   @stale_hours 24
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       unmergeable = pr(2180, %{"user" => %{"login" => "its-everdred"}})
       agent_pr = pr(2181, %{"user" => %{"login" => "its-applekid"}})
 
-      {flagged, _stale} = PRHealthScanner.evaluate([unmergeable, agent_pr], @stale_hours, @now, ["its-everdred"])
+      {flagged, _stale} = HealthScanner.evaluate([unmergeable, agent_pr], @stale_hours, @now, ["its-everdred"])
 
       assert [^unmergeable] = flagged
     end
@@ -55,7 +55,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       recent = pr(2148, %{"created_at" => "2026-08-22T21:00:00Z"})
       draft = pr(2149, %{"created_at" => "2026-08-18T00:00:00Z", "draft" => true})
 
-      {_unmergeable, stale} = PRHealthScanner.evaluate([old, recent, draft], @stale_hours, @now, ["its-everdred"])
+      {_unmergeable, stale} = HealthScanner.evaluate([old, recent, draft], @stale_hours, @now, ["its-everdred"])
 
       assert [^old] = stale
     end
@@ -63,7 +63,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
     test "flags a PR exactly at the threshold" do
       boundary = pr(2150, %{"created_at" => "2026-08-21T22:00:00Z"})
 
-      {_unmergeable, stale} = PRHealthScanner.evaluate([boundary], @stale_hours, @now, [])
+      {_unmergeable, stale} = HealthScanner.evaluate([boundary], @stale_hours, @now, [])
 
       assert [^boundary] = stale
     end
@@ -71,7 +71,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
     test "does not flag a PR just under the threshold" do
       under = pr(2151, %{"created_at" => "2026-08-21T22:00:01Z"})
 
-      {_unmergeable, stale} = PRHealthScanner.evaluate([under], @stale_hours, @now, [])
+      {_unmergeable, stale} = HealthScanner.evaluate([under], @stale_hours, @now, [])
 
       assert stale == []
     end
@@ -81,7 +81,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       numbered_stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
 
       {unmergeable, stale} =
-        PRHealthScanner.evaluate(
+        HealthScanner.evaluate(
           [numbered_unmergeable, numbered_stale, %{"state" => "open"}, %{"number" => nil, "state" => "open"}],
           @stale_hours,
           @now,
@@ -114,12 +114,12 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      state = PRHealthScanner.tick(state)
+      state = HealthScanner.tick(state)
       assert_receive {:alert, "system.pr_health.unmergeable_author"}, 1000
       assert_receive {:comment, :ok}, 1000
 
       # Second tick: deduped — no new alert or comment.
-      PRHealthScanner.tick(state)
+      HealthScanner.tick(state)
       refute_receive {:alert, _}, 100
       refute_receive {:comment, _}, 100
       assert :atomics.get(alerts, 1) == 1
@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
 
       state = base_state(open_prs_fetcher: fn -> {:ok, [agent_pr]} end)
 
-      state = PRHealthScanner.tick(state)
+      state = HealthScanner.tick(state)
       assert state.alerted == MapSet.new()
       assert state.commented == MapSet.new()
     end
@@ -153,10 +153,10 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      state = PRHealthScanner.tick(state)
+      state = HealthScanner.tick(state)
       assert_receive {:alert, "system.pr_health.stale_unreviewed"}, 1000
 
-      PRHealthScanner.tick(state)
+      HealthScanner.tick(state)
       refute_receive {:alert, _}, 100
       assert :atomics.get(alerts, 1) == 1
     end
@@ -174,7 +174,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      state = PRHealthScanner.tick(state)
+      state = HealthScanner.tick(state)
       refute_receive {:alert, _}, 100
       assert state.alerted == MapSet.new()
     end
@@ -191,7 +191,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      state = PRHealthScanner.tick(state)
+      state = HealthScanner.tick(state)
       refute_receive {:alert, _}, 100
       assert state.alerted == MapSet.new()
     end
@@ -213,14 +213,14 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      state = PRHealthScanner.tick(state)
+      state = HealthScanner.tick(state)
       assert :atomics.get(reviews_reads, 1) == 1
       assert MapSet.member?(state.reviewed, 2147)
       refute_receive {:alert, _}, 100
 
       # The candidate is still open and still stale, but the review is known —
       # no second reviews read.
-      PRHealthScanner.tick(state)
+      HealthScanner.tick(state)
       assert :atomics.get(reviews_reads, 1) == 1
     end
 
@@ -237,7 +237,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      PRHealthScanner.tick(state)
+      HealthScanner.tick(state)
       assert_receive {:alert_opts, opts}, 1000
 
       # stale.created_at is 2026-08-18T00:00:00Z and the injected now is
@@ -252,7 +252,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
 
       {:ok, state} =
-        PRHealthScanner.init(
+        HealthScanner.init(
           interval_ms: 60_000,
           stale_hours: 24,
           open_prs_fetcher: fn -> {:ok, [stale]} end,
@@ -271,7 +271,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       assert %{interval_ms: 60_000, stale_hours: 24, alerted: alerted} = state
       assert alerted == MapSet.new()
 
-      PRHealthScanner.tick(state)
+      HealthScanner.tick(state)
       assert_receive {:alert, "system.pr_health.stale_unreviewed"}, 1000
     end
   end
@@ -289,7 +289,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           end
         )
 
-      result = PRHealthScanner.tick(state)
+      result = HealthScanner.tick(state)
 
       # The scan must not touch GitHub when disabled.
       assert :atomics.get(fetched, 1) == 0
@@ -308,13 +308,13 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
           reviews_fetcher: fn _ -> {:ok, []} end,
           alert_fun: fn _, _ -> :ok end
         )
-        |> PRHealthScanner.tick()
+        |> HealthScanner.tick()
 
       assert MapSet.member?(state.alerted, {:stale_unreviewed, 2147})
 
       # The PR is merged/closed on the next scan; its dedup entry is forgotten.
       closed_state = %{state | open_prs_fetcher: fn -> {:ok, []} end}
-      pruned = PRHealthScanner.tick(closed_state)
+      pruned = HealthScanner.tick(closed_state)
 
       refute MapSet.member?(pruned.alerted, {:stale_unreviewed, 2147})
     end
