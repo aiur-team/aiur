@@ -11,10 +11,10 @@ defmodule Aiur.StartTrigger.ProgressStore do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
-  @spec lookup(String.t()) :: row() | nil
-  def lookup(id) do
+  @spec lookup(String.t(), integer()) :: row() | nil
+  def lookup(id, now_ms \\ System.system_time(:millisecond)) do
     case :ets.lookup(@table, id) do
-      [{^id, %{stage: nil, observed_at_ms: at} = row}] -> if System.system_time(:millisecond) - at <= @empty_retention_ms, do: row
+      [{^id, %{stage: nil, observed_at_ms: at} = row}] -> if now_ms - at <= @empty_retention_ms, do: row
       [{^id, row}] -> row
       [] -> nil
     end

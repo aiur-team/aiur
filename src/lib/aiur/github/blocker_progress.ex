@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.BlockerProgress do
   @moduledoc false
-  alias Aiur.GitHub.{HumanReviewGate, PullRequests, ResourceStore, Transport}
+  alias Aiur.GitHub.{HumanReviewGate, ResourceStore, Transport}
   alias Aiur.StartTrigger.ProgressStore
 
   @spec approval(String.t(), ProgressStore.row() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
@@ -14,15 +14,9 @@ defmodule Aiur.GitHub.BlockerProgress do
   end
 
   def approval(id, _row, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, %{"number" => number, "draft" => false} = pr} <- PullRequests.fetch_open_pull_request_for_branch(id, opts),
-         true <- same_repo?(pr, "#{owner}/#{repo}"),
-         {:ok, approved?} <- HumanReviewGate.approved_pull_request?(number, opts) do
-      {:ok, %{pr_number: number, head_sha: get_in(pr, ["head", "sha"]), stage: if(approved?, do: :pr_approved, else: :pr_opened), source: :review}}
-    else
-      {:ok, _absent_or_draft} -> {:ok, nil}
-      false -> {:ok, nil}
-      {:error, _reason} = error -> error
+    case identity(id) do
+      nil -> {:ok, nil}
+      row -> approval(id, row, opts)
     end
   end
 

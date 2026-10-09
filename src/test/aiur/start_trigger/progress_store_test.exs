@@ -38,6 +38,16 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     assert %{stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12")
   end
 
+  test "stage-less rows remain visible at 24 hours and expire one millisecond later" do
+    start(clock: fn -> 0 end)
+    ProgressStore.record("12", %{pr_number: 99, closed_unmerged?: true})
+    ProgressStore.record("13", %{pr_number: 100, stage: :pr_ci_green})
+    flush()
+    assert %{pr_number: 99, stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12", 86_400_000)
+    assert ProgressStore.lookup("12", 86_400_001) == nil
+    assert %{pr_number: 100, stage: :pr_ci_green} = ProgressStore.lookup("13", 86_400_001)
+  end
+
   test "missing owner returns no row and writes do not fail writers" do
     assert ProgressStore.lookup("12") == nil
     assert :ok = ProgressStore.record("12", %{pr_number: 99, stage: :pr_opened})

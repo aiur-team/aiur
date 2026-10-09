@@ -738,7 +738,7 @@ context, not an equivalent baseline for this narrower measure.
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
 
-Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity needs a branch lookup. No new CI polling or saving is claimed.
+Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity waits for held PR evidence. No new CI polling or saving is claimed.
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 

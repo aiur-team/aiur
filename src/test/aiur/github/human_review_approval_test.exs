@@ -54,28 +54,54 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
     assert_received {:requested, ~s("reviews-v1")}
   end
 
-  test "unknown blocker identity discovers the canonical PR before reading approval" do
-    request = fn req ->
-      if String.contains?(req.url, "/reviews"),
-        do: {:ok, %{status: 200, body: [review("owner", "APPROVED")]}},
-        else: {:ok, %{status: 200, body: [%{"number" => 88, "draft" => false, "head" => %{"ref" => "aiur/12-progress", "sha" => "head", "repo" => %{"full_name" => "owner/repo"}}}]}}
-    end
-
-    assert {:ok, %{pr_number: 88, stage: :pr_approved, head_sha: "head"}} = BlockerProgress.approval("12", nil, request_fun: request)
-  end
-
-  test "a fork branch cannot supply watched approval and triggers no review read" do
+  test "unknown blocker identity uses the held canonical PR and reads only reviews" do
+    hold_pr("owner/repo", false)
     parent = self()
 
     request = fn req ->
       send(parent, {:request, req.url})
-      {:ok, %{status: 200, body: [%{"number" => 88, "draft" => false, "head" => %{"ref" => "aiur/12-progress", "repo" => %{"full_name" => "fork/repo"}}}]}}
+      {:ok, %{status: 200, body: [review("owner", "APPROVED")]}}
+    end
+
+    assert {:ok, %{pr_number: 88, stage: :pr_approved, head_sha: "head"}} = BlockerProgress.approval("12", nil, request_fun: request)
+    assert_received {:request, url}
+    assert url =~ "/pulls/88/reviews?per_page=100"
+    refute_received {:request, _second}
+  end
+
+  test "missing and draft blocker identity make no remote requests on repeated reads" do
+    parent = self()
+
+    request = fn _req ->
+      send(parent, :unexpected_request)
+      {:error, :not_allowed}
+    end
+
+    for _ <- 1..2, do: assert({:ok, nil} == BlockerProgress.approval("12", nil, request_fun: request))
+    hold_pr("owner/repo", true)
+    assert {:ok, nil} = BlockerProgress.approval("12", nil, request_fun: request)
+    refute_received :unexpected_request
+  end
+
+  test "a held fork branch cannot supply watched approval and triggers no remote read" do
+    hold_pr("fork/repo", false)
+    parent = self()
+
+    request = fn _req ->
+      send(parent, :unexpected_request)
+      {:error, :not_allowed}
     end
 
     assert {:ok, nil} = BlockerProgress.approval("12", nil, request_fun: request)
-    assert_received {:request, url}
-    refute url =~ "/reviews"
-    refute_received {:request, _second}
+    refute_received :unexpected_request
+  end
+
+  defp hold_pr(repo, draft?) do
+    key = ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "12")
+
+    ResourceStore.put_resource(key, %{"number" => 88, "state" => "open", "draft" => draft?, "head" => %{"ref" => "aiur/12-progress", "sha" => "head", "repo" => %{"full_name" => repo}}},
+      source: :webhook
+    )
   end
 
   defp approval(reviews) do
