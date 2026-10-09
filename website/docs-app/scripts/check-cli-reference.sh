@@ -4,6 +4,7 @@ set -euo pipefail
 docs_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(cd "$docs_dir/../.." && pwd)"
 engine="$repo_root/packaging/npm/aiur-cli/libexec/aiur-engine.sh"
+queue_handler="$repo_root/packaging/npm/aiur-cli/libexec/aiur-queue.sh"
 parser="$repo_root/src/lib/aiur/cli.ex"
 dev_shim="$repo_root/scripts/aiurdev"
 page="$docs_dir/reference/cli.md"
@@ -41,7 +42,7 @@ source_flags="$(
       in_command && in_case && /^[[:space:]]*esac/ { in_case = 0 }
       in_command && /= "--[a-z0-9-]*"/ { print }
       in_command && /^}/ { in_command = 0; in_case = 0 }
-    ' "$engine"
+    ' "$engine" "$queue_handler"
 
     # The dev-only surface is the shim's own flag parser: the force-rebuild
     # arms and the bounded test-harness parser, never mix-reset internals.

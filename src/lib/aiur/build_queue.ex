@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue do
   @moduledoc "Supervised build queue reconciliation and local ordered-list commands."
 
-  alias Aiur.BuildQueue.Server
+  alias Aiur.BuildQueue.{ReadModel, Server}
 
   @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused
 
@@ -14,12 +14,12 @@ defmodule Aiur.BuildQueue do
     if Process.whereis(Server), do: GenServer.call(Server, :status), else: absent_status()
   end
 
-  @doc "Returns current projections and unexecuted actions; no tracker labels are written."
-  @spec show(GenServer.server()) :: {:ok, map()} | {:error, status()}
+  @doc "Returns the version 1 public read model from held projections; no upstream requests or label writes."
+  @spec show(GenServer.server()) :: map()
   def show(server \\ Server) do
-    GenServer.call(server, :show)
+    GenServer.call(server, :read_model)
   catch
-    :exit, {:noproc, _} -> {:error, :disabled}
+    :exit, {:noproc, _} -> ReadModel.unavailable(absent_status())
   end
 
   @spec reconcile_now() :: :ok | {:error, status()}

@@ -70,6 +70,12 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   @spec snapshot(map()) :: {:fresh | :unknown, map()}
   def snapshot(state) do
+    {freshness, observations, _observed_at_ms} = observed_snapshot(state)
+    {freshness, observations}
+  end
+
+  @spec observed_snapshot(map()) :: {:fresh | :unknown, map(), integer() | nil}
+  def observed_snapshot(state) do
     now = state.clock.()
     max_age = Settings.observation_max_age_ms(state.settings)
     pending = if state.document, do: Enum.filter(state.document.intents, &is_nil(&1.outcome)), else: []
@@ -82,10 +88,10 @@ defmodule Aiur.BuildQueue.Reconcile do
             {id, %Observation{issue_id: id, open?: true, labels: row.labels, state_reason: nil, pr: nil, observed_at_ms: observed_at_ms}}
           end)
 
-        {:fresh, observations}
+        {:fresh, observations, observed_at_ms}
 
       _ ->
-        {:unknown, %{}}
+        {:unknown, %{}, nil}
     end
   end
 end

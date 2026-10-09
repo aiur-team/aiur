@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, ListCommands, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, ListCommands, ReadModel, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -36,6 +36,8 @@ defmodule Aiur.BuildQueue.Server do
       freshness: :unknown,
       document: nil,
       projections: [],
+      observations: %{},
+      observed_at_ms: nil,
       actions: [],
       holds: MapSet.new(),
       published_pr_versions: %{},
@@ -49,6 +51,7 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   @impl true
+  def handle_call(:read_model, _from, state), do: {:reply, ReadModel.build(state), state}
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
   def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :phase, :freshness, :projections, :actions, :reconciles])}, state}
 
@@ -191,8 +194,8 @@ defmodule Aiur.BuildQueue.Server do
   defp request(state), do: state
 
   defp reconcile(state) do
-    {freshness, observations} = Reconcile.snapshot(state)
-    state = Recovery.resolve(%{state | freshness: freshness}, observations)
+    {freshness, observations, observed_at_ms} = Reconcile.observed_snapshot(state)
+    state = Recovery.resolve(%{state | freshness: freshness, observed_at_ms: observed_at_ms}, observations)
     state |> replay_list_markers(observations) |> plan(observations)
   end
 
@@ -223,7 +226,7 @@ defmodule Aiur.BuildQueue.Server do
     ages = Withdrawal.ages(holds, state.hold_ages, state.clock.(), state.settings.build_queue.reconcile_interval_seconds)
     Reconcile.write_hints(projections, holds, state.document)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
-    state = %{state | projections: projections, actions: state.actions, holds: holds, hold_ages: ages, reconciles: state.reconciles + 1}
+    state = %{state | projections: projections, observations: observations, actions: state.actions, holds: holds, hold_ages: ages, reconciles: state.reconciles + 1}
     if Enum.any?(actions, &match?({:dequeue, _}, &1)), do: request(state), else: state
   end
 

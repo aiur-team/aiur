@@ -82,7 +82,7 @@ defmodule Aiur.BuildQueue.RecoveryTest do
     assert calls() == [{:promote, "1"}]
     assert {:ok, %{intents: [%{outcome: :ok}], items: [%{promoted_at: promoted}]}} = Store.load()
     assert promoted == DateTime.from_unix!(1_000, :millisecond)
-    assert {:ok, %{projections: [%{state: :promoted}]}} = Aiur.BuildQueue.show()
+    assert {:ok, %{projections: [%{state: :promoted}]}} = GenServer.call(Aiur.BuildQueue.Server, :show)
   end
 
   test "unfinished intent without todo is recorded not applied and promotes once" do
@@ -98,21 +98,21 @@ defmodule Aiur.BuildQueue.RecoveryTest do
     :ok = Store.save(document([intent(:promote)]))
     pid = server()
     reconcile(pid)
-    assert {:ok, %{status: :running, phase: :awaiting_first_observation, freshness: :unknown}} = Aiur.BuildQueue.show()
+    assert {:ok, %{status: :running, phase: :awaiting_first_observation, freshness: :unknown}} = GenServer.call(Aiur.BuildQueue.Server, :show)
     assert GenServer.call(pid, {:write, :mark, "1"}) == {:error, :awaiting_first_observation}
     assert calls() == []
     assert {:ok, %{intents: [%{outcome: nil}]}} = Store.load()
     update(:snapshot, {:ok, %{"1" => %{labels: ["agent:queued", "agent:todo"]}}, -1_000_000})
     trigger(pid)
-    assert {:ok, %{phase: :awaiting_first_observation, freshness: :unknown}} = Aiur.BuildQueue.show()
+    assert {:ok, %{phase: :awaiting_first_observation, freshness: :unknown}} = GenServer.call(Aiur.BuildQueue.Server, :show)
     assert calls() == []
     update(:snapshot, {:ok, %{"1" => %{labels: ["agent:queued", "agent:todo"]}}, 998})
     trigger(pid)
-    assert {:ok, %{phase: :awaiting_first_observation, freshness: :unknown}} = Aiur.BuildQueue.show()
+    assert {:ok, %{phase: :awaiting_first_observation, freshness: :unknown}} = GenServer.call(Aiur.BuildQueue.Server, :show)
     assert {:ok, %{intents: [%{outcome: nil}]}} = Store.load()
     snapshot(%{"1" => ["agent:queued", "agent:todo"]})
     trigger(pid)
-    assert {:ok, %{phase: :ready, freshness: :fresh}} = Aiur.BuildQueue.show()
+    assert {:ok, %{phase: :ready, freshness: :fresh}} = GenServer.call(Aiur.BuildQueue.Server, :show)
     assert {:ok, %{intents: [%{outcome: :ok}]}} = Store.load()
   end
 

@@ -114,7 +114,7 @@ defmodule Aiur.BuildQueue.ServerTest do
     pid = server(name: Server)
     boot(pid)
     assert Aiur.BuildQueue.status() == :running
-    assert {:ok, %{status: :running}} = Aiur.BuildQueue.show(pid)
+    assert %{status: :running} = Aiur.BuildQueue.show(pid)
     assert Hints.sort_key("1") == {-1, 0}
     assert Hints.sort_key("2") == {0, 1}
     assert Hints.held?("2")
