@@ -104,11 +104,15 @@ defmodule Aiur.CI.FailureDigestTest do
 
   test "routine coverage exit annotations do not hide known-flake-only jobs" do
     identity = "Aiur.ExampleTest :: flaky test"
-    exit_annotation = %{"title" => "", "message" => "coverage partition 1 failed with status 2; full log follows in the next step", "annotation_level" => "failure"}
-    assert {:ok, digest} = build([run(1)], %{1 => [exit_annotation, annotation(identity)]}, known: identity)
+    fixture = Path.expand("../../fixtures/ci/coverage-exit-annotations.json", __DIR__) |> File.read!() |> Jason.decode!()
+    exit_annotations = fixture["annotations"]
+    assert {:ok, digest} = build([run(1)], %{1 => exit_annotations ++ [annotation(identity)]}, known: identity)
     assert digest.flake_only
     assert {:ok, clean} = build([], %{})
     assert digest.signature == clean.signature
+    runner_exit = %{"annotation_level" => "failure", "message" => "Process completed with exit code 2."}
+    assert {:ok, standalone} = build([run(2)], %{2 => [runner_exit, annotation(identity)]}, known: identity)
+    refute standalone.flake_only
   end
 
   test "timeouts and cancelled checks beside known tests are never flake-only" do

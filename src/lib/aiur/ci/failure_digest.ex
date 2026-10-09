@@ -94,15 +94,24 @@ defmodule Aiur.CI.FailureDigest do
     }
   end
 
-  defp other_failures?(annotations), do: Enum.any?(annotations || [], &substantive_failure?/1)
+  defp other_failures?(annotations) do
+    coverage_exit? = Enum.any?(annotations || [], &routine_coverage_exit?/1)
+    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?))
+  end
 
-  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation) do
-    # The coverage wrapper repeats the exit status; timeout and unfamiliar errors still count.
-    routine_exit = is_binary(message) and Regex.match?(~r/\Acoverage partition [1-4] failed with status 2; full log follows in the next step\z/, message)
+  defp routine_coverage_exit?(%{"annotation_level" => "failure", "message" => message}) when is_binary(message),
+    do: Regex.match?(~r/\Acoverage partition [1-4] failed with status 2; full log follows in the next step\z/, message)
+
+  defp routine_coverage_exit?(_), do: false
+
+  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?) do
+    # GitHub adds its own exit annotation; ignore it only beside the matching coverage wrapper.
+    routine_exit = routine_coverage_exit?(annotation) or (coverage_exit? and message == "Process completed with exit code 2.")
     annotation["title"] != "aiur-test-failure" and not routine_exit
   end
 
-  defp substantive_failure?(_), do: false
+  defp substantive_failure?(%{"annotation_level" => "failure"}, _), do: true
+  defp substantive_failure?(_, _), do: false
 
   defp parse(%{"title" => "aiur-test-failure", "message" => "truncated :: " <> _}), do: [:truncated]
 
