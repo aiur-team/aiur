@@ -564,6 +564,7 @@ defmodule Aiur.ExtensionsTest do
     snapshot = update_in(static_snapshot(), [:retrying], fn [retrying] -> [Map.put(retrying, :last_failure_at, last_failure_at)] end)
 
     orchestrator_name = Module.concat(__MODULE__, :ObservabilityApiOrchestrator)
+
     {:ok, _pid} =
       StaticOrchestrator.start_link(
         name: orchestrator_name,
@@ -581,6 +582,7 @@ defmodule Aiur.ExtensionsTest do
     state_payload = json_response(conn, 200)
     assert_occ_sections(state_payload)
     assert %{"daemon_started_at" => nil, "observations" => nil, "snapshot_freshness" => %{"status" => "current"}} = state_payload
+
     assert without_occ_sections(state_payload) == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
@@ -1889,17 +1891,7 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp without_occ_sections(payload) do
-    Map.drop(payload, [
-      "decision_history",
-      "recent_merges",
-      "analytics",
-      "capacity",
-      "capacity_hold",
-      "dispatch_hold",
-      "daemon_started_at",
-      "observations",
-      "snapshot_freshness"
-    ])
+    Map.drop(payload, ~w(decision_history recent_merges analytics capacity capacity_hold dispatch_hold daemon_started_at observations snapshot_freshness))
   end
 
   # Dashboard routes are behind the FinancialDataAccess plug, which challenges
