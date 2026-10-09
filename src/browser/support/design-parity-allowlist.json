@@ -11,5 +11,35 @@
       "date": null,
       "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/plan.md#10-decisions-made-without-the-owner item 5"
     }
+  },
+  {
+    "id": "tkin-reduced-motion",
+    "kind": "motion",
+    "selector": "#tk-modal",
+    "path": "modal.reduce.animation.tkin.*",
+    "property": null,
+    "cells": {},
+    "reason": "Product keeps the global reduced-motion rule; the design animates tkin",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
+    }
+  },
+  {
+    "id": "bd-spin-reduced-motion",
+    "kind": "motion",
+    "selector": ".bd-spin",
+    "path": "loading.spin.reduce.animation.khSpin.*",
+    "property": null,
+    "cells": {},
+    "reason": "Product keeps the global reduced-motion rule; the design keeps its loading spinner running",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
+    }
   }
 ]

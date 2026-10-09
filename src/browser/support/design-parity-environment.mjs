@@ -100,12 +100,18 @@ export async function seedRandom(page) {
   })
 }
 
-export async function waitParityReady(page, phase = 'board', side = 'design') {
+export async function waitParityReady(page, phase = 'board', side = 'design', motion = false) {
   await page.evaluate(() => document.fonts.ready)
   for (const [family] of families) {
     await expect.poll(() => page.evaluate(f => [...document.fonts].some(face => face.family.replace(/["']/g, '') === f && face.status === 'loaded'), family), {
       timeout: 10_000, message: `font not loaded: "${family}"`
     }).toBe(true)
+  }
+  if (motion && phase === 'board') {
+    for (let elapsed = 0; elapsed < 2000; elapsed += 16) {
+      if (await page.locator('#bd-content').count() && !await page.locator('.bd-loading').count()) break
+      await page.clock.runFor(16)
+    }
   }
   if (phase !== 'shell') {
     await expect.poll(() => page.evaluate(({ phase, side }) => phase === 'loading'
@@ -114,17 +120,17 @@ export async function waitParityReady(page, phase = 'board', side = 'design') {
     { phase, side }), { timeout: 10_000, message: `${side} not ready: ${phase === 'board' ? '.bd-loading still present or board not mounted' : 'loading skeleton absent'} after 10 s` }).toBe(true)
   }
   const frames = page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  if (phase === 'loading' && side === 'design') await page.clock.runFor(40)
+  if (motion || (phase === 'loading' && side === 'design')) await page.clock.runFor(40)
   await frames
   checkPage(page)
 }
 
-export async function assertCellState(page, cell) {
+export async function assertCellState(page, cell, expectedTime = FIXTURE_META.now) {
   checkPage(page)
   const state = await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, palette: document.documentElement.dataset.palette,
     zone: Intl.DateTimeFormat().resolvedOptions().timeZone, now: Date.now() }))
   expect(state.theme, 'theme not applied').toBe(cell.theme)
   expect(state.palette, 'palette not applied').toBe(cell.palette)
   expect(state.zone, `time zone ${state.zone}, expected ${FIXTURE_META.tz}`).toBe(FIXTURE_META.tz)
-  expect(state.now, `clock not frozen: Date.now() != ${FIXTURE_META.now}`).toBe(FIXTURE_META.now)
+  expect(state.now, `clock not frozen: Date.now() != ${expectedTime}`).toBe(expectedTime)
 }
