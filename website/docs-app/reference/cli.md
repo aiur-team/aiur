@@ -208,22 +208,18 @@ To recover saved work by hand, run the `restore_commands` of `manifest.json` in 
 
 ## Build history epic commands
 
-These commands read or write **local overrides**, not effective epic assignments or GitHub labels.
+Overrides are local; these commands do not write GitHub labels or report effective epics. Agents use `aiur_set_epic` with daemon-bound identity.
 
-| Command | Purpose |
+| Command | Behavior |
 | --- | --- |
-| `aiur epic set <epic> <ids…> [--source cli\|backfill-agent] [--as <who>] [--json]` | Assign up to 200 tickets atomically to a configured general epic. |
-| `aiur epic clear <ids…> [--as <who>] [--json]` | Remove local overrides; absent overrides are unchanged. |
-| `aiur epic show [<ids…>] [--json]` | Read stored assignments, actor, source, confirmation and write time. |
-| `aiur epic list [--json]` | List configured general epic keys and labels in config order. |
-
-- Actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to the actor; `--source backfill-agent` records an unconfirmed guess.
-- Agents use `aiur_set_epic`, which binds their actor to the acting ticket. The CLI cannot claim an agent identity.
-- Feature epics and `unsorted` are refused. IDs may start with `#`; repeats count once. Identical epic/source/confirmation is unchanged. Changed results include the previous assignment.
-- Unsafe journals are unavailable. A first-write sync failure after rename makes the outcome uncertain; reads/writes remain unavailable until restart.
-- To recover a corrupt journal, move `epic-overrides.json` aside in the instance’s `epic-overrides` state directory and restart. GitHub cannot rebuild local overrides.
-- Removed catalog keys remain stored but ignored. Unreadable config makes `show --json` report `epic_known: null`; writes and `list` fail without defaults.
-- Exit: 0 success, 1 refusal/unavailability, 64 usage, 124 RPC timeout with unknown outcome. Retrying an identical set is safe.
+| `aiur epic set <epic> <ids…> [--source cli\|backfill-agent] [--as <who>] [--json]` | Atomic, up to 200 IDs (optional `#`; duplicates count once). Only configured general epics; feature epics and `unsorted` are refused. |
+| `aiur epic clear <ids…> [--as <who>] [--json]` | Remove overrides; absent entries are unchanged. |
+| `aiur epic show [<ids…>] [--json]` | Stored epic, actor, source, confirmation, time. Removed keys are ignored; unreadable config gives `epic_known: null`. |
+| `aiur epic list [--json]` | Configured keys and labels in order. Config errors refuse writes and list without defaults. |
+| Identity | Actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. |
+| Repeats | Same epic/source/confirmation is unchanged. Changed results and journal retain the previous assignment. |
+| Recovery | Unsafe journals are unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides. First-write sync failure after rename leaves reads/writes unavailable until restart. |
+| Exit codes | 0 success; 1 refusal/unavailability; 64 usage; 124 RPC timeout with unknown outcome. Retrying an identical set is safe. |
 
 ## Dashboard page commands
 
