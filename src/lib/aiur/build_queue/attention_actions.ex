@@ -17,11 +17,16 @@ defmodule Aiur.BuildQueue.AttentionActions do
         :attention_resolve -> Attention.resolve(cause, id, context.store)
       end
 
-    if result != :ok, do: Logger.warning("Build queue attention failed subject=#{inspect(id)} action=#{action}: #{inspect(result)}")
+    subject = if id, do: "issue_id=#{id} issue_identifier=##{id}", else: "scope=system"
+    if result != :ok, do: Logger.warning("Build queue attention failed #{subject} action=#{action}: #{inspect(result)}")
 
     case context.store.load() do
-      {:ok, document} -> %{context | document: document}
-      {:error, _reason} -> %{context | status: :store_unavailable}
+      {:ok, document} ->
+        context = %{context | document: document}
+        if match?({:error, {:store_unavailable, _}}, result), do: %{context | status: :store_unavailable}, else: context
+
+      {:error, _reason} ->
+        %{context | status: :store_unavailable}
     end
   end
 

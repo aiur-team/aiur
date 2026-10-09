@@ -20,6 +20,14 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     def update_issue_state(_id, "todo", expected_state: :none), do: :ok
   end
 
+  defmodule LatchFailStore do
+    def load, do: Store.load()
+
+    def save(document) do
+      if document.latches != [], do: {:error, :disk_full}, else: Store.save(document)
+    end
+  end
+
   setup do
     previous = Application.fetch_env(:aiur, :decision_state_dir)
     root = Aiur.TestSupport.tmp_root!("queue-causes")
@@ -200,6 +208,31 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     assert_received {:event, %{topic: ^topic}}
   end
 
+  test "cold input latch save failure pauses despite a readable store" do
+    change(available: false)
+    pid = server(store: LatchFailStore)
+    reconcile(pid)
+    change(now: 12_000)
+    reconcile(pid)
+    assert GenServer.call(pid, :status) == :store_unavailable
+    topic = "system.queue.attention.store_unavailable"
+    assert_received {:event, %{topic: ^topic}}
+    assert {:ok, %{latches: []}} = Store.load()
+  end
+
+  test "write failure latch save failure pauses despite a readable store" do
+    labels("10", [])
+    pid = server(store: LatchFailStore)
+    reconcile(pid)
+    change(write_result: {:error, :offline})
+    assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
+    assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
+    assert GenServer.call(pid, :status) == :store_unavailable
+    topic = "system.queue.attention.store_unavailable"
+    assert_received {:event, %{topic: ^topic}}
+    assert {:ok, %{latches: []}} = Store.load()
+  end
+
   test "five write failures emit once and the next successful write resolves" do
     pid = server()
     reconcile(pid)
@@ -219,7 +252,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     refute Enum.any?(doc.latches, &(&1.key == {:write_failed, "11"}))
   end
 
-  defp server do
+  defp server(opts \\ []) do
     owner = self()
     settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true, observation_max_age_seconds: 1}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
 
@@ -227,6 +260,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
       start_supervised!(
         {Server,
          name: nil,
+         store: Keyword.get(opts, :store, Store),
          tracker: Boundary,
          claim_probe: Boundary,
          settings: {:ok, settings},

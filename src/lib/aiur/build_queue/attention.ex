@@ -57,11 +57,18 @@ defmodule Aiur.BuildQueue.Attention do
     {cause, subject} = latch.key
 
     with :ok <- emit(kind(cause), subject, %{}, true) do
-      store.save(%{document | latches: Enum.reject(document.latches, &(&1.key == latch.key))})
+      save_store(store, %{document | latches: Enum.reject(document.latches, &(&1.key == latch.key))})
     end
   end
 
-  defp save_latch(document, latch, store), do: store.save(%{document | latches: [latch | Enum.reject(document.latches, &(&1.key == latch.key))]})
+  defp save_latch(document, latch, store), do: save_store(store, %{document | latches: [latch | Enum.reject(document.latches, &(&1.key == latch.key))]})
+
+  defp save_store(store, document) do
+    case store.save(document) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:store_unavailable, reason}}
+    end
+  end
 
   @spec transient_store(boolean()) :: :ok | {:error, term()}
   def transient_store(resolved?), do: emit(:store_unavailable, nil, %{}, resolved?)
