@@ -335,6 +335,8 @@ test('harness self-check: pixel frames retain paused CSS animation time', async 
       const animation = document.querySelector('#probe').getAnimations()[0]
       return { time: animation.currentTime, state: animation.playState, opacity: getComputedStyle(document.querySelector('#probe')).opacity, scrollTop: document.querySelector('#bd-vp').scrollTop }
     })).toEqual({ time: 500, state: 'paused', opacity: '0.6', scrollTop: 0 })
+    await pages[1].locator('#probe').evaluate(el => { el.style.background = 'blue' })
+    await expect(compareParityPixels(pair, { name: 'different-paused-probe', region: '#probe', preserveAnimations: true })).rejects.toThrow()
   } finally { await context.close() }
 })
 
