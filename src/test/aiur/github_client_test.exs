@@ -1,8 +1,8 @@
 defmodule Aiur.GitHub.ClientTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Client, DispatchAuthorization, ResourceStore}
   alias Aiur.{BuildOrder.GitHubGraph, Workflow}
+  alias Aiur.GitHub.{Client, DispatchAuthorization, ResourceStore}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
