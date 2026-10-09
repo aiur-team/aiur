@@ -5,9 +5,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   """
 
   require Logger
-  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
+  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, StartTrigger.ProgressStore, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
-  alias Aiur.GitHub.{BlockerProgress, CIPollBatch, Client, MergeQueue}
+  alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -1329,10 +1329,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       target when is_binary(target) ->
         approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
         ci_lifecycle = Map.put(state.ci_lifecycle, :approved_heads, approved_heads)
-        BlockerProgress.ci(target, result)
 
         ci_lifecycle =
           if Map.get(result, :decision) == :passed do
+            ProgressStore.record(target, %{pr_number: Map.get(result, :pr_number), stage: :pr_ci_green, head_sha: head_sha, source: :ci})
             Map.update(ci_lifecycle, :passed_heads, %{target => head_sha}, &Map.put(&1, target, head_sha))
           else
             ci_lifecycle

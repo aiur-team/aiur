@@ -2,7 +2,6 @@ defmodule Aiur.GitHub.BlockerProgress do
   @moduledoc false
   alias Aiur.GitHub.{HumanReviewGate, PullRequests, ResourceStore, Transport}
   alias Aiur.StartTrigger.ProgressStore
-  alias Aiur.TicketBranch
 
   @spec approval(String.t(), ProgressStore.row() | nil) :: {:ok, map() | nil} | {:error, term()}
   def approval(_id, %{closed_unmerged?: true}), do: {:ok, nil}
@@ -22,29 +21,6 @@ defmodule Aiur.GitHub.BlockerProgress do
       {:error, _reason} = error -> error
     end
   end
-
-  @spec ci(String.t(), map()) :: :ok
-  def ci(id, %{decision: :passed, pr_number: number} = result) when is_integer(number) do
-    ProgressStore.record(id, %{pr_number: number, stage: :pr_ci_green, head_sha: Map.get(result, :head_sha), source: :ci})
-  end
-
-  def ci(_id, _result), do: :ok
-
-  @spec delivery(map(), String.t()) :: :ok
-  def delivery(pr, repo) when is_map(pr) do
-    id = TicketBranch.ticket_id(get_in(pr, ["head", "ref"]))
-    attrs = %{pr_number: pr["number"], head_sha: get_in(pr, ["head", "sha"]), source: :webhook}
-
-    cond do
-      is_nil(id) or not is_integer(pr["number"]) or not same_repo?(pr, repo) -> :ok
-      pr["merged"] == true -> ProgressStore.record(id, Map.put(attrs, :stage, :pr_merged))
-      pr["state"] == "closed" -> ProgressStore.record(id, Map.put(attrs, :closed_unmerged?, true))
-      pr["state"] == "open" and pr["draft"] == false -> ProgressStore.record(id, Map.put(attrs, :stage, :pr_opened))
-      true -> :ok
-    end
-  end
-
-  def delivery(_pr, _repo), do: :ok
 
   @spec identity(String.t()) :: map() | nil
   def identity(id) do

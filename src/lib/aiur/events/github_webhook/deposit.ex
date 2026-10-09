@@ -129,8 +129,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.{BlockerProgress, PollSnapshots, ReadCache, ResourceStore}
-  alias Aiur.TicketBranch
+  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
+  alias Aiur.{StartTrigger.ProgressStore, TicketBranch}
 
   @typedoc """
   One unit of work this module produces from a delivery: either a body to
@@ -740,8 +740,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  # Writing
-
   defp merge_review_thread(repo, pr_number, thread) do
     key = PollSnapshots.review_threads_key(repo, pr_number)
 
@@ -811,11 +809,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
             []
 
           :ok ->
-            if type == :branch_pull_request, do: BlockerProgress.delivery(body, repo)
+            record_progress(type, id, body, repo)
             confirm(key)
         end
     end
   end
+
+  defp record_progress(:branch_pull_request, id, body, repo), do: ProgressStore.delivery(id, body, repo)
+  defp record_progress(_type, _id, _body, _repo), do: :ok
 
   defp store_thread_transition(repo, id, action, thread, generation, version) do
     case ResourceStore.key_for_repo(:pr_review_thread, repo, id) do
@@ -958,9 +959,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  # The resource's own mutation marker. `updated_at` for issues, pull requests
-  # and comments; `submitted_at` for a review, which has no `updated_at` and
-  # whose submission time is the marker the poller's cutoff already keys on.
+  # Reviews use submitted_at; issues, PRs and comments use updated_at as their mutation marker.
   defp version(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
 
   defp version(%{"submitted_at" => submitted_at}) when is_binary(submitted_at) and submitted_at != "",

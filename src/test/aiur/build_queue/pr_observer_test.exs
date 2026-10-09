@@ -8,6 +8,7 @@ defmodule Aiur.BuildQueue.PRObserverTest do
   alias Aiur.Events.GithubWebhook.Deposit
   alias Aiur.GitHub.ResourceStore
   alias Aiur.{Tracker, Workflow}
+  alias Aiur.StartTrigger.ProgressStore
 
   defmodule Claims do
     def status(_ids), do: :unavailable
@@ -165,6 +166,6 @@ defmodule Aiur.BuildQueue.PRObserverTest do
     }
 
     Deposit.deposit("pull_request", %{"action" => "closed", "pull_request" => Map.merge(body, changes)}, "owner/repo")
-    :sys.get_state(Aiur.StartTrigger.ProgressStore)
+    :sys.get_state(ProgressStore)
   end
 end

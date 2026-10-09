@@ -25,6 +25,28 @@ defmodule Aiur.StartTrigger.ProgressStore do
   @spec record(String.t(), map()) :: :ok
   def record(id, attrs), do: GenServer.cast(__MODULE__, {:record, id, attrs})
 
+  @spec delivery(String.t(), map(), String.t()) :: :ok
+  def delivery(id, pr, repo) when is_map(pr) do
+    attrs = %{pr_number: pr["number"], head_sha: get_in(pr, ["head", "sha"]), source: :webhook}
+
+    cond do
+      not is_integer(pr["number"]) or not same_repo?(pr, repo) -> :ok
+      pr["merged"] == true -> record(id, Map.put(attrs, :stage, :pr_merged))
+      pr["state"] == "closed" -> record(id, Map.put(attrs, :closed_unmerged?, true))
+      pr["state"] == "open" and pr["draft"] == false -> record(id, Map.put(attrs, :stage, :pr_opened))
+      true -> :ok
+    end
+  end
+
+  def delivery(_type, _pr, _repo), do: :ok
+
+  defp same_repo?(pr, repo) do
+    case get_in(pr, ["head", "repo", "full_name"]) do
+      head_repo when is_binary(head_repo) -> String.downcase(head_repo) == String.downcase(repo)
+      _ -> false
+    end
+  end
+
   @spec watch([String.t()], :pr_approved, keyword()) :: :ok
   def watch(ids, :pr_approved, opts \\ []), do: GenServer.cast(__MODULE__, {:watch, ids, Keyword.get(opts, :observation_max_age_ms, 60_000)})
 

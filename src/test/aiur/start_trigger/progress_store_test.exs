@@ -2,7 +2,7 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
   use Aiur.TestSupport
   alias Aiur.{CIApprovalStore, StartTrigger}
   alias Aiur.Events.GithubWebhook.Deposit
-  alias Aiur.GitHub.BlockerProgress
+  alias Aiur.GitHub.{BlockerProgress, ResourceStore}
   alias Aiur.StartTrigger.ProgressStore
 
   setup do
@@ -33,7 +33,7 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     ProgressStore.record("12", %{pr_number: 120, closed_unmerged?: true})
     flush()
     assert %{stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12")
-    BlockerProgress.ci("12", %{decision: :passed, pr_number: 120})
+    ProgressStore.record("12", %{pr_number: 120, stage: :pr_ci_green, source: :ci})
     flush()
     assert %{stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12")
   end
@@ -41,17 +41,6 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
   test "missing owner returns no row and writes do not fail writers" do
     assert ProgressStore.lookup("12") == nil
     assert :ok = ProgressStore.record("12", %{pr_number: 99, stage: :pr_opened})
-  end
-
-  test "CI passed records green, pending and failed do not" do
-    start()
-    BlockerProgress.ci("12", %{decision: :pending, pr_number: 99})
-    BlockerProgress.ci("13", %{decision: :failed, pr_number: 98})
-    BlockerProgress.ci("14", %{decision: :passed, pr_number: 97})
-    flush()
-    assert ProgressStore.lookup("12") == nil
-    assert ProgressStore.lookup("13") == nil
-    assert %{pr_number: 97, stage: :pr_ci_green} = ProgressStore.lookup("14")
   end
 
   test "draft delivers nothing, ready opens, merged satisfies final and closed clears" do
@@ -71,7 +60,7 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
 
   test "delayed deliveries cannot reverse closure or merge, and fork branches contribute nothing" do
     start()
-    Aiur.GitHub.ResourceStore.reset()
+    ResourceStore.reset()
 
     pr = %{
       "number" => 101,
