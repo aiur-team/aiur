@@ -109,12 +109,7 @@ defmodule Aiur.TestSupport do
   # per-test root a case reads records written by a module that ran earlier in
   # the same partition.
   #
-  # `:loadavg_source_override` / `:proc_stat_source_override` are the host-CPU
-  # equivalent of `:build_gate_dir_override`: without them every dispatch
-  # decision a case makes reads the real `/proc/loadavg` and `/proc/stat` of a
-  # passes or fails on ambient load rather than on the code under test (#2089).
-  # A case that deliberately exercises an admission gate overrides both keys
-  # itself; teardown puts the deterministic baseline back.
+  # Host probes use fixtures so dispatch never depends on the fleet's /proc samples (#2089).
   @isolated_app_env_keys [
     :workflow_file_path,
     :log_file,
