@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   alias Aiur.BuildOrder.History
   alias Aiur.BuildOrder.History.{Feed, Feeder}
   alias Aiur.Events.GithubWebhook.Deposit
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{OpenIssueListing, ResourceStore}
   @store __MODULE__.Store
   @tasks __MODULE__.Tasks
   @merges __MODULE__.Merges
@@ -172,12 +172,12 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     Feeder.offer_open_issues("acme", ctx.repo, [], @t)
     Feeder.catch_up_status()
     assert row(ctx).lifecycle.state == :open
-    Feeder.offer_open_issues("acme", ctx.repo, [], @later)
+    OpenIssueListing.record("acme", ctx.repo, [], @later)
     Feeder.catch_up_status()
     assert row(ctx).lifecycle.state == :closed
     assert row(ctx).closed_at == :unknown
     issue = %Aiur.Issue{id: "7", title: "back", labels: ["agent:todo"], updated_at: @t, created_at: @t}
-    Feeder.offer_open_issues("acme", ctx.repo, [issue], @later)
+    OpenIssueListing.record("acme", ctx.repo, [issue], @later)
     Feeder.catch_up_status()
     assert row(ctx).lifecycle.state == :open
     Feeder.offer_open_issues("other", "repo", [], @later)

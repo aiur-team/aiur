@@ -4,9 +4,8 @@ defmodule Aiur.BuildOrder.History.Feeder do
   require Logger
   alias Aiur.BuildOrder.History
   alias Aiur.BuildOrder.History.{CatchUp, Feed, Row, TelemetryScan}
-  alias Aiur.GitHub.{ResourceEvents, ResourceStore, Transport, ViewStateSweep}
+  alias Aiur.GitHub.{OpenIssueListing, ResourceEvents, ResourceStore, Transport, ViewStateSweep}
   alias Aiur.Webhooks.ModeRegistry
-  alias AiurWeb.ObservabilityPubSub
   @types [:issue, :issue_labels, :issue_dependency, :sub_issue]
   # ponytail: hourly recovery and one-second merge debounce; tune only after measuring.
   @signal_window_ms 3_600_000
@@ -33,7 +32,8 @@ defmodule Aiur.BuildOrder.History.Feeder do
     if repo do
       Enum.each(@types, &ResourceEvents.subscribe(&1, repo))
       History.subscribe()
-      ObservabilityPubSub.subscribe()
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "observability:dashboard")
+      OpenIssueListing.subscribe(repo)
       ModeRegistry.subscribe_recovered()
       ViewStateSweep.subscribe_diverged()
     end
@@ -77,12 +77,11 @@ defmodule Aiur.BuildOrder.History.Feeder do
   def handle_call(:catch_up_status, _from, state), do: {:reply, state.status, state}
 
   @impl true
-  def handle_cast({:open_listing, owner, repo, issues, at}, state) do
-    events = if same_repo?(state, owner <> "/" <> repo), do: Feed.listing(rows(state), issues, at), else: []
-    {:noreply, apply_events(state, events)}
-  end
+  def handle_cast({:open_listing, owner, repo, issues, at}, state), do: {:noreply, apply_listing(state, owner <> "/" <> repo, issues, at)}
 
   @impl true
+  def handle_info({:open_issue_listing, repo, issues, at}, state), do: {:noreply, apply_listing(state, repo, issues, at)}
+
   def handle_info({:github_resource_changed, %{data?: true} = change}, state) do
     if change.resource_type in @types and same_repo?(state, change.owner <> "/" <> change.repo) do
       timer = state.resource_timer || Process.send_after(self(), :apply_resources, 10)
@@ -229,6 +228,11 @@ defmodule Aiur.BuildOrder.History.Feeder do
     held = rows(state, Enum.map(merges, &Feed.number(&1.ticket_id)))
     events = Enum.flat_map(merges, &Feed.merge(Map.get(held, Feed.number(&1.ticket_id)), &1, state.repo, state.now.()))
 
+    apply_events(state, events)
+  end
+
+  defp apply_listing(state, repo, issues, at) do
+    events = if same_repo?(state, repo), do: Feed.listing(rows(state), issues, at), else: []
     apply_events(state, events)
   end
 

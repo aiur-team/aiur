@@ -4,7 +4,6 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.AllowedContributors
   alias Aiur.{Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
@@ -14,7 +13,7 @@ defmodule Aiur.GitHub.Issues do
     DispatchAuthorization,
     Errors,
     Labels,
-    OpenIssueSnapshot,
+    OpenIssueListing,
     ResourceStore,
     StatePolicy,
     Transport
@@ -435,16 +434,7 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  # Both listings are unfiltered and fully paginated, and they answer `{:ok, _}`
-  # only when every page was read, so `issues` names every open issue. That is
-  # the close signal the dispatch gate's blocker states use (#2714).
-  defp record_open_issues(owner, repo, issues, listed_from) do
-    labels_by_id = Map.new(issues, &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
-    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id), labels_by_id)
-    # Second producer for allowed-contributor intake (#2957).
-    AllowedContributors.offer_open_issues(issues)
-    Feeder.offer_open_issues(owner, repo, issues, listed_from)
-  end
+  defp record_open_issues(owner, repo, issues, listed_from), do: OpenIssueListing.record(owner, repo, issues, listed_from)
 
   # GitHub reports `performed_via_github_app` (null when not App-created) on
   # every issue. An absent key is unknown provenance, which allowed-contributor

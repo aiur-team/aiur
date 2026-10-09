@@ -463,7 +463,6 @@ defmodule Aiur.Application do
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.
       Aiur.Claude.Telemetry,
-      # Durable closed-ticket history starts before its feeds (MP-E8 C4-T02/T03).
       Aiur.BuildOrder.History,
       Aiur.BuildOrder.History.Feeder,
       {Aiur.BuildOrder.History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)},
