@@ -751,13 +751,11 @@ The durable repository Executor state also records every daemon start and stop i
 
 ## build_queue
 
-The daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce. This stage exposes dispatch hints and records planned actions; label-writing executors are delivered separately. Disabling the queue removes its server and hints table on the next run.
-
-Build queue configuration for GitHub workflows; Linear is unsupported.
+Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. |
+| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. This stage exposes dispatch hints and records planned actions; label-writing executors are delivered separately. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
 | `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
