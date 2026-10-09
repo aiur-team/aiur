@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, Reconcile, Recovery, Settings, Store, Writer}
+  alias Aiur.BuildQueue.{Bookkeeping, ClaimProbe, Hints, Reconcile, Recovery, Settings, Store, Withdrawal, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -38,6 +38,7 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       actions: [],
       holds: MapSet.new(),
+      hold_ages: %{},
       closure_cache: %{},
       intent_reconciles: %{},
       reconciles: 0
@@ -68,7 +69,7 @@ defmodule Aiur.BuildQueue.Server do
         end
 
         state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
-        {projections, _, _, _} = Reconcile.plan(state)
+        {projections, _, _, _, _} = Reconcile.plan(state)
         Reconcile.write_hints(projections, state.holds, document)
         {:reply, :ok, state |> subscribe() |> request()}
 
@@ -159,8 +160,8 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp plan(state, observations) do
-    {projections, actions, observations, cache} = Reconcile.plan(state, observations)
-    state = %{state | closure_cache: cache}
+    {projections, actions, observations, cache, holds} = Reconcile.plan(state, observations)
+    state = %{state | closure_cache: cache, holds: holds}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
 
     holds =
@@ -172,9 +173,10 @@ defmodule Aiur.BuildQueue.Server do
 
     retained = for p <- projections, p.state not in [:removed, :completed, :cancelled], do: p.issue_id
     holds = MapSet.intersection(holds, MapSet.new(retained))
+    ages = Withdrawal.ages(holds, state.hold_ages, state.clock.(), state.settings.build_queue.reconcile_interval_seconds)
     Reconcile.write_hints(projections, holds, state.document)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
-    state = %{state | projections: projections, actions: state.actions, holds: holds, reconciles: state.reconciles + 1}
+    state = %{state | projections: projections, actions: state.actions, holds: holds, hold_ages: ages, reconciles: state.reconciles + 1}
     if Enum.any?(actions, &match?({:dequeue, _}, &1)), do: request(state), else: state
   end
 

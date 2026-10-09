@@ -87,7 +87,14 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     cond do
       unavailable_unauthorized?(f) -> result(:promoted_unauthorized, :unauthorized)
       f.verdict == :ready and not held?(f) -> promoted_ready(f)
+      true -> withdrawal(f)
+    end
+  end
+
+  defp withdrawal(f) do
+    cond do
       not withdrawing?(f) -> result(:promoted, :withdrawal_pending, {:begin_withdraw, f.item.issue_id})
+      f.claim == :unavailable -> result(:held, :claim_check_unavailable)
       f.claim == :unclaimed and fresh?(f) and not match?({:unknown, _}, f.verdict) -> result(:promoted, :withdrawal_pending, {:withdraw, f.item.issue_id})
       true -> result(:promoted, :withdrawal_pending)
     end

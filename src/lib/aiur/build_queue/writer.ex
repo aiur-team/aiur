@@ -17,9 +17,20 @@ defmodule Aiur.BuildQueue.Writer do
     context
   end
 
-  defp execute({action, id}, context) when action in [:promote, :mark, :unmark] do
+  defp execute({action, id}, context) when action in [:promote, :withdraw, :mark, :unmark] do
     context = retry(context, action, id, [1_000, 4_000, 16_000])
     if context.status == :running, do: {:cont, context}, else: {:halt, context}
+  end
+
+  defp execute({:hold_release, id}, context) do
+    case context.observations[id] do
+      %{labels: labels} ->
+        withdrawn? = Enum.any?(context.document.intents, &(&1.issue_id == id and &1.action == :withdraw and &1.outcome in [nil, :ok] and MapSet.new(&1.target_labels) == MapSet.new(labels)))
+        if withdrawn?, do: execute({:withdraw_observed, id}, context), else: {:cont, context}
+
+      nil ->
+        {:cont, context}
+    end
   end
 
   defp execute({action, {:promoted_unauthorized, id}}, context) when action in [:attention_open, :attention_resolve] do
@@ -35,7 +46,7 @@ defmodule Aiur.BuildQueue.Writer do
     end
   end
 
-  defp execute({action, _id} = command, context) when action in [:mark_override, :mark_external_hold, :dequeue] do
+  defp execute({action, _id} = command, context) when action in [:mark_override, :mark_external_hold, :withdraw_observed, :dequeue] do
     document = Bookkeeping.apply(context.document, command)
 
     case context.store.save(document) do
