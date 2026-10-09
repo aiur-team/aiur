@@ -18,24 +18,27 @@ defmodule Aiur.Config.Schema.MergePolicy do
       field(:on_red, :string, default: "alert")
       field(:fixer_label, :string, default: "main-fix")
       field(:canary_minutes, :integer, default: 45)
+      field(:red_fallback_minutes, :integer, default: 0)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:enabled, :workflows, :on_red, :fixer_label, :canary_minutes], empty_values: [])
+      |> cast(attrs, [:enabled, :workflows, :on_red, :fixer_label, :canary_minutes, :red_fallback_minutes], empty_values: [])
       |> validate_inclusion(:on_red, ["alert", "dispatch_fixer"], message: "must be one of: alert, dispatch_fixer")
       |> validate_format(:fixer_label, ~r/\S/, message: "must be a non-empty string")
       |> validate_change(:workflows, &MergePolicy.validate_string_list/2)
       |> validate_number(:canary_minutes, greater_than_or_equal_to: 0)
-      |> validate_canary_minutes(attrs)
+      |> validate_minutes(attrs, :canary_minutes)
+      |> validate_number(:red_fallback_minutes, greater_than_or_equal_to: 0)
+      |> validate_minutes(attrs, :red_fallback_minutes)
     end
 
-    defp validate_canary_minutes(changeset, attrs) do
-      case Map.get(attrs, "canary_minutes") do
+    defp validate_minutes(changeset, attrs, field) do
+      case Map.get(attrs, Atom.to_string(field)) do
         nil -> changeset
         value when is_integer(value) and value >= 0 -> changeset
-        _ -> add_error(changeset, :canary_minutes, "must be a non-negative integer")
+        _ -> add_error(changeset, field, "must be a non-negative integer")
       end
     end
   end

@@ -10,7 +10,7 @@ defmodule Aiur.MergePolicyTest do
     assert result.local_tests == "partial"
     assert result.full_ci_labels == ["hotfix"]
     assert result.premerge_checks == ["make check"]
-    assert result.main_watch == %{enabled: false, workflows: [], on_red: "alert", fixer_label: "main-fix", canary_minutes: 45}
+    assert result.main_watch == %{enabled: false, workflows: [], on_red: "alert", fixer_label: "main-fix", canary_minutes: 45, red_fallback_minutes: 0}
     refute Map.has_key?(result, :__struct__)
     refute Map.has_key?(result.main_watch, :__struct__)
   end
@@ -29,6 +29,21 @@ defmodule Aiur.MergePolicyTest do
     assert MergePolicy.requires_full_ci?([], ["src/lib/deep/critical2.ex"])
     assert MergePolicy.requires_full_ci?([], ["mix.lock"])
     refute MergePolicy.requires_full_ci?([], ["docs/mix.lock", "src/lib/critical12.ex", ".github/workflows-other/ci.yml"])
+  end
+
+  test "repository policy requires full CI for workflow and dependency changes" do
+    repo_config = Path.expand("../../../.aiur/config", __DIR__)
+    assert {:ok, config} = Aiur.Yaml.read_from_file(repo_config)
+    path = Aiur.Workflow.workflow_file_path()
+    write_workflow_file!(path)
+    File.write!(path, File.read!(path) <> "\nmerge_policy: " <> Jason.encode!(config["merge_policy"]) <> "\n")
+    assert :ok = Aiur.WorkflowStore.force_reload()
+
+    for changed_path <- ["src/mix.lock", "src/mix.exs", ".github/workflows/ci.yml"] do
+      assert MergePolicy.requires_full_ci?([], [changed_path])
+    end
+
+    refute MergePolicy.requires_full_ci?([], ["src/README.md"])
   end
 
   defp policy(fields) do

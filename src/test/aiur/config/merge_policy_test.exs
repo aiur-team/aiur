@@ -17,6 +17,7 @@ defmodule Aiur.Config.MergePolicyTest do
     assert policy.main_watch.on_red == "alert"
     assert policy.main_watch.fixer_label == "main-fix"
     assert policy.main_watch.canary_minutes == 45
+    assert policy.main_watch.red_fallback_minutes == 0
   end
 
   test "parses a complete early merge policy and nested watcher overrides" do
@@ -27,7 +28,7 @@ defmodule Aiur.Config.MergePolicyTest do
       full_ci_paths: [".github/workflows/**"],
       premerge_checks: ["python3 scripts/check-components.py"],
       attribution_scan: true,
-      main_watch: %{enabled: true, workflows: ["ci"], on_red: "dispatch_fixer", fixer_label: "hotfix", canary_minutes: 0}
+      main_watch: %{enabled: true, workflows: ["ci"], on_red: "dispatch_fixer", fixer_label: "hotfix", canary_minutes: 0, red_fallback_minutes: 60}
     }
 
     assert {:ok, settings} = Schema.parse(%{merge_policy: policy})
@@ -43,9 +44,10 @@ defmodule Aiur.Config.MergePolicyTest do
     assert settings.merge_policy.ci == "wait"
     assert settings.merge_policy.full_ci_labels == ["main-fix"]
 
-    assert {:ok, nested} = Schema.parse(%{merge_policy: %{main_watch: %{enabled: nil, fixer_label: nil, canary_minutes: nil}}})
+    assert {:ok, nested} = Schema.parse(%{merge_policy: %{main_watch: %{enabled: nil, fixer_label: nil, canary_minutes: nil, red_fallback_minutes: nil}}})
     assert nested.merge_policy == defaults.merge_policy
     assert nested.merge_policy.main_watch.canary_minutes == 45
+    assert nested.merge_policy.main_watch.red_fallback_minutes == 0
   end
 
   test "pending CI requires the main watcher, including when omitted" do
@@ -104,6 +106,17 @@ defmodule Aiur.Config.MergePolicyTest do
     end
 
     assert error("wait") =~ "merge_policy"
+  end
+
+  test "red fallback accepts zero and whole minutes and rejects coercion" do
+    for minutes <- [0, 60] do
+      assert {:ok, settings} = Schema.parse(%{merge_policy: %{main_watch: %{red_fallback_minutes: minutes}}})
+      assert settings.merge_policy.main_watch.red_fallback_minutes == minutes
+    end
+
+    for value <- [-1, 1.5, "60", true] do
+      assert error(%{main_watch: %{red_fallback_minutes: value}}) =~ "merge_policy.main_watch.red_fallback_minutes must be a non-negative integer"
+    end
   end
 
   defp error(policy) do

@@ -117,8 +117,9 @@ The top-level policy is validated and displayed by `aiur status` and `aiur capab
 | `merge_policy.main_watch.on_red` | string | `alert` | `alert` reports failed CI; `dispatch_fixer` requests a fixer ticket and priority dispatch. |
 | `merge_policy.main_watch.fixer_label` | string | `main-fix` | Label for fixer tickets and their full-CI requirement. |
 | `merge_policy.main_watch.canary_minutes` | integer | 45 | Minutes without a completed watched run before a canary rerun; `0` disables. |
+| `merge_policy.main_watch.red_fallback_minutes` | integer | 0 | Optional full-CI wait after main stays red this many minutes; absent/`0` disables, `60` enables a one-hour threshold; enforcement ships in MP4. |
 
-Validation rejects `ci: pending_ok` unless `main_watch.enabled: true` and `local_tests` is `all` or `partial`. `on_red: dispatch_fixer` requires `fixer_label` in `full_ci_labels`. Lists reject blank entries; canary minutes must be nonnegative. Invalid values name the dotted config path.
+Validation rejects `ci: pending_ok` unless `main_watch.enabled: true` and `local_tests` is `all` or `partial`. `on_red: dispatch_fixer` requires `fixer_label` in `full_ci_labels`. Lists reject blank entries; canary and red-fallback minutes must be nonnegative integers. Invalid values name the dotted config path.
 
 ## polling
 

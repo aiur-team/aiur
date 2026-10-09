@@ -66,6 +66,7 @@ tracker:
 #     on_red: alert                 # alert | dispatch_fixer
 #     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
 #     canary_minutes: 45            # 0 disables canary reruns
+#     red_fallback_minutes: 0      # off; 60 waits for CI after main is red for one hour (MP4)
 
 build_order:
   # Three settings are intentionally absent — graph_catalog_refresh_ms,
