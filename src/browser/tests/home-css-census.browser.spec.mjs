@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { parityContextOptions } from '../support/design-parity.mjs'
 import { HOME_MATRIX, openHomeState } from '../support/home-css-states.mjs'
-import { census, renderHomeCss, DEAD } from '../support/home-css-census.mjs'
+import { census, renderHomeCss, ownsBuildLine, DEAD } from '../support/home-css-census.mjs'
 
 const all = []
 const combined = new Map()
@@ -32,6 +32,6 @@ test.afterAll(async () => {
   const records = [...combined.values(), ...trees]
   const { css, shadowed } = renderHomeCss(records)
   const dead = records.filter(r => r.selector).flatMap(r => r.matches.filter(m => DEAD.test(m.selector)).map(m => ({ source: r.source, line: r.line, ...m })))
-  const zeroMatches = records.filter(r => r.source === 'C' && r.selector && r.matches.every(m => m.count === 0))
+  const zeroMatches = records.filter(r => r.source === 'C' && r.selector && ownsBuildLine(r.line)).flatMap(r => r.matches.filter(m => !m.count && !DEAD.test(m.selector) && !(r.line === 983 && m.selector.includes('.ax-menu'))).map(m => ({ source: r.source, line: r.line, context: r.context, ...m })))
   await writeFile(test.info().outputPath('home-css-census.json'), JSON.stringify({ states: all, dead, zeroMatches, shadowed, css, trees }, null, 2))
 })
