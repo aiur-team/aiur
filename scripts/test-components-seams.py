@@ -75,12 +75,14 @@ check('similar_namespace_allowed', 'alias Aiur.OrchestratorExtra', source_compon
 check('listener_reverse_direction_fails', 'Aiur.Orchestrator.State.f()', 1,
       'R-forbid listener-modes -> Aiur.Orchestrator.State', source_component='listener-modes',
       path='src/lib/aiur/listener/modes.ex')
+# The allowed-path case is the positive half of the restriction's mutation guard.
 for path, expected in [('src/lib/aiur/build_queue/server.ex', 1),
                        ('src/lib/aiur/build_queue/sources/build_order.ex', 0)]:
     check('build_order_only_in_source_module_' + str(expected), 'Aiur.BuildOrder.Graph.f()', expected,
           'R-seam' if expected else '', source_component='build-queue', path=path)
 check('build_order_unused_alias_also_restricted', 'alias Aiur.BuildOrder.Graph', 1, 'R-seam',
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex')
+# Future-regression guards preserve existing private/layer rules when applying seams.
 check('seam_does_not_suppress_private', 'Aiur.BuildQueue.Server.f()', 1, 'R-private',
       change=lambda m: m['seams'].append(dict(m['seams'][0], to_module='Aiur.BuildQueue.Server')))
 check('seam_does_not_suppress_upward', 'Aiur.BuildQueue.Hints.f()', 1, 'R-down',
