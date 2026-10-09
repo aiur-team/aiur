@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.State do
           load_envelope_state: %{
             optional(:sample_id) => reference() | integer() | nil,
             optional(:sampled_at_ms) => integer() | nil,
+            optional(:overload_samples) => non_neg_integer(),
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()
@@ -151,9 +152,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_poll: map() | nil,
           github_comment_reconcile_targets: MapSet.t(String.t()),
           github_comment_reconcile_timer: map() | nil,
-          # Monotonic time the asynchronous comment poll last started, used to
-          # throttle it to the `:review` class cadence (#2309). `nil` until the
-          # first start.
+          # Monotonic time the asynchronous comment poll last started, used to throttle
+          # it to the `:review` class cadence (#2309). `nil` until the first start.
           last_comment_poll_started_at_ms: integer() | nil,
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
