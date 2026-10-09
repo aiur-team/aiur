@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCache do
+defmodule Aiur.RunTelemetry.RetainedCache do
   @moduledoc "Bounded retained projections with one cold loader independent of request lifetime."
   use GenServer
 
@@ -11,6 +11,24 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCache do
       {:value, value} -> value
       {:raised, kind, reason, stack} -> :erlang.raise(kind, reason, stack)
     end
+  end
+
+  @doc "File metadata identity for retained summaries excluding the current boot."
+  @spec identity(String.t() | nil) :: tuple()
+  def identity(current_boot) do
+    summaries =
+      Aiur.RunTelemetry.Summaries.summary_boot_ids()
+      |> Enum.reject(&(&1 == current_boot))
+      |> Enum.map(fn boot_id ->
+        path = Aiur.RunTelemetry.Summaries.run_summary_path(boot_id)
+
+        case File.stat(path, time: :posix) do
+          {:ok, stat} -> {boot_id, stat.size, stat.mtime}
+          {:error, reason} -> {boot_id, reason}
+        end
+      end)
+
+    {Aiur.RunTelemetry.Summaries.state_node(), current_boot, summaries}
   end
 
   defp ensure_started do

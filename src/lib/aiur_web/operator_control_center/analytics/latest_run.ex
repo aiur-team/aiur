@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   alias Aiur.RunTelemetry.{Dataset, Summaries}
 
-  alias AiurWeb.OperatorControlCenter.Analytics.RetainedCache
+  alias Aiur.RunTelemetry.RetainedCache
 
   @spec load(Path.t(), String.t() | nil, (map() -> boolean())) ::
           {:ok, map()} | {:error, term()}
@@ -101,19 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   @doc "File metadata identity for retained summaries excluding the current boot."
   @spec cache_identity(String.t() | nil) :: tuple()
   def cache_identity(current_boot) do
-    summaries =
-      Summaries.summary_boot_ids()
-      |> Enum.reject(&(&1 == current_boot))
-      |> Enum.map(fn boot_id ->
-        path = Summaries.run_summary_path(boot_id)
-
-        case File.stat(path, time: :posix) do
-          {:ok, stat} -> {boot_id, stat.size, stat.mtime}
-          {:error, reason} -> {boot_id, reason}
-        end
-      end)
-
-    {Summaries.state_node(), current_boot, summaries}
+    RetainedCache.identity(current_boot)
   end
 
   defp observed_at(dataset), do: get_in(dataset, [:provenance, :time_range, :end]) || ""

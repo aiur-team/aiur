@@ -1,6 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
   use ExUnit.Case, async: false
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, RetainedCache}
+  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
+  alias Aiur.RunTelemetry.RetainedCache
 
   test "concurrent latest cold loads survive the first requester exiting" do
     parent = self()

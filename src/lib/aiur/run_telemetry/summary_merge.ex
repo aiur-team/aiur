@@ -1,8 +1,7 @@
 defmodule Aiur.RunTelemetry.SummaryMerge do
   @moduledoc "Merges projected chart samples while preserving full-run resource totals."
 
-  alias Aiur.RunTelemetry.{Dataset, Summaries, SummaryReader}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, RetainedCache}
+  alias Aiur.RunTelemetry.{Dataset, RetainedCache, Summaries, SummaryReader}
 
   @doc "Loads and merges retained projections one boot at a time."
   @spec load(Path.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
@@ -12,7 +11,7 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     if summaries == [] do
       bounded_raw(file)
     else
-      key = LatestRun.cache_identity(current)
+      key = RetainedCache.identity(current)
       retained = RetainedCache.fetch(__MODULE__, key, fn -> load_retained(summaries) end, max_value_bytes: 24 * 1024 * 1024)
 
       with {:ok, dataset} <- retained do
