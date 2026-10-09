@@ -676,7 +676,7 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | `observability.build_order_funnel_health_check` | boolean | false | Opts into one bounded startup check of the local Build Order endpoint and configured Tailscale Funnel HTTPS 443 target. Leave disabled when Funnel serves another purpose. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
-| `observability.capture_tags` | map | `{}` | Static cohort tags; at most 20 string pairs, 64 characters per key/value. |
+| `observability.capture_tags` | map | `%{}` | Static cohort tags; at most 20 string pairs, 64 characters per key/value. |
 | `observability.capture_label_prefixes` | list | `["experiment:", "cohort:", "feature:"]` | Label prefixes captured at dispatch; at most 20. |
 | `observability.telemetry_enabled` | boolean | true | Records run telemetry for analytics. |
 | `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry bytes. |

@@ -146,6 +146,9 @@ defmodule Aiur.ConfigurationReferenceTest do
       Regex.match?(~r/^-?\d+\.\d+$/, value) ->
         String.to_float(value)
 
+      String.starts_with?(value, "`[") and String.ends_with?(value, "]`") ->
+        value |> String.trim("`") |> Jason.decode!()
+
       String.starts_with?(value, "`") and String.ends_with?(value, "`") ->
         value
         |> String.replace_prefix("`", "")

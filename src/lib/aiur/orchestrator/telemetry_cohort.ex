@@ -20,8 +20,8 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
       effort: CodingAgent.effort_for(issue),
       feature: owner[:feature],
       epic: owner[:epic],
-      tags: Enum.filter(issue.labels || [], &String.starts_with?(&1, prefixes)),
-      blockers: Enum.map(issue.blocked_by || [], &blocker/1),
+      tags: Enum.filter(issue.labels, &String.starts_with?(&1, prefixes)),
+      blockers: Enum.map(issue.blocked_by, &blocker/1),
       start_mode: "normal"
     }
   end
