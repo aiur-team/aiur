@@ -36,7 +36,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
@@ -109,8 +109,7 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  # The shared shape of every fleet-reading control query: read the view, say so
-  # if it is stale, print the global-pause banner, then render.
+  # Fleet queries render the pause banner, observation age and shared rows.
   defp with_fleet_view(query, opts, timeout_ms, render) do
     case fleet_view(opts, timeout_ms, fleet_rows?: true) do
       {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
@@ -126,11 +125,14 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
-    print_snapshot_freshness(freshness)
-
     case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
-      :ok -> render.(snapshot, statuses)
-      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+      :ok ->
+        print_snapshot_freshness(freshness)
+        StatusObservation.print_groups(snapshot)
+        render.(snapshot, statuses)
+
+      {:error, error} ->
+        report_control_query_failure(error, query, timeout_ms)
     end
   end
 
@@ -165,9 +167,7 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  # A stale fleet view that looks current is worse than the timeout it replaces.
-  # When the read model is serving last-known-good data, say so and say how old,
-  # in the shape #1814 established.
+  # Render retained freshness and current age with the same vocabulary.
   defp print_snapshot_freshness(%{status: :stale} = freshness) do
     IO.puts(
       "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
@@ -175,7 +175,7 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
-  defp print_snapshot_freshness(_freshness), do: :ok
+  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
 
   defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
   defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
@@ -2116,7 +2116,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix <> WaitingReason.render_wait(status)
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> StatusObservation.row_label(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2802,7 +2802,7 @@ defmodule Aiur.AgentControlCLI do
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
         agents_activity(agent),
-        WaitingReason.render_wait(agent)
+        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent)
       ])
     end)
   end

@@ -43,6 +43,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Slots,
     StartupClaimReconciler,
     State,
+    StatusObservation,
     StatusReport,
     TrackedSet,
     TrackerHealth
@@ -711,11 +712,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  # Sample host pressure even though prewarm already decided the hold.
-  # Otherwise a prewarm phase that flickers ready/:building across ticks drops
+  # Sample under a prewarm hold: flickering ready/:building across ticks drops
   # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
-  # of a gate that never actually cleared — suppressing the starvation alert for
-  # as long as prewarm keeps oscillating. Only probe when ready work exists,
+  # of a persistent gate. Probe only when ready work exists,
   # since that is the sole condition the starvation alert reports on.
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun, _opts), do: state
 
@@ -2302,7 +2301,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
           load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
           load_threshold: probes.load_threshold,
           target: probes.target,
-          schedulers: probes.schedulers
+          schedulers: probes.schedulers,
+          observed_at: StatusObservation.sample_observed_at(probes)
         }
     }
   end

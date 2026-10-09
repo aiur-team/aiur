@@ -2760,7 +2760,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert held.dispatch_capacity_sample == %{
+      assert Map.drop(held.dispatch_capacity_sample, [:observed_at]) == %{
                load: 0.7,
                load_discount_reason: :unavailable,
                load_daemon_nice: :unavailable,
