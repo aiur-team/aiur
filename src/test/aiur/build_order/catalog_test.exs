@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{
-    BuildOrder.Bounded,
+    Bounded,
     BuildOrder.Catalog,
     BuildOrder.Dependency,
     BuildOrder.Marker,

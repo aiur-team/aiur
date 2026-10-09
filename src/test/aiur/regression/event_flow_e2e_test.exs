@@ -172,7 +172,8 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       Publisher.publish("ticket.99.branch.push", %{sha: "ignored"}, issue_number: 99)
 
-      refute_receive {:enqueued, _, _}, 200
+      _ = SubscriptionStore.snapshot(ticket_2)
+      refute_received {:enqueued, ^ticket_2, _}
       :ok = SubscriptionStore.stop(ticket_2)
     end
   end

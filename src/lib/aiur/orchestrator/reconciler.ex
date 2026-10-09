@@ -6,8 +6,8 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
-  alias Aiur.Orchestrator
+  alias Aiur.{Alerts, CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
+  alias Aiur.Orchestrator.LifecycleFenceExpiry
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
-    state = Orchestrator.reconcile_runtime_health(state)
+    state = state |> LifecycleFenceExpiry.reconcile() |> Orchestrator.reconcile_runtime_health()
     state = Orchestrator.reconcile_stalled_running_issues(state)
     state = Orchestrator.reconcile_overrunning_agents(state)
     state = Orchestrator.reconcile_pending_auto_resumes(state)

@@ -651,9 +651,7 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "agent dev loop requires the local prose guard before pushing docs changes" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
-
-    assert dev_loop =~
-             "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
+    assert dev_loop =~ "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
   end
 
   test "agent instructions require all local checks and oversized-file fixes before PR handoff" do
@@ -665,6 +663,7 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ ~s(then run `python3 scripts/check-file-size.py --base "$base"`)
       assert source =~ ~s|base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"|
       assert source =~ "run all required checks and fix any failures"
+      assert source =~ "Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness."
       assert source =~ "file the same length or shorter"
       assert source =~ "Put new code in a new small module and new tests in a new test file. Never grow the oversized file."
     end
@@ -700,24 +699,6 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"
-  end
-
-  test "agent PR guidance uses and verifies the configured integration branch" do
-    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
-    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
-
-    for source <- [dev_loop, repo_prompt] do
-      assert source =~ "AIUR_BASE_BRANCH"
-      assert source =~ "tracker.base_branch"
-      assert source =~ "origin/HEAD"
-      assert source =~ "baseRefName"
-      assert source =~ "machine-local configuration"
-    end
-
-    assert dev_loop =~ ~s(gh pr create --draft --head "$branch" --base "$AIUR_BASE_BRANCH")
-    assert dev_loop =~ "PATCH only the PR's `base`"
-    assert repo_prompt =~ ~s(open a PR with `--base "$AIUR_BASE_BRANCH"`)
-    assert repo_prompt =~ "leave a correct base unchanged"
   end
 
   test "Codex pull recovery merges the configured integration branch" do

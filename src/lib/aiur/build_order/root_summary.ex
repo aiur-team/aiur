@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.RootSummary do
   @moduledoc "A visible root-catalog entry with per-entry structural validity."
 
-  alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, BuildOrder.Lifecycle, TrackerIdentity}
+  alias Aiur.{Bounded, BuildOrder.Diagnostic, BuildOrder.Lifecycle, TrackerIdentity}
 
   @type progress_resolution :: :resolved | :partial | :unresolved | :unknown
 
