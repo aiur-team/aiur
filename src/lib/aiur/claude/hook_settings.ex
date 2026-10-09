@@ -24,8 +24,8 @@ defmodule Aiur.Claude.HookSettings do
   end
 
   @doc """
-  The hook command claude runs for each event. It pipes the event JSON (stdin) to
-  the dashboard. Three invariants make it safe to run inside a live claude session:
+  The hook command claude runs for each event. It durably spools the event JSON
+  before piping it to the dashboard. Three invariants make it Claude-safe:
 
     * **stdout-silent** — claude injects a `UserPromptSubmit` hook's stdout as extra
       prompt context and lets a `Stop` hook's stdout block stopping, so the command
@@ -39,9 +39,33 @@ defmodule Aiur.Claude.HookSettings do
     url =
       String.trim_trailing(dashboard_url, "/") <> "/api/v1/#{URI.encode(identifier)}/claude-hook"
 
-    "curl -sS -m 2 -o /dev/null " <>
+    producer =
+      case spool_path(identifier) do
+        {:ok, path} ->
+          helper = Application.app_dir(:aiur, "priv/claude_hook_spool.py")
+
+          "aiur_hook_payload=$(python3 " <>
+            single_quote(helper) <>
+            " " <>
+            single_quote(path) <>
+            " 2>/dev/null) && printf '%s\\n' \"$aiur_hook_payload\" | "
+
+        {:error, reason} ->
+          raise ArgumentError, "cannot resolve durable Claude hook spool: #{inspect(reason)}"
+      end
+
+    producer <>
+      "curl -sS -m 2 -o /dev/null " <>
       "-H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1' -H 'X-Aiur-Request: 1' " <>
       "--data-binary @- " <> single_quote(url) <> " >/dev/null 2>&1; exit 0"
+  end
+
+  @doc "Durable per-agent hook spool, independent of the current daemon launch."
+  @spec spool_path(String.t()) :: {:ok, Path.t()} | {:error, atom()}
+  def spool_path(identifier) when is_binary(identifier) do
+    with {:ok, root} <- Paths.runtime_state_dir() do
+      {:ok, Path.join([root, "claude-hooks", slug(identifier) <> ".ndjson"])}
+    end
   end
 
   @doc """
@@ -52,7 +76,9 @@ defmodule Aiur.Claude.HookSettings do
   def write(identifier, dashboard_url) when is_binary(identifier) and is_binary(dashboard_url) do
     dir = Path.join(System.tmp_dir!(), "aiur-claude-hooks")
 
-    with :ok <- File.mkdir_p(dir),
+    with :ok <- require_python(),
+         {:ok, _spool} <- spool_path(identifier),
+         :ok <- File.mkdir_p(dir),
          path = Path.join(dir, "#{slug(identifier)}-#{System.unique_integer([:positive])}.json"),
          :ok <- File.write(path, Jason.encode!(settings(identifier, dashboard_url))) do
       {:ok, path}
@@ -72,6 +98,10 @@ defmodule Aiur.Claude.HookSettings do
   end
 
   defp slug(identifier), do: Paths.sanitize(identifier)
+
+  defp require_python do
+    if System.find_executable("python3"), do: :ok, else: {:error, :claude_hook_spool_requires_python3}
+  end
 
   defp single_quote(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"
 end
