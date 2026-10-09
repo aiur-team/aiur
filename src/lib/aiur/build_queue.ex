@@ -29,6 +29,14 @@ defmodule Aiur.BuildQueue do
     :exit, {:noproc, _} -> {:error, :disabled}
   end
 
+  @doc "Rebuilds a missing or corrupt store as an operator-held list from queued markers."
+  @spec recover() :: :ok | {:error, term()}
+  def recover do
+    GenServer.call(Server, :recover)
+  catch
+    :exit, {:noproc, _} -> {:error, :disabled}
+  end
+
   defp absent_status do
     case availability() do
       :running -> :disabled
