@@ -27,7 +27,7 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**"],
+      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**", "src/lib/aiur_web/controllers/capabilities_controller.ex"],
       "facades": ["Aiur.Identity", "Aiur.Capabilities", "Aiur.Capabilities.Provider"], "facade_pending": null,
       "requires": ["kernel", "config", "web-kit"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
@@ -43,9 +43,9 @@
     },
     {
       "id": "web-kit", "name": "Phoenix helper library for component route, socket and controller modules (RC-39)", "layer": 1, "kind": "required",
-      "paths": [],
+      "paths": ["src/lib/aiur_web/capability_error.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
+      "requires": ["kernel", "config", "identity"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
