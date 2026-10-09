@@ -25,6 +25,33 @@ defmodule Aiur.Capabilities do
   @spec refresh() :: :ok
   def refresh, do: GenServer.cast(Monitor, :refresh)
 
+  @doc "Converts a report to the public v1 wire shape, excluding provider diagnostics."
+  @spec to_wire(map()) :: map()
+  def to_wire(report) do
+    report
+    |> Map.take(~w(contract contract_version boot_id revision observed_at age_ms freshness min_client_versions)a)
+    |> Map.merge(%{
+      machine: section(report[:machine], ~w(machine_id label)a),
+      instance: section(report[:instance], ~w(instance_id aiur_version run_shape)a),
+      repository: section(report[:repository], ~w(kind owner name)a),
+      executor: section(report[:executor], ~w(state consumer_id harness session_ref)a),
+      capabilities:
+        Map.new(report.capabilities, fn {id, entry} ->
+          {id, Map.take(entry, ~w(state reason depends_on version observed_at route mode v retention)a)}
+        end)
+    })
+    |> wire_value()
+  end
+
+  defp section(nil, _keys), do: nil
+  defp section(value, keys), do: Map.take(value, keys)
+
+  defp wire_value(value) when is_map(value), do: Map.new(value, fn {key, item} -> {to_string(key), wire_value(item)} end)
+  defp wire_value(value) when is_list(value), do: Enum.map(value, &wire_value/1)
+  defp wire_value(value) when value in [nil, true, false], do: value
+  defp wire_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp wire_value(value), do: value
+
   defp stored_report(table, opts, now) do
     case :ets.lookup(table, :report) do
       [{:report, {report, computed_at, _digest}}] -> {report, computed_at, false}
