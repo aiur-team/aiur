@@ -24,6 +24,8 @@ Label read/create failures stop startup before agents start and explain the requ
 | CI | Terminal checks while a ticket is in `agent:ci-wait` or `agent:human-review` | Returns passed work for human review and failed work for repair. |
 | Repository events | Default-branch pushes and opened or merged pull requests | Refreshes work whose base or review state changed. |
 
+After a known ticket ref changes, a live force-push subscription triggers one asynchronous REST compare (`previous...new`, `per_page=1`, caller `ticket_branch_rewrite`). `behind` or `diverged` emits `ticket.N.branch.force-push`; 404 emits it with `previous_missing: true`. Other failures, including budget holds, only log and increment the `[:aiur, :events, :branch_rewrite, :error]` telemetry count. New refs and unsubscribed refs make no compare request.
+
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
 Rows and the resume checkpoint share the history file; a restart resumes unfinished work and skips a completed walk. This is a one-time read, not a poll or a page-view request.

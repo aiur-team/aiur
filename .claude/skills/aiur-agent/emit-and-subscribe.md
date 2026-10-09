@@ -326,10 +326,12 @@ Removing the dependency edge removes those automatic bindings; a manually-added
 binding on the same topic survives because removal is scoped by the reason it
 was created with.
 
-> Note: `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible,
-> but no publisher currently emits it — a force-push surfaces as a normal
-> `branch.push` (the ref SHA changes). Wait on `branch.push`, never on
-> `branch.force-push`.
+> `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible.
+> After `branch.push`, subscribed rewrites detected by GitHub compare emit it
+> with `ref`, `sha`, `previous_sha`, and `compare_status`; a 404 sets
+> `previous_missing: true`. Compare errors or budget holds emit nothing:
+> always check ancestry locally. A delayed verdict carries `superseded: true`
+> if a newer SHA was observed. Neither branch event signals readiness.
 
 For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
 resumes a parked consumer through the mid-turn checkpoint drain, and
