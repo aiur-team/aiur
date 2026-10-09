@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp target(issue, opts) do
-    fetch = Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+    fetch = Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetch.(issue.identifier) do
       {:ok, nil} -> {:ok, "todo"}
@@ -65,7 +65,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp body_review_target(pr, opts) do
-    fetch = Keyword.get(opts, :reviews_fetcher, &Tracker.fetch_classified_pr_reviews/1)
+    fetch = Keyword.get(opts, :reviews_fetcher, &Aiur.CodeHost.fetch_classified_pr_reviews/1)
 
     with {:ok, reviews} <- fetch.(Map.fetch!(pr, "number")) do
       # Only a trusted verdict on this head is current; old CHANGES_REQUESTED is sticky.
