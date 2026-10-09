@@ -134,3 +134,5 @@ Adoption brings pre-labelled blocked members under queue control: the queue hold
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+
+Build Order completion progress also produces `system.build_order.<root>.progress` events at 25%, 50%, 75% and 100%, independently of queue adoption. Events use the catalog’s rounded percent and suppress milestones while provider health is stale. A fully resolved root falling below 100% after its completion milestone starts a new durable generation.
