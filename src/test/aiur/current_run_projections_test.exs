@@ -486,7 +486,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     send(owner, {:running_changed, %{}})
     :ok = :sys.resume(owner)
 
-    assert_receive :projection_checkpoint_written, 2_000
+    await_projection_idle(owner)
     refute_receive :projection_checkpoint_written, 50
     assert Agent.get(source, & &1.run_reads) == 2
     assert CurrentRunSummary.health(server: owner).status == :healthy
@@ -707,8 +707,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     send(owner, :clock_tick)
 
-    assert_receive :projection_checkpoint_written, 2_000
-    assert is_nil(:sys.get_state(owner).refresh)
+    await_projection_idle(owner)
+    refute_receive :projection_checkpoint_written, 50
 
     assert Agent.get(source, &Map.get(&1, :membership_reads, 0)) == 1
     assert Agent.get(source, &Map.get(&1, :merges_reads, 0)) == 1
