@@ -146,9 +146,15 @@ Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason,
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
 
-The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation. Existing `waiting_reason` atoms remain unchanged; a pending lifecycle fence changes the owner, cause and since, and adds sorted `pending_item_ids` to JSON and text output.
+The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation.
 
-Provider-delivery fences expire on the first dispatch poll after two minutes from the first pending input. The `lifecycle_fence_expired` alert names the stuck IDs and allows lifecycle reconciliation to continue without claiming delivery succeeded. Unacknowledged failed items return to pending, as do unacknowledged claimed items on completed workers. Live claims stay with their provider until teardown, when unacknowledged expired claims return to pending for later rework.
+Existing `waiting_reason` atoms remain unchanged. A pending lifecycle fence changes the owner, cause and since, and adds sorted `pending_item_ids` to JSON and text output.
+
+Review events queued for a completed worker start its replacement immediately, so a new turn can acknowledge delivery. Live workers retain their provider-delivery fences during long turns.
+
+For completed or exited providers, fences expire on the first dispatch poll after two minutes from the first pending input. This backstop allows lifecycle reconciliation to continue without claiming delivery succeeded. The `lifecycle_fence_expired` alert names the stuck IDs.
+
+Unacknowledged failed or claimed items on completed or exited providers return to pending for later rework. Acknowledged items are not replayed.
 
 Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.
 

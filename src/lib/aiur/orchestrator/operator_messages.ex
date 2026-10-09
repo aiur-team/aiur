@@ -14,7 +14,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   }
 
   alias Aiur.Orchestrator.StatusReason
-
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
   @operator_message_call_timeout_ms 5_000
@@ -233,6 +232,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     next_state =
       state
       |> Map.put(:queue_store, queue_store)
+      |> maybe_replace_completed_runner(running_entry)
       |> LifecycleFence.protect_queued_item(identifier, item)
 
     case running_entry do
@@ -255,10 +255,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     )
   end
 
-  # The orchestrator may queue a terminal CI event synchronously before it
-  # resumes a runner, while the durable SubscriptionStore delivers the same
-  # exchange event asynchronously. Keep one queue item even if the second copy
-  # arrives after the first was already delivered or consumed.
+  # Deduplicate synchronous CI wakes and asynchronous exchange copies, even
+  # after the original item was delivered or consumed.
   defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do
     known_ids =
       queue_store.items
@@ -858,6 +856,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     {queue_store, item} = AgentQueueStore.enqueue(queue_store, attrs)
     {:ok, queue_store, item, :accepted}
   end
+
+  defp maybe_replace_completed_runner(state, nil), do: state
 
   defp maybe_replace_completed_runner(state, running_entry) do
     case Map.get(running_entry, :issue) do

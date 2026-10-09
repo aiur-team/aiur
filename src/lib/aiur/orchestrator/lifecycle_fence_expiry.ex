@@ -18,13 +18,18 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiry do
   defp reconcile_entry(state, issue_id, entry, now) do
     case LifecycleFence.fence_for_entry(entry) do
       %{opened_at: %DateTime{} = opened_at} = fence ->
-        if DateTime.diff(now, opened_at, :second) >= @timeout_seconds,
+        if inactive_provider?(entry) and DateTime.diff(now, opened_at, :second) >= @timeout_seconds,
           do: release(state, issue_id, entry, fence),
           else: state
 
       _ ->
         state
     end
+  end
+
+  defp inactive_provider?(entry) do
+    pid = Map.get(entry, :pid)
+    State.completed_running_entry?(entry) or (is_pid(pid) and not Process.alive?(pid))
   end
 
   defp release(state, issue_id, entry, fence) do
@@ -41,25 +46,25 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiry do
       severity: "warning"
     )
 
-    # Retry failed input; only a completed provider's in-flight claims can be reclaimed.
-    completed? = State.completed_provenance?(entry)
-    queue_store = Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim(&1, &2, completed?))
+    # No live delivery remains to race with recovery.
+    queue_store = Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim(&1, &2))
 
     entry = entry |> Map.delete(:lifecycle_fence) |> Map.update(:expired_lifecycle_item_ids, MapSet.new(ids), &MapSet.union(&1, MapSet.new(ids)))
     %{state | queue_store: queue_store, running: Map.put(state.running, issue_id, entry)}
   end
 
-  @doc "Recover expired claims only after their provider has been terminated."
+  @doc "Recover fenced claims only after their provider has been terminated."
   @spec recover_terminated_input(State.t(), map()) :: State.t()
   def recover_terminated_input(state, entry) do
-    ids = Map.get(entry, :expired_lifecycle_item_ids, MapSet.new())
-    queue_store = Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim(&1, &2, true))
+    fence = LifecycleFence.fence_for_entry(entry)
+    ids = MapSet.union(Map.get(entry, :expired_lifecycle_item_ids, MapSet.new()), if(fence, do: fence.pending_item_ids, else: MapSet.new()))
+    queue_store = Enum.reduce(ids, state.queue_store, &restore_unacknowledged_claim(&1, &2))
     %{state | queue_store: queue_store}
   end
 
-  defp restore_unacknowledged_claim(id, store, completed?) do
+  defp restore_unacknowledged_claim(id, store) do
     case AgentQueueStore.get(store, id) do
-      %AgentQueueItem{provider_delivered_at: nil, status: :delivered} when completed? -> elem(AgentQueueStore.restore_pending(store, id), 0)
+      %AgentQueueItem{provider_delivered_at: nil, status: :delivered} -> elem(AgentQueueStore.restore_pending(store, id), 0)
       %AgentQueueItem{provider_delivered_at: nil, status: :failed} -> elem(AgentQueueStore.restore_failed_pending(store, id), 0)
       _ -> store
     end
