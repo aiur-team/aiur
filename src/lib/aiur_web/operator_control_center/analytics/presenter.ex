@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   @type model :: %{
           available?: boolean(),
+          retained_runs: %{included: non_neg_integer(), total: non_neg_integer()} | nil,
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
