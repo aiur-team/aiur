@@ -77,7 +77,7 @@ test('other pages are unchanged', async ({ page }) => {
         await expect(page.getByRole('button', { name: 'Reset Units filters' })).toBeVisible()
       }
       await page.evaluate(() => document.fonts.ready)
-      await page.evaluate(() => { document.getAnimations().forEach(a => { a.pause(); a.currentTime = 0 }) })
+      await page.evaluate(() => { document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish(); else { a.pause(); a.currentTime = 0 } }) })
       snapshots.push((await page.evaluate(styleSnapshot, { roots: 'body', reduced: false })).map(({ tag, styles }) => ({ tag, styles })))
     }
     expect(snapshots[1], `stylesheet affected ${route}`).toEqual(snapshots[0])
@@ -91,6 +91,7 @@ test('other pages are unchanged', async ({ page }) => {
 for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']) test(`white-on-fill contrast evidence: ${theme}/${palette}`, async ({ browser }) => {
   const pair = await transplant(browser, { ...BASE, theme, palette, interaction: 'command', query: 'models=7' })
   try {
+    await compareStyles(pair, '.btn.sm:not(.secondary), .cv-new, .cv-send, .ax-mono')
     const measurements = await pair.product.evaluate(() => {
       const canvas = document.createElement('canvas')
       canvas.width = canvas.height = 1
@@ -114,33 +115,22 @@ for (const theme of ['dark', 'light']) test(`hover styles match the design: ${th
   test.setTimeout(240_000)
   const { census, ownsBuildLine } = await import('../support/home-css-census.mjs')
   const covered = new Set()
-  for (const state of [{}, { query: 'view=list' }, { query: 'span=30' }, { query: 'live=min' }, { interaction: 'command' }, { interaction: 'nq' }, { interaction: 'filter' }, { interaction: 'usage' }, { interaction: 'tree' }]) {
+  const expected = new Set()
+  for (const state of [{}, { query: 'view=list' }, { query: 'span=30' }, { query: 'live=min' }, { interaction: 'command' }, { interaction: 'nq' }, { interaction: 'filter' }, { interaction: 'usage' }, { interaction: 'lock' }, { interaction: 'tree' }]) {
     const pair = await transplant(browser, { ...BASE, theme, ...state })
     try {
       const rules = (await census(pair.design)).filter(r => r.selector && (r.source !== 'C' || ownsBuildLine(r.line)))
       for (const r of rules) for (const m of r.matches) {
         if (!m.count || !m.selector.includes(':hover') || DEAD.test(m.selector)) continue
         const key = `${r.source}:${r.line}:${m.selector}`
+        expected.add(key)
         if (covered.has(key)) continue
         const target = m.selector.replace(/::[\w-]+|:hover/g, '')
         const candidates = pair.design.locator(target)
         for (let i = 0; i < await candidates.count(); i++) {
           if (!await candidates.nth(i).isVisible()) continue
           const subject = m.selector.split(':hover')[0]
-          for (const page of [pair.design, pair.product]) {
-            const handle = await page.locator(target).nth(i).evaluateHandle((e, selector) => e.closest(selector) ?? (e.previousElementSibling?.matches(selector) ? e.previousElementSibling : null), subject)
-            const element = handle.asElement()
-            expect(element, `hover subject missing: ${m.selector}`).not.toBeNull()
-            const point = await element.evaluate(e => {
-              if (!(e instanceof SVGPathElement)) return null
-              const p = e.getPointAtLength(e.getTotalLength() / 2).matrixTransform(e.getScreenCTM())
-              return { x: p.x, y: p.y }
-            })
-            if (point) await page.mouse.move(point.x, point.y)
-            else await element.hover({ force: true })
-            expect(await element.evaluate(e => e.matches(':hover')), `hover did not activate: ${m.selector}`).toBe(true)
-            await handle.dispose()
-          }
+          if (!await hoverSubject(pair, target, i, subject)) continue
           // Finish hover transitions at the same endpoint; keep declared timings observable.
           for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish() }))
           await compareStyles(pair, target, i)
@@ -150,9 +140,40 @@ for (const theme of ['dark', 'light']) test(`hover styles match the design: ${th
       }
     } finally { await pair.close() }
   }
+  expect([...expected].filter(key => !covered.has(key)), 'matched hover rules without a reachable target').toEqual([])
   expect(covered.size, 'hover exercise had no targets').toBeGreaterThan(10)
   await writeFile(test.info().outputPath('hover-coverage.json'), JSON.stringify([...covered], null, 2))
 })
+
+async function hoverSubject(pair, target, index, subject) {
+  for (const page of [pair.design, pair.product]) {
+    const handle = await page.locator(target).nth(index).evaluateHandle((e, selector) => e.closest(selector) ?? (e.previousElementSibling?.matches(selector) ? e.previousElementSibling : null), subject)
+    try {
+      const element = handle.asElement()
+      expect(element, `hover subject missing: ${subject}`).not.toBeNull()
+      await element.scrollIntoViewIfNeeded()
+      const point = await element.evaluate(e => {
+        const hit = p => { const node = document.elementFromPoint(p.x, p.y); return node === e || e.contains(node) }
+        if (e instanceof SVGPathElement) {
+          for (let i = 1; i < 100; i++) {
+            const p = e.getPointAtLength(e.getTotalLength() * i / 100).matrixTransform(e.getScreenCTM())
+            if (hit(p)) return { x: p.x, y: p.y }
+          }
+          return null
+        }
+        const r = e.getBoundingClientRect(), p = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+        return hit(p) ? p : null
+      })
+      if (!point) {
+        expect(page === pair.design, `product hover target unreachable: ${subject}`).toBe(true)
+        return false
+      }
+      await page.mouse.move(point.x, point.y)
+      expect(await element.evaluate(e => e.matches(':hover')), `hover did not activate: ${subject}`).toBe(true)
+    } finally { await handle.dispose() }
+  }
+  return true
+}
 
 
 test('home base utilities keep the design font stack', async ({ browser }) => {
