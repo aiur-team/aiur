@@ -28,8 +28,6 @@ R-declared	Aiur.GitHub.StatePolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ad
 R-declared	Aiur.GitHub.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.HttpServer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.AgentCli	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation.Source	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.SlotRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -88,8 +86,6 @@ R-optional	Aiur.GitHub.ReviewThreads	baseline 22b2fa407c5d4218d25d63b1aa17472aec
 R-optional	Aiur.GitHub.StatePolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Tracker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.HttpServer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.LiveConversation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.LiveConversation.Source	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SlotRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OperatorWaitLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

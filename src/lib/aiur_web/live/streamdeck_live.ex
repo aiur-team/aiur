@@ -19,7 +19,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Config, Orchestrator, PollCadence}
+  alias Aiur.{AgentChat, AgentPubSub, CodingAgent, Config, Orchestrator, PollCadence}
+  alias Aiur.Conversation.History
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
 
   alias AiurWeb.{
@@ -1458,12 +1459,12 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_event_feed(identifier) do
     transcript =
-      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+      case History.transcript(identifier, %{"limit" => 50}) do
         {:ok, %{events: events}} -> events
         _ -> []
       end
 
-    %{events: AgentEventFeed.bus_events(identifier), transcript: transcript}
+    %{events: History.bus_events(identifier), transcript: transcript}
   end
 
   # The emulator's injected feed function predates the bus/transcript split and
