@@ -14,8 +14,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
-  alias Aiur.Commands
-  alias Aiur.CurrentRunMembership
+  alias Aiur.{Commands, CurrentRunMembership}
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
 
