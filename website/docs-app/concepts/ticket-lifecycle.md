@@ -51,7 +51,7 @@ watch  paused  parked  queued  rate-limit-fallback
 | `agent:watch` | Opt-in PR-watch marker: Aiur watches a PR for comments. |
 | `agent:paused` | Per-issue pause override: suppress Aiur work while preserving the current state. |
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
-| `agent:queued` | Build queue membership; does not authorize or trigger dispatch. |
+| `agent:queued` | Build queue membership; does not authorize or trigger dispatch. Before downgrading to a release without this marker, run `aiur queue clear --remove-markers --yes` and wait for success. It keeps `agent:todo`; budget-held writes resume on retry. Older releases can misread the marker as a conflicting state. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
 
 Markers **survive state swaps** (`GitHub.IssueState`): they overlay a state

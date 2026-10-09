@@ -10,16 +10,19 @@ queue_workspace_guard() {
 }
 
 cmd_queue() {
-  local verb="${1:-}" json=0 queue="" after="" at="" to="" root="" opts="" id status=0
+  local verb="${1:-}" json=0 queue="" after="" at="" to="" root="" opts="" id status=0 force=0 remove_markers=0 yes=0
   local ids=()
   case "$verb" in
     show) ;;
-    add|remove|reorder|hold|release) queue_workspace_guard ;;
-    *) queue_usage_error 'expects show, add, remove, reorder, hold, or release' ;;
+    add|remove|reorder|hold|release|recover|clear) queue_workspace_guard ;;
+    *) queue_usage_error 'expects show, add, remove, reorder, hold, release, recover, or clear' ;;
   esac
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --force) [ "$verb" = recover ] && [ "$force" -eq 0 ] || queue_usage_error '--force requires recover'; force=1 ;;
+      --remove-markers) [ "$verb" = clear ] && [ "$remove_markers" -eq 0 ] || queue_usage_error '--remove-markers requires clear'; remove_markers=1 ;;
+      --yes) [ "$verb" = clear ] && [ "$yes" -eq 0 ] || queue_usage_error '--yes requires clear'; yes=1 ;;
       --json) [ "$verb" = show ] || queue_usage_error '--json requires show'; json=1 ;;
       --queue)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != -* ]] || queue_usage_error '--queue requires a name'
@@ -54,6 +57,10 @@ cmd_queue() {
       else
         [ "${#ids[@]}" -gt 0 ] || queue_usage_error 'add requires ticket IDs or --build-order'
       fi ;;
+    recover) [ "${#ids[@]}" -eq 0 ] || queue_usage_error 'recover does not take ticket IDs' ;;
+    clear)
+      [ "${#ids[@]}" -eq 0 ] && [ "$remove_markers" -eq 1 ] || queue_usage_error 'clear requires --remove-markers and no ticket IDs'
+      [ "$yes" -eq 1 ] || { echo 'aiur: queue clear requires --yes; removes all queue membership and markers, keeping todo' >&2; exit 1; } ;;
     remove) [ "${#ids[@]}" -gt 0 ] || queue_usage_error 'remove requires ticket IDs' ;;
     reorder) [ "${#ids[@]}" -eq 1 ] && [ -n "$to" ] || queue_usage_error 'reorder requires one ticket ID and --to POS' ;;
     hold|release)
@@ -63,6 +70,9 @@ cmd_queue() {
   if [ "$verb" != show ]; then
     opts="verb: :$verb, caller_agent_workspace: $(queue_string "${AIUR_AGENT_WORKSPACE:-}")"
   fi
+  [ "$force" -eq 1 ] && opts="$opts, force: true"
+  [ "$remove_markers" -eq 1 ] && opts="$opts, remove_markers: true"
+  [ "$yes" -eq 1 ] && opts="$opts, yes: true"
   [ "$json" -eq 1 ] && opts="json: true"
   [ -n "$queue" ] && opts="${opts:+$opts, }queue: $(queue_string "$queue")"
   [ -n "$root" ] && opts="$opts, build_order: $root"

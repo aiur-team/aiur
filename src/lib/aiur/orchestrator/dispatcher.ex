@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     CommandScan,
     CommentPolling,
     DispatchBatch,
+    DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
     IssueSync,
@@ -48,8 +49,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackedSet,
     TrackerHealth
   }
-
-  alias Aiur.Orchestrator.ReworkGate
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
@@ -1102,7 +1101,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchPolicy.sort_issues_for_dispatch(issues), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),

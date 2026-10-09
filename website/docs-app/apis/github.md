@@ -289,8 +289,7 @@ The old query attached full comment and review-thread selections to every specul
 Spend scales with target count, not with comment volume. The table below is for
 the **dispatch-class** cadence — the tick every poll loop rides.
 
-A per-class entry in `polling.intervals` scales the same way for that class:
-halving a class's interval doubles its own spend, and the GraphQL pollers are
+A per-class entry in `polling.intervals` scales the same way for that class: halving a class's interval doubles its own spend, and the GraphQL pollers are
 the classes worth widening (CI, comments/review threads, and previously the
 Build Order catalog, now event-sourced).
 
@@ -316,8 +315,9 @@ Dashboard state derives its staleness from the `dispatch` class (the cadence of 
 
 ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
 
-`planning` is recommended as `0` (on-demand), so the most expensive query in the
-system runs only when a page opens or a degradation needs a re-list.
+Dispatch orders candidates with fresh cached native dependency holds after other candidates, preserving priority within each group. This ordering performs no GitHub reads; missing or stale evidence keeps the ordinary order and dispatch-time validation remains authoritative.
+
+`planning` is recommended as `0` (on-demand): its expensive query runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |
