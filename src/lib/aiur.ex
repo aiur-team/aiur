@@ -511,7 +511,8 @@ defmodule Aiur.Application do
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
       if(recording?, do: [Aiur.AllowedContributors, Aiur.BuildProgress, Aiur.BuildOrder.ProgressObserver]),
-      Aiur.BuildOrder.EpicOverrides
+      Aiur.BuildOrder.EpicOverrides,
+      {Aiur.BuildOrder.Features.RootImport, enabled?: Application.get_env(:aiur, :build_order_root_import_enabled?, true)}
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
