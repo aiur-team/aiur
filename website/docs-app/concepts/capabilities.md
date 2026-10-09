@@ -130,3 +130,9 @@ restart. This creates a new machine identity and invalidates existing pairings.
 The public report excludes provider diagnostics, filesystem paths, ports, tokens,
 and credentials. The visible machine label is the hostname exception; repository
 and Executor display identifiers are visible to authenticated clients.
+
+## Client contracts
+
+The private [`@aiur/contracts` package](https://github.com/aiur-team/aiur/tree/main/packages/aiur-contracts) provides generated TypeScript types, known capability IDs, harness ID patterns, and reason constants.
+
+Its [v1 JSON Schema](https://github.com/aiur-team/aiur/blob/main/packages/aiur-contracts/schemas/capabilities.v1.schema.json) validates the daemon's golden report.

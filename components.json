@@ -311,8 +311,8 @@
       "prior": ["WEB"]
     },
     {
-      "id": "aiur-contracts", "name": "Published wire contracts: JSON Schemas and generated TS types for identity, capabilities, events, Commands, conversations, notifications (new, MP-R1-C3; `status: planned` until C3-T06, `added_by: MP-R1`, exempt from rule I4)", "layer": 5, "kind": "required",
-      "paths": [],
+      "id": "aiur-contracts", "name": "Wire contracts: JSON Schemas and generated TypeScript types for identity and capabilities", "layer": 5, "kind": "required",
+      "paths": ["packages/aiur-contracts/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
