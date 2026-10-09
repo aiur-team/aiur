@@ -77,6 +77,10 @@ def release(process):
 try:
     first = start()
     assert line(first.stdout) == "started\n"
+    expired = start(action="exit", env=dict(environment, AIUR_BUILD_GATE_TIMEOUT_SECONDS="0"))
+    assert expired.wait(timeout=15) == 124, expired.stderr.read().decode()
+    assert b"browser_workspace_timeout" in expired.stderr.read()
+    assert expired.stdout.read() == b""
     second = start("/pkg/node_modules/.bin/playwright")
     wait_log(second, "browser_workspace_wait")
     with selectors.DefaultSelector() as selector:
