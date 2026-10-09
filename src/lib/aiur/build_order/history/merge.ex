@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.History.Merge do
   @moduledoc false
-  alias Aiur.BuildOrder.History.Row
+  alias Aiur.BuildOrder.History.{Row, Timing}
   @earliest [:in_progress_at, :dispatched_at]
   @latest [:last_closed_at, :close_observed_at, :reopened_at, :merged_at]
   @signals @earliest ++ @latest ++ [:label_events, :sub_issues_added]
@@ -11,10 +11,15 @@ defmodule Aiur.BuildOrder.History.Merge do
     row = old || %Row{number: event.number, observed_at: event.observed_at}
     late? = compare(Map.get(event.fields, :updated_at), row.updated_at) == :lt
     newer? = newer?(row, event)
-    merged = Enum.reduce(event.fields, row, fn {key, value}, acc -> Map.put(acc, key, value(key, value, row, event, late?, newer?)) end)
+    fields = close_signal(event.fields)
+    merged = Enum.reduce(fields, row, fn {key, value}, acc -> Map.put(acc, key, value(key, value, row, event, late?, newer?)) end)
     merged = %{merged | observed_at: extreme(row.observed_at, event.observed_at, :latest), sources: Enum.sort(Enum.uniq(row.sources ++ [event.source]))}
+    merged = Timing.derive(old, merged)
     if merged == old, do: :unchanged, else: {:changed, merged}
   end
+
+  defp close_signal(%{closed_at: %DateTime{} = at} = fields), do: Map.update(fields, :last_closed_at, at, &extreme(&1, at, :latest))
+  defp close_signal(fields), do: fields
 
   defp value(:pr_number, value, row, event, late?, _newer?) do
     winner = value(:merged_at, Map.get(event.fields, :merged_at, :unknown), row, event, late?, false)

@@ -61,6 +61,7 @@ defmodule AiurWeb.Build.PayloadTest do
   test "unknown stays null and raw strings stay raw" do
     data = fixture() |> put_in(["sections", "now", Access.at(0), "pct"], nil) |> Map.put("counts", nil)
     data = data |> put_in(["sections", "now", Access.at(0), "est"], nil) |> put_in(["sections", "now", Access.at(0), "start"], nil)
+    data = put_in(data, ["sections", "now", Access.at(0), "start_src"], "unknown")
     data = put_in(data, ["sections", "now", Access.at(0), "title"], "A & B")
     json = Payload.snapshot(data, "E", 1) |> Jason.encode!() |> Jason.decode!()
     assert Payload.validate(json) == :ok
@@ -100,7 +101,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    assert bytes / rows <= 400
+    # Required start_src adds up to 25 bytes to the original 400-byte budget.
+    assert bytes / rows <= 425
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

@@ -253,7 +253,7 @@ defmodule Aiur.GitHub.Tracker do
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
-    client_module().update_issue_state(issue_id, state_name)
+    note_in_progress(client_module().update_issue_state(issue_id, state_name), issue_id, state_name)
   end
 
   @impl Aiur.Tracker.IssueTracker
@@ -262,16 +262,26 @@ defmodule Aiur.GitHub.Tracker do
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     client = client_module()
 
-    cond do
-      Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
-        client.update_issue_state(issue_id, state_name, opts)
+    result =
+      cond do
+        Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
+          client.update_issue_state(issue_id, state_name, opts)
 
-      opts == [] ->
-        client.update_issue_state(issue_id, state_name)
+        opts == [] ->
+          client.update_issue_state(issue_id, state_name)
 
-      true ->
-        {:error, :expected_state_unsupported}
-    end
+        true ->
+          {:error, :expected_state_unsupported}
+      end
+
+    note_in_progress(result, issue_id, state_name)
+  end
+
+  defp note_in_progress(result, issue_id, state_name) do
+    if result == :ok and Aiur.Orchestrator.DispatchPolicy.state_slug(state_name) == "in-progress",
+      do: Aiur.BuildOrder.History.note_start(issue_id, :label, DateTime.utc_now())
+
+    result
   end
 
   @impl Aiur.Tracker.IssueTracker

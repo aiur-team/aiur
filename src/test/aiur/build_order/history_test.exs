@@ -348,11 +348,11 @@ defmodule Aiur.BuildOrder.HistoryTest do
     assert {:error, {:invalid_event, 0, _}} = History.apply([event(%{blocked_by: [%{ref | number: 0}]})], opts)
   end
 
-  test "V25 derived facts require derive source", %{dir: dir, opts: opts} do
+  test "V25 derived facts require derive source and timing recomputes starts", %{dir: dir, opts: opts} do
     start(dir)
     assert {:error, {:invalid_event, 0, {:invalid_field, :start}}} = History.apply([event(%{start: @t}, 1, @t, :webhook)], opts)
     assert {:ok, _} = History.apply([event(%{start: @t, start_source: :label, end: :none, clamped: true}, 1, @t, :derive)], opts)
-    assert row(opts).start == @t
+    assert row(opts).start == :unknown
     assert row(opts).clamped
   end
 

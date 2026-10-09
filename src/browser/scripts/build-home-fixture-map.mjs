@@ -11,7 +11,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }) {
     credits: optional(p, 'credits'), none: p.none ?? false });
   const row = (t, ord) => ({ id: id(t.id), num: t.num, title: t.title, type: t.type, epic: optional(t, 'epic'), feature: optional(t, 'feature'),
     also: t.also, cx: optional(t, 'cx'), pts: optional(t, 'pts'), sec: t.sec, ord,
-    start: time(t, 'start'), end: time(t, 'end'), created: time(t, 'created'), status: t.status,
+    start: time(t, 'start'), start_src: t.start == null ? 'unknown' : (t.start_src ?? 'label'), end: time(t, 'end'), created: time(t, 'created'), status: t.status,
     pct: optional(t, 'pct'), agent: optional(t, 'agent'), est: optional(t, 'est'), override: t.override ? { hours: t.override.hours, reason: t.override.reason, by: t.override.by ?? null, at: time(t.override, 'at') } : null,
     added: t.added ?? false, deps: t.deps.map(id), wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
     cue: t.cue ? { held: optional(t.cue, 'held'), promoted: t.cue.promoted ? meta.now - duration(t.cue.promoted) : null,
