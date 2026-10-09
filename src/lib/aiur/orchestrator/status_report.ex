@@ -11,7 +11,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.CodingAgent
   alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.Tmux.Socket
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CapacityBinding
@@ -31,6 +30,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.ProgressRetention
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
+  alias Aiur.Tmux.Socket
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Ownership.HoldStatus
   # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
