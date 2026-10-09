@@ -109,11 +109,10 @@ Analytics records fleet and build-gate whole-host sources alongside daemon proce
 telemetry. The pressure chart shows occupied agents, configured/max/effective
 agent capacity, active and queued builds, and the oldest live build wait.
 
-Its source state strip and timestamped data table distinguish current, stale,
-degraded, partial, and empty observations. The table additionally reports the
-binding admission signal and diagnostic load measurements. Dispatch uses CPU PSI
-pressure where available; status names its threshold or the load fallback. A growing
-build queue shows verification throttling; build occupancy does not hold dispatch.
+Its source strip and timestamped table distinguish current, stale, degraded,
+partial and empty observations. Load stays diagnostic. Dispatch uses CPU PSI when
+available; status names its threshold or load fallback. A growing build queue
+shows verification throttling; build occupancy does not hold dispatch.
 
 A gap means the source was not current enough to support that value; it is never
 silently plotted as zero. Build-queue wait is the oldest waiter still live at the
