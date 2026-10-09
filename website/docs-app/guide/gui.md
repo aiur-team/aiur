@@ -38,6 +38,8 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
+The home page shows a named weekly bar for each [Claude account](/guide/claude-accounts), with freshness and observation age. Missing readings remain unknown. The provider summary names the selected account: “worst of N accounts” for complete readings, or the observed account count for partial readings.
+
 Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
 
 Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.

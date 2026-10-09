@@ -83,6 +83,9 @@ defmodule Aiur.SignalTest do
 
   test "default refresh interoperates with web subscribers" do
     assert :ok = ObservabilityPubSub.subscribe()
+    probe = make_ref()
+    assert :ok = Phoenix.PubSub.broadcast(Aiur.PubSub, "observability:dashboard", {:signal_topic_probe, probe})
+    assert_received {:signal_topic_probe, ^probe}
     assert :ok = Signal.refresh()
     assert_received {:observability_updated, id}
     assert is_integer(id) and id > 0
