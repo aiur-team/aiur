@@ -1,9 +1,9 @@
 Code.require_file("../../support/restack_fixture.ex", __DIR__)
 
-defmodule Aiur.Stacking.RestackTest do
+defmodule Aiur.Workspace.RestackTest do
   use ExUnit.Case, async: true
-  alias Aiur.Stacking.Restack
   alias Aiur.TestSupport.RestackFixture
+  alias Aiur.Workspace.Restack
 
   import Aiur.TestSupport.RestackFixture, only: [git: 2, command: 2]
   setup do: RestackFixture.create()

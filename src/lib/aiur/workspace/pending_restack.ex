@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.PendingRestack do
   @moduledoc false
   require Logger
-  alias Aiur.Stacking.GitCommand
+  alias Aiur.Workspace.RestackGit
 
   @spec apply(Path.t()) :: :ok | :skip_hook | {:error, term()}
   def apply(workspace) do
@@ -9,7 +9,7 @@ defmodule Aiur.Workspace.PendingRestack do
   end
 
   defp apply_checkout(workspace) do
-    git = fn args -> GitCommand.run(workspace, args) end
+    git = fn args -> RestackGit.run(workspace, args) end
     {branch, _status} = git.(["symbolic-ref", "--quiet", "--short", "HEAD"])
     ref = "refs/aiur/restack/pending/#{String.trim(branch)}"
 

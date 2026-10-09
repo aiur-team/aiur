@@ -1,9 +1,8 @@
-defmodule Aiur.Stacking.GitCommandTest do
+defmodule Aiur.Workspace.RestackGitTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.{ProcessIdentity, ProcessTree}
-  alias Aiur.Stacking.GitCommand
-  alias Aiur.Workspace.{HostLock, Ownership}
+  alias Aiur.Workspace.{HostLock, Ownership, RestackGit}
 
   test "git children cannot read inherited daemon secrets" do
     workspace = Aiur.TestSupport.tmp_root!("restack-secrets")
@@ -13,13 +12,21 @@ defmodule Aiur.Stacking.GitCommandTest do
     on_exit(fn -> Enum.each(previous, fn {name, value} -> if value, do: System.put_env(name, value), else: System.delete_env(name) end) end)
     Enum.each(names, &System.put_env(&1, "restack-test"))
     command = "!" <> Enum.map_join(names, " && ", &"test -z \"${#{&1}:-}\"")
-    assert {_output, 0} = GitCommand.run(workspace, ["-c", "alias.assertclean=#{command}", "assertclean"])
+    assert {_output, 0} = RestackGit.run(workspace, ["-c", "alias.assertclean=#{command}", "assertclean"])
   end
 
   test "a failed OS spawn releases ownership without a provider hold" do
     ticket = "restack-spawn-fail-#{System.unique_integer([:positive])}"
     assert {:ok, lease} = Ownership.claim(ticket)
-    assert {"git command unavailable", 127} = GitCommand.run(System.tmp_dir!(), [nil], lease)
+    previous_path = System.get_env("PATH")
+
+    try do
+      System.put_env("PATH", "/nonexistent-restack-test")
+      assert {"git command unavailable", 127} = RestackGit.run(System.tmp_dir!(), ["version"], lease)
+    after
+      System.put_env("PATH", previous_path)
+    end
+
     assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
     assert Ownership.current(ticket) == :none
   end
@@ -48,7 +55,7 @@ defmodule Aiur.Stacking.GitCommandTest do
         {:ok, lock} = HostLock.acquire(workspace, ticket)
         :ok = HostLock.handoff_to_ownership(lock, lease)
         send(parent, {:claimed, lease})
-        result = GitCommand.run(workspace, ["-c", "alias.restackwait=!echo ready > #{Aiur.Shell.escape(marker)}; sleep 30", "restackwait"], lease)
+        result = RestackGit.run(workspace, ["-c", "alias.restackwait=!echo ready > #{Aiur.Shell.escape(marker)}; sleep 30", "restackwait"], lease)
         send(parent, {:finished, result})
       end)
 

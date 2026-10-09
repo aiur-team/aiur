@@ -1,4 +1,4 @@
-defmodule Aiur.Stacking.GitCommand do
+defmodule Aiur.Workspace.RestackGit do
   @moduledoc false
   alias Aiur.{AgentEnvironment, AgentGitHubGuard, ProcessTree}
   alias Aiur.Workspace.Ownership

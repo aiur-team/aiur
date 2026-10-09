@@ -1,12 +1,12 @@
-defmodule Aiur.Stacking.Restack do
+defmodule Aiur.Workspace.Restack do
   @moduledoc "Restacks a remote dependent using git plumbing, without changing its checkout."
 
-  alias Aiur.Stacking.GitCommand
+  alias Aiur.Workspace.RestackGit
 
   @spec run(Path.t(), String.t(), pos_integer(), String.t(), String.t(), keyword()) ::
           {:ok, :already_contained | {:pushed, String.t()}} | {:conflict, [String.t()]} | {:error, term()}
   def run(workspace, branch, blocker_pr, integration, merge_sha, opts \\ []) do
-    command = Keyword.get(opts, :command, &GitCommand.run/2)
+    command = Keyword.get(opts, :command, fn path, args -> RestackGit.run(path, args, opts[:ownership]) end)
     git = fn args -> command.(workspace, args) end
 
     with :ok <- supported_git(git),

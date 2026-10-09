@@ -3,10 +3,9 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   require Logger
   alias Aiur.{Config, Issue, Tracker}
   alias Aiur.Events.{BranchRefStore, Publisher}
-  alias Aiur.GitHub.TicketPullRequest
   alias Aiur.Orchestrator.{State, TicketTransition, TrackerTasks}
-  alias Aiur.Stacking.{GitCommand, Restack, StackBaseEvidence}
-  alias Aiur.Workspace.{HostLock, Layout, Ownership}
+  alias Aiur.Stacking.StackBaseEvidence
+  alias Aiur.Workspace.{HostLock, Layout, Ownership, Restack}
 
   @spec merged(State.t(), String.t(), map()) :: State.t()
   def merged(state, blocker, event) do
@@ -49,7 +48,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
          issue.state in ["done", "closed", "cancelled", "canceled"] do
       state
     else
-      read_pr = Keyword.get(opts, :read_pr, &TicketPullRequest.read/1)
+      read_pr = Keyword.get(opts, :read_pr, &Tracker.ticket_pull_request/1)
       {:ok, pr} = read_pr.(to_string(issue.identifier))
       branch = branch(pr, issue, opts)
       blockers = Keyword.get(opts, :blockers, &StackBaseEvidence.blocker_facts/1).(to_string(issue.identifier))
@@ -62,6 +61,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   defp schedule(state, issue, branch, %{pr: %{merged?: true, number: number, merge_commit_sha: sha}}, opts)
        when is_binary(branch) and branch != "" and is_integer(number) and is_binary(sha) and sha != "" do
     key = {issue.id, sha, opts[:dependent_head]}
+
     if state.restack_completed[key] == :done or TrackerTasks.running?(state, {:restack, issue.id}) do
       state
     else
@@ -127,7 +127,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   defp run_locked(workspace, identifier, lease, branch, blocker, base) do
     with {:ok, lock} <- HostLock.acquire(workspace, identifier),
          :ok <- HostLock.handoff_to_ownership(lock, lease) do
-      Restack.run(workspace, branch, blocker.number, base, blocker.sha, command: fn path, args -> GitCommand.run(path, args, lease) end)
+      Restack.run(workspace, branch, blocker.number, base, blocker.sha, ownership: lease)
     end
   end
 

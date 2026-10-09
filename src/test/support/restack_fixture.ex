@@ -1,10 +1,11 @@
 defmodule Aiur.TestSupport.RestackFixture do
   @moduledoc false
+  alias Aiur.TestSupport
   import ExUnit.Assertions
   import ExUnit.Callbacks, only: [on_exit: 1]
   @spec create() :: map()
   def create do
-    root = Path.join(System.tmp_dir!(), "restack-#{System.unique_integer([:positive])}")
+    root = TestSupport.tmp_root!("restack")
     origin = Path.join(root, "origin.git")
     workspace = Path.join([root, "owner", "repo", "20"])
     File.mkdir_p!(workspace)

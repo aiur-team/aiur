@@ -127,7 +127,17 @@ defmodule Aiur.Orchestrator.RestackSchedulerTest do
     receive_barrier({report_ref, report_result})
     assert {:report_failed, :unavailable, ["shared"], [:state]} = report_result
     assert {:handled, state} = TrackerTasks.result(reporting, report_ref, report_result)
-    opts = Keyword.merge(ctx.opts, write_state: writes, comment: fn _, _ -> send(owner, :commented); :ok end, publish: fn _, _ -> :ok end)
+
+    opts =
+      Keyword.merge(ctx.opts,
+        write_state: writes,
+        comment: fn _, _ ->
+          send(owner, :commented)
+          :ok
+        end,
+        publish: fn _, _ -> :ok end
+      )
+
     retry = RestackScheduler.reconcile(state, [], opts)
     receive_barrier(:commented)
     receive_barrier({ref, result})

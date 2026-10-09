@@ -2,12 +2,11 @@ Code.require_file("../../support/restack_fixture.ex", __DIR__)
 
 defmodule Aiur.Orchestrator.RestackWiringTest do
   use Aiur.TestSupport
-  alias Aiur.{Issue, Workflow}
   alias Aiur.GitHub.{ResourceStore, TicketPullRequest}
+  alias Aiur.{Issue, Workflow}
   alias Aiur.Orchestrator.{CiLifecycle, EventTopics, State, TrackerTasks}
-  alias Aiur.Stacking.Restack
   alias Aiur.TestSupport.RestackFixture
-  alias Aiur.Workspace.Refresh
+  alias Aiur.Workspace.{Refresh, Restack}
 
   setup do
     ctx = RestackFixture.create()
