@@ -97,7 +97,9 @@ For `human-review`, the writer also checks review threads and the exact PR head
 against `tracker.base_branch`. Stale heads pass only with no conflicts or
 changed-file overlap since the merge base, including both paths of renames.
 Incomplete evidence, mismatched heads or bases, conflicts and overlap leave
-labels unchanged. Harmless base movement needs no merge or CI rerun.
+labels unchanged.
+
+Harmless base movement needs no merge or CI rerun.
 
 Workers check before handoff and after CI. Up to three integrations per handoff
 need no approval; each runs local tests and format, size and components gates,
@@ -107,9 +109,12 @@ Base integration never opens a blocking decision.
 A contradictory pair is healed by preferring a label added since the recorded
 orchestrator claim. Without claim evidence, deterministic precedence applies
 (`agent:todo` wins); a provenance win never promotes terminal `done`.
+
 Zero-label tickets are repaired only with workflow evidence: restore the last
 state, or `todo` if only a released claim survives. Parked or untriaged tickets
-without that evidence are alerted and left alone. An open workflow ticket with
+without that evidence are alerted and left alone.
+
+An open workflow ticket with
 no live agent or scheduled claim is re-queued and alerted.
 
 Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
@@ -155,7 +160,8 @@ The build queue manages future work in named lists or adopted Build Orders.
 Promotion adds `todo` only when fresh evidence proves readiness and no other
 state is present. Queue membership and promotion do not grant authorization.
 
-Queue item states are projections, not additional tracker state labels:
+Queue item states are projections, not additional tracker state labels.
+
 | Item state | Meaning |
 | --- | --- |
 | `waiting` | At least one prerequisite is still pending. |
@@ -179,7 +185,9 @@ labels and raises `dependency_changed_after_start` when it becomes unready.
 A manual `todo` addition normally sets an override; Build Order adoption first
 withdraws pre-labelled, unclaimed blocked members. External removal of a
 queue-owned `todo` creates an external hold. `aiur queue release` clears holds
-and overrides. Removing `agent:queued` dequeues the item. Optimistic writes
+and overrides.
+
+Removing `agent:queued` dequeues the item. Optimistic writes
 re-observe state races instead of overwriting another writer's transition.
 
 Unauthorized detection needs a free dispatch slot; until dispatch can check,
@@ -189,6 +197,7 @@ or hold the ticket. An unavailable claim probe preserves a recorded decline.
 [Queue attentions](/concepts/build-orders#queue-attentions) cover
 `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
 `write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
+
 See [Queueing a Build Order](/concepts/build-orders#queueing-a-build-order) for adoption
 and [Downgrading](/concepts/build-orders#downgrading) before using an older release.
 Closed-unmerged prerequisite PR detection is [webhook-only](/concepts/build-orders#closed-prerequisite-pull-requests);
