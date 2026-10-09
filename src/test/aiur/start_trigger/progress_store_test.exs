@@ -58,8 +58,8 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     assert %{stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12")
   end
 
-  test "delayed deliveries cannot reverse closure or merge, and fork branches contribute nothing" do
-    start()
+  test "delayed deliveries cannot reverse closure or merge, and foreign repositories contribute nothing" do
+    start(repo: fn -> "owner/repo" end)
     ResourceStore.reset()
 
     pr = %{
@@ -79,6 +79,10 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     assert %{stage: :pr_merged, closed_unmerged?: false} = ProgressStore.lookup("31")
     deposit(%{pr | "number" => 102, "head" => %{"ref" => "aiur/32-progress", "repo" => %{"full_name" => "fork/repo"}}})
     assert ProgressStore.lookup("32") == nil
+    foreign = %{pr | "number" => 103, "head" => %{"ref" => "aiur/33-progress", "repo" => %{"full_name" => "other/repo"}}}
+    Deposit.deposit("pull_request", %{"pull_request" => foreign}, "other/repo")
+    flush()
+    assert ProgressStore.lookup("33") == nil
   end
 
   test "restart seeds durable CI greens and binds only the saved head" do
@@ -158,14 +162,21 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     flush()
     assert_received :read
 
-    for outcome <- [:dismissed, :error] do
-      Agent.update(mode, fn _ -> outcome end)
-      Agent.update(clock, &(&1 + 30_000))
-      ProgressStore.watch(["12"], :pr_approved, observation_max_age_ms: 60_000)
-      flush()
-      assert_received :read
-      assert %{stage: :pr_approved} = ProgressStore.lookup("12")
-    end
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        for outcome <- [:dismissed, :error, :error] do
+          previous = ProgressStore.lookup("12")
+          Agent.update(mode, fn _ -> outcome end)
+          Agent.update(clock, &(&1 + 30_000))
+          ProgressStore.watch(["12"], :pr_approved, observation_max_age_ms: 60_000)
+          flush()
+          assert_received :read
+          assert %{stage: :pr_approved} = ProgressStore.lookup("12")
+          if outcome == :error, do: assert(ProgressStore.lookup("12") == previous)
+        end
+      end)
+
+    assert length(Regex.scan(~r/Blocker approval read failed/, log)) == 1
   end
 
   defp deposit(pr) do

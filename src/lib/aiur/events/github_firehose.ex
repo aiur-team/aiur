@@ -253,7 +253,9 @@ defmodule Aiur.Events.GithubFirehose do
         :not_merge
 
       {:ok, merge} ->
-        if merge.ticket_id, do: ProgressStore.record(merge.ticket_id, %{pr_number: merge.number, stage: :pr_merged, source: :merge})
+        if merge.ticket_id && get_in(event, ["payload", "pull_request", "head", "repo", "full_name"]) == merge.repository,
+          do: ProgressStore.record(merge.ticket_id, %{pr_number: merge.number, stage: :pr_merged, source: :merge})
+
         call_recent_merge_store(merge, opts)
 
       {:error, reason} ->

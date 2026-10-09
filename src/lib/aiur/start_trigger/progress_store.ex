@@ -27,7 +27,7 @@ defmodule Aiur.StartTrigger.ProgressStore do
 
   @spec delivery(String.t(), map(), String.t()) :: :ok
   def delivery(id, pr, repo) when is_map(pr) do
-    attrs = %{pr_number: pr["number"], head_sha: get_in(pr, ["head", "sha"]), source: :webhook}
+    attrs = %{pr_number: pr["number"], head_sha: get_in(pr, ["head", "sha"]), source: :webhook, repo: repo}
 
     cond do
       not is_integer(pr["number"]) or not same_repo?(pr, repo) -> :ok
@@ -61,12 +61,14 @@ defmodule Aiur.StartTrigger.ProgressStore do
       if identity = Keyword.get(opts, :identity, fn _ -> nil end).(id), do: put(id, identity, clock.())
     end
 
-    {:ok, %{clock: clock, reader: Keyword.get(opts, :reader), watches: %{}, timer: nil}}
+    {:ok, %{clock: clock, reader: Keyword.get(opts, :reader), repo: Keyword.get(opts, :repo, fn -> nil end), watches: %{}, timer: nil}}
   end
 
   @impl true
   def handle_cast({:record, id, attrs}, state) do
-    put(id, attrs, state.clock.())
+    configured_repo = state.repo.()
+    incoming_repo = Map.get(attrs, :repo)
+    if is_nil(configured_repo) or is_nil(incoming_repo) or String.downcase(configured_repo) == String.downcase(incoming_repo), do: put(id, Map.delete(attrs, :repo), state.clock.())
     {:noreply, state}
   end
 
