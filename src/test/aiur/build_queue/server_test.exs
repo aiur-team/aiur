@@ -134,6 +134,21 @@ defmodule Aiur.BuildQueue.ServerTest do
     refute Hints.held?("2")
   end
 
+  test "cold unknown snapshot preserves persisted item and queue holds" do
+    fixture()
+
+    Agent.update(Boundary, fn boundary ->
+      {:ok, doc} = boundary.document
+      queues = Enum.map(doc.queues, &%{&1 | held: true})
+      %{boundary | document: {:ok, %{doc | queues: queues}}}
+    end)
+
+    pid = server()
+    boot(pid)
+    assert Hints.held?("1")
+    assert Hints.held?("2")
+  end
+
   test "unavailable claims retain withdrawal holds without withdrawing" do
     fixture()
 
