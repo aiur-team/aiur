@@ -23,8 +23,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   use Phoenix.Component
 
+  alias Aiur.Bounded
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
-  alias Aiur.BuildOrder.{Bounded, Metadata, ProgressRenderer}
+  alias Aiur.BuildOrder.{Metadata, ProgressRenderer}
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Group, Node}

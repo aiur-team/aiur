@@ -57,8 +57,16 @@ test('synthetic fixture reconnects LiveView and passes automated accessibility c
   await openFixture(page, 'writable')
   await reconnectLiveView(page)
 
-  const accessibility = await new AxeBuilder({ page }).analyze()
-  expect(accessibility.violations).toEqual([])
+  for (const palette of ['gruvbox', 'aiur']) {
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate(({ palette, theme }) => {
+        document.documentElement.dataset.palette = palette
+        document.documentElement.dataset.theme = theme
+      }, { palette, theme })
+      const accessibility = await new AxeBuilder({ page }).analyze()
+      expect(accessibility.violations, `${palette} ${theme}`).toEqual([])
+    }
+  }
 })
 
 test('browser measurements use monotonic samples after warmup', async ({ page }) => {

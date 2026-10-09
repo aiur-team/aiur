@@ -162,4 +162,9 @@ defmodule AiurWeb.StreamdeckStrip do
   defp relative_time(_timestamp), do: ""
 
   defp clamp(value, lower, upper), do: value |> max(lower) |> min(upper)
+
+  @doc "The optional account subject; an absent meter carries no subject."
+  @spec summary_label(term()) :: term()
+  def summary_label(meter) when is_map(meter), do: Map.get(meter, "summary_label", Map.get(meter, :summary_label))
+  def summary_label(_meter), do: nil
 end

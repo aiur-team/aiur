@@ -58,9 +58,10 @@ shared [dictated-input note](dictated-input.md).
 - Integration safety is your responsibility. Before CI or human-review
   handoff, assess the exact PR head against its configured base. Harmless
   staleness passes; conflicts or changed-file overlap require integration,
-  at most once per handoff. After new-head CI, another unsafe base change
-  requires an Executor alert rather than another merge/CI cycle. Follow the
-  assessment and durable attempt record in `dev-loop.md`.
+  up to 3 integrations per handoff without asking, each followed by relevant
+  local tests and format, size, components gates. After the third, emit a
+  non-blocking Executor alert; keep going if the base is safe. Never open a
+  blocking decision for base integration. Record attempts in `dev-loop.md`.
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
@@ -84,7 +85,6 @@ shared [dictated-input note](dictated-input.md).
   Commands cannot hold the worker waiting for human input.
 
 ## What stays in the per-turn prompt (not here)
-
 Two protocols live in the per-turn shared prompt instead of this skill because
 they fire between turns or must always be visible:
 

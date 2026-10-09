@@ -1,17 +1,9 @@
 defmodule Aiur.Orchestrator.StartupClaimReconciler.BootMarker do
   @moduledoc """
-  Durable-in-VM claim that this daemon boot's startup pass has already run.
+  Records the boot that began claim reconciliation, surviving Orchestrator restarts.
 
-  Holds the `Aiur.Boot.run_id/0` of the boot that claimed the startup claim
-  reconciliation pass. The marker lives in `:persistent_term`, so it survives
-  an Orchestrator GenServer restart (its agent tasks survive too) but is
-  cleared by a true daemon restart (fresh VM, fresh `run_id`). That is exactly
-  the discriminator the reconciler needs: on an Orchestrator-only restart the
-  marker still names the current boot and the pass must NOT re-run against an
-  empty runtime registry, while a genuine daemon restart changes the boot id
-  and the pass must run once to release every claim whose runtime died.
-
-  Never fails (in-memory write); a failed write is impossible by construction.
+  The marker does not disable periodic recovery. Current runtime and workspace
+  ownership evidence protect surviving sessions before any release.
   """
 
   @key {__MODULE__, :claimed_boot_id}

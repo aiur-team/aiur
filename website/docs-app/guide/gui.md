@@ -38,6 +38,8 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
+The home page shows a named weekly bar for each [Claude account](/guide/claude-accounts), with freshness and observation age. Missing readings remain unknown. The provider summary names the selected account: “worst of N accounts” for complete readings, or the observed account count for partial readings.
+
 Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
 
 Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.
@@ -146,3 +148,5 @@ The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_T
 An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
+
+The theme follows your operating system until you toggle it. The palette button beside the theme button switches between Gruvbox (the default) and the aiur palette. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.

@@ -20,9 +20,7 @@
 #
 # The release is self-contained (bundled ERTS), so it runs without mise/Elixir on
 # PATH. Dev's build-if-stale step lives in the aiurdev shim, not here.
-
 set -euo pipefail
-
 # Raise the soft open-file limit toward the hard maximum. High agent concurrency
 # spawns many tmux/opencode/git subprocesses + sockets; on hosts with a low
 # default (macOS ships 256) that exhausts file descriptors (:emfile) and crashes
@@ -34,7 +32,6 @@ elif [ -n "${__aiur_hard_nofile}" ]; then
   ulimit -Sn "${__aiur_hard_nofile}" 2>/dev/null || true
 fi
 unset __aiur_hard_nofile
-
 # Export the effective soft limit after the best-effort raise. The BEAM uses
 # this inherited value for FD-headroom admission on hosts without procfs,
 # avoiding a runtime `ulimit` subprocess precisely when descriptors are scarce.
@@ -45,7 +42,6 @@ else
   unset AIUR_NOFILE_SOFT_LIMIT
 fi
 unset __aiur_soft_nofile
-
 # Preserve the shell that initiated the run as a best-effort Executor root.
 # An explicit positive override wins (service managers may know a better root);
 # otherwise the engine's parent is the nearest identity available before tmux
@@ -57,12 +53,10 @@ if ! [[ "${AIUR_OPERATOR_PID:-}" =~ ^[1-9][0-9]*$ ]]; then
     unset AIUR_OPERATOR_PID
   fi
 fi
-
 die() {
   echo "❌ $*" >&2
   exit 1
 }
-
 legacy_config_path() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -203,7 +197,6 @@ warn_if_cli_behind_release_checkout() {
   fi
 }
 
-# --- distribution identity (per-instance: keyed by the aiur project root) -----
 
 # The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
 # shim) wins. Otherwise walk up from $PWD to the first dir holding a REPO-LOCAL
@@ -311,7 +304,6 @@ aiur_print_identity() {
   printf 'AIUR_COOKIE_FILE=%s\n' "$AIUR_COOKIE_FILE"
 }
 
-# --- BEAM distribution (cookie + named node) ---------------------------------
 
 ensure_bg_state_dir() {
   aiur_resolve_identity
@@ -368,7 +360,6 @@ prepare_distribution() {
   export AIUR_ERLANG_COOKIE="$RELEASE_COOKIE"
 }
 
-# --- release resolution ------------------------------------------------------
 
 release_dir=""
 vsn_dir=""
@@ -405,7 +396,6 @@ resolve_release() {
   fi
 }
 
-# --- argv round-trip (System.argv is empty under `elixir --eval`) -------------
 
 argv_file=""
 init_argv_file() {
@@ -463,7 +453,12 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
+       aiur queue show [--queue NAME] [--json]  show build queue state
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur epic clear <ids...> [--as <who>] [--json]
+       aiur epic show [<ids...>] [--json]
+       aiur epic list [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
@@ -493,14 +488,13 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
+       aiur doctor [--repair]         check mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
-
 Bare aiur: start or attach to this directory's interactive session.
 EOF
 }
 
-# --- one-shot: --version (no tmux) -------------------------------------------
 
 run_version() {
   resolve_release
@@ -516,7 +510,6 @@ run_version() {
   exec "${release_cmd[@]}"
 }
 
-# --- one-shot: init (interactive wizard, distribution-free, no tmux) ----------
 
 run_init() {
   resolve_release
@@ -2654,8 +2647,8 @@ parse_issue_targets() {
 
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
-
 cmd_status() {
+  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   [ "$#" -eq 0 ] || die "status does not accept arguments"
   run_control_rpc "Aiur.AgentControlCLI.status()"
 }
@@ -4183,8 +4176,8 @@ cmd_upgrade() {
 }
 
 # --- dispatch ----------------------------------------------------------------
-
 dispatch_run() {
+  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   local mode="foreground" arg
   local args=()
 
@@ -4202,7 +4195,6 @@ dispatch_run() {
   # `set -u` — happens for a bare `--bg` run. Guard the expansion.
   run_session "$mode" "${args[@]+"${args[@]}"}"
 }
-
 aiur_engine_main() {
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
@@ -4251,6 +4243,7 @@ aiur_engine_main() {
       shift
       dispatch_run "$@"
       ;;
+    doctor) shift; exec bash "$engine_dir/aiur-mise-doctor" "$@" ;;
     status)
       shift
       cmd_status "$@"
@@ -4283,6 +4276,11 @@ aiur_engine_main() {
       shift
       cmd_units "$@"
       ;;
+    queue)
+      shift
+      cmd_queue "$@"
+      ;;
+    epic) shift; cmd_epic "$@" ;;
     build-orders)
       shift
       cmd_build_orders "$@"
@@ -4403,6 +4401,8 @@ aiur_engine_main() {
   esac
 }
 
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"
 fi

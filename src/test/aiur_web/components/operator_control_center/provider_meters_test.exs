@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.OperatorControlCenter.ProviderMeters
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter, as: Presenter
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
 
   @reset ~U[2026-07-18 12:00:00Z]
   @observed ~U[2026-07-18 11:30:00Z]
@@ -169,12 +170,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "Loading account meters"
   end
 
-  test "Claude account usage renders equal segments instead of duplicate weekly bars" do
+  test "Claude account usage renders individually labelled bars and the worst summary" do
     observed_at = DateTime.utc_now()
 
     readings = %{
-      "work" => %{reading: %{windows: [%{window: "seven_day", used_percent: 80}]}, observed_at: observed_at, freshness: :fresh},
-      "default" => %{reading: %{windows: [%{window: "seven_day", used_percent: 40}]}, observed_at: DateTime.add(observed_at, -30, :second), freshness: :stale}
+      "work" => %{reading: %{windows: [%{window: "seven_day", used_percent: 33}]}, observed_at: observed_at, freshness: :fresh},
+      "default" => %{reading: %{windows: [%{window: "seven_day", used_percent: 94}]}, observed_at: DateTime.add(observed_at, -30, :second), freshness: :stale}
     }
 
     snapshot =
@@ -187,44 +188,54 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     view = Presenter.present(authorized(), %{claude: snapshot}, readings)
     html = render(view, Presenter.announcement(view))
 
+    card = Enum.find(view.cards, &(&1.provider == :claude))
+    assert card.account_usage.total_percent == 94
+    assert Enum.map(card.account_usage.accounts, &{&1.name, &1.percent}) == [{"default", 94}, {"work", 33}]
     assert html =~ "×2"
-    assert html =~ "Average weekly use: 60.0%"
-    assert html =~ ~s(width: 50.0%)
-    assert html =~ "default: 40%"
-    assert html =~ "work: 80%"
+    assert html =~ "Weekly · worst of 2 accounts: 94%"
+    assert html =~ ~s(width: 94%)
+    assert html =~ ~s(width: 33%)
+    assert html =~ "default: 94%"
+    assert html =~ "work: 33%"
     assert html =~ "stale"
     assert html =~ "30s old"
-    assert html =~ "role=\"img\""
+    assert html =~ "role=\"progressbar\""
     assert html =~ ~s(class="provider-meter-account-bar")
-    assert length(Regex.scan(~r/class="provider-meter-account-segment /, html)) == 2
-    assert html =~ "account-color-0"
-    assert html =~ "account-color-1"
+    assert length(Floki.find(Floki.parse_fragment!(html), ".provider-meter-account-segment[role=progressbar]")) == 2
+    strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: observed_at)
+    assert strip =~ ~s(data-account="default")
+    assert strip =~ ~s(data-account="work")
+    assert strip =~ ~s(width:94%)
+    assert strip =~ ~s(width:33%)
     assert length(Regex.scan(~r/class="provider-meter-bar"/, html)) == 1
-    refute html =~ "Weekly"
+    refute html =~ ~s(class="provider-meter-window-name">Weekly<)
   end
 
-  test "an unavailable Claude account remains unknown and does not become zero in the average" do
+  test "an unavailable Claude account remains unknown and does not become zero in the summary" do
     readings = %{
-      "known" => %{reading: %{windows: [%{window: "seven_day", used_percent: 40}]}, observed_at: DateTime.utc_now(), freshness: :fresh},
+      "known" => %{reading: %{windows: [%{window: "seven_day", used_percent: 94}]}, observed_at: DateTime.utc_now(), freshness: :fresh},
       "offline" => %{reading: nil, observed_at: DateTime.utc_now(), freshness: :unavailable, reason: :no_credentials}
     }
 
     view = Presenter.present(authorized(), %{}, readings)
     html = render(view, Presenter.announcement(view))
 
-    assert html =~ "Average weekly use: unknown"
+    card = Enum.find(view.cards, &(&1.provider == :claude))
+    assert card.account_usage.total_percent == nil
+    assert Enum.find(card.account_usage.accounts, &(&1.name == "offline")).percent == nil
+    assert html =~ "Weekly · worst of 2 accounts: unknown"
     assert html =~ "offline: unknown"
     refute html =~ "offline: 0%"
   end
 
-  test "one configured account keeps the legacy provider meter render" do
-    reading = %{reading: %{windows: [%{window: "seven_day", used_percent: 40}]}, observed_at: DateTime.utc_now(), freshness: :fresh}
+  test "one configured account renders its name" do
+    reading = %{reading: %{windows: [%{window: "seven_day", used_percent: 94}]}, observed_at: DateTime.utc_now(), freshness: :fresh}
     view = Presenter.present(authorized(), %{claude: healthy(:claude)}, %{"default" => reading})
     html = render(view, Presenter.announcement(view))
 
     assert html =~ "provider-meter-bar"
-    refute html =~ "provider-meter-account-bar"
-    refute html =~ "×1"
+    assert html =~ "provider-meter-account-bar"
+    assert html =~ "default"
   end
 
   defp render(view, announcement) do

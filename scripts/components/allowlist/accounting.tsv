@@ -1,4 +1,5 @@
 # rule	target_module	reason
+R-declared	Aiur.Alerts	baseline 9c88301a3; upstream #3517 predates reference-checker rollout
 R-declared	Aiur.Claude.RemoteControl	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Claude.Telemetry.UsageAdapter.Relationship	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Claude.UsageApi	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -11,3 +12,8 @@ R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Muse.Usage	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-down	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.DecisionLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Init.Dotenv	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
