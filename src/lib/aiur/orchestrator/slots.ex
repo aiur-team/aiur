@@ -232,6 +232,7 @@ defmodule Aiur.Orchestrator.Slots do
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,
       load_discount_reason: Map.get(sample, :load_discount_reason, :unavailable),
+      load_daemon_nice: Map.get(sample, :load_daemon_nice, :unavailable),
       gate_signal: Map.get(sample, :gate_signal, :unavailable),
       load_sampled_at_ms: Map.get(sample, :load_sampled_at_ms),
       load: Map.get(sample, :load, :unavailable),

@@ -23,33 +23,43 @@ defmodule Aiur.SystemLoad do
     end
   end
 
-  # ponytail: aggregate nice CPU is safe only at daemon nice 0; per-task sampling can widen this.
-  @doc "Subtract sampled niced CPU core equivalents from host demand."
+  @doc """
+  Subtracts sampled background CPU core equivalents from host demand.
+  Background means processes niced above the daemon (`Aiur.BackgroundCpu`);
+  the fleet inherits the daemon's nice, so it always counts. Unknown
+  background CPU leaves demand unchanged.
+  """
   @spec gate_signal(number() | :unavailable, map() | :unavailable, pos_integer()) :: number() | :unavailable
-  def gate_signal(demand, %{daemon_nice: 0, nice_percent: nice}, schedulers) when is_number(demand) and is_number(nice) and nice >= 0 and nice <= 100,
-    do: max(0.0, demand - nice * schedulers / 100.0)
+  def gate_signal(demand, %{background_percent: background}, schedulers)
+      when is_number(demand) and is_number(background) and background >= 0 and background <= 100,
+      do: max(0.0, demand - background * schedulers / 100.0)
 
   def gate_signal(demand, _headroom, _schedulers), do: demand
 
   @doc false
-  @spec discount_reason(map() | :unavailable) :: :enabled | :daemon_niced | :unavailable
-  def discount_reason(%{daemon_nice: 0, nice_percent: nice}) when is_number(nice) and nice >= 0 and nice <= 100, do: :enabled
-  def discount_reason(%{daemon_nice: nice}) when is_integer(nice) and nice != 0, do: :daemon_niced
+  @spec discount_reason(map() | :unavailable) :: :enabled | :unavailable
+  def discount_reason(%{background_percent: background}) when is_number(background) and background >= 0 and background <= 100, do: :enabled
   def discount_reason(_headroom), do: :unavailable
+
+  @doc false
+  @spec daemon_nice(map() | :unavailable) :: integer() | :unavailable
+  def daemon_nice(%{daemon_nice: nice}) when is_integer(nice), do: nice
+  def daemon_nice(_headroom), do: :unavailable
 
   @doc false
   @spec print_dispatch_sample(map() | nil) :: :ok
   def print_dispatch_sample(%{load: load, gate_signal: signal, load_sampled_at_ms: sampled_at} = capacity) when is_number(load) and is_integer(sampled_at) do
     age_ms = max(0, System.monotonic_time(:millisecond) - sampled_at)
+    nice = Map.get(capacity, :load_daemon_nice, :unavailable)
+    nice_text = if is_integer(nice), do: " daemon_nice=#{nice}", else: ""
 
     reason =
       case Map.get(capacity, :load_discount_reason) do
-        :enabled -> ""
-        :daemon_niced -> " (daemon niced, no discount)"
-        _ -> " (priority or CPU unavailable, no discount)"
+        :enabled -> " (discounts CPU niced above the daemon)"
+        _ -> " (background CPU unavailable, no discount)"
       end
 
-    IO.puts("DISPATCH LOAD total=#{load} gate_signal=#{signal}#{reason} sampled=#{div(age_ms, 1_000)}s ago")
+    IO.puts("DISPATCH LOAD total=#{load} gate_signal=#{signal}#{reason}#{nice_text} sampled=#{div(age_ms, 1_000)}s ago")
   end
 
   def print_dispatch_sample(_capacity), do: :ok

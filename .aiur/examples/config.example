@@ -82,8 +82,8 @@ agent:
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
-  # max_load_average: 1.5                # nice-adjusted at daemon nice 0, CPU-corroborated; null disables
-  # target_load_average: 1.0             # per-scheduler target; nice adjustment requires daemon nice 0
+  # max_load_average: 1.5                # minus CPU niced above the daemon, CPU-corroborated; null disables
+  # target_load_average: 1.0             # per-scheduler target on the same signal; null disables
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)

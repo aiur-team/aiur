@@ -90,7 +90,8 @@ defmodule Aiur.Orchestrator.State do
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
-            optional(:load_discount_reason) => :enabled | :daemon_niced | :unavailable,
+            optional(:load_discount_reason) => :enabled | :unavailable,
+            optional(:load_daemon_nice) => integer() | :unavailable,
             optional(:gate_signal) => number() | :unavailable,
             optional(:load_sampled_at_ms) => integer() | nil,
             load: number() | :unavailable,

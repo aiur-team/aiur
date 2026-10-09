@@ -773,8 +773,8 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     test "cold start cannot widen above target despite niced headroom" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
 
-      previous = %{total: 1_000, idle: 600, nice: 100, daemon_nice: 0, runnable: 20}
-      current = %{total: 1_200, idle: 620, nice: 240, daemon_nice: 0, runnable: 74}
+      previous = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
+      current = %{total: 1_200, idle: 620, nice: 240, background: %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200}, runnable: 74}
 
       state = %State{
         max_concurrent_agents: 8,

@@ -2297,6 +2297,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       | dispatch_capacity_sample: %{
           load: probes.load,
           load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
+          load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
           gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
           load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
           load_threshold: probes.load_threshold,

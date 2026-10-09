@@ -3,15 +3,17 @@ defmodule Aiur.SystemCpu do
   Samples short-window host CPU headroom from Linux `/proc/stat`.
 
   CPU counters are cumulative, so callers retain one snapshot and compare it
-  with the next poll. Niced CPU time is reported separately and included in
-  reclaimable headroom only when the daemon is at nice 0. At other priorities,
-  aggregate nice CPU can include the fleet itself, so it is not discounted. Missing
-  or malformed procfs data returns `:unavailable` and lets admission fall back
-  to the load-average envelope.
+  with the next poll. Each snapshot also embeds the latest
+  `Aiur.BackgroundCpu` reading: CPU of processes niced above the daemon. Only
+  that background share counts as reclaimable beside idle time. The aggregate
+  nice column is reported for information only, because the fleet inherits
+  the daemon's nice and would be inside it. Missing or malformed procfs data
+  returns `:unavailable` and lets admission fall back to the load-average
+  envelope; a missing background reading means no discount.
   """
 
   @type snapshot :: %{
-          optional(:daemon_nice) => integer() | :unavailable,
+          optional(:background) => Aiur.BackgroundCpu.reading() | :unavailable,
           total: non_neg_integer(),
           idle: non_neg_integer(),
           nice: non_neg_integer(),
@@ -19,6 +21,7 @@ defmodule Aiur.SystemCpu do
         }
   @type headroom :: %{
           daemon_nice: integer() | :unavailable,
+          background_percent: float() | :unavailable,
           idle_percent: float(),
           nice_percent: float(),
           reclaimable_percent: float(),
@@ -27,15 +30,18 @@ defmodule Aiur.SystemCpu do
 
   @spec snapshot() :: snapshot() | :unavailable
   def snapshot do
-    case stat_source().() do
-      {:ok, contents} ->
-        case parse(contents) do
-          snapshot when is_map(snapshot) -> Map.put(snapshot, :daemon_nice, Aiur.SystemPriority.nice())
-          unavailable -> unavailable
-        end
+    case counters() do
+      %{} = counters -> Map.put(counters, :background, Aiur.BackgroundCpu.latest())
+      unavailable -> unavailable
+    end
+  end
 
-      _other ->
-        :unavailable
+  @doc "Parses the aggregate `/proc/stat` counters without the background reading."
+  @spec counters() :: map() | :unavailable
+  def counters do
+    case stat_source().() do
+      {:ok, contents} -> parse(contents)
+      _other -> :unavailable
     end
   end
 
@@ -48,15 +54,14 @@ defmodule Aiur.SystemCpu do
 
     if nice_delta >= 0 and idle_delta + nice_delta <= total_delta do
       idle_percent = percentage(idle_delta, total_delta)
-      nice_percent = percentage(nice_delta, total_delta)
-
-      daemon_nice = if Map.get(previous, :daemon_nice) == Map.get(current, :daemon_nice), do: Map.get(current, :daemon_nice, :unavailable), else: :unavailable
+      {daemon_nice, background} = background(Map.get(previous, :background), Map.get(current, :background))
 
       %{
         daemon_nice: daemon_nice,
+        background_percent: background,
         idle_percent: idle_percent,
-        nice_percent: nice_percent,
-        reclaimable_percent: idle_percent + if(daemon_nice == 0, do: nice_percent, else: 0.0),
+        nice_percent: percentage(nice_delta, total_delta),
+        reclaimable_percent: min(100.0, idle_percent + if(is_float(background), do: background, else: 0.0)),
         runnable: runnable
       }
     else
@@ -65,6 +70,15 @@ defmodule Aiur.SystemCpu do
   end
 
   def headroom(_previous, _current), do: :unavailable
+
+  # Both readings must come from the same sampler epoch (same daemon nice) and
+  # move forward; anything else is unknown, never zero.
+  defp background(%{epoch: epoch, ticks: t0, cpu_total: c0}, %{epoch: epoch, daemon_nice: nice, ticks: t1, cpu_total: c1})
+       when is_integer(nice) and t1 >= t0 and c1 > c0,
+       do: {nice, min(100.0, percentage(t1 - t0, c1 - c0))}
+
+  defp background(_previous, %{daemon_nice: nice}) when is_integer(nice), do: {nice, :unavailable}
+  defp background(_previous, _current), do: {:unavailable, :unavailable}
 
   defp parse(contents) when is_binary(contents) do
     lines = String.split(contents, "\n", trim: true)
