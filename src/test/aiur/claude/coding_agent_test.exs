@@ -2,10 +2,10 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts}
+  alias Aiur.AppServer.Transport
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
-  alias Aiur.AppServer.Transport
   alias Aiur.{Issue, ModelAvailability}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{RateLimitFallback, State}
