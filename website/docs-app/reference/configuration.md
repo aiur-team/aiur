@@ -226,7 +226,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
-| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
+| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
@@ -407,7 +407,9 @@ Local Codex turns use Aiur's shared build admission.
 Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
 or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
 `--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
-holds one live-token lease.
+holds one live-token lease. Playwright CLI runs (including the `src/browser` harness)
+share this host-wide cap and admit at most one browser run per workspace. Run only
+affected browser specs locally; CI runs the full harness.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
