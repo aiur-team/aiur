@@ -97,8 +97,8 @@ A stale single-root CLI read can separately refresh that root's graph. It respec
 
 | Source | Trust rule |
 | --- | --- |
-| Comment commands and review-driven rework | Accepted only from configured trusted accounts or the resolved CODEOWNERS set. |
-| Unresolvable CODEOWNERS | Raises a degraded-trust alert instead of silently widening authority. |
+| Comment commands and review-driven rework | Accepted only from configured trusted/daemon/bot accounts, the repository owner, or CODEOWNERS logins verified in the current refresh. |
+| Unresolvable CODEOWNERS | Failed teams contribute no members, including previously trusted members. Status/dashboard show the cause and age; sanitized comments remain visible to the Executor but untrusted bodies never enter agent digests or commands. Incomplete path ownership is unknown. |
 | The bot identity | Cannot trigger its own work. |
 
 ## GitHub App authentication
@@ -239,21 +239,21 @@ asked. Two rules keep a `304` honest.
 
 **A page-1 ETag cannot answer a multi-page question.**
 
-GitHub orders most collections so page 1 becomes effectively immutable while
-the interesting changes land elsewhere: issue timelines are oldest-first, and
-issue and pull request listings are `created` desc. A `304` against a page-1
-ETag therefore means "page 1 is unchanged" — never "the whole list is
-unchanged".
+GitHub orders issue timelines oldest-first and issue/PR listings by `created` desc.
+Changes can land beyond page 1, so a page-1 `304` means "page 1 is unchanged",
+never "the whole list is unchanged".
 
-A page-1 `304` on a churned ticket is permanently stale, with no self-healing,
-because the change that would refresh it is exactly the change that lands on a
-later page.
+A page-1 `304` on a churned ticket cannot self-heal: the change that would
+refresh it lands on a later page.
 
 Only trust a `304` for a paginated read when the read was single-page (then
 page 1 *is* the list), or when the validator kept is the last page's rather
 than the first's. If neither is practical, do not make the read conditional:
 an unconditional read that is correct beats a conditional one that is quietly
 wrong.
+
+Issue comments and PR changed files drain every page; single-list readers refuse
+a next page with `pagination_unexpected` rather than return a partial list.
 
 **Incomplete label provenance is retried.** A new issue can carry `agent:todo`
 before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
@@ -289,8 +289,7 @@ The old query attached full comment and review-thread selections to every specul
 Spend scales with target count, not with comment volume. The table below is for
 the **dispatch-class** cadence — the tick every poll loop rides.
 
-A per-class entry in `polling.intervals` scales the same way for that class:
-halving a class's interval doubles its own spend, and the GraphQL pollers are
+A per-class entry in `polling.intervals` scales the same way for that class: halving a class's interval doubles its own spend, and the GraphQL pollers are
 the classes worth widening (CI, comments/review threads, and previously the
 Build Order catalog, now event-sourced).
 
@@ -316,8 +315,9 @@ Dashboard state derives its staleness from the `dispatch` class (the cadence of 
 
 ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
 
-`planning` is recommended as `0` (on-demand), so the most expensive query in the
-system runs only when a page opens or a degradation needs a re-list.
+Dispatch orders candidates with fresh cached native dependency holds after other candidates, preserving priority within each group. This ordering performs no GitHub reads; missing or stale evidence keeps the ordinary order and dispatch-time validation remains authoritative.
+
+`planning` is recommended as `0` (on-demand): its expensive query runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |

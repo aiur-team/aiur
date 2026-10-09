@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   """
 
   require Logger
-
   alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
@@ -22,6 +21,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     Reconciler,
     RetryEngine,
     State,
+    TicketTransition,
     TrackerHealth,
     TrackerTasks
   }
@@ -1720,7 +1720,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp write_ci_ticket_state({issue, issue_key, next_state}) do
-    Tracker.update_issue_state(to_string(issue_key), next_state, expected_state_opts(issue))
+    TicketTransition.write_state(to_string(issue_key), next_state, Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle))
   end
 
   defp apply_ci_ticket_transition(state, response, {issue, next_state}) do
@@ -1739,10 +1739,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp write_ci_pass_state({issue}) do
-    Tracker.update_issue_state(
+    TicketTransition.write_state(
       to_string(issue.id || issue.identifier),
       @active_handoff_state,
-      expected_state_opts(issue)
+      Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle)
     )
   end
 
@@ -1774,10 +1774,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp write_ci_failure_state({issue}) do
-    Tracker.update_issue_state(
+    TicketTransition.write_state(
       to_string(issue.id || issue.identifier),
       "rework",
-      expected_state_opts(issue)
+      Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle)
     )
   end
 
@@ -1805,7 +1805,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp reassert_human_review_state(issue) do
-    Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state, expected_state_opts(issue))
+    TicketTransition.write_state(to_string(issue.id || issue.identifier), @human_review_state, Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle))
   end
 
   defp apply_stale_ci_wait_cleanup(state, response, {issue}) do
@@ -1848,10 +1848,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp write_ci_wait_fallback_state({issue}) do
-    Tracker.update_issue_state(
+    TicketTransition.write_state(
       to_string(issue.id || issue.identifier),
       @active_handoff_state,
-      expected_state_opts(issue)
+      Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle)
     )
   end
 

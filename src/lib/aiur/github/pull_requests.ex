@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.PullRequests do
   require Logger
 
   alias Aiur.{Codeowners, TicketBranch}
-  alias Aiur.GitHub.{Comments, Errors, ResourceFetch, ResourceStore, Transport, WriteThrough}
+  alias Aiur.GitHub.{ChangedPaths, Comments, Errors, ResourceFetch, ResourceStore, Transport, WriteThrough}
 
   @issue_events_page 100
 
@@ -14,13 +14,13 @@ defmodule Aiur.GitHub.PullRequests do
           {:ok, [String.t()]} | {:error, term()}
   def fetch_pull_request_changed_paths(pr_number, opts \\ []) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
+         {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
 
-      case Transport.fetch_json_list(request_fun, token, url, caller: "pull_request_changed_paths") do
+      case Comments.fetch_repo_comment_stream(request_fun, token, url, [], caller: "pull_request_changed_paths") do
         {:ok, files} ->
-          {:ok, files |> Enum.map(&Map.get(&1, "filename")) |> Enum.reject(&is_nil/1)}
+          ChangedPaths.decode(files)
 
         {:error, _reason} = error ->
           error
@@ -79,7 +79,7 @@ defmodule Aiur.GitHub.PullRequests do
       query = Comments.comment_query(opts)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?#{query}"
 
-      Transport.fetch_json_list(request_fun, token, url, caller: "pull_request_review_comments")
+      Comments.fetch_repo_comment_stream(request_fun, token, url, [], caller: "pull_request_review_comments")
     end
   end
 

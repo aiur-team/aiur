@@ -10,6 +10,20 @@ defmodule Aiur.BuildQueue.Bookkeeping do
     %{document | items: Enum.reject(document.items, &(&1.issue_id == id)), edges: Enum.reject(document.edges, &(&1.prerequisite == id or &1.dependent == id))}
   end
 
+  @spec hold(map(), String.t()) :: {:ok, map()} | {:error, :not_found}
+  def hold(document, target) do
+    cond do
+      Enum.any?(document.queues, &(&1.id == target)) ->
+        {:ok, %{document | queues: Enum.map(document.queues, &if(&1.id == target, do: %{&1 | held: true}, else: &1))}}
+
+      Enum.any?(document.items, &(&1.issue_id == target)) ->
+        {:ok, update_item(document, target, &%{&1 | hold: :operator})}
+
+      true ->
+        {:error, :not_found}
+    end
+  end
+
   @spec release(map(), String.t(), map(), integer(), String.t()) :: {:ok, map()} | {:error, :not_found | :observation_unavailable}
   def release(document, target, observations, now, todo) do
     queue? = Enum.any?(document.queues, &(&1.id == target))

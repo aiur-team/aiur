@@ -480,9 +480,9 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   defp trace_handler_io(server) do
     tracker_patterns =
-      Aiur.Tracker.behaviour_info(:callbacks)
-      |> Enum.reject(fn {function, _arity} -> function == :open_issue_labels end)
-      |> Enum.map(fn {function, arity} -> {Aiur.Tracker, function, arity} end)
+      Enum.flat_map([{Aiur.Tracker.IssueTracker, Aiur.Tracker}, {Aiur.Tracker.CodeHost, Aiur.CodeHost}], fn {behaviour, facade} ->
+        for {function, arity} <- behaviour.behaviour_info(:callbacks), function != :open_issue_labels, do: {facade, function, arity}
+      end)
 
     patterns =
       tracker_patterns ++

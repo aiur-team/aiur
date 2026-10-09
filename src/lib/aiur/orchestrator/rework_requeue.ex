@@ -57,12 +57,11 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   use Aiur.PeriodicWorker
 
   require Logger
-
   alias Aiur.{Alerts, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
+  alias Aiur.Orchestrator.TicketTransition
 
   @default_interval_ms 30 * 60 * 1_000
 
@@ -84,7 +83,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &default_open_pr/1),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
       diff_fetcher: Keyword.get(opts, :diff_fetcher, &default_diff/1),
-      state_writer: Keyword.get(opts, :state_writer, &Tracker.update_issue_state/2),
+      state_writer: Keyword.get(opts, :state_writer, &TicketTransition.write_state(&1, &2, writer: :rework_requeue)),
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       # Per-ticket throttle: id => %{head_sha: String.t(), classification: atom()}.
@@ -134,7 +133,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   end
 
   defp default_enabled? do
-    GitHubConfig.pr_health_enabled?() and Tracker.adapter() == GitHubTracker
+    GitHubConfig.pr_health_enabled?() and Aiur.CodeHost.available?()
   rescue
     _error -> false
   catch
@@ -143,7 +142,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
 
   defp default_tickets, do: Tracker.fetch_issues_by_states(["rework"])
 
-  defp default_open_pr(issue_key), do: Tracker.fetch_open_pull_request_for_branch(issue_key)
+  defp default_open_pr(issue_key), do: Aiur.CodeHost.fetch_open_pull_request_for_branch(issue_key)
 
   # `fetch_pull_request_reviews/2` was retired (#2326) in favour of the
   # conditional reader; adapt its 3-tuple back to the `{:ok, list}` shape the

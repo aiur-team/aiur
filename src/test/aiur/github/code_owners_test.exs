@@ -60,7 +60,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       configure_bot_account("aiur-bot")
 
       {_pid, name} = start_owners(path)
-      assert CodeOwners.snapshot(name) == ["aiur-bot"]
+      assert Enum.sort(CodeOwners.snapshot(name)) == ["aiur-bot", "owner"]
     end
 
     # Both Aiur logins are Aiur's own, and a comment from either must stay
@@ -82,7 +82,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       configure_bot_account("aiur-bot")
 
       {_pid, name} = start_owners(path)
-      assert CodeOwners.snapshot(name) == ["aiur-bot"]
+      assert Enum.sort(CodeOwners.snapshot(name)) == ["aiur-bot", "owner"]
     end
 
     test "empty file → allowlist is bot-only", %{path: path} do
@@ -90,7 +90,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       configure_bot_account("aiur-bot")
 
       {_pid, name} = start_owners(path)
-      assert CodeOwners.snapshot(name) == ["aiur-bot"]
+      assert Enum.sort(CodeOwners.snapshot(name)) == ["aiur-bot", "owner"]
     end
 
     for {label, contents, expected_message} <- [
@@ -125,7 +125,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
 
       assert_receive {:codeowners_alert, "github.codeowners.degraded", message, _opts}, 1000
       assert message =~ "unparseable near line 2"
-      assert CodeOwners.trust_snapshot(name).degradation == {:unparseable, 2}
+      assert CodeOwners.trust_snapshot(name).degradation.cause == {:unparseable, 2}
     end
 
     test "ownerless pattern lines preserve the valid CODEOWNERS entries", %{path: path} do
@@ -234,7 +234,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       {_pid, name} = start_owners(path, request_fun: request_fun)
       snap = CodeOwners.snapshot(name)
 
-      assert snap == ["its-everdred"]
+      assert Enum.sort(snap) == ["its-everdred", "owner"]
       assert CodeOwners.allowed?("its-everdred", name)
     end
 
@@ -243,7 +243,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       configure_bot_account("aiur-bot")
 
       {_pid, name} = start_owners(path)
-      assert CodeOwners.snapshot(name) == ["aiur-bot"]
+      assert Enum.sort(CodeOwners.snapshot(name)) == ["aiur-bot", "owner"]
     end
 
     test "is case-insensitive on author lookup", %{path: path} do
