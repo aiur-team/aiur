@@ -35,6 +35,9 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
+  # Embedded struct defaults must rebuild when the agent schema changes.
+  require Agent
+
   @primary_key false
 
   @type t :: %__MODULE__{}

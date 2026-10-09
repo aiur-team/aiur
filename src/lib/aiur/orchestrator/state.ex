@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.State do
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
           tracker_tasks: %{reference() => map()},
+          restack_completed: map(),
           last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
@@ -111,8 +112,7 @@ defmodule Aiur.Orchestrator.State do
           # Monotonic ms when the DecisionStore first read as `:unavailable`
           # while dispatchable work was queued (nil when no such hold is in
           # progress). The `system.dispatch.decision_store_unavailable` alert is
-          # only raised once the outage has persisted past the capacity-
-          # starvation dwell, so a momentary blip raises nothing (#2453).
+          # Raised after the capacity-starvation dwell, not a momentary blip (#2453).
           decision_store_unavailable_since_ms: integer() | nil,
           decision_store_unavailable_alert_active: boolean(),
           decision_store_unavailable_alert_resolution_emitted: boolean(),
@@ -131,7 +131,6 @@ defmodule Aiur.Orchestrator.State do
           comment_rework_retries: %{
             {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
           },
-          # Transient pause/error backoff keyed by issue_id (AutoResume, #1453).
           auto_resume: %{String.t() => map()},
           # Claims released after retry exhaustion, retained until a later
           # dispatch successfully re-establishes ownership.
@@ -281,6 +280,7 @@ defmodule Aiur.Orchestrator.State do
     running: %{},
     running_issue_cache: %{},
     tracker_tasks: %{},
+    restack_completed: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,

@@ -57,6 +57,10 @@ continue. Never infer readiness from the branch push alone. Do NOT run
 before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
 
+### After the blocker merges: restack
+
+On `ticket.<B>.pr.merged`, follow [the restack recipe](restack.md) before merging the integration branch. A plain merge after a squash can duplicate blocker code and conflict on dependent edits.
+
 Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 `aiur/<id>` branches still supported. `scripts/resolve-ticket-branch <id>` is the
 Executor helper for the reverse lookup: it queries the remote, prints the one
