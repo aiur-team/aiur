@@ -84,4 +84,20 @@ defmodule Aiur.ExperimentsCLITest do
 
     assert warning == "baseline not frozen: freeze is not available in this build\n"
   end
+
+  test "control RPC transports errors and creation notices using protocol markers" do
+    missing = capture_io(fn -> assert Aiur.AgentControlCLI.experiments(verb: :show, argv: ["missing"]) == :ok end)
+    assert missing =~ "__AIUR_CONTROL_ERROR__:no experiment missing"
+    assert missing =~ "__AIUR_CONTROL_EXIT__:1"
+    invalid = capture_io(fn -> Aiur.AgentControlCLI.experiments(verb: :create, argv: ["--spec-json", ~s({"title":""})]) end)
+    for path <- ["title", "design", "metrics"], do: assert(invalid =~ "__AIUR_CONTROL_ERROR__:#{path}")
+    usage = capture_io(fn -> Aiur.AgentControlCLI.experiments(verb: :create, argv: ["--bogus"]) end)
+    assert usage =~ "__AIUR_CONTROL_ERROR__:aiur: experiments expects"
+    assert usage =~ "__AIUR_CONTROL_EXIT__:64"
+    created = capture_io(fn -> Aiur.AgentControlCLI.experiments(verb: :create, argv: ["--title", "rpc", "--line", "manual:rpc@2026-10-09T00:00:00Z", "--metric", "delivery/start", "--json"]) end)
+    assert created =~ "__AIUR_CONTROL_ERROR__:baseline not frozen: freeze is not available in this build"
+    assert created =~ "__AIUR_CONTROL_EXIT__:0"
+    [json | _markers] = String.split(created, "\n", trim: true)
+    assert Jason.decode!(json)["title"] == "rpc"
+  end
 end

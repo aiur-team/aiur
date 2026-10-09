@@ -392,7 +392,7 @@ defmodule Aiur.AgentControlCLI do
   def github_cost(opts \\ []), do: guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
 
   @spec experiments(keyword()) :: :ok
-  def experiments(opts \\ []), do: guarded("experiments", fn -> Aiur.ExperimentsCLI.run(opts) |> exit_marker() end)
+  def experiments(opts \\ []), do: guarded("experiments", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.ExperimentsCLI.run() |> exit_marker() end)
 
   @spec capabilities(keyword()) :: :ok
   def capabilities(opts \\ []), do: guarded("capabilities", fn -> Aiur.CapabilitiesCLI.run(opts) |> exit_marker() end)

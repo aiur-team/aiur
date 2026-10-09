@@ -5,6 +5,8 @@ defmodule Aiur.Experiments.Registration do
   @spec mark(Spec.t(), DateTime.t()) :: Spec.t()
   def mark(spec, now \\ DateTime.utc_now())
 
+  def mark(%Spec{status: "draft"} = spec, _now), do: spec
+
   def mark(%Spec{registered_at: nil, design: %{"kind" => "before_after", "change" => %{"time" => time}}} = spec, now) do
     with {:ok, at, _offset} <- DateTime.from_iso8601(time),
          true <- DateTime.compare(at, now) != :gt do

@@ -49,6 +49,20 @@ defmodule Aiur.Experiments.StoreTest do
     assert second.id == id <> "-2"
   end
 
+  test "a persisted draft registers only on activation after the change" do
+    start_supervised!(Store)
+    {:ok, draft} = Experiments.create(Map.put(attrs(), :status, "draft"))
+    assert draft.registered_at == nil
+    assert Jason.decode!(File.read!(Paths.file(draft.id, "spec.json")))["registered_at"] == nil
+    assert {:ok, _draft} = Experiments.amend(draft.id, %{notes: "still preparing"}, "operator")
+    assert List.last(Experiments.journal(draft.id))["post_registration"] == false
+    assert {:ok, active} = Experiments.set_status(draft.id, :active, "ready", "operator")
+    assert active.registered_at == "2026-10-01T00:00:00Z"
+    assert Jason.decode!(File.read!(Paths.file(draft.id, "spec.json")))["registered_at"] == active.registered_at
+    assert {:ok, _active} = Experiments.amend(draft.id, %{notes: "after activation"}, "operator")
+    assert List.last(Experiments.journal(draft.id))["post_registration"] == true
+  end
+
   test "amendment records changed metrics and post-registration; status keeps notes" do
     start_supervised!(Store)
     future = put_in(attrs(), [:design, :change, :time], "2099-01-01T00:00:00Z")

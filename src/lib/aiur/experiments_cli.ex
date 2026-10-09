@@ -11,15 +11,15 @@ defmodule Aiur.ExperimentsCLI do
     {flags, positional, invalid} = OptionParser.parse(Keyword.get(opts, :argv, []), strict: @switches)
 
     if invalid == [] and Map.has_key?(@allowed, verb) and Enum.all?(Keyword.keys(flags), &(&1 in @allowed[verb])) do
-      dispatch(verb, flags, positional)
+      dispatch(verb, Keyword.put(flags, :error_fun, Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))), positional)
     else
-      usage()
+      usage(opts)
     end
   end
 
   defp dispatch(:list, flags, []) do
     filters = Keyword.take(flags, [:status, :kind])
-    if flags[:status] in [nil, "draft", "active", "concluded", "abandoned"] and flags[:kind] in [nil, "before_after", "ab"], do: result(Experiments.list(filters), flags, :list), else: usage()
+    if flags[:status] in [nil, "draft", "active", "concluded", "abandoned"] and flags[:kind] in [nil, "before_after", "ab"], do: result(Experiments.list(filters), flags, :list), else: usage(flags)
   end
 
   defp dispatch(:show, flags, [id]), do: result(Experiments.fetch(id), flags, {:show, id})
@@ -31,14 +31,14 @@ defmodule Aiur.ExperimentsCLI do
         result(Experiments.create(attrs, origin: %{kind: "manual", ref: "cli"}, freeze: !flags[:no_freeze]), flags, :create)
 
       {:usage, _reason} ->
-        usage()
+        usage(flags)
 
       {:error, reason} ->
         result({:error, reason}, flags, :create)
     end
   end
 
-  defp dispatch(_verb, _flags, _positional), do: usage()
+  defp dispatch(_verb, flags, _positional), do: usage(flags)
 
   defp attributes(flags) do
     case flags[:spec_json] do
@@ -90,23 +90,23 @@ defmodule Aiur.ExperimentsCLI do
   defp result({:ok, data}, flags, verb) do
     normalized = JSONSafe.normalize(data)
     if flags[:json], do: IO.puts(Jason.encode!(normalized)), else: print_human(normalized, verb)
-    if verb == :create and !flags[:no_freeze], do: IO.puts(:stderr, "baseline not frozen: freeze is not available in this build")
+    if verb == :create and !flags[:no_freeze], do: flags[:error_fun].("baseline not frozen: freeze is not available in this build")
     0
   end
 
-  defp result({:error, :not_found}, _flags, {:show, id}) do
-    IO.puts(:stderr, "no experiment #{id}")
+  defp result({:error, :not_found}, flags, {:show, id}) do
+    flags[:error_fun].("no experiment #{id}")
     1
   end
 
-  defp result({:error, errors}, _flags, _verb) do
-    errors |> List.wrap() |> Enum.each(&print_error/1)
+  defp result({:error, errors}, flags, _verb) do
+    errors |> List.wrap() |> Enum.each(&print_error(&1, flags[:error_fun]))
     1
   end
 
-  defp print_error(%{path: path, message: message}), do: IO.puts(:stderr, "#{path}: #{message}")
-  defp print_error({path, message}), do: IO.puts(:stderr, "#{path}: #{message}")
-  defp print_error(reason), do: IO.puts(:stderr, "aiur: experiments #{inspect(reason)}")
+  defp print_error(%{path: path, message: message}, error_fun), do: error_fun.("#{path}: #{message}")
+  defp print_error({path, message}, error_fun), do: error_fun.("#{path}: #{message}")
+  defp print_error(reason, error_fun), do: error_fun.("aiur: experiments #{inspect(reason)}")
 
   defp print_human(rows, :list) do
     Enum.each(rows, fn row -> IO.puts("#{row["id"]}  #{row["status"] || "unreadable"}  #{row["kind"]}  #{row["title"]}") end)
@@ -114,11 +114,9 @@ defmodule Aiur.ExperimentsCLI do
 
   defp print_human(data, _verb), do: IO.puts(Jason.encode!(data, pretty: true))
 
-  defp usage do
-    IO.puts(
-      :stderr,
-      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]"
-    )
+  defp usage(opts) do
+    error_fun = Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))
+    error_fun.("aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]")
 
     64
   end
