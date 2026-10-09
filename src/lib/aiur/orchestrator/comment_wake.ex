@@ -16,10 +16,10 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.{Issue, Tracker}
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
