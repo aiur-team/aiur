@@ -18,6 +18,7 @@ defmodule AiurWeb.BuildQueuePanelTest do
   end
 
   @now ~U[2026-10-09 08:00:00Z]
+  @unavailable %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:observation_unavailable]}
 
   test "loading is visible before the first read" do
     html = render_component(&Panel.panel/1, view: nil, now: @now)
@@ -41,9 +42,7 @@ defmodule AiurWeb.BuildQueuePanelTest do
 
   for status <- [:disabled, :unsupported_tracker] do
     test "#{status} shows only its notice, without source or attention placeholders" do
-      fixture =
-        put_in(view(unquote(status)), [:model, :sources, "tracker_observation"], %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:observation_unavailable]})
-
+      fixture = put_in(view(unquote(status)), [:model, :sources, "tracker_observation"], @unavailable)
       html = render_component(&Panel.panel/1, view: fixture, now: @now)
       refute html =~ "data-queue-source"
       refute html =~ "Attentions"
@@ -53,7 +52,7 @@ defmodule AiurWeb.BuildQueuePanelTest do
   end
 
   test "source names and reasons render as words, not Elixir terms" do
-    fixture = put_in(view(:running), [:model, :sources, "tracker_observation"], %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:observation_unavailable]})
+    fixture = put_in(view(:running), [:model, :sources, "tracker_observation"], @unavailable)
     html = render_component(&Panel.panel/1, view: fixture, now: @now)
     assert html =~ "<strong>Tracker</strong>"
     assert html =~ "Observation unavailable"

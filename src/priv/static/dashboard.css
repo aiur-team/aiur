@@ -475,37 +475,6 @@ textarea:focus-visible,
   min-width: 0;
 }
 
-/* The build queue panel stacks short lines; the surface's grid gap already
-   spaces them, so the default paragraph and heading margins would double it. */
-.bo-queue-panel {
-  gap: 0.6rem;
-}
-
-.bo-queue-panel h2,
-.bo-queue-panel h3,
-.bo-queue-panel p,
-.bo-queue-panel ul {
-  margin: 0;
-}
-
-.bo-queue-panel h2 {
-  font-size: 1.1rem;
-}
-
-.bo-queue-panel h3 {
-  margin-bottom: 0.35rem;
-  font-size: 0.95rem;
-}
-
-.bo-queue-panel header p {
-  margin-top: 0.25rem;
-}
-
-.bo-queue-muted {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
 .bo-state-card h3,
 .bo-state-card p,
 .bo-catalog-entry h3,
