@@ -1,8 +1,8 @@
 defmodule Aiur.Config.BuildOrderTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.Settings
   alias Aiur.BuildOrder.GraphProjection.Options
+  alias Aiur.BuildOrder.Settings
   alias Aiur.Config.Schema
 
   # The three surviving cadence keys deliberately have no fixed default any more.

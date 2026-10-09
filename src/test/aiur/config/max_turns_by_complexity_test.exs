@@ -1,8 +1,8 @@
 defmodule Aiur.Config.MaxTurnsByComplexityTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Issue, Workflow}
   alias Aiur.AgentRunner.TurnBudget
+  alias Aiur.{Issue, Workflow}
 
   setup %{config: config} do
     previous = Application.get_env(:aiur, :workflow_file_path)
