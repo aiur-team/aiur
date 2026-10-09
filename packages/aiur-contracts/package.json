@@ -1,0 +1,25 @@
+{
+  "name": "@aiur/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "json-schema-to-typescript": "16.0.0",
+    "typescript": "5.7.2"
+  }
+}

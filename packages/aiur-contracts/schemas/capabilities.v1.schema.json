@@ -1,0 +1,355 @@
+{
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": {
+      "const": "aiur.capabilities"
+    },
+    "contract_version": {
+      "const": 1
+    },
+    "boot_id": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "age_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "freshness": {
+      "enum": [
+        "current",
+        "stale"
+      ]
+    },
+    "min_client_versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "machine": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "machine_id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "machine_id",
+            "label"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "instance": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "instance_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "aiur_version": {
+              "type": "string"
+            },
+            "run_shape": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "http_listener": {
+                  "type": "boolean"
+                },
+                "dashboard_pages": {
+                  "type": "boolean"
+                },
+                "dashboard": {
+                  "type": "boolean"
+                },
+                "headless": {
+                  "type": "boolean"
+                },
+                "interactive_cli": {
+                  "type": "boolean"
+                },
+                "executor_mode": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "http_listener",
+                "dashboard_pages",
+                "dashboard",
+                "headless",
+                "interactive_cli",
+                "executor_mode"
+              ]
+            }
+          },
+          "required": [
+            "instance_id",
+            "aiur_version",
+            "run_shape"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "repository": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "enum": [
+                "github",
+                "linear",
+                "memory"
+              ]
+            },
+            "owner": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "owner",
+            "name"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "executor": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "state": {
+              "enum": [
+                "active",
+                "idle",
+                "stalled",
+                "expired",
+                "absent",
+                "unknown"
+              ]
+            },
+            "consumer_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "harness": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session_ref": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "conversation_id": {
+                      "type": "string"
+                    },
+                    "session_seq": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "conversation_id",
+                    "session_seq"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "consumer_id",
+            "harness"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "boot_id",
+    "revision",
+    "observed_at",
+    "age_ms",
+    "freshness",
+    "min_client_versions",
+    "machine",
+    "instance",
+    "repository",
+    "executor",
+    "capabilities"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/capabilities.v1.schema.json",
+  "title": "CapabilitiesReport",
+  "$defs": {
+    "state": {
+      "title": "CapabilityState",
+      "enum": [
+        "available",
+        "degraded",
+        "unavailable",
+        "unknown"
+      ]
+    },
+    "reason": {
+      "title": "CapabilityReason",
+      "enum": [
+        "not_installed",
+        "not_configured",
+        "disabled",
+        "not_running",
+        "unsupported_tracker",
+        "executor_absent",
+        "executor_not_managed",
+        "snapshot_stale",
+        "snapshot_unpublished",
+        "instance_key_missing",
+        "instance_key_invalid",
+        "identity_unreadable",
+        "journal_corrupt",
+        "store_unavailable",
+        "writes_paused",
+        "spec_invalid",
+        "dependency_unavailable",
+        "unknown"
+      ]
+    },
+    "entry": {
+      "title": "CapabilityEntry",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/state"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_at": {
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "in_band_hold",
+            "defer_resume",
+            "none"
+          ]
+        },
+        "v": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retention": {}
+      },
+      "required": [
+        "state"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "degraded",
+                  "unavailable",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/reason"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
