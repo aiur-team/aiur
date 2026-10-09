@@ -2221,7 +2221,7 @@ th[data-sort-key]:focus-visible {
 .chip.good {
   border-color: var(--good-line);
   background: var(--good-soft);
-  color: var(--good-ink);
+  color: color-mix(in srgb, var(--good-ink) 80%, var(--fg));
 }
 
 .chip.accent {
