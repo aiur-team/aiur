@@ -42,7 +42,7 @@ source_flags="$(
       in_command && in_case && /^[[:space:]]*esac/ { in_case = 0 }
       in_command && /= "--[a-z0-9-]*"/ { print }
       in_command && /^}/ { in_command = 0; in_case = 0 }
-    ' "$engine" "$queue_handler"
+    ' "$engine" "$queue_handler" "$repo_root/packaging/npm/aiur-cli/libexec/aiur-epic.sh"
 
     # doctor delegates its flag parser to the standalone helper.
     sed -n 's/.*\$mode == \(--repair\).*/\1/p' "$repo_root/packaging/npm/aiur-cli/libexec/aiur-mise-doctor"

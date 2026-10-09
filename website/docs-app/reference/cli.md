@@ -18,6 +18,7 @@ Keep shared credentials in `~/.aiur/.env`; exported values win. If required labe
 A human can of course type any of it. Most humans will not: they watch the TUI or the dashboard and let their Executor agent drive.
 
 Run the command from the repository that owns the run. An instance is keyed to that project, so control commands address that repository's daemon.
+
 ## What the CLI does
 
 | Job | Commands | Notes |
@@ -29,6 +30,7 @@ Run the command from the repository that owns the run. An instance is keyed to t
 | Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-moot`, `executor-emit`, `listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
+
 ## Start, initialize, and queue
 
 | Syntax | Default or important interaction | Runnable example |
@@ -83,6 +85,7 @@ Launch mode determines which interfaces remain available:
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
+
 ## Inspect and operate a running daemon
 
 A `workspace_ownership_waiting` row reports the held generation and provider-exit proof state. A reboot changes a local hold with recorded boot ID to `boot_changed_release_pending`. The guardian releases it automatically after writing its durable recovery audit record.
@@ -150,6 +153,7 @@ If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-bu
 If the daemon does not answer `aiur message` in time, the command prints `outcome unknown`, the send's message id and the exact retry command, and exits 124. The daemon may still queue the message. Check the ticket log first: a queued message is logged with the tag `queued item=N`.
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
+
 ### Restart semantics
 
 | Restart case | Result |
@@ -170,6 +174,7 @@ Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from
 | Rebuild verified against the expected checkout and commit | Starts the rebuilt release. |
 | Rebuild cannot be verified | Leaves the daemon stopped, exits with code 70, and names the unconfirmed builder. |
 | Custom build command without verification support | Starts and reports the result as unverified. |
+
 ### Saved uncommitted work
 
 Before Aiur deletes or recreates a local ticket workspace that has uncommitted changes or commits not held by a remote, it saves them in `wip-preserved/<workspace>/<timestamp>/` under the runtime state directory. The directories have mode 0700 and the files 0600, because untracked files can hold secrets.
@@ -336,10 +341,7 @@ A stopped daemon is reported separately with the command needed to start it; a l
 
 ### `executor-wait` outcomes
 
-A quiet timeout is a **successful empty result**, not a failure: nothing was
-pending, so nothing was consumed and nothing was lost. Plain mode prints
-`NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json`
-returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
+A quiet timeout is a **successful empty result**, not a failure: nothing was pending, so nothing was consumed and nothing was lost. Plain mode prints `NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json` returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
 
 Under `--json` every outcome carries a `status`: `woken` for a returned batch, `timeout` for a quiet wait, `error` for a failure. Branch on that field rather than on the presence of `records`.
 
@@ -352,9 +354,7 @@ Every nonzero exit names the stage that failed — `claim`, `wait` or `acknowled
 | `1` | Daemon or store failure — an unreadable wake ledger, or a claims store that cannot be written. Retrying repeats it. |
 | `64` | Invalid usage. |
 
-If lease renewal detects that this consumer lost ownership during a wait, the
-wait continues as an observer and leaves the shared cursor untouched. Ownership
-loss discovered only when acknowledging still returns `69`.
+If lease renewal detects that this consumer lost ownership during a wait, the wait continues as an observer and leaves the shared cursor untouched. Ownership loss discovered only when acknowledging still returns `69`.
 
 The `69` diagnostic reports the retry bounds actually spent, read from the live
 configuration: by default the claims lock is retried every 25ms for 5 seconds,
@@ -380,11 +380,7 @@ In practice that only happens when a run records for a long time with no
 consumer, or with a stalled one. The roster's `stalled` state is the earlier
 warning.
 
-A claim is a lease with a 10-minute TTL. An `--executor` run registers and
-renews its principal below that TTL; `executor-wait` also renews while it blocks,
-and every claim or acknowledgement renews. A consumer that stops renewing
-is reported `expired` after the TTL lapses, and a successor may take over with no
-operator action.
+A claim is a lease with a 10-minute TTL. An `--executor` run registers and renews its principal below that TTL; `executor-wait` also renews while it blocks, and every claim or acknowledgement renews. A consumer that stops renewing is reported `expired` after the TTL lapses, and a successor may take over with no operator action.
 
 ### Executor roster states
 
