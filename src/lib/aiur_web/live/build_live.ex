@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.DataSource
+  alias AiurWeb.Build.{DataSource, Protocol, Read}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.Presenter
@@ -19,6 +19,7 @@ defmodule AiurWeb.BuildLive do
 
     socket =
       socket
+      |> Protocol.init()
       |> NavState.assign_nav()
       |> AwaitingCommands.mount(connected)
       |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
@@ -27,20 +28,23 @@ defmodule AiurWeb.BuildLive do
   end
 
   defp load_snapshot(socket) do
-    source = DataSource.source()
+    source = socket.assigns.build_source
+    opts = source_opts(socket)
 
-    case DataSource.call(source, :subscribe, []) do
+    case DataSource.call(source, :subscribe, [opts]) do
       :ok -> :ok
       {:error, _reason} -> Logger.warning("build home subscription unavailable")
     end
 
     Process.send_after(self(), :build_snapshot_timeout, @snapshot_timeout_ms)
-    start_async(socket, :build_snapshot, fn -> DataSource.call(source, :snapshot, []) end)
+    start_async(socket, :build_snapshot, fn -> DataSource.call(source, :snapshot, [opts]) end)
   end
 
   @impl true
-  def handle_async(:build_snapshot, {:ok, {:ok, data}}, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, assign(socket, build_state: :ready, build_snapshot: data)}
+  def handle_async(:build_snapshot, {:ok, {:ok, data}}, %{assigns: %{build_state: :loading}} = socket) do
+    socket = assign(socket, build_state: :ready)
+    {:noreply, if(socket.assigns.build_resynced, do: socket, else: Protocol.store(socket, data))}
+  end
 
   def handle_async(:build_snapshot, {:ok, {:error, reason}}, %{assigns: %{build_state: :loading}} = socket),
     do: {:noreply, unavailable(socket, reason_tag(reason))}
@@ -54,17 +58,24 @@ defmodule AiurWeb.BuildLive do
   def handle_info(:build_snapshot_timeout, %{assigns: %{build_state: :loading}} = socket),
     do: {:noreply, socket |> cancel_async(:build_snapshot) |> unavailable("timeout")}
 
+  def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
+
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
+  def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
+
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
     do: {:noreply, NavState.restore(socket, collapsed)}
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp source_opts(socket), do: Read.source_opts(socket)
 
   defp unavailable(socket, tag) do
     Logger.warning("build home snapshot unavailable reason=#{tag}")
