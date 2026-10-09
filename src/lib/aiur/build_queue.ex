@@ -1,5 +1,5 @@
 defmodule Aiur.BuildQueue do
-  @moduledoc "Supervised build queue reconciliation and read-only planned actions."
+  @moduledoc "Supervised build queue reconciliation and local ordered-list commands."
 
   alias Aiur.BuildQueue.Server
 
@@ -25,6 +25,24 @@ defmodule Aiur.BuildQueue do
   @spec reconcile_now() :: :ok | {:error, status()}
   def reconcile_now do
     GenServer.call(Server, :reconcile_now)
+  catch
+    :exit, {:noproc, _} -> {:error, :disabled}
+  end
+
+  @spec add([String.t()], String.t(), keyword()) :: :ok | {:error, term()}
+  def add(ids, queue, opts \\ []), do: mutate({:add, ids, Keyword.put(opts, :queue, queue)})
+
+  @spec remove(String.t()) :: :ok | {:error, term()}
+  def remove(id), do: mutate({:remove, id})
+
+  @spec reorder(String.t(), non_neg_integer()) :: :ok | {:error, term()}
+  def reorder(id, at), do: mutate({:reorder, id, at})
+
+  @spec add_edge(String.t(), String.t()) :: :ok | {:error, term()}
+  def add_edge(prerequisite, dependent), do: mutate({:add_edge, prerequisite, dependent})
+
+  defp mutate(command) do
+    GenServer.call(Server, {:mutate, command}, 30_000)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end

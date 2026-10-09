@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Server do
   use GenServer
   require Logger
 
-  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Settings, Store, Writer}
+  alias Aiur.BuildQueue.{ClaimProbe, Hints, ListCommands, Reconcile, Settings, Store, Writer}
   alias Aiur.Events.Exchange
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
@@ -52,6 +52,27 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
+
+  def handle_call({:mutate, command}, _from, %{status: :running} = state) do
+    case ListCommands.prepare(state, command) do
+      {:ok, document, actions, observations} ->
+        case state.store.save(document) do
+          :ok ->
+            state = write(%{state | document: document}, actions, observations)
+            failures = Enum.reject(state.write_results, &(elem(&1, 2) == :ok))
+            reply = if failures == [], do: :ok, else: {:error, {:marker_write_failed, failures}}
+            {:reply, reply, request(state)}
+
+          {:error, _} ->
+            {:reply, {:error, :store_unavailable}, %{state | status: :store_unavailable}}
+        end
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:mutate, _}, _from, state), do: {:reply, {:error, state.status}, state}
   def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
 
   @impl true
@@ -109,6 +130,12 @@ defmodule Aiur.BuildQueue.Server do
   defp request(state), do: state
 
   defp reconcile(state) do
+    pending = ListCommands.pending(state.document)
+    state = if pending == [], do: state, else: write(state, pending, Reconcile.observations(state))
+    if state.status == :store_unavailable, do: state, else: reconcile_plan(state)
+  end
+
+  defp reconcile_plan(state) do
     {projections, actions, observations} = Reconcile.plan(state)
     state = write(state, actions, observations)
 
