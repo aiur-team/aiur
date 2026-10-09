@@ -41,9 +41,7 @@ defmodule Aiur.Orchestrator.State do
               signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),
-              # When `measured`/`threshold` were last re-sampled. A hold that is
-              # extended without a fresh probe keeps its original stamp, so every
-              # reader can tell a current measurement from a latched one (#2527).
+              # Last re-sample stamp; unchanged without a fresh probe (#2527).
               measured_at: DateTime.t(),
               held_since_ms: integer(),
               alerted?: boolean()
@@ -93,6 +91,8 @@ defmodule Aiur.Orchestrator.State do
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
+            optional(:gate_signal) => number() | :unavailable,
+            optional(:load_sampled_at_ms) => integer() | nil,
             load: number() | :unavailable,
             load_threshold: number() | nil,
             target: number() | nil,

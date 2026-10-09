@@ -83,6 +83,7 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
     assert result.effective_concurrent_agents == 4
     output = capture_io(fn -> SystemLoad.print_dispatch_sample(capacity) end)
     assert output =~ "DISPATCH LOAD total=25.0 gate_signal=15.496"
-    assert output =~ "sampled=5s ago"
+    assert [_, age] = Regex.run(~r/sampled=(\d+)s ago/, output)
+    assert String.to_integer(age) >= 5
   end
 end
