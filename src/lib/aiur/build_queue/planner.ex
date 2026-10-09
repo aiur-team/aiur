@@ -81,10 +81,10 @@ defmodule Aiur.BuildQueue.Planner do
     desired = states |> Enum.flat_map(&(attention_keys(&1, context) ++ failed_keys(&1, context) ++ merged_keys(&1, context))) |> MapSet.new()
     existing = context.input.latches |> Enum.map(& &1.key) |> Enum.filter(&owned_latch?/1) |> MapSet.new()
     desired = MapSet.union(desired, retained_latches(existing, states, context))
-    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and match?({cause, _} when cause in [:promoted_unauthorized, :merged_issue_open], &1.key))), & &1.key)
+    pending = MapSet.new(context.input.latches |> Enum.filter(&(not &1.emitted? and owned_latch?(&1.key))), & &1.key)
     opens = desired |> MapSet.difference(MapSet.difference(existing, pending)) |> Enum.sort() |> Enum.map(&{:attention_open, &1})
     resolves = existing |> MapSet.difference(desired) |> Enum.sort() |> Enum.map(&{:attention_resolve, &1})
-    opens ++ resolves
+    resolves ++ opens
   end
 
   defp owned_latch?({cause, _id}) when cause in [:promoted_unauthorized, :dependency_changed_after_start, :merged_issue_open], do: true
