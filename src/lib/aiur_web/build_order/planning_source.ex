@@ -25,8 +25,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   alias Aiur.BuildOrder.{Catalog, Dependency, Member, Metadata, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.BuildOrder.TicketDetail.Sanitizer
   alias Aiur.CurrentRunMembership
+  alias Aiur.DisplaySanitizer
   alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
@@ -49,7 +49,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
            end),
          ticket when is_map(ticket) <- Enum.find(pack.tickets, &(ticket_identity(pack, &1).identifier == member_number)),
          body when is_binary(body) <- draft_body(ticket.document_path, Path.dirname(pack.path)),
-         {:ok, sanitized} <- Sanitizer.sanitize(body, 64_000) do
+         {:ok, sanitized} <- DisplaySanitizer.sanitize(body, 64_000) do
       {:ok, sanitized}
     else
       _missing -> :error
