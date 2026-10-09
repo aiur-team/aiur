@@ -38,6 +38,7 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       actions: [],
       holds: MapSet.new(),
+      published_pr_versions: %{},
       hold_ages: %{},
       closure_cache: %{},
       intent_reconciles: %{},
@@ -69,7 +70,8 @@ defmodule Aiur.BuildQueue.Server do
         end
 
         state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
-        {projections, _, _, _, _} = Reconcile.plan(state)
+        {projections, _, _, _, _, published} = Reconcile.plan(state)
+        state = %{state | published_pr_versions: published}
         Reconcile.write_hints(projections, state.holds, document)
         {:reply, :ok, state |> subscribe() |> request()}
 
@@ -205,8 +207,8 @@ defmodule Aiur.BuildQueue.Server do
   defp replay_list_markers(state, _observations), do: state
 
   defp plan(state, observations) do
-    {projections, actions, observations, cache, holds} = Reconcile.plan(state, observations)
-    state = %{state | closure_cache: cache, holds: holds}
+    {projections, actions, observations, cache, holds, published} = Reconcile.plan(state, observations)
+    state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
 
     holds =
