@@ -11,7 +11,7 @@
     },
     {
       "id": "kernel", "name": "Kernel primitives", "layer": 0, "kind": "required",
-      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex"],
+      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -61,7 +61,7 @@
       "id": "agent-runner", "name": "Turn engine for one ticket", "layer": 2, "kind": "required",
       "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker"], "optional": [],
+      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["RUN"]
     },
@@ -116,7 +116,7 @@
     },
     {
       "id": "tracker", "name": "Tracker contract", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker_config.ex"],
+      "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker/**", "src/lib/aiur/tracker_config.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config"], "optional": [],
       "owns": {"config": ["tracker"], "env": [], "state": [], "capabilities": []},
@@ -134,13 +134,13 @@
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "github", "config", "web-kit"], "optional": [],
+      "requires": ["tracker", "github", "config", "web-kit", "kernel"], "optional": [],
       "owns": {"config": ["build_order"], "env": [], "state": ["build_history_state_dir"], "capabilities": []},
       "prior": ["BO"]
     },
     {
       "id": "build-queue", "name": "Build queue (MP-E1, new; ships before the refactor on a seam)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/build_queue/**"],
+      "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["tracker", "event-bus", "config", "identity"], "optional": ["build-orders"],
       "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
@@ -198,7 +198,7 @@
       "id": "orchestration", "name": "Poll cycle, dispatch, control lifecycle, PR/CI lifecycle, operator messaging", "layer": 3, "kind": "required",
       "paths": ["src/lib/aiur/agent_chat.ex", "src/lib/aiur/agent_queue.ex", "src/lib/aiur/agent_queue_item.ex", "src/lib/aiur/agent_queue_store.ex", "src/lib/aiur/dispatch_budget_store.ex", "src/lib/aiur/orchestrator.ex", "src/lib/aiur/orchestrator/**", "src/lib/aiur/pr_ready_ledger_store.ex", "src/lib/aiur/recent_merge.ex", "src/lib/aiur/recent_merge_store.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "agent-runner", "event-bus", "signal", "config", "identity", "listener-modes", "commands"], "optional": ["github-listeners", "build-queue"],
+      "requires": ["tracker", "agent-runner", "event-bus", "signal", "config", "identity", "listener-modes", "commands", "kernel"], "optional": ["github-listeners", "build-queue"],
       "owns": {"config": ["polling", "pr_health", "pr_watch", "worker"], "env": [], "state": [], "capabilities": []},
       "prior": ["ORC", "DSP", "CTL", "PRL", "MSG"],
       "shared_with": ["github-listeners"]
@@ -263,7 +263,7 @@
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-shell", "projections"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
+      "requires": ["web-shell", "projections", "kernel"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
@@ -287,7 +287,7 @@
       "id": "tui", "name": "tmux agent list, pane manager, opencode chat panes", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/events/debug_log.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["orchestration", "projections", "harness-adapters"], "optional": [],
+      "requires": ["orchestration", "projections", "harness-adapters", "config"], "optional": [],
       "owns": {"config": ["max_vertical_panes", "opencode", "pre_warmed_sessions"], "env": ["AIUR_TMUX_SESSION", "AIUR_TMUX_SOCKET", "COLORTERM", "COLUMNS", "LINES", "TMUX_PANE"], "state": [], "capabilities": []},
       "prior": ["TUI", "OC"]
     },

@@ -1,0 +1,136 @@
+defmodule Aiur.BuildQueue.Server do
+  @moduledoc "Owns dispatch hints and coalesces tracker signals into read-only queue plans."
+  use GenServer
+  require Logger
+
+  alias Aiur.BuildQueue.{ClaimProbe, Hints, Reconcile, Store}
+  alias Aiur.Events.Exchange
+
+  @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
+  @debounce_ms 2_000
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
+
+  @impl true
+  def init(opts) do
+    {:ok, settings} = Keyword.get_lazy(opts, :settings, &Aiur.Config.settings/0)
+
+    state = %{
+      settings: settings,
+      tracker: Keyword.get(opts, :tracker, Aiur.Tracker),
+      store: Keyword.get(opts, :store, Store),
+      claim_probe: Keyword.get(opts, :claim_probe, ClaimProbe),
+      clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),
+      schedule: Keyword.get(opts, :schedule, &Process.send_after/3),
+      exchange: Keyword.get(opts, :exchange, Exchange),
+      exchange_pid: nil,
+      pending: nil,
+      status: :disabled,
+      document: nil,
+      projections: [],
+      actions: [],
+      holds: MapSet.new(),
+      reconciles: 0
+    }
+
+    {:ok, initialize(state)}
+  end
+
+  @impl true
+  def handle_call(:status, _from, state), do: {:reply, state.status, state}
+  def handle_call(:show, _from, state), do: {:reply, {:ok, Map.take(state, [:status, :projections, :actions, :reconciles])}, state}
+  def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
+
+  @impl true
+  def handle_info({:open_issues_recorded, _}, state), do: {:noreply, request(state)}
+  def handle_info({:event, _}, state), do: {:noreply, request(state)}
+
+  def handle_info(:tick, %{status: :running} = state) do
+    schedule_tick(state)
+    {:noreply, state |> subscribe() |> request()}
+  end
+
+  def handle_info({:reconcile, token}, %{pending: token, status: :running} = state) do
+    {:noreply, reconcile(%{state | pending: nil})}
+  end
+
+  def handle_info({:DOWN, _ref, :process, pid, _reason}, %{exchange_pid: pid} = state), do: {:noreply, %{state | exchange_pid: nil}}
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp initialize(%{settings: %{build_queue: %{enabled: false}}} = state), do: state
+
+  defp initialize(state) do
+    if state.tracker.open_issue_labels(1) == {:error, :unsupported} do
+      %{state | status: :unsupported_tracker}
+    else
+      :ets.new(Hints.table_name(), [:named_table, :set, :protected, read_concurrency: true])
+      recover(state)
+    end
+  end
+
+  defp recover(state) do
+    # Safe ETF decoding needs the producer atoms present before store recovery.
+    Enum.each([Aiur.BuildQueue.Planner, Aiur.BuildQueue.PlannerPolicy, Aiur.BuildQueue.Readiness, Aiur.BuildQueue.Attention], &Code.ensure_loaded!/1)
+
+    case state.store.load() do
+      {:ok, document} ->
+        Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+        state = %{state | status: :running, document: document}
+        schedule_tick(state)
+        state |> subscribe() |> request()
+
+      {:error, reason} ->
+        Logger.error("Build queue store unavailable: #{inspect(reason)}")
+        %{state | status: :store_unavailable}
+    end
+  end
+
+  defp schedule_tick(state), do: state.schedule.(self(), :tick, state.settings.build_queue.reconcile_interval_seconds * 1000)
+
+  defp request(%{status: :running, pending: nil} = state) do
+    token = make_ref()
+    state.schedule.(self(), {:reconcile, token}, @debounce_ms)
+    %{state | pending: token}
+  end
+
+  defp request(state), do: state
+
+  defp reconcile(state) do
+    {projections, actions} = Reconcile.plan(state)
+
+    holds =
+      Enum.reduce(actions, state.holds, fn
+        {:begin_withdraw, id}, holds -> MapSet.put(holds, id)
+        {:hold_release, id}, holds -> MapSet.delete(holds, id)
+        _, holds -> holds
+      end)
+
+    retained = for p <- projections, p.state not in [:removed, :completed, :cancelled], do: p.issue_id
+    holds = MapSet.intersection(holds, MapSet.new(retained))
+    Reconcile.write_hints(projections, holds, state.document)
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
+    %{state | projections: projections, actions: actions, holds: holds, reconciles: state.reconciles + 1}
+  end
+
+  defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state
+
+  defp subscribe(state) do
+    case GenServer.whereis(state.exchange) do
+      nil -> state
+      pid -> bind(state, pid)
+    end
+  end
+
+  defp bind(state, pid) do
+    Enum.each(@patterns, &Exchange.subscribe(&1, state.exchange))
+    Process.monitor(pid)
+    %{state | exchange_pid: pid}
+  catch
+    :exit, reason ->
+      Logger.warning("Build queue Exchange subscription unavailable: #{inspect(reason)}")
+      state
+  end
+end
