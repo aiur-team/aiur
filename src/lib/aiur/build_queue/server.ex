@@ -114,7 +114,10 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
 
-  def handle_call({:mutate, {verb, root} = command}, _from, %{status: :running} = state) when verb in [:adopt, :unadopt] do
+  def handle_call({:mutate, command}, _from, %{status: :running} = state) when elem(command, 0) in [:adopt, :unadopt] do
+    verb = elem(command, 0)
+    root = elem(command, 1)
+
     case BuildOrderCommands.prepare(state, command) do
       {:ok, document, actions, observations, updates} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
@@ -142,6 +145,20 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, _}, _from, state), do: {:reply, {:error, state.status}, state}
   def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
+
+  def handle_call({:hold, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
+    with {:ok, document} <- Bookkeeping.hold(state.document, target),
+         :ok <- state.store.save(document) do
+      Events.saved(state.document, document)
+      Reconcile.write_hints(state.projections, state.holds, document)
+      {:reply, :ok, request(%{state | document: document})}
+    else
+      {:error, :not_found} = error -> {:reply, error, state}
+      {:error, reason} -> {:reply, {:error, reason}, AttentionHealth.store(%{state | status: :store_unavailable})}
+    end
+  end
+
+  def handle_call({:hold, _target}, _from, state), do: {:reply, {:error, state.status}, state}
 
   def handle_call({:release, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     observations = Reconcile.observations(state)
