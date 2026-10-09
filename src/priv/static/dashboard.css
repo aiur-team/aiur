@@ -4758,7 +4758,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 100;
   display: grid;
   place-items: center;
   padding: 1rem;
@@ -9901,3 +9901,7 @@ a.snav { text-decoration: none; }
 
 /* Collapsed routes retain their names for assistive technology. */
 @media (min-width: 961px) { html.nav-collapsed .snav-label { display: block; position: absolute; width: 1px; height: 1px; clip-path: inset(50%); } }
+
+/* Reserve phone navigation space when operators enlarge the text. */
+@media (max-width: 960px) { .dashboard-shell { padding-bottom: 6.5rem; } }
+@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .ax-title { gap: .4rem; } }

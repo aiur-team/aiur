@@ -35,7 +35,7 @@ for (const theme of THEMES) {
               await expect(element).toHaveScreenshot(`${prefix}-${name}.png`, { mask })
             }
             if (state === 'collapsed') {
-              await expect(page.locator('.snav-label').first()).not.toBeVisible()
+              expect(await page.locator('.snav-label').first().evaluate(node => getComputedStyle(node).clipPath)).toBe('inset(50%)')
               await expect(page.locator('#ax-drag')).toBeVisible()
             }
           })

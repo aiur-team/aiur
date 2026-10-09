@@ -181,6 +181,50 @@ test('B-7 disconnected dragging is local and reconnect restores server state', a
   await expect(page.locator('html')).not.toHaveClass(/nav-collapsed/)
 })
 
+test('future regression guard: overlapping navigation choices survive older acknowledgements', async ({ page }) => {
+  const requests = []
+  const replies = new Map()
+  let socket
+  await page.routeWebSocket('**/live/websocket**', route => {
+    socket = route
+    const server = route.connectToServer()
+    route.onMessage(message => {
+      const packet = JSON.parse(message)
+      if (packet[3] === 'event' && packet[4].event === 'restore-nav') requests.push({ ref: packet[1], collapsed: packet[4].value.collapsed })
+      server.send(message)
+    })
+    server.onMessage(message => {
+      const packet = JSON.parse(message)
+      if (packet[3] === 'phx_reply' && requests.some(request => request.ref === packet[1])) replies.set(packet[1], message)
+      else route.send(message)
+    })
+  })
+  await openProbe(page)
+  const handle = page.locator('#ax-drag')
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#ax-drag'))
+    const push = hook.pushEvent.bind(hook)
+    window.navAcknowledgements = 0
+    hook.pushEvent = (name, payload, reply) => push(name, payload, response => {
+      window.navAcknowledgements += 1
+      reply?.(response)
+    })
+  })
+  await handle.dispatchEvent('keydown', { key: 'Enter' })
+  await handle.dispatchEvent('keydown', { key: 'Enter' })
+  await expect.poll(() => replies.size).toBe(2)
+  expect(requests.map(request => request.collapsed)).toEqual([true, false])
+  socket.send(replies.get(requests[0].ref))
+  await expect.poll(() => page.evaluate(() => window.navAcknowledgements)).toBe(1)
+  await expect(page.locator('html')).not.toHaveClass(/nav-collapsed/)
+  await handle.dispatchEvent('keydown', { key: 'Enter' })
+  await expect.poll(() => replies.size).toBe(3)
+  expect(requests.map(request => request.collapsed)).toEqual([true, false, true])
+  socket.send(replies.get(requests[1].ref))
+  socket.send(replies.get(requests[2].ref))
+  await collapsed(page, true)
+})
+
 test('B-8 blocked storage keeps expanded navigation and working controls', async ({ page }) => {
   await page.addInitScript(() => {
     if (location.pathname !== '/palette-probe') return

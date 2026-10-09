@@ -345,7 +345,7 @@ test('command keys render real state-derived controls, flash on click, and emit 
   const commands = page.locator('[data-streamdeck-command]')
   await expect(commands).toHaveCount(5)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
+  await expect(page.locator('#sd-keys').getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.locator('#sd-keys button:disabled')).toHaveCount(3)
   await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(3)
 
@@ -671,10 +671,10 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueBeforePatch).toBeGreaterThan(0)
 
   // Force a LiveView patch by toggling the nav — this triggers a re-render.
-  // The nav toggle button is labelled "Hide navigation" or "Show navigation".
-  const navToggle = page.getByRole('button', { name: /navigation/i }).first()
-  await navToggle.click({ force: true })
-  await navToggle.click({ force: true })
+  // The navigation separator handles keyboard toggles.
+  const navToggle = page.locator('#ax-drag')
+  await navToggle.press('Enter')
+  await navToggle.press('Enter')
 
   // Wait briefly for any patch to settle.
   await page.waitForTimeout(200)
@@ -707,10 +707,10 @@ test('an active dial drag commits its final value after a LiveView patch', async
   await page.mouse.down()
   await page.mouse.move(cx + 20, cy - 20)
 
-  const navToggle = page.getByRole('button', { name: /navigation/i }).first()
-  const navWasCollapsed = await navToggle.getAttribute('aria-pressed') === 'true'
-  await navToggle.dispatchEvent('click')
-  await expect(navToggle).toHaveAttribute('aria-pressed', String(!navWasCollapsed))
+  const navToggle = page.locator('#ax-drag')
+  const navWasCollapsed = await navToggle.getAttribute('data-nav-collapsed') === 'true'
+  await navToggle.dispatchEvent('keydown', { key: 'Enter' })
+  await expect(navToggle).toHaveAttribute('data-nav-collapsed', String(!navWasCollapsed))
 
   await page.mouse.move(cx + 30, cy)
   await page.mouse.up()
