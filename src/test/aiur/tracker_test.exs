@@ -1,7 +1,6 @@
 defmodule Aiur.TrackerTest do
   use Aiur.TestSupport
-  alias Aiur.Tracker.IssueTracker
-  alias Aiur.{GitHub.OpenIssueSnapshot, Issue, Tracker, Workflow}
+  alias Aiur.{GitHub.OpenIssueSnapshot, Issue, Tracker, Tracker.IssueTracker, Workflow}
 
   test "GitHub facade reads the held snapshot" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")

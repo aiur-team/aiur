@@ -2,12 +2,11 @@ Code.require_file("../../support/build_queue_fake_tracker.ex", __DIR__)
 
 defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
   use Aiur.TestSupport
-  alias Aiur.Tracker.IssueTracker
   alias Aiur.BuildQueue.Writer
   alias Aiur.BuildQueueFakeTracker, as: Fake
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: MemoryTracker
-  alias Aiur.{Tracker, Workflow}
+  alias Aiur.{Tracker, Tracker.IssueTracker, Workflow}
 
   setup do
     previous = Map.new([:github_transport_test_options, :github_budget_enabled?, :github_quota_server], &{&1, Application.get_env(:aiur, &1)})
