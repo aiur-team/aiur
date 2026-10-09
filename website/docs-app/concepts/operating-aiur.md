@@ -97,6 +97,15 @@ Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github)
 
 A restart that cannot read persisted global-pause state starts paused rather than releasing work.
 
+An `in-progress` ticket with no worker is checked on startup and each candidate
+poll. After 60 seconds without ownership, Aiur releases it to `todo` if it has
+no open PR, `rework` for conflicts or current review findings, or `human-review`
+otherwise. It comments with the reason and wakes the Executor.
+
+Live workspace leases, scheduled retries, `agent:paused` and `agent:parked`
+protect the claim; unavailable PR evidence retains it for later polls. Failed writes have bounded
+retries and raise an attention.
+
 ## Remote control
 
 | Control | Behavior |
@@ -106,3 +115,44 @@ A restart that cannot read persisted global-pause state starts paused rather tha
 | Chat pane | Sends Executor text into the live session. |
 
 Remote control is opt-in per agent and local-only in v1.
+
+
+## Capability report
+
+The read-only capability report describes the current instance without changing any
+operation's gates; providers read runtime evidence independently, so registration
+order does not change the result.
+
+| Capability | Meaning |
+| --- | --- |
+| `api.http` | The HTTP listener is bound. A no-dashboard run reports `not_installed`; an unbound listener reports `not_running`. |
+| `orchestration` | The orchestrator is running and its snapshot is current. An unpublished or stale snapshot is degraded; a dead process is unavailable even with a cached snapshot. |
+| `instance.status` | Status is available when orchestration is available; otherwise it is degraded. |
+| `agents.run` | Agents can run while orchestration exists, including with a degraded snapshot. Global pause remains run state. |
+| `agents.message` | HTTP and orchestration exist and dashboard writes are enabled. |
+| `commands.read` | The Command store and HTTP are available. |
+| `commands.answer` | Commands can be answered with dashboard writes enabled. With orchestration down, answers can be recorded but delivery is degraded. Available answers advertise version 1. |
+| `commands.supervisor_api` | A valid Supervisor token is configured and HTTP is available. The token is never reported. |
+| `tracker.github`, `tracker.linear` | The matching tracker is configured. This does not claim upstream connectivity. |
+| `build_orders` | GitHub Build Order catalog projection is running and healthy. Other trackers report `unsupported_tracker`; unhealthy catalogs are degraded with their observation time. |
+| `build_orders.progress` | A healthy catalog contains a root. No root reports `not_configured`, with no numeric progress value. |
+| `voice.stt`, `voice.tts` | HTTP and an ElevenLabs key are configured; TTS also requires a voice ID. Unreadable settings report unknown. |
+| `streamdeck` | HTTP and dashboard credentials are configured. The daemon cannot observe whether the sidecar is installed or connected. |
+| `webhook_ingress` | The configured repository has proven webhook delivery. Unproven delivery is degraded/unknown; degraded delivery reports `not_running`; unconfigured ingress is unavailable. |
+| `remote_control` | Remote Control is enabled in agent configuration or a `+remote` route, and HTTP is bound. Otherwise it reports `disabled` or an unavailable HTTP dependency. |
+| `accounting.meters` | The meter projection is running and at least one provider API or management key is configured. Credential presence does not prove upstream connectivity. |
+| `conversations.read` | HTTP is bound. A missing live conversation process is degraded because disk history remains readable. |
+| `executor.wakes` | The Executor wake inbox is running. |
+| `executor.conversation` | Reports `executor_not_managed` until managed conversation support is installed. |
+
+Unavailable dependencies carry their capability IDs in `depends_on`. When settings
+cannot be read, writable-gated operations report `unknown/unknown` rather than assume
+writes are enabled. Invalid Supervisor credentials also report unknown (normal
+startup rejects them).
+
+The `repository` section names the configured GitHub owner/repository or Linear
+slug (with a null owner); failed identity reads produce null. The `executor` section
+preserves the owner's roster state and consumer ID without recording an observation.
+
+Only `active` and `idle` represent a live Executor. Missing claims report `absent`,
+only expired claims report `expired`, and failed reads report `unknown`.

@@ -442,7 +442,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
-  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+  test "the first candidate poll holds orphaned claims during recovery grace" do
     restore_workflow_file_after_test()
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
 
@@ -465,9 +465,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         max_concurrent_agents: 1
       })
 
-    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}, 1000
-    assert next.startup_claim_reconciliation_complete?
-    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute_received {:memory_tracker_state_update, ^candidate_identifier, _target}
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "in-progress"
     refute next.initial_dispatch_cycle
   end
 
@@ -2528,7 +2528,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
       test_pid = self()
-      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4, load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, overload_samples: 2}}
 
       held =
         Dispatcher.maybe_choose_under_load(
@@ -2755,7 +2755,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert held.dispatch_capacity_sample == %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
+      assert Map.drop(held.dispatch_capacity_sample, [:observed_at]) == %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000

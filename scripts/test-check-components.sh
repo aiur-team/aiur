@@ -232,7 +232,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '21 sections, 7 fields, 70 env vars, 13 state paths owned once' in result.stdout
+    assert '21 sections, 7 fields, 70 env vars, 15 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -372,6 +372,87 @@ else:
 
     reference_check('application_primary_module', 'composition_root_exempt', verify=verify_application_primary)
 
+    def structural(root, source_layer=1, target_layer=1, source_kind='required', target_kind='required', cycle=False):
+        path = root / 'components.json'
+        manifest = json.loads(path.read_text())
+        a, b = manifest['components']
+        a.update(layer=source_layer, kind=source_kind)
+        b.update(layer=target_layer, kind=target_kind)
+        if target_kind == 'optional':
+            a.update(requires=[], optional=['b'])
+        if cycle:
+            b['requires'] = ['a']
+            (root / 'src/lib/b.ex').write_text('defmodule B.Facade do\n A.f()\nend\n')
+        path.write_text(json.dumps(manifest))
+
+    reference_check('upward_reference_fails', 'declared_facade_passes', 1, ('R-down a -> B.Facade',),
+                    change=lambda root: structural(root, target_layer=3))
+    reference_check('same_layer_passes', 'declared_facade_passes', messages=('R-down: 0',),
+                    change=lambda root: structural(root, source_layer=2, target_layer=2))
+    reference_check('downward_reference_passes', 'declared_facade_passes', messages=('R-down: 0',),
+                    change=lambda root: structural(root, source_layer=3))
+    reference_check('required_to_optional_fails', 'declared_facade_passes', 1, ('R-optional a -> B.Facade',),
+                    change=lambda root: structural(root, target_kind='optional'))
+    reference_check('composition_root_may_reference_optional', 'composition_root_exempt',
+                    messages=('R-optional: 0', 'R-down: 0'),
+                    change=lambda root: structural(root, target_kind='optional', target_layer=3))
+    reference_check('optional_to_required_passes', 'declared_facade_passes', messages=('R-optional: 0',),
+                    change=lambda root: structural(root, source_kind='optional'))
+    reference_check('optional_to_optional_passes', 'declared_facade_passes', messages=('R-optional: 0',),
+                    change=lambda root: structural(root, source_kind='optional', target_kind='optional'))
+    reference_check('scc_reported_not_failed', 'declared_facade_passes', messages=("scc: 2 components: ['a', 'b']",),
+                    change=lambda root: structural(root, cycle=True))
+    reference_check('acyclic_components_separate', 'declared_facade_passes',
+                    messages=("scc: 1 components: ['a']", "scc: 1 components: ['b']"))
+    def root_cycle(root):
+        structural(root)
+        (root / 'src/lib/b.ex').write_text('defmodule B.Internal do\n Aiur.f()\nend\n')
+        directory = root / 'scripts/components/allowlist'
+        directory.mkdir(parents=True)
+        (directory / 'b.tsv').write_text('R-declared\tAiur\tfixture\nR-private\tAiur\tfixture\n')
+
+    reference_check('allowlisted_cycle_includes_root', 'composition_root_exempt',
+                    messages=("scc: 2 components: ['a', 'b']",), change=root_cycle)
+    reference_check('rules_allowlisted_separately', 'allowlisted_violation_passes', 1, ('R-down a -> B.Internal',),
+                    change=lambda root: structural(root, target_layer=3))
+
+    def append_baseline(root):
+        structural(root, target_layer=3, target_kind='optional')
+        committed_fixture(root)
+
+    def verify_appended(root, command):
+        path = root / 'scripts/components/allowlist/a.tsv'
+        original = (repo / 'scripts/components/fixtures/allowlisted_violation_passes/scripts/components/allowlist/a.tsv').read_text()
+        sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+        assert path.read_text() == original + f'R-down\tB.Internal\tbaseline {sha}\nR-optional\tB.Internal\tbaseline {sha}\n'
+        before = {p.name: p.read_bytes() for p in path.parent.glob('*.tsv')}
+        result = subprocess.run(command, env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)), capture_output=True, text=True)
+        assert result.returncode == 2 and 'baseline already exists' in result.stderr
+        assert {p.name: p.read_bytes() for p in path.parent.glob('*.tsv')} == before
+        result = subprocess.run([sys.executable, str(checker), '--rules', 'elixir'],
+                                env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)), capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    reference_check('selective_baseline_appends_and_refuses_repeat', 'allowlisted_violation_passes',
+                    change=append_baseline, args=('--write-baseline', '--rules', 'down,optional'), verify=verify_appended)
+    reference_check('selected_rule_does_not_mask_default_gate', 'declared_facade_passes',
+                    change=lambda root: structural(root, target_layer=3), args=('--rules', 'optional'),
+                    messages=('R-optional: 0',))
+    reference_check('unknown_rule_exits_2', 'declared_facade_passes', 2, ('invalid --rules selection',),
+                    args=('--rules', 'unknown'))
+
+    if not selected or 'iterative_tarjan_deep_graph' in selected:
+        ran.add('iterative_tarjan_deep_graph')
+        sys.path.insert(0, str(repo / 'scripts'))
+        from components.reference_rules import strongly_connected
+        graph = {str(i): {str(i + 1)} for i in range(1500)}
+        graph['1500'] = {'0'}
+        groups = strongly_connected(graph)
+        assert len(groups) == 1 and set(groups[0]) == set(graph)
+        graph['1500'] = set()
+        assert len(strongly_connected(graph)) == 1501
+        print('PASS: iterative_tarjan_deep_graph')
+
     if not selected or 'missing_elixir_exits_2' in selected:
         ran.add('missing_elixir_exits_2')
         with tempfile.TemporaryDirectory() as directory:
@@ -383,3 +464,7 @@ else:
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
+
+if [[ " $* " == *" --with-elixir "* ]]; then
+  python3 "$repo_root/scripts/test-components-seams.py"
+fi

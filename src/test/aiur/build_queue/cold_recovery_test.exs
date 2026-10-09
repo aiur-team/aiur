@@ -4,12 +4,18 @@ defmodule Aiur.BuildQueue.ColdRecoveryTest do
   test "cold server loads producer atoms before decoding persisted latches" do
     key = {:promoted_unauthorized, "1"} |> :erlang.term_to_binary() |> Base.encode64()
 
+    reason = :not_applied |> :erlang.term_to_binary() |> Base.encode64()
+
     script = """
+    defmodule Aiur.Alerts do
+      def emit_system(_, _), do: :ok
+    end
     defmodule ColdBoundary do
       def open_issue_labels(_), do: :none
       def load do
         {:ok, _} = Aiur.BuildQueue.Model.decode(%{
-          "version" => 1, "queues" => [], "items" => [], "edges" => [], "intents" => [],
+          "version" => 1, "queues" => [], "items" => [], "edges" => [],
+          "intents" => [%{"id" => "cold-intent", "issue_id" => "1", "action" => "promote", "target_labels" => [], "recorded_at_ms" => 1, "outcome" => %{"error" => "#{reason}"}}],
           "latches" => [%{"key" => "#{key}", "opened_at_ms" => 1, "emitted?" => false}]
         })
         {:error, :cold_probe_complete}

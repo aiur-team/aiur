@@ -194,7 +194,7 @@ defmodule Aiur.GitHub.Issues do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
     etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
 
-    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: "issue_raw_conditional"}
+    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: Keyword.get(opts, :caller, "issue_raw_conditional")}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     context = %{
@@ -1078,7 +1078,7 @@ defmodule Aiur.GitHub.Issues do
 
   defp fetch_blocked_by(id, opts) do
     case Keyword.get(opts, :revalidate) do
-      :bounded -> BoundedBlockedBy.fetch(id, Keyword.delete(opts, :revalidate))
+      mode when mode in [:bounded, :cached] -> BoundedBlockedBy.fetch(id, opts |> Keyword.delete(:revalidate) |> Keyword.put(:cache_only, mode == :cached))
       _other -> DependenciesApi.fetch_blocked_by(id, opts)
     end
   end

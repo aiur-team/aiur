@@ -8,8 +8,9 @@ defmodule Aiur.BuildQueue.BootTest do
     configure(false)
     refute Server in children(true)
     assert BuildQueue.status() == :disabled
-    assert {:error, :disabled} = BuildQueue.show()
+    assert %{status: :disabled, queues: []} = BuildQueue.show()
     assert {:error, :disabled} = BuildQueue.reconcile_now()
+    assert {:error, :disabled} = BuildQueue.recover()
   end
 
   test "recording gate excludes queue even when enabled" do

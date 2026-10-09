@@ -5,7 +5,8 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
   alias Aiur.Config.Schema
 
   defmodule Boundary do
-    def open_issue_labels(_age), do: {:ok, Map.new(["1", "2", "3"], &{&1, %{labels: ["agent:queued"], updated_at: nil}}), 1_000}
+    # Claimed rows isolate store recovery from the write protocol.
+    def open_issue_labels(_age), do: {:ok, Map.new(["1", "2", "3"], &{&1, %{labels: ["agent:queued", "agent:in-progress"], updated_at: nil}}), 1_000}
     def status(_ids), do: :unavailable
   end
 
@@ -89,11 +90,11 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
 
   defp document do
     created = ~U[2026-10-08 00:00:00Z]
-    queue = %Model.Queue{id: "q-ab12", name: "Q", kind: :build_order, root: 1, held: false, generation: 0, created_at: created}
+    queue = %Model.Queue{id: "q-ab12", name: "Q", kind: :list, root: nil, held: false, generation: 0, created_at: created}
 
     items =
       for id <- ["1", "2", "3"],
-          do: %Model.Item{issue_id: id, queue_id: "q-ab12", position: nil, hold: if(id == "2", do: :operator), override: nil, promoted_at: nil, added_at: created}
+          do: %Model.Item{issue_id: id, queue_id: "q-ab12", position: 0, hold: if(id == "2", do: :operator), override: nil, promoted_at: nil, added_at: created}
 
     %{queues: [queue], items: items, edges: [%Model.Edge{prerequisite: "1", dependent: "3", source: :native}], intents: [], latches: []}
   end

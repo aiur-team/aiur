@@ -363,10 +363,10 @@ defmodule Aiur.OrchestratorStatusTest do
     :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
 
     # The symmetric failure to a backlogged orchestrator: this one wedges with
-    # an empty mailbox, so there is no backlog to corroborate the stall. A
-    # depth-gated rule would keep serving this snapshot as `:current` forever,
-    # which is the "stale renders as current" defect the Units page exists to
-    # prevent. Age alone must be enough.
+    # an empty mailbox, so no backlog corroborates the stall; a depth-gated rule
+    # would serve it as `:current` forever. Age alone must be enough. Drain the
+    # init startup-cleanup task first, or its reply and :DOWN fill the mailbox.
+    assert eventually?(fn -> :sys.get_state(pid).tracker_tasks == %{} end)
     :sys.suspend(pid)
     Process.sleep(90)
 

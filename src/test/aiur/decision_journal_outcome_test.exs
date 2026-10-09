@@ -2,7 +2,7 @@ defmodule Aiur.DecisionJournalOutcomeTest do
   use ExUnit.Case, async: false
 
   import Aiur.TestSupport, only: [receive_barrier: 1]
-  alias Aiur.{DecisionLog, DecisionStore}
+  alias Aiur.{DecisionStore, Journal}
 
   @moduletag :tmp_dir
   @actor %{kind: :operator, id: "operator-3274"}
@@ -77,24 +77,24 @@ defmodule Aiur.DecisionJournalOutcomeTest do
   test "write error before bytes is failed", %{dir: dir} do
     inject(nil, :write_error)
     path = Path.join(dir, "log")
-    assert {:failed, :enospc} = DecisionLog.append(path, %{"event_id" => "write-error"}, file_ops: FileOps)
+    assert {:failed, :enospc} = Journal.append(path, %{"event_id" => "write-error"}, file_ops: FileOps)
     assert File.read!(path) == ""
   end
 
   test "sync error after write is ambiguous and reconciles as accepted", %{dir: dir} do
     inject(nil, :sync_error)
     path = Path.join(dir, "log")
-    assert {:ambiguous, :timeout} = DecisionLog.append(path, %{"event_id" => "sync-error"}, file_ops: FileOps)
-    assert :accepted = DecisionLog.reconcile_ambiguous(path, "sync-error")
-    assert :failed = DecisionLog.reconcile_ambiguous(path, "absent")
+    assert {:ambiguous, :timeout} = Journal.append(path, %{"event_id" => "sync-error"}, file_ops: FileOps)
+    assert :accepted = Journal.reconcile_ambiguous(path, "sync-error")
+    assert :failed = Journal.reconcile_ambiguous(path, "absent")
   end
 
   test "partial write errors are ambiguous and replay repairs their torn tail", %{dir: dir} do
     inject(nil, :partial_error)
     path = Path.join(dir, "log")
-    assert {:ambiguous, :enospc} = DecisionLog.append(path, %{"event_id" => "partial-write-error"}, file_ops: FileOps)
+    assert {:ambiguous, :enospc} = Journal.append(path, %{"event_id" => "partial-write-error"}, file_ops: FileOps)
     assert byte_size(File.read!(path)) == 20
-    assert :failed = DecisionLog.reconcile_ambiguous(path, "partial-write-error")
+    assert :failed = Journal.reconcile_ambiguous(path, "partial-write-error")
     assert File.read!(path) == ""
   end
 
@@ -103,7 +103,7 @@ defmodule Aiur.DecisionJournalOutcomeTest do
       inject("requested", unquote(mode))
       pid = store!(dir)
       assert {:ok, %{status: :accepted, decision: decision}} = request(pid)
-      assert {:ok, [event], nil} = DecisionLog.replay(Path.join(dir, "decisions.ndjson"), &{:ok, &1})
+      assert {:ok, [event], nil} = Journal.replay(Path.join(dir, "decisions.ndjson"), &{:ok, &1})
       assert event["decision_id"] == decision.decision_id
       writes = Agent.get(FileOps, & &1.writes)
       assert length(writes) == unquote(write_count)

@@ -22,10 +22,9 @@ defmodule Aiur.Orchestrator.AutoResume do
   """
 
   require Logger
-
-  alias Aiur.{Alerts, Issue, Tracker}
+  alias Aiur.{Alerts, Issue}
   alias Aiur.GitHub.Errors
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State, TicketTransition, TrackerTasks}
 
   @backoff_ms [120_000, 300_000, 900_000]
   @max_attempts 3
@@ -392,7 +391,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   end
 
   defp restore_resume_state(identifier, next_state, {issue}) do
-    Tracker.update_issue_state(identifier, next_state, expected_state: issue.state)
+    TicketTransition.write_state(identifier, next_state, writer: :auto_resume, expected_state: issue.state)
   end
 
   defp write_resume_state({issue, update_fun}) do

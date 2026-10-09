@@ -239,21 +239,21 @@ asked. Two rules keep a `304` honest.
 
 **A page-1 ETag cannot answer a multi-page question.**
 
-GitHub orders most collections so page 1 becomes effectively immutable while
-the interesting changes land elsewhere: issue timelines are oldest-first, and
-issue and pull request listings are `created` desc. A `304` against a page-1
-ETag therefore means "page 1 is unchanged" — never "the whole list is
-unchanged".
+GitHub orders issue timelines oldest-first and issue/PR listings by `created` desc.
+Changes can land beyond page 1, so a page-1 `304` means "page 1 is unchanged",
+never "the whole list is unchanged".
 
-A page-1 `304` on a churned ticket is permanently stale, with no self-healing,
-because the change that would refresh it is exactly the change that lands on a
-later page.
+A page-1 `304` on a churned ticket cannot self-heal: the change that would
+refresh it lands on a later page.
 
 Only trust a `304` for a paginated read when the read was single-page (then
 page 1 *is* the list), or when the validator kept is the last page's rather
 than the first's. If neither is practical, do not make the read conditional:
 an unconditional read that is correct beats a conditional one that is quietly
 wrong.
+
+Issue comments and PR changed files drain every page; single-list readers refuse
+a next page with `pagination_unexpected` rather than return a partial list.
 
 **Incomplete label provenance is retried.** A new issue can carry `agent:todo`
 before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
@@ -289,8 +289,7 @@ The old query attached full comment and review-thread selections to every specul
 Spend scales with target count, not with comment volume. The table below is for
 the **dispatch-class** cadence — the tick every poll loop rides.
 
-A per-class entry in `polling.intervals` scales the same way for that class:
-halving a class's interval doubles its own spend, and the GraphQL pollers are
+A per-class entry in `polling.intervals` scales the same way for that class: halving a class's interval doubles its own spend, and the GraphQL pollers are
 the classes worth widening (CI, comments/review threads, and previously the
 Build Order catalog, now event-sourced).
 
@@ -312,12 +311,13 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
 
-Dashboard state derives its staleness from the `dispatch` class (the cadence of
-the orchestrator snapshot it renders), and the Build Order catalog is
-event-sourced — its staleness and refresh bounds follow the `planning` class.
+Dashboard state derives its staleness from the `dispatch` class (the cadence of the orchestrator snapshot it renders), and the Build Order catalog is event-sourced — its staleness and refresh bounds follow the `planning` class.
 
-`planning` is recommended as `0` (on-demand), so the most expensive query in the
-system runs only when a page opens or a degradation needs a re-list.
+ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
+
+Dispatch orders candidates with fresh cached native dependency holds after other candidates, preserving priority within each group. This ordering performs no GitHub reads; missing or stale evidence keeps the ordinary order and dispatch-time validation remains authoritative.
+
+`planning` is recommended as `0` (on-demand): its expensive query runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |
@@ -692,8 +692,7 @@ That gap is the exposure, and it is why a verdict is never kept at all.
 
 ## What the agent guard governs
 
-Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
-scrubs them from every agent environment and instead writes the bot PAT to a
+Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
 reads.
 
@@ -722,8 +721,7 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes compare the open PR with the configured base. Stale
-heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
 for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
@@ -738,9 +736,7 @@ blocks the write.
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
-Comparisons are attributed to `human_review_base_ancestry` and always contact
-GitHub: base movement can change the verdict without changing the PR. These
-reads add cost; this change claims no quota saving.
+Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base
 SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
@@ -749,9 +745,13 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
-There is a third path, and it is the cheapest one: a change Aiur makes.
+Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending.
 
-Aiur posts comments, applies and removes labels, closes tickets, repairs pull request bases, declares dependencies, and replies to and resolves review threads. GitHub's answer to each of those requests already contains the new state, and Aiur keeps it.
+Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
+
+Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; marker writes and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving the item unclaimed; `agent:queued` remains. No quota saving is claimed.
+
+Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
 
 The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
 

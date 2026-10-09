@@ -8,7 +8,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   """
 
   @contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)
-  @external_resource @contract_path
+  @external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)
   @contract @contract_path |> File.read!() |> Jason.decode!()
   @expected_states ~w(alert stuck running paused queued)
   @expected_badges Aiur.AgentEventFeed.directions()

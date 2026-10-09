@@ -9,10 +9,21 @@ defmodule Aiur.BuildQueue.ServerTest do
     def open_issue_labels(_age), do: Agent.get(__MODULE__, & &1.snapshot)
     def load, do: Agent.get(__MODULE__, & &1.document)
     def status(_ids), do: :unavailable
+    def blocked_by(_id), do: {:ok, []}
+    def save(document), do: Agent.update(__MODULE__, &%{&1 | document: {:ok, document}})
+    def update_issue_state(id, "todo", expected_state: :none), do: call({:promote, id})
+    def notify_demand(ids), do: call({:demand, ids})
+    def ensure_labels(labels), do: call({:ensure, labels})
+    def add_label(id, label), do: call({:mark, id, label})
+    def remove_label(id, label), do: call({:unmark, id, label})
+
+    defp call(call) do
+      Agent.get_and_update(__MODULE__, fn state -> {state.result, %{state | calls: state.calls ++ [{call, state.document}]}} end)
+    end
   end
 
   setup do
-    pid = start_supervised!({Agent, fn -> %{snapshot: :none, document: {:ok, %{queues: [], items: [], edges: [], intents: [], latches: []}}} end})
+    pid = start_supervised!({Agent, fn -> %{calls: [], result: :ok, now: 1_000, snapshot: :none, document: {:ok, %{queues: [], items: [], edges: [], intents: [], latches: []}}} end})
     Process.register(pid, Boundary)
     :ok
   end
@@ -104,7 +115,7 @@ defmodule Aiur.BuildQueue.ServerTest do
     pid = server(name: Server)
     boot(pid)
     assert Aiur.BuildQueue.status() == :running
-    assert {:ok, %{status: :running}} = Aiur.BuildQueue.show(pid)
+    assert %{status: :running} = Aiur.BuildQueue.show(pid)
     assert Hints.sort_key("1") == {-1, 0}
     assert Hints.sort_key("2") == {0, 1}
     assert Hints.held?("2")
@@ -129,7 +140,7 @@ defmodule Aiur.BuildQueue.ServerTest do
     send(pid, message)
     GenServer.call(pid, :status)
     assert :ets.tab2list(Hints.table_name()) == []
-    GenServer.stop(pid)
+    stop_supervised!(Server)
     assert :ets.whereis(Hints.table_name()) == :undefined
     refute Hints.held?("2")
   end
@@ -174,6 +185,48 @@ defmodule Aiur.BuildQueue.ServerTest do
     assert Hints.held?("3")
   end
 
+  test "server persists promotions and notifies demand; budget pause recovers on tick" do
+    fixture()
+    snapshot(["1", "2", "3"])
+    update(:result, {:error, {:github, :local_hold, %{}}})
+    pid = server()
+    assert_received {:scheduled, ^pid, :tick, 60_000}
+    assert_received {:scheduled, ^pid, initial, 2_000}
+    send(pid, initial)
+    assert GenServer.call(pid, :status) == :writes_paused
+    [{call, {:ok, saved}}] = Agent.get(Boundary, & &1.calls)
+    assert call == {:promote, "1"}
+    assert [%{outcome: nil, issue_id: "1"}] = saved.intents
+    update(:result, :ok)
+    send(pid, :tick)
+    GenServer.call(pid, :status)
+    assert_received {:scheduled, ^pid, :tick, 60_000}
+    {^pid, next, 2_000} = scheduled()
+    send(pid, next)
+    assert GenServer.call(pid, :status) == :running
+    {:ok, persisted} = Agent.get(Boundary, & &1.document)
+    assert Enum.find(persisted.items, &(&1.issue_id == "1")).promoted_at == DateTime.from_unix!(2_000, :millisecond)
+    assert Enum.map(Agent.get(Boundary, & &1.calls), &elem(&1, 0)) == [{:promote, "1"}, {:promote, "1"}, {:demand, ["1"]}]
+  end
+
+  test "server executes marker actions and returns budget errors" do
+    snapshot([])
+    pid = server()
+    boot(pid)
+    assert GenServer.call(pid, {:write, :mark, "1"}) == :ok
+    assert GenServer.call(pid, {:write, :unmark, "1"}) == :ok
+    assert Enum.map(Agent.get(Boundary, & &1.calls), &elem(&1, 0)) == [{:ensure, ["agent:queued"]}, {:mark, "1", "agent:queued"}, {:unmark, "1", "agent:queued"}]
+    update(:result, {:error, {:github, :local_hold, %{}}})
+    assert GenServer.call(pid, {:write, :mark, "2"}) == {:error, {:github, :local_hold, %{}}}
+    assert GenServer.call(pid, :status) == :writes_paused
+    count = Agent.get(Boundary, &length(&1.calls))
+    update(:result, :ok)
+    assert GenServer.call(pid, {:write, :mark, "3"}) == {:error, :writes_paused}
+    assert GenServer.call(pid, {:write, :unmark, "1"}) == {:error, :writes_paused}
+    assert Agent.get(Boundary, &length(&1.calls)) == count
+    assert GenServer.call(pid, :status) == :writes_paused
+  end
+
   defp server(opts \\ []) do
     owner = self()
 
@@ -183,7 +236,7 @@ defmodule Aiur.BuildQueue.ServerTest do
       tracker: Boundary,
       store: Boundary,
       claim_probe: Boundary,
-      clock: fn -> 1_000 end,
+      clock: fn -> Agent.get(Boundary, & &1.now) end,
       exchange: :absent_queue_exchange,
       schedule: fn pid, message, delay ->
         send(owner, {:scheduled, pid, message, delay})
@@ -209,10 +262,15 @@ defmodule Aiur.BuildQueue.ServerTest do
     assert GenServer.call(pid, :status) == :running
   end
 
-  defp snapshot(ids, labels \\ ["agent:queued"]), do: update(:snapshot, {:ok, Map.new(ids, &{&1, %{labels: labels, updated_at: nil}}), 1_000})
+  defp snapshot(ids, labels \\ ["agent:queued"]) do
+    Agent.update(Boundary, fn state ->
+      now = state.now + 1_000
+      %{state | now: now, snapshot: {:ok, Map.new(ids, &{&1, %{labels: labels, updated_at: nil}}), now}}
+    end)
+  end
 
   defp fixture do
-    queue = %Model.Queue{id: "q", name: "Q", kind: :build_order, root: 1, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
+    queue = %Model.Queue{id: "q", name: "Q", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
 
     items =
       for id <- ["1", "2", "3"],
