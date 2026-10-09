@@ -4,6 +4,8 @@ defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
   use Aiur.TestSupport
   alias Aiur.BuildQueue.Writer
   alias Aiur.BuildQueueFakeTracker, as: Fake
+  alias Aiur.Linear.Tracker, as: LinearTracker
+  alias Aiur.Memory.Tracker, as: MemoryTracker
   alias Aiur.{Tracker, Workflow}
 
   setup do
@@ -80,10 +82,8 @@ defmodule Aiur.GitHub.TrackerEnsureLabelsTest do
   test "ensure surfaces label errors and the non-GitHub adapter contracts" do
     Req.Test.stub(__MODULE__, fn conn -> conn |> Plug.Conn.put_status(422) |> Req.Test.json(%{"errors" => [%{"code" => "invalid"}]}) end)
     assert {:error, {:github_api_status, 422, "agent:queued"}} = Tracker.ensure_labels(["agent:queued"])
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
-    assert :ok = Tracker.ensure_labels(["agent:queued"])
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
-    assert {:error, :unsupported} = Tracker.ensure_labels(["agent:queued"])
+    assert :ok = MemoryTracker.ensure_labels(["agent:queued"])
+    assert {:error, :unsupported} = LinearTracker.ensure_labels(["agent:queued"])
     assert {:ensure_labels, 1} in Tracker.behaviour_info(:optional_callbacks)
   end
 end
