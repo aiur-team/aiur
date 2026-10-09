@@ -12,6 +12,7 @@ defmodule Aiur.BuildProgress do
 
   require Logger
 
+  alias Aiur.BuildOrder.ProgressGeneration
   alias Aiur.{Alerts, Config.Paths, JsonStore}
 
   @topic "build_progress"
@@ -51,7 +52,7 @@ defmodule Aiur.BuildProgress do
 
   def handle_call({:put_build_order_fact, %{scope: {:build_order, _}} = fact}, from, state) do
     if valid_fact?(Map.put(fact, :generation, 1)) do
-      fact = Aiur.BuildOrder.ProgressGeneration.assign(fact, state.latches, Map.get(state.facts, fact.scope))
+      fact = ProgressGeneration.assign(fact, state.latches, Map.get(state.facts, fact.scope))
       handle_call({:put_fact, fact}, from, state)
     else
       {:reply, {:error, :invalid_fact}, state}
@@ -88,8 +89,7 @@ defmodule Aiur.BuildProgress do
           %{state | latches: latches}
 
         {:error, reason} ->
-          unavailable(reason)
-          %{state | latches: nil}
+          disable_milestones(reason, state)
       end
     end
   end
@@ -159,9 +159,13 @@ defmodule Aiur.BuildProgress do
         %{state | latches: latches}
 
       {:error, reason} ->
-        unavailable(reason)
-        %{state | latches: nil}
+        disable_milestones(reason, state)
     end
+  end
+
+  defp disable_milestones(reason, state) do
+    unavailable(reason)
+    %{state | latches: nil}
   end
 
   defp persist(path, latches) do

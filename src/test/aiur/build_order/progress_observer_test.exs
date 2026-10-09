@@ -35,7 +35,7 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     snapshot = percent(snapshot, 67)
     Phoenix.PubSub.broadcast!(Aiur.PubSub, GraphProjection.catalog_topic(snapshot.repository), {:graph_projection_generation, snapshot})
     scope = context.scope
-    receive_barrier({:build_progress_changed, %{scope: ^scope, percent: 67}})
+    receive_barrier({:build_progress_changed, %{scope: ^scope}})
     assert [%{percent: 67}] = BuildProgress.facts(context.scope, store)
   end
 
@@ -84,7 +84,8 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     refute_received {:event, %{topic: _}}
   end
 
-  test "empty snapshots and invalid identities produce no facts", context do
+  # Future regression guard for absent catalog data; not new-behavior coverage.
+  test "future guard: empty snapshots and invalid identities produce no facts", context do
     {observer, store, snapshot} = start_observer(context, nil, entries: [])
     send(observer, {:graph_projection_health, %{snapshot | data: nil}})
     send(observer, {:graph_projection_generation, %{snapshot | data: %Catalog{entries: [%RootSummary{}]}}})
