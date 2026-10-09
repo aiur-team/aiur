@@ -402,12 +402,12 @@ Local Codex turns use Aiur's shared build admission.
 | Hold-timeout backstop | A slot held past `agent.build_gate_max_hold_seconds` (default 1h) is released by the lease holder itself, which logs and leaves a durable `slot-N.hold-timeout` marker. `aiur status` prints those as `BUILD GATE TIMEOUT` lines, and the daemon raises a needs-attention alert naming the command — the same backstop bounds both a leaked holder waiting on reparented daemons and a `--trace` run that monopolises a slot. |
 | Post-command retain | After the wrapped command exits, the holder keeps the slot only while a descendant is still consuming CPU (`agent.build_gate_retain_seconds`, default 120s, is the ceiling for that busy descendant). A descendant tree that goes idle for one second is treated as an adopted session daemon (`dbus-daemon`, `gnome-keyring-daemon`), so the slot is released immediately and nothing is signalled — the keyring daemon holds the fleet's GitHub credential. The effective retain is observable in `aiur status` (`retain_seconds=`) and in the `lease_retained` gate log line. |
 | Dead holder | A lease whose holder has exited is released automatically: Linux releases the flock with the process, and the PID fallback reclaims a slot whose recorded owner and process group are gone. A legitimately long-running build with a live holder keeps its lease; only the absolute max-hold backstop reaps by elapsed time. |
+| Browser tests | Playwright CLI runs (including `src/browser`) share the host cap and serialize per workspace; only the wrapper holds the workspace lock, so a crashed run's surviving browser child does not keep it. Run only affected browser specs locally; CI runs the full harness. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
-Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
-or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
-`--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
-holds one live-token lease. Playwright CLI runs (including `src/browser`) share the host cap and serialize per workspace. Run only affected browser specs locally; CI runs the full harness.
+Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+` or legacy comma separators,
+`elixir -S mix`, and `mise exec` / `mise x` commands after `--` or in a simple `-c` / `--command` string.
+One compound or nested wrapper chain holds one live-token lease.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are

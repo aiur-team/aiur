@@ -51,5 +51,8 @@ node() (
 
   timeout_seconds=$((timeout_seconds - SECONDS + started_seconds))
   ((timeout_seconds >= 0)) || timeout_seconds=0
-  AIUR_BUILD_GATE_TIMEOUT_SECONDS=$timeout_seconds aiur_build_gate_run_or_reuse browser env "AIUR_BROWSER_GATE_WORKSPACE=$workspace" "$node_binary" "$@"
+  # Only this wrapper holds the lock: bash keeps a close-on-exec copy while the
+  # redirect is active, so Node, Chromium, and fixture servers never inherit it.
+  AIUR_BUILD_GATE_TIMEOUT_SECONDS=$timeout_seconds aiur_build_gate_run_or_reuse browser \
+    env "AIUR_BROWSER_GATE_WORKSPACE=$workspace" "$node_binary" "$@" {browser_lock_fd}>&-
 )

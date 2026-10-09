@@ -1,7 +1,9 @@
 """Exercise installed Node admission with real locks and a cheap fake browser."""
 
 from pathlib import Path
+import os
 import selectors
+import signal
 import shutil
 import subprocess
 import sys
@@ -14,11 +16,18 @@ real_bin = root / "real-bin"
 real_bin.mkdir()
 node = real_bin / "node"
 node.write_text("""#!/usr/bin/python3
-import subprocess, sys
+import os, subprocess, sys, time
 if sys.argv[-1] == 'nested':
     sys.exit(subprocess.call(['node', '/pkg/playwright/cli.js', 'child']))
+if sys.argv[-1] == 'orphan':
+    child = os.fork()
+    if child == 0:
+        os.setsid()  # A Chromium-like child that outlives a crashed run with every inherited fd.
+        time.sleep(60)
+        os._exit(0)
+    print('pids', os.getpid(), child, flush=True)
 print('started', flush=True)
-if sys.argv[-1] == 'hold':
+if sys.argv[-1] in ('hold', 'orphan'):
     sys.stdin.read(1)
 """)
 node.chmod(0o755)
@@ -41,6 +50,7 @@ environment = {
     "AIUR_BUILD_GATE_RETAIN_SECONDS": "0",
 }
 processes = []
+orphans = []
 
 
 def start(script="/pkg/playwright/cli.js", action="hold", env=None):
@@ -113,6 +123,21 @@ try:
         assert cli.wait(timeout=15) == 0
         assert b"acquired" in cli.stderr.read(), f"CLI bypassed admission: {script}"
 
+    # Crash a run (admitted, then inside a live Mix lease) and leave its browser child alive.
+    lease = gate / "outer-mix.lease"
+    lease.write_text("token=outer-mix\n")
+    leased = dict(environment, AIUR_BUILD_GATE_LEASE_PATH=str(lease), AIUR_BUILD_GATE_LEASE_TOKEN="outer-mix")
+    for crash_env in (environment, leased):
+        crashed = start(action="orphan", env=crash_env)
+        _, node_pid, orphan_pid = line(crashed.stdout).split()
+        orphans.append(int(orphan_pid))
+        assert line(crashed.stdout) == "started\n"
+        crashed.kill()
+        os.kill(int(node_pid), signal.SIGKILL)
+        crashed.wait(timeout=15)
+        after_crash = start(action="exit", env=dict(environment, AIUR_BUILD_GATE_TIMEOUT_SECONDS="5"))
+        assert after_crash.wait(timeout=15) == 0, "surviving browser child kept the workspace lock"
+
     nested = start(action="nested")
     assert line(nested.stdout) == "started\n"
     assert nested.wait(timeout=15) == 0
@@ -120,8 +145,13 @@ try:
     assert line(cheap.stdout) == "started\n"
     assert cheap.wait(timeout=15) == 0
     assert b"acquired" not in cheap.stderr.read()
-    print("workspace serialization, host cap, nested lease, passthrough: passed")
+    print("workspace serialization, host cap, crash release, nested lease, passthrough: passed")
 finally:
+    for pid in orphans:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     for process in processes:
         if process.poll() is None:
             process.kill()

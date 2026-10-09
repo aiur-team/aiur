@@ -12,6 +12,6 @@ defmodule Aiur.BrowserBuildGateTest do
     script = Path.expand("../support/browser_build_gate_check.py", __DIR__)
     hook = Path.expand("../../priv/build_gate.bash", __DIR__)
     assert {output, 0} = System.cmd("python3", [script, root, hook], stderr_to_stdout: true)
-    assert output =~ "workspace serialization, host cap, nested lease, passthrough: passed"
+    assert output =~ "workspace serialization, host cap, crash release, nested lease, passthrough: passed"
   end
 end
