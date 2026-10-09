@@ -43,7 +43,7 @@ defmodule Aiur.BuildQueue.ObserverTest do
 
   test "closed-unmerged prerequisite fails its dependent through reconciliation", %{state: state} do
     deposit(%{})
-    assert {[%{state: :waiting, verdict: {:failed, [:pr_closed_unmerged]}}], actions, observations, _} = Reconcile.plan(state)
+    assert {[%{state: :failed_prerequisite, verdict: {:failed, [:pr_closed_unmerged]}}], actions, observations, _} = Reconcile.plan(state)
     assert observations["42"].pr == :closed_unmerged
     assert {:attention_open, {{:prerequisite_failed, :pr_closed_unmerged}, "42"}} in actions
     refute {:promote, "1"} in actions
