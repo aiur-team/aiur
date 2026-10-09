@@ -1,8 +1,8 @@
 defmodule Aiur.BuildQueue.Writer do
   @moduledoc "Serial label writes with durable intents and a rolling minute write budget."
   require Logger
-  alias Aiur.BuildQueue.Model.Latch
   alias Aiur.BuildQueue.{Attention, WriteEvidence, WriteProtocol}
+  alias Aiur.BuildQueue.Model.Latch
 
   @spec new() :: map()
   def new, do: %{writes: [], failures: %{}, ensured?: false, paused?: false}
