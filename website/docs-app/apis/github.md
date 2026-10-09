@@ -1,7 +1,5 @@
 # GitHub
-
 Aiur reads GitHub to find work, follow each ticket, and return completed changes for review.
-
 ## Repository setup from global defaults
 
 A new run using `~/.aiur/config` bootstraps the current GitHub repository before starting supervision or dispatch. It resolves the repository from `origin` and rejects conflicting explicit `tracker.github.repo`.
@@ -716,9 +714,7 @@ every request a determined agent could make.
 
 Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
 
-Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
-for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
-changes in both directions; rename checks include old and new paths.
+Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
 A stale head passes when it has no conflicts and no changed-file overlap with
 the base since their merge base. Conflicts or overlap return `stale_review_base`.
@@ -737,6 +733,10 @@ separately from harmless stale heads; the earlier 3-of-8 stale-base count is
 context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
+
+Idle dependent restacks use delivered blocker PR facts without adding REST reads. The daemon fetches git refs and pushes through the agent credential file, with cached GitHub helpers cleared. It never force-pushes; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
+
+Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
 
 Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending.
 

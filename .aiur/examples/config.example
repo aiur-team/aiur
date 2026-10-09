@@ -4,6 +4,7 @@
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
   base_branch: {{BASE_BRANCH}}           # required integration branch; `aiur init` offers the repository default read from GitHub
+  # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
@@ -40,6 +41,7 @@ agent:
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
+  # build_nice: 10                      # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   # max_concurrent_builds: 4             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
@@ -223,6 +225,7 @@ alerts:
 
 # Build queue (GitHub only; defaults shown).
 # build_queue:
+#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes

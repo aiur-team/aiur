@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from . import sources
+from .github import anchor_fields
 
 # run-summary schema version (distinct from the telemetry record schema version).
 SUMMARY_SCHEMA_VERSION = 1
@@ -363,15 +364,12 @@ def _github_records(events: Iterable[dict]) -> tuple[list[dict], list[dict]]:
 
 
 def _github_record(event: dict, sequence: int) -> dict | str:
-    kind = event.get("topic", "").rsplit(".", 1)[-1]
-    timestamp = event.get("timestamp")
-    if kind in ("pr.opened", "pr.merged"):
-        pr = event.get("pr") or {}
-        timestamp = pr.get("merged_at") or pr.get("closed_at") or pr.get("created_at") or timestamp
+    kind, timestamp, ticket = anchor_fields(event)
     parsed = _parse_timestamp(timestamp)
     if parsed is None:
         return "warning"
     attributes = dict(event.get("attributes") or {})
+    attributes.setdefault("ticket", ticket)
     attributes["source"] = "github"
     attributes["source_id"] = event.get("id", "event:%d" % sequence)
     attributes["event"] = {"pr.opened": "pr_opened", "pr.merged": "pr_merged"}.get(kind, "comment_received")

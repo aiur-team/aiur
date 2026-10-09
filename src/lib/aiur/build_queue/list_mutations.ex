@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ListMutations do
   @moduledoc "Pure, atomic edits of local lists; returns marker actions for the server's writer."
-  alias Aiur.BuildQueue.Model
+  alias Aiur.BuildQueue.{Model, QueueTriggers}
   alias Aiur.BuildQueue.Model.{Edge, Item, Queue}
   alias Aiur.BuildQueue.Sources.ExecutorList
 
@@ -11,6 +11,7 @@ defmodule Aiur.BuildQueue.ListMutations do
     with :ok <- validate_ids(ids),
          :ok <- ownership(document, ids),
          {:ok, queue} <- queue(document, Keyword.get(opts, :queue), now),
+         {:ok, queue} <- QueueTriggers.add(queue, document, opts),
          {:ok, items, _, :current} <- ExecutorList.members(queue, document),
          {:ok, at} <- position(Keyword.get(opts, :at, length(items)), length(items)),
          {:ok, edges} <- edges(ids, Keyword.get(opts, :after)) do

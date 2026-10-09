@@ -17,7 +17,16 @@ defmodule Aiur.GitHub.TicketPullRequest do
        when state in ["open", "closed"] and is_integer(number) and number > 0 and (is_nil(merged_at) or is_binary(merged_at)) do
     case Map.get(body, "merged") do
       merged when merged in [nil, false, true] ->
-        %{state: if(state == "open", do: :open, else: :closed), merged?: merged == true or not is_nil(merged_at), number: number, version: version}
+        %{
+          state: if(state == "open", do: :open, else: :closed),
+          merged?: merged == true or not is_nil(merged_at),
+          number: number,
+          version: version,
+          head_ref: get_in(body, ["head", "ref"]),
+          head_sha: get_in(body, ["head", "sha"]),
+          base_ref: get_in(body, ["base", "ref"]),
+          merge_commit_sha: Map.get(body, "merge_commit_sha")
+        }
 
       _ ->
         nil
