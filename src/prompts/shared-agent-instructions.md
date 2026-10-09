@@ -117,7 +117,18 @@ work ordering, so they're worth stating up front:
   needs blocker code. The skill's `stub-then-fetch.md` has the exact provisional
   and integrated `unblocked` emit sequence — follow it rather than guessing the
   event timing from memory.
-- **Resume on explicit unblocked; inspect branch pushes.** A declared blocker's
+- **Optimistic start.** If your prompt has an Optimistic start block, every
+  blocker push is an integration signal: integrate at the next safe checkpoint
+  (WIP committed, no test run in flight). Integrate only direct blockers listed
+  in that block; never merge a grand-blocker's push or a newer integration
+  branch into your still-stacked branch. Updates cascade level by level through
+  direct blocker pushes. Rebase on rewritten history and push
+  with `--force-with-lease`. Keep the PR draft and stacked as the block directs;
+  never mark ready while any blocker PR is unmerged. Load `aiur-agent`
+  [Optimistic start](.claude/skills/aiur-agent/stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker)
+  for the canonical loop and park/merge handling.
+- **Resume on explicit unblocked; inspect branch pushes.** For paused
+  dependents, a declared blocker's
   `ticket.N.agent.unblocked` signal, delivered at the mid-turn checkpoint, says
   the dependency is ready to consume. Then load `aiur-agent` and use the latest
   `ticket.N.branch.push` payload only to fetch the actual validated ref (never a
