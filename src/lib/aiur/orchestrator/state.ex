@@ -135,8 +135,7 @@ defmodule Aiur.Orchestrator.State do
           },
           # Transient pause/error backoff keyed by issue_id (AutoResume, #1453).
           auto_resume: %{String.t() => map()},
-          # Claims released after retry exhaustion, retained until a later
-          # dispatch successfully re-establishes ownership.
+          # Claims released after retry exhaustion until dispatch re-establishes ownership.
           released_claims: %{String.t() => map()},
           fallback_backoff: %{String.t() => {pos_integer(), integer()}},
           model_fallback_waiting: MapSet.t(),

@@ -1,5 +1,10 @@
 # Existing cross-owner writes only; remove rows as responsibilities move. Never add a new writer.
 [
+  {Aiur.Orchestrator.LifecycleFenceExpiry, :queue_store, "Existing lifecycle fence expiry restores unacknowledged message claims; retain until messaging owns this cleanup."},
+  {Aiur.Orchestrator.LifecycleFenceExpiry, :running, "Existing fence expiry cleans the lifecycle running entry; retain until lifecycle owns this transition."},
+  {Aiur.Orchestrator.RateLimitFallbackTransition, :fallback_backoff, "Existing rate-limit fallback transition persists lifecycle retry backoff; retain until lifecycle owns this transition."},
+  {Aiur.Orchestrator.StatusObservation, :tracker_observations, "Existing status observation records tracker timestamps; retain until core owns this update."},
+  {Aiur.Orchestrator.StatusReport, :status_observed_at, "False positive: StatusReport timestamps its snapshot payload, not State."},
   {Aiur.Orchestrator.Dispatcher, :effective_poll_interval_ms, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
   {Aiur.Orchestrator.Dispatcher, :idle_poll_backoff, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
   {Aiur.Orchestrator.Dispatcher, :last_dispatch_poll_at_ms, "Dispatcher finishes the poll cycle and updates core scheduling telemetry; retain until core owns that update."},
