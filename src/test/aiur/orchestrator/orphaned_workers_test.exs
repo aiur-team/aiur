@@ -9,11 +9,10 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   # leases) alive under `:rest_for_one`. The restarted Orchestrator must stop
   # them and redispatch the ticket, not refuse it as a live session forever.
   test "a restarted Orchestrator stops the runner its predecessor left holding a lease and redispatches the ticket" do
-    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("restart")
+    %{issue: %Issue{id: issue_id, identifier: identifier} = issue} = prepare_workflow!("restart", "Todo")
     name = Module.concat(__MODULE__, "Restart#{System.unique_integer([:positive])}")
-
-    # The initial poll dispatches the in-progress ticket to a real runner that
-    # parks on the failing before_run hook while holding its lease.
+    # The initial poll dispatches the todo ticket to a real runner that parks
+    # on the failing before_run hook while holding its lease.
     start_supervised!(Supervisor.child_spec({Orchestrator, name: name}, restart: :permanent))
     first = Process.whereis(name)
 
@@ -21,9 +20,9 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     kill_on_exit(orphan)
     {:ok, orphan_lease} = Ownership.current(identifier)
     orphan_ref = Process.monitor(orphan)
-
-    # Kill the Orchestrator. The test supervisor restarts it from the same
-    # child spec, as `Aiur.Supervisor` does after a crash.
+    # The tracker claim survives the crash; the staged redispatch must not wait out orphan recovery grace.
+    Application.put_env(:aiur, :memory_tracker_issues, [%{issue | state: "In Progress", labels: ["agent:in-progress"]}])
+    # Kill the Orchestrator; the test supervisor restarts it like `Aiur.Supervisor`.
     Process.exit(first, :kill)
     second = await_restart(name, first)
 
@@ -99,7 +98,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   end
 
   test "a tracked runner survives repeated ticks on the same lease generation" do
-    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("tracked")
+    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("tracked", "Todo")
     orchestrator = start_supervised!({Orchestrator, []})
 
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
@@ -485,7 +484,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     end
   end
 
-  defp prepare_workflow!(name) do
+  defp prepare_workflow!(name, state \\ "In Progress") do
     test_root = Aiur.TestSupport.tmp_root!("orphaned-workers-#{name}")
     workspace_root = Path.join(test_root, "workspaces")
     identifier = "ORPH-#{System.unique_integer([:positive])}"
@@ -494,8 +493,8 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       id: "issue-#{identifier}",
       identifier: identifier,
       title: "Orphaned runner",
-      state: "In Progress",
-      labels: ["agent:in-progress"]
+      state: state,
+      labels: ["agent:" <> String.replace(String.downcase(state), " ", "-")]
     }
 
     File.mkdir_p!(test_root)

@@ -9,7 +9,8 @@ defmodule Aiur.ExecutorEventsTest do
 
   setup do
     previous = Application.get_env(:aiur, :log_file)
-    root = Aiur.TestSupport.tmp_root!("aiur-executor-events")
+    # Event consumers may still write after teardown; suite cleanup owns HOME.
+    root = Path.join(System.fetch_env!("HOME"), Path.basename(Aiur.TestSupport.tmp_root!("aiur-executor-events")))
     Application.put_env(:aiur, :log_file, Path.join(root, "aiur.log"))
     previous_state_dir = Application.get_env(:aiur, :executor_state_dir)
     Application.put_env(:aiur, :executor_state_dir, Path.join(root, "executor"))
@@ -17,8 +18,6 @@ defmodule Aiur.ExecutorEventsTest do
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :log_file, previous), else: Application.delete_env(:aiur, :log_file)
       if previous_state_dir, do: Application.put_env(:aiur, :executor_state_dir, previous_state_dir), else: Application.delete_env(:aiur, :executor_state_dir)
-      File.rm_rf!(root)
-      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
     :ok
@@ -78,7 +77,7 @@ defmodule Aiur.ExecutorEventsTest do
 
     {:ok, output} = StringIO.open("")
     listener = spawn_listener(output)
-    on_exit(fn -> if Process.alive?(listener), do: Process.exit(listener, :kill) end)
+    on_exit(fn -> stop_listener(listener) end)
 
     assert eventually(fn -> "ticket.3028.#" in Exchange.bindings_for(listener) end)
     # The line is printed before the cursor is saved, so wait on the saved cursor itself.
@@ -93,9 +92,15 @@ defmodule Aiur.ExecutorEventsTest do
     File.write!(path, Jason.encode!(%{"id" => third_id, "topic" => "ticket.3028.agent.resumed"}) <> "\n", [:append])
     {:ok, reconnected_output} = StringIO.open("")
     reconnected = spawn_listener(reconnected_output)
-    on_exit(fn -> if Process.alive?(reconnected), do: Process.exit(reconnected, :kill) end)
+    on_exit(fn -> stop_listener(reconnected) end)
     assert eventually(fn -> String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{third_id})) end)
     refute String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{first_id}))
+  end
+
+  defp stop_listener(listener) do
+    ref = Process.monitor(listener)
+    Process.exit(listener, :kill)
+    receive_barrier({:DOWN, ^ref, :process, ^listener, _reason})
   end
 
   defp spawn_listener(output) do
@@ -318,7 +323,7 @@ defmodule Aiur.ExecutorEventsTest do
 
   test "listener delivers live events and advances the persisted cursor" do
     listener = spawn(fn -> ExecutorEvents.listen(topic: "executor.#") end)
-    on_exit(fn -> if Process.alive?(listener), do: Process.exit(listener, :kill) end)
+    on_exit(fn -> stop_listener(listener) end)
 
     assert eventually(fn -> "executor.#" in Exchange.bindings_for(listener) end)
     assert {:ok, id, _count} = ExecutorEvents.publish("executor.notify.live", %{message: "wake"})
@@ -337,7 +342,7 @@ defmodule Aiur.ExecutorEventsTest do
 
     Process.group_leader(listener, output)
     send(listener, :listen)
-    on_exit(fn -> if Process.alive?(listener), do: Process.exit(listener, :kill) end)
+    on_exit(fn -> stop_listener(listener) end)
 
     assert eventually(fn -> "ticket.*.pr.opened" in Exchange.bindings_for(listener) end)
 

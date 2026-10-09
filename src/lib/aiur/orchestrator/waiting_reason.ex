@@ -128,7 +128,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # stays the row's own classification.
   defp fence_wait(waiting, %{lifecycle_fence: %{pending_item_ids: ids, opened_at: since}} = entry) do
     if Map.get(entry[:control] || %{}, :status) != :deactivated and MapSet.size(ids) > 0 and waiting.reason in [:active, :awaiting_dispatch] do
-      %{waiting | owner: "LifecycleFence", cause: :provider_delivery_pending, since: since}
+      Map.merge(waiting, %{owner: "LifecycleFence", cause: :provider_delivery_pending, since: since, pending_item_ids: Enum.sort(ids)})
     else
       waiting
     end
@@ -160,10 +160,13 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @spec render_wait(map()) :: String.t()
   def render_wait(%{waiting: %{reason: :active, owner: "AgentRunner"}}), do: ""
 
-  def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age}}),
-    do: " · #{render(reason)} · #{owner} · #{render_age(age)}"
+  def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age} = waiting}),
+    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_pending_ids(waiting)
 
   def render_wait(_row), do: ""
+
+  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
+  defp render_pending_ids(_waiting), do: ""
 
   defp render_age(nil), do: "since unknown"
   defp render_age(ms), do: "#{div(ms, 1_000)}s"

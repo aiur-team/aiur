@@ -135,6 +135,20 @@ defmodule Aiur.ProviderMeterProjectionTest do
     assert ProviderMeterProjection.provider_view(projection, :claude).observed_at == ~U[2026-07-27 11:59:00Z]
   end
 
+  test "a later account poll can select an older constrained reading without session subject drift", %{projection: projection, pid: pid} do
+    first = %{snapshot(:claude, ~U[2026-07-27 11:59:00Z], %{"seven_day" => %{used_percent: 33}}) | source: :usage_api, ingested_at: ~U[2026-07-27 11:59:00Z], summary_label: "worst of 2 accounts"}
+    worst = %{first | observed_at: ~U[2026-07-27 11:58:00Z], ingested_at: @now, windows: %{"seven_day" => %{used_percent: 94}}}
+    send(pid, {:provider_meter_changed, snapshot(:claude, @now, %{"rate-limit" => %{used_percent: 10}})})
+    send(pid, {:provider_meter_changed, first})
+    send(pid, {:provider_meter_changed, worst})
+    send(pid, {:provider_meter_changed, first})
+    send(pid, {:provider_meter_changed, snapshot(:claude, @now, %{"rate-limit" => %{used_percent: 10}})})
+    view = ProviderMeterProjection.provider_view(projection, :claude)
+    assert view.windows["seven_day"].used_percent == 94
+    assert view.summary_label == "worst of 2 accounts"
+    assert view.age_seconds == 120
+  end
+
   test "provider-wide patches retain independently observed meter windows", %{projection: projection, pid: pid} do
     first = %{snapshot(:deepseek, ~U[2026-07-27 11:58:00Z], %{"balance" => %{kind: :credit}}) | update_kind: :patch}
     second = %{snapshot(:deepseek, ~U[2026-07-27 11:59:00Z], %{"concurrency" => %{kind: :rate_limit}}) | update_kind: :patch}

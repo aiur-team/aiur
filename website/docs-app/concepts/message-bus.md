@@ -51,12 +51,24 @@ Wakes for non-Executor topics that arrive while the Executor listener is down ar
 | --- | --- |
 | `ticket.<id>.branch.push` | A validated ticket branch ref and commit changed. |
 | `system.<branch>.branch.push` | The integration branch moved. |
+| `system.queue.<queue_id>.progress` | A queue crossed a progress milestone. |
+| `system.build_order.<root>.progress` | A Build Order crossed a progress milestone. |
 | `ticket.<id>.pr.opened` | The ticket's pull request opened. |
 | `ticket.<id>.pr.merged` | The ticket's pull request merged. |
 | `ticket.<id>.issue.commented` | A trusted issue comment arrived. |
 | `ticket.<id>.pr.review_comment` | A trusted PR review comment or thread arrived. |
 | `ticket.<id>.ci.passed` | Terminal CI passed. |
 | `ticket.<id>.ci.failed` | Terminal CI failed. |
+
+Progress milestones use current, resolved or partially resolved facts. Only the highest crossed threshold (25%, 50%, 75% or 100%) is announced per observation.
+
+Durable latches prevent repeats within a scope generation after restart; unreadable or unwritable latch storage suppresses milestones. The events carry `milestone`, `percent` and `generation` attributes.
+
+Internal consumers can read `Aiur.BuildProgress.facts/1` for all scopes (`:all`) or one scope.
+
+`subscribe/0` subscribes to Phoenix PubSub topic `build_progress`, carrying `{:build_progress_changed, fact}` when percent, resolution, freshness or generation changes, including decreases.
+
+Facts remain readable and signals continue when milestone storage is unavailable. This internal signal is separate from the topic exchange.
 
 ## Automatic subscriptions
 
@@ -84,6 +96,17 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 | Bare `*` or `#` | Refused. |
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
+
+## Queue transitions
+
+`ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
+verbs `promoted`, `withdrawn`, `held`, `released`, `overridden`, and `removed`.
+Payloads contain only `ticket`, `queue_id`, and `cause` references and attributes
+(plus the bus envelope). An operator removal carries cause `operator`.
+
+Consumers re-read queue state; these topics are not bound to the Executor by
+default and are not replayed after a daemon restart. Publication failures are
+logged without retry.
 
 ## Queue attentions
 

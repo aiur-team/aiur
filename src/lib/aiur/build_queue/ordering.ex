@@ -21,6 +21,20 @@ defmodule Aiur.BuildQueue.Ordering do
     end)
   end
 
+  @doc "Distinct dependents in breadth-first order, with direct dependents first."
+  @spec dependents([Edge.t()], String.t()) :: [String.t()]
+  def dependents(edges, root) do
+    graph = Enum.group_by(edges, & &1.prerequisite, & &1.dependent)
+    breadth([root], graph, MapSet.new([root]), [])
+  end
+
+  defp breadth([], _graph, _seen, ordered), do: ordered
+
+  defp breadth(frontier, graph, seen, ordered) do
+    next = frontier |> Enum.flat_map(&Map.get(graph, &1, [])) |> Enum.uniq() |> Enum.reject(&MapSet.member?(seen, &1)) |> Enum.sort_by(&String.to_integer/1)
+    breadth(next, graph, MapSet.union(seen, MapSet.new(next)), ordered ++ next)
+  end
+
   @doc "Orders by downstream count, supplied priority rank, position, age, then string issue ID (matching dispatch)."
   @spec rank(Item.t(), non_neg_integer(), 1..5, DateTime.t() | nil) :: tuple()
   def rank(item, downstream, priority, created_at) do

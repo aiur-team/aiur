@@ -103,7 +103,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp project(state, %{mode: :full} = refresh) do
     {projected, race_signature, changes} = Projector.full(state, refresh.results)
 
-    if changes.persist? do
+    if changes.persist? and not CheckpointPersistence.unchanged?(state, projected) do
       {:persist, projected, race_signature, false, changes}
     else
       {:complete, projected, race_signature, false}
@@ -113,7 +113,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp project(state, %{mode: :clock} = refresh) do
     {projected, force_full?, changes} = Projector.clock(state, refresh.results)
 
-    if changes.persist? do
+    if changes.persist? and not CheckpointPersistence.unchanged?(state, projected) do
       {:persist, projected, nil, force_full?, changes}
     else
       {:complete, projected, nil, force_full?}
@@ -123,7 +123,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp complete_checkpoint({:ok, state, write, result}, owner) do
     next =
       case result do
-        :ok -> Projector.commit(state, write.candidate, write.changes)
+        :ok -> state |> Projector.commit(write.candidate, write.changes) |> Map.put(:checkpoint_hash, write.content_hash)
         _error -> Projector.checkpoint_failed(state)
       end
 

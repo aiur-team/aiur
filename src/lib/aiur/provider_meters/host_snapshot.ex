@@ -35,8 +35,15 @@ defmodule Aiur.ProviderMeters.HostSnapshot do
     snapshots = for {_scope, %{provider: ^provider, snapshot: %ProviderMeterSnapshot{} = snapshot, order: order}} <- hosts, do: {snapshot, order}
     observed = Enum.filter(snapshots, fn {snapshot, _order} -> not is_nil(snapshot.observed_at) end)
     candidates = if observed == [], do: snapshots, else: observed
-    selected = Enum.max_by(candidates, fn {snapshot, order} -> {DateTime.to_unix(snapshot.observed_at || snapshot.health.last_attempt_at, :microsecond), order} end, fn -> nil end)
+
+    selected =
+      Enum.max_by(candidates, fn {snapshot, order} -> {used_percent(snapshot), DateTime.to_unix(snapshot.observed_at || snapshot.health.last_attempt_at, :microsecond), order} end, fn -> nil end)
+
     project(selected, provider, now)
+  end
+
+  defp used_percent(snapshot) do
+    snapshot.windows |> Map.values() |> Enum.map(&Map.get(&1, :used_percent)) |> Enum.filter(&is_number/1) |> Enum.max(fn -> -1 end)
   end
 
   @spec unknown(atom(), atom() | nil) :: ProviderMeterSnapshot.t()
