@@ -51,6 +51,7 @@ Wakes for non-Executor topics that arrive while the Executor listener is down ar
 | --- | --- |
 | `ticket.<id>.branch.push` | A validated ticket branch ref and commit changed. |
 | `system.<branch>.branch.push` | The integration branch moved. |
+| `system.capabilities.changed` | A stored capability report changed; payload contains only `revision` and `boot_id`. Refetch the authenticated report. Published on the first report after boot, never on unchanged ticks; does not wake the Executor. In-node consumers receive `{:capabilities_changed, revision}` on PubSub topic `capabilities`. |
 | `system.queue.<queue_id>.progress` | A queue crossed a progress milestone. |
 | `system.build_order.<root>.progress` | A Build Order crossed a progress milestone. |
 | `ticket.<id>.pr.opened` | The ticket's pull request opened. |
