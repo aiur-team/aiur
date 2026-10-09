@@ -132,7 +132,8 @@ class RatchetTests(unittest.TestCase):
         self.assertIn('stale allowlist entry', text)
 
     def test_prune_and_baseline_are_incompatible(self):
-        self.check('--prune', '--write-baseline', code=2)
+        self.assertIn('--prune cannot be combined with --write-baseline',
+                      self.check('--prune', '--write-baseline', code=2))
         self.assertEqual(self.path.read_text(), self.original)
 
     def test_summary_written_on_failure(self):
