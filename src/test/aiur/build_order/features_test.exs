@@ -250,22 +250,21 @@ defmodule Aiur.BuildOrder.FeaturesTest do
   defp meta(pid), do: [server: pid, source: "cli:executor", actor: "executor"]
 
   defp start_store(dir, extra \\ []) do
-    {:ok, pid} =
-      Features.start_link(
-        Keyword.merge(
-          [
-            name: nil,
-            state_dir: dir,
-            clock: fn -> @now end,
-            filesystem_sync_fun: fn -> :ok end,
-            general_epics: [%{key: "bugs", hue: 38}, %{key: "ideas", hue: 312}, %{key: "engineering", hue: 200}, %{key: "ops", hue: 100}],
-            alert_fun: fn _, _, _ -> :ok end
-          ],
-          extra
-        )
-      )
-
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    pid
+    start_supervised!(
+      {Features,
+       Keyword.merge(
+         [
+           name: nil,
+           state_dir: dir,
+           clock: fn -> @now end,
+           filesystem_sync_fun: fn -> :ok end,
+           general_epics: [%{key: "bugs", hue: 38}, %{key: "ideas", hue: 312}, %{key: "engineering", hue: 200}, %{key: "ops", hue: 100}],
+           alert_fun: fn _, _, _ -> :ok end
+         ],
+         extra
+       )},
+      id: make_ref(),
+      restart: :temporary
+    )
   end
 end
