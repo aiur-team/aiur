@@ -61,7 +61,7 @@ defmodule Aiur.SaturationSentinelTest do
       assert is_integer(snap.atom_count) and snap.atom_count > 0
       assert is_integer(snap.ets_tables)
       assert is_integer(snap.run_queue)
-      assert is_list(snap.memory) and Keyword.keyword?(snap.memory)
+      assert snap.memory.total > 0
       assert snap.ts =~ ~r/^\d{4}-\d{2}-\d{2}T/
     end
   end

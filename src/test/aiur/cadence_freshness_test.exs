@@ -324,11 +324,11 @@ defmodule Aiur.CadenceFreshnessTest do
   defp publish_aged(orchestrator, age_ms) do
     :ok = SnapshotStore.publish(orchestrator, %{globally_paused: false})
 
-    cached = :persistent_term.get({SnapshotStore, orchestrator})
+    cached = Aiur.Orchestrator.SnapshotCache.get(orchestrator)
     observed_at_ms = System.monotonic_time(:millisecond) - age_ms
 
-    :persistent_term.put(
-      {SnapshotStore, orchestrator},
+    Aiur.Orchestrator.SnapshotCache.put(
+      orchestrator,
       %{
         cached
         | observed_at_ms: observed_at_ms,

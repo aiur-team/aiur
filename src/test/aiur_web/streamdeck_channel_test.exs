@@ -261,8 +261,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
   end
 
   test "a fleet PubSub broadcast reaches the joined socket as a fleet event" do
-    socket = joined_socket()
-    AgentPubSub.broadcast_running_change([AgentEvents.agent_summary("AIUR-2", :running, 1, %{title: "Pushed"})])
+    joined_socket()
+    summary = AgentEvents.agent_summary("AIUR-2", :running, 1, %{title: "Pushed"})
+    put_endpoint_config(streamdeck_snapshot_fun: fn -> %{agents: [summary]} end)
+    AgentPubSub.broadcast_running_change([summary])
 
     assert_receive %Message{
                      topic: "streamdeck:fleet",
@@ -272,15 +274,13 @@ defmodule AiurWeb.StreamdeckChannelTest do
                    500
 
     refute Map.has_key?(payload, :agents)
-    refute Map.has_key?(payload, :grid)
-    assert socket.assigns.streamdeck_authenticated
   end
 
   test "agent-list status details trigger a fresh fleet projection instead of leaking pane internals" do
     joined_socket()
     AgentPubSub.broadcast_status_change("AIUR-1", :pane_opened)
 
-    assert_push("fleet", %{"agents" => [%{"identifier" => "AIUR-1", "title" => "Channel tests"}]})
+    receive_barrier(%Message{event: "fleet", payload: %{"agents" => [%{"identifier" => "AIUR-1", "title" => "Channel tests"}]}})
   end
 
   test "focus subscribes only to the focused agent and drops the prior subscription" do

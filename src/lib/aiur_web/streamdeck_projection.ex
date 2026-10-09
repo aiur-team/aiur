@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
   alias Aiur.{CodingAgent, Commands, Config, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
-  alias AiurWeb.{Endpoint, StreamDeckGrid}
+  alias AiurWeb.{Endpoint, StreamdeckFleet}
 
   @version 1
   @voice_unconfigured_reason "Aiur has no ElevenLabs API key - transcription is off"
@@ -12,9 +12,12 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec snapshot() :: map()
   def snapshot do
+    snapshot = safe_call(snapshot_fun(), %{})
+
     %{
       version: @version,
-      fleet: fleet(),
+      fleet: fleet(snapshot),
+      grid: grid(snapshot),
       usage: provider_meters(),
       decisions: decisions(),
       voice: voice()
@@ -61,36 +64,18 @@ defmodule AiurWeb.StreamdeckProjection do
   def fleet_agents(summaries) when is_list(summaries), do: Enum.map(summaries, &agent/1)
 
   @spec fleet() :: map()
-  def fleet, do: %{agents: fleet_agents()} |> external_value()
+  @spec fleet(term()) :: map()
+  def fleet(snapshot \\ safe_call(snapshot_fun(), %{})), do: StreamdeckFleet.fleet(snapshot)
 
-  @doc "The render-ready grid projection carried alongside the channel fleet event."
   @spec grid() :: map()
-  def grid do
-    case safe_call(snapshot_fun(), %{}) do
-      {status, snapshot, freshness} when status in [:current, :stale] and is_map(snapshot) ->
-        snapshot |> StreamDeckGrid.project() |> Map.put(:snapshot_freshness, freshness)
+  @spec grid(term()) :: map()
+  def grid(snapshot \\ safe_call(snapshot_fun(), %{})), do: StreamdeckFleet.grid(snapshot)
 
-      snapshot when is_map(snapshot) ->
-        StreamDeckGrid.project(snapshot)
-
-      _ ->
-        StreamDeckGrid.project(%{})
-    end
-  end
-
-  defp fleet_agents do
-    case safe_call(snapshot_fun(), %{agents: []}) do
-      %{agents: agents} when is_list(agents) -> fleet_agents(agents)
-      {_status, %{running: running, retrying: retrying, idle: idle}, _freshness} -> snapshot_agents(running, retrying, idle)
-      %{running: running, retrying: retrying, idle: idle} -> snapshot_agents(running, retrying, idle)
-      _ -> []
-    end
-  end
-
-  defp snapshot_agents(running, retrying, idle) do
-    Enum.map(running, &agent(Map.put(&1, :status, :running))) ++
-      Enum.map(retrying, &agent(Map.put(&1, :status, :retrying))) ++
-      Enum.map(idle, &agent(Map.put(&1, :status, :queued)))
+  @spec fleet_with_grid([map()] | nil) :: map()
+  def fleet_with_grid(summaries) do
+    snapshot = safe_call(snapshot_fun(), %{})
+    agents = if is_list(summaries), do: %{"agents" => fleet_agents(summaries)}, else: fleet(snapshot)
+    Map.put(agents, "grid", grid(snapshot))
   end
 
   @spec agent(map()) :: map()
@@ -106,7 +91,7 @@ defmodule AiurWeb.StreamdeckProjection do
       pause_reason: field(summary, :pause_reason),
       tracker_paused: field(summary, :tracker_paused),
       backend: field(summary, :backend),
-      model: field(summary, :model)
+      model: field(summary, :model) || field(summary, :requested_model)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()

@@ -331,6 +331,7 @@ defmodule Aiur.Application do
       # into its own still-registered partitions, fails three times inside a
       # millisecond, and takes this whole supervisor down with it (#2557).
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
+      Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
@@ -441,7 +442,6 @@ defmodule Aiur.Application do
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
-      # Webhook deduplication state must be replayed before any receiver can admit a delivery.
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
@@ -449,11 +449,11 @@ defmodule Aiur.Application do
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
+      Aiur.Orchestrator.SnapshotCache,
       Aiur.Orchestrator.SnapshotStore,
       Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
-      # LiveConversation is projection-only: it never replays workspace logs
-      # after restart, so a missing key truthfully reports :restart_unknown.
+      # LiveConversation never replays logs; missing keys report :restart_unknown.
       Aiur.LiveConversation,
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.
