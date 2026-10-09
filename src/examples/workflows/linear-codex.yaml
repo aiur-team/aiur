@@ -23,6 +23,8 @@ observability:
   # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
   # build_order_funnel_health_check: true
   # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # capture_tags: {variant: B}
+  # capture_label_prefixes: ["experiment:", "cohort:", "feature:"]
   # telemetry_enabled: true
   # Retain useful cross-session telemetry without splitting an individual boot.
   telemetry_retention_max_bytes: 67108864

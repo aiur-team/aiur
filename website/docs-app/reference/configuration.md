@@ -676,14 +676,14 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | `observability.build_order_funnel_health_check` | boolean | false | Opts into one bounded startup check of the local Build Order endpoint and configured Tailscale Funnel HTTPS 443 target. Leave disabled when Funnel serves another purpose. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
+| `observability.capture_tags` | map | `{}` | Static cohort tags; at most 20 string pairs, 64 characters per key/value. |
+| `observability.capture_label_prefixes` | list | `["experiment:", "cohort:", "feature:"]` | Label prefixes captured at dispatch; at most 20. |
 | `observability.telemetry_enabled` | boolean | true | Records run telemetry for analytics. |
 | `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry bytes. |
 | `observability.telemetry_retention_max_age_days` | integer | 30 | Maximum retained telemetry age. |
 | `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Bytes between retention-prune checks. |
 
-`dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`.
-
-A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
+`dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
 
 When `observability.build_order_funnel_health_check` is enabled, Aiur checks the configured dashboard bind address at `/build-orders/1` and reads `tailscale funnel status --json` once after dashboard startup. Both command timeouts are five seconds, and timed-out Tailscale processes are terminated.
 

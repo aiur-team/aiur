@@ -23,7 +23,7 @@ from . import sources
 # run-summary schema version (distinct from the telemetry record schema version).
 SUMMARY_SCHEMA_VERSION = 1
 
-SUPPORTED_KINDS = ("restart", "lifecycle", "resource", "warning")
+SUPPORTED_KINDS = ("restart", "run_context", "lifecycle", "resource", "warning")
 BOUNDARIES = ("start", "end", "point")
 
 RESOURCE_METRICS = (
@@ -212,6 +212,7 @@ def reduce_files(files: list[str] | list[Any], opts: dict | None = None) -> dict
     return {
         "records": records,
         "restarts": restarts,
+        "run_contexts": [r for r in records if r["kind"] == "run_context"],
         "actors": actors,
         "tickets": tickets,
         "findings": findings,
@@ -251,6 +252,7 @@ def boot_summary(dataset: dict, boot_id: str, opts: dict | None = None) -> dict:
         "source_bytes": source_bytes,
         "records": records,
         "restarts": [record for record in dataset["restarts"] if _in_boot(record, boot_id)],
+        "run_contexts": [r for r in records if r["kind"] == "run_context"],
         "actors": actors,
         "tickets": tickets,
         "findings": findings,
@@ -607,10 +609,7 @@ def _lifecycle_event(record: dict) -> dict | None:
         "source": attributes.get("source"),
         "source_id": attributes.get("source_id"),
         "segment_continuation": attributes.get("segment_continuation"),
-        # Backend / worker_host identify the model+provider a ticket ran on.
-        # Lifecycle attributes carry them; surfacing them here lets the Executor
-        # tools and the dashboard report model/provider per ticket.
-        "backend": attributes.get("backend"),
+        **{key: attributes.get(key) for key in ("backend", "model", "effort", "feature", "epic", "tags", "blockers", "start_mode")},
         "worker_host": attributes.get("worker_host"),
         "timestamp": record["timestamp_iso"],
         "timestamp_ms": record["timestamp_ms"],

@@ -13,7 +13,7 @@ defmodule Aiur.RunTelemetry do
 
   @filename "telemetry.ndjson"
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
-  @schema_version 2
+  @schema_version 3
   @boot_state_key {__MODULE__, :boot_state}
   @telemetry_enabled_key {__MODULE__, :telemetry_enabled}
 

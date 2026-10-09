@@ -169,8 +169,8 @@ defmodule Aiur.RunTelemetryTest do
       |> File.stream!(:line, [])
       |> Enum.map(&Jason.decode!/1)
 
-    assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle"]
-    assert Enum.at(records, 1)["attributes"]["ticket"] == "930"
+    assert Enum.map(records, & &1["kind"]) == ["restart", "run_context", "lifecycle"]
+    assert Enum.at(records, 2)["attributes"]["ticket"] == "930"
   end
 
   test "supervised sampling and lifecycle evidence generate an offline dashboard", %{root: root} do

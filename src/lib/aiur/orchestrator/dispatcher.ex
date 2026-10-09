@@ -33,6 +33,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     State,
     StatusObservation,
     StatusReport,
+    TelemetryCohort,
     TrackedSet,
     TrackerHealth
   }
@@ -2652,7 +2653,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
 
     if TelemetryLifecycle.enabled?() do
-      TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
+      TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
         worker_host: worker_host,
@@ -2661,8 +2662,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       })
     end
 
-    supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
-    rework_head_sha = supplied_rework_head_sha || :pending
+    rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
 
     runner_context = %{
       attempt: attempt,
@@ -2675,7 +2675,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     case start_runner_task(issue, runner, recipient, runner_context, opts) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
-
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
         record_rework_resume(issue, lifecycle_attempt_id)
 

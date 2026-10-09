@@ -98,7 +98,7 @@ defmodule Aiur.BuildOrder.Features do
 
   # ponytail: mailbox reads suffice; add ETS only after measured read latency exceeds 5 ms.
   defp call(message, opts, kind) do
-    GenServer.call(Keyword.get(opts, :server, __MODULE__), message, 60_000)
+    GenServer.call(Keyword.get(opts, :server, __MODULE__), message, Keyword.get(opts, :timeout, 60_000))
   catch
     :exit, {:noproc, _} -> missing(kind)
     :exit, {:normal, _} -> missing(kind)

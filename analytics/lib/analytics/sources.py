@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Telemetry schema versions the reducer understands (mirrors the Elixir
 # RunTelemetry.schema_version/0 range; version 2 adds dispatch complexity).
-SUPPORTED_TELEMETRY_SCHEMA_VERSIONS = (1, 2)
+SUPPORTED_TELEMETRY_SCHEMA_VERSIONS = (1, 2, 3)
 
 TELEMETRY_FILENAME = "telemetry.ndjson"
 

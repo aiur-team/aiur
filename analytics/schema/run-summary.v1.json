@@ -19,6 +19,7 @@
     "provenance"
   ],
   "properties": {
+    "run_contexts": {"type": "array", "items": {"type": "object"}},
     "schema_version": {
       "const": 1,
       "description": "run-summary schema version. Distinct from the telemetry record schema_version carried on each record."
