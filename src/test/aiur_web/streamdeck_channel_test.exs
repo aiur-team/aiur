@@ -1,4 +1,5 @@
 defmodule AiurWeb.StreamdeckChannelTest do
+  Code.require_file("../support/streamdeck_fleet_fixture.ex", __DIR__)
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
   import Aiur.TestSupport, only: [receive_barrier: 1]
@@ -6,7 +7,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
   import Plug.Conn, only: [put_req_header: 3]
   import Plug.Test
 
-  alias Aiur.{AgentEvents, DecisionValidation, IssueLog}
+  alias Aiur.{AgentEvents, DecisionValidation, IssueLog, StreamdeckFleetFixture}
   alias Aiur.AgentPubSub
   alias Aiur.DecisionQuery.Cursor
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
@@ -100,6 +101,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_auth_required: false,
         streamdeck_snapshot_fun: fn -> snapshot() end,
+        streamdeck_fleet_subscribe_fun: StreamdeckFleetFixture.subscription(),
         streamdeck_provider_meters_fun: fn -> %{codex: %{state: :observed}, claude: %{state: :unknown}} end,
         streamdeck_decisions_fun: fn -> %{count: 2} end,
         streamdeck_transcript_flush_ms: 20
@@ -264,7 +266,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     joined_socket()
     summary = AgentEvents.agent_summary("AIUR-2", :running, 1, %{title: "Pushed"})
     put_endpoint_config(streamdeck_snapshot_fun: fn -> %{agents: [summary]} end)
-    AgentPubSub.broadcast_running_change([summary])
+    StreamdeckFleetFixture.broadcast_running_change([summary])
 
     assert_receive %Message{
                      topic: "streamdeck:fleet",
@@ -278,7 +280,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   test "agent-list status details trigger a fresh fleet projection instead of leaking pane internals" do
     joined_socket()
-    AgentPubSub.broadcast_status_change("AIUR-1", :pane_opened)
+    StreamdeckFleetFixture.broadcast_status_change("AIUR-1", :pane_opened)
 
     receive_barrier(%Message{event: "fleet", payload: %{"agents" => [%{"identifier" => "AIUR-1", "title" => "Channel tests"}]}})
   end
@@ -1262,8 +1264,6 @@ defmodule AiurWeb.StreamdeckChannelTest do
     def commit(_session), do: :ok
   end
 
-  # The endpoint outlives each test, so the injected seam is removed again on
-  # exit — the shared cache must not carry one test's stub into the next.
   defp put_endpoint_config(extra) do
     previous = Application.get_env(:aiur, Endpoint, [])
     config = Keyword.merge(previous, extra)

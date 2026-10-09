@@ -5,6 +5,19 @@ defmodule AiurWeb.StreamdeckFleet do
   @spec fleet(term()) :: map()
   def fleet(snapshot), do: %{"agents" => agents(snapshot)}
 
+  @spec with_grid(term(), [map()] | nil) :: map()
+  def with_grid(snapshot, summaries) do
+    fleet =
+      case snapshot do
+        {:current, _, _} -> fleet(snapshot)
+        snapshot when is_map(snapshot) -> fleet(snapshot)
+        _ when is_list(summaries) -> %{"agents" => StreamdeckProjection.fleet_agents(summaries)}
+        _ -> fleet(snapshot)
+      end
+
+    Map.put(fleet, "grid", grid(snapshot))
+  end
+
   @spec grid(term()) :: map()
   def grid({status, snapshot, freshness}) when status in [:current, :stale] and is_map(snapshot),
     do: snapshot |> StreamDeckGrid.project() |> Map.put(:snapshot_freshness, freshness)

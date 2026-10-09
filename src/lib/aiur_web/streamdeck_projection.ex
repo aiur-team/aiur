@@ -73,9 +73,7 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec fleet_with_grid([map()] | nil) :: map()
   def fleet_with_grid(summaries) do
-    snapshot = safe_call(snapshot_fun(), %{})
-    agents = if is_list(summaries), do: %{"agents" => fleet_agents(summaries)}, else: fleet(snapshot)
-    Map.put(agents, "grid", grid(snapshot))
+    snapshot_fun() |> safe_call(:unavailable) |> StreamdeckFleet.with_grid(summaries)
   end
 
   @spec agent(map()) :: map()

@@ -4,6 +4,12 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
   alias Aiur.AgentPubSub
   alias AiurWeb.StreamdeckProjection
 
+  @spec subscribe(:atomics.atomics_ref()) :: :ok | {:error, term()}
+  def subscribe(latch) do
+    subscriber = AiurWeb.Endpoint.config(:streamdeck_fleet_subscribe_fun) || (&AgentPubSub.subscribe_fleet_refresh/1)
+    subscriber.(latch)
+  end
+
   @spec schedule(Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
   def schedule(%{assigns: %{fleet_flush: nil}} = socket) do
     token = make_ref()

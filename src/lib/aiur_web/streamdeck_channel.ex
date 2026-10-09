@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckChannel do
   @moduledoc false
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentControlCLI, AgentPubSub, Commands, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
@@ -28,7 +28,7 @@ defmodule AiurWeb.StreamdeckChannel do
       ) do
     Process.flag(:message_queue_data, :off_heap)
     latch = :atomics.new(1, [])
-    :ok = AgentPubSub.subscribe_fleet_refresh(latch)
+    :ok = AiurWeb.StreamdeckFleetUpdates.subscribe(latch)
     :ok = ProviderMeterEvents.subscribe_observed()
     :ok = Commands.subscribe()
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
