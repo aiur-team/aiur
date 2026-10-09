@@ -21,7 +21,8 @@ def stale_entries(root, allowed, violations, rules, prune):
                 path.write_text(''.join(kept))
         return set()
     for rule, source, target in sorted(stale):
-        print(f'components: stale allowlist entry: {rule} {source} -> {target}; delete it')
+        print(f'components: stale allowlist entry: {rule} {source} -> {target}; delete it from '
+              f'{DIRECTORY}/{source}.tsv or run python3 scripts/check-components.py --prune')
     return stale
 
 

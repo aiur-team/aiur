@@ -49,7 +49,8 @@ class RatchetTests(unittest.TestCase):
 
     def test_stale_entry_fails(self):
         self.stale()
-        self.assertIn('stale allowlist entry: R-private a -> a.DoesNotExist; delete it',
+        self.assertIn('stale allowlist entry: R-private a -> a.DoesNotExist; delete it from '
+                      'scripts/components/allowlist/a.tsv or run python3 scripts/check-components.py --prune',
                       self.check(code=1))
 
     def test_prune_removes_only_stale(self):
