@@ -122,7 +122,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc false
   @spec materialize_if_facts([{atom() | String.t(), map(), DateTime.t()}]) :: :ok
   def materialize_if_facts(records) do
-    if Enum.any?(records, fn {_kind, attrs, _at} -> Map.get(attrs, :event, Map.get(attrs, "event")) == "pr_facts" end), do: materialize_async()
+    if Enum.any?(records, fn {_kind, attrs, _at} -> Map.get(attrs, :event, Map.get(attrs, "event")) in ["pr_facts", :pr_facts] end), do: materialize_async()
     :ok
   end
 

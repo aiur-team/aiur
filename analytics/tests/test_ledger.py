@@ -110,7 +110,7 @@ class LedgerTests(unittest.TestCase):
             self.assertNotIn('PRIVATE', (root / 'analytics/ledger-cursor.json').read_text())
             mtime = target.stat().st_mtime_ns
             with contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(ledger_store.materialize([a, b], root), [])
+                self.assertEqual(ledger_store.materialize([a, b], root, since='2026-10-09'), [])
             self.assertEqual(target.stat().st_mtime_ns, mtime)
             a.unlink()
             timeline = root / 'analytics/repo-timeline.ndjson'
