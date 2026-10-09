@@ -55,9 +55,10 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Observation do
     @moduledoc "Transient tracker evidence, never stored in a queue document."
     @enforce_keys [:issue_id, :open?, :labels, :state_reason, :pr, :observed_at_ms]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [unavailable_reason: nil]
 
     @type t :: %__MODULE__{
+            unavailable_reason: nil | :closed_reason,
             issue_id: String.t(),
             open?: boolean() | :unknown,
             labels: [String.t()],
