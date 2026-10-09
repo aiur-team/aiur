@@ -2,6 +2,9 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck]
+config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 config :phoenix, :json_library, Jason
