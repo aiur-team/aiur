@@ -19,6 +19,8 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
     def issue_closure(_id, _age), do: {:ok, %{open?: false, state_reason: "completed"}}
     def ticket_pull_request(_id), do: Agent.get(__MODULE__, &{:ok, &1.pr})
     def blocked_by("1"), do: {:ok, ["2"]}
+    def update_issue_state("1", "todo", expected_state: :none), do: :ok
+    def notify_demand(["1"]), do: :ok
     def status(_ids), do: :unavailable
   end
 
