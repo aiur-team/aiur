@@ -716,9 +716,7 @@ every request a determined agent could make.
 
 Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
 
-Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs
-for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
-changes in both directions; rename checks include old and new paths.
+Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
 A stale head passes when it has no conflicts and no changed-file overlap with
 the base since their merge base. Conflicts or overlap return `stale_review_base`.
@@ -738,7 +736,9 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
-Queue progress uses accepted PR deliveries, existing CI results and merges. Boot CI heads bind to local PR identity. `pr_approved` adds conditional review reads only for watched blockers, once per half observation age; missing identity needs a branch lookup. Watches expire after two missed periods. No new CI polling or saving is claimed.
+Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
+
+Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity needs a branch lookup. No new CI polling or saving is claimed.
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
