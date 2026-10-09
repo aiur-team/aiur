@@ -84,3 +84,6 @@ __pycache__/
 .aiur/model-catalog.json
 .aiur/update-check.json
 .worktrees
+
+# Component boundary checker toolchain.
+scripts/components/node_modules/

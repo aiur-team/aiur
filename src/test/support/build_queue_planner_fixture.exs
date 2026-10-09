@@ -70,6 +70,6 @@ defmodule Aiur.BuildQueue.PlannerFixture do
   end
 
   defp apply_action({:hold_release, id}, input), do: %{input | opts: Keyword.update!(input.opts, :withdrawal_holds, &MapSet.delete(&1, id))}
-  defp apply_action({:attention_open, key}, input), do: %{input | latches: [%Latch{key: key, opened_at_ms: input.now_ms} | input.latches]}
+  defp apply_action({:attention_open, key}, input), do: %{input | latches: [%Latch{key: key, opened_at_ms: input.now_ms, emitted?: true} | input.latches]}
   defp apply_action({:attention_resolve, key}, input), do: %{input | latches: Enum.reject(input.latches, &(&1.key == key))}
 end

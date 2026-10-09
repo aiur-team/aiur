@@ -13,7 +13,7 @@
     },
     {
       "id": "kernel", "name": "Kernel primitives", "layer": 0, "kind": "in-app",
-      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex"],
+      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/display_sanitizer.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex", "src/lib/aiur/journal.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [], "dependency_kind": "required",
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -33,9 +33,9 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities", "layer": 1, "kind": "in-app",
-      "paths": ["src/lib/aiur/identity/**"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config", "web-kit"], "optional": [], "dependency_kind": "required",
+      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**", "src/lib/aiur_web/controllers/capabilities_controller.ex"],
+      "facades": ["Aiur.Identity", "Aiur.Capabilities", "Aiur.Capabilities.Provider"], "facade_pending": null,
+      "requires": ["kernel", "config", "web-kit", "event-bus"], "optional": [], "dependency_kind": "required",
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
       "prior": [],
       "summary": "Identifies each machine and run so clients can discover available capabilities.", "status": "core",
@@ -53,29 +53,29 @@
     },
     {
       "id": "web-kit", "name": "Web helpers", "layer": 1, "kind": "in-app",
-      "paths": [],
+      "paths": ["src/lib/aiur_web/capability_error.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [], "dependency_kind": "required",
+      "requires": ["kernel", "config", "identity"], "optional": [], "dependency_kind": "required",
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"],
-      "summary": "Provides shared helpers for components that offer web pages or APIs.", "status": "planned",
+      "summary": "Provides shared helpers for components that offer web pages or APIs.", "status": "core",
       "install": {"type": "included"}, "capabilities": [], "config": [], "env": [], "docs": [], "added_by": "MP-R1"
     },
     {
       "id": "accounting", "name": "Usage and account meters", "layer": 2, "kind": "in-app",
-      "paths": ["src/lib/aiur/accounts.ex", "src/lib/aiur/accounts/**", "src/lib/aiur/agent/**", "src/lib/aiur/provider_account_generation.ex", "src/lib/aiur/provider_account_generation/**", "src/lib/aiur/provider_meter_probe.ex", "src/lib/aiur/provider_meter_projection.ex", "src/lib/aiur/provider_meter_refresh.ex", "src/lib/aiur/provider_meter_snapshot.ex", "src/lib/aiur/provider_meters.ex", "src/lib/aiur/provider_meters/**", "src/lib/aiur/token_usage.ex", "src/lib/aiur/usage/**", "src/lib/aiur/usage_aggregate.ex", "src/lib/aiur/usage_aggregate/**", "src/lib/aiur/usage_compaction/**", "src/lib/aiur/usage_envelope.ex", "src/lib/aiur/usage_envelope/**", "src/lib/aiur/usage_ledger.ex", "src/lib/aiur/usage_ledger/**"],
+      "paths": ["src/lib/aiur/accounts.ex", "src/lib/aiur/accounts/**", "src/lib/aiur/agent/**", "src/lib/aiur/provider_account_generation.ex", "src/lib/aiur/provider_account_generation/**", "src/lib/aiur/provider_meter_probe.ex", "src/lib/aiur/provider_meter_projection.ex", "src/lib/aiur/provider_meter_projection/**", "src/lib/aiur/provider_meter_refresh.ex", "src/lib/aiur/provider_meter_snapshot.ex", "src/lib/aiur/provider_meters.ex", "src/lib/aiur/provider_meters/**", "src/lib/aiur/token_usage.ex", "src/lib/aiur/usage/**", "src/lib/aiur/usage_aggregate.ex", "src/lib/aiur/usage_aggregate/**", "src/lib/aiur/usage_compaction/**", "src/lib/aiur/usage_envelope.ex", "src/lib/aiur/usage_envelope/**", "src/lib/aiur/usage_ledger.ex", "src/lib/aiur/usage_ledger/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [], "dependency_kind": "optional",
-      "owns": {"config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "state": ["balance_baseline_state_dir", "usage_aggregate_state_dir", "usage_compaction_state_dir", "usage_ledger_state_dir"], "capabilities": []},
+      "requires": ["identity", "kernel", "config"], "optional": [], "dependency_kind": "optional",
+      "owns": {"config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "state": ["balance_baseline_state_dir", "usage_aggregate_state_dir", "usage_compaction_state_dir", "usage_ledger_state_dir"], "capabilities": ["accounting.meters"]},
       "prior": ["PM", "USG"],
       "summary": "Shows provider balances and records usage so operators can track costs.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "docs": ["concepts/units.md"]
+      "install": {"type": "included"}, "capabilities": ["accounting.meters"], "config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "docs": ["concepts/units.md"]
     },
     {
       "id": "agent-runner", "name": "Agent turns", "layer": 2, "kind": "in-app",
       "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker"], "optional": [], "dependency_kind": "required",
+      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel"], "optional": ["build-orders"], "dependency_kind": "required",
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["RUN"],
       "summary": "Runs an agent on a ticket and records its conversation and tool activity.", "status": "core",
@@ -103,23 +103,23 @@
     },
     {
       "id": "github-listeners", "name": "GitHub event ingestion", "layer": 2, "kind": "in-app",
-      "paths": ["src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
+      "paths": ["src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["github", "event-bus", "config", "web-kit"], "optional": [], "dependency_kind": "optional",
-      "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": []},
+      "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel"], "optional": [], "dependency_kind": "optional",
+      "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": ["webhook_ingress"]},
       "prior": ["ING"],
       "summary": "Turns GitHub webhook deliveries and polling observations into ticket events.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "docs": ["apis/github.md"]
+      "install": {"type": "included"}, "capabilities": ["webhook_ingress"], "config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "docs": ["apis/github.md"]
     },
     {
       "id": "harness-adapters", "name": "Coding agent integrations", "layer": 2, "kind": "in-app",
       "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["agent-sandbox", "config", "kernel"], "optional": ["accounting"], "dependency_kind": "required",
-      "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": []},
+      "requires": ["identity", "agent-sandbox", "config", "kernel"], "optional": ["accounting"], "dependency_kind": "required",
+      "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": ["remote_control"]},
       "prior": ["CA", "CDX", "CLD", "OAI"],
       "summary": "Connects Aiur to coding agents and supports their messaging and session controls.", "status": "core",
-      "install": {"type": "included"}, "capabilities": [], "config": ["agent"], "env": [], "docs": ["reference/configuration.md"],
+      "install": {"type": "included"}, "capabilities": ["remote_control"], "config": ["agent"], "env": [], "docs": ["reference/configuration.md"],
       "shared_with": ["orchestration"]
     },
     {
@@ -144,9 +144,9 @@
     },
     {
       "id": "tracker", "name": "Issue tracking", "layer": 2, "kind": "in-app",
-      "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker_config.ex"],
+      "paths": ["src/lib/aiur/code_host.ex", "src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker/**", "src/lib/aiur/tracker_config.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [], "dependency_kind": "required",
+      "requires": ["identity", "kernel", "config"], "optional": [], "dependency_kind": "required",
       "owns": {"config": ["tracker"], "env": [], "state": [], "capabilities": []},
       "prior": ["TRK"],
       "summary": "Provides a shared interface for issue trackers and repository hosts.", "status": "core",
@@ -164,27 +164,28 @@
     },
     {
       "id": "build-orders", "name": "Build Orders", "layer": 3, "kind": "in-app",
-      "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
+      "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "github", "config", "web-kit"], "optional": [], "dependency_kind": "optional",
-      "owns": {"config": ["build_order"], "env": [], "state": ["build_history_state_dir"], "capabilities": []},
+      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands"], "optional": ["build-queue"], "dependency_kind": "optional",
+      "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": ["build_orders", "build_orders.progress"]},
       "prior": ["BO"],
       "summary": "Shows ticket dependency graphs and progress across a build order.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": ["build_order"], "env": [], "docs": ["concepts/build-orders.md"]
+      "install": {"type": "included"}, "capabilities": ["build_orders", "build_orders.progress"], "config": ["build_order"], "env": [], "docs": ["concepts/build-orders.md"]
     },
     {
       "id": "build-queue", "name": "Build queue", "layer": 3, "kind": "in-app",
-      "paths": ["src/lib/aiur/build_queue/**"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "event-bus", "config", "identity"], "optional": ["build-orders"], "dependency_kind": "optional",
+      "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur/build_queue/**", "src/lib/aiur_web/build_queue/**"],
+      "facades": ["Aiur.BuildQueue", "Aiur.BuildQueue.Hints", "Aiur.BuildQueue.ClaimProbe", "Aiur.BuildQueueCLI", "AiurWeb.BuildQueue.Runtime"], "facade_pending": null,
+      "requires": ["tracker", "event-bus", "config", "identity", "kernel", "executor-attention"], "optional": ["build-orders"], "dependency_kind": "optional",
       "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
       "prior": [],
       "summary": "Orders tickets for dispatch and holds work until its prerequisites are ready.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": ["build_queue"], "env": [], "docs": []
+      "install": {"type": "included"}, "capabilities": [], "config": ["build_queue"], "env": [], "docs": [],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "Aiur.GitHub", "Aiur.GitHub.*"]
     },
     {
       "id": "commands", "name": "Commands", "layer": 3, "kind": "in-app",
-      "paths": ["src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur_web/controllers/decision*.ex"],
+      "paths": ["src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur/supervisor_token/**", "src/lib/aiur_web/controllers/decision*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["event-bus", "kernel", "config", "identity", "signal", "web-kit"], "optional": [], "dependency_kind": "required",
       "owns": {"config": ["decisions"], "env": ["AIUR_CI_READINESS_TOKEN", "AIUR_SUPERVISOR_TOKEN"], "state": ["decision_state_dir"], "capabilities": []},
@@ -196,11 +197,11 @@
       "id": "conversations", "name": "Conversations", "layer": 3, "kind": "in-app",
       "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["event-bus", "agent-runner", "identity"], "optional": ["executor-attention"], "dependency_kind": "optional",
-      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "requires": ["event-bus", "agent-runner", "identity", "kernel"], "optional": ["executor-attention"], "dependency_kind": "optional",
+      "owns": {"config": [], "env": [], "state": [], "capabilities": ["conversations.read"]},
       "prior": ["PRJ", "RUN", "SD"],
       "summary": "Provides access to agent transcripts and links events to their conversation context.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": [], "env": [], "docs": ["guide/gui.md"]
+      "install": {"type": "included"}, "capabilities": ["conversations.read"], "config": [], "env": [], "docs": ["guide/gui.md"]
     },
     {
       "id": "executor-attention", "name": "Executor attention", "layer": 3, "kind": "in-app",
@@ -220,7 +221,8 @@
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": [],
       "summary": "Routes messages to agents using steer, synchronous or asynchronous delivery.", "status": "planned",
-      "install": {"type": "included"}, "capabilities": [], "config": [], "env": [], "docs": [], "added_by": "MP-E7"
+      "install": {"type": "included"}, "capabilities": [], "config": [], "env": [], "docs": [], "added_by": "MP-E7",
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "AiurWeb.Router", "AiurWeb.Endpoint"]
     },
     {
       "id": "machine-gateway", "name": "Machine gateway", "layer": 3, "kind": "in-app",
@@ -246,7 +248,7 @@
       "id": "orchestration", "name": "Run orchestration", "layer": 3, "kind": "in-app",
       "paths": ["src/lib/aiur/agent_chat.ex", "src/lib/aiur/agent_queue.ex", "src/lib/aiur/agent_queue_item.ex", "src/lib/aiur/agent_queue_store.ex", "src/lib/aiur/dispatch_budget_store.ex", "src/lib/aiur/orchestrator.ex", "src/lib/aiur/orchestrator/**", "src/lib/aiur/pr_ready_ledger_store.ex", "src/lib/aiur/recent_merge.ex", "src/lib/aiur/recent_merge_store.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "agent-runner", "event-bus", "signal", "config", "identity", "listener-modes", "commands"], "optional": ["github-listeners", "build-queue"], "dependency_kind": "required",
+      "requires": ["tracker", "agent-runner", "event-bus", "signal", "config", "identity", "listener-modes", "commands", "kernel"], "optional": ["github-listeners", "build-queue"], "dependency_kind": "required",
       "owns": {"config": ["polling", "pr_health", "pr_watch", "worker"], "env": [], "state": [], "capabilities": []},
       "prior": ["ORC", "DSP", "CTL", "PRL", "MSG"],
       "summary": "Dispatches tickets, manages agent lifecycles and coordinates pull request progress.", "status": "core",
@@ -287,11 +289,11 @@
       "id": "streamdeck-server", "name": "Stream Deck connection", "layer": 3, "kind": "in-app",
       "paths": ["src/lib/aiur_web/controllers/streamdeck*.ex", "src/lib/aiur_web/sockets/streamdeck.ex", "src/lib/aiur_web/stream_deck_grid.ex", "src/lib/aiur_web/streamdeck*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt"], "dependency_kind": "optional",
-      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "requires": ["identity", "web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt"], "dependency_kind": "optional",
+      "owns": {"config": [], "env": [], "state": [], "capabilities": ["streamdeck"]},
       "prior": ["SD"],
       "summary": "Serves agent status, Commands and conversations to connected Stream Deck clients.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": [], "env": [], "docs": ["guide/stream-deck.md"]
+      "install": {"type": "included"}, "capabilities": ["streamdeck"], "config": [], "env": [], "docs": ["guide/stream-deck.md"]
     },
     {
       "id": "voice-conversation", "name": "Conversational voice", "layer": 3, "kind": "in-app",
@@ -307,15 +309,15 @@
       "id": "voice-stt", "name": "Voice input and speech", "layer": 3, "kind": "in-app",
       "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/sockets/voice.ex", "src/lib/aiur_web/voice*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["config", "web-kit"], "optional": [], "dependency_kind": "optional",
-      "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": []},
+      "requires": ["identity", "config", "web-kit"], "optional": [], "dependency_kind": "optional",
+      "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": ["voice.stt", "voice.tts"]},
       "prior": ["VOX"],
       "summary": "Transcribes voice input and synthesizes speech through the configured voice provider.", "status": "optional",
-      "install": {"type": "included"}, "capabilities": [], "config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "docs": ["apis/elevenlabs.md"]
+      "install": {"type": "included"}, "capabilities": ["voice.stt", "voice.tts"], "config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "docs": ["apis/elevenlabs.md"]
     },
     {
       "id": "control-cli", "name": "Command-line controls", "layer": 4, "kind": "in-app",
-      "paths": ["src/lib/aiur.ex", "src/lib/aiur/*_cli.ex", "src/lib/aiur/affected_tests.ex", "src/lib/aiur/cli.ex", "src/lib/aiur/daemon_lifecycle.ex", "src/lib/aiur/distribution.ex", "src/lib/aiur/external_content.ex", "src/lib/aiur/findings.ex", "src/lib/aiur/launch_state_adoption.ex", "src/lib/aiur/launcher_watchdog.ex", "src/lib/aiur/pubsub_boot.ex", "src/lib/aiur/shutdown.ex", "src/lib/aiur/specs_check.ex", "src/lib/aiur/test_reset.ex", "src/lib/aiur/test_shard.ex", "src/lib/aiur/test_ticket_scope.ex", "src/lib/mix/tasks/**"],
+      "paths": ["src/lib/aiur.ex", "src/lib/aiur/*_cli.ex", "src/lib/aiur/affected_tests.ex", "src/lib/aiur/cli.ex", "src/lib/aiur/daemon_lifecycle.ex", "src/lib/aiur/distribution.ex", "src/lib/aiur/external_content.ex", "src/lib/aiur/findings.ex", "src/lib/aiur/launch_state_adoption.ex", "src/lib/aiur/launcher_watchdog.ex", "src/lib/aiur/pubsub_boot.ex", "src/lib/aiur/shutdown.ex", "src/lib/aiur/specs_check.ex", "src/lib/aiur/test_http_guard.ex", "src/lib/aiur/test_reset.ex", "src/lib/aiur/test_shard.ex", "src/lib/aiur/test_ticket_scope.ex", "src/lib/mix/tasks/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "event-bus", "signal", "identity", "web-kit", "tracker", "agent-sandbox", "workspace", "harness-adapters", "agent-runner", "orchestration", "commands", "projections", "listener-modes", "launcher", "init", "aiur-contracts", "docs-site", "skills"], "optional": ["github", "github-listeners", "linear", "accounting", "telemetry", "build-queue", "build-orders", "executor-attention", "conversations", "voice-stt", "voice-conversation", "pairing-discovery", "push-relay", "streamdeck-server", "machine-gateway", "notification-policy", "web-shell", "dashboard-ui", "tui", "listener-spec", "relay-service", "streamdeck-sidecar", "mobile-app", "watch-apps", "aiur-style"], "dependency_kind": "required",
       "owns": {"config": [], "env": ["AIUR_ARGV_FILE", "AIUR_BASE_BRANCH", "AIUR_BUILD_ORDER_DIRS", "AIUR_CLI_VERSION", "AIUR_DEBUG", "AIUR_DEFAULT_DASHBOARD_HOST", "AIUR_DEV_TEST_TICKET_IDS", "AIUR_EXECUTOR_ID", "AIUR_GH_KEYRING_TIMEOUT_MS", "AIUR_OPENCODE_BRIDGE_PORT", "AIUR_PREWARM_DISABLED", "AIUR_REGISTRY_URL", "AIUR_SCREEN_GRAB", "AIUR_SSH_CONFIG"], "state": [], "capabilities": []},
@@ -327,7 +329,7 @@
       "id": "dashboard-ui", "name": "Dashboard", "layer": 4, "kind": "in-app",
       "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-shell", "projections"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"], "dependency_kind": "optional",
+      "requires": ["web-shell", "projections", "kernel"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"], "dependency_kind": "optional",
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"],
       "summary": "Shows run status, agent conversations, Commands and usage in a browser.", "status": "optional",
@@ -357,7 +359,7 @@
       "id": "tui", "name": "Terminal interface", "layer": 4, "kind": "in-app",
       "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/events/debug_log.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["orchestration", "projections", "harness-adapters"], "optional": [], "dependency_kind": "optional",
+      "requires": ["orchestration", "projections", "harness-adapters", "config"], "optional": [], "dependency_kind": "optional",
       "owns": {"config": ["max_vertical_panes", "opencode", "pre_warmed_sessions"], "env": ["AIUR_TMUX_SESSION", "AIUR_TMUX_SOCKET", "COLORTERM", "COLUMNS", "LINES", "TMUX_PANE"], "state": [], "capabilities": []},
       "prior": ["TUI", "OC"],
       "summary": "Shows live agent activity and opens chat panes for operator messages.", "status": "optional",
@@ -365,7 +367,7 @@
     },
     {
       "id": "web-shell", "name": "HTTP and sockets", "layer": 4, "kind": "in-app",
-      "paths": ["src/lib/aiur/http_server.ex", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
+      "paths": ["src/lib/aiur/http_server.ex", "src/lib/aiur/http_server/**", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["config", "identity", "projections", "web-kit"], "optional": ["github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"], "dependency_kind": "optional",
       "owns": {"config": ["observability", "server"], "env": ["AIUR_DASHBOARD_PASSWORD", "AIUR_DASHBOARD_USERNAME"], "state": [], "capabilities": []},
@@ -479,5 +481,7 @@
     {"id": "MP-N5", "name": "Notification preferences", "summary": "Choose which events notify each device and suppress duplicate notifications.", "extends": ["push-relay", "commands", "build-orders"], "adds": ["notification-policy"], "public": false, "shipped_in": null},
     {"id": "MP-N6", "name": "Contextual Command responses", "summary": "Open a notification in context and answer a Command with options or voice.", "extends": ["mobile-app", "commands", "conversations", "voice-stt"], "adds": [], "public": false, "shipped_in": null},
     {"id": "MP-N7", "name": "Watch apps", "summary": "Read compact status and respond to Commands from Apple and Android watches.", "extends": ["mobile-app", "commands", "voice-stt"], "adds": ["watch-apps"], "public": false, "shipped_in": null}
-  ]
+  ],
+  "ports": [{"from": "orchestration", "to_module": "Aiur.Listener.DeliveryTarget", "kind": "behaviour", "reason": "RC-36: orchestration implements listener delivery; listener-modes must not depend on orchestration"}, {"from": "orchestration", "to_module": "Aiur.Commands.DeliveryTarget", "kind": "behaviour", "reason": "CR-C8-3: orchestration implements Command delivery; activation belongs to MP-R1-C8-T02"}, {"from": "web-shell", "to_module": "AiurWeb.Routes.*", "kind": "reference", "reason": "RC-39: downward composition of optional component routes"}, {"from": "web-shell", "to_module": "AiurWeb.Sockets.*", "kind": "reference", "reason": "RC-39: downward composition of optional component sockets"}],
+  "seams": [{"from": "orchestration", "to_module": "Aiur.BuildQueue.Hints", "kind": "reference", "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "behaviour", "reason": "MP-E1 X-1: orchestration implements the claim-probe port"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder.*", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "reference", "only_paths": ["src/lib/aiur/orchestrator/build_queue_claim_probe.ex"], "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"}, {"from": "build-queue", "to_module": "Aiur.Orchestrator.TicketTransition", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/write_protocol.ex"], "allow_forbidden": true, "reason": "#3306 lifecycle-write owner: #3259 preserves the exact sanctioned scan exception"}]
 }

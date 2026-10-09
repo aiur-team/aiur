@@ -18,11 +18,11 @@ on:
   # (#2397). Checks attach to the head commit either way.
   workflow_dispatch:
 
-# Initial main pushes share a group so newer commits supersede older main runs.
+# Main pushes finish the running run; only the newest pending run is kept.
 # Initial PR runs share a group; other events and all reruns stay independent.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1) || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
 # Job timeouts (#2461): 3-4x observed duration, rounded to five minutes.
 # Re-measure completed job spans when profiles change. Release smoke has
@@ -249,40 +249,38 @@ jobs:
       - name: Credo + specs
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
-      # Lives in the required `lint` job rather than a job of its own: a new job
-      # would not be merge-blocking until the human-only merge ruleset is
-      # re-applied, and a docs guard nobody has to satisfy guards nothing.
+      # Keep guards in required lint so they remain merge-blocking.
       - name: Every config key has a documentation entry
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
-      - name: Every source file belongs to one component
+      - name: Cache component checker toolchain
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: scripts/components/node_modules
+          key: components-${{ runner.os }}-${{ hashFiles('scripts/components/package-lock.json') }}
+      - name: Install component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-components.py
-      # Same rationale as check-config-docs: a drift gate nobody has to
-      # satisfy guards nothing, so the env example guard lives in the required
-      # lint job and runs on every PR. .env.example is generated from the env
-      # schema; a checked-in example that diverges silently omits variables an
-      # operator needs at onboarding.
+        run: npm ci --prefix scripts/components --ignore-scripts
+      - name: Component ownership, reference boundaries and fixtures
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: |
+          bash scripts/check-components-ci.sh
+          bash scripts/test-check-components.sh --with-elixir --with-node
+      # The generated env example must include every operator-facing variable.
       - name: .env.example matches the env-var schema
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-env-example.py
-      # Same rationale as the two guards above. The coverage-shard rule is
-      # implemented in Elixir (what CI runs) and in Python (what the rename
-      # preflight reports); a preflight naming a shard CI does not use is worse
-      # than no preflight, so the parity gate has to be merge-blocking.
+      # Python preflight and Elixir CI must select the same coverage shards.
       - name: Coverage-shard rule agrees across implementations
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-test-shard-parity.py
-      # Platform publish/pin drift (#2110): the platform packages the release
-      # workflow publishes must equal the packages aiur-cli pins as
-      # optionalDependencies, and both must match the shared PUBLISH_TARGETS
-      # source. A pin with no published package is a silent broken install —
-      # exactly the aiur-cli-darwin-x64 defect — so this lives in the required
-      # lint job and runs on every PR.
+      # Published platforms, CLI pins and PUBLISH_TARGETS must agree (#2110).
       - name: Platform publish/pin drift check
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -446,7 +444,7 @@ jobs:
 
   coverage:
     needs: [coverage-partition, changes]
-    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -549,7 +547,7 @@ jobs:
 
   test:
     needs: [coverage, changes]
-    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

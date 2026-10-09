@@ -287,11 +287,37 @@ It finds component and near-miss forms that a joined-literal search misses and
 shows the owning coverage partition for test files. Review the output before
 rewriting; it is intentionally not an automatic replacement.
 
+## Component boundaries
+
+The required lint job checks the four Elixir reference rules: `R-declared`
+(declared dependency), `R-private` (provider facade), `R-down` (layer direction),
+and `R-optional` (required code must not depend on optional code). Failures name
+source component, target module and the reference location. Fix the boundary or
+manifest first; an exemption is temporary debt, not permission to add more.
+
+Allowlist TSVs in `scripts/components/allowlist/` match exact
+`(rule, source component, target module)` keys. A removed violation leaves a
+stale entry that fails lint: delete it in the same PR, or run
+`python3 scripts/check-components.py --prune`. Pruning removes only stale rows
+for the selected rules; it never adds exemptions and still fails on new violations.
+
+On pull requests, additions (including replacements and new files) are compared
+with the PR base SHA. Every added row needs a reason beginning with a ticket ID:
+`MP-…`, `U…` or `#NNNN`, followed by an explanation the reviewer can verify.
+Existing `baseline <sha>` rows are grandfathered, but new baseline rows cannot
+bypass this guard. `--write-baseline` is bootstrap-only and cannot be combined
+with `--prune`. Use `--growth-base <sha>` to reproduce the PR growth guard.
+If the base cannot be fetched, the guard warns and skips; ordinary new-violation
+and stale-entry checks still run. Push and merge-group runs skip only growth.
+The CI step summary reports per-rule debt, largest SCC size and checker runtime;
+cycles are informational, not failures.
+
 ## Enforcement
 
 Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
 to one component in `components.json`. Add new source paths and update moved
-paths in the same PR. The required lint job runs `python3 scripts/check-components.py`;
+paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
+toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
 unowned files, equally specific competing owners and stale globs fail the check.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
 

@@ -124,7 +124,7 @@ defmodule Aiur.CodeownersTest do
     name
   end
 
-  test "resolves team owners through request function and caches per run", %{repo_root: repo_root} do
+  test "resolves team owners through the shared reader on each lookup", %{repo_root: repo_root} do
     write_codeowners!(repo_root, ".github/CODEOWNERS", "* @acme/platform")
     test_pid = self()
 
@@ -134,6 +134,7 @@ defmodule Aiur.CodeownersTest do
       {:ok,
        %{
          status: 200,
+         headers: [],
          body: [%{"login" => "owner-one"}, %{"login" => "owner-two"}]
        }}
     end
@@ -143,7 +144,7 @@ defmodule Aiur.CodeownersTest do
     assert Codeowners.owners_for_path("lib/app.ex", opts) == ["owner-one", "owner-two"]
     assert Codeowners.owners_for_path("lib/other.ex", opts) == ["owner-one", "owner-two"]
     assert_receive {:team_request, "https://api.github.com/orgs/acme/teams/platform/members?per_page=100"}, 1000
-    refute_receive {:team_request, _}, 100
+    assert_receive {:team_request, "https://api.github.com/orgs/acme/teams/platform/members?per_page=100"}, 1000
   end
 
   test "does not cache team-member fetch failures", %{repo_root: repo_root} do
@@ -156,7 +157,7 @@ defmodule Aiur.CodeownersTest do
           {:ok, %{status: 500, body: %{}}}
 
         _ ->
-          {:ok, %{status: 200, body: [%{"login" => "owner-one"}]}}
+          {:ok, %{status: 200, body: [%{"login" => "owner-one"}], headers: []}}
       end
     end
 

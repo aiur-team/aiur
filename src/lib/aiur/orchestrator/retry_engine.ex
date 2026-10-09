@@ -11,8 +11,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
+  alias Aiur.Orchestrator.{Dispatcher, LifecycleFenceExpiry}
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Workspace.Ownership
 
@@ -67,7 +67,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         running_entry = running |> Map.fetch!(issue_id) |> clear_completed_fallback_replacement()
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
-        state = maybe_reap_orphaned_agent_shell(state, running_entry)
+        state = state |> maybe_reap_orphaned_agent_shell(running_entry) |> LifecycleFenceExpiry.recover_terminated_input(running_entry)
         session_id = State.running_entry_session_id(running_entry)
         state = handle_running_agent_down(state, issue_id, running_entry, reason, session_id)
 
@@ -627,7 +627,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
     case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do
       {:ok, state_name} ->
-        case Tracker.update_issue_state(identifier, state_name, opts) do
+        case TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) do
           :ok ->
             emit_rework_handoff_attention(identifier, state_name)
             :ok
@@ -939,7 +939,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     else
       Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
-      case Tracker.update_issue_state(identifier, "error", opts) do
+      case TicketTransition.write_state(identifier, "error", Keyword.put(opts, :writer, :retry_engine)) do
         :ok ->
           message =
             "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
@@ -981,7 +981,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp rework_handoff_state(identifier, original_head, metadata) do
     opts = [
-      open_pr_fetcher: Map.get(metadata, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1),
+      open_pr_fetcher: Map.get(metadata, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1),
       commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
     ]
 

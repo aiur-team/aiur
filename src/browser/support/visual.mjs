@@ -40,6 +40,7 @@ export async function openVisualRoute(page, { theme, palette, route, collapsed =
     document.addEventListener('DOMContentLoaded', () => {
       const stored = localStorage.getItem('aiur-theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
+      document.documentElement.dataset.palette = localStorage.getItem('aiur-palette') === 'aiur' ? 'aiur' : 'gruvbox'
     }, { once: true })
   })
   // A full navigation mounts NavToggle, whose restore-nav pushEvent applies
