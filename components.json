@@ -156,6 +156,15 @@
       "prior": ["DEC", "EXE"]
     },
     {
+      "id": "pr-lifecycle", "name": "PR health lifecycle", "layer": 3, "kind": "optional",
+      "paths": ["src/lib/aiur/pr_lifecycle/**"],
+      "facades": ["Aiur.PRLifecycle.HealthScanner"], "facade_pending": null,
+      "requires": ["tracker", "github", "config", "kernel", "signal"], "optional": ["executor-attention"],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "prior": ["PRL"],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*"]
+    },
+    {
       "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
