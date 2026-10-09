@@ -419,7 +419,7 @@ defmodule Aiur.Events.SubscriptionStore do
     topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
 
     new_state =
-      case enqueue_event(state.identifier, event) do
+      case enqueue_event(state, event) do
         :ok ->
           Aiur.IssueLog.record_event(state.identifier, :consumed, event)
           DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
@@ -444,7 +444,7 @@ defmodule Aiur.Events.SubscriptionStore do
   defp process_new_event(state, event, event_id, cursor) do
     topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
 
-    case enqueue_event(state.identifier, event) do
+    case enqueue_event(state, event) do
       :ok ->
         Aiur.IssueLog.record_event(state.identifier, :consumed, event)
         DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
@@ -571,10 +571,10 @@ defmodule Aiur.Events.SubscriptionStore do
     :ok
   end
 
-  defp enqueue_event(identifier, event) do
+  defp enqueue_event(state, event) do
     case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
-      fun when is_function(fun, 2) -> call_enqueue_fn(fun, identifier, event)
-      _ -> call_orchestrator_enqueue(identifier, event)
+      fun when is_function(fun, 2) -> call_enqueue_fn(fun, state.identifier, event)
+      _ -> call_orchestrator_enqueue(state, event)
     end
   end
 
@@ -588,14 +588,21 @@ defmodule Aiur.Events.SubscriptionStore do
     e -> {:error, {:raised, e}}
   end
 
-  defp call_orchestrator_enqueue(identifier, event) do
+  # The request carries this store's bindings. To classify the digest, the
+  # Orchestrator needs this ticket's `blocker:auto` subscriptions. Without
+  # them it called `snapshot/1` back into this store, which is blocked in this
+  # call. That cycle held the Orchestrator for the full 1 s timeout on every
+  # delivered event, and the store then stalled a delivery that had succeeded.
+  defp call_orchestrator_enqueue(state, event) do
     case Process.whereis(Aiur.Orchestrator) do
       nil ->
         {:error, :no_orchestrator}
 
       pid ->
+        request = {:enqueue_event_digest, state.identifier, event, %{subscribed_to: state.subscribed_to}}
+
         try do
-          case GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000) do
+          case GenServer.call(pid, request, 1_000) do
             :ok -> :ok
             {:error, _} = err -> err
             other -> {:error, {:unexpected_return, other}}

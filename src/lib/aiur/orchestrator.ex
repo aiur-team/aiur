@@ -720,6 +720,12 @@ defmodule Aiur.Orchestrator do
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
     do: OM.enqueue_event_digest_call(state, identifier, event)
 
+  # A ticket's SubscriptionStore sends its own bindings, because it is blocked
+  # in this call and cannot answer a snapshot read.
+  def handle_call({:enqueue_event_digest, identifier, event, %{subscribed_to: subscriptions}}, _from, state)
+      when is_list(subscriptions),
+      do: OM.enqueue_event_digest_call(state, identifier, event, subscribed_to: subscriptions)
+
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events),
       do: OM.enqueue_event_digest_batch_call(state, identifier, events)
