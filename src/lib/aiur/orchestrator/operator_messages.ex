@@ -13,8 +13,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     State
   }
 
-  alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
+  alias Aiur.Orchestrator.StatusReason
   @max_operator_message_chars 8_000
   @operator_message_call_timeout_ms 5_000
 
