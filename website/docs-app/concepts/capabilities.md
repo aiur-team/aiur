@@ -3,6 +3,7 @@
 An authenticated `GET /api/v1/capabilities` returns one read-only JSON report
 with `contract: "aiur.capabilities"` and `contract_version: 1`. It uses the same
 dashboard Basic auth boundary as `/api/v1/state` and sends `Cache-Control: no-store`.
+
 It answers while orchestration is unavailable; it does not call the orchestrator.
 With `--no-dashboard` there is no HTTP listener.
 
@@ -14,14 +15,18 @@ and availability when a request arrives.
 
 Each capability has a `state`: `available`, `degraded`, `unavailable`, or `unknown`.
 A non-available entry includes a `reason`; dependencies are listed in `depends_on`.
-An omitted capability is unknown, never an empty result or zero. Ignore unfamiliar
+An omitted capability is unknown, never an empty result or zero.
+
+Ignore unfamiliar
 IDs and treat unfamiliar reasons as unknown. A missing ID introduced in a newer
 contract version means the server needs an update.
 
 `machine`, `instance`, `repository`, and `executor` identify the responding
 instance. A null section means unknown. `instance.run_shape.http_listener` and
 `dashboard_pages` distinguish API access from browser pages; `dashboard` is a
-deprecated alias of `http_listener`. `min_client_versions` maps client kinds to
+deprecated alias of `http_listener`.
+
+`min_client_versions` maps client kinds to
 minimum versions; an empty map imposes no minimum. Clients below a listed minimum
 must block writes and request an update.
 
@@ -31,6 +36,7 @@ Refetch on reconnect, a new boot, `system.capabilities.changed`, and before a wr
 
 `observed_at` records computation time. `age_ms` is computed at read time using the
 daemon's monotonic clock. `freshness` is `current` through 6,000 ms, then `stale`.
+
 A missing registry table produces a synchronous report with revision zero and
 explicitly stale freshness. Show the age when displaying freshness.
 An unreachable instance, a stale report, and an unavailable capability are
@@ -38,8 +44,8 @@ separate conditions.
 
 ## Version 1 IDs
 
-Registered IDs describe supported surfaces, including components that are absent.
-An ID's presence does not promise that its feature is installed or enabled.
+Registered IDs describe supported surfaces, including absent components; an ID's
+presence does not promise that its feature is installed or enabled.
 
 | ID | Surface |
 | --- | --- |
@@ -113,6 +119,7 @@ First daemon boot creates `identity.json` in `$AIUR_BG_STATE_DIR/machine`, or
 `${XDG_CONFIG_HOME:-~/.config}/aiur/machine` when that variable is unset.
 The directory is private (0700) and the file is private (0600). `machine_id` is
 128 random bits encoded as 26 lowercase Base32 characters, unrelated to hardware.
+
 `instance_id` combines it with the launcher's instance key; moving the project root
 changes that key. The default machine label is the first DNS label of the hostname.
 
