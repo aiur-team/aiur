@@ -158,3 +158,24 @@ test('export rejects symlink design assets', t => {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /design source contains a symlink/);
 });
+
+test('feature statistics oracle contains real design inputs and results', () => {
+  const oracle = decode(files['feature-stats.json']);
+  assert.deepEqual(Object.keys(oracle), ['live', 'dense', 'newrepo', 'noqueue']);
+  let count = 0;
+  for (const [dataset, value] of Object.entries(oracle)) {
+    const data = fixture(dataset).data;
+    const rows = [...data.hist, ...data.now, ...data.plan, ...data.nq];
+    assert.equal(value.now, fixture(dataset).meta.now);
+    for (const [key, { expected, members, also }] of Object.entries(value.features)) {
+      count++;
+      assert.equal(expected.total, members.length);
+      assert.deepEqual(members.map(t => t.num), rows.filter(t => t.feature === key).map(t => t.num));
+      assert.ok(members.every(t => Number.isInteger(t.created)));
+      assert.deepEqual(also, rows.filter(t => t.also.includes(key)).map(t => t.num));
+    }
+  }
+  assert.equal(count, 18);
+  assert.ok(JSON.parse(files['manifest.json']).fixture_sha256['feature-stats.json']);
+  assert.equal(oracle.live.features.pag.expected.pct, 61);
+});
