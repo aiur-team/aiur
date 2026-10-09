@@ -23,6 +23,23 @@ defmodule Aiur.SystemLoad do
     end
   end
 
+  # ponytail: CPU time estimates nice demand; count tasks if queued nice work still binds.
+  @doc "Subtract sampled niced CPU core equivalents from host demand."
+  @spec gate_signal(number() | :unavailable, map() | :unavailable, pos_integer()) :: number() | :unavailable
+  def gate_signal(demand, %{nice_percent: nice}, schedulers) when is_number(demand) and is_number(nice) and nice >= 0 and nice <= 100,
+    do: max(0.0, demand - nice * schedulers / 100.0)
+
+  def gate_signal(demand, _headroom, _schedulers), do: demand
+
+  @doc false
+  @spec print_dispatch_sample(map() | nil) :: :ok
+  def print_dispatch_sample(%{load: load, gate_signal: signal, load_sampled_at_ms: sampled_at}) when is_number(load) and is_integer(sampled_at) do
+    age_ms = max(0, System.monotonic_time(:millisecond) - sampled_at)
+    IO.puts("DISPATCH LOAD total=#{load} gate_signal=#{signal} sampled=#{div(age_ms, 1_000)}s ago")
+  end
+
+  def print_dispatch_sample(_capacity), do: :ok
+
   @doc false
   @spec sample((-> map()), non_neg_integer()) :: map()
   def sample(read_fun, timeout_ms \\ 1_000) do
