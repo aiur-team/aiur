@@ -2276,10 +2276,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp record_fallback_binding_constraint(%State{} = state, _reason), do: state
 
-  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
-  # different condition from the prewarm hold that records the `:build`
-  # constraint kind; keep them distinct so an alert never misattributes one.
-  defp binding_constraint_kind(:build), do: :build_queue
   defp binding_constraint_kind(signal), do: signal
 
   defp maybe_record_memory_constraint(state, :hold, available_memory_mb, threshold_mb) do
