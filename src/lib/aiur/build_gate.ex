@@ -67,8 +67,7 @@ defmodule Aiur.BuildGate do
 
       # AgentEnvironment builds this environment on the host for every backend.
       # Prepare immutable lock inodes there, before a sandbox receives only the
-      # writable metadata root. A preparation failure remains fail-closed in the
-      # shell hook, which reports the missing/unreadable lock path.
+      # writable metadata root; preparation failures remain fail-closed in the shell hook.
       _ = prepare_lock_namespace(lock_dir, slots)
 
       [
@@ -76,6 +75,7 @@ defmodule Aiur.BuildGate do
         {"AIUR_BUILD_GATE_DIR", gate_dir},
         {"AIUR_BUILD_GATE_LOCK_DIR", lock_dir},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
+        {"AIUR_BUILD_NICE", Integer.to_string(Keyword.get_lazy(opts, :nice, fn -> Config.settings!().agent.build_nice end))},
         {"AIUR_BUILD_START_STAGGER_SECONDS", Integer.to_string(stagger_seconds)},
         {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Keyword.get(opts, :timeout_seconds, @default_timeout_seconds))},
         {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(max_hold_seconds)},

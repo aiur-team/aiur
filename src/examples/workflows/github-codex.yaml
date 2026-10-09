@@ -1,6 +1,7 @@
 tracker:
   kind: github
   base_branch: your-base-branch
+  # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states:
     - todo
     - in-progress
@@ -134,6 +135,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   # Ordered dispatch preference: presence enables a backend, the first
   # available entry is the default, and aiur falls back to the next one when a
   # token/usage limit hits.
