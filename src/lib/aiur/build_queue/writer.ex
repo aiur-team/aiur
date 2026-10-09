@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Writer do
   @moduledoc "Serial label writes with durable intents and a rolling minute write budget."
   require Logger
-  alias Aiur.BuildQueue.{Attention, WriteEvidence, WriteProtocol}
+  alias Aiur.BuildQueue.{Attention, Bookkeeping, WriteEvidence, WriteProtocol}
   alias Aiur.BuildQueue.Model.Latch
 
   @spec new() :: map()
@@ -10,7 +10,8 @@ defmodule Aiur.BuildQueue.Writer do
   @spec run(map(), list(), map()) :: map()
   def run(context, actions, runtime) do
     context = Map.merge(context, %{writer: runtime, status: if(runtime.paused?, do: :writes_paused, else: :running), promoted: [], write_attentions: [], write_results: []})
-    context = Enum.reduce_while(actions, context, &execute/2)
+    {bookkeeping, writes} = Enum.split_with(actions, fn {action, _} -> action in [:mark_override, :mark_external_hold, :dequeue] end)
+    context = Enum.reduce_while(bookkeeping ++ writes, context, &execute/2)
     promoted = Enum.reverse(context.promoted)
     if promoted != [], do: context.claim_probe.notify_demand(promoted)
     context
@@ -31,6 +32,15 @@ defmodule Aiur.BuildQueue.Writer do
 
       {:error, _reason} ->
         {:halt, %{context | status: :store_unavailable}}
+    end
+  end
+
+  defp execute({action, _id} = command, context) when action in [:mark_override, :mark_external_hold, :dequeue] do
+    document = Bookkeeping.apply(context.document, command)
+
+    case context.store.save(document) do
+      :ok -> {:cont, %{context | document: document}}
+      {:error, _reason} -> {:halt, %{context | status: :store_unavailable}}
     end
   end
 

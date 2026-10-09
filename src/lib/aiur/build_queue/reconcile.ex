@@ -4,11 +4,15 @@ defmodule Aiur.BuildQueue.Reconcile do
   alias Aiur.BuildQueue.{Hints, Model.Observation, Planner, Settings}
 
   @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map()}
-  def plan(state) do
+  def plan(state), do: plan(state, observations(state))
+
+  @spec plan(map(), map()) :: {[Planner.item_state()], [Planner.action()], map()}
+  def plan(state, observations) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
+    intents = Enum.filter(input.intents, &(state.reconciles - Map.get(state.intent_reconciles, &1.id, 0) < 2))
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
-    input = %{input | opts: opts, observations: observations(state), claims: state.claim_probe.status(ids)}
+    input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids), intents: intents}
     {projections, actions} = Planner.plan(input)
     {projections, actions, input.observations}
   end
@@ -34,14 +38,28 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   @spec observations(map()) :: %{String.t() => Observation.t()}
   def observations(state) do
+    {_freshness, observations} = snapshot(state)
+    observations
+  end
+
+  @spec snapshot(map()) :: {:fresh | :unknown, map()}
+  def snapshot(state) do
+    now = state.clock.()
+    max_age = Settings.observation_max_age_ms(state.settings)
+    pending = if state.document, do: Enum.filter(state.document.intents, &is_nil(&1.outcome)), else: []
+    after_intent = pending |> Enum.map(& &1.recorded_at_ms) |> Enum.max(fn -> 0 end)
+
     case state.tracker.open_issue_labels(Settings.observation_max_age_ms(state.settings)) do
-      {:ok, labels, observed_at_ms} ->
-        Map.new(labels, fn {id, row} ->
-          {id, %Observation{issue_id: id, open?: true, labels: row.labels, state_reason: nil, pr: nil, observed_at_ms: observed_at_ms}}
-        end)
+      {:ok, labels, observed_at_ms} when observed_at_ms >= after_intent and observed_at_ms <= now and now - observed_at_ms <= max_age ->
+        observations =
+          Map.new(labels, fn {id, row} ->
+            {id, %Observation{issue_id: id, open?: true, labels: row.labels, state_reason: nil, pr: nil, observed_at_ms: observed_at_ms}}
+          end)
+
+        {:fresh, observations}
 
       _ ->
-        %{}
+        {:unknown, %{}}
     end
   end
 end
