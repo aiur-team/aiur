@@ -97,6 +97,14 @@ Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github)
 
 A restart that cannot read persisted global-pause state starts paused rather than releasing work.
 
+An `in-progress` ticket with no worker is checked on startup and each candidate
+poll. After 60 seconds without ownership, Aiur releases it to `todo` if it has
+no open PR, `rework` for conflicts or current review findings, or `human-review`
+otherwise. It comments with the reason and wakes the Executor. Live workspace
+leases, scheduled retries, `agent:paused` and `agent:parked` protect the claim;
+unavailable PR evidence retains it for later polls. Failed writes have bounded
+retries and raise an attention.
+
 ## Remote control
 
 | Control | Behavior |
