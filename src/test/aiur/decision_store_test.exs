@@ -3292,7 +3292,7 @@ defmodule Aiur.DecisionStoreTest do
 
       payload = %{"idempotency_key" => "repair-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, %{status: :accepted}} = answer(pid, decision.decision_id, payload)
-      assert {:repair, _reason} = DecisionStore.health(pid)
+      assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
       refute_receive :unexpected_dispatch, 100
     end
 
@@ -4585,7 +4585,7 @@ defmodule Aiur.DecisionStoreTest do
         end)
 
       assert log =~ "aiur_decision_store phase=projection_repair_failed"
-      assert {:repair, _reason} = DecisionStore.health(pid)
+      assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
     end
   end
 
