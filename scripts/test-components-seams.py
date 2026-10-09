@@ -17,7 +17,7 @@ RAN = set()
 
 
 def check(name, source, expected=0, message='', source_component='orchestration',
-          path='src/lib/aiur/orchestrator/build_queue_claim_probe.ex', change=None):
+          path='src/lib/aiur/orchestrator/build_queue_claim_probe.ex', change=None, preamble=''):
     if SELECTED and name not in SELECTED:
         return
     RAN.add(name)
@@ -34,7 +34,7 @@ def check(name, source, expected=0, message='', source_component='orchestration'
         root = Path(directory)
         (root / 'components.schema.json').write_text(SCHEMA)
         (root / 'components.json').write_text(json.dumps(manifest))
-        files = {path: 'defmodule Aiur.Fixture do\n' + source + '\nend\n',
+        files = {path: preamble + 'defmodule Aiur.Fixture do\n' + source + '\nend\n',
                  'src/lib/providers/queue.ex': '\n'.join('defmodule ' + name + ' do\nend' for name in
                      ['Aiur.BuildQueue.Hints', 'Aiur.BuildQueue.ClaimProbe', 'Aiur.BuildQueue.Server']),
                  'src/lib/providers/order.ex': 'defmodule Aiur.BuildOrder.Graph do\nend\n'}
@@ -74,6 +74,9 @@ check('future_guard_comments_and_docs_ignored', '# alias Aiur.Orchestrator\n@mod
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex')
 check('similar_namespace_allowed', 'alias Aiur.OrchestratorExtra', source_component='build-queue',
       path='src/lib/aiur/build_queue/server.ex')
+check('file_level_alias_is_forbidden', 'nil', 1, 'R-forbid build-queue -> Aiur.Orchestrator:',
+      source_component='build-queue', path='src/lib/aiur/build_queue/server.ex',
+      preamble='alias Aiur.Orchestrator\n')
 check('listener_reverse_direction_fails', 'Aiur.Orchestrator.State.f()', 1,
       'R-forbid listener-modes -> Aiur.Orchestrator.State', source_component='listener-modes',
       path='src/lib/aiur/listener/modes.ex')

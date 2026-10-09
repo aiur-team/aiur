@@ -87,7 +87,7 @@ defmodule ComponentModuleReferences do
   defp walk(_, env), do: env
 
   defp emit(target, kind, line, env) do
-    if env.module, do: IO.puts(Enum.join(["R", env.path, env.primary, target, kind, line], "\t"))
+    if env.module || kind in ["alias", "literal"], do: IO.puts(Enum.join(["R", env.path, env.primary || "__FILE__", target, kind, line], "\t"))
   end
 
   defp alias_names({{:., _, [prefix, :{}]}, _, children}, env) do
