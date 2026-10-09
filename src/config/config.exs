@@ -2,6 +2,8 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :capability_providers, [Aiur.Capabilities.IdentityProvider]
+
 config :aiur, :project_identity_source, Aiur.Tracker
 
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
