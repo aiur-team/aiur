@@ -104,9 +104,10 @@ otherwise. It comments with the reason and wakes the Executor.
 
 Live workspace leases, scheduled retries, `agent:paused` and `agent:parked`
 protect the claim; unavailable PR evidence retains it for later polls. Budget-held writes
-retry on later polls without consuming the three-attempt limit. Other failed writes
-raise an attention; exhausting three attempts raises an explicit Executor attention
-and retains the claim until intervention or a new daemon boot.
+retry on later polls without consuming the three-attempt limit.
+
+Other failed writes raise an attention. Exhausting three attempts raises an explicit
+Executor attention and retains the claim until intervention or a new daemon boot.
 
 ## Remote control
 
