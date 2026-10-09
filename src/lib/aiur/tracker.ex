@@ -16,6 +16,8 @@ defmodule Aiur.Tracker do
   @type issue_closure_result :: {:ok, %{open?: boolean(), state_reason: String.t() | nil}} | {:error, term()}
   @callback issue_closure(String.t(), pos_integer()) :: issue_closure_result()
 
+  @callback blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+
   @callback open_issue_labels(pos_integer()) :: open_issue_labels_result()
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
@@ -40,6 +42,7 @@ defmodule Aiur.Tracker do
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
   @optional_callbacks ticket_pull_request: 1,
+                      blocked_by: 1,
                       issue_closure: 2,
                       ensure_labels: 1,
                       open_issue_labels: 1,
@@ -47,6 +50,15 @@ defmodule Aiur.Tracker do
                       update_issue_state: 3,
                       add_label: 2,
                       remove_label: 2
+
+  @doc "Reads native prerequisite IDs, failing closed on unsupported trackers."
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :blocked_by, 1), do: dispatch_blocked_by(tracker, issue_id), else: {:error, :unsupported}
+  end
+
+  defp dispatch_blocked_by(tracker, issue_id), do: tracker.blocked_by(issue_id)
 
   @doc "Reads closure evidence, failing closed when the tracker does not support it."
   @spec issue_closure(String.t(), pos_integer()) :: issue_closure_result()

@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, Observer, Planner, PRObserver, Settings, Withdrawal}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Planner, PRObserver, Settings, Withdrawal}
 
   @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map()}
 
@@ -34,12 +34,15 @@ defmodule Aiur.BuildQueue.Reconcile do
       label_prefix: state.settings.tracker.github.label_prefix,
       observation_max_age_ms: Settings.observation_max_age_ms(state.settings),
       withdrawal_holds: state.holds,
-      source_verdicts: Map.get(state, :source_verdicts, %{})
+      source_verdicts: Map.get(state, :source_verdicts, %{}),
+      merged_open_grace_ms: state.settings.build_queue.merged_open_grace_seconds * 1000
     ]
 
     {observations, cache} = closures(state, observations)
-    {observations, published} = PRObserver.observe(observations, state)
     input = %{input | opts: opts, observations: observations, intents: intents}
+    {input, cache} = NativeObserver.observe(input, state, cache)
+    {observations, published} = PRObserver.observe(input.observations, %{state | document: %{state.document | edges: input.edges}})
+    input = %{input | observations: observations}
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
     {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published}

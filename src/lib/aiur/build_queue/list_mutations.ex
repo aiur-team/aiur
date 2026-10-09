@@ -89,7 +89,7 @@ defmodule Aiur.BuildQueue.ListMutations do
 
     id =
       Enum.find_value(0..65_535, fn n ->
-        candidate = "q-" <> String.pad_leading(Integer.to_string(n, 16), 4, "0")
+        candidate = ("q-" <> String.pad_leading(Integer.to_string(n, 16), 4, "0")) |> String.downcase()
         if not MapSet.member?(used, candidate), do: candidate
       end)
 

@@ -9,6 +9,7 @@ defmodule Aiur.BuildQueue.ServerTest do
     def open_issue_labels(_age), do: Agent.get(__MODULE__, & &1.snapshot)
     def load, do: Agent.get(__MODULE__, & &1.document)
     def status(_ids), do: :unavailable
+    def blocked_by(_id), do: {:ok, []}
     def save(document), do: Agent.update(__MODULE__, &%{&1 | document: {:ok, document}})
     def update_issue_state(id, "todo", expected_state: :none), do: call({:promote, id})
     def notify_demand(ids), do: call({:demand, ids})
