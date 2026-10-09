@@ -291,7 +291,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert final_state.startup_claim_reconciliation_complete?
     assert final_state.startup_claim_reconciliation_failures["2076"].attempts == 3
     assert final_log =~ "exhausted 3 attempts"
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 100
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", exhausted_opts}, 1000
+    assert exhausted_opts[:needs_attention] and exhausted_opts[:central] and exhausted_opts[:durable]
+    assert exhausted_opts[:message] =~ "2076"
+    assert exhausted_opts[:message] =~ "exhausted 3 attempts"
+    assert exhausted_opts[:reason] =~ "tracker_unavailable"
 
     # The completed pass never re-attempts the latched ticket.
     assert {^final_state, [^issue]} =

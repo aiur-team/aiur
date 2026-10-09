@@ -23,8 +23,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
+  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     CommandScan,
     CommentPolling,
     DispatchBatch,
+    DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
     IssueSync,
@@ -48,8 +49,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackedSet,
     TrackerHealth
   }
-
-  alias Aiur.Orchestrator.ReworkGate
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
@@ -980,7 +979,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         probes.cpu_snapshot,
         queued_demand?
       )
-      |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
+      |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
 
     # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
@@ -1004,7 +1003,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, probes.load, probes.target, probes.schedulers, queued_demand?),
+            envelope_hold(state, Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers, queued_demand?),
             now_ms,
             opts
           )
@@ -1102,7 +1101,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchPolicy.sort_issues_for_dispatch(issues), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
@@ -2180,10 +2179,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     ])
   end
 
-  # `measured_at` moves with the measurements it describes: an extended hold
-  # carries this tick's probe, not the probe that first opened it. Without the
-  # re-stamp the age would report how long the hold has lasted rather than how
-  # fresh the number beside it is (#2527).
   defp merge_capacity_reason(hold, reason, measured_at) do
     hold
     |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
@@ -2299,6 +2294,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
       | dispatch_capacity_sample: %{
           load: probes.load,
+          load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
+          load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
+          gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
+          load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
           load_threshold: probes.load_threshold,
           target: probes.target,
           schedulers: probes.schedulers,
@@ -2522,7 +2521,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    state = persist_lifetime_trip(state, issue, fn identifier, target -> Tracker.update_issue_state(identifier, target, expected_state: issue.state) end)
+    state = persist_lifetime_trip(state, issue, fn identifier, target -> TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state) end)
     entry = Map.get(thrash_budget(state), issue.id, %{})
 
     if Map.get(entry, :alert_emitted, false) do
@@ -2776,7 +2775,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp capture_rework_head(_issue, initial_head, _opts) when initial_head != :pending, do: initial_head
 
   defp capture_rework_head(issue, :pending, opts) do
-    fetcher = Keyword.get(opts, :rework_head_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+    fetcher = Keyword.get(opts, :rework_head_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetcher.(issue.identifier) do
       {:ok, %{} = pr} -> ReworkGate.head_sha(pr) || :lookup_failed

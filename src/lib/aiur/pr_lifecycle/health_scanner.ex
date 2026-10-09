@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.PRHealthScanner do
+defmodule Aiur.PRLifecycle.HealthScanner do
   @moduledoc """
   Periodically scans open pull requests for the two conditions that stall PRs
   silently for days (#2337, causes 1 and 3):
@@ -35,7 +35,6 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
   alias Aiur.{Alerts, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
 
   @default_interval_ms 30 * 60 * 1_000
   @default_stale_hours 24
@@ -102,7 +101,7 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
   end
 
   defp default_enabled? do
-    GitHubConfig.pr_health_enabled?() and Tracker.adapter() == GitHubTracker
+    GitHubConfig.pr_health_enabled?() and Aiur.CodeHost.available?()
   rescue
     _error -> false
   catch
