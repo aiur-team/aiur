@@ -73,6 +73,23 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
     assert edge["sub_issue_number"] == 101
   end
 
+  test "a stale catalog read cannot overwrite a newer webhook issue and label set" do
+    issue_key = ResourceStore.key_for_repo(:issue, @repo, 100)
+    label_key = ResourceStore.key_for_repo(:issue_labels, @repo, 100)
+    newer = %{"number" => 100, "state" => "closed", "updated_at" => "2026-06-24T12:00:00Z"}
+    labels = [%{"name" => "agent:done"}]
+
+    request = fn query ->
+      ResourceStore.put_resource(issue_key, newer, version: newer["updated_at"], source: :webhook)
+      ResourceStore.put_resource(label_key, labels, version: newer["updated_at"], source: :webhook)
+      catalog_fun([root_node(100, [])]).(query)
+    end
+
+    assert {:ok, :reconciled, %{roots: 1}} = Reconciliation.run(repository: @repository, request_fun: request)
+    assert {:ok, %{data: ^newer, version: "2026-06-24T12:00:00Z"}} = ResourceStore.fetch(issue_key)
+    assert {:ok, %{data: ^labels, version: "2026-06-24T12:00:00Z"}} = ResourceStore.fetch(label_key)
+  end
+
   # The dropped-delivery path this reconciliation exists for: an edge whose
   # `*_removed` delivery was dropped lingers as `present: true` in the store.
   # The query is set truth, so the reconciliation clears the repo's edges and

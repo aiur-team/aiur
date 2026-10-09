@@ -60,7 +60,10 @@ defmodule AiurWeb.BuildLive do
 
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
-  def handle_event("restore-nav", params, socket), do: {:noreply, NavState.restore(socket, params)}
+
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp unavailable(socket, tag) do

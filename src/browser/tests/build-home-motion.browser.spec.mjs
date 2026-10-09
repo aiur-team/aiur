@@ -18,9 +18,9 @@ test('clock probe: product connects and patches with preinstalled clock', async 
     await selectProductDataset(page, 'live')
     await openVisualRoute(page, { theme: cell.theme, palette: cell.palette, route: '/build', mode: 'writable' })
     await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-    await page.locator('[phx-click="toggle-nav"]').evaluate(el => el.click())
+    await page.locator('#ax-drag').evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })))
     await page.clock.runFor(16)
-    await expect(page.locator('.dashboard-shell')).toHaveAttribute('data-nav-collapsed', 'true')
+    await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', 'true')
   } finally { await context.close() }
 })
 

@@ -244,6 +244,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       restore_app_env(:loadavg_source_override, previous_loadavg)
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
+      Application.delete_env(:aiur, :background_cpu_source_override)
       restore_app_env(:build_gate_status_override, previous_build_status)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
       restore_app_env(:ci_readiness_check_fun, previous_ci_readiness_check_fun)
@@ -442,7 +443,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
-  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+  test "the first candidate poll holds orphaned claims during recovery grace" do
     restore_workflow_file_after_test()
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
 
@@ -465,9 +466,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         max_concurrent_agents: 1
       })
 
-    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}, 1000
-    assert next.startup_claim_reconciliation_complete?
-    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute_received {:memory_tracker_state_update, ^candidate_identifier, _target}
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "in-progress"
     refute next.initial_dispatch_cycle
   end
 
@@ -2528,7 +2529,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
       test_pid = self()
-      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4, load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, overload_samples: 2}}
 
       held =
         Dispatcher.maybe_choose_under_load(
@@ -2566,8 +2567,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     test "niced runnable load does not hard-hold but cannot widen above target" do
       test_pid = self()
 
-      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
-      current_cpu = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
+      current_cpu = %{total: 1_200, idle: 620, nice: 240, background: %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200}, runnable: 74}
 
       state = %State{
         max_concurrent_agents: 8,
@@ -2625,13 +2626,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       schedulers = System.schedulers_online()
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{schedulers * 9.0} 1.0 1.0 1/1 1\n"} end)
 
-      Application.put_env(:aiur, :proc_stat_source_override, fn ->
-        {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"}
-      end)
-
+      Application.put_env(:aiur, :proc_stat_source_override, fn -> {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"} end)
+      Application.put_env(:aiur, :background_cpu_source_override, fn -> %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200} end)
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
-      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
 
       state = %State{
         max_concurrent_agents: 8,
@@ -2755,7 +2754,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert held.dispatch_capacity_sample == %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
+      assert %{load: 0.7, gate_signal: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16} = held.dispatch_capacity_sample
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000

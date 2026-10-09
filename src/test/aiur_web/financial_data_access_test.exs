@@ -119,6 +119,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/commands/:decision_id",
              "/build-orders",
              "/build-orders/:root_number",
+             "/build",
              "/analytics",
              "/streamdeck"
            ]

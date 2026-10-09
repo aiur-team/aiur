@@ -60,16 +60,16 @@ off to CI/review, run all required checks and fix any failures:
 
 - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
 - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
-- From the repository root, after committing: resolve `base` with
+- After committing and after every base integration, run the structural gate before marking the PR ready:
   `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
-  `python3 scripts/check-file-size.py --base "$base"` (the CI workflow-security command).
+  `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components).
 
 When a change must touch an oversized text file (over 500 lines), keep that
 file the same length or shorter. Put new code in a new small module and new
 tests in a new test file. Never grow the oversized file.
 
-These checks supplement the scoped compile, format, and affected-test gate;
-CI still runs the authoritative full required-check set.
+These checks supplement the scoped compile, format, and affected-test gate; CI still runs the authoritative
+full required-check set. Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
 
 ### Unrelated CI flakes
 

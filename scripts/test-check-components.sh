@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo_root" "$@" <<'PY'
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,9 +12,9 @@ import sys
 import tempfile
 
 repo = Path(sys.argv[1])
-selected = set(sys.argv[2:])
-with_elixir = '--with-elixir' in selected
-selected.discard('--with-elixir')
+with_node = '--with-node' in sys.argv[2:]
+with_elixir = '--with-elixir' in sys.argv[2:]
+selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
 
@@ -24,7 +25,7 @@ def component(cid, paths):
                 requires=[], optional=[], owns={k: [] for k in ('config', 'env', 'state', 'capabilities')}, prior=[])
 
 
-def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None):
+def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None, rules='ownership', links=None):
     if selected and name not in selected:
         return
     ran.add(name)
@@ -46,7 +47,11 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
         for file in files:
             path = root / file
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch()
+            path.write_text(files[file] if isinstance(files, dict) else '')
+        for link, target in (links or {}).items():
+            path = root / link
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(root / target, target_is_directory=True)
         for file, content in declarations.items():
             path = root / file
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,7 +62,7 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             (root / 'src/lib/untracked.ex').touch()
         import os
         env = dict(os.environ, AIUR_COMPONENTS_ROOT=str(root))
-        args = [sys.executable, str(checker), '--rules', 'ownership']
+        args = [sys.executable, str(checker), '--rules', rules]
         if format:
             args.append('--format')
         result = subprocess.run(args, env=env, text=True, capture_output=True)
@@ -120,6 +125,81 @@ check('required_property_fails', [component('a', [])], [], 2, ('/components/0/na
 check('empty_name_fails', [dict(component('a', []), name='')], [], 2, ('/components/0/name: empty string',))
 check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])], ['src/lib/a.ex'], 2,
       ('/components/0/paths: duplicate items',))
+if with_node:
+    def imports(name, source, code=0, messages=(), dependencies=None, extra=None, links=None):
+        files = {'packages/a/package.json': json.dumps(dict(name='a', dependencies=dependencies or {})),
+                 'packages/a/src/x.ts': source}
+        files.update(extra or {})
+        components = [dict(component('clients', ['packages/**']), layer=5)]
+        if any(file.startswith('src/lib/') for file in files):
+            components.append(component('daemon', ['src/lib/**']))
+        check(name, components, files, code, messages, rules='all', links=links)
+
+    imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
+            ('R-client', 'src/lib/foo.js'))
+    imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
+            extra={'packages/b/package.json': '{"name":"b"}', 'packages/b/src/z.js': ''})
+    imports('undeclared_npm_dep_fails', 'import "left-pad";', 1, ('undeclared npm dependency left-pad',))
+    imports('computed_import_fails', 'import(`./${name}.js`);', 1, ('unanalyzable',))
+    imports('computed_require_fails', 'require(name);', 1, ('unanalyzable',))
+    imports('comment_mention_ignored', '// from "to top"\nconst text = `from "zero usage"`;')
+    imports('contracts_import_allowed', 'import "../../aiur-contracts/src/z.js";',
+            dependencies={'@aiur/contracts': '*'},
+            extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}',
+                   'packages/aiur-contracts/src/z.js': ''})
+    imports('contracts_must_be_declared', 'import "../../aiur-contracts/src/z.js";', 1,
+            ('aiur-contracts must be declared',),
+            extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}',
+                   'packages/aiur-contracts/src/z.js': ''})
+    imports('declared_npm_and_builtins_pass', 'import "@scope/dep/subpath"; import "node:fs"; import "node:test"; require("fs/promises");',
+            dependencies={'@scope/dep': '*'})
+    imports('bare_prefix_only_builtin_fails', 'import "test";', 1, ('undeclared npm dependency test',))
+    imports('unknown_node_builtin_fails', 'import "node:made-up";', 1, ('undeclared npm dependency',))
+    for name, source in {
+        'export_into_src_fails': 'export * from "../../../src/lib/foo.js";',
+        'import_equals_into_src_fails': 'import x = require("../../../src/lib/foo.js");',
+        'import_type_into_src_fails': 'type X = import("../../../src/lib/foo.js").X;',
+        'literal_dynamic_into_src_fails': 'import("../../../src/lib/foo.js");',
+        'literal_require_into_src_fails': 'require("../../../src/lib/foo.js");',
+    }.items():
+        imports(name, source, 1, ('R-client', 'src/lib/foo.js'))
+    imports('test_outside_src_fails', '', 1, ('R-client', 'src/lib/foo.js'),
+            extra={'packages/a/test/x.test.mts': 'import "../../../src/lib/foo.js";'})
+    imports('symlinked_npm_into_src_fails', 'import "leak";', 1, ('R-client', 'src/lib/leak/index.js'),
+            dependencies={'leak': '*'}, extra={'src/lib/leak/index.js': ''},
+            links={'packages/a/node_modules/leak': 'src/lib/leak'})
+    imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
+            extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
+    imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
+    imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
+    imports('external_resource_attribute_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@resource Path.expand("../../packages/a/x.json", __DIR__)\n@external_resource @resource'})
+    imports('multiline_external_resource_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@external_resource Path.expand(\n  "../../packages/a/x.json",\n  __DIR__\n)'})
+    imports('multiline_resource_attribute_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@resource Path.expand(\n  "../../packages/a/x.json",\n  __DIR__\n)\n@external_resource @resource'})
+    for protocol in ('file', 'link'):
+        imports(protocol + '_dependency_into_sibling_fails', 'import "b";', 1, ('R-client', 'packages/b'),
+                dependencies={'b': protocol + ':../b'}, extra={'packages/b/package.json': '{"name":"b"}'})
+    imports('file_dependency_into_src_fails', 'import "daemon";', 1, ('R-client', 'src/lib'),
+            dependencies={'daemon': 'file:../../src/lib'}, extra={'src/lib/foo.ex': ''})
+    imports('file_dependency_contracts_allowed', 'import "@aiur/contracts";',
+            dependencies={'@aiur/contracts': 'file:../aiur-contracts'},
+            extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}'})
+    imports('parenthesized_external_resource_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
+    imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
+    imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
+            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+                   '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
+                   'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
+    imports('allowlist_is_path_specific', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+                   '@external_resource "../../../packages/a/other.json"'})
+
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
@@ -152,7 +232,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '21 sections, 7 fields, 70 env vars, 13 state paths owned once' in result.stdout
+    assert '21 sections, 7 fields, 70 env vars, 15 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -165,6 +245,18 @@ if not selected or 'malformed_json_exits_2' in selected:
                                 capture_output=True, text=True)
         assert result.returncode == 2 and 'components: components.json:' in result.stderr
         print('PASS: malformed_json_exits_2')
+if with_node and (not selected or 'missing_typescript_exits_2' in selected):
+    ran.add('missing_typescript_exits_2')
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copyfile(checker, root / 'check-components.py')
+        shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
+        result = subprocess.run([sys.executable, str(root / 'check-components.py')],
+                                env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert 'TypeScript missing; run npm ci --prefix scripts/components --ignore-scripts' in result.stderr, result.stderr
+        assert 'ERR_MODULE_NOT_FOUND' not in result.stderr, result.stderr
+        print('PASS: missing_typescript_exits_2')
 if with_elixir and not shutil.which('elixir'):
     sys.exit('Elixir missing; install via mise (--with-elixir cannot skip fixtures)')
 if not with_elixir:
@@ -197,6 +289,11 @@ else:
 
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
     reference_check('declared_facade_passes', 'declared_facade_passes')
+    # Future-regression guard: component routes import the kit, never the shell.
+    reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))
+    reference_check('component_route_shell_fails', 'component_routes', 1,
+                    ('R-down commands -> AiurWeb.Router',),
+                    source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
@@ -280,10 +377,91 @@ else:
 
     reference_check('application_primary_module', 'composition_root_exempt', verify=verify_application_primary)
 
+    def structural(root, source_layer=1, target_layer=1, source_kind='required', target_kind='required', cycle=False):
+        path = root / 'components.json'
+        manifest = json.loads(path.read_text())
+        a, b = manifest['components']
+        a.update(layer=source_layer, kind=source_kind)
+        b.update(layer=target_layer, kind=target_kind)
+        if target_kind == 'optional':
+            a.update(requires=[], optional=['b'])
+        if cycle:
+            b['requires'] = ['a']
+            (root / 'src/lib/b.ex').write_text('defmodule B.Facade do\n A.f()\nend\n')
+        path.write_text(json.dumps(manifest))
+
+    reference_check('upward_reference_fails', 'declared_facade_passes', 1, ('R-down a -> B.Facade',),
+                    change=lambda root: structural(root, target_layer=3))
+    reference_check('same_layer_passes', 'declared_facade_passes', messages=('R-down: 0',),
+                    change=lambda root: structural(root, source_layer=2, target_layer=2))
+    reference_check('downward_reference_passes', 'declared_facade_passes', messages=('R-down: 0',),
+                    change=lambda root: structural(root, source_layer=3))
+    reference_check('required_to_optional_fails', 'declared_facade_passes', 1, ('R-optional a -> B.Facade',),
+                    change=lambda root: structural(root, target_kind='optional'))
+    reference_check('composition_root_may_reference_optional', 'composition_root_exempt',
+                    messages=('R-optional: 0', 'R-down: 0'),
+                    change=lambda root: structural(root, target_kind='optional', target_layer=3))
+    reference_check('optional_to_required_passes', 'declared_facade_passes', messages=('R-optional: 0',),
+                    change=lambda root: structural(root, source_kind='optional'))
+    reference_check('optional_to_optional_passes', 'declared_facade_passes', messages=('R-optional: 0',),
+                    change=lambda root: structural(root, source_kind='optional', target_kind='optional'))
+    reference_check('scc_reported_not_failed', 'declared_facade_passes', messages=("scc: 2 components: ['a', 'b']",),
+                    change=lambda root: structural(root, cycle=True))
+    reference_check('acyclic_components_separate', 'declared_facade_passes',
+                    messages=("scc: 1 components: ['a']", "scc: 1 components: ['b']"))
+    def root_cycle(root):
+        structural(root)
+        (root / 'src/lib/b.ex').write_text('defmodule B.Internal do\n Aiur.f()\nend\n')
+        directory = root / 'scripts/components/allowlist'
+        directory.mkdir(parents=True)
+        (directory / 'b.tsv').write_text('R-declared\tAiur\tfixture\nR-private\tAiur\tfixture\n')
+
+    reference_check('allowlisted_cycle_includes_root', 'composition_root_exempt',
+                    messages=("scc: 2 components: ['a', 'b']",), change=root_cycle)
+    reference_check('rules_allowlisted_separately', 'allowlisted_violation_passes', 1, ('R-down a -> B.Internal',),
+                    change=lambda root: structural(root, target_layer=3))
+
+    def append_baseline(root):
+        structural(root, target_layer=3, target_kind='optional')
+        committed_fixture(root)
+
+    def verify_appended(root, command):
+        path = root / 'scripts/components/allowlist/a.tsv'
+        original = (repo / 'scripts/components/fixtures/allowlisted_violation_passes/scripts/components/allowlist/a.tsv').read_text()
+        sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+        assert path.read_text() == original + f'R-down\tB.Internal\tbaseline {sha}\nR-optional\tB.Internal\tbaseline {sha}\n'
+        before = {p.name: p.read_bytes() for p in path.parent.glob('*.tsv')}
+        result = subprocess.run(command, env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)), capture_output=True, text=True)
+        assert result.returncode == 2 and 'baseline already exists' in result.stderr
+        assert {p.name: p.read_bytes() for p in path.parent.glob('*.tsv')} == before
+        result = subprocess.run([sys.executable, str(checker), '--rules', 'elixir'],
+                                env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)), capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    reference_check('selective_baseline_appends_and_refuses_repeat', 'allowlisted_violation_passes',
+                    change=append_baseline, args=('--write-baseline', '--rules', 'down,optional'), verify=verify_appended)
+    reference_check('selected_rule_does_not_mask_default_gate', 'declared_facade_passes',
+                    change=lambda root: structural(root, target_layer=3), args=('--rules', 'optional'),
+                    messages=('R-optional: 0',))
+    reference_check('unknown_rule_exits_2', 'declared_facade_passes', 2, ('invalid --rules selection',),
+                    args=('--rules', 'unknown'))
+
+    if not selected or 'iterative_tarjan_deep_graph' in selected:
+        ran.add('iterative_tarjan_deep_graph')
+        sys.path.insert(0, str(repo / 'scripts'))
+        from components.reference_rules import strongly_connected
+        graph = {str(i): {str(i + 1)} for i in range(1500)}
+        graph['1500'] = {'0'}
+        groups = strongly_connected(graph)
+        assert len(groups) == 1 and set(groups[0]) == set(graph)
+        graph['1500'] = set()
+        assert len(strongly_connected(graph)) == 1501
+        print('PASS: iterative_tarjan_deep_graph')
+
     if not selected or 'missing_elixir_exits_2' in selected:
         ran.add('missing_elixir_exits_2')
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run([sys.executable, str(checker), '--require-elixir'],
+            result = subprocess.run([sys.executable, str(checker), '--rules', 'elixir', '--require-elixir'],
                                     env=dict(os.environ, PATH=directory), capture_output=True, text=True)
             assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
             print('PASS: missing_elixir_exits_2')
@@ -291,3 +469,8 @@ else:
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
+
+if [[ " $* " == *" --with-elixir "* ]]; then
+  python3 "$repo_root/scripts/test-components-seams.py"
+  python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
+fi

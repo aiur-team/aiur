@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{Slots, State, SustainedLoad}
 
   @cpu_headroom_ramp_max 3
   @reclaimable_cpu_threshold 60.0
@@ -132,8 +132,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def initial_load_envelope_limit(_agent), do: 1
 
   @doc false
-  # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
-  # unit-tested without the orchestrator GenServer.
+  # Pure eager pre-warm decision.
   @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
   def prewarm_gate(false, _phase), do: :dispatch
   def prewarm_gate(true, :ready), do: :dispatch
@@ -141,11 +140,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def prewarm_gate(true, _warming), do: :hold
 
   @doc false
-  # Pure load-threshold check (#465), kept separate for compatibility and unit
-  # testing. The authoritative admission reason additionally corroborates an
+  # The authoritative admission reason additionally corroborates an
   # exceeded threshold with short-window CPU headroom so low-priority runnable
-  # processes — and a load average that no longer reflects current CPU
-  # contention — cannot hold the fleet by themselves.
+  # processes cannot hold the fleet by themselves.
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   def load_gate(_load, nil, _schedulers), do: :dispatch
   def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
@@ -165,6 +162,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         ) :: :dispatch | {:hold, admission_reason()}
   def load_admission_reason(load, threshold, schedulers, cpu_headroom) do
     load
+    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
     |> load_gate(threshold, schedulers)
     |> corroborated_admission_reason(:load, load, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
@@ -204,10 +202,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def fd_headroom_percent, do: @fd_headroom_percent
 
   @doc false
-  # Pure instantaneous run-queue threshold check. The authoritative admission
-  # reason corroborates it with the same CPU headroom used by the load gate, so
-  # niced runnable processes do not masquerade as normal-priority contention.
-  @spec run_queue_gate(integer() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
+  # Instantaneous run-queue check; admission corroborates it with CPU headroom.
+  @spec run_queue_gate(number() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
   def run_queue_gate(_runnable, _schedulers, nil), do: :dispatch
   def run_queue_gate(_runnable, _schedulers, threshold) when not is_number(threshold) or threshold <= 0, do: :dispatch
   def run_queue_gate(:unavailable, _schedulers, _threshold), do: :dispatch
@@ -223,6 +219,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         ) :: :dispatch | {:hold, admission_reason()}
   def run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom) do
     runnable
+    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
     |> run_queue_gate(schedulers, threshold)
     |> corroborated_admission_reason(:run_queue, runnable, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
@@ -444,6 +441,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       ) do
     envelope_state = state.load_envelope_state
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
+    overload_samples = SustainedLoad.count(SystemLoad.gate_signal(load, cpu_headroom, schedulers), target, schedulers, envelope_state)
 
     {effective, last_decrease_ms, bootstrap_complete?} =
       load_envelope_state(
@@ -452,6 +450,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         load,
         %{
           target: target,
+          overload_samples: overload_samples,
           schedulers: schedulers,
           static_limit: Slots.max_concurrent_agent_limit(state),
           ramp_step: Config.load_ramp_step(),
@@ -469,6 +468,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       | effective_concurrent_agents: effective,
         load_envelope_state: %{
           last_decrease_ms: last_decrease_ms,
+          overload_samples: overload_samples,
           cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot),
           bootstrap_complete?: bootstrap_complete?
         }
@@ -481,6 +481,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          load,
          %{schedulers: schedulers} = options
        ) do
+    load = SystemLoad.gate_signal(load, options.cpu_headroom, schedulers)
+
     if load <= options.target * schedulers and fast_recovery?(last_decrease_ms, options) do
       {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
       {next, next_decrease_ms, options.bootstrap_complete?}
@@ -508,25 +510,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do
-    decrease_load_envelope(effective, last_decrease_ms, options)
+    SustainedLoad.decrease(effective, last_decrease_ms, options)
   end
-
-  defp decrease_load_envelope(effective, last_decrease_ms, %{
-         cooldown_ms: cooldown_ms,
-         now_ms: now_ms
-       }) do
-    if cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) do
-      reduced = max(div(effective + 1, 2), 1)
-      {reduced, next_decrease_time(effective, reduced, last_decrease_ms, now_ms)}
-    else
-      {effective, last_decrease_ms}
-    end
-  end
-
-  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective,
-    do: now_ms
-
-  defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
 
   defp clear_cpu_headroom?(headroom) when is_map(headroom) do
     case reclaimable_cpu_percent(headroom) do
@@ -598,11 +583,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        do: min(effective, static_limit)
 
   defp normalize_load_envelope_limit(_effective, static_limit), do: static_limit
-
-  defp cooldown_elapsed?(nil, _cooldown_ms, _now_ms), do: true
-
-  defp cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms),
-    do: now_ms - last_decrease_ms >= cooldown_ms
 
   @spec sort_issues_for_dispatch([term()]) :: [term()]
   def sort_issues_for_dispatch(issues) when is_list(issues) do

@@ -2,26 +2,15 @@
 R-declared	Aiur.Accounts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Boot	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Config.Paths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.CoordinationTasks	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.DecisionAttention	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.DecisionLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.DecisionStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Events.DebugLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Events.Sanitizer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ExternalContent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Fs	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Errors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.IssueDependencies	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.JSONSafe	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.JsonStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Jsonl	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation.Source	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.ApiClient	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.SessionWriterRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -30,12 +19,45 @@ R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.DispatchPolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.ReworkGate	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.StatusReason	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Orchestrator.TicketTransition	#3306 sanctioned lifecycle owner; replaces direct tracker writes without moving caller decisions
 R-declared	Aiur.Orchestrator.TokenAccounting.Payloads	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Perf	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Protocol.MapAccess	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Lifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.SecretRedactor	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Shell	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.TrackerIdentity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Usage.Headless.Emitter	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workflow	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-down	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.BuildOrder.EpicOverrides	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.BuildOrder.EpicOverrides.Override	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Events.DebugLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.ExternalContent	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Opencode.ApiClient	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Opencode.TurnMarkers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Orchestrator.DispatchPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Orchestrator.ReworkGate	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Orchestrator.StatusReason	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Orchestrator.TicketTransition	#3306 sanctioned lifecycle owner; replaces direct tracker writes without moving caller decisions
+R-down	Aiur.Orchestrator.TokenAccounting.Payloads	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Accounts.UsageReadings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.BuildOrder.EpicOverrides	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.BuildOrder.EpicOverrides.Override	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Events.DebugLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.Client	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.Errors	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.IssueDependencies	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Opencode.ApiClient	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Opencode.TurnMarkers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.RunTelemetry.Lifecycle	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Usage.Headless.Emitter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-declared	Aiur.Commands	#3312 delivery and request callers retain upward Commands dependency until the agent-side port
+R-down	Aiur.Commands	#3312 delivery and request callers retain upward Commands dependency until the agent-side port
+R-private	Aiur.BuildOrder.EpicOverrides	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:12 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.EpicOverrides.Override	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:17 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers

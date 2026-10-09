@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Sourced through BASH_ENV for local Aiur coding-agent shells and by the
-# shell-independent Mix/mise command wrappers. It intentionally gates only Mix
-# compile/test work; editing, Git, and other shell commands stay free to run
-# while a verification command holds a lease.
+# shell-independent command wrappers. It gates Mix
+# compile/test/static analysis and browser work; other commands stay free to run.
 
 if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   AIUR_BUILD_GATE_HOOK_LOADED=1
 
+  source "$(dirname "${BASH_SOURCE[0]}")/browser_build_gate.bash"
   aiur_build_gate_log() {
     printf 'aiur_build_gate %s\n' "$*" >&2
   }
@@ -39,7 +39,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
   aiur_build_gate_needs_slot() {
     case ${1:-} in
-      compile | test) return 0 ;;
+      compile | test | lint | credo | dialyzer) return 0 ;;
       *) return 1 ;;
     esac
   }
@@ -1710,8 +1710,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       [[ -n $path_entry ]] || path_entry=.
 
-      if [[ ! $path_entry/elixir -ef ${AIUR_BUILD_GATE_BIN:-}/elixir ]] &&
-        ! aiur_build_gate_is_wrapper_file "$path_entry/elixir"; then
+      if [[ ! $path_entry/${1:-elixir} -ef ${AIUR_BUILD_GATE_BIN:-}/${1:-elixir} ]] &&
+        ! aiur_build_gate_is_wrapper_file "$path_entry/${1:-elixir}"; then
         filtered_path+="$separator$path_entry"
         separator=:
       fi
@@ -1886,17 +1886,17 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   mise() {
-    local mise_binary phase classification
+    local mise_binary phase classification PATH=$PATH MISE_BIN __MISE_BIN __MISE_EXE
     mise_binary=$(aiur_build_gate_real_command mise)
 
     if [[ -z $mise_binary ]]; then
       aiur_build_gate_command_unavailable mise
       return $?
     fi
-
+    PATH=$(aiur_build_gate_path_without_wrapper mise)
+    export PATH MISE_BIN="$mise_binary" __MISE_BIN="$mise_binary" __MISE_EXE="$mise_binary"
     aiur_build_gate_normalize_mise_args "$@"
     set -- "${aiur_build_gate_normalized_args[@]}"
-
     if phase=$(aiur_build_gate_mise_phase "$@"); then
       classification=0
     else

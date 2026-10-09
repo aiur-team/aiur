@@ -2,20 +2,12 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, OperatorWaitLog, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, Commands, OperatorWaitLog, TrackerIdentity}
 
-  alias Aiur.Orchestrator.{
-    AutoSubscriptions,
-    CommentWake,
-    DigestCoalescer,
-    LifecycleFence,
-    PauseResume,
-    State
-  }
-
-  alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, DigestCoalescer, LifecycleFence, PauseResume, State}
 
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
+  alias Aiur.Orchestrator.StatusReason
   @max_operator_message_chars 8_000
   @operator_message_call_timeout_ms 5_000
 
@@ -200,22 +192,22 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier),
       do: queue_api_call(server, {:fail_delivered_queue_items, issue_identifier, reason})
 
-  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
-  def enqueue_event_digest_item(%State{} = state, identifier, events, _summary_source)
-      when is_binary(identifier) and is_list(events) do
+  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map(), keyword()) :: State.t()
+  def enqueue_event_digest_item(%State{} = state, identifier, events, _summary_source, opts \\ [])
+      when is_binary(identifier) and is_list(events) and is_list(opts) do
     events = reject_already_queued_events(state.queue_store, events)
 
     if events == [] do
       state
     else
-      do_enqueue_event_digest_item(state, identifier, events)
+      do_enqueue_event_digest_item(state, identifier, events, Keyword.get(opts, :subscribed_to))
     end
   end
 
-  defp do_enqueue_event_digest_item(state, identifier, events) do
+  defp do_enqueue_event_digest_item(state, identifier, events, subscribed_to) do
     summary_source = if length(events) == 1, do: List.first(events), else: %{events: events}
 
-    blocker_critical? = blocker_critical_events?(state, identifier, events)
+    blocker_critical? = blocker_critical_events?(state, identifier, events, subscribed_to)
 
     body = %{
       summary: CommentWake.event_digest_summary(summary_source),
@@ -233,6 +225,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     next_state =
       state
       |> Map.put(:queue_store, queue_store)
+      |> maybe_replace_completed_runner(running_entry)
       |> LifecycleFence.protect_queued_item(identifier, item)
 
     case running_entry do
@@ -246,8 +239,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     next_state
   end
 
-  defp blocker_critical_events?(state, identifier, events) do
-    direct_blockers = AutoSubscriptions.direct_blockers_for(state, identifier)
+  defp blocker_critical_events?(state, identifier, events, subscribed_to) do
+    direct_blockers = AutoSubscriptions.direct_blockers_for(state, identifier, subscribed_to)
 
     AutoSubscriptions.blocker_critical_digest?(
       %{category: :coordination_event, event_type: :events_digest, body: %{events: events}},
@@ -255,10 +248,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     )
   end
 
-  # The orchestrator may queue a terminal CI event synchronously before it
-  # resumes a runner, while the durable SubscriptionStore delivers the same
-  # exchange event asynchronously. Keep one queue item even if the second copy
-  # arrives after the first was already delivered or consumed.
+  # Deduplicate synchronous CI wakes and asynchronous exchange copies, even
+  # after the original item was delivered or consumed.
   defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do
     known_ids =
       queue_store.items
@@ -294,10 +285,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
   defp event_id(_event), do: nil
 
-  @spec enqueue_event_digest_call(State.t(), String.t(), map()) ::
+  @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
           {:reply, :ok, State.t()}
-  def enqueue_event_digest_call(%State{} = state, identifier, event) do
-    {:reply, :ok, enqueue_event_digest_item(state, identifier, [event], event)}
+  def enqueue_event_digest_call(%State{} = state, identifier, event, opts \\ []) do
+    {:reply, :ok, enqueue_event_digest_item(state, identifier, [event], event, opts)}
   end
 
   @spec enqueue_event_digest_batch_call(State.t(), String.t(), [map()]) ::
@@ -859,6 +850,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     {:ok, queue_store, item, :accepted}
   end
 
+  defp maybe_replace_completed_runner(state, nil), do: state
+
   defp maybe_replace_completed_runner(state, running_entry) do
     case Map.get(running_entry, :issue) do
       %Aiur.Issue{} = issue -> PauseResume.replace_completed_issue(state, running_entry, issue)
@@ -991,7 +984,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
-    Aiur.DecisionStore.record_transport_batch_async(transition, List.wrap(items), reason)
+    Commands.record_transport_batch_async(transition, List.wrap(items), reason)
     next_state = %{state | queue_store: queue_store}
     maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
     {:reply, :ok, next_state}

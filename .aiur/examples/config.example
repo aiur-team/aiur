@@ -82,8 +82,8 @@ agent:
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
-  # max_load_average: 1.5                # load ceiling, CPU-corroborated; set null to disable
-  # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
+  # max_load_average: 1.5                # minus CPU niced above the daemon, CPU-corroborated; null disables
+  # target_load_average: 1.0             # per-scheduler target on the same signal; null disables
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
@@ -223,6 +223,7 @@ alerts:
 
 # Build queue (GitHub only; defaults shown).
 # build_queue:
+#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes

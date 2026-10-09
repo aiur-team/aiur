@@ -12,8 +12,24 @@ const retainedBinaryExtensions = new Set(['.png', '.zip'])
 // variable cannot start the fixture server at all. It is a path to a system
 // binary, not a credential, so both allowlists below forward it.
 const realGitName = 'AIUR_REAL_GIT'
+const buildAdmissionNames = [
+  'BASH_ENV',
+  'AIUR_BUILD_GATE_BIN',
+  'AIUR_BUILD_GATE_DIR',
+  'AIUR_BUILD_GATE_LOCK_DIR',
+  'AIUR_BUILD_GATE_SLOTS',
+  'AIUR_BUILD_START_STAGGER_SECONDS',
+  'AIUR_MIN_FREE_MEMORY_MB',
+  'AIUR_BUILD_GATE_TIMEOUT_SECONDS',
+  'AIUR_BUILD_GATE_MAX_HOLD_SECONDS',
+  'AIUR_BUILD_GATE_RETAIN_SECONDS',
+  'AIUR_BUILD_GATE_LEASE_PATH',
+  'AIUR_BUILD_GATE_LEASE_TOKEN',
+  'AIUR_BROWSER_GATE_WORKSPACE',
+]
 const inheritedRuntimeNames = [
   realGitName,
+  ...buildAdmissionNames,
   // Names the evidence directory for a #1358 proof run so a re-run can be
   // written back into the same committed directory instead of a new timestamp.
   'AIUR_STREAMDECK_PROOF_RUN',
@@ -67,6 +83,7 @@ export function browserChildEnvironment(environment = process.env, overrides = {
 // can be asserted without spawning the server that module starts on import.
 const fixtureRuntimeNames = [
   realGitName,
+  ...buildAdmissionNames,
   'HOME',
   'PATH',
   'TMPDIR',

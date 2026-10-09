@@ -26,6 +26,20 @@
     },
     "directory_published": {
       "type": "boolean"
+    },
+    "seams": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "ports": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
     }
   },
   "$defs": {
@@ -194,6 +208,13 @@
             "pattern": "^[a-z][a-z0-9-]*$"
           },
           "uniqueItems": true
+        },
+        "forbid": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/modulePattern"
+          }
         }
       },
       "if": {
@@ -208,6 +229,51 @@
       "then": {
         "properties": {
           "facade_pending": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "modulePattern": {
+      "type": "string",
+      "pattern": "^(?:Aiur|AiurWeb)(?:\\.[A-Z][A-Za-z0-9_]*)*(?:\\.\\*)?$"
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to_module",
+        "kind",
+        "reason"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "to_module": {
+          "$ref": "#/$defs/modulePattern"
+        },
+        "kind": {
+          "enum": [
+            "reference",
+            "behaviour"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allow_forbidden": {
+          "type": "boolean"
+        },
+        "only_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
             "type": "string",
             "minLength": 1
           }

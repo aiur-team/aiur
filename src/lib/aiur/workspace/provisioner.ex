@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.Provisioner do
   """
 
   require Logger
-  alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Materialize, Reconstruction, Remote, WipPreservation}
 
@@ -124,7 +124,7 @@ defmodule Aiur.Workspace.Provisioner do
   @doc false
   @spec resolve_branch_name(Path.t(), map()) :: String.t()
   def resolve_branch_name(workspace, issue_context) do
-    resolve_branch_name(workspace, issue_context, &Tracker.fetch_open_pull_request_for_branch/1)
+    resolve_branch_name(workspace, issue_context, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
   end
 
   @doc false

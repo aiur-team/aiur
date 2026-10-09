@@ -8,7 +8,8 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     assert verdict(open?: false, state_reason: "completed") == :satisfied
     assert verdict(open?: false, state_reason: "not_planned") == {:failed, :not_planned}
     assert Readiness.edge_verdict(observation(open?: false, state_reason: "not_planned"), Keyword.put(@opts, :not_planned, :satisfy)) == :satisfied
-    for reason <- ["duplicate", nil, "other"], do: assert(verdict(open?: false, state_reason: reason) == {:unknown, :closed_reason})
+    assert verdict(open?: false, state_reason: "duplicate") == {:unknown, :duplicate}
+    for reason <- [nil, "other"], do: assert(verdict(open?: false, state_reason: reason) == {:unknown, :closed_reason})
   end
 
   test "open prerequisites preserve failures and use the configured prefix" do

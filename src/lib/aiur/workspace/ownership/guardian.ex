@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   require Logger
 
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.ProcessTree
   alias Aiur.Workspace.HostBoot
   alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
@@ -115,13 +115,13 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       host_boot_id_fun: Keyword.get(opts, :host_boot_id_fun, &HostBoot.id/0),
       waiters: MapSet.new(),
       release_waiters: [],
-      reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.reap_process_group/2),
-      group_alive_fun: Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1),
-      root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.reap_process_tree/2),
-      root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
-      process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.reap_process/2),
-      process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
-      process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
+      reap_fun: Keyword.get(opts, :reap_fun, &ProcessTree.reap_process_group/2),
+      group_alive_fun: Keyword.get(opts, :group_alive_fun, &ProcessTree.process_group_alive?/1),
+      root_reap_fun: Keyword.get(opts, :root_reap_fun, &ProcessTree.reap_process_tree/2),
+      root_alive_fun: Keyword.get(opts, :root_alive_fun, &ProcessTree.process_alive?/1),
+      process_reap_fun: Keyword.get(opts, :process_reap_fun, &ProcessTree.reap_process/2),
+      process_alive_fun: Keyword.get(opts, :process_alive_fun, &ProcessTree.process_alive?/1),
+      process_identity_fun: Keyword.get(opts, :process_identity_fun, &ProcessTree.process_identity/1),
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
       audit_fun: Keyword.get(opts, :audit_fun, &AuditLog.write/1),
       host_lock: Map.get(receipt, :host_lock),

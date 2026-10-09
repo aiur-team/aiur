@@ -226,7 +226,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
-| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
+| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
@@ -245,9 +245,9 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
-| `agent.max_load_average` | float | 1.5 | Per-scheduler load ceiling. Above it, dispatch holds only when a short-window CPU sample also shows less than 60% reclaimable capacity (idle + niced CPU); null disables it. Until that sample exists — the first dispatch decision after the daemon starts has nothing to compare against — dispatch proceeds, and the next cycle holds if the measured window confirms the contention. |
-| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. Starts at one slot and widens only on a new below-target sample no older than one dispatch period. Load and CPU probes run outside the Orchestrator with a one-second timeout. |
-| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
+| `agent.max_load_average` | float | 1.5 | Per-scheduler ceiling on total load minus CPU of processes niced above the daemon, floored at zero. The fleet inherits the daemon's nice, so it always counts. Above the ceiling, holds below 60% reclaimable CPU. Null disables it; a missing CPU window admits. |
+| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler target using the hard gate’s signal; null disables it. Starts at one slot; halves after 3 fresh above-target samples. At-target or unavailable samples reset the streak; below-target samples widen. Samples expire after one dispatch period; probes time out after one second. |
+| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable ceiling; null disables it. Subtracts CPU of processes niced above the daemon from `procs_running`, floored at zero. Above the scaled ceiling, holds only below 60% reclaimable CPU. This estimates demand rather than counting tasks exactly. |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase per fresh sample while load is below the target. CPU headroom cannot jump the startup envelope to the full cap. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
@@ -402,12 +402,12 @@ Local Codex turns use Aiur's shared build admission.
 | Hold-timeout backstop | A slot held past `agent.build_gate_max_hold_seconds` (default 1h) is released by the lease holder itself, which logs and leaves a durable `slot-N.hold-timeout` marker. `aiur status` prints those as `BUILD GATE TIMEOUT` lines, and the daemon raises a needs-attention alert naming the command — the same backstop bounds both a leaked holder waiting on reparented daemons and a `--trace` run that monopolises a slot. |
 | Post-command retain | After the wrapped command exits, the holder keeps the slot only while a descendant is still consuming CPU (`agent.build_gate_retain_seconds`, default 120s, is the ceiling for that busy descendant). A descendant tree that goes idle for one second is treated as an adopted session daemon (`dbus-daemon`, `gnome-keyring-daemon`), so the slot is released immediately and nothing is signalled — the keyring daemon holds the fleet's GitHub credential. The effective retain is observable in `aiur status` (`retain_seconds=`) and in the `lease_retained` gate log line. |
 | Dead holder | A lease whose holder has exited is released automatically: Linux releases the flock with the process, and the PID fallback reclaims a slot whose recorded owner and process group are gone. A legitimately long-running build with a live holder keeps its lease; only the absolute max-hold backstop reaps by elapsed time. |
+| Browser tests | Playwright CLI runs (including `src/browser`) share the host cap and serialize per workspace; only the wrapper holds the workspace lock, so a crashed run's surviving browser child does not keep it. Run only affected browser specs locally; CI runs the full harness. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
-Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
-or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
-`--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
-holds one live-token lease.
+Build admission covers direct `mix compile`, `mix test`, `mix lint`, `mix credo` and `mix dialyzer`, `mix do` compounds (`+` or comma), `elixir -S mix`, and `mise exec` / `mise x` after `--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain holds one live-token lease.
+
+Reviewer worktrees run `<repo>/scripts/build-gate mise exec -- mix lint` from `src/`. Set the fleet's `AIUR_BUILD_GATE_DIR` and `AIUR_BUILD_GATE_SLOTS` (required) and copy its other `AIUR_BUILD_*` and `AIUR_MIN_FREE_MEMORY_MB` values. The command holds one `review` lease shown in `aiur status`, keeps its exit status, and fails closed.
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
@@ -422,7 +422,7 @@ Fleet admission uses total host pressure instead of a hard-coded process count, 
 | --- | --- |
 | CPU load and adaptive AIMD envelope | `agent.max_load_average`, `agent.target_load_average`, `agent.load_ramp_step`, and `agent.load_cooldown_seconds` reduce and re-ramp capacity around per-scheduler targets. |
 | Run queue | `agent.run_queue_threshold` reacts to `procs_running` spikes before the one-minute load average catches up. |
-| CPU corroboration | High load or runnable counts hold dispatch only when consecutive CPU samples show less than 60% reclaimable capacity; idle and niced CPU count as reclaimable. Without a measurable window there is no hold, so every `capacity_hold` for `load` or `run_queue` carries the reclaimable-CPU measurement behind it. |
+| CPU corroboration | Reclaimable CPU is idle plus CPU of processes niced above the daemon, scanned from `/proc/<pid>/stat` every 10s off the dispatch path. Unreadable procfs gives no discount and idle-only headroom. Status shows total load, gate signal and daemon nice. The subtraction is an estimate. |
 | Memory, file descriptors, build pressure, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. |
 | Recovery | Gates reopen when pressure clears, and AIMD re-ramps within its cooldown window. |
 
@@ -751,16 +751,16 @@ The durable repository Executor state also records every daemon start and stop i
 
 ## build_queue
 
-Build queue configuration for GitHub workflows; Linear is unsupported, and the queue reconciler is delivered separately.
+Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. |
+| `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. A queue can override it with `--start-on`; missing or stale evidence never releases dependents. Optimistic stages use lifecycle labels. |
+| `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
 | `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
-| `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for a merged PR whose issue remains open; 60..86400. |
-
+| `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for an `issue_closed` queue prerequisite whose PR merged but issue remains open; 60..86400. |
 ## build_order
 
 | Key | Type | Default | Controls |
