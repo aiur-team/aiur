@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Context do
   @moduledoc "Pure policy normalizing an issue-or-identifier into the workspace issue-context map: pr- leaf naming, todo-dispatch classification, log formatting."
 
-  alias Aiur.TicketBranch
+  alias Aiur.{OptimisticStart, TicketBranch}
 
   @spec todo_dispatch?(map()) :: boolean()
   def todo_dispatch?(%{issue_state: issue_state, issue_labels: labels}) do
@@ -28,6 +28,7 @@ defmodule Aiur.Workspace.Context do
       issue_state: Map.get(issue, :state),
       issue_labels: Map.get(issue, :labels, []),
       pr_head_ref: pr_head_ref,
+      start_point: OptimisticStart.start_point(Map.get(issue, :optimistic_start)),
       branch_name: pr_head_ref || TicketBranch.branch_name(issue_identifier, Map.get(issue, :title))
     }
   end
@@ -39,6 +40,7 @@ defmodule Aiur.Workspace.Context do
       issue_state: nil,
       issue_labels: [],
       pr_head_ref: nil,
+      start_point: nil,
       branch_name: TicketBranch.legacy_branch_name(identifier)
     }
   end
@@ -50,6 +52,7 @@ defmodule Aiur.Workspace.Context do
       issue_state: nil,
       issue_labels: [],
       pr_head_ref: nil,
+      start_point: nil,
       branch_name: TicketBranch.legacy_branch_name("issue")
     }
   end

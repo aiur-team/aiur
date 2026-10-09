@@ -38,6 +38,7 @@ defmodule Aiur.Workspace.ContextTest do
              issue_state: nil,
              issue_labels: [],
              pr_head_ref: nil,
+             start_point: nil,
              branch_name: "aiur/ABC-1"
            }
   end

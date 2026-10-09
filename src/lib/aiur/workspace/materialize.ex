@@ -17,10 +17,14 @@ defmodule Aiur.Workspace.Materialize do
   @doc false
   @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
-  def materialize_from_base(base, workspace, branch_name, nil) when is_binary(branch_name) do
+  def materialize_from_base(base, workspace, branch_name, pr_head_ref),
+    do: materialize_from_base(base, workspace, branch_name, pr_head_ref, nil)
+
+  @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil, map() | nil) :: :ok | {:error, term()}
+  def materialize_from_base(base, workspace, branch_name, nil, start_point) when is_binary(branch_name) do
     materialize(workspace, fn stage ->
       with {_out, 0} <- copy_tree(base, stage),
-           :ok <- Checkout.checkout_fresh_branch(stage, branch_name) do
+           :ok <- Checkout.checkout_fresh_branch(stage, branch_name, start_point) do
         :ok
       else
         other -> {:error, other}
@@ -28,7 +32,7 @@ defmodule Aiur.Workspace.Materialize do
     end)
   end
 
-  def materialize_from_base(base, workspace, _branch_name, pr_head_ref)
+  def materialize_from_base(base, workspace, _branch_name, pr_head_ref, _start_point)
       when is_binary(pr_head_ref) do
     materialize(workspace, fn stage ->
       with {_out, 0} <- copy_tree(base, stage),

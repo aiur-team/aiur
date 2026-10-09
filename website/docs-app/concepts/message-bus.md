@@ -83,6 +83,10 @@ Agents automatically subscribe to events relevant to their ticket, pull request,
 | Base-branch pushes | Warns when the integration target moves. |
 | Blocker lifecycle and branch pushes | Resumes the dependent ticket on explicit readiness. |
 
+Dispatch also creates the standard blocker subscriptions from hydrated native dependencies before spawning a worker, without posting the dependency again.
+
+They use `blocker:auto` on the dependent and `blockee:auto` on the blocker, just like `aiur_declare_blocker`. An optimistic dispatch declines if binding fails, so the worker cannot start without hearing blocker pushes.
+
 Manual `aiur_subscribe` is for additional watch cases, not for the standard ticket lifecycle.
 
 ## Manual subscription scope
