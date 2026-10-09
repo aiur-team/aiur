@@ -27,6 +27,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     cond do
       f.item.override != nil -> result(:overridden, f.item.override)
       f.todo and not own_promotion?(f) -> result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+      awaiting_promotion?(f) -> result(:unknown, :awaiting_promotion_observation)
       external_removal?(f) -> external_hold(f)
       held?(f) -> result(:held, f.item.hold || :queue_hold)
       true -> managed_labels(f)
@@ -58,6 +59,11 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp claimed(f) do
     if withdrawing?(f), do: result(:claimed, nil, {:hold_release, f.item.issue_id}), else: result(:claimed, nil)
   end
+
+  defp awaiting_promotion?(%{todo: false, item: %{promoted_at: %DateTime{} = promoted_at}, observation: observation}),
+    do: observation.observed_at_ms <= DateTime.to_unix(promoted_at, :millisecond)
+
+  defp awaiting_promotion?(_facts), do: false
 
   defp external_removal?(f), do: not f.todo and f.item.promoted_at != nil and not intent?(f, :withdraw)
   defp own_promotion?(f), do: f.item.promoted_at != nil or intent?(f, :promote)

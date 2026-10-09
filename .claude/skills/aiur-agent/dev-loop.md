@@ -165,9 +165,9 @@ focused test runner, test-tree paths and CI gate at each step.
    `cd src && mise exec -- mix aiur.affected_tests`, which maps the modules you
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
-   Running only the affected tests also keeps full-suite log volume out of your
-   context. Before marking the PR ready or handing off to CI/review, run all
-   required checks and fix any failures:
+   Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
+   Running only the affected tests also keeps full-suite log volume out of your context.
+   Before marking the PR ready or handing off to CI/review, run all required checks and fix any failures:
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
    - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
