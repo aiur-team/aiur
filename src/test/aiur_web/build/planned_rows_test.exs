@@ -7,7 +7,8 @@ defmodule AiurWeb.Build.PlannedRowsTest do
   @history {:ok, %{rows: %{}}}
 
   defmodule Queue do
-    def show, do: Aiur.Test.BuildHome.QueueReadModelFixture.show([Aiur.Test.BuildHome.QueueReadModelFixture.item(1)])
+    alias Aiur.Test.BuildHome.QueueReadModelFixture, as: Fixture
+    def show, do: Fixture.show([Fixture.item(1)])
   end
 
   defmodule Crashed do
@@ -49,7 +50,9 @@ defmodule AiurWeb.Build.PlannedRowsTest do
 
     assert PlannedRows.read(queue: NotInstalled, history_snapshot: @history).source == %{state: "disabled", observed_at: nil, reason: "not_installed"}
     assert [%{num: 1}] = PlannedRows.read(queue: Queue, history: Crashed).rows
-    assert [%{num: 1}] = PlannedRows.read(queue: Queue, history: Raised, history_snapshot: @history).rows
+    assert [%{num: 1}] = PlannedRows.read(queue: Queue, history: Raised).rows
+    closed = {:ok, %{rows: %{1 => %{lifecycle: %{state: :closed}}}}}
+    assert [] == PlannedRows.read(queue: Queue, history: Raised, history_snapshot: closed).rows
     assert [%{num: 1}] = PlannedRows.build(show([item(1)]), {:error, :unavailable}, []).rows
   end
 
