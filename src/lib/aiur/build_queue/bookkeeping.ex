@@ -4,6 +4,7 @@ defmodule Aiur.BuildQueue.Bookkeeping do
   @spec apply(map(), {atom(), String.t()}) :: map()
   def apply(document, {:mark_override, id}), do: update_item(document, id, &%{&1 | override: :manual_promotion})
   def apply(document, {:mark_external_hold, id}), do: update_item(document, id, &%{&1 | hold: :external})
+  def apply(document, {:withdraw_observed, id}), do: update_item(document, id, &%{&1 | promoted_at: nil})
 
   def apply(document, {:dequeue, id}) do
     %{document | items: Enum.reject(document.items, &(&1.issue_id == id)), edges: Enum.reject(document.edges, &(&1.prerequisite == id or &1.dependent == id))}
