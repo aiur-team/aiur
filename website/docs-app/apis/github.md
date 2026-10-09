@@ -239,15 +239,12 @@ asked. Two rules keep a `304` honest.
 
 **A page-1 ETag cannot answer a multi-page question.**
 
-GitHub orders most collections so page 1 becomes effectively immutable while
-the interesting changes land elsewhere: issue timelines are oldest-first, and
-issue and pull request listings are `created` desc. A `304` against a page-1
-ETag therefore means "page 1 is unchanged" — never "the whole list is
-unchanged".
+GitHub orders issue timelines oldest-first and issue/PR listings by `created` desc.
+Changes can land beyond page 1, so a page-1 `304` means "page 1 is unchanged",
+never "the whole list is unchanged".
 
-A page-1 `304` on a churned ticket is permanently stale, with no self-healing,
-because the change that would refresh it is exactly the change that lands on a
-later page.
+A page-1 `304` on a churned ticket cannot self-heal: the change that would
+refresh it lands on a later page.
 
 Only trust a `304` for a paginated read when the read was single-page (then
 page 1 *is* the list), or when the validator kept is the last page's rather
