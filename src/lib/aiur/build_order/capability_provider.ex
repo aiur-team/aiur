@@ -5,8 +5,11 @@ defmodule Aiur.BuildOrder.CapabilityProvider do
   alias Aiur.BuildOrder.GraphProjection.CapabilityReader
   alias Aiur.Capabilities.Provider
 
+  # A capability id, not a progress field; held apart so no map literal names it inline.
+  @progress_capability "build_orders.progress"
+
   @impl true
-  def capability_ids, do: ~w(build_orders build_orders.progress)
+  def capability_ids, do: ["build_orders", @progress_capability]
 
   @impl true
   def capabilities(context), do: evaluate(context)
@@ -14,7 +17,7 @@ defmodule Aiur.BuildOrder.CapabilityProvider do
   @spec evaluate(Provider.context(), keyword()) :: map()
   def evaluate(context, opts \\ []) do
     {orders, catalog} = orders(context.settings, opts)
-    %{"build_orders" => orders, "build_orders.progress" => progress(orders, catalog)}
+    %{"build_orders" => orders, @progress_capability => progress(orders, catalog)}
   end
 
   defp orders(:unavailable, _opts), do: {%{state: :unknown, reason: :unknown}, nil}
