@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.State do
           load_envelope_state: %{
             optional(:sample_id) => reference() | integer() | nil,
             optional(:sampled_at_ms) => integer() | nil,
+            optional(:overload_samples) => non_neg_integer(),
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()
@@ -63,8 +64,7 @@ defmodule Aiur.Orchestrator.State do
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
           startup_claim_reconciliation_complete?: boolean(),
-          # Per-ticket startup-claim release failures within this boot:
-          # `%{identifier => %{reason: term(), attempts: pos_integer()}}`.
+          orphaned_claim_since: map(),
           startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
@@ -152,9 +152,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_poll: map() | nil,
           github_comment_reconcile_targets: MapSet.t(String.t()),
           github_comment_reconcile_timer: map() | nil,
-          # Monotonic time the asynchronous comment poll last started, used to
-          # throttle it to the `:review` class cadence (#2309). `nil` until the
-          # first start.
+          # Monotonic time the asynchronous comment poll last started, used to throttle
+          # it to the `:review` class cadence (#2309). `nil` until the first start.
           last_comment_poll_started_at_ms: integer() | nil,
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
@@ -234,6 +233,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_result,
     startup_claim_reconciliation_complete?: false,
     startup_claim_reconciliation_failures: %{},
+    orphaned_claim_since: %{},
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
