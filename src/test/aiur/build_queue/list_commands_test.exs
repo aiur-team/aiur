@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   use ExUnit.Case, async: false
   alias Aiur.BuildQueue.{ListCommands, Server}
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
 
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
 
@@ -87,11 +88,11 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   end
 
   test "operator removal publishes a removed hint naming the operator as cause" do
-    :ok = Aiur.Events.Exchange.subscribe("ticket.1.queue.removed")
+    :ok = Exchange.subscribe("ticket.1.queue.removed")
     server()
     assert :ok = Aiur.BuildQueue.add(["1"], "paseo")
     assert :ok = Aiur.BuildQueue.remove("1")
-    Aiur.Events.Exchange.bindings_for(self())
+    Exchange.bindings_for(self())
     assert_received {:event, %{"ticket" => "1", "cause" => "operator", topic: "ticket.1.queue.removed"}}
   end
 
