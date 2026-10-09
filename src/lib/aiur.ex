@@ -515,7 +515,7 @@ defmodule Aiur.Application do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children)
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu])
   end
 
   defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled

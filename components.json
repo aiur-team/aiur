@@ -108,7 +108,7 @@
     },
     {
       "id": "telemetry", "name": "Run telemetry and host health", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/daemon_heartbeat.ex", "src/lib/aiur/daemon_heartbeat_checker.ex", "src/lib/aiur/daemon_heartbeat_writer.ex", "src/lib/aiur/metrics.ex", "src/lib/aiur/run_telemetry.ex", "src/lib/aiur/run_telemetry/**", "src/lib/aiur/saturation_sentinel.ex", "src/lib/aiur/supervision_health.ex", "src/lib/aiur/supervision_health/**", "src/lib/aiur/system_cpu.ex", "src/lib/aiur/system_file_descriptors.ex", "src/lib/aiur/system_load.ex", "src/lib/aiur/system_memory.ex"],
+      "paths": ["src/lib/aiur/daemon_heartbeat.ex", "src/lib/aiur/daemon_heartbeat_checker.ex", "src/lib/aiur/daemon_heartbeat_writer.ex", "src/lib/aiur/metrics.ex", "src/lib/aiur/run_telemetry.ex", "src/lib/aiur/run_telemetry/**", "src/lib/aiur/saturation_sentinel.ex", "src/lib/aiur/supervision_health.ex", "src/lib/aiur/supervision_health/**", "src/lib/aiur/system_cpu.ex", "src/lib/aiur/system_file_descriptors.ex", "src/lib/aiur/system_load.ex", "src/lib/aiur/system_memory.ex", "src/lib/aiur/system_priority.ex", "src/lib/aiur/background_cpu.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "signal"], "optional": [],
       "owns": {"config": ["debug", "max_log_history_mb", "monitoring"], "env": ["AIUR_LOGS_ROOT", "AIUR_NOFILE_SOFT_LIMIT", "AIUR_TELEMETRY_CALLER_CWD"], "state": ["daemon_heartbeat_path", "log_root_dir"], "capabilities": []},
