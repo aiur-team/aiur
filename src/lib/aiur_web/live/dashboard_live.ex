@@ -15,13 +15,13 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
+  alias Aiur.Conversation.History, as: ConversationHistory
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
-  alias Aiur.LiveConversation
   alias Aiur.OpenTicketSource
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
@@ -2307,20 +2307,20 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp subscribe_conversation(socket, handle) do
-    _result = call_conversation(:live_conversation_subscribe_fun, &LiveConversation.subscribe_handle/1, handle)
+    _result = call_conversation(:live_conversation_subscribe_fun, &ConversationHistory.live_subscribe/1, handle)
     socket
   end
 
   defp unsubscribe_conversation(%{assigns: %{conversation_handle: handle}} = socket)
        when is_binary(handle) do
-    _result = call_conversation(:live_conversation_unsubscribe_fun, &LiveConversation.unsubscribe_handle/1, handle)
+    _result = call_conversation(:live_conversation_unsubscribe_fun, &ConversationHistory.live_unsubscribe/1, handle)
     socket
   end
 
   defp unsubscribe_conversation(socket), do: socket
 
   defp resolve_conversation(handle) do
-    call_conversation(:live_conversation_resolve_fun, &LiveConversation.resolve/1, handle)
+    call_conversation(:live_conversation_resolve_fun, &ConversationHistory.live_resolve/1, handle)
   end
 
   defp call_conversation(config_key, default, handle) do

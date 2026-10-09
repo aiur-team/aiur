@@ -13,8 +13,6 @@ R-declared	Aiur.GitHub.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Errors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.IssueDependencies	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation.Source	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.ApiClient	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.SessionWriterRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -36,8 +34,6 @@ R-down	Aiur.DecisionAttention	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.DecisionStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Events.DebugLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.ExternalContent	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-down	Aiur.LiveConversation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-down	Aiur.LiveConversation.Source	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.ApiClient	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -59,8 +55,6 @@ R-optional	Aiur.GitHub.Client	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Errors	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.IssueDependencies	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.LiveConversation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.LiveConversation.Source	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.ApiClient	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
