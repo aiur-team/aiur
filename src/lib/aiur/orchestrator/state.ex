@@ -128,13 +128,12 @@ defmodule Aiur.Orchestrator.State do
           comment_rework_retries: %{
             {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
           },
-          # Transient-caused pause/error tickets waiting a bounded backoff before
-          # automatic re-dispatch (#1453). Keyed by issue_id; see
-          # `Aiur.Orchestrator.AutoResume`.
+          # Transient pause/error backoff keyed by issue_id (AutoResume, #1453).
           auto_resume: %{String.t() => map()},
           # Claims released after retry exhaustion, retained until a later
           # dispatch successfully re-establishes ownership.
           released_claims: %{String.t() => map()},
+          fallback_backoff: %{String.t() => {pos_integer(), integer()}},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -291,6 +290,7 @@ defmodule Aiur.Orchestrator.State do
     comment_rework_retries: %{},
     auto_resume: %{},
     released_claims: %{},
+    fallback_backoff: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
