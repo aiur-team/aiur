@@ -162,6 +162,8 @@ aiur_build_gate_needs_wrapper() {
       esac
       ;;
 
+    node) return 0 ;;
+
     mix)
       case ${1:-} in
         compile | test | do) return 0 ;;

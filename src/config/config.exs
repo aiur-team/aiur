@@ -2,7 +2,22 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :project_identity_source, Aiur.Tracker
+
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
+
+# Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :config_semantic_checks,
+  exclusive: [
+    Aiur.Tracker.SemanticCheck.MissingKind,
+    Aiur.Tracker.SemanticCheck.UnsupportedKind,
+    Aiur.CodingAgent.SemanticCheck.Dispatchable,
+    Aiur.Tracker.SemanticCheck.LinearToken,
+    Aiur.Tracker.SemanticCheck.LinearSlug,
+    Aiur.GitHub.Config.SemanticCheck,
+    Aiur.Claude.Config.SemanticCheck
+  ],
+  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
 
 config :phoenix, :json_library, Jason
 

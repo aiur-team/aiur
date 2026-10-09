@@ -2,6 +2,7 @@ defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -39,8 +40,6 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
-  # One age shape wherever a stale surface appears — reuse #1814's renderer
-  # rather than adding a second one for the CLI.
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -193,6 +192,7 @@ defmodule Aiur.AgentControlCLI do
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     print_executor_wake_status()
+    ProjectionRecovery.print_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -286,7 +286,7 @@ defmodule Aiur.AgentControlCLI do
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running ++ retry_rows(snapshot))
+          print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -297,9 +297,6 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
-
-  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
-  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -1350,7 +1347,7 @@ defmodule Aiur.AgentControlCLI do
         |> Enum.reject(&(&1 == ""))
         |> Enum.map(&reset_budget_one/1)
 
-      exit_marker(if Enum.any?(results, &match?({:error, _}, &1)), do: 1, else: 0)
+      exit_marker(results |> Enum.map(&control_result_exit_code/1) |> Enum.max(fn -> 0 end))
     end)
   end
 
@@ -2119,7 +2116,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2806,7 +2803,8 @@ defmodule Aiur.AgentControlCLI do
         " ",
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
-        agents_activity(agent)
+        agents_activity(agent),
+        WaitingReason.render_wait(agent)
       ])
     end)
   end
@@ -2949,8 +2947,6 @@ defmodule Aiur.AgentControlCLI do
 
   defp format_runtime(_), do: "-"
 
-  # ── aiur watch board ──────────────────────────────────────────────────────
-
   defp watch_row(status) do
     state = watch_state(status)
     age = activity_age_seconds(status)
@@ -2969,7 +2965,9 @@ defmodule Aiur.AgentControlCLI do
       stuck?: stuck?,
       pr_ready?: pr_ready?,
       doing: watch_activity(status),
-      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), stuck?, pr_ready?}
+      waiting: WaitingReason.render_wait(status),
+      signature:
+        {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), Map.take(status[:waiting] || %{}, [:reason, :owner, :cause]), stuck?, pr_ready?}
     }
   end
 
@@ -3102,7 +3100,8 @@ defmodule Aiur.AgentControlCLI do
       " ",
       String.pad_trailing(format_runtime(row.age_seconds), 7),
       " ",
-      watch_doing(row)
+      watch_doing(row),
+      row.waiting
     ]
   end
 
@@ -3330,6 +3329,16 @@ defmodule Aiur.AgentControlCLI do
 
   defp not_running_message do
     "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+  end
+
+  # A GenServer.call timeout does not cancel a mutation already in the mailbox.
+  defp print_failure(action, status, :timeout) when action in [:resume, :reset_budget] do
+    operation = if action == :resume, do: "resume", else: "reset lifetime dispatch budget for"
+
+    control_error(
+      "aiur: outcome unknown for #{operation} #{display_identifier(status)}: the orchestrator did not answer in time " <>
+        "and may still apply the request. Check the ticket status and log before retrying."
+    )
   end
 
   defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do

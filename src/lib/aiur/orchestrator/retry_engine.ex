@@ -27,7 +27,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
     Slots,
     State,
     StatusReport,
-    TokenAccounting
+    TokenAccounting,
+    TrackerHealth,
+    TrackerTasks
   }
 
   @continuation_retry_delay_ms 1_000
@@ -368,6 +370,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       issue_id: issue_id,
       identifier: identifier,
       owner: owner,
+      since: DateTime.utc_now(),
       worker_host: value_from(running, retry, :worker_host),
       retry_attempt: Map.get(running || %{}, :retry_attempt) || Map.get(retry, :attempt),
       prior_work: value_from(running, retry, :prior_work) == true,
@@ -378,9 +381,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp value_from(running, retry, key), do: Map.get(running || %{}, key) || Map.get(retry, key)
 
-  # The runner's initial subscription can release before its contention notice
-  # reaches the orchestrator. Subscribe again only after the row exists, then
-  # store the acknowledged guardian generation that is allowed to release it.
+  # Subscribe after installing the row to catch releases racing the initial contention notice.
   defp synchronize_workspace_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
 
   # The caller already knows the exact generation and subscribes on its own,
@@ -509,10 +510,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
 
-    if failure_retry?(metadata) and next_attempt > Config.max_retry_attempts() do
-      if is_reference(old_timer), do: Process.cancel_timer(old_timer)
+    if is_reference(old_timer), do: Process.cancel_timer(old_timer)
+    error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
-      error_suffix = if is_binary(error), do: " error=#{error}", else: ""
+    if failure_retry?(metadata) and next_attempt > Config.max_retry_attempts() do
       failed_attempts = max(next_attempt - 1, Map.get(previous_retry, :attempt, 0))
 
       Logger.warning("Giving up on issue_id=#{issue_id} issue_identifier=#{identifier} after #{failed_attempts} failed attempt(s); max_retry_attempts=#{Config.max_retry_attempts()}#{error_suffix}")
@@ -530,9 +531,6 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # formatted error string is the fallback (which
       # `Errors.retryable_github_error?/1` treats as permanent).
       exhaustion_reason = effective_exhaustion_reason(transient_reason, error)
-
-      error_alert_emitted? =
-        finalize_exhausted_issue(issue_id, identifier, rework_head_sha, metadata, exhaustion_reason)
 
       # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -574,17 +572,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       released
       |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
-      |> maybe_mark_observed_error_alert(issue_id, error_alert_emitted?)
+      |> start_exhausted_state_write(issue_id, identifier, exhaustion_reason, Map.put(metadata, :rework_head_sha, rework_head_sha))
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
       due_at_ms = System.monotonic_time(:millisecond) + delay_ms
 
-      if is_reference(old_timer), do: Process.cancel_timer(old_timer)
-
       timer_ref = Process.send_after(self(), {:retry_issue, issue_id, retry_token}, delay_ms)
-
-      error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
       log_scheduled_retry(
         issue_id,
@@ -630,21 +624,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp finalize_exhausted_issue(issue_id, identifier, rework_head_sha, metadata, exhaustion_reason) do
-    case rework_handoff_state(identifier, rework_head_sha, metadata) do
+  defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
+    case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do
       {:ok, state_name} ->
-        case Tracker.update_issue_state(identifier, state_name) do
+        case Tracker.update_issue_state(identifier, state_name, opts) do
           :ok ->
             emit_rework_handoff_attention(identifier, state_name)
-            false
+            :ok
 
           {:error, reason} ->
             Logger.warning("Rework handoff state write failed for #{identifier}: #{inspect(reason)}")
-            move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
+            write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, opts)
         end
 
       :none ->
-        move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
+        write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, opts)
     end
   end
 
@@ -689,30 +683,93 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
+  defp start_exhausted_state_write(state, issue_id, identifier, reason, metadata) do
+    release = Map.get(state.released_claims, issue_id)
+    opts = exhausted_write_options(state, issue_id)
+    handoff = Map.take(metadata, [:rework_head_sha, :open_pr_fetcher, :commit_ci_status_fetcher])
+
+    TrackerTasks.run(state, {:retry_exhausted, issue_id}, fn -> finalize_exhausted_issue(issue_id, identifier, handoff, reason, opts) end, fn current, result ->
+      apply_exhausted_state_write(current, issue_id, release, result)
+    end)
+  end
+
+  defp exhausted_write_options(state, issue_id) do
+    case Map.get(state.last_polled_issues, issue_id) do
+      %Issue{state: issue_state} when is_binary(issue_state) -> [expected_state: issue_state]
+      _ -> []
+    end
+  end
+
+  defp apply_exhausted_state_write(current, issue_id, release, result) do
+    if Map.get(current.released_claims, issue_id) == release and not Map.has_key?(current.running, issue_id) do
+      maybe_mark_observed_error_alert(current, issue_id, result == :alert_emitted)
+    else
+      current
+    end
+  end
+
   @spec handle_retry_issue(State.t(), String.t(), integer(), map(), keyword()) :: {:noreply, State.t()}
   def handle_retry_issue(%State{} = state, issue_id, attempt, metadata, opts \\ []) do
-    if retry_capacity_available?(state, metadata) do
-      ensure_tracker_preflight = Keyword.get(opts, :ensure_tracker_preflight_fun, &Orchestrator.ensure_tracker_preflight/1)
-
-      case ensure_tracker_preflight.(state) do
-        {:ok, state} ->
-          handle_retry_tracker_poll(state, issue_id, attempt, metadata, opts)
-
-        {:error, reason, state} ->
-          formatted = format_retry_preflight_error(reason)
-
-          Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
-
-          # Pass the structured reason (not the formatted string) so retry-poll
-          # exhaustion can classify a transient tracker fault for the #1453
-          # automatic re-dispatch.
-          {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
-      end
+    if retry_capacity_available?(state, metadata) and not state.globally_paused do
+      start_retry_poll(state, issue_id, attempt, metadata, opts)
     else
-      Logger.debug("No available slots for retrying issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}; retrying again")
-
       {:noreply, schedule_capacity_retry(state, issue_id, attempt, metadata)}
     end
+  end
+
+  defp start_retry_poll(state, issue_id, attempt, metadata, opts) do
+    expected = {Map.get(state.retry_attempts, issue_id), MapSet.member?(state.claimed, issue_id)}
+
+    next =
+      TrackerTasks.run(state, {:retry_poll, issue_id}, fn -> fetch_retry_poll(issue_id, opts) end, fn current, result ->
+        apply_current_retry_poll(current, expected, issue_id, attempt, metadata, opts, result)
+      end)
+
+    {:noreply, next}
+  end
+
+  defp fetch_retry_poll(issue_id, opts) do
+    candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &Tracker.fetch_candidate_issues/0)
+    fetch_by_id = Keyword.get(opts, :fetch_issue_states_by_ids_fun, &Tracker.fetch_issue_states_by_ids/1)
+
+    with :ok <- retry_tracker_preflight(opts),
+         {:ok, issues} <- candidates.() do
+      fetch_retry_issue(issues, issue_id, fetch_by_id)
+    end
+  end
+
+  defp retry_tracker_preflight(opts) do
+    case Keyword.fetch(opts, :ensure_tracker_preflight_fun) do
+      {:ok, ensure} -> normalize_retry_preflight(ensure.(%State{}))
+      :error -> TrackerHealth.tracker_preflight()
+    end
+  end
+
+  defp normalize_retry_preflight({:ok, _state}), do: :ok
+  defp normalize_retry_preflight({:error, reason, _state}), do: {:error, reason}
+
+  defp apply_current_retry_poll(current, expected, issue_id, attempt, metadata, opts, result) do
+    actual = {Map.get(current.retry_attempts, issue_id), MapSet.member?(current.claimed, issue_id)}
+
+    if actual == expected and not Map.has_key?(current.running, issue_id) do
+      apply_retry_poll_result(current, issue_id, attempt, metadata, opts, result)
+    else
+      current
+    end
+  end
+
+  defp apply_retry_poll_result(current, issue_id, attempt, metadata, opts, {:ok, issue}) do
+    if retry_capacity_available?(current, metadata) and not current.globally_paused do
+      {:noreply, next} = handle_retry_issue_lookup(issue, current, issue_id, attempt, metadata, opts)
+      next
+    else
+      schedule_capacity_retry(current, issue_id, attempt, metadata)
+    end
+  end
+
+  defp apply_retry_poll_result(current, issue_id, attempt, metadata, _opts, {:error, reason}) do
+    Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{format_retry_preflight_error(reason)}")
+    handle_retry_poll_failure(current, issue_id, attempt, metadata, reason)
   end
 
   defp retry_capacity_available?(%State{} = state, metadata) when is_map(metadata) do
@@ -726,19 +783,6 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp retry_state_capacity_available?(%State{}, _issue_state), do: true
-
-  defp handle_retry_tracker_poll(state, issue_id, attempt, metadata, opts) do
-    fetch_candidate_issues = Keyword.get(opts, :fetch_candidate_issues_fun, &Tracker.fetch_candidate_issues/0)
-    fetch_issue_states_by_ids = Keyword.get(opts, :fetch_issue_states_by_ids_fun, &Tracker.fetch_issue_states_by_ids/1)
-
-    with {:ok, issues} <- fetch_candidate_issues.(),
-         {:ok, issue} <- fetch_retry_issue(issues, issue_id, fetch_issue_states_by_ids) do
-      handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts)
-    else
-      {:error, reason} ->
-        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
-    end
-  end
 
   defp schedule_capacity_retry(state, issue_id, attempt, metadata) do
     schedule_issue_retry(
@@ -879,7 +923,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @doc false
   @spec move_exhausted_issue_to_error_state(String.t(), String.t(), term()) ::
           :ok | :alert_emitted | {:error, {:no_state_label_written, String.t()}}
-  def move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) when is_binary(identifier) do
+  def move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) when is_binary(identifier),
+    do: write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, [])
+
+  def move_exhausted_issue_to_error_state(_issue_id, _identifier, _exhaustion_reason), do: :ok
+
+  defp write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, opts) do
     if transient_exhaustion_reason?(exhaustion_reason) do
       Logger.warning(
         "Skipping terminal error state for exhausted issue issue_id=#{issue_id} issue_identifier=#{identifier} " <>
@@ -890,7 +939,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     else
       Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
-      case Tracker.update_issue_state(identifier, "error") do
+      case Tracker.update_issue_state(identifier, "error", opts) do
         :ok ->
           message =
             "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
@@ -929,8 +978,6 @@ defmodule Aiur.Orchestrator.RetryEngine do
       end
     end
   end
-
-  def move_exhausted_issue_to_error_state(_issue_id, _identifier, _exhaustion_reason), do: :ok
 
   defp rework_handoff_state(identifier, original_head, metadata) do
     opts = [
@@ -1415,7 +1462,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
     if Orchestrator.retry_candidate_issue?(issue, DispatchPolicy.terminal_state_set()) and
          Slots.dispatch_slots_available?(issue, state) and
          Slots.worker_slots_available?(state, metadata[:worker_host]) do
-      dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/5)
+      dispatch = Keyword.get(opts, :dispatch_fun, retry_dispatch_fun(metadata, opts))
+
       prior_work? = Keyword.get(opts, :prior_work?, metadata[:prior_work] == true)
 
       next_state =
@@ -1440,9 +1488,18 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp ensure_active_retry_started(state, issue, attempt, metadata, opts) do
+  defp retry_dispatch_fun(metadata, opts) do
+    fn current, ticket, attempt, host, dispatch_opts ->
+      completion = fn current -> ensure_active_retry_started(current, ticket, attempt, metadata, opts) end
+      Dispatcher.dispatch_issue(current, ticket, attempt, host, Keyword.put(dispatch_opts, :dispatch_result_fun, completion))
+    end
+  end
+
+  @doc false
+  @spec ensure_active_retry_started(State.t(), Issue.t(), pos_integer() | nil, map(), keyword()) :: State.t()
+  def ensure_active_retry_started(state, issue, attempt, metadata, opts) do
     if live_running_entry?(Map.get(state.running, issue.id)) or
-         Map.has_key?(state.retry_attempts, issue.id) do
+         Map.has_key?(state.retry_attempts, issue.id) or TrackerTasks.issue_pending?(state, issue.id) do
       state
     else
       schedule_retry = Keyword.get(opts, :schedule_retry_fun, &schedule_issue_retry/4)

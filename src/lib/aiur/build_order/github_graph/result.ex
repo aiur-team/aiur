@@ -1,8 +1,9 @@
 defmodule Aiur.BuildOrder.GitHubGraph.Result do
   @moduledoc false
 
+  alias Aiur.Bounded
+
   alias Aiur.BuildOrder.{
-    Bounded,
     Catalog,
     Diagnostic,
     GitHubGraph.Dependencies,

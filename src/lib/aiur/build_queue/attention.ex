@@ -87,7 +87,7 @@ defmodule Aiur.BuildQueue.Attention do
   defp valid_field?({key, value}) when key in [:ticket, :prerequisite, :root], do: issue?(value)
   defp valid_field?({:blocked, value}) when is_list(value), do: Enum.all?(value, &issue?/1)
   defp valid_field?({:queue_id, value}) when is_binary(value), do: Regex.match?(~r/\Aq-[0-9a-f]{4}\z/, value)
-  defp valid_field?({:cause, value}), do: value in (@ticket_causes ++ @system_causes ++ [:agent_error, :pr_closed_unmerged, :not_planned])
+  defp valid_field?({:cause, value}), do: value in (@ticket_causes ++ @system_causes ++ [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate])
   defp valid_field?({:milestone, value}), do: value in [25, 50, 75, 100]
   defp valid_field?({:percent, value}), do: is_integer(value) and value in 0..100
   defp valid_field?({:generation, value}), do: is_integer(value) and value >= 0
@@ -97,6 +97,7 @@ defmodule Aiur.BuildQueue.Attention do
   defp message(:prerequisite_failed, subject, payload) do
     reason =
       case payload[:cause] do
+        :duplicate -> "closed as duplicate (completion unknown)"
         :not_planned -> "closed as not planned"
         :agent_error -> "is in agent:error"
         :pr_closed_unmerged -> "has a PR closed unmerged"
@@ -110,7 +111,7 @@ defmodule Aiur.BuildQueue.Attention do
   defp message(:dependency_changed_after_start, subject, payload),
     do: "##{subject} gained prerequisite ##{payload[:prerequisite]} after it started. Decide whether it pauses; ask the human if unsure."
 
-  defp message(:promoted_unauthorized, subject, _), do: "##{subject} is ready but dispatch is not authorized for it. Ask the human to authorize or hold it."
+  defp message(:promoted_unauthorized, subject, _), do: "##{subject} is ready but dispatch is not authorized for it. An allowed human must apply the marker or agent:todo, or hold it."
   defp message(:merged_issue_open, subject, _), do: "The PR for ##{subject} merged; the issue is still open. Close it or explain why it stays open."
   defp message(:inputs_unavailable, _, _), do: "Queue readiness unknown: inputs unavailable. Wait; do not promote by hand."
   defp message(:store_unavailable, _, _), do: "Queue store unavailable; promotion paused. Report it; do not edit labels by hand."

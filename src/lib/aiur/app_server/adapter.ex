@@ -8,8 +8,8 @@ defmodule Aiur.AppServer.Adapter do
   alias Aiur.{AgentEnvironment, Config}
   alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
+  alias Aiur.ProcessTree
 
   @port_line_bytes 1_048_576
 
@@ -250,7 +250,7 @@ defmodule Aiur.AppServer.Adapter do
 
   defp terminate_uncontained_port(port) do
     case :erlang.port_info(port, :os_pid) do
-      {:os_pid, os_pid} -> RemoteControl.graceful_kill_tree(os_pid)
+      {:os_pid, os_pid} -> ProcessTree.graceful_kill_tree(os_pid)
       _ -> :ok
     end
 

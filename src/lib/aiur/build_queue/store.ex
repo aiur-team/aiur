@@ -35,6 +35,35 @@ defmodule Aiur.BuildQueue.Store do
     end
   end
 
+  @spec rebuild(Model.t()) :: :ok | {:error, term()}
+  def rebuild(document) do
+    with {:ok, path} <- resolve_path(),
+         :ok <- quarantine(path) do
+      persist(path, document)
+    end
+  end
+
+  defp quarantine(path) do
+    case File.read(path) do
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, {:read_failed, reason}}
+
+      {:ok, body} ->
+        quarantine_body(path, Jason.decode(body))
+    end
+  end
+
+  defp quarantine_body(path, {:ok, data}) do
+    if match?({:ok, _}, Model.decode(data)), do: {:error, :store_present}, else: backup(path)
+  end
+
+  defp quarantine_body(path, {:error, _}), do: backup(path)
+
+  defp backup(path), do: File.rename(path, path <> ".corrupt-#{System.system_time(:nanosecond)}")
+
   defp persist(path, document) do
     JsonStore.write!(path, Model.encode(document))
   rescue

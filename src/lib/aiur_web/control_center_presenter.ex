@@ -52,6 +52,14 @@ defmodule AiurWeb.ControlCenterPresenter do
     })
   end
 
+  @doc "An unavailable dashboard payload built without reading any providers."
+  @spec unavailable_payload() :: map()
+  def unavailable_payload do
+    unavailable_fleet()
+    |> compose([], [], unavailable_recent_merges(), %{}, :unavailable)
+    |> Map.update!(:provider_health, &Map.new(&1, fn {key, _health} -> {key, :unavailable} end))
+  end
+
   @spec compose(map(), [Decision.t()], [map()], map()) :: map()
   @spec compose(map(), [Decision.t()], [map()], map(), map(), term()) :: map()
   def compose(fleet, decisions, history, recent_merges, decision_latency \\ %{}, decision_latency_health \\ :ok)
