@@ -1,0 +1,59 @@
+export type * from "./generated.js";
+
+export const KNOWN_CAPABILITY_IDS = [
+  "identity",
+  "api.http",
+  "orchestration",
+  "instance.status",
+  "agents.run",
+  "agents.message",
+  "commands.read",
+  "commands.answer",
+  "commands.supervisor_api",
+  "build_orders",
+  "build_orders.progress",
+  "build_queue",
+  "build_queue.build_order_source",
+  "conversations.read",
+  "conversations.anchors",
+  "executor.wakes",
+  "executor.conversation",
+  "executor.background_agents",
+  "events.export",
+  "listener_modes",
+  "voice.stt",
+  "voice.tts",
+  "voice.conversation",
+  "streamdeck",
+  "webhook_ingress",
+  "remote_control",
+  "pairing",
+  "push",
+  "runtime.crypto",
+  "tracker.github",
+  "tracker.linear",
+  "accounting.meters"
+] as const;
+
+export const KNOWN_CAPABILITY_ID_PATTERNS = [/^harness\.[a-z0-9_]+\.native_question$/] as const;
+
+export const CAPABILITY_REASONS = [
+  "not_installed",
+  "not_configured",
+  "disabled",
+  "not_running",
+  "unsupported_tracker",
+  "executor_absent",
+  "executor_not_managed",
+  "snapshot_stale",
+  "snapshot_unpublished",
+  "instance_key_missing",
+  "instance_key_invalid",
+  "identity_unreadable",
+  "journal_corrupt",
+  "store_unavailable",
+  "writes_paused",
+  "spec_invalid",
+  "dependency_unavailable",
+  "unknown"
+] as const;

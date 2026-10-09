@@ -4,7 +4,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   providers. A failed optional provider degrades only its own surface.
   """
 
-  alias Aiur.{Decision, DecisionMetrics, DecisionStore}
+  alias Aiur.{Commands, Decision}
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias AiurWeb.Presenter
 
@@ -12,13 +12,13 @@ defmodule AiurWeb.ControlCenterPresenter do
 
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
-    decision_store = Keyword.get(opts, :decision_store, DecisionStore)
-    decision_metrics = Keyword.get(opts, :decision_metrics, DecisionMetrics)
+    decision_store = Keyword.get(opts, :decision_store, Commands.default_store())
+    decision_metrics = Keyword.get(opts, :decision_metrics, Commands.default_metrics())
     recent_merge_store = Keyword.get(opts, :recent_merge_store, Aiur.RecentMergeStore)
 
     presenter_opts = [
       decision_history_fun: fn ->
-        required_provider_call(Aiur.DecisionHistory, :list, [[server: decision_store, limit: @decision_history_limit]])
+        required_provider_call(Commands, :history, [[server: decision_store, limit: @decision_history_limit]])
       end,
       recent_merge_snapshot_fun: fn ->
         required_provider_call(Aiur.RecentMergeStore, :snapshot, [recent_merge_store])
@@ -30,10 +30,10 @@ defmodule AiurWeb.ControlCenterPresenter do
         Presenter.state_payload(orchestrator, snapshot_timeout_ms, presenter_opts)
       end)
 
-    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.recent_decisions(50, decision_store) end)
+    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> Commands.recent_decisions(50, decision_store) end)
 
     decision_metrics_fun =
-      Keyword.get(opts, :decision_metrics_fun, fn -> DecisionMetrics.snapshots(decision_metrics) end)
+      Keyword.get(opts, :decision_metrics_fun, fn -> Commands.metrics_snapshots(decision_metrics) end)
 
     {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet(), &is_map/1)
     {decisions, decisions_health} = safe_read(decisions_fun, [], &is_list/1)
@@ -50,6 +50,14 @@ defmodule AiurWeb.ControlCenterPresenter do
       history: history_health,
       recent_outcomes: recent_outcomes_health
     })
+  end
+
+  @doc "An unavailable dashboard payload built without reading any providers."
+  @spec unavailable_payload() :: map()
+  def unavailable_payload do
+    unavailable_fleet()
+    |> compose([], [], unavailable_recent_merges(), %{}, :unavailable)
+    |> Map.update!(:provider_health, &Map.new(&1, fn {key, _health} -> {key, :unavailable} end))
   end
 
   @spec compose(map(), [Decision.t()], [map()], map()) :: map()

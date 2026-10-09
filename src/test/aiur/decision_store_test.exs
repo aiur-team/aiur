@@ -15,14 +15,14 @@ defmodule Aiur.DecisionStoreTest do
     DecisionEvent,
     DecisionExpiry,
     DecisionHistory,
-    DecisionLog,
     DecisionProjection,
     DecisionPubSub,
     DecisionStore,
     DecisionValidation,
     ExecutorCommandAttention,
     ExecutorCommandCLI,
-    Issue
+    Issue,
+    Journal
   }
 
   alias Aiur.DecisionEvent.Unrecognized
@@ -3292,7 +3292,7 @@ defmodule Aiur.DecisionStoreTest do
 
       payload = %{"idempotency_key" => "repair-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, %{status: :accepted}} = answer(pid, decision.decision_id, payload)
-      assert {:repair, _reason} = DecisionStore.health(pid)
+      assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
       refute_receive :unexpected_dispatch, 100
     end
 
@@ -4449,7 +4449,7 @@ defmodule Aiur.DecisionStoreTest do
         "content_hash" => "hash-this-build-cannot-recompute"
       }
 
-      :ok = DecisionLog.append(path, future_event)
+      :ok = Journal.append(path, future_event)
 
       pid2 = start_store!(dir, dispatch_delay_ms: 60_000)
 
@@ -4477,7 +4477,7 @@ defmodule Aiur.DecisionStoreTest do
       pid3 = start_store!(dir, dispatch_delay_ms: 60_000)
       assert DecisionStore.health(pid3) == :writable
 
-      assert {:ok, records, nil} = DecisionLog.replay(path, &DecisionProjection.decode_record/1)
+      assert {:ok, records, nil} = Journal.replay(path, &DecisionProjection.decode_record/1)
 
       assert [%Unrecognized{event_type: "some_future_event", event_id: "evt-from-a-newer-build"} = retained] =
                Enum.filter(records, &match?(%Unrecognized{}, &1))
@@ -4521,7 +4521,7 @@ defmodule Aiur.DecisionStoreTest do
             override
           )
 
-        :ok = DecisionLog.append(Path.join(case_dir, "decisions.ndjson"), record)
+        :ok = Journal.append(Path.join(case_dir, "decisions.ndjson"), record)
 
         pid2 = start_store!(case_dir)
         assert {:corrupt, 2, _reason} = DecisionStore.health(pid2), "#{label} must stay fail-closed"
@@ -4544,7 +4544,7 @@ defmodule Aiur.DecisionStoreTest do
           run_id: "run-replay-test"
         )
 
-      :ok = DecisionLog.append(Path.join(dir, "decisions.ndjson"), DecisionEvent.to_json_safe(invalid))
+      :ok = Journal.append(Path.join(dir, "decisions.ndjson"), DecisionEvent.to_json_safe(invalid))
       File.write!(Path.join(dir, "decisions.ndjson"), "not json at all\n", [:append])
 
       pid2 = start_store!(dir)
@@ -4585,7 +4585,7 @@ defmodule Aiur.DecisionStoreTest do
         end)
 
       assert log =~ "aiur_decision_store phase=projection_repair_failed"
-      assert {:repair, _reason} = DecisionStore.health(pid)
+      assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
     end
   end
 

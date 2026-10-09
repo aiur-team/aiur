@@ -66,8 +66,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
     segment_count = length(configured_providers()) + 2
 
-    assert html =~ "Streamdeck+"
-    assert html =~ "Stream Deck + control surface"
+    assert html =~ ~s(<b id="route-title" role="heading" aria-level="1">Streamdeck+</b>)
+    assert html =~ ~s(<span class="snav-label">Streamdeck</span>)
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
     # The grid container is a bare <div>, so it needs an explicit role for its
@@ -1447,28 +1447,17 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "is-live"
   end
 
-  # The bezel is what tells this glyph apart from the Units four-square at nav
-  # size, so it is locked in alongside the keys — and the keys have to stay
-  # smaller than the frame they sit in.
-  test "the nav icon is a 2x2 key grid inside a bezel" do
+  # The design's six-key glyph (a bezel around two rows of three keys) is what
+  # tells this icon apart from the Units four-square at nav size.
+  test "the nav icon is the design's six-key deck inside a bezel" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     [svg] =
-      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="2" width="20" height="20".*?</svg>}s, html) ||
+      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="4" width="20" height="16".*?</svg>}s, html) ||
         flunk("the Stream Deck nav icon svg was not rendered")
 
-    widths = svg |> then(&Regex.scan(~r/<rect [^>]*width="(\d+)"/, &1)) |> Enum.map(&(&1 |> List.last() |> String.to_integer()))
-
-    assert length(widths) == 5,
-           "the Stream Deck nav icon must show a bezel plus 4 keys in a 2x2 grid"
-
-    # Measured rather than hardcoded: an 8-unit key inside a 20-unit bezel would
-    # satisfy a literal width assertion while losing the visual distinction the
-    # bezel exists to draw.
-    [bezel | keys] = widths
-
-    assert Enum.max(keys) * 2 < bezel,
-           "each key must stay well inside the bezel around them"
+    assert length(Regex.scan(~r/<rect /, svg)) == 1, "the Stream Deck nav icon must keep one bezel"
+    assert length(Regex.scan(~r/<circle /, svg)) == 6, "the Stream Deck nav icon must show six keys"
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do

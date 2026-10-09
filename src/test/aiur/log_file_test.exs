@@ -65,6 +65,27 @@ defmodule Aiur.LogFileTest do
       %{log_file: log_file}
     end
 
+    test "test logger rotates oversized output and retains recent messages", %{log_file: log_file} do
+      System.put_env("AIUR_DEBUG", "1")
+      on_exit(fn -> System.delete_env("AIUR_DEBUG") end)
+      assert :ok = LogFile.configure()
+      require Logger
+
+      for _ <- 1..12 do
+        Logger.info(String.duplicate("x", 1024 * 1024))
+        Logger.flush()
+        :ok = :logger_std_h.filesync(:aiur_file_log)
+      end
+
+      Logger.info("recent rotation marker")
+      Logger.flush()
+      :ok = :logger_std_h.filesync(:aiur_file_log)
+      assert File.read!(log_file) =~ "recent rotation marker"
+      assert File.regular?(log_file <> ".0")
+      total = Enum.sum(for path <- Path.wildcard(log_file <> "*"), do: File.stat!(path).size)
+      assert total < 10 * 1024 * 1024
+    end
+
     test "headless boot persists daemon messages without debug", %{log_file: log_file} do
       original_debug = System.get_env("AIUR_DEBUG")
       original_root = System.get_env("AIUR_LOGS_ROOT")

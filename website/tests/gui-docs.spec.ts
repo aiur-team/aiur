@@ -3,7 +3,7 @@ import { readFile, readdir, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promis
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { checkDocsProse, markdownFiles, proseParagraphs } from '../../scripts/check-docs-prose.mjs'
+import { checkDocsProse, markdownFiles, proseBeforeTables, sentenceCount } from '../../scripts/check-docs-prose.mjs'
 import { assertSyntheticContent, assertSyntheticMeters } from '../scripts/dashboard-capture-safety.mjs'
 
 // Each surface's screenshot belongs on the page that explains that surface. The
@@ -96,7 +96,7 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(dashboard).toContain('| **Commands** | `/commands`')
   expect(dashboard).toContain('| **Build Order** | `/build-orders`')
   expect(dashboard).toContain('| **Analytics** | `/analytics`')
-  expect(dashboard).toContain('| **Streamdeck+** | `/streamdeck`')
+  expect(dashboard).toContain('| **Streamdeck** | `/streamdeck`')
   expect(dashboard).toContain('browser emulator for the physical Stream Deck + sidecar')
   expect(streamDeck).toContain('Mic is press-and-hold, not a click')
   expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')
@@ -280,15 +280,6 @@ test('local docs prose CLI accepts 360 characters and rejects 361 in nested Mark
     await rm(root, { recursive: true, force: true })
   }
 })
-
-function proseBeforeTables(markdown: string): string[] {
-  const blocks = markdown.split(/\n\s*\n/).map((block) => block.replace(/\n/g, ' ').trim())
-  return blocks.filter((block, index) => proseParagraphs(block).length === 1 && blocks[index + 1]?.startsWith('|'))
-}
-
-function sentenceCount(paragraph: string): number {
-  return paragraph.match(/[.!?](?=\s|$)/g)?.length ?? 0
-}
 
 function pngDimensions(bytes: Buffer): { width: number, height: number } {
   expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')

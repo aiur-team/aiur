@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   import Phoenix.Component, only: [assign: 3]
 
+  alias Aiur.Commands
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.PollCadence
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
@@ -26,7 +27,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
     case cache_server() do
       false -> load_uncached(providers)
-      server -> fetch_cached(server, mode, providers)
+      server -> server |> fetch_cached(mode, providers) |> cache_payload()
     end
   end
 
@@ -98,8 +99,6 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       event_key,
       fn -> load_uncached(providers) end
     )
-  catch
-    :exit, _reason -> load_uncached(providers)
   end
 
   defp fetch_cached(server, mode, providers) do
@@ -111,9 +110,16 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       max_age_ms,
       fn -> load_uncached(providers) end
     )
-  catch
-    :exit, _reason -> load_uncached(providers)
   end
+
+  defp cache_payload(%{error: {:cache_unavailable, reason}}) do
+    ControlCenterPresenter.unavailable_payload()
+    |> Map.put(:stale, true)
+    |> Map.put(:cache_error, reason)
+    |> Map.put(:retained_counts, unavailable_retained_counts())
+  end
+
+  defp cache_payload(payload), do: payload
 
   defp initial_reload_mode({:event, event_key}), do: {:event, MapSet.new([event_key])}
 
@@ -175,8 +181,8 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   defp providers do
     {
       Endpoint.config(:orchestrator) || Aiur.Orchestrator,
-      Endpoint.config(:decision_store) || Aiur.DecisionStore,
-      Endpoint.config(:decision_metrics) || Aiur.DecisionMetrics,
+      Endpoint.config(:decision_store) || Commands.default_store(),
+      Endpoint.config(:decision_metrics) || Commands.default_metrics(),
       Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore,
       PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
     }

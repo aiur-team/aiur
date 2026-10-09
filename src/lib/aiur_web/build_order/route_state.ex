@@ -8,7 +8,8 @@ defmodule AiurWeb.BuildOrder.RouteState do
   catalog).
   """
 
-  alias Aiur.BuildOrder.{Bounded, Catalog, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
 

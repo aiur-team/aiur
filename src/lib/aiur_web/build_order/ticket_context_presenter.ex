@@ -101,11 +101,11 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   reads provider, process, log, or filesystem state; callers refresh those
   snapshots before asking the component to render.
   """
-
-  alias Aiur.BuildOrder.{Bounded, Lifecycle, TicketHistory}
-  alias Aiur.BuildOrder.TicketDetail.{Sanitizer, Snapshot, State}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.{Lifecycle, TicketHistory}
+  alias Aiur.BuildOrder.TicketDetail.{Snapshot, State}
   alias Aiur.BuildOrder.TicketHistory.Entry
-  alias Aiur.{OpaqueIdentifier, TrackerIdentity}
+  alias Aiur.{DisplaySanitizer, OpaqueIdentifier, TrackerIdentity}
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, LogEntry, View}
 
   @max_description_bytes 4_000
@@ -773,7 +773,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   end
 
   defp safe_text(value, limit) when is_binary(value) do
-    case Sanitizer.sanitize(value, limit) do
+    case DisplaySanitizer.sanitize(value, limit) do
       {:ok, value} -> {:ok, String.trim(value)}
       :error -> :error
     end

@@ -7,10 +7,10 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   require Logger
 
   alias Aiur.AgentPubSub
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{RetryEngine, State, TokenAccounting, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, WorkspaceCleanup}
+  alias Aiur.ProcessTree
 
   # Broadcast `aiur_turn_done` for every currently-active aiur turn on
   # `identifier`. The opencode bridge's chat-completion SSE handlers
@@ -77,6 +77,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
         end
 
+        state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+
         %{
           state
           | running: Map.delete(state.running, issue_id),
@@ -140,6 +142,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           Process.demonitor(ref, [:flush])
         end
 
+        state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+        running_entry = Map.delete(running_entry, :expired_lifecycle_item_ids)
         existing_control = Map.get(running_entry, :control, %{})
 
         new_entry =
@@ -198,11 +202,11 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
     # The REPL pane's `exec claude` can spawn tool/MCP children that would
     # orphan and keep working on a single-pid kill, so reap the subtree.
-    RemoteControl.graceful_kill_tree(os_pid)
+    ProcessTree.graceful_kill_tree(os_pid)
 
     # The headless fallback has no pane; its `bash -c` wrapper leaves
     # claude/node grandchildren that reparent to init, so reap the subtree.
-    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
+    ProcessTree.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
 
     :ok
   end
@@ -213,8 +217,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     process_group_id = Map.get(running_entry, :headless_process_group_id)
     root_pid = Map.get(running_entry, :headless_os_pid) || Map.get(running_entry, :repl_os_pid)
 
-    if RemoteControl.process_group_alive?(process_group_id) do
-      case RemoteControl.graceful_kill_process_group(process_group_id) do
+    if ProcessTree.process_group_alive?(process_group_id) do
+      case ProcessTree.graceful_kill_process_group(process_group_id) do
         {:ok, :reaped} -> :reaped
         _other -> reap_orphaned_root(root_pid)
       end
@@ -226,8 +230,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   def reap_orphaned_agent_shell(_running_entry), do: :gone
 
   defp reap_orphaned_root(root_pid) do
-    if RemoteControl.process_alive?(root_pid) do
-      RemoteControl.graceful_kill_tree(root_pid)
+    if ProcessTree.process_alive?(root_pid) do
+      ProcessTree.graceful_kill_tree(root_pid)
       :reaped
     else
       :gone

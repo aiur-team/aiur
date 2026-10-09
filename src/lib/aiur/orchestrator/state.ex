@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.State do
           load_envelope_state: %{
             optional(:sample_id) => reference() | integer() | nil,
             optional(:sampled_at_ms) => integer() | nil,
+            optional(:overload_samples) => non_neg_integer(),
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()
@@ -41,9 +42,6 @@ defmodule Aiur.Orchestrator.State do
               signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),
-              # When `measured`/`threshold` were last re-sampled. A hold that is
-              # extended without a fresh probe keeps its original stamp, so every
-              # reader can tell a current measurement from a latched one (#2527).
               measured_at: DateTime.t(),
               held_since_ms: integer(),
               alerted?: boolean()
@@ -63,11 +61,12 @@ defmodule Aiur.Orchestrator.State do
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
           startup_claim_reconciliation_complete?: boolean(),
-          # Per-ticket startup-claim release failures within this boot:
-          # `%{identifier => %{reason: term(), attempts: pos_integer()}}`.
+          orphaned_claim_since: map(),
           startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
+          tracker_observations: %{optional(String.t()) => DateTime.t()},
+          status_observed_at: DateTime.t() | nil,
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
@@ -93,10 +92,14 @@ defmodule Aiur.Orchestrator.State do
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
+            optional(:load_discount_reason | :load_daemon_nice) => :enabled | :unavailable | integer(),
+            optional(:gate_signal) => number() | :unavailable,
+            optional(:load_sampled_at_ms) => integer() | nil,
             load: number() | :unavailable,
             load_threshold: number() | nil,
             target: number() | nil,
-            schedulers: pos_integer() | nil
+            schedulers: pos_integer() | nil,
+            observed_at: DateTime.t() | nil
           },
           capacity_starvation: %{
             since_ms: %{optional(String.t()) => integer()},
@@ -128,13 +131,12 @@ defmodule Aiur.Orchestrator.State do
           comment_rework_retries: %{
             {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
           },
-          # Transient-caused pause/error tickets waiting a bounded backoff before
-          # automatic re-dispatch (#1453). Keyed by issue_id; see
-          # `Aiur.Orchestrator.AutoResume`.
+          # Transient pause/error backoff keyed by issue_id (AutoResume, #1453).
           auto_resume: %{String.t() => map()},
           # Claims released after retry exhaustion, retained until a later
           # dispatch successfully re-establishes ownership.
           released_claims: %{String.t() => map()},
+          fallback_backoff: %{String.t() => {pos_integer(), integer()}},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -152,9 +154,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_poll: map() | nil,
           github_comment_reconcile_targets: MapSet.t(String.t()),
           github_comment_reconcile_timer: map() | nil,
-          # Monotonic time the asynchronous comment poll last started, used to
-          # throttle it to the `:review` class cadence (#2309). `nil` until the
-          # first start.
+          # Monotonic time the asynchronous comment poll last started, used to throttle
+          # it to the `:review` class cadence (#2309). `nil` until the first start.
           last_comment_poll_started_at_ms: integer() | nil,
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
@@ -234,11 +235,14 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_result,
     startup_claim_reconciliation_complete?: false,
     startup_claim_reconciliation_failures: %{},
+    orphaned_claim_since: %{},
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
+    tracker_observations: %{},
+    status_observed_at: nil,
     human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
@@ -263,18 +267,16 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_constraints: [],
     dispatch_selection_hold: nil,
     dispatch_declines: %{},
-    dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
+    dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil, observed_at: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
     decision_store_unavailable_since_ms: nil,
     decision_store_unavailable_alert_active: false,
     decision_store_unavailable_alert_resolution_emitted: false,
     dependency_circular_wait: %{},
-    # Fleet aggregate for tickets carrying more than one `agent:*` state label
-    # (`contradictory_state_label_tickets` maps issue id -> %{identifier, labels,
-    # since_ms}; `contradictory_state_label_alert_active` latches the single
-    # fleet alert until the set clears). Kept on State so the orchestrator is the
-    # single writer and `aiur alerts`/`aiur status` can read it back (#2366).
+    # Fleet aggregate for tickets carrying more than one `agent:*` state label (`contradictory_state_label_tickets`
+    # maps issue id -> %{identifier, labels, since_ms}; `contradictory_state_label_alert_active` latches the single
+    # fleet alert until the set clears). Kept on State so the orchestrator is the single writer and `aiur alerts`/`aiur status` can read it back (#2366).
     contradictory_state_label_tickets: %{},
     contradictory_state_label_alert_active: false,
     running: %{},
@@ -291,6 +293,7 @@ defmodule Aiur.Orchestrator.State do
     comment_rework_retries: %{},
     auto_resume: %{},
     released_claims: %{},
+    fallback_backoff: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
@@ -332,18 +335,14 @@ defmodule Aiur.Orchestrator.State do
     # cannot close the same ticket twice — a ticket reopened for rework must
     # win over the merge that closed it before.
     merged_ticket_reconciliations: MapSet.new(),
-    # `{{issue_identifier, recent_merge_id}, reason}` signatures already
-    # alerted on, so a permanently failing transition raises its attention
-    # once instead of once per poll.
+    # `{{issue_identifier, recent_merge_id}, reason}` signatures already alerted on, so a
+    # permanently failing transition raises its attention once instead of once per poll.
     merged_ticket_reconciliation_failures: MapSet.new(),
     rework_attempts: %{},
     rework_attempt_alerted: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
-    # Full poll cycles completed since this daemon started. The idle poll
-    # backoff is only permitted once at least one cycle has run, so a freshly
-    # restarted daemon — which has observed no idleness yet — polls at the base
-    # interval first instead of starting already backed off (#2138).
+    # Idle backoff requires a completed cycle; a fresh daemon first polls at the base interval (#2138).
     poll_cycles_completed: 0,
     last_dispatch_poll_at_ms: nil,
     # Tickets queued locally (`aiur --todo`) that the tracker poll has not yet

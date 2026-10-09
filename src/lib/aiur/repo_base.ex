@@ -3,26 +3,26 @@ defmodule Aiur.RepoBase do
   Maintains one warm, pre-compiled base checkout of the target repo's configured `tracker.base_branch` at
   `~/.aiur/repo/<owner>/<name>/latest` so per-issue workspaces materialize from it
   (copy-on-write) instead of cold-cloning + recompiling on every dispatch.
-
   Builds run asynchronously in a spawned worker so the GenServer mailbox stays
   responsive — the orchestrator's eager-dispatch gate reads `status/0` rather
   than blocking on a build. The build command is the repo-agnostic
   `prewarm.base_build` filled by toolchain detection at `aiur init`.
   `_build`/deps are gitignored, so `reset --hard origin/<base>` updates tracked
   source but leaves build artifacts — refreshes are incremental.
-
   On every base-branch advance the base is rebuilt; a newer advance detected
   mid-build (via `git ls-remote`, which never touches the base working tree)
   PREEMPTS the in-flight build so workspaces never spin off a stale base. Phase
   events (`:cloning` -> `:fetching` -> `:building` -> `:ready` / `{:error, _}`)
   are broadcast for the agent-list loading bar.
   """
+
   use GenServer
   require Logger
 
   alias Aiur.AgentEnvironment
   alias Aiur.AgentPubSub
-  alias Aiur.Asks
+
+  alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Findings
   alias Aiur.Fs
@@ -1380,7 +1380,7 @@ defmodule Aiur.RepoBase do
 
   defp validate_asks_ledger(contents, path) do
     with {:ok, asks} <- decode_ask_ledger(contents, path) do
-      case Asks.validate_events(asks) do
+      case Commands.validate_asks(asks) do
         :ok -> :ok
         {:error, {line_number, _reason}} -> {:error, {:invalid_asks_ledger, path, line_number}}
       end

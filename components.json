@@ -11,7 +11,7 @@
     },
     {
       "id": "kernel", "name": "Kernel primitives", "layer": 0, "kind": "required",
-      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex"],
+      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/display_sanitizer.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex", "src/lib/aiur/journal.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -27,9 +27,9 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": [],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config", "web-kit"], "optional": [],
+      "paths": ["src/lib/aiur_web/routes/capabilities.ex", "src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**", "src/lib/aiur_web/controllers/capabilities_controller.ex"],
+      "facades": ["Aiur.Identity", "Aiur.Capabilities", "Aiur.Capabilities.Provider", "AiurWeb.Routes.Capabilities"], "facade_pending": null,
+      "requires": ["kernel", "config", "web-kit", "event-bus"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
       "prior": []
     },
@@ -43,25 +43,25 @@
     },
     {
       "id": "web-kit", "name": "Phoenix helper library for component route, socket and controller modules (RC-39)", "layer": 1, "kind": "required",
-      "paths": [],
+      "paths": ["src/lib/aiur_web/kit.ex", "src/lib/aiur_web/capability_error.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
+      "requires": ["kernel", "config", "identity"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
     {
       "id": "accounting", "name": "Provider meters and usage ledger", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/accounts.ex", "src/lib/aiur/accounts/**", "src/lib/aiur/agent/**", "src/lib/aiur/provider_account_generation.ex", "src/lib/aiur/provider_account_generation/**", "src/lib/aiur/provider_meter_probe.ex", "src/lib/aiur/provider_meter_projection.ex", "src/lib/aiur/provider_meter_refresh.ex", "src/lib/aiur/provider_meter_snapshot.ex", "src/lib/aiur/provider_meters.ex", "src/lib/aiur/provider_meters/**", "src/lib/aiur/token_usage.ex", "src/lib/aiur/usage/**", "src/lib/aiur/usage_aggregate.ex", "src/lib/aiur/usage_aggregate/**", "src/lib/aiur/usage_compaction/**", "src/lib/aiur/usage_envelope.ex", "src/lib/aiur/usage_envelope/**", "src/lib/aiur/usage_ledger.ex", "src/lib/aiur/usage_ledger/**"],
+      "paths": ["src/lib/aiur/accounts.ex", "src/lib/aiur/accounts/**", "src/lib/aiur/agent/**", "src/lib/aiur/provider_account_generation.ex", "src/lib/aiur/provider_account_generation/**", "src/lib/aiur/provider_meter_probe.ex", "src/lib/aiur/provider_meter_projection.ex", "src/lib/aiur/provider_meter_projection/**", "src/lib/aiur/provider_meter_refresh.ex", "src/lib/aiur/provider_meter_snapshot.ex", "src/lib/aiur/provider_meters.ex", "src/lib/aiur/provider_meters/**", "src/lib/aiur/token_usage.ex", "src/lib/aiur/usage/**", "src/lib/aiur/usage_aggregate.ex", "src/lib/aiur/usage_aggregate/**", "src/lib/aiur/usage_compaction/**", "src/lib/aiur/usage_envelope.ex", "src/lib/aiur/usage_envelope/**", "src/lib/aiur/usage_ledger.ex", "src/lib/aiur/usage_ledger/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
-      "owns": {"config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "state": ["balance_baseline_state_dir", "usage_aggregate_state_dir", "usage_compaction_state_dir", "usage_ledger_state_dir"], "capabilities": []},
+      "requires": ["identity", "kernel", "config"], "optional": [],
+      "owns": {"config": [], "env": ["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"], "state": ["balance_baseline_state_dir", "usage_aggregate_state_dir", "usage_compaction_state_dir", "usage_ledger_state_dir"], "capabilities": ["accounting.meters"]},
       "prior": ["PM", "USG"]
     },
     {
       "id": "agent-runner", "name": "Turn engine for one ticket", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
+      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker"], "optional": [],
+      "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel", "identity"], "optional": ["build-orders"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["RUN"]
     },
@@ -75,26 +75,26 @@
     },
     {
       "id": "github", "name": "GitHub client, budget, read cache, domain", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/allowed_contributors.ex", "src/lib/aiur/allowed_contributors/**", "src/lib/aiur/ci_approval_store.ex", "src/lib/aiur/codeowners.ex", "src/lib/aiur/codeowners/**", "src/lib/aiur/github/**", "src/lib/aiur/global_config_startup.ex"],
+      "paths": ["src/lib/aiur/allowed_contributors.ex", "src/lib/aiur/allowed_contributors/**", "src/lib/aiur/ci_approval_store.ex", "src/lib/aiur/codeowners.ex", "src/lib/aiur/codeowners/**", "src/lib/aiur/github/**", "src/lib/aiur/global_config_startup.ex", "src/lib/aiur/open_ticket_source.ex", "src/lib/aiur/open_ticket_source/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config", "tracker", "signal"], "optional": ["event-bus"],
+      "requires": ["kernel", "config", "tracker", "signal"], "optional": ["event-bus", "github-listeners"],
       "owns": {"config": [], "env": ["AIUR_GITHUB_BUDGET_CONSUMER", "AIUR_GITHUB_BUDGET_IDENTITY_KEY", "GH_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_TOKEN"], "state": [], "capabilities": []},
       "prior": ["GHC", "GHB", "GHR", "GHD"]
     },
     {
       "id": "github-listeners", "name": "GitHub event ingestion (webhook + pollers)", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
+      "paths": ["src/lib/aiur_web/routes/github_webhook.ex", "src/lib/aiur_web/controllers/github_webhook_controller.ex", "src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/branch_rewrite_classifier.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["github", "event-bus", "config", "web-kit"], "optional": [],
-      "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": []},
+      "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel"], "optional": [],
+      "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": ["webhook_ingress"]},
       "prior": ["ING"]
     },
     {
       "id": "harness-adapters", "name": "Harness adapter package (MP-R7)", "layer": 2, "kind": "required",
       "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["agent-sandbox", "config", "kernel"], "optional": ["accounting"],
-      "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": []},
+      "requires": ["identity", "agent-sandbox", "config", "kernel"], "optional": ["accounting"],
+      "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": ["remote_control"]},
       "prior": ["CA", "CDX", "CLD", "OAI"],
       "shared_with": ["orchestration"]
     },
@@ -108,7 +108,7 @@
     },
     {
       "id": "telemetry", "name": "Run telemetry and host health", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/daemon_heartbeat.ex", "src/lib/aiur/daemon_heartbeat_checker.ex", "src/lib/aiur/daemon_heartbeat_writer.ex", "src/lib/aiur/metrics.ex", "src/lib/aiur/run_telemetry.ex", "src/lib/aiur/run_telemetry/**", "src/lib/aiur/saturation_sentinel.ex", "src/lib/aiur/supervision_health.ex", "src/lib/aiur/supervision_health/**", "src/lib/aiur/system_cpu.ex", "src/lib/aiur/system_file_descriptors.ex", "src/lib/aiur/system_load.ex", "src/lib/aiur/system_memory.ex"],
+      "paths": ["src/lib/aiur/daemon_heartbeat.ex", "src/lib/aiur/daemon_heartbeat_checker.ex", "src/lib/aiur/daemon_heartbeat_writer.ex", "src/lib/aiur/metrics.ex", "src/lib/aiur/run_telemetry.ex", "src/lib/aiur/run_telemetry/**", "src/lib/aiur/saturation_sentinel.ex", "src/lib/aiur/supervision_health.ex", "src/lib/aiur/supervision_health/**", "src/lib/aiur/system_cpu.ex", "src/lib/aiur/system_file_descriptors.ex", "src/lib/aiur/system_load.ex", "src/lib/aiur/system_memory.ex", "src/lib/aiur/system_priority.ex", "src/lib/aiur/background_cpu.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "signal"], "optional": [],
       "owns": {"config": ["debug", "max_log_history_mb", "monitoring"], "env": ["AIUR_LOGS_ROOT", "AIUR_NOFILE_SOFT_LIMIT", "AIUR_TELEMETRY_CALLER_CWD"], "state": ["daemon_heartbeat_path", "log_root_dir"], "capabilities": []},
@@ -116,9 +116,9 @@
     },
     {
       "id": "tracker", "name": "Tracker contract", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker_config.ex"],
+      "paths": ["src/lib/aiur/code_host.ex", "src/lib/aiur/issue.ex", "src/lib/aiur/memory/**", "src/lib/aiur/ticket_branch.ex", "src/lib/aiur/tracker.ex", "src/lib/aiur/tracker/**", "src/lib/aiur/tracker_config.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
+      "requires": ["identity", "kernel", "config"], "optional": [],
       "owns": {"config": ["tracker"], "env": [], "state": [], "capabilities": []},
       "prior": ["TRK"]
     },
@@ -132,34 +132,52 @@
     },
     {
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "github", "config", "web-kit"], "optional": [],
-      "owns": {"config": ["build_order"], "env": [], "state": ["build_history_state_dir"], "capabilities": []},
+      "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
+      "facades": ["Aiur.BuildOrder.GraphProjection", "Aiur.BuildOrder.GraphProjection.Snapshot", "Aiur.BuildOrder.Catalog", "Aiur.BuildOrder.ProgressRenderer", "Aiur.BuildOrder.ProviderHealth", "Aiur.BuildOrder.RootSummary", "Aiur.BuildOrder.Readiness", "Aiur.BuildOrder.Metadata", "Aiur.BuildOrder.GitHubGraph", "Aiur.BuildOrder.Component", "AiurWeb.BuildOrder.DataSource", "AiurWeb.BuildOrder.Runtime", "Aiur.BuildOrdersCLI", "Aiur.EpicCLI"], "facade_pending": null,
+      "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands", "orchestration", "event-bus", "agent-runner", "workspace", "github-listeners", "accounting"], "optional": ["build-queue", "ticket-context", "executor-attention", "web-shell", "dashboard-ui", "conversations", "telemetry"],
+      "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": ["build_orders", "build_orders.progress"]},
       "prior": ["BO"]
     },
     {
+      "id": "ticket-context", "name": "Ticket details and history for dashboard dialogs", "layer": 3, "kind": "optional",
+      "paths": ["src/lib/aiur/ticket_context.ex", "src/lib/aiur/build_order/ticket_detail*.ex", "src/lib/aiur/build_order/ticket_history*.ex", "src/lib/aiur_web/build_order/ticket_context_*.ex"],
+      "facades": ["Aiur.TicketContext", "Aiur.BuildOrder.TicketDetailCoordinator", "Aiur.BuildOrder.TicketDetail.State", "Aiur.BuildOrder.TicketHistoryProvider", "Aiur.BuildOrder.TicketHistory.Snapshot", "AiurWeb.BuildOrder.TicketContextPresenter", "AiurWeb.BuildOrder.TicketContextSelection", "AiurWeb.BuildOrder.TicketContextAdapter", "AiurWeb.BuildOrder.TicketContextAdapter.Relationship", "AiurWeb.BuildOrder.TicketContextAdapter.View"], "facade_pending": null,
+      "requires": ["github", "tracker", "projections", "kernel", "config", "event-bus", "agent-runner", "github-listeners"], "optional": ["build-orders"],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "prior": ["BO", "WEB"]
+    },
+    {
       "id": "build-queue", "name": "Build queue (MP-E1, new; ships before the refactor on a seam)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/build_queue/**"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "event-bus", "config", "identity"], "optional": ["build-orders"],
+      "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur/build_queue/**", "src/lib/aiur_web/build_queue/**"],
+      "facades": ["Aiur.BuildQueue", "Aiur.BuildQueue.Hints", "Aiur.BuildQueue.ClaimProbe", "Aiur.BuildQueueCLI", "AiurWeb.BuildQueue.Runtime"], "facade_pending": null,
+      "requires": ["tracker", "event-bus", "config", "identity", "kernel", "executor-attention"], "optional": ["build-orders"],
       "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
-      "prior": []
+      "prior": [],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "Aiur.GitHub", "Aiur.GitHub.*"]
     },
     {
       "id": "commands", "name": "Commands (code: Decisions) and Asks", "layer": 3, "kind": "required",
-      "paths": ["src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur_web/controllers/decision*.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "paths": ["src/lib/aiur_web/routes/decisions.ex", "src/lib/aiur/asks.ex", "src/lib/aiur/asks_store.ex", "src/lib/aiur/decision*.ex", "src/lib/aiur/decision_api/**", "src/lib/aiur/decision_dispatch_tasks/**", "src/lib/aiur/decision_event/**", "src/lib/aiur/decision_metrics/**", "src/lib/aiur/decision_query/**", "src/lib/aiur/decision_store/**", "src/lib/aiur/supervisor_token.ex", "src/lib/aiur/supervisor_token/**", "src/lib/aiur_web/controllers/decision*.ex", "src/lib/aiur/commands.ex", "src/lib/aiur/commands/**"],
+      "facades": ["Aiur.Commands", "Aiur.Decision", "Aiur.DecisionAnswer", "Aiur.DecisionRevision", "Aiur.DecisionEvent", "Aiur.DecisionArtifact", "AiurWeb.DecisionApiController", "AiurWeb.Routes.Decisions"], "facade_pending": null,
       "requires": ["event-bus", "kernel", "config", "identity", "signal", "web-kit"], "optional": [],
       "owns": {"config": ["decisions"], "env": ["AIUR_CI_READINESS_TOKEN", "AIUR_SUPERVISOR_TOKEN"], "state": ["decision_state_dir"], "capabilities": []},
       "prior": ["DEC", "EXE"]
     },
     {
-      "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["event-bus", "agent-runner", "identity"], "optional": ["executor-attention"],
+      "id": "pr-lifecycle", "name": "PR health lifecycle", "layer": 3, "kind": "optional",
+      "paths": ["src/lib/aiur/pr_lifecycle/**"],
+      "facades": ["Aiur.PRLifecycle.HealthScanner", "Aiur.PRLifecycle.ReworkRequeue"], "facade_pending": null,
+      "requires": ["tracker", "github", "config", "kernel", "signal"], "optional": ["executor-attention"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "prior": ["PRL"],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*"]
+    },
+    {
+      "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
+      "paths": ["src/lib/aiur/agent_log.ex", "src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/conversation/history.ex"],
+      "facades": ["Aiur.Conversation.History", "Aiur.Conversation.Anchors", "Aiur.AgentEventFeed"], "facade_pending": null,
+      "requires": ["event-bus", "agent-runner", "identity", "kernel"], "optional": ["executor-attention"],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": ["conversations.read"]},
       "prior": ["PRJ", "RUN", "SD"]
     },
     {
@@ -176,7 +194,8 @@
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["harness-adapters", "event-bus", "config", "identity"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
-      "prior": []
+      "prior": [],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "AiurWeb.Router", "AiurWeb.Endpoint"]
     },
     {
       "id": "machine-gateway", "name": "Machine gateway process and the `aiur_machine` store library (MP-N2)", "layer": 3, "kind": "optional",
@@ -196,10 +215,10 @@
     },
     {
       "id": "orchestration", "name": "Poll cycle, dispatch, control lifecycle, PR/CI lifecycle, operator messaging", "layer": 3, "kind": "required",
-      "paths": ["src/lib/aiur/agent_chat.ex", "src/lib/aiur/agent_queue.ex", "src/lib/aiur/agent_queue_item.ex", "src/lib/aiur/agent_queue_store.ex", "src/lib/aiur/dispatch_budget_store.ex", "src/lib/aiur/orchestrator.ex", "src/lib/aiur/orchestrator/**", "src/lib/aiur/pr_ready_ledger_store.ex", "src/lib/aiur/recent_merge.ex", "src/lib/aiur/recent_merge_store.ex"],
+      "paths": ["src/lib/aiur/agent_chat.ex", "src/lib/aiur/agent_queue.ex", "src/lib/aiur/agent_queue_item.ex", "src/lib/aiur/agent_queue_store.ex", "src/lib/aiur/dispatch_budget_store.ex", "src/lib/aiur/orchestrator.ex", "src/lib/aiur/orchestrator/**", "src/lib/aiur/pr_ready_ledger_store.ex", "src/lib/aiur/recent_merge.ex", "src/lib/aiur/recent_merge_store.ex", "src/lib/aiur/current_run_membership.ex", "src/lib/aiur/current_run_membership/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["tracker", "agent-runner", "event-bus", "signal", "config", "identity", "listener-modes", "commands"], "optional": ["github-listeners", "build-queue"],
-      "owns": {"config": ["polling", "pr_health", "pr_watch", "worker"], "env": [], "state": [], "capabilities": []},
+      "requires": ["tracker", "agent-runner", "event-bus", "signal", "config", "identity", "listener-modes", "commands", "kernel"], "optional": ["github-listeners", "build-queue"],
+      "owns": {"config": ["polling", "pr_health", "pr_watch", "worker"], "env": [], "state": ["current_run_membership_state_dir"], "capabilities": []},
       "prior": ["ORC", "DSP", "CTL", "PRL", "MSG"],
       "shared_with": ["github-listeners"]
     },
@@ -213,10 +232,10 @@
     },
     {
       "id": "projections", "name": "Current-run read models", "layer": 3, "kind": "required",
-      "paths": ["src/lib/aiur/current_run*.ex", "src/lib/aiur/current_run*/**", "src/lib/aiur/open_ticket_source.ex", "src/lib/aiur/open_ticket_source/**", "src/lib/aiur/progress_retention.ex", "src/lib/aiur/progress_tracker.ex", "src/lib/aiur/ticket_activity.ex", "src/lib/aiur/ticket_activity/**"],
-      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["event-bus", "tracker", "kernel"], "optional": [],
-      "owns": {"config": [], "env": [], "state": ["current_run_membership_state_dir", "progress_retention_state_dir"], "capabilities": []},
+      "paths": ["src/lib/aiur/projections/**", "src/lib/aiur/current_run_projections.ex", "src/lib/aiur/current_run_projections/**", "src/lib/aiur/current_run_projection/**", "src/lib/aiur/current_run_outcome_snapshot.ex", "src/lib/aiur/current_run_outcome_snapshot/**", "src/lib/aiur/current_run_summary.ex", "src/lib/aiur/current_run_summary/**", "src/lib/aiur/progress_retention.ex", "src/lib/aiur/progress_tracker.ex", "src/lib/aiur/ticket_activity.ex", "src/lib/aiur/ticket_activity/**"],
+      "facades": ["Aiur.CurrentRunProjections", "Aiur.CurrentRunOutcomeSnapshot", "Aiur.CurrentRunSummary", "Aiur.TicketActivity", "Aiur.ProgressRetention", "Aiur.ProgressTracker", "Aiur.Projections.UnitsRow", "Aiur.Projections.UnitsPolicy", "Aiur.Projections.UnitsRow.Sources"], "facade_pending": null,
+      "requires": ["agent-runner", "event-bus", "tracker", "kernel", "orchestration"], "optional": ["conversations", "github-listeners"],
+      "owns": {"config": [], "env": [], "state": ["progress_retention_state_dir"], "capabilities": []},
       "prior": ["PRJ"]
     },
     {
@@ -229,10 +248,10 @@
     },
     {
       "id": "streamdeck-server", "name": "Daemon side of the Stream Deck (MP-R6)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur_web/controllers/streamdeck*.ex", "src/lib/aiur_web/stream_deck_grid.ex", "src/lib/aiur_web/streamdeck*.ex"],
+      "paths": ["src/lib/aiur_web/routes/streamdeck.ex", "src/lib/aiur_web/controllers/streamdeck*.ex", "src/lib/aiur_web/sockets/streamdeck.ex", "src/lib/aiur_web/stream_deck_grid.ex", "src/lib/aiur_web/streamdeck*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt"],
-      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "requires": ["identity", "web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt", "build-orders"],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": ["streamdeck"]},
       "prior": ["SD"]
     },
     {
@@ -245,15 +264,15 @@
     },
     {
       "id": "voice-stt", "name": "Speech-to-text and TTS (MP-R5)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/voice*.ex"],
+      "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/sockets/voice.ex", "src/lib/aiur_web/voice*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["config", "web-kit"], "optional": [],
-      "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": []},
+      "requires": ["identity", "config", "web-kit"], "optional": [],
+      "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": ["voice.stt", "voice.tts"]},
       "prior": ["VOX"]
     },
     {
       "id": "control-cli", "name": "Composition root, control RPC, per-component CLI verbs", "layer": 4, "kind": "required",
-      "paths": ["src/lib/aiur.ex", "src/lib/aiur/*_cli.ex", "src/lib/aiur/affected_tests.ex", "src/lib/aiur/cli.ex", "src/lib/aiur/daemon_lifecycle.ex", "src/lib/aiur/distribution.ex", "src/lib/aiur/external_content.ex", "src/lib/aiur/findings.ex", "src/lib/aiur/launch_state_adoption.ex", "src/lib/aiur/launcher_watchdog.ex", "src/lib/aiur/pubsub_boot.ex", "src/lib/aiur/shutdown.ex", "src/lib/aiur/specs_check.ex", "src/lib/aiur/test_reset.ex", "src/lib/aiur/test_shard.ex", "src/lib/aiur/test_ticket_scope.ex", "src/lib/mix/tasks/**"],
+      "paths": ["src/lib/aiur.ex", "src/lib/aiur/*_cli.ex", "src/lib/aiur/control_cli/**", "src/lib/aiur/affected_tests.ex", "src/lib/aiur/cli.ex", "src/lib/aiur/daemon_lifecycle.ex", "src/lib/aiur/distribution.ex", "src/lib/aiur/external_content.ex", "src/lib/aiur/findings.ex", "src/lib/aiur/launch_state_adoption.ex", "src/lib/aiur/launcher_watchdog.ex", "src/lib/aiur/pubsub_boot.ex", "src/lib/aiur/shutdown.ex", "src/lib/aiur/specs_check.ex", "src/lib/aiur/test_http_guard.ex", "src/lib/aiur/test_reset.ex", "src/lib/aiur/test_shard.ex", "src/lib/aiur/test_ticket_scope.ex", "src/lib/mix/tasks/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "event-bus", "signal", "identity", "web-kit", "tracker", "agent-sandbox", "workspace", "harness-adapters", "agent-runner", "orchestration", "commands", "projections", "listener-modes", "launcher", "init", "aiur-contracts", "docs-site", "skills"], "optional": ["github", "github-listeners", "linear", "accounting", "telemetry", "build-queue", "build-orders", "executor-attention", "conversations", "voice-stt", "voice-conversation", "pairing-discovery", "push-relay", "streamdeck-server", "machine-gateway", "notification-policy", "web-shell", "dashboard-ui", "tui", "listener-spec", "relay-service", "streamdeck-sidecar", "mobile-app", "watch-apps", "aiur-style"],
       "owns": {"config": [], "env": ["AIUR_ARGV_FILE", "AIUR_BASE_BRANCH", "AIUR_BUILD_ORDER_DIRS", "AIUR_CLI_VERSION", "AIUR_DEBUG", "AIUR_DEFAULT_DASHBOARD_HOST", "AIUR_DEV_TEST_TICKET_IDS", "AIUR_EXECUTOR_ID", "AIUR_GH_KEYRING_TIMEOUT_MS", "AIUR_OPENCODE_BRIDGE_PORT", "AIUR_PREWARM_DISABLED", "AIUR_REGISTRY_URL", "AIUR_SCREEN_GRAB", "AIUR_SSH_CONFIG"], "state": [], "capabilities": []},
@@ -261,9 +280,9 @@
     },
     {
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
-      "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**"],
+      "paths": ["src/lib/aiur_web/routes/dashboard_pages.ex", "src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-shell", "projections"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
+      "requires": ["web-kit", "web-shell", "projections", "kernel", "orchestration"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server", "github", "ticket-context"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
@@ -287,21 +306,21 @@
       "id": "tui", "name": "tmux agent list, pane manager, opencode chat panes", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur/agent_list/**", "src/lib/aiur/conversations.ex", "src/lib/aiur/events/debug_log.ex", "src/lib/aiur/opencode/**", "src/lib/aiur/opencode_theme.ex", "src/lib/aiur/pane_manager.ex", "src/lib/aiur/pane_manager/**", "src/lib/aiur/tmux.ex", "src/lib/aiur/tmux/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["orchestration", "projections", "harness-adapters"], "optional": [],
+      "requires": ["orchestration", "projections", "harness-adapters", "config"], "optional": [],
       "owns": {"config": ["max_vertical_panes", "opencode", "pre_warmed_sessions"], "env": ["AIUR_TMUX_SESSION", "AIUR_TMUX_SOCKET", "COLORTERM", "COLUMNS", "LINES", "TMUX_PANE"], "state": [], "capabilities": []},
       "prior": ["TUI", "OC"]
     },
     {
       "id": "web-shell", "name": "HTTP endpoint, router, auth, sockets, JSON API", "layer": 4, "kind": "optional",
-      "paths": ["src/lib/aiur/http_server.ex", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
+      "paths": ["src/lib/aiur_web/routes/api.ex", "src/lib/aiur/http_server.ex", "src/lib/aiur/http_server/**", "src/lib/aiur/tailscale_funnel.ex", "src/lib/aiur_web/controllers/*api*.ex", "src/lib/aiur_web/controllers/observability*.ex", "src/lib/aiur_web/endpoint.ex", "src/lib/aiur_web/financial_data_access.ex", "src/lib/aiur_web/router.ex", "src/lib/aiur_web/supervisor_auth.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["config", "identity", "projections", "web-kit"], "optional": ["github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
+      "requires": ["config", "identity", "projections", "web-kit"], "optional": ["conversations", "github-listeners", "commands", "build-orders", "voice-stt", "pairing-discovery", "streamdeck-server", "dashboard-ui"],
       "owns": {"config": ["observability", "server"], "env": ["AIUR_DASHBOARD_PASSWORD", "AIUR_DASHBOARD_USERNAME"], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
     {
-      "id": "aiur-contracts", "name": "Published wire contracts: JSON Schemas and generated TS types for identity, capabilities, events, Commands, conversations, notifications (new, MP-R1-C3; `status: planned` until C3-T06, `added_by: MP-R1`, exempt from rule I4)", "layer": 5, "kind": "required",
-      "paths": [],
+      "id": "aiur-contracts", "name": "Wire contracts: JSON Schemas and generated TypeScript types for identity and capabilities", "layer": 5, "kind": "required",
+      "paths": ["packages/aiur-contracts/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -371,5 +390,7 @@
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": []
     }
-  ]
+  ],
+  "seams": [{"from": "orchestration", "to_module": "Aiur.BuildQueue.Hints", "kind": "reference", "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "behaviour", "reason": "MP-E1 X-1: orchestration implements the claim-probe port"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "build-queue", "to_module": "Aiur.BuildOrder.*", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/sources/build_order.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur_web/build_queue/copy.ex"], "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"}, {"from": "orchestration", "to_module": "Aiur.BuildQueue.ClaimProbe", "kind": "reference", "only_paths": ["src/lib/aiur/orchestrator/build_queue_claim_probe.ex"], "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"}, {"from": "pr-lifecycle", "to_module": "Aiur.Orchestrator.TicketTransition", "kind": "reference", "only_paths": ["src/lib/aiur/pr_lifecycle/rework_requeue.ex"], "allow_forbidden": true, "reason": "MP-R1-C9-T06 RC-20: U2 keeps requeue decisions in the worker and routes writes through its single lifecycle owner (#3570)"}, {"from": "build-queue", "to_module": "Aiur.Orchestrator.TicketTransition", "kind": "reference", "only_paths": ["src/lib/aiur/build_queue/write_protocol.ex"], "allow_forbidden": true, "reason": "#3306 lifecycle-write owner: #3259 preserves the exact sanctioned scan exception"}],
+  "ports": [{"from": "orchestration", "to_module": "Aiur.Listener.DeliveryTarget", "kind": "behaviour", "reason": "RC-36: orchestration implements listener delivery; listener-modes must not depend on orchestration"}, {"from": "orchestration", "to_module": "Aiur.Commands.DeliveryTarget", "kind": "behaviour", "reason": "CR-C8-3: orchestration implements Command delivery; activation belongs to MP-R1-C8-T02"}, {"from": "web-shell", "to_module": "AiurWeb.Sockets.*", "kind": "reference", "reason": "RC-39: downward composition of optional component sockets"}]
 }

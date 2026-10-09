@@ -107,7 +107,8 @@ defmodule Aiur.BuildOrder.History do
   defp unavailable(state, failure), do: %{state | health: %{state.health | state: :unavailable, complete?: false, failure: failure}}
 
   @impl true
-  def handle_call(:snapshot, _from, state), do: {:reply, if(state.health.state == :healthy, do: {:ok, %{rows: state.rows, health: state.health}}, else: {:error, state.health}), state}
+  def handle_call(:snapshot, _from, state),
+    do: {:reply, if(state.health.state == :healthy, do: {:ok, %{rows: state.rows, health: state.health, repository: state.repository}}, else: {:error, state.health}), state}
 
   def handle_call({:apply, events, checkpoint}, _from, state) do
     with :ok <- writable(state), :ok <- validate_checkpoint(checkpoint), {:ok, events} <- validate_events(events) do
