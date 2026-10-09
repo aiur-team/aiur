@@ -2,11 +2,10 @@ defmodule Aiur.GitHub.Config do
   @moduledoc """
   GitHub-specific configuration read from the `github:` YAML section.
   """
-
   @behaviour Aiur.TrackerConfig
-
+  @impl Aiur.TrackerConfig
+  def validate_settings(_settings), do: validate!()
   require Logger
-
   alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, HostCommand, Transport}
 
   @default_label_prefix "agent"

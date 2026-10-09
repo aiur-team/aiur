@@ -2,6 +2,14 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, :tracker_adapters, %{
+  "github" => Aiur.GitHub.Tracker,
+  "linear" => Aiur.Linear.Tracker,
+  "memory" => Aiur.Memory.Tracker
+}
+
+config :aiur, :tracker_fallback_kind, "linear"
+
 config :aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
@@ -32,9 +40,7 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.MissingKind,
     Aiur.Tracker.SemanticCheck.UnsupportedKind,
     Aiur.CodingAgent.SemanticCheck.Dispatchable,
-    Aiur.Tracker.SemanticCheck.LinearToken,
-    Aiur.Tracker.SemanticCheck.LinearSlug,
-    Aiur.GitHub.Config.SemanticCheck,
+    Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
   always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
