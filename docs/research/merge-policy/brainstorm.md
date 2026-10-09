@@ -334,12 +334,12 @@ not become a 2-minute one within this epic, so the policy is still needed.
 
 | Ticket | Plan | Blocked by | Complexity |
 |---|---|---|---|
-| MP0 CI failure digest | [plan-mp0-failure-digest.md](plan-mp0-failure-digest.md) | none | 2 |
-| MP1 Config and visibility | [plan-mp1-config.md](plan-mp1-config.md) | none | 2 |
-| MP2 `aiur pr merge` | [plan-mp2-pr-merge.md](plan-mp2-pr-merge.md) | MP1, MP3 | 3 |
-| MP3 Local-tests mode and PR evidence | [plan-mp3-local-tests.md](plan-mp3-local-tests.md) | MP1 | 2 |
-| MP4 Daemon main-watch | [plan-mp4-main-watch.md](plan-mp4-main-watch.md) | MP0, MP1 | 3 |
-| MP5 Fixer ticket filing and dispatch | [plan-mp5-fixer-dispatch.md](plan-mp5-fixer-dispatch.md) | MP4 | 2 |
-| MP6 Executor adoption | [plan-mp6-executor-adoption.md](plan-mp6-executor-adoption.md) | MP2, MP3, MP5 | 1 |
+| #3877 MP0 CI failure digest | [plan-mp0-failure-digest.md](plan-mp0-failure-digest.md) | none | 2 |
+| #3878 MP1 Config and visibility | [plan-mp1-config.md](plan-mp1-config.md) | none | 2 |
+| #3880 MP2 `aiur pr merge` | [plan-mp2-pr-merge.md](plan-mp2-pr-merge.md) | MP1, MP3 | 3 |
+| #3879 MP3 Local-tests mode and PR evidence | [plan-mp3-local-tests.md](plan-mp3-local-tests.md) | MP1 | 2 |
+| #3881 MP4 Daemon main-watch | [plan-mp4-main-watch.md](plan-mp4-main-watch.md) | MP0, MP1 | 3 |
+| #3882 MP5 Fixer ticket filing and dispatch | [plan-mp5-fixer-dispatch.md](plan-mp5-fixer-dispatch.md) | MP4 | 2 |
+| #3883 MP6 Executor adoption | [plan-mp6-executor-adoption.md](plan-mp6-executor-adoption.md) | MP2, MP3, MP5 | 1 |
 
-#3864 is blocked by MP0 (shared failure classification).
+Epic: #3876. #3864 is blocked by #3877 (MP0, shared failure classification).
