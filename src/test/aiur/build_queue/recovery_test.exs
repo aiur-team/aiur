@@ -5,6 +5,7 @@ defmodule Aiur.BuildQueue.RecoveryTest do
   alias Aiur.Config.{Paths, Schema}
 
   defmodule Boundary do
+    def blocked_by(_id), do: {:ok, []}
     def open_issue_labels(_age), do: Agent.get(__MODULE__, & &1.snapshot)
     def load, do: Store.load()
 
