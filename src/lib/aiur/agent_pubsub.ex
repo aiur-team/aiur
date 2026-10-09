@@ -43,7 +43,7 @@ defmodule Aiur.AgentPubSub do
   def subscribe_running, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
 
   @doc "Payload-free fleet invalidations for consumers that read the published snapshot."
-  @spec subscribe_fleet_refresh(reference()) :: :ok | {:error, term()}
+  @spec subscribe_fleet_refresh(:atomics.atomics_ref()) :: :ok | {:error, term()}
   def subscribe_fleet_refresh(latch) do
     :ok = FleetRefresh.register(self())
     opts = [metadata: {:fleet_refresh, latch}]

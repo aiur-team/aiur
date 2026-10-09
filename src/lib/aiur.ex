@@ -325,11 +325,9 @@ defmodule Aiur.Application do
       # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
       Aiur.Webhooks.ModeTable,
       Aiur.Capabilities.Table,
-      # `Aiur.PubSub.Boot` is `{Phoenix.PubSub, name: Aiur.PubSub}` with one
-      # thing added: it waits for a previous incarnation's registry names to be
-      # released before starting. Without that wait a PubSub crash restarts
-      # into its own still-registered partitions, fails three times inside a
-      # millisecond, and takes this whole supervisor down with it (#2557).
+      # `Aiur.PubSub.Boot` wraps `{Phoenix.PubSub, name: Aiur.PubSub}` and waits for a previous incarnation's registry names to be released before starting.
+      # Without that wait, a PubSub crash restarts into its own still-registered partitions, fails three times inside a millisecond,
+      # and takes this whole supervisor down with it (#2557).
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
       Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
@@ -442,6 +440,7 @@ defmodule Aiur.Application do
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
+      # Webhook deduplication state must be replayed before any receiver can admit a delivery.
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
@@ -453,7 +452,8 @@ defmodule Aiur.Application do
       Aiur.Orchestrator.SnapshotStore,
       Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
-      # LiveConversation never replays logs; missing keys report :restart_unknown.
+      # LiveConversation is projection-only: it never replays workspace logs
+      # after restart, so a missing key truthfully reports :restart_unknown.
       Aiur.LiveConversation,
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.

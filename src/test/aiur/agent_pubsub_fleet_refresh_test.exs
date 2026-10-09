@@ -3,6 +3,28 @@ defmodule Aiur.AgentPubSub.FleetRefreshTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.AgentPubSub.FleetRefresh
 
+  test "a missing fleet table does not crash broadcasts to other consumers" do
+    owner = Process.whereis(FleetRefresh)
+    :ok = FleetRefresh.register(self())
+    latch = :atomics.new(1, [])
+    message = {:running_changed, [%{identifier: "3875", title: "running"}]}
+
+    :sys.replace_state(owner, fn state ->
+      :ets.rename(FleetRefresh, :fleet_refresh_restart_test)
+      state
+    end)
+
+    try do
+      assert :ok = FleetRefresh.dispatch([{self(), {:fleet_refresh, latch}}, {self(), nil}], :none, message)
+      assert_received ^message
+    after
+      :sys.replace_state(owner, fn state ->
+        :ets.rename(:fleet_refresh_restart_test, FleetRefresh)
+        state
+      end)
+    end
+  end
+
   test "a captured dispatch cannot retain summaries after subscriber death" do
     owner = Process.whereis(FleetRefresh)
     :erlang.trace(owner, true, [:receive])

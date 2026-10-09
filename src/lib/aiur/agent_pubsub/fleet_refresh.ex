@@ -26,6 +26,8 @@ defmodule Aiur.AgentPubSub.FleetRefresh do
   defp deliver(pid, {:fleet_refresh, latch}, message) do
     if match?({:running_changed, _}, message), do: :ets.update_element(__MODULE__, pid, {2, elem(message, 1)})
     if :atomics.compare_exchange(latch, 1, 0, 1) == :ok, do: send(pid, :fleet_changed)
+  rescue
+    ArgumentError -> :ok
   end
 
   defp deliver(pid, _metadata, message), do: send(pid, message)
