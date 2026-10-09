@@ -4,7 +4,17 @@ defmodule Aiur.BuildQueue.Codec do
   alias Aiur.BuildQueue.Model.{Edge, Intent, Item, Latch, Queue}
 
   @schemas [
-    {:queues, Queue, [id: :queue_id, name: :string, kind: {:enum, [:list, :build_order]}, root: {:nullable, :positive}, held: :boolean, generation: :nonnegative, created_at: :datetime]},
+    {:queues, Queue,
+     [
+       id: :queue_id,
+       name: :string,
+       kind: {:enum, [:list, :build_order]},
+       root: {:nullable, :positive},
+       held: :boolean,
+       start_trigger: {:default, {:enum, [nil | Aiur.StartTrigger.triggers()]}, nil},
+       generation: :nonnegative,
+       created_at: :datetime
+     ]},
     {:items, Item,
      [
        issue_id: :issue_id,

@@ -127,6 +127,21 @@ defmodule Aiur.Config.Schema do
   end
 
   @doc false
+  @spec workspace_write_policy?(map()) :: boolean()
+  def workspace_write_policy?(policy) do
+    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
+  end
+
+  @doc false
+  @spec policy_writable_roots(map()) :: {:ok, list()} | {:error, term()}
+  def policy_writable_roots(policy) do
+    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+    end
+  end
+
+  @doc false
   @spec validate_turn_sandbox_policy(%__MODULE__{}) :: :ok | {:error, term()}
   def validate_turn_sandbox_policy(settings) do
     settings.agent.codex

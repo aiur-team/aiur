@@ -878,7 +878,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # by the store inside its swap, so `held` is the marker the entry carries at
   # that instant rather than one read a round trip earlier.
   defp accept(_held_body, %{version: held}, body, version) do
-    if regression?(held, version), do: :unchanged, else: body
+    if ResourceStore.regression?(held, version), do: :unchanged, else: body
   end
 
   # The transition carries its own ordering clock. The marker stores the
@@ -894,7 +894,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     held_transition_at = transition_at(held)
 
     cond do
-      regression?(held_transition_at, version) ->
+      ResourceStore.regression?(held_transition_at, version) ->
         :unchanged
 
       same_thread_transition?(held, action, held_transition_at, version) ->
@@ -929,27 +929,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     do: is_nil(version) or held_transition_at == version
 
   defp same_thread_transition?(_held, _action, _held_transition_at, _version), do: false
-
-  # GitHub does not order deliveries, and a single delivery carries more than the
-  # object it is about: an `issue_comment` also carries the whole issue and its
-  # label set. So a delayed comment delivery can arrive holding a *pre-change*
-  # snapshot of an issue a later delivery already deposited correctly.
-  #
-  # `put_resource/3` is an unconditional overwrite that stamps `fetched_at_ms`
-  # with now, so accepting that write would not merely hold an older body — it
-  # would describe it as freshly fetched, and a consumer asking for a body no
-  # older than some window would be handed a body from before the change.
-  #
-  # Both markers are GitHub's own ISO-8601 timestamps, which sort lexically, so
-  # a strictly older version is refused. Equal versions still write: the body may
-  # legitimately differ under an unchanged marker (a dismissed review), and the
-  # newer arrival is the better answer. A missing marker on either side is not a
-  # judgement that anything went backwards, so it writes.
-  #
-  # A pure comparison of two markers, deliberately, so it can be evaluated inside
-  # the store's swap instead of in a separate read.
-  defp regression?(held, version) when is_binary(held) and is_binary(version), do: version < held
-  defp regression?(_held, _version), do: false
 
   # The store refuses a body it cannot encode or one past its size cap, and a
   # refusal is silent by design — `fetch/1` simply misses and the reader pays
