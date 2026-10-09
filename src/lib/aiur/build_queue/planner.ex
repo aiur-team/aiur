@@ -46,7 +46,7 @@ defmodule Aiur.BuildQueue.Planner do
 
   defp project(item, context) do
     observation = context.input.observations[item.issue_id]
-    verdict = verdict(item.issue_id, context)
+    verdict = Map.get(Keyword.get(context.opts, :source_verdicts, %{}), item.issue_id, verdict(item.issue_id, context))
     {state, reason, actions} = PlannerPolicy.decide(item, observation, verdict, context)
     priority = context.opts |> Keyword.get(:priorities, %{}) |> Map.get(item.issue_id, 5)
     created = context.opts |> Keyword.get(:created_at, %{}) |> Map.get(item.issue_id)
@@ -70,7 +70,11 @@ defmodule Aiur.BuildQueue.Planner do
 
   defp edge_verdict(edge, context) do
     opts = Keyword.put(context.opts, :cyclic, MapSet.member?(context.cycles, edge.prerequisite))
-    Readiness.edge_verdict(context.input.observations[edge.prerequisite], opts)
+
+    case Map.get(Keyword.get(opts, :source_verdicts, %{}), edge.prerequisite) do
+      {:unknown, [reason | _]} -> {:unknown, reason}
+      _ -> Readiness.edge_verdict(context.input.observations[edge.prerequisite], opts)
+    end
   end
 
   defp attention_actions(states, context) do

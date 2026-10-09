@@ -103,3 +103,13 @@ A merged prerequisite PR does not complete its issue. Dependents stay pending un
 If the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves when closure is observed; Aiur never closes the issue for this rule.
 
 Merge times are held in memory. After a restart, a fresh merge observation starts the timer again. If the live hint is lost and no fresh PR delivery is available, poll-only mode keeps dependents waiting without this attention.
+
+## Queueing a Build Order
+
+The optional Build Order queue source adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+
+Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
+
+Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
+
+The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
