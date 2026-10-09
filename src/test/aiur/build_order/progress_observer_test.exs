@@ -115,9 +115,9 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
   end
 
   test "invalid observer facts are rejected without changing the store", context do
-    {_observer, store, _snapshot} = start_observer(context, 20)
+    {_observer, store, _snapshot} = start_observer(context, 100)
     assert {:error, :invalid_fact} = BuildProgress.put_build_order_fact(%{scope: context.scope}, store)
-    assert [%{percent: 20}] = BuildProgress.facts(context.scope, store)
+    assert [%{percent: 100}] = BuildProgress.facts(context.scope, store)
   end
 
   test "recording supervises observer after projection and BuildProgress" do
