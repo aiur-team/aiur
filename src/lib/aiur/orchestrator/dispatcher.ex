@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, BuildOrder.History, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker

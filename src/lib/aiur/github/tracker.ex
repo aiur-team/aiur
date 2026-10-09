@@ -13,7 +13,6 @@ defmodule Aiur.GitHub.Tracker do
   @behaviour Aiur.Tracker.CodeHost
 
   alias Aiur.BuildOrder.History
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
@@ -23,6 +22,7 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.TestTicketScope
 
   @impl Aiur.Tracker.IssueTracker

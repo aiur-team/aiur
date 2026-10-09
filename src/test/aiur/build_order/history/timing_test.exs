@@ -109,6 +109,14 @@ defmodule Aiur.BuildOrder.History.TimingTest do
     assert Timing.merge(%{}, :unknown, "custom") == %{}
   end
 
+  test "store ignores labels from a different workflow namespace" do
+    label = %{label: "other:in-progress", action: :labeled, at: @t, actor: :unknown}
+    event = %{number: 1, observed_at: @t, source: :webhook, fields: %{label_events: [label], closed_at: @t}}
+    assert {:changed, row} = Row.merge(nil, event)
+    assert row.start == :unknown
+    assert row.label_events == [label]
+  end
+
   test "fixture history timestamps reach integer millisecond payloads unchanged" do
     for dataset <- ~w(live dense) do
       {:ok, data} = FixtureSource.full(dataset: dataset)
