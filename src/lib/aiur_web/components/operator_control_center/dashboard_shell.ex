@@ -50,6 +50,8 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               writable={@writable}
             />
             <.theme_button id="theme-toggle" />
+            <%!-- interim: C2-T02 moves this into #ax-menu --%>
+            <.palette_button />
           </div>
         </div>
       </header>
@@ -195,6 +197,15 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
         </svg>
       </span>
+    </button>
+    """
+  end
+
+  defp palette_button(assigns) do
+    ~H"""
+    <button id="palette-toggle" class="tool-btn icon-only" type="button" phx-hook="PaletteToggle"
+      aria-pressed="true" aria-label="Gruvbox palette" title="Gruvbox palette">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A5.6 5.6 0 0 0 22 9.8C22 5.5 17.5 2 12 2z"/></svg>
     </button>
     """
   end

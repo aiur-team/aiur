@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.AllowedContributors
-  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
+  alias Aiur.{Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     BoundedBlockedBy,
@@ -194,7 +194,7 @@ defmodule Aiur.GitHub.Issues do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
     etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
 
-    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: "issue_raw_conditional"}
+    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: Keyword.get(opts, :caller, "issue_raw_conditional")}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     context = %{

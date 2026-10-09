@@ -442,7 +442,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
-  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+  test "the first candidate poll holds orphaned claims during recovery grace" do
     restore_workflow_file_after_test()
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
 
@@ -465,9 +465,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         max_concurrent_agents: 1
       })
 
-    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}, 1000
-    assert next.startup_claim_reconciliation_complete?
-    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute_received {:memory_tracker_state_update, ^candidate_identifier, _target}
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "in-progress"
     refute next.initial_dispatch_cycle
   end
 
@@ -498,6 +498,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   test "a successful candidate poll starts the DecisionStore outage alert dwell" do
+    store = Process.whereis(Aiur.DecisionStore)
+    original_health = :sys.get_state(store).health
+    :sys.replace_state(store, &%{&1 | health: {:unavailable, :test}})
+    on_exit(fn -> :sys.replace_state(store, &%{&1 | health: original_health}) end)
+
     candidate = issue("decision-store-outage")
 
     state = %State{
@@ -793,21 +798,19 @@ defmodule Aiur.Orchestrator.DispatcherTest do
              ) == :dispatch
     end
 
-    test "an answer recorded after a blocking run stops resumes its in-progress claim within one poll (#2713, #2818)" do
+    test "an answered absent worker releases a stale decision hold within one poll (#3516)" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4, tracker_active_states: ["todo", "in-progress"])
       restore_workflow_file_after_test()
       test_pid = self()
       ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
       candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "in-progress", selected_backend: "codex"}
 
-      # `worker` is true while a worker runs the ticket. The fake dispatcher
-      # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
-      # then, and reports each answer the worker receives.
+      # The fake dispatcher refuses delivery until the runner starts a worker.
       worker = start_supervised!({Agent, fn -> false end})
 
       dispatcher = fn decision, _opts ->
         if Agent.get(worker, & &1) do
-          send(test_pid, {:worker_received, decision.decision_id})
+          send(test_pid, {:worker_received, decision.decision_id, decision.active_action_id, decision.answer.selected_option_id})
           {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
         else
           send(test_pid, {:no_worker, decision.decision_id})
@@ -832,12 +835,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       poll = fn state ->
-        {:ok, ids} = Aiur.DecisionStore.blocked_ticket_ids(store)
-
-        Dispatcher.choose_issues(%{state | blocked_ticket_ids: ids}, [candidate],
+        Dispatcher.dispatch_or_hold(state, [candidate], fn -> :ready end,
+          admission_probes_fun: contended_probes(0, nil),
           issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
           blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
-          runner: fn dispatched, _recipient, _opts -> send(test_pid, {:agent_runner_run, dispatched.id}) end,
+          runner: fn dispatched, _recipient, _opts ->
+            Agent.update(worker, fn _running -> true end)
+            send(test_pid, {:agent_runner_run, dispatched.id})
+          end,
           decision_store: store
         )
       end
@@ -855,13 +860,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       id = decision.decision_id
 
-      # The run that filed the Command has ended, and the ticket is held.
-      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4})
+      assert {:ok, cached_holds} = Aiur.DecisionStore.blocked_ticket_ids(store)
+      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4, blocked_ticket_ids: cached_holds})
       assert held.dispatch_declines[ticket_id] == :blocked_on_decision
       refute Map.has_key?(held.running, ticket_id)
 
-      # The answer arrives a minute later, when no worker runs the ticket: the
-      # first delivery and the whole retry ladder fail.
       assert {:ok, %{status: :accepted}} =
                Aiur.DecisionStore.answer(
                  id,
@@ -873,21 +876,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       for _attempt <- 1..4, do: assert_receive({:no_worker, ^id}, 1_000)
       refute_receive {:no_worker, ^id}, 100
 
-      # One poll dispatches the ticket, and its new worker receives the answer once.
       resumed = poll.(held)
       assert_receive {:agent_runner_run, ^ticket_id}, 1_000
       assert Map.has_key?(resumed.running, ticket_id)
       refute Map.has_key?(resumed.dispatch_declines, ticket_id)
 
-      # The spawn posts the redelivery to the Orchestrator (this process) and
-      # does not reach the store during the poll. The Orchestrator handles it
-      # next, with the new running entry in its state.
       assert_received {:deliver_pending_answers, ^ticket_id, ^store} = message
       refute_received {:no_worker, ^id}
-      Agent.update(worker, fn _running -> true end)
       assert :ok = Dispatcher.handle_pending_answer_delivery(message)
-      assert_receive {:worker_received, ^id}, 1_000
-      refute_receive {:worker_received, ^id}, 300
+      assert {:ok, answered} = Aiur.DecisionStore.get(id, store)
+      action_id = answered.active_action_id
+      assert_receive {:worker_received, ^id, ^action_id, "b"}, 1_000
+      refute_receive {:worker_received, ^id, ^action_id, "b"}, 300
     end
 
     test "a slow poll does not time out the redelivery to the worker it spawned (#2713)" do
@@ -2528,7 +2528,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
       test_pid = self()
-      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4, load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, overload_samples: 2}}
 
       held =
         Dispatcher.maybe_choose_under_load(

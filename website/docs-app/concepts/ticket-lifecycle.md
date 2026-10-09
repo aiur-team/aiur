@@ -20,7 +20,6 @@ There are exactly **ten** state suffixes (`src/lib/aiur/github/labels.ex:23-25`)
 ```text
 todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled
 ```
-
 | Label | Meaning |
 | --- | --- |
 | `agent:todo` | Queued and dispatchable. |
@@ -47,7 +46,6 @@ them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
 ```text
 watch  paused  parked  queued  rate-limit-fallback
 ```
-
 | Marker | Meaning |
 | --- | --- |
 | `agent:watch` | Opt-in PR-watch marker: Aiur watches a PR for comments. |
@@ -108,6 +106,8 @@ The consequence: a stale or hand-edited label set carrying **two state labels
 at once** denies dispatch. A poll-time repair heals the pair to its winner
 (`agent:todo` wins).
 
+Agents use `aiur_set_epic` to set or clear local general-epic overrides for their ticket or a batch of up to 200 ids. The daemon records `agent:<acting ticket>` as actor; `backfill: true` marks an unconfirmed guess. These overrides do not change GitHub labels. See [epic commands](../reference/cli.md#build-history-epic-commands).
+
 Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
 raw label edits.
 
@@ -130,10 +130,10 @@ PR base SHA. Mismatched heads or base branches, malformed observations and
 incomplete comparison data block the write. Harmless base movement needs no
 merge or CI rerun.
 
-Workers assess integration safety before marking the PR ready and after CI.
-They integrate at most once per handoff, validate and push, keep the PR ready,
-then await new-head CI in `ci-wait`. Another unsafe base change after that
-integration requires an Executor alert rather than another merge/CI cycle.
+Workers check integration safety before handoff and after CI. Up to 3
+integrations per handoff need no approval; each runs local tests and the format, size and components gates,
+then awaits new-head CI in `ci-wait`. After the third, workers send a non-blocking Executor alert and
+continue if the base is safe. Base integration never opens a blocking decision.
 
 When a pair does form, the heal prefers the label that arrived *since* the
 orchestrator's own claim over the claim itself — whenever the orchestrator can
@@ -240,25 +240,24 @@ canonical references.
 
 ## Step 1 — Ticket is created and labelled `agent:todo`
 
-A ticket needs an **explicit** state label to be dispatchable. An open,
-correctly-labelled, unblocked ticket with no `agent:*` state label is simply
-invisible.
-
-`DispatchAuthorization.authorize/5` derives the trigger label from the issue's
-current state and denies `:missing_trigger_label` when there is none
+An open, unblocked ticket needs an **explicit** state label to be dispatchable.
+`DispatchAuthorization.authorize/5` denies `:missing_trigger_label` otherwise
 (`src/lib/aiur/github/dispatch_authorization.ex:74-82`).
 
-**Label provenance** surprises people, so it is worth stating plainly:
+**Label provenance:**
 
-- Dispatch is authorized by *who applied the trigger label*, verified against
-  the GitHub issue timeline. There is deliberately **no trusted-creator
-  short-circuit** — the comment at `dispatch_authorization.ex:35-50` explains
-  why: agents file issues with the same credential, so a creator short-circuit
-  made agent-filed work self-authorizing.
-- Aiur moves the state label itself on every transition, so the latest applier
-  is routinely the bot. An Aiur-applied label **carries forward** the original
-  triage decision — authorized only if some allowed user ever applied an
-  `agent:*` label to that issue (`dispatch_authorization.ex:88-126`).
+- Dispatch trusts *who applied the trigger label*, verified against the GitHub timeline.
+  There is **no trusted-creator short-circuit**: agents share the credential,
+  so trusting creators would make agent-filed work self-authorizing
+  (`dispatch_authorization.ex:35-50`).
+- Aiur's state transitions routinely make the bot the latest label applier.
+  Its label **carries forward** triage only if an allowed user previously applied
+  an `agent:*` label (`dispatch_authorization.ex:88-126`).
+- Queue promotion does not grant authorization: an allowed human must apply the marker or `agent:todo`.
+  An unauthorized decline shows `promoted_unauthorized` and raises one [queue attention](/concepts/build-orders#queue-attentions).
+  It resolves when the decline clears or the issue is claimed; an unavailable probe preserves it.
+- Detection requires a free dispatch slot: declines are recorded only while slots
+  are available. Until then, the queue shows `promoted`.
 - A relabel by anyone else **revokes** authorization, and `Orchestrator.Reconciler`
   terminates the running agent on the next poll.
 - A label applied when an issue is created can appear in the issue response

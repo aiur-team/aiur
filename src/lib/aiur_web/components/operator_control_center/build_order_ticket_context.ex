@@ -3,7 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.{Bounded, Diagnostic}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.Diagnostic
   alias Aiur.OpaqueIdentifier
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextAdapter

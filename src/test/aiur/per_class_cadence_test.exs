@@ -3,7 +3,8 @@ defmodule Aiur.PerClassCadenceTest do
   # this module is deliberately not async.
   use Aiur.TestSupport
 
-  alias Aiur.BuildOrder.Cadence
+  alias Aiur.BuildOrder.{Cadence, Settings}
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{SnapshotStore, State, TrackerHealth}
   alias Aiur.PollCadence
   alias Aiur.Webhooks.ModeRegistry
@@ -151,7 +152,7 @@ defmodule Aiur.PerClassCadenceTest do
       assert Cadence.effective().graph_catalog_labels_refresh_ms > 0
       assert Cadence.effective().ticket_detail_freshness_ms > 0
 
-      assert Aiur.Config.build_order_graph_projection_options()[:catalog_refresh_ms] == 0
+      assert Settings.build_order_graph_projection_options()[:catalog_refresh_ms] == 0
       assert SnapshotStore.stale_age_ceiling_ms() > 0
     end
   end
@@ -276,7 +277,7 @@ defmodule Aiur.PerClassCadenceTest do
       # `webhooks.poll_widen_factor` (2.0) to every base, so force the test repo
       # back to plain polling before each case. This is what makes the suite
       # order-independent.
-      if repo = Aiur.GitHub.Config.repo(), do: ModeRegistry.configure(repo, false)
+      if repo = GitHubConfig.repo(), do: ModeRegistry.configure(repo, false)
 
       :ok
     end
@@ -315,7 +316,7 @@ defmodule Aiur.PerClassCadenceTest do
       # The production path reads the default `ModeRegistry` (which is running),
       # so `record_delivery/2` — the exact call a webhook receiver makes — is
       # what promotes the repo.
-      repo = Aiur.GitHub.Config.repo()
+      repo = GitHubConfig.repo()
       assert is_binary(repo)
 
       :ok = Aiur.Webhooks.record_delivery(repo, at: ~U[2026-08-10 12:00:00Z])

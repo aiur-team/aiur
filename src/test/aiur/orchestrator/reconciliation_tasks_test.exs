@@ -220,6 +220,10 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     {pending, candidates} =
       StartupClaimReconciler.reconcile(owned_state(), [issue],
         active_states: ["todo", "in-progress"],
+        grace_ms: 0,
+        ownership_fun: fn _identifier -> :none end,
+        open_pr_fetcher: fn _identifier -> {:ok, nil} end,
+        create_comment_fun: fn _identifier, _body -> :ok end,
         read_boot_marker_fun: fn -> {:ok, nil} end,
         mark_boot_marker_fun: fn _boot -> :ok end,
         update_issue_state_fun: fn _identifier, _target, _expected ->
@@ -246,6 +250,9 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
 
     opts = [
       active_states: ["todo", "in-progress"],
+      grace_ms: 0,
+      ownership_fun: fn _identifier -> :none end,
+      open_pr_fetcher: fn _identifier -> {:ok, nil} end,
       mark_boot_marker_fun: fn _boot -> :ok end,
       update_issue_state_fun: fn _identifier, _target, _expected ->
         wait_for_release(parent)

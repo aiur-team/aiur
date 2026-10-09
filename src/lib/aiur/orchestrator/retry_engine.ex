@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.{Dispatcher, LifecycleFenceExpiry}
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Workspace.Ownership
 
@@ -67,7 +67,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         running_entry = running |> Map.fetch!(issue_id) |> clear_completed_fallback_replacement()
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
-        state = maybe_reap_orphaned_agent_shell(state, running_entry)
+        state = state |> maybe_reap_orphaned_agent_shell(running_entry) |> LifecycleFenceExpiry.recover_terminated_input(running_entry)
         session_id = State.running_entry_session_id(running_entry)
         state = handle_running_agent_down(state, issue_id, running_entry, reason, session_id)
 

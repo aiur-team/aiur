@@ -6,9 +6,9 @@ defmodule AiurWeb.BuildOrderPresenter do
   This module performs no I/O and never derives GitHub planning truth from
   Aiur execution progress. Joins require an exact `TrackerIdentity.github_key/1`.
   """
+  alias Aiur.Bounded
 
   alias Aiur.BuildOrder.{
-    Bounded,
     Diagnostic,
     EdgeState,
     GraphAnalysis,

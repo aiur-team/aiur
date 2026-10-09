@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
-
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -39,21 +39,13 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
-  # One age shape wherever a stale surface appears — reuse #1814's renderer
-  # rather than adding a second one for the CLI.
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
   @error_marker "__AIUR_CONTROL_ERROR__:"
   @status_timeout_ms 5_000
-  # `set max-agents` is a synchronous orchestrator write: if the orchestrator is
-  # wedged in a GitHub-bound poll (the post-restart initial poll or a slow
-  # reconciliation), the write queues behind it and can appear hung for up to the
-  # 5s control-call budget. When the mailbox backlog is deep enough to mean real
-  # contention, say so up front so the operator sees progress instead of silence
-  # (#2137). A healthy idle orchestrator holds only a handful of queued messages
-  # (pubsub, timers), so this fires only under genuine load.
+  # A deep orchestrator mailbox means `set max-agents` queues behind real contention; say so up front (#2137).
   @orchestrator_busy_mailbox_threshold 20
   # Leave the launcher watchdog room to receive and render the daemon's explicit
   # timeout result instead of racing it at the shared 10-second edge. Eight
@@ -193,6 +185,7 @@ defmodule Aiur.AgentControlCLI do
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     print_executor_wake_status()
+    ProjectionRecovery.print_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -371,10 +364,16 @@ defmodule Aiur.AgentControlCLI do
     UnitsCLI.run(opts) |> exit_marker()
   end
 
+  @spec epic(keyword()) :: :ok
+  def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)
+
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []) do
     guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
   end
+
+  @spec queue(keyword()) :: :ok
+  def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
 
   @spec analytics(keyword()) :: :ok
   def analytics(opts \\ []) do
