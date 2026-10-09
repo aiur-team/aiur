@@ -4,7 +4,8 @@ defmodule Aiur.UnitsCLI do
   require Logger
 
   alias Aiur.JSONSafe
-  alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPolicy, UnitsPresentation, UnitsPresenter}
+  alias Aiur.Projections.UnitsPolicy
+  alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPresentation, UnitsPresenter}
 
   @formats [:auto, :table, :records]
   @table_min_width 120

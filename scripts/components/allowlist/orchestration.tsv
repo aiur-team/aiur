@@ -8,7 +8,6 @@ R-declared	Aiur.CIApprovalStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade83
 R-declared	Aiur.Claude.RemoteControl	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Claude.ReplAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.CurrentRunMembership	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Executor.StatePaths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.AuthPreflight	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.CIPollBatch	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839

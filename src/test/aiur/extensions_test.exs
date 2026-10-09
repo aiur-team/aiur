@@ -583,8 +583,9 @@ defmodule Aiur.ExtensionsTest do
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
     assert_occ_sections(state_payload)
+    assert %{"snapshot_freshness" => %{"status" => "current", "freshness_window_ms" => 600_000}, "observations" => nil, "daemon_started_at" => nil} = state_payload
 
-    assert without_occ_sections(state_payload) == %{
+    assert state_payload |> without_occ_sections() |> Map.drop(~w(snapshot_freshness observations daemon_started_at)) == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
@@ -659,8 +660,7 @@ defmodule Aiur.ExtensionsTest do
                "next_poll_in_ms" => 480_000,
                "poll_interval_ms" => 120_000
              },
-             # The global pause switch rides along on every state payload so
-             # API consumers can tell a quiet fleet from a held one.
+             # The global pause switch rides on every payload: a quiet fleet reads apart from a held one.
              "globally_paused" => false
            }
 

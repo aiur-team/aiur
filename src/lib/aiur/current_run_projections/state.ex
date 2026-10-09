@@ -6,7 +6,7 @@ defmodule Aiur.CurrentRunProjections.State do
   alias Aiur.CurrentRunProjections.{Checkpoint, UnitsBuilder}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.SnapshotStore
-  alias AiurWeb.OperatorControlCenter.UnitsRow
+  alias Aiur.Projections.UnitsRow
 
   @cached_status_timeout_ms 5_000
 

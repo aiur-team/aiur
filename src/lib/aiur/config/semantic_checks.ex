@@ -1,5 +1,5 @@
 defmodule Aiur.Config.SemanticChecks do
-  @moduledoc "Evaluates the first applicable exclusive check, then every always check in order."
+  @moduledoc "Evaluates exclusive checks until a final result, then every always check in order."
 
   @spec validate(map()) :: :ok | {:error, term()}
   def validate(settings) do
@@ -24,9 +24,13 @@ defmodule Aiur.Config.SemanticChecks do
   end
 
   defp validate_exclusive(checks, settings) do
-    case Enum.find(checks, & &1.applies?(settings)) do
-      nil -> :ok
-      check -> check.check(settings)
+    Enum.reduce_while(checks, :ok, fn check, :ok -> exclusive_step(check, settings) end)
+  end
+
+  defp exclusive_step(check, settings) do
+    case if(check.applies?(settings), do: check.check(settings), else: :continue) do
+      :continue -> {:cont, :ok}
+      result -> {:halt, result}
     end
   end
 end
