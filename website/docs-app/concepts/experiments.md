@@ -25,8 +25,9 @@ default to 14 days before the change and an open-ended window after it.
 The default minimum is 15 samples per arm.
 
 Metric references are checked for
-syntax; metric packs and baseline freezing arrive separately. Creation reports
-that the baseline was not frozen when freezing is unavailable in this build.
+syntax; metric packs and baseline freezing arrive separately. Baselines are
+not frozen in this build. Creation notices and validation diagnostics are
+currently lost across the control RPC; the command still returns its exit code.
 
 Stored statuses are `draft`, `active`, `concluded` and `abandoned`.
 The phase is derived from the change time and window end: `awaiting_change`,
