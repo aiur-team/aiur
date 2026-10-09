@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
-  alias Aiur.BuildQueue.{Readiness, Settings}
+  alias Aiur.BuildQueue.{Progress, Readiness, Settings}
   alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
@@ -49,7 +49,7 @@ defmodule Aiur.BuildQueue.ReadModel do
     items = for projection <- context.state.projections, Map.has_key?(members, projection.issue_id), do: item(members[projection.issue_id], projection, context)
     missing = for member <- Map.values(members), not Enum.any?(items, &(&1.number == String.to_integer(member.issue_id))), do: unknown_item(member, context)
     items = items ++ Enum.sort_by(missing, & &1.position)
-    progress = if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: progress(items)
+    progress = if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: Progress.summary(items)
     %{queue_id: queue.id, kind: queue.kind, root: queue.root, name: queue.name, held: queue.held, progress: progress, items: items}
   end
 
@@ -93,22 +93,5 @@ defmodule Aiur.BuildQueue.ReadModel do
       [] -> nil
       matches -> Enum.map(matches, &elem(&1.key, 0))
     end
-  end
-
-  defp progress(items) do
-    active = Enum.reject(items, &(&1.state == :removed))
-    total = length(active)
-    completed = Enum.count(active, &(&1.state == :completed))
-    resolved = Enum.count(active, &(&1.state != :unknown))
-
-    resolution =
-      cond do
-        total == 0 -> :unknown
-        resolved == 0 -> :unknown
-        resolved < total -> :partial
-        true -> :resolved
-      end
-
-    %{completed: if(resolved > 0, do: completed), resolved: resolved, total: total, percent: if(resolved > 0, do: div(completed * 100, total)), resolution: resolution}
   end
 end
