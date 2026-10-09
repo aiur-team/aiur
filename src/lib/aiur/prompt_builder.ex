@@ -80,6 +80,10 @@ defmodule Aiur.PromptBuilder do
     `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
     handoff.
 
+    Exception: a dependent PR may target the head branch of an open, unmerged direct `blocked_by` blocker's PR.
+    After that blocker PR merges or closes, Aiur repairs the base to `#{base_branch}`. Missing blocker facts also
+    mean repair to the integration branch.
+
     """
   end
 
@@ -105,6 +109,10 @@ defmodule Aiur.PromptBuilder do
     agent run is live. If a long-lived session's `AIUR_BASE_BRANCH` process-environment value differs from this,
     treat this stated value as authoritative: create or retarget pull requests with `--base "#{base_branch}"`, never
     from `origin/HEAD`, and verify an existing pull request's base before CI handoff.
+
+    Exception: a dependent PR may target the head branch of an open, unmerged direct `blocked_by` blocker's PR.
+    After that blocker PR merges or closes, Aiur repairs the base to `#{base_branch}`. Missing blocker facts also
+    mean repair to the integration branch.
 
     """
   end
