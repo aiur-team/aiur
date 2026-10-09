@@ -651,9 +651,7 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "agent dev loop requires the local prose guard before pushing docs changes" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
-
-    assert dev_loop =~
-             "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
+    assert dev_loop =~ "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
   end
 
   test "agent instructions require all local checks and oversized-file fixes before PR handoff" do
@@ -665,6 +663,7 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ ~s(then run `python3 scripts/check-file-size.py --base "$base"`)
       assert source =~ ~s|base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"|
       assert source =~ "run all required checks and fix any failures"
+      assert source =~ "Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness."
       assert source =~ "file the same length or shorter"
       assert source =~ "Put new code in a new small module and new tests in a new test file. Never grow the oversized file."
     end

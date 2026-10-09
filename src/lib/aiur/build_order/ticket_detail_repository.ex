@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.TicketDetail.Repository do
   @moduledoc false
 
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias Aiur.BuildOrder.TicketDetail.Failure
   alias Aiur.{GitHub, TrackerIdentity, WorkflowStore}
   alias Aiur.GitHub.{IssueRelationships, Issues}

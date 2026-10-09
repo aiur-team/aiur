@@ -41,6 +41,9 @@ defmodule Aiur.Linear.Tracker do
   }
   """
 
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(_issue_id, _max_age_ms), do: {:error, :unsupported}
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.project_slug()
 
@@ -133,6 +136,9 @@ defmodule Aiur.Linear.Tracker do
     end
   end
 
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(_issue_id), do: {:ok, nil}
+
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(_max_age_ms) do
     {:error, :unsupported}
@@ -140,6 +146,9 @@ defmodule Aiur.Linear.Tracker do
 
   # The `model:remote` promote/demote toggle is a GitHub-label concept;
   # Linear has no equivalent label op wired here.
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(_labels), do: {:error, :unsupported}
+
   @spec add_label(String.t(), String.t()) :: {:error, term()}
   def add_label(_issue_id, _label), do: {:error, :unsupported}
 
