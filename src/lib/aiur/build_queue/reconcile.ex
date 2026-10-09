@@ -6,10 +6,11 @@ defmodule Aiur.BuildQueue.Reconcile do
   @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map(), map()}
   def plan(state) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
+    intents = Enum.filter(input.intents, &(state.reconciles - Map.get(state.intent_reconciles, &1.id, 0) < 2))
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
     {observations, state} = PRObserver.observe(observations(state), state)
-    input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids)}
+    input = %{input | opts: opts, observations: observations, claims: state.claim_probe.status(ids), intents: intents}
     {projections, actions} = Planner.plan(input)
     {projections, actions, input.observations, state}
   end

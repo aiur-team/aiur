@@ -37,7 +37,19 @@ defmodule Aiur.BuildQueue.ObserverTest do
     input = PlannerFixture.input() |> PlannerFixture.waiting()
     document = input |> Map.from_struct() |> Map.take([:queues, :items, :edges, :intents, :latches])
     document = %{document | edges: [%{PlannerFixture.edge() | prerequisite: "42"}]}
-    state = %{settings: settings, tracker: Snapshot, document: document, clock: fn -> System.system_time(:millisecond) end, holds: MapSet.new(), claim_probe: Claims, published_pr_versions: %{}}
+
+    state = %{
+      settings: settings,
+      tracker: Snapshot,
+      document: document,
+      clock: fn -> System.system_time(:millisecond) end,
+      holds: MapSet.new(),
+      claim_probe: Claims,
+      published_pr_versions: %{},
+      reconciles: 0,
+      intent_reconciles: %{}
+    }
+
     {:ok, state: state}
   end
 
