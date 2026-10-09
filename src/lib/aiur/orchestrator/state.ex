@@ -1,7 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc """
-  Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
-  """
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
 
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
