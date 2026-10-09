@@ -11,7 +11,7 @@
     },
     {
       "id": "kernel", "name": "Kernel primitives", "layer": 0, "kind": "required",
-      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex", "src/lib/aiur/journal.ex"],
+      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/display_sanitizer.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex", "src/lib/aiur/journal.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -27,7 +27,7 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**"],
+      "paths": ["src/lib/aiur/identity.ex", "src/lib/aiur/identity/**", "src/lib/aiur/capabilities.ex", "src/lib/aiur/capabilities/**", "src/lib/aiur_web/controllers/capabilities_controller.ex"],
       "facades": ["Aiur.Identity", "Aiur.Capabilities", "Aiur.Capabilities.Provider"], "facade_pending": null,
       "requires": ["kernel", "config", "web-kit", "event-bus"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
@@ -43,9 +43,9 @@
     },
     {
       "id": "web-kit", "name": "Phoenix helper library for component route, socket and controller modules (RC-39)", "layer": 1, "kind": "required",
-      "paths": [],
+      "paths": ["src/lib/aiur_web/capability_error.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
+      "requires": ["kernel", "config", "identity"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
@@ -108,7 +108,7 @@
     },
     {
       "id": "telemetry", "name": "Run telemetry and host health", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/daemon_heartbeat.ex", "src/lib/aiur/daemon_heartbeat_checker.ex", "src/lib/aiur/daemon_heartbeat_writer.ex", "src/lib/aiur/metrics.ex", "src/lib/aiur/run_telemetry.ex", "src/lib/aiur/run_telemetry/**", "src/lib/aiur/saturation_sentinel.ex", "src/lib/aiur/supervision_health.ex", "src/lib/aiur/supervision_health/**", "src/lib/aiur/system_cpu.ex", "src/lib/aiur/system_file_descriptors.ex", "src/lib/aiur/system_load.ex", "src/lib/aiur/system_memory.ex"],
+      "paths": ["src/lib/aiur/daemon_heartbeat.ex", "src/lib/aiur/daemon_heartbeat_checker.ex", "src/lib/aiur/daemon_heartbeat_writer.ex", "src/lib/aiur/metrics.ex", "src/lib/aiur/run_telemetry.ex", "src/lib/aiur/run_telemetry/**", "src/lib/aiur/saturation_sentinel.ex", "src/lib/aiur/supervision_health.ex", "src/lib/aiur/supervision_health/**", "src/lib/aiur/system_cpu.ex", "src/lib/aiur/system_file_descriptors.ex", "src/lib/aiur/system_load.ex", "src/lib/aiur/system_memory.ex", "src/lib/aiur/system_priority.ex", "src/lib/aiur/background_cpu.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "signal"], "optional": [],
       "owns": {"config": ["debug", "max_log_history_mb", "monitoring"], "env": ["AIUR_LOGS_ROOT", "AIUR_NOFILE_SOFT_LIMIT", "AIUR_TELEMETRY_CALLER_CWD"], "state": ["daemon_heartbeat_path", "log_root_dir"], "capabilities": []},
@@ -156,10 +156,19 @@
       "prior": ["DEC", "EXE"]
     },
     {
+      "id": "pr-lifecycle", "name": "PR health lifecycle", "layer": 3, "kind": "optional",
+      "paths": ["src/lib/aiur/pr_lifecycle/**"],
+      "facades": ["Aiur.PRLifecycle.HealthScanner"], "facade_pending": null,
+      "requires": ["tracker", "github", "config", "kernel", "signal"], "optional": ["executor-attention"],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "prior": ["PRL"],
+      "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*"]
+    },
+    {
       "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/conversation/anchors.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["event-bus", "agent-runner", "identity"], "optional": ["executor-attention"],
+      "requires": ["event-bus", "agent-runner", "identity", "kernel"], "optional": ["executor-attention"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": ["conversations.read"]},
       "prior": ["PRJ", "RUN", "SD"]
     },

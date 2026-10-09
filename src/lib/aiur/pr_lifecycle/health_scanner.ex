@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.PRHealthScanner do
+defmodule Aiur.PRLifecycle.HealthScanner do
   @moduledoc """
   Periodically scans open pull requests for the two conditions that stall PRs
   silently for days (#2337, causes 1 and 3):

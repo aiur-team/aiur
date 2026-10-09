@@ -1,6 +1,5 @@
 defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
   use ExUnit.Case, async: false
-  alias Mix.Tasks.Xref
 
   @writers [Aiur.Tracker, Aiur.GitHub.Tracker, Aiur.GitHub.Client, Aiur.GitHub.IssueState, Aiur.Memory.Tracker, Aiur.Linear.Tracker]
   @write_functions [:update_issue_state, :add_label, :remove_label, :swap_labels, :do_update_issue_state]
@@ -9,9 +8,7 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
   @allowed_paths ["lib/aiur/test_reset.ex"]
 
   test "compiled lifecycle writes belong only to the transition owner and adapters" do
-    # Xref inspection is deprecated, but provides the compiled, alias-resolved calls this guard needs.
-    # credo:disable-for-next-line Credo.Check.Refactor.Apply
-    calls = apply(Xref, :calls, [])
+    calls = compiled_calls()
     assert Enum.any?(calls, &(&1.callee == {Aiur.Tracker, :fetch_issue_states_by_ids, 1})), "xref must collect real compiled calls"
 
     violations =
@@ -30,6 +27,39 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
   test "an injected tracker module cannot write labels outside the transition owner" do
     violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_receiver_write?(File.read!(path)), do: path
     assert violations == [], "Injected tracker write bypasses TicketTransition: #{inspect(violations)}"
+  end
+
+  # Reads alias-resolved remote calls from the compiled beams on disk. Mix.Tasks.Xref.calls/0
+  # resolves each module through :code.which/1, which returns :cover_compiled under
+  # `mix test --cover`, so it silently returns no calls in the coverage CI shards.
+  defp compiled_calls do
+    for beam <- Path.wildcard(Path.join(Mix.Project.compile_path(), "*.beam")),
+        {:ok, {module, [debug_info: {:debug_info_v1, backend, data}]}} <- [:beam_lib.chunks(String.to_charlist(beam), [:debug_info])],
+        {:ok, %{definitions: definitions, file: file}} <- [backend.debug_info(:elixir_v1, module, data, [])],
+        {_function, _kind, meta, clauses} <- definitions,
+        call <- clause_calls(module, definition_file(meta, file), clauses),
+        do: call
+  end
+
+  defp definition_file(meta, file) do
+    case Keyword.fetch(meta, :file) do
+      {:ok, {meta_file, _line}} -> Path.relative_to_cwd(meta_file)
+      :error -> Path.relative_to_cwd(file)
+    end
+  end
+
+  defp clause_calls(module, file, clauses) do
+    # Clauses are {meta, args, guards, body} tuples, which Macro.prewalk/3 does not descend into.
+    {_, calls} =
+      Macro.prewalk(Enum.map(clauses, fn {_meta, args, guards, body} -> [args, guards, body] end), [], fn
+        {{:., _, [callee, function]}, _, args} = node, calls when is_atom(callee) and is_atom(function) and is_list(args) ->
+          {node, [%{callee: {callee, function, length(args)}, caller_module: module, file: file} | calls]}
+
+        node, calls ->
+          {node, calls}
+      end)
+
+    calls
   end
 
   defp dynamic_receiver_write?(source) do

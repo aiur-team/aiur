@@ -9,6 +9,8 @@
 | [CLI](/reference/cli) | Agent-driven operation and terminal automation. |
 | [Stream Deck](/guide/stream-deck) | Physical or browser fleet controls and event logs. |
 
+[Capabilities](/concepts/capabilities) describes how clients discover available instance features.
+
 ## Hourly meta-check
 
 `aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.
@@ -42,6 +44,8 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | `emit_alert` | Lets agents raise milestone alerts for the Executor. |
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
+
+Automatic fallback label writes back off per ticket from one dispatch poll, doubling up to ten minutes. Other tickets remain eligible. The third consecutive failure raises `rate_limit_fallback_write_failed` once; a successful write clears the backoff. Backoff is in memory and resets on restart.
 
 ### Retrospective daemon heartbeat gaps
 
@@ -99,12 +103,15 @@ A restart that cannot read persisted global-pause state starts paused rather tha
 
 An `in-progress` ticket with no worker is checked on startup and each candidate
 poll. After 60 seconds without ownership, Aiur releases it to `todo` if it has
-no open PR, `rework` for conflicts or current review findings, or `human-review`
+no open PR, `rework` for conflicts, a stale review base or current review findings, or `human-review`
 otherwise. It comments with the reason and wakes the Executor.
 
 Live workspace leases, scheduled retries, `agent:paused` and `agent:parked`
-protect the claim; unavailable PR evidence retains it for later polls. Failed writes have bounded
-retries and raise an attention.
+protect the claim; unavailable PR evidence retains it for later polls. Budget-held writes
+retry on later polls without consuming the three-attempt limit.
+
+Other failed writes raise an attention. Exhausting three attempts raises an explicit
+Executor attention and retains the claim until intervention or a new daemon boot.
 
 ## Remote control
 
