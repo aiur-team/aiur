@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.AttentionActions do
   @moduledoc false
   require Logger
-  alias Aiur.BuildQueue.{Attention, Ordering, Readiness}
+  alias Aiur.BuildQueue.{Attention, Ordering, Readiness, Settings}
 
   @spec execute(map(), tuple()) :: map()
   def execute(context, {:attention_resolve, key} = command) do
@@ -39,7 +39,16 @@ defmodule Aiur.BuildQueue.AttentionActions do
 
   defp payload(:dependency_changed_after_start, id, context) do
     edges = Map.get(context, :planned_edges, context.document.edges)
-    opts = [label_prefix: String.replace_suffix(context.todo, ":todo", ""), now_ms: context.clock.(), max_age_ms: context.observation_max_age_ms]
+    item = Enum.find(context.document.items, &(&1.issue_id == id))
+    queue = Enum.find(context.document.queues, &(&1.id == item.queue_id))
+
+    opts = [
+      trigger: Settings.effective_trigger(queue, context.settings),
+      label_prefix: String.replace_suffix(context.todo, ":todo", ""),
+      now_ms: context.clock.(),
+      max_age_ms: context.observation_max_age_ms
+    ]
+
     prerequisites = for edge <- edges, edge.dependent == id, Readiness.edge_verdict(context.observations[edge.prerequisite], opts) != :satisfied, do: edge.prerequisite
 
     case Enum.sort(prerequisites) do

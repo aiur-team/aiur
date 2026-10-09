@@ -18,7 +18,6 @@ Keep shared credentials in `~/.aiur/.env`; exported values win. If required labe
 A human can of course type any of it. Most humans will not: they watch the TUI or the dashboard and let their Executor agent drive.
 
 Run the command from the repository that owns the run. An instance is keyed to that project, so control commands address that repository's daemon.
-
 ## What the CLI does
 
 | Job | Commands | Notes |
@@ -30,7 +29,6 @@ Run the command from the repository that owns the run. An instance is keyed to t
 | Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-moot`, `executor-emit`, `listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
-
 ## Start, initialize, and queue
 
 | Syntax | Default or important interaction | Runnable example |
@@ -82,7 +80,6 @@ Launch mode determines which interfaces remain available:
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
-
 ## Inspect and operate a running daemon
 
 A `workspace_ownership_waiting` row reports the held generation and provider-exit proof state. A reboot changes a local hold with recorded boot ID to `boot_changed_release_pending`. The guardian releases it automatically after writing its durable recovery audit record.
@@ -232,8 +229,9 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 | `aiur units` | Filtered Units catalog; use `--scope`, repeated `--condition`, `--format`, or `--json`. | `aiur units --scope unfinished --condition alert --json` |
 | `aiur commands [decision-id]` | Durable decision inbox, or one selected decision. Use `--filter all\|open\|blocking\|resolved`, `--blocking`, `--ticket`, `--search`, `--cursor`, `--limit`, and `--json`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter blocking --json` |
 | `aiur queue show [--queue NAME] [--json]` | Read held queue state, start order, prerequisites, progress, and source ages; optionally select a named queue. | `aiur queue show --queue paseo --json` |
-| `aiur queue add <ids…> [--after N] [--queue NAME] [--at POS]` | Adds tickets to a list (default name: `default`); `--after` adds local prerequisite edges; positions are zero-based. | `aiur queue add 142 143 --queue paseo --after 141 --at 0` |
-| `aiur queue add --build-order <root> [--queue NAME]` | Adopts a Build Order root, optionally naming its queue. | `aiur queue add --build-order 141 --queue roadmap` |
+| `aiur queue add <ids…> [--after N] [--queue NAME] [--at POS] [--start-on TRIGGER]` | Adds tickets to a list (default name: `default`); `--after` adds local prerequisite edges; positions are zero-based. | `aiur queue add 142 143 --queue paseo --after 141 --at 0` |
+| `aiur queue add --build-order <root> [--queue NAME] [--start-on TRIGGER]` | Adopts a Build Order root, optionally naming its queue and selecting its start trigger. | `aiur queue add --build-order 141 --queue roadmap` |
+| `aiur queue set <queue> --start-on <trigger\|default>` | Sets the queue prerequisite trigger; `default` follows config. Tightening withdraws unclaimed todo; running agents continue. | `aiur queue set paseo --start-on pr_opened` |
 | `aiur queue remove <ids…>` | Removes list members and their membership markers. | `aiur queue remove 142 143` |
 | `aiur queue reorder <id> --to POS` | Moves one ticket within its list to a zero-based position. | `aiur queue reorder 143 --to 0` |
 | `aiur queue hold <id\|--queue NAME>` | Persists an item or whole-queue hold, stopping promotion. | `aiur queue hold --queue paseo` |
@@ -247,6 +245,7 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 | `aiur analytics --until 2026-08-02T00:00:00Z` | Sets the exclusive ISO-8601 end of an analytics window. | `aiur analytics --until 2026-08-02T00:00:00Z` |
 | `aiur analytics --build-order 1567` | Limits analytics to one numeric Build Order root. | `aiur analytics --build-order 1567` |
 
+`--start-on` accepts `issue_closed`, `pr_merged` (config default), `pr_approved`, `pr_ci_green`, or `pr_opened`. Later stages satisfy earlier requirements. An existing list rejects a different override on `add`; use `set`. Invalid values exit 64. Queue JSON includes effective `start_trigger`, nullable `start_trigger_override`, and each prerequisite’s `stage` and `trigger`.
 ### Output contract
 
 Every `--json` result is one versioned envelope with `schema_version`, `page`, `snapshot.captured_at`, `request`, `sources`, `data`, and `auxiliary`. `snapshot.captured_at` is when the command ran; it is not a claim that every source was observed then.

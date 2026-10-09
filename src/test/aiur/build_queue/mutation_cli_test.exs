@@ -15,7 +15,19 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     end
 
     def open_issue_labels(_), do: Agent.get(__MODULE__, &{:ok, &1.labels, 1_000})
-    def blocked_by(_), do: {:ok, []}
+    def blocked_by(id), do: Agent.get(__MODULE__, &{:ok, Map.get(Map.get(&1, :dependencies, %{}), id, [])})
+
+    def ticket_pull_request(id) do
+      Agent.get_and_update(__MODULE__, fn state ->
+        prs = Map.get(state, :prs, %{})
+
+        case prs[id] do
+          [pr | rest] -> {{:ok, pr}, Map.put(state, :prs, Map.put(prs, id, rest))}
+          pr -> {{:ok, pr}, state}
+        end
+      end)
+    end
+
     def ensure_labels(_), do: :ok
 
     def add_label(id, label) do
@@ -176,6 +188,67 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     end
 
     assert document() == @empty
+  end
+
+  test "start-on add and set persist overrides and default without silent replacement", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "wave", start_on: "pr_ci_green")
+    assert hd(document().queues).start_trigger == :pr_ci_green
+    assert {:ok, [{"#2", {:error, :trigger_mismatch}}]} = MutationCLI.execute(verb: :add, ids: ["2"], queue: "wave", start_on: "pr_opened", server: pid)
+    assert Enum.map(document().items, & &1.issue_id) == ["1"]
+    run(pid, :set, queue: "wave", start_on: "pr_opened")
+    assert hd(document().queues).start_trigger == :pr_opened
+    assert hd(document().queues).generation == 1
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger_override == :pr_opened
+    run(pid, :set, queue: "wave", start_on: "default")
+    assert hd(document().queues).start_trigger == nil
+    assert hd(document().queues).generation == 2
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_merged
+    assert {:ok, [{"missing", {:error, :not_found}}]} = MutationCLI.execute(verb: :set, queue: "missing", start_on: "pr_opened", server: pid)
+  end
+
+  test "optimistic add promotes through real reconciliation", %{server: pid} do
+    Agent.update(Boundary, &%{&1 | labels: Map.put(&1.labels, "2", %{labels: ["agent:ci-wait"]})})
+    run(pid, :add, ids: ["1"], after: "2", start_on: "pr_opened")
+    reconcile(pid)
+    assert "agent:todo" in labels("1")
+    assert hd(document().items).promoted_at != nil
+    assert hd(hd(Aiur.BuildQueue.show(pid).queues).items).state == :ready
+  end
+
+  test "a merged local prerequisite cannot bypass another native blocker", %{server: pid} do
+    Agent.update(Boundary, &Map.merge(&1, %{dependencies: %{"1" => ["3"]}, prs: %{"2" => %{merged?: true, state: :closed}}}))
+    run(pid, :add, ids: ["1"], after: "2")
+    reconcile(pid)
+    refute "agent:todo" in labels("1")
+    item = hd(hd(Aiur.BuildQueue.show(pid).queues).items)
+    assert item.state == :waiting
+    assert Enum.any?(:sys.get_state(pid).planned_edges, &(&1.prerequisite == "3" and &1.dependent == "1"))
+  end
+
+  test "a merge arriving during reconciliation cannot change unchecked native eligibility", %{server: pid} do
+    merged = %{merged?: true, state: :closed}
+    Agent.update(Boundary, &Map.merge(&1, %{dependencies: %{"1" => ["3"]}, prs: %{"2" => [nil, merged, merged]}}))
+    run(pid, :add, ids: ["1"], after: "2")
+    reconcile(pid)
+    refute "agent:todo" in labels("1")
+    # The merge remains for the next pass, when native prerequisites will be checked.
+    assert Agent.get(Boundary, & &1.prs["2"]) == [merged, merged]
+    assert :ok = GenServer.call(pid, :reconcile_now)
+    reconcile(pid)
+    refute "agent:todo" in labels("1")
+    assert hd(:sys.get_state(pid).projections).verdict == :waiting
+    assert Enum.any?(:sys.get_state(pid).planned_edges, &(&1.prerequisite == "3" and &1.dependent == "1"))
+  end
+
+  test "invalid start-on exits 64 with allowed values before any mutation", %{server: pid} do
+    before = document()
+    output = capture_io(fn -> assert MutationCLI.run(verb: :add, ids: ["1"], start_on: "soon", server: pid, error_fun: &IO.puts/1) == 64 end)
+    for trigger <- Aiur.StartTrigger.triggers(), do: assert(output =~ Atom.to_string(trigger))
+    assert {:error, :invalid_start_trigger} = GenServer.call(pid, {:mutate, {:set_trigger, "wave", :soon}})
+    assert {:error, :invalid_start_trigger} = GenServer.call(pid, {:mutate, {:add, ["2"], [queue: "wave", start_trigger: :soon]}})
+    assert document() == before
+    assert {:error, :invalid_arguments} = MutationCLI.execute(verb: :remove, ids: ["1"], start_on: "pr_opened", server: pid)
+    assert {:error, :invalid_arguments} = MutationCLI.execute(verb: :set, queue: "wave", server: pid)
   end
 
   defp reconcile(pid) do
