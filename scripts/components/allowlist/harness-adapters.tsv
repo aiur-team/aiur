@@ -2,7 +2,6 @@
 R-declared	Aiur.AgentEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentRunner.ToolExecutor	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.DecisionLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.EventHumanizer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.EventHumanizerHelpers	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Events.AgentSubscriptionPolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -20,7 +19,6 @@ R-declared	Aiur.Tmux	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.GitMetadata	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-down	Aiur.DecisionLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.EventHumanizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Init	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

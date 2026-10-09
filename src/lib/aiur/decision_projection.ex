@@ -98,7 +98,7 @@ defmodule Aiur.DecisionProjection do
 
   @doc "Reduce until the first invalid transition, returning the valid prefix and corrupt line."
   @spec reduce_checked([Decision.t() | DecisionEvent.t()]) ::
-          {projection(), Aiur.DecisionLog.corruption() | nil}
+          {projection(), Aiur.Journal.corruption() | nil}
   def reduce_checked(records) when is_list(records) do
     records
     |> Enum.with_index(1)

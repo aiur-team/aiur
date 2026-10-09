@@ -11,7 +11,7 @@
     },
     {
       "id": "kernel", "name": "Kernel primitives", "layer": 0, "kind": "required",
-      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex"],
+      "paths": ["src/lib/aiur/boot.ex", "src/lib/aiur/bounded.ex", "src/lib/aiur/coordination_tasks.ex", "src/lib/aiur/fs.ex", "src/lib/aiur/git.ex", "src/lib/aiur/json_safe.ex", "src/lib/aiur/json_store.ex", "src/lib/aiur/jsonl.ex", "src/lib/aiur/opaque_identifier.ex", "src/lib/aiur/os.ex", "src/lib/aiur/path_safety.ex", "src/lib/aiur/periodic_worker.ex", "src/lib/aiur/process_identity.ex", "src/lib/aiur/process_tree.ex", "src/priv/pidfd_reap.py", "src/lib/aiur/protocol/**", "src/lib/aiur/secret_redactor.ex", "src/lib/aiur/shell.ex", "src/lib/aiur/ssh.ex", "src/lib/aiur/tracker_identity.ex", "src/lib/aiur/yaml.ex", "src/lib/aiur/journal.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": [], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -85,7 +85,7 @@
       "id": "github-listeners", "name": "GitHub event ingestion (webhook + pollers)", "layer": 2, "kind": "optional",
       "paths": ["src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["identity", "github", "event-bus", "config", "web-kit"], "optional": [],
+      "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel"], "optional": [],
       "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": ["webhook_ingress"]},
       "prior": ["ING"]
     },

@@ -1,9 +1,9 @@
-defmodule Aiur.DecisionLogTest do
+defmodule Aiur.JournalTest do
   use ExUnit.Case, async: true
 
   @moduletag :tmp_dir
 
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
 
   defp identity_validator, do: fn decoded -> {:ok, decoded} end
 
@@ -11,7 +11,7 @@ defmodule Aiur.DecisionLogTest do
     test "creates an owner-only (0700) directory when absent", %{tmp_dir: tmp_dir} do
       dir = Path.join(tmp_dir, "state")
 
-      assert :ok = DecisionLog.ensure_directory(dir)
+      assert :ok = Journal.ensure_directory(dir)
       assert File.dir?(dir)
       assert %File.Stat{mode: mode} = File.stat!(dir)
       assert Bitwise.band(mode, 0o777) == 0o700
@@ -19,8 +19,8 @@ defmodule Aiur.DecisionLogTest do
 
     test "is idempotent on an existing owner-only directory", %{tmp_dir: tmp_dir} do
       dir = Path.join(tmp_dir, "state")
-      assert :ok = DecisionLog.ensure_directory(dir)
-      assert :ok = DecisionLog.ensure_directory(dir)
+      assert :ok = Journal.ensure_directory(dir)
+      assert :ok = Journal.ensure_directory(dir)
     end
 
     test "rejects a symlinked directory target", %{tmp_dir: tmp_dir} do
@@ -29,14 +29,14 @@ defmodule Aiur.DecisionLogTest do
       link = Path.join(tmp_dir, "linked")
       File.ln_s!(real_dir, link)
 
-      assert {:error, {:symlink_rejected, ^link}} = DecisionLog.ensure_directory(link)
+      assert {:error, {:symlink_rejected, ^link}} = Journal.ensure_directory(link)
     end
 
     test "rejects a path that is an existing regular file", %{tmp_dir: tmp_dir} do
       file = Path.join(tmp_dir, "not_a_dir")
       File.write!(file, "x")
 
-      assert {:error, {:not_a_directory, ^file}} = DecisionLog.ensure_directory(file)
+      assert {:error, {:not_a_directory, ^file}} = Journal.ensure_directory(file)
     end
   end
 
@@ -51,14 +51,14 @@ defmodule Aiur.DecisionLogTest do
         :ok
       end
 
-      assert :ok = DecisionLog.prepare(dir, path, sync_fun)
+      assert :ok = Journal.prepare(dir, path, sync_fun)
       assert_receive :filesystem_synced, 1000
       refute_receive :filesystem_synced, 100
 
-      assert :ok = DecisionLog.append(path, %{"version" => 1})
+      assert :ok = Journal.append(path, %{"version" => 1})
       refute_receive :filesystem_synced, 100
 
-      assert :ok = DecisionLog.prepare(dir, path, sync_fun)
+      assert :ok = Journal.prepare(dir, path, sync_fun)
       refute_receive :filesystem_synced, 100
     end
   end
@@ -68,8 +68,8 @@ defmodule Aiur.DecisionLogTest do
       path = Path.join(tmp_dir, "decisions.ndjson")
       event = %{"decision_id" => "dec_1", "version" => 1}
 
-      assert :ok = DecisionLog.append(path, event)
-      assert {:ok, [decoded], nil} = DecisionLog.replay(path, identity_validator())
+      assert :ok = Journal.append(path, event)
+      assert {:ok, [decoded], nil} = Journal.replay(path, identity_validator())
       assert decoded == event
     end
 
@@ -77,10 +77,10 @@ defmodule Aiur.DecisionLogTest do
       path = Path.join(tmp_dir, "decisions.ndjson")
 
       for i <- 1..5 do
-        assert :ok = DecisionLog.append(path, %{"decision_id" => "dec_1", "version" => i})
+        assert :ok = Journal.append(path, %{"decision_id" => "dec_1", "version" => i})
       end
 
-      assert {:ok, decoded, nil} = DecisionLog.replay(path, identity_validator())
+      assert {:ok, decoded, nil} = Journal.replay(path, identity_validator())
       assert Enum.map(decoded, & &1["version"]) == [1, 2, 3, 4, 5]
     end
 
@@ -89,20 +89,20 @@ defmodule Aiur.DecisionLogTest do
       path = Path.join(dir, "decisions.ndjson")
       File.mkdir_p!(dir)
 
-      assert :ok = DecisionLog.append(path, %{"a" => 1})
+      assert :ok = Journal.append(path, %{"a" => 1})
       assert %File.Stat{mode: mode} = File.stat!(path)
       assert Bitwise.band(mode, 0o777) == 0o600
     end
 
     test "replaying a missing file returns an empty, intact stream", %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "missing.ndjson")
-      assert {:ok, [], nil} = DecisionLog.replay(path, identity_validator())
+      assert {:ok, [], nil} = Journal.replay(path, identity_validator())
     end
 
     test "each appended line is newline-terminated on disk", %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "decisions.ndjson")
-      assert :ok = DecisionLog.append(path, %{"a" => 1})
-      assert :ok = DecisionLog.append(path, %{"a" => 2})
+      assert :ok = Journal.append(path, %{"a" => 1})
+      assert :ok = Journal.append(path, %{"a" => 2})
 
       assert File.read!(path) ==
                Jason.encode!(%{"a" => 1}) <> "\n" <> Jason.encode!(%{"a" => 2}) <> "\n"
@@ -112,13 +112,13 @@ defmodule Aiur.DecisionLogTest do
   describe "crash recovery" do
     test "a non-newline-terminated trailing fragment is truncated, synced, and excluded", %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "decisions.ndjson")
-      assert :ok = DecisionLog.append(path, %{"decision_id" => "dec_1", "version" => 1})
+      assert :ok = Journal.append(path, %{"decision_id" => "dec_1", "version" => 1})
 
       # Simulate a crash mid-append: an incomplete, non-newline-terminated
       # fragment follows the last acknowledged record.
       File.write!(path, ~s({"decision_id":"dec_1","version":2,"trunc), [:append])
 
-      assert {:ok, [decoded], nil} = DecisionLog.replay(path, identity_validator())
+      assert {:ok, [decoded], nil} = Journal.replay(path, identity_validator())
       assert decoded["version"] == 1
 
       # The truncation is itself durable: re-reading the raw file shows the
@@ -130,7 +130,7 @@ defmodule Aiur.DecisionLogTest do
       path = Path.join(tmp_dir, "decisions.ndjson")
       File.write!(path, ~s({"incomplete))
 
-      assert {:ok, [], nil} = DecisionLog.replay(path, identity_validator())
+      assert {:ok, [], nil} = Journal.replay(path, identity_validator())
       assert File.read!(path) == ""
     end
 
@@ -138,12 +138,12 @@ defmodule Aiur.DecisionLogTest do
       tmp_dir: tmp_dir
     } do
       path = Path.join(tmp_dir, "decisions.ndjson")
-      assert :ok = DecisionLog.append(path, %{"decision_id" => "dec_1", "version" => 1})
+      assert :ok = Journal.append(path, %{"decision_id" => "dec_1", "version" => 1})
       File.write!(path, ~s({"decision_id":"dec_1","version":2,"trunc), [:append])
       torn_contents = File.read!(path)
 
       assert {:ok, [decoded], nil} =
-               DecisionLog.replay(path, identity_validator(), repair_torn_tail: false)
+               Journal.replay(path, identity_validator(), repair_torn_tail: false)
 
       assert decoded["version"] == 1
       assert File.read!(path) == torn_contents
@@ -155,7 +155,7 @@ defmodule Aiur.DecisionLogTest do
       path = Path.join(tmp_dir, "decisions.ndjson")
       File.write!(path, ~s({"version":1}\n\n{"version":3}\n))
 
-      assert {:ok, [first], {:corrupt, 2, _reason}} = DecisionLog.replay(path, identity_validator())
+      assert {:ok, [first], {:corrupt, 2, _reason}} = Journal.replay(path, identity_validator())
       assert first["version"] == 1
     end
 
@@ -165,7 +165,7 @@ defmodule Aiur.DecisionLogTest do
       path = Path.join(tmp_dir, "decisions.ndjson")
       File.write!(path, ~s({"version":1}\n) <> "not json at all\n" <> ~s({"version":3}\n))
 
-      assert {:ok, [first], {:corrupt, 2, _reason}} = DecisionLog.replay(path, identity_validator())
+      assert {:ok, [first], {:corrupt, 2, _reason}} = Journal.replay(path, identity_validator())
       assert first["version"] == 1
     end
 
@@ -183,7 +183,7 @@ defmodule Aiur.DecisionLogTest do
         end
       end
 
-      assert {:ok, [first], {:corrupt, 2, :semantically_invalid}} = DecisionLog.replay(path, validator)
+      assert {:ok, [first], {:corrupt, 2, :semantically_invalid}} = Journal.replay(path, validator)
       assert first["version"] == 1
     end
   end
@@ -195,7 +195,7 @@ defmodule Aiur.DecisionLogTest do
       link = Path.join(tmp_dir, "link.ndjson")
       File.ln_s!(target, link)
 
-      assert {:error, {:symlink_rejected, ^link}} = DecisionLog.append(link, %{"a" => 1})
+      assert {:error, {:symlink_rejected, ^link}} = Journal.append(link, %{"a" => 1})
     end
 
     test "replay/2 refuses to read through a symlinked path", %{tmp_dir: tmp_dir} do
@@ -204,7 +204,7 @@ defmodule Aiur.DecisionLogTest do
       link = Path.join(tmp_dir, "link.ndjson")
       File.ln_s!(target, link)
 
-      assert {:error, {:symlink_rejected, ^link}} = DecisionLog.replay(link, identity_validator())
+      assert {:error, {:symlink_rejected, ^link}} = Journal.replay(link, identity_validator())
     end
   end
 end
