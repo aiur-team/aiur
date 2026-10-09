@@ -10,7 +10,7 @@ defmodule AiurWeb.StreamdeckCommands do
   # `Aiur.DecisionQuery`/`Aiur.DecisionStore` — it never passes an internal
   # struct field to the device that the client did not ask to render.
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionQuery}
+  alias Aiur.{Commands, Decision, DecisionAnswer}
 
   # The operator identity recorded on a Command answered from the device. The
   # operator physically pressing their own deck is the operator answering, so
@@ -30,11 +30,12 @@ defmodule AiurWeb.StreamdeckCommands do
   so the device says "Commands unavailable" instead of silently showing no
   Commands for an agent that has them.
   """
+
   @spec history(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def history(identifier, cursor, opts \\ []) when is_binary(identifier) do
     limit = Keyword.get(opts, :limit, @history_limit)
 
-    case DecisionQuery.list(%{ticket: identifier, limit: limit, cursor: cursor}, store: store(opts)) do
+    case Commands.query_list(%{ticket: identifier, limit: limit, cursor: cursor}, store: store(opts)) do
       {:ok, result} ->
         {:ok, page(result)}
 
@@ -46,7 +47,7 @@ defmodule AiurWeb.StreamdeckCommands do
   @doc "One exact Command, allowlisted — used to project an answer's recorded result back to the device."
   @spec detail(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def detail(decision_id, opts \\ []) when is_binary(decision_id) do
-    case DecisionQuery.get(decision_id, store: store(opts)) do
+    case Commands.query_get(decision_id, store: store(opts)) do
       {:ok, %{decision: decision}} -> {:ok, item(decision)}
       {:error, reason} -> {:error, reason}
     end
@@ -128,5 +129,5 @@ defmodule AiurWeb.StreamdeckCommands do
     |> Map.new()
   end
 
-  defp store(opts), do: Keyword.get(opts, :store, DecisionQuery.default_store())
+  defp store(opts), do: Keyword.get(opts, :store, Commands.default_store())
 end

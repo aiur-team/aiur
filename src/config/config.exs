@@ -10,7 +10,7 @@ config :aiur, :tracker_adapters, %{
 
 config :aiur, :tracker_fallback_kind, "linear"
 
-config :aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck]
+config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :capability_providers, [
@@ -18,7 +18,7 @@ config :aiur, :capability_providers, [
   Aiur.BuildQueue.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
-  Aiur.DecisionStore.CapabilityProvider,
+  Aiur.Commands,
   Aiur.Tracker.CapabilityProvider,
   Aiur.Executor.CapabilityProvider,
   Aiur.BuildOrder.CapabilityProvider,
