@@ -23,7 +23,10 @@ every blocker push is an integration signal.
    conflicts hunk by hunk. Record each integrated blocker identifier, ref and
    SHA in the Agent Workpad. Keep the old commit reachable with a local rescue
    ref so a later rewrite can still be compared and rebased.
-2. **Every `ticket.N.branch.push`.** At the next safe checkpoint (WIP
+2. **Every `ticket.N.branch.push`.** Integrate only direct blockers listed in
+   the Optimistic start block. Never merge a grand-blocker's push or a newer
+   integration branch into your still-stacked branch; updates cascade level by
+   level through direct blocker pushes. At the next safe checkpoint (WIP
    committed, no test run in flight), fetch the payload ref and SHA and verify
    the commit. If several pushes queued for the same blocker, integrate the
    latest validated push. Read `<old>` from the workpad and run
@@ -48,7 +51,17 @@ every blocker push is an integration signal.
    your existing branch with `--force-with-lease`; otherwise push normally.
    Publish only after tests pass and mark validation passed in the workpad.
    If tests fail, retain the new integrated SHA and record validation failed.
-   If integration itself fails, keep the previous SHA and concrete failure.
+   If a merge or rebase conflict cannot be resolved while preserving both
+   tickets' intent, abort the integration with `git -C "$workspace" merge --abort`
+   or `git -C "$workspace" rebase --abort`. Preserve your branch and rescue ref,
+   keep the previous integrated SHA, and record the concrete failure in the
+   workpad. Never use `reset --hard` or drop or squash your own commits to make
+   integration succeed. Emit `blocked` once with
+   `payload: {reason: "integration_conflict"}`, then park for the Executor with
+   `pause.request` carrying `payload: {reason: "operator_decision", question:
+   "How should the conflicting intents in <files> be reconciled?"}`. Include
+   the concrete conflicting intents in that question; this is an unresolved
+   conflict, not a dependency-readiness pause.
 4. **Keep the PR draft and stacked.** With one unmerged blocker, use its branch
    as the PR base; with several, use `$AIUR_BASE_BRANCH`, as the prompt block
    directs. While any blocker PR is unmerged, never run `gh pr ready` or move
@@ -150,6 +163,9 @@ and an unblock whose metadata does not match the observed push is ignored.
   fire-and-forget means it enqueues once and continues even when publication is
   still pending.
 - **Don't mark an optimistic PR ready while a blocker is unmerged, or merge rewritten blocker history.** Follow the Optimistic start section above.
+- **Don't discard work to make integration succeed.** Never use `reset --hard`
+  or drop or squash your own commits; abort an unresolvable merge or rebase,
+  preserve the branch and rescue ref, and park for the Executor as described above.
 - **Don't infer readiness from `branch.push` for paused dependents.** Resume and integrate on the
   blocker's explicit `agent.unblocked`; use a push only to inspect its validated
   ref.

@@ -119,7 +119,10 @@ work ordering, so they're worth stating up front:
   event timing from memory.
 - **Optimistic start.** If your prompt has an Optimistic start block, every
   blocker push is an integration signal: integrate at the next safe checkpoint
-  (WIP committed, no test run in flight), rebase on rewritten history and push
+  (WIP committed, no test run in flight). Integrate only direct blockers listed
+  in that block; never merge a grand-blocker's push or a newer integration
+  branch into your still-stacked branch. Updates cascade level by level through
+  direct blocker pushes. Rebase on rewritten history and push
   with `--force-with-lease`. Keep the PR draft and stacked as the block directs;
   never mark ready while any blocker PR is unmerged. Load `aiur-agent`
   [Optimistic start](.claude/skills/aiur-agent/stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker)
