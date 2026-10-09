@@ -13,6 +13,8 @@ defmodule Aiur.Workspace.Ownership do
 
   @type phase :: :provisioning | :active | :reaping | :released
   @type lease :: %{
+          optional(:retained_since) => String.t() | nil,
+          optional(:retained_cause) => String.t() | nil,
           ticket: String.t(),
           generation: pos_integer(),
           owner_id: String.t(),
