@@ -1,7 +1,10 @@
 defmodule AiurWeb.DashboardCssThemeTest do
   use ExUnit.Case, async: true
 
-  @css Path.expand("../../priv/static/dashboard.css", __DIR__)
+  defp css do
+    {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
+    css
+  end
 
   # A literal hex in a `color:` declaration cannot be theme-aware: the same ink
   # renders against both the dark and the light surfaces. The nav count badge
@@ -50,7 +53,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert rule =~ "var(--blocking-soft)"
     assert rule =~ "var(--blocking-ink)"
 
-    css = File.read!(@css)
+    css = css()
     refute css =~ "#f5b8a8", "the dark-only salmon ink is back"
     refute css =~ ~r/color:\s*#f2836b/, "the dark-only salmon is back as a text colour"
   end
@@ -151,14 +154,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
     assert css_rule(".ut-pbar > i") =~ "min-width: var(--progress-bar-height)"
     assert css_rule(".ut-pbar > i.is-complete") =~ "var(--progress-complete-fill)"
-    refute @css |> File.read!() |> String.contains?(".ut-pbar > i.is-stale")
-    refute @css |> File.read!() |> String.contains?(".ut-pbar > i.is-blocked")
-    refute @css |> File.read!() |> String.contains?(".ut-pbar > i.has-alert")
+    refute css() |> String.contains?(".ut-pbar > i.is-stale")
+    refute css() |> String.contains?(".ut-pbar > i.is-blocked")
+    refute css() |> String.contains?(".ut-pbar > i.has-alert")
     assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
     assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
-    refute @css |> File.read!() |> String.contains?(".run-summary-progress-fill.is-stale")
+    refute css() |> String.contains?(".run-summary-progress-fill.is-stale")
     assert css_rule(".sd-strip-cmd-progress > i") =~ "min-width: var(--progress-bar-height)"
-    refute @css |> File.read!() |> String.contains?(".sd-strip-cmd.is-progress-stale")
+    refute css() |> String.contains?(".sd-strip-cmd.is-progress-stale")
     assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before") =~ "background: rgba(255, 255, 255, 0.32)"
     assert css_rule(".ut-pbar.is-unknown") =~ "background: var(--line-strong)"
     assert css_rule(".rs-meter.is-unknown") =~ "background: var(--line-strong)"
@@ -167,7 +170,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   end
 
   test "dashboard styling does not reintroduce dashes or hatching" do
-    css = File.read!(@css)
+    css = css()
 
     refute css =~ "dashed"
     refute css =~ "stroke-dasharray"
@@ -315,8 +318,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   end
 
   defp literal_text_colors do
-    @css
-    |> File.read!()
+    css()
     |> then(&Regex.scan(~r/^\s*color:\s*(#[0-9a-fA-F]{3,8})\s*;/m, &1))
     |> Enum.map(fn [_full, hex] -> String.downcase(hex) end)
     |> Enum.sort()
@@ -325,7 +327,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # Anchored on a line start so a descendant rule (`.decision-follow-up .btn {`)
   # can never be mistaken for the base rule it contains as a substring.
   defp css_rule(selector) do
-    css = File.read!(@css)
+    css = css()
     [_before, rest] = String.split(css, "\n" <> selector <> " {", parts: 2)
     [body, _after] = String.split(rest, "}", parts: 2)
     body

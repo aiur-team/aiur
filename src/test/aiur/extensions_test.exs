@@ -1,3 +1,5 @@
+Code.require_file("../support/dashboard_font_assertions.ex", __DIR__)
+
 defmodule Aiur.ExtensionsTest do
   use Aiur.TestSupport
 
@@ -1057,12 +1059,7 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     html = html_response(get(build_conn(), "/"), 200)
-    assert html =~ ~s(data-palette="gruvbox")
-    assert {restore_at, _} = :binary.match(html, ~s|getItem("aiur-palette")|)
-    assert {stylesheet_at, _} = :binary.match(html, "/dashboard.css")
-    assert restore_at < stylesheet_at
-    assert html =~ "/dashboard.css"
-    assert html =~ "/build-home/loader.js"
+    Aiur.TestSupport.DashboardFontAssertions.assert_bootstrap(html)
     assert html =~ "Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook()"
     assert {dashboard_offset, _} = :binary.match(html, "/dashboard.css")
     assert {home_offset, _} = :binary.match(html, "/build-home/home.css")
@@ -1190,23 +1187,7 @@ defmodule Aiur.ExtensionsTest do
     assert response(github_mark, 200) =~ "<svg"
     assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    font_urls = Regex.scan(~r{url\(/fonts/([^)]+)\)}, response(get(build_conn(), "/dashboard.css"), 200))
-    assert length(font_urls) == 39
-
-    for [_full, name] <- Enum.uniq(font_urls) do
-      conn = get(build_conn(), "/fonts/#{name}")
-      assert binary_part(response(conn, 200), 0, 4) == "wOF2"
-      assert Plug.Conn.get_resp_header(conn, "content-type") == ["font/woff2"]
-      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["public, max-age=31536000"]
-    end
-
-    assert response(get(build_conn(), "/fonts/nope.woff2"), 404) != ""
-
-    for path <- ["/fonts/..%2Fdashboard.css", "/fonts/%2E%2E/dashboard.css"] do
-      assert_error_sent(400, fn -> get(build_conn(), path) end)
-    end
-
-    assert AiurWeb.StaticAssets.served_path?(["fonts", "space-grotesk-v22-latin.woff2"])
+    Aiur.TestSupport.DashboardFontAssertions.assert_fonts(&get(build_conn(), &1))
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"

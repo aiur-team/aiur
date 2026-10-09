@@ -706,8 +706,6 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.find(mobile_nav, "#theme-toggle") == [],
              "the theme toggle is not duplicated into the nav pill"
 
-      # One theme toggle total, and ids stay unique so LiveView can patch each
-      # instance independently.
       assert length(Floki.find(doc, "[phx-hook=\"ThemeToggle\"]")) == 1
 
       assert length(Floki.find(doc, ".topbar-controls [phx-hook=\"PaletteToggle\"][aria-pressed=\"true\"]")) == 1
