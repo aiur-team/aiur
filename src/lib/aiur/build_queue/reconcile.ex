@@ -3,13 +3,15 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   alias Aiur.BuildQueue.{Hints, Model.Observation, Planner, Settings}
 
-  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()]}
+  @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map()}
   def plan(state) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
+    intents = Enum.filter(input.intents, &(state.reconciles - Map.get(state.intent_reconciles, &1.id, 0) < 2))
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     ids = Enum.map(input.items, & &1.issue_id)
-    input = %{input | opts: opts, observations: observations(state), claims: state.claim_probe.status(ids)}
-    Planner.plan(input)
+    input = %{input | opts: opts, observations: observations(state), claims: state.claim_probe.status(ids), intents: intents}
+    {projections, actions} = Planner.plan(input)
+    {projections, actions, input.observations}
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
@@ -31,7 +33,8 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   defp hint({downstream, _priority, position, _age, _id}), do: {downstream, position}
 
-  defp observations(state) do
+  @spec observations(map()) :: %{String.t() => Observation.t()}
+  def observations(state) do
     case state.tracker.open_issue_labels(Settings.observation_max_age_ms(state.settings)) do
       {:ok, labels, observed_at_ms} ->
         Map.new(labels, fn {id, row} ->

@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.Tracker do
 
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.Labels
   alias Aiur.GitHub.OpenIssueSnapshot
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
@@ -197,6 +198,14 @@ defmodule Aiur.GitHub.Tracker do
 
       true ->
         {:error, :expected_state_unsupported}
+    end
+  end
+
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(labels) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      Labels.ensure(owner, repo, token, labels)
     end
   end
 

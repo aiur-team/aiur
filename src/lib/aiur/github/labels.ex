@@ -16,6 +16,7 @@ defmodule Aiur.GitHub.Labels do
   """
 
   alias Aiur.CodingAgent
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.Transport
 
   @base_url "https://api.github.com"
@@ -185,11 +186,18 @@ defmodule Aiur.GitHub.Labels do
           do: :ok,
           else: {:error, {:github_api_status, 422, label}}
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status, label}}
+      {:ok, %{status: status} = response} ->
+        label_error(response, {:github_api_status, status, label})
 
-      {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+      {:error, reason} = error ->
+        label_error(error, {:github_api_request, reason})
+    end
+  end
+
+  defp label_error(response, fallback) do
+    case Errors.classify_error(response) do
+      {:github, kind, _} = reason when kind in [:rate_limited, :local_hold] -> {:error, reason}
+      _ -> {:error, fallback}
     end
   end
 

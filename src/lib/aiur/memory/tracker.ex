@@ -111,6 +111,9 @@ defmodule Aiur.Memory.Tracker do
     end
   end
 
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(_labels), do: :ok
+
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) do
     send_event({:memory_tracker_add_label, issue_id, label})

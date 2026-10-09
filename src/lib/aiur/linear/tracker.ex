@@ -140,6 +140,9 @@ defmodule Aiur.Linear.Tracker do
 
   # The `model:remote` promote/demote toggle is a GitHub-label concept;
   # Linear has no equivalent label op wired here.
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(_labels), do: {:error, :unsupported}
+
   @spec add_label(String.t(), String.t()) :: {:error, term()}
   def add_label(_issue_id, _label), do: {:error, :unsupported}
 
