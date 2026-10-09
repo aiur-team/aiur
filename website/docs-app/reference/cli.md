@@ -147,7 +147,11 @@ Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason,
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
 
-The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation. Existing `waiting_reason` atoms remain unchanged; a pending lifecycle fence changes only the owner, cause and since.
+The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation.
+
+Existing `waiting_reason` atoms remain unchanged. A pending lifecycle fence changes the owner, cause and since, and adds sorted `pending_item_ids` to JSON and text output. Review events queued for a completed worker start its replacement at once, so a new turn can acknowledge delivery; live workers keep their provider-delivery fences during long turns.
+
+For completed or exited providers, a fence expires on the first dispatch poll two minutes after its first pending input, so lifecycle reconciliation continues without claiming delivery succeeded; the `lifecycle_fence_expired` alert names the stuck IDs. Unacknowledged failed or claimed items return to pending for rework; acknowledged items are not replayed.
 
 Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.
 
@@ -332,13 +336,9 @@ pending, so nothing was consumed and nothing was lost. Plain mode prints
 `NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json`
 returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
 
-Under `--json` every outcome carries a `status`: `woken` for a returned batch,
-`timeout` for a quiet wait, `error` for a failure. Branch on that field rather
-than on the presence of `records`.
+Under `--json` every outcome carries a `status`: `woken` for a returned batch, `timeout` for a quiet wait, `error` for a failure. Branch on that field rather than on the presence of `records`.
 
-Every nonzero exit names the stage that failed — `claim`, `wait` or
-`acknowledge` — on stderr, and as a `status: "error"` envelope with that `stage`
-under `--json`.
+Every nonzero exit names the stage that failed — `claim`, `wait` or `acknowledge` — on stderr, and as a `status: "error"` envelope with that `stage` under `--json`.
 
 | Exit | Meaning |
 | --- | --- |

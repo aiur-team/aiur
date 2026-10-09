@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{RetryEngine, State, TokenAccounting, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, WorkspaceCleanup}
   alias Aiur.ProcessTree
 
   # Broadcast `aiur_turn_done` for every currently-active aiur turn on
@@ -77,6 +77,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
         end
 
+        state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+
         %{
           state
           | running: Map.delete(state.running, issue_id),
@@ -140,6 +142,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           Process.demonitor(ref, [:flush])
         end
 
+        state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+        running_entry = Map.delete(running_entry, :expired_lifecycle_item_ids)
         existing_control = Map.get(running_entry, :control, %{})
 
         new_entry =
