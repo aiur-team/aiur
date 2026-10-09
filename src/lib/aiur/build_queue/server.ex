@@ -328,7 +328,7 @@ defmodule Aiur.BuildQueue.Server do
     {state, health_actions} = AttentionHealth.plan(state, projections)
     actions = health_actions ++ actions
     state = %{state | planned_edges: edges}
-    ids = Enum.map(state.document.edges, & &1.prerequisite)
+    ids = Enum.map(edges, & &1.prerequisite)
     merged = Enum.reduce(observations, state.merged_at_ms, fn {id, row}, acc -> if row.merged_at_ms, do: Map.put_new(acc, id, row.merged_at_ms), else: acc end)
     state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published, merged_at_ms: Map.take(merged, ids)}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}

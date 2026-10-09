@@ -197,7 +197,6 @@ warn_if_cli_behind_release_checkout() {
   fi
 }
 
-# --- distribution identity (per-instance: keyed by the aiur project root) -----
 
 # The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
 # shim) wins. Otherwise walk up from $PWD to the first dir holding a REPO-LOCAL
@@ -305,7 +304,6 @@ aiur_print_identity() {
   printf 'AIUR_COOKIE_FILE=%s\n' "$AIUR_COOKIE_FILE"
 }
 
-# --- BEAM distribution (cookie + named node) ---------------------------------
 
 ensure_bg_state_dir() {
   aiur_resolve_identity
@@ -362,7 +360,6 @@ prepare_distribution() {
   export AIUR_ERLANG_COOKIE="$RELEASE_COOKIE"
 }
 
-# --- release resolution ------------------------------------------------------
 
 release_dir=""
 vsn_dir=""
@@ -399,7 +396,6 @@ resolve_release() {
   fi
 }
 
-# --- argv round-trip (System.argv is empty under `elixir --eval`) -------------
 
 argv_file=""
 init_argv_file() {
@@ -459,6 +455,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read build queue; add/remove/reorder/hold/release steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur epic clear <ids...> [--as <who>] [--json]
+       aiur epic show [<ids...>] [--json]
+       aiur epic list [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
@@ -495,7 +495,6 @@ Bare aiur: start or attach to this directory's interactive session.
 EOF
 }
 
-# --- one-shot: --version (no tmux) -------------------------------------------
 
 run_version() {
   resolve_release
@@ -511,7 +510,6 @@ run_version() {
   exec "${release_cmd[@]}"
 }
 
-# --- one-shot: init (interactive wizard, distribution-free, no tmux) ----------
 
 run_init() {
   resolve_release
@@ -4282,6 +4280,7 @@ aiur_engine_main() {
       shift
       cmd_queue "$@"
       ;;
+    epic) shift; cmd_epic "$@" ;;
     build-orders)
       shift
       cmd_build_orders "$@"
@@ -4403,6 +4402,7 @@ aiur_engine_main() {
 }
 
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"
 fi

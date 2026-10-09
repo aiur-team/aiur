@@ -58,28 +58,20 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
-Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`.
-`--debug` additionally enables debug-level messages. The default background root is
-`~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
+Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`. `--debug` additionally enables debug-level messages. The default background root is `~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
 
-When ready work has free slots, status names a tracker preflight hold and its duration,
-reports a stale dispatch poll, `awaiting dispatch`, or the last empty selection cycle's reasons and sample age. Known prewarm holds keep their cause; unexplained empty selections report `unknown`.
+When ready work has free slots, status names a tracker preflight hold and its duration, reports a stale dispatch poll, `awaiting dispatch`, or the last empty selection cycle's reasons and sample age. Known prewarm holds keep their cause; unexplained empty selections report `unknown`.
 
 The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
 
 
 On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A failure shows the command output and offers a retry; see the [Linux setup steps](/guide/quick-start#codex-on-linux).
 
-Event counters, subscriptions, session handles and the alert ledger survive
-restarts in instance- and repository-scoped runtime state. Central alert and
-event-publication audit logs remain per launch; `--logs-root` controls those logs.
+Event counters, subscriptions, session handles and the alert ledger survive restarts in instance- and repository-scoped runtime state. Central alert and event-publication audit logs remain per launch; `--logs-root` controls those logs.
 
-On upgrade, session handles and subscriptions start empty once, just as they
-previously did on every restart; state saved from that boot onward is durable.
+On upgrade, session handles and subscriptions start empty once, just as they previously did on every restart; state saved from that boot onward is durable.
 
-The event counter seeds above the maximum across all launches' counters, logs,
-the journal and the clock; the alert ledger adopts only its exact project-scoped
-filename and backfill marker once.
+The event counter seeds above the maximum across all launches' counters, logs, the journal and the clock; the alert ledger adopts only its exact project-scoped filename and backfill marker once.
 
 Launch mode determines which interfaces remain available:
 
@@ -167,8 +159,7 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 | Daemon already stopped | Starts it. |
 | Daemon still answers after stop | Aborts rather than rebuilding underneath it. |
 
-Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
-Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
+Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted. Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
 A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote. Aiur saves local work first; see [Saved uncommitted work](#saved-uncommitted-work).
 
@@ -210,6 +201,21 @@ If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace
 
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
 
+## Build history epic commands
+
+Overrides are local: these commands never write GitHub labels or report effective epics, and agents use `aiur_set_epic` with daemon-bound identity.
+
+| Command | Behavior |
+| --- | --- |
+| `aiur epic set <epic> <ids…> [--source cli\|backfill-agent] [--as <who>] [--json]` | Atomic, up to 200 IDs (optional `#`; duplicates count once). Only configured general epics; feature epics and `unsorted` are refused. |
+| `aiur epic clear <ids…> [--as <who>] [--json]` | Remove overrides; absent entries are unchanged. |
+| `aiur epic show [<ids…>] [--json]` | Stored epic, actor, source, confirmation, time. Removed keys are ignored; unreadable config gives `epic_known: null`. |
+| `aiur epic list [--json]` | Configured keys and labels in order. Config errors refuse writes and list without defaults. |
+| Identity | Actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. |
+| Repeats | Same epic/source/confirmation is unchanged. Changed results and journal retain the previous assignment. |
+| Recovery | Unsafe journals are unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides. First-write sync failure after rename leaves reads/writes unavailable until restart. |
+| Exit codes | 0 success; 1 refusal/unavailability; 64 usage; 124 RPC timeout with unknown outcome. Retrying an identical set is safe. |
+
 ## Dashboard page commands
 
 `aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages and show the same data.
@@ -250,10 +256,7 @@ For a missing graph, `data.graph.status` and `sources.planning_graph.state` are 
 
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
-Fleet-capacity and build-gate evidence have independent source states: stale fleet
-samples do not erase current build measurements; unavailable daemon process metrics
-do not erase whole-host pressure; and missing values remain `null` in JSON and
-`unavailable` in human output rather than becoming zero.
+Fleet-capacity and build-gate evidence have independent source states: stale fleet samples do not erase current build measurements; unavailable daemon process metrics do not erase whole-host pressure; and missing values remain `null` in JSON and `unavailable` in human output rather than becoming zero.
 
 | Source condition | Output contract |
 | --- | --- |
