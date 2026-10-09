@@ -360,6 +360,11 @@ defmodule Aiur.OrchestratorStatusTest do
       if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
 
+    # Init starts the startup workspace cleanup task. Its reply and :DOWN must
+    # land before the suspend, or they sit in the wedged mailbox and this stops
+    # being the empty-mailbox case.
+    assert eventually?(fn -> :sys.get_state(pid).tracker_tasks == %{} end)
+
     :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
 
     # The symmetric failure to a backlogged orchestrator: this one wedges with
