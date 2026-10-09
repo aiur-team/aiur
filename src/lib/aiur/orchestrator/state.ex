@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.State do
   @moduledoc """
-  Runtime state for the orchestrator polling loop.
+  Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
   """
 
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
@@ -64,6 +64,8 @@ defmodule Aiur.Orchestrator.State do
           startup_claim_reconciliation_complete?: boolean(),
           orphaned_claim_since: map(),
           startup_claim_reconciliation_failures: map(),
+          contradictory_state_label_tickets: %{optional(String.t()) => %{identifier: String.t(), labels: [String.t()], since_ms: integer()}},
+          contradictory_state_label_alert_active: boolean(),
           queue_store: term(),
           last_polled_issues: map(),
           tracker_observations: %{optional(String.t()) => DateTime.t()},
@@ -132,8 +134,7 @@ defmodule Aiur.Orchestrator.State do
             {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
           },
           auto_resume: %{String.t() => map()},
-          # Claims released after retry exhaustion, retained until a later
-          # dispatch successfully re-establishes ownership.
+          # Claims released after retry exhaustion until dispatch re-establishes ownership.
           released_claims: %{String.t() => map()},
           fallback_backoff: %{String.t() => {pos_integer(), integer()}},
           model_fallback_waiting: MapSet.t(),
@@ -207,8 +208,7 @@ defmodule Aiur.Orchestrator.State do
           prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
-  # The Orchestrator is the single owner of the correlated control lifecycle;
-  # keeping that aggregate here avoids a second process/state authority.
+  # Keeping the correlated control lifecycle here preserves one process/state authority.
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
