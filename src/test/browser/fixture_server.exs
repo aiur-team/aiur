@@ -2208,7 +2208,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
     at: "/",
     from: :aiur,
     gzip: false,
-    only: AiurWeb.StaticAssets.revalidated_static_paths(),
+    only: AiurWeb.StaticAssets.revalidated_static_paths() -- ["dashboard.css"],
     cache_control_for_etags: "private, max-age=0, must-revalidate",
     cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
   )
