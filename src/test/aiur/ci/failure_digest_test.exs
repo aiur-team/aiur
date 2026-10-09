@@ -116,6 +116,9 @@ defmodule Aiur.CI.FailureDigestTest do
     timeout = %{"message" => "coverage partition 1 exceeded its 20m bound and was terminated; partial log follows in the next step", "annotation_level" => "failure"}
     assert {:ok, digest} = build([run(1)], %{1 => [timeout, annotation(identity)]}, known: identity)
     refute digest.flake_only
+    signal = %{"message" => "coverage partition 1 failed with status 143; full log follows in the next step", "annotation_level" => "failure"}
+    assert {:ok, terminated} = build([run(3)], %{3 => [signal, annotation(identity)]}, known: identity)
+    refute terminated.flake_only
     assert {:ok, cancelled} = build([Map.put(run(2), "conclusion", "cancelled")], %{2 => [annotation(identity)]}, known: identity)
     refute cancelled.flake_only
   end

@@ -98,7 +98,7 @@ defmodule Aiur.CI.FailureDigest do
 
   defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation) do
     # The coverage wrapper repeats the exit status; timeout and unfamiliar errors still count.
-    routine_exit = is_binary(message) and Regex.match?(~r/\Acoverage partition [1-4] failed with status [1-9][0-9]*; full log follows in the next step\z/, message)
+    routine_exit = is_binary(message) and Regex.match?(~r/\Acoverage partition [1-4] failed with status 2; full log follows in the next step\z/, message)
     annotation["title"] != "aiur-test-failure" and not routine_exit
   end
 

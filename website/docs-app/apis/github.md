@@ -568,16 +568,17 @@ Successful polls write complete selections back. Partial, stale, poll-only, head
 
 Failed ExUnit coverage shards emit `aiur-test-failure` annotations: `known-flake :: Module :: test name` or `new-failure :: Module :: test name`, capped at nine tests plus a truncation notice. Summaries remain available.
 
-`Aiur.CI.FailureDigest.build(sha)` returns failed checks/URLs, classified tests, a stable signature and `truncated`/`flake_only` flags. It reads Checks annotations, never Actions logs. Exact identities match the known-flaky file at that SHA or an open `flake` issue (a whole line or Markdown code); `aiur init` provisions the label. Annotation classifications alone are not proof of a known flake.
+`Aiur.CI.FailureDigest.build(sha)` returns failed checks/URLs, classified tests, a stable signature and `truncated`/`flake_only` flags. It reads Checks annotations, never Actions logs.
 
-Unknown reads, truncation and check-level failures cannot be flake-only. Signatures exclude known-flake tests and checks proven flake-only. ResourceStore caches completed evidence by SHA/check-run identities; reruns fetch new evidence and failed reads retry. Open flake issues are shared for 60 seconds. Reads use caller `ci_failure_digest`; no quota saving is claimed.
+Exact identities match the known-flaky file at that SHA or an open `flake` issue (a whole line or Markdown code); `aiur init` provisions the label. Annotation classifications alone are not proof of a known flake.
+
+Unknown reads, truncation and check-level failures cannot be flake-only. Signatures exclude known-flake tests and checks proven flake-only. 
+
+ResourceStore caches completed evidence by SHA/check-run identities; reruns fetch new evidence and failed reads retry. Open flake issues are shared for 60 seconds. Reads use caller `ci_failure_digest`; no quota saving is claimed.
+
 ## Shared agent reads
 
-Agents run `gh` through a wrapper that keeps the answers, so the next agent
-asking the same question is served the first agent's answer — the exact output
-the first call produced, replayed byte for byte.
-
-These reads are shared:
+The `gh` wrapper shares answers byte for byte with other agents asking the same question.
 
 | Read | Shared |
 | --- | --- |
@@ -587,9 +588,7 @@ These reads are shared:
 | A CI or merge verdict — `gh pr checks`, or `--json` asking for `statusCheckRollup`, `mergeable`, `mergeStateStatus`, `state`, `reviewDecision` and their like | No; never shared, at any age |
 | Anything else — no `--json`, `gh pr diff`, `gh api graphql`, every write | No; the call goes to GitHub as before |
 
-A verdict is refused rather than kept briefly because a push and a completing
-check run do not pass through the wrapper, so nothing could retire the answer
-before an agent acted on it.
+Verdicts are never shared: pushes and completing checks bypass the wrapper, so it cannot retire those answers before an agent acts.
 
 The same refusal applies to direct REST paths for check runs, check suites,
 commit statuses, reviews, requested reviewers, the pull-request resource
