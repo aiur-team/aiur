@@ -1,6 +1,5 @@
 defmodule Aiur.Codex.DynamicToolTest do
   use Aiur.TestSupport
-
   alias Aiur.Codex.DynamicTool
 
   test "tool_specs advertises the linear_graphql, review thread, and emit_alert contracts" do
@@ -94,7 +93,8 @@ defmodule Aiur.Codex.DynamicToolTest do
                  "aiur_unsubscribe",
                  "aiur_declare_blocker",
                  "aiur_unblock",
-                 "aiur_set_ticket_state"
+                 "aiur_set_ticket_state",
+                 "aiur_set_epic"
                ]
              }
            }

@@ -7,11 +7,25 @@ defmodule Aiur.Memory.Tracker do
 
   alias Aiur.Issue
 
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    case Enum.find(issue_entries(), &matching_issue?(&1, issue_id)) do
+      nil -> {:error, :issue_not_found}
+      issue -> {:ok, Enum.map(issue.blocked_by, & &1.id)}
+    end
+  end
+
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(_issue_id), do: {:ok, nil}
+
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(_max_age_ms) do
     labels = Map.new(issue_entries(), &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
     {:ok, labels, System.system_time(:millisecond)}
   end
+
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(_issue_id, _max_age_ms), do: {:error, :unsupported}
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: "memory"
@@ -110,6 +124,9 @@ defmodule Aiur.Memory.Tracker do
         {:error, :invalid_expected_state}
     end
   end
+
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(_labels), do: :ok
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) do

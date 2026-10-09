@@ -1,7 +1,7 @@
 defmodule AiurWeb.PlanningDocumentController do
   @moduledoc false
   use Phoenix.Controller, formats: []
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias AiurWeb.BuildOrder.PlanningSource
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()

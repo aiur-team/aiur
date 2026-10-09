@@ -2,7 +2,7 @@ defmodule Aiur.Config.BuildOrderTest do
   use ExUnit.Case, async: true
 
   alias Aiur.BuildOrder.GraphProjection.Options
-  alias Aiur.Config
+  alias Aiur.BuildOrder.Settings
   alias Aiur.Config.Schema
 
   # The three surviving cadence keys deliberately have no fixed default any more.
@@ -84,9 +84,9 @@ defmodule Aiur.Config.BuildOrderTest do
     assert settings.build_order.graph_catalog_labels_refresh_ms == 900_000
 
     # The setting is inert unless it reaches the projection's policy, so pin
-    # both halves of the wiring: Config exports the key, and policy_options/1
+    # both halves of the wiring: Settings exports the key, and policy_options/1
     # maps it through rather than falling back to the default.
-    assert Keyword.has_key?(Config.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
+    assert Keyword.has_key?(Settings.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
 
     policy =
       Options.policy_options(

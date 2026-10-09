@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Issue
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.ReviewFindings
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
@@ -1325,24 +1326,12 @@ defmodule Aiur.Orchestrator.CommentWake do
     case {comment_review_state(event), comment_body(event)} do
       {state, body} when is_binary(state) ->
         String.upcase(state) == "CHANGES_REQUESTED" or
-          (String.upcase(state) == "COMMENTED" and blocking_review_body?(body))
+          (String.upcase(state) == "COMMENTED" and ReviewFindings.blocking_body?(body))
 
       _other ->
         false
     end
   end
-
-  # A body-only comment needs an explicit change signal; clean review summaries
-  # must not bypass the unresolved-thread gate merely because they have prose.
-  defp blocking_review_body?(body) when is_binary(body) do
-    body = String.trim(body)
-
-    not String.match?(body, ~r/\b(?:no (?:blockers|blocking (?:findings|issues))|all blockers (?:addressed|resolved))\b/i) and
-      (String.match?(body, ~r/^(?:\s*\#{1,6})?\s*(?:blocking(?: findings| issues)?|blockers?|must fix|changes required)\s*:/im) or
-         String.match?(body, ~r/\b(?:update|rebase|merge|fix)\b[^\n.!?]*\bbefore merge\b/i))
-  end
-
-  defp blocking_review_body?(_body), do: false
 
   defp changes_requested_review?(event) do
     case comment_review_state(event) do

@@ -7,12 +7,45 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Opencode.ChatCompletions
   alias Aiur.Opencode.TokenRegistry
+  alias Aiur.Opencode.WorkspaceSetup
 
   setup do
     token = "test-#{System.unique_integer([:positive])}"
-    :ok = TokenRegistry.put(token, 1, 1)
+    identifier = "bridge-test-#{System.unique_integer([:positive])}"
+    :ok = TokenRegistry.put(token, 1, 1, [identifier])
     on_exit(fn -> TokenRegistry.delete(token) end)
-    %{token: token}
+    %{token: token, identifier: identifier}
+  end
+
+  test "materialized slot token allows assigned models and rejects foreign tickets before every route" do
+    workspace = Aiur.TestSupport.tmp_root!("bridge-token-scope")
+    {:ok, token} = WorkspaceSetup.materialize_slot(workspace, "http://127.0.0.1:1", ["ticket-a", "ticket-c"], 97, 1, display_identifier: "ticket-a")
+
+    on_exit(fn ->
+      TokenRegistry.delete(token)
+      File.rm_rf!(workspace)
+    end)
+
+    for model <- ["issue-ticket-a", "aiur/issue-ticket-a", "issue-_slot-97"] do
+      body = %{"model" => model, "messages" => [%{"role" => "user", "content" => "__aiur_stream__:nudge:1"}]}
+      assert ChatCompletions.handle(body, authorized_conn(token)).status == 200
+    end
+
+    assert :ok = TokenRegistry.allow_identifier(token, "ticket-d")
+    body = %{"model" => "issue-ticket-d", "messages" => [%{"role" => "user", "content" => "__aiur_stream__:nudge:1"}]}
+    assert ChatCompletions.handle(body, authorized_conn(token)).status == 200
+
+    for model <- ["issue-ticket-b", "aiur/issue-ticket-b", "issue-ticket-c", "issue-_slot-98"],
+        text <- ["__aiur_stream__:nudge:1", "__aiur_stream__:msg_ABC", "__aiur_turn__:absent", "continue"] do
+      body = %{"model" => model, "messages" => [%{"role" => "user", "content" => text}]}
+      response = ChatCompletions.handle(body, authorized_conn(token))
+      assert response.status == 403
+
+      assert Jason.decode!(response.resp_body) == %{
+               "error" => "forbidden",
+               "message" => "Bridge token does not authorize the requested ticket identifier."
+             }
+    end
   end
 
   defp authorized_conn(token), do: conn(:post, "/") |> put_req_header("authorization", "Bearer #{token}")
@@ -41,9 +74,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "stream_codex_turn: phantom and late-close conn paths" do
-    test "phantom turn (no ActiveTurns entry) closes with finish_reason stop", %{token: token} do
-      identifier = "phantom-#{System.unique_integer()}"
-
+    test "phantom turn (no ActiveTurns entry) closes with finish_reason stop", %{token: token, identifier: identifier} do
       body = %{
         "model" => "issue-#{identifier}",
         "messages" => [%{"role" => "user", "content" => "__aiur_turn__:phantom-abc"}]
@@ -56,8 +87,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert result.resp_body =~ ~s("finish_reason":"stop")
     end
 
-    test "late close ({:closed, reason}) renders the reason content then closes with stop", %{token: token} do
-      identifier = "late-#{System.unique_integer()}"
+    test "late close ({:closed, reason}) renders the reason content then closes with stop", %{token: token, identifier: identifier} do
       turn_id = "late-turn-#{System.unique_integer()}"
 
       :ok = ActiveTurns.put(identifier, turn_id)
@@ -78,9 +108,9 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "nudge marker" do
-    test "nudge marker returns an empty data:[DONE] SSE stream", %{token: token} do
+    test "nudge marker returns an empty data:[DONE] SSE stream", %{token: token, identifier: identifier} do
       body = %{
-        "model" => "issue-nudge-#{System.unique_integer()}",
+        "model" => "issue-#{identifier}",
         "messages" => [%{"role" => "user", "content" => "__aiur_stream__:nudge:1"}]
       }
 
@@ -92,9 +122,9 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "validate_body/1 taxonomy (via dispatch path)" do
-    test "body exceeding 65 536 bytes yields a 400 body-too-large response", %{token: token} do
+    test "body exceeding 65 536 bytes yields a 400 body-too-large response", %{token: token, identifier: identifier} do
       body = %{
-        "model" => "issue-vb-#{System.unique_integer()}",
+        "model" => "issue-#{identifier}",
         "messages" => [%{"role" => "user", "content" => String.duplicate("x", 65_537)}]
       }
 
@@ -104,9 +134,9 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert Jason.decode!(result.resp_body)["error"] =~ "body too large"
     end
 
-    test "invalid UTF-8 in the last user message yields a 400 invalid-utf8 response", %{token: token} do
+    test "invalid UTF-8 in the last user message yields a 400 invalid-utf8 response", %{token: token, identifier: identifier} do
       body = %{
-        "model" => "issue-vb-#{System.unique_integer()}",
+        "model" => "issue-#{identifier}",
         # <<0xFF, 0xFE>> is not valid UTF-8
         "messages" => [%{"role" => "user", "content" => <<0xFF, 0xFE>>}]
       }
@@ -119,14 +149,12 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "chunk/4 closed-conn tolerance" do
-    test "chunk writes on a disconnected conn return the conn unchanged without raising", %{token: token} do
+    test "chunk writes on a disconnected conn return the conn unchanged without raising", %{token: token, identifier: identifier} do
       # ClosedConnAdapter delegates send_chunked to the real adapter (so the
       # conn transitions to :chunked state) but returns {:error, :closed} for
       # every chunk write. The phantom-turn path calls send_chunked once then
       # chunk/4 once for the finish chunk; chunk/4 must handle {:error, :closed}
       # gracefully — log once and return the conn unchanged rather than raising.
-      identifier = "chunk-tol-#{System.unique_integer()}"
-
       body = %{
         "model" => "issue-#{identifier}",
         "messages" => [%{"role" => "user", "content" => "__aiur_turn__:phantom-chunk-tol"}]

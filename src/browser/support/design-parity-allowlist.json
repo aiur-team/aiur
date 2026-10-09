@@ -11,5 +11,107 @@
       "date": null,
       "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/plan.md#10-decisions-made-without-the-owner item 5"
     }
+  },
+  {
+    "id": "aa-dark-aiur-faint",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"dark\"][data-palette=\"aiur\"] { --faint: #8b8f99; }",
+    "cells": {
+      "theme": "dark",
+      "palette": "aiur"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
+  },
+  {
+    "id": "aa-light-aiur-faint",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"light\"][data-palette=\"aiur\"] { --faint: #777269; }",
+    "cells": {
+      "theme": "light",
+      "palette": "aiur"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
+  },
+  {
+    "id": "aa-dark-gruvbox-faint",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"dark\"][data-palette=\"gruvbox\"] { --faint: #a19487; }",
+    "cells": {
+      "theme": "dark",
+      "palette": "gruvbox"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
+  },
+  {
+    "id": "aa-light-gruvbox-faint",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"light\"][data-palette=\"gruvbox\"] { --faint: #7b6e61; }",
+    "cells": {
+      "theme": "light",
+      "palette": "gruvbox"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
+  },
+  {
+    "id": "aa-light-aiur-attn-ink",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"light\"][data-palette=\"aiur\"] { --attn-ink: #855b09; }",
+    "cells": {
+      "theme": "light",
+      "palette": "aiur"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
+  },
+  {
+    "id": "aa-light-gruvbox-attn-ink",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ":root[data-theme=\"light\"][data-palette=\"gruvbox\"] { --attn-ink: #8b5a0f; }",
+    "cells": {
+      "theme": "light",
+      "palette": "gruvbox"
+    },
+    "reason": "AA hold: preserve accessible contrast pending S-19",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
+    }
   }
 ]

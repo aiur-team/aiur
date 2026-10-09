@@ -1,13 +1,13 @@
 defmodule Aiur.AgentRunner.ToolExecutor do
   @moduledoc """
   Binds dynamic tool execution to an agent issue and worker context.
-
   The executor namespaces alerts and events, manages subscriptions, and keeps
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
   require Logger
 
+  alias Aiur.AgentRunner.EpicSetter
   alias Aiur.AgentRunner.SessionLifecycle
 
   alias Aiur.{
@@ -67,9 +67,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
       unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
-      # The tracker writer behind `aiur_set_ticket_state` (#2805). It goes
-      # through the same `TicketTransition.write_state/3` the daemon uses, which
-      # re-reads the issue and makes the target the sole `agent:*` state label —
+      # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
       set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool))
@@ -136,6 +134,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         unblocker: fn blocker_number ->
           unblock_for_issue(issue, blocker_number, coordination)
         end,
+        epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
         ticket_state_setter: fn state_name ->
           set_ticket_state_for_issue(issue, state_name, coordination)
         end
