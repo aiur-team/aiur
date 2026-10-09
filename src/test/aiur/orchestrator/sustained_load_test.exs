@@ -33,7 +33,8 @@ defmodule Aiur.Orchestrator.SustainedLoadTest do
     state = simulate([40.0, 40.0, 40.0]) |> List.last()
     disabled = DispatchPolicy.update_load_envelope(state, 40.0, nil, 16, 240_000, :unavailable, true)
     assert disabled.effective_concurrent_agents == 16
-    assert disabled.load_envelope_state.overload_samples == 0
+    reenabled = DispatchPolicy.update_load_envelope(disabled, 40.0, 1.0, 16, 300_000, :unavailable, true)
+    assert reenabled.effective_concurrent_agents == 16
   end
 
   test "dispatch sample reuse preserves the streak without counting twice" do
@@ -42,6 +43,8 @@ defmodule Aiur.Orchestrator.SustainedLoadTest do
     reused = dispatch_sample(first, 1, 60_001)
     second = dispatch_sample(reused, 2, 120_000)
     third = dispatch_sample(second, 3, 180_000)
+    assert first.effective_concurrent_agents == 16
+    assert reused.effective_concurrent_agents == 16
     assert first.load_envelope_state.overload_samples == 1
     assert reused.load_envelope_state.overload_samples == 1
     assert second.effective_concurrent_agents == 16
