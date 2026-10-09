@@ -86,7 +86,7 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.CurrentRunMembership.Reconciler,
     Aiur.CurrentRunProjections,
     Aiur.Events.LsRemoteTicker,
-    Aiur.Orchestrator.PRHealthScanner,
+    Aiur.PRLifecycle.HealthScanner,
     Aiur.Orchestrator.ReworkRequeue,
     Aiur.ProgressCheckin.Worker,
     Aiur.Executor.TakeoverAlert.Store,

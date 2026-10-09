@@ -1,7 +1,7 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
+defmodule Aiur.Projections.UnitsRow.Fields do
   @moduledoc false
 
-  alias AiurWeb.OperatorControlCenter.UnitsRow.{ResumeReason, Value}
+  alias Aiur.Projections.UnitsRow.{ResumeReason, Value}
 
   @blocking_reasons [
     :waiting_for_human,

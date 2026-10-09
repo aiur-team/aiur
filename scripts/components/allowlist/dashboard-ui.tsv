@@ -1,5 +1,4 @@
 # rule	target_module	reason
-R-declared	Aiur.AgentChat	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentPubSub	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -7,23 +6,10 @@ R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent.Models	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ExecutorEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.Labels	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.Quota	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.StatePolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ModelDiscovery	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator.CapacityBinding	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator.GlobalPause	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator.Slots	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator.SnapshotStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator.TicketTransition	#3306 sanctioned lifecycle owner; replaces direct tracker writes without moving caller decisions
-R-declared	Aiur.Orchestrator.WaitingReason	baseline 2d8ca3198; upstream #3537 predates reference-checker rollout
 R-declared	Aiur.PollCadence	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.RecentMerge	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.RecentMergeStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Rtk	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Dataset	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -31,4 +17,3 @@ R-declared	Aiur.RunTelemetry.Summaries	baseline 4aba33f8aae03cdaec432d6614e70a57
 R-declared	Aiur.RunTelemetry.Timeline	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	AiurWeb.GithubWebhook	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.TrustSnapshot	#3295 degraded CODEOWNERS trust banner reads the shared trust snapshot

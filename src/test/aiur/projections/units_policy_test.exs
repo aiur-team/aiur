@@ -1,8 +1,8 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
+defmodule Aiur.Projections.UnitsPolicyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias AiurWeb.OperatorControlCenter.UnitsPolicy
+  alias Aiur.Projections.UnitsPolicy
 
   test "scopes Live, Unfinished, All, and None before applying conditions" do
     rows = [active_row(), queued_row(), finished_row(), unknown_row()]

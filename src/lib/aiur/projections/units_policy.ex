@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
+defmodule Aiur.Projections.UnitsPolicy do
   @moduledoc """
   The renderer-independent truth table for the Units catalog.
 
