@@ -3,7 +3,8 @@ defmodule AiurWeb.RouterTableTest do
 
   defmodule DecisionRouter do
     use Phoenix.Router
-    require AiurWeb.Routes.Decisions
+    alias AiurWeb.Routes.Decisions
+    require Decisions
 
     pipeline :supervisor_auth do
     end
@@ -14,9 +15,9 @@ defmodule AiurWeb.RouterTableTest do
     pipeline :require_writable do
     end
 
-    AiurWeb.Routes.Decisions.mutations()
-    AiurWeb.Routes.Decisions.reads()
-    AiurWeb.Routes.Decisions.method_catches()
+    Decisions.mutations()
+    Decisions.reads()
+    Decisions.method_catches()
   end
 
   # Characterization of the pre-split router; deliberately passes on main.

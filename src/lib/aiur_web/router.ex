@@ -61,22 +61,24 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
+  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
+
   require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
 
   # The receiver must precede every dashboard scope.
-  AiurWeb.Routes.GithubWebhook.receiver()
+  GithubWebhook.receiver()
   # Decision routes and catches must precede generic issue reads.
-  AiurWeb.Routes.Decisions.mutations()
-  AiurWeb.Routes.Decisions.reads()
-  AiurWeb.Routes.Decisions.method_catches()
-  AiurWeb.Routes.DashboardPages.static_assets()
-  AiurWeb.Routes.DashboardPages.pages()
-  AiurWeb.Routes.Api.agent_writes()
-  AiurWeb.Routes.Api.machine_writes()
-  AiurWeb.Routes.Streamdeck.session()
-  AiurWeb.Routes.Capabilities.reads()
+  Decisions.mutations()
+  Decisions.reads()
+  Decisions.method_catches()
+  DashboardPages.static_assets()
+  DashboardPages.pages()
+  Api.agent_writes()
+  Api.machine_writes()
+  Streamdeck.session()
+  Capabilities.reads()
   # Generic issue reads and the catch-all stay last.
-  AiurWeb.Routes.Api.reads_and_catch_all()
+  Api.reads_and_catch_all()
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
