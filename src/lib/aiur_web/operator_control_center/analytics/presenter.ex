@@ -20,8 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.TicketRow
-  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, TicketRow}
 
   @default_buckets 180
   @max_series_actors 8
