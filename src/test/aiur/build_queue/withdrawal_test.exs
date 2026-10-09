@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
 
     def status(ids) do
       held = Map.new(ids, &{&1, Hints.held?(&1)})
-      promoted = Agent.get(__MODULE__, fn state -> Enum.filter(state.document.items, &(&1.promoted_at != nil)) end)
+      promoted = Agent.get(__MODULE__, fn state -> Enum.filter(state.document.items, &(&1.promoted_at != nil and not Map.get(state, :snapshot_unavailable, false))) end)
       unless Enum.all?(promoted, &held[&1.issue_id]), do: raise("probe ran before withdrawal holds")
       Agent.get_and_update(__MODULE__, fn state -> {state.claims, %{state | probes: state.probes ++ [{ids, held}]}} end)
     end
@@ -205,6 +205,27 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
     assert log =~ "retaining dispatch hold"
     assert Hints.held?("1")
     assert get(:calls) == []
+  end
+
+  test "restart after removal recovers its intent and never invents an external hold" do
+    pid = server()
+    reconcile(pid)
+    assert Hints.held?("1")
+    assert labels() == ["agent:queued"]
+    stop_supervised!(Server)
+    refute Hints.held?("1")
+    put(:snapshot_unavailable, true)
+    pid = server()
+    reconcile(pid)
+    for _ <- 1..3, do: next(pid, false)
+    put(:snapshot_unavailable, false)
+    next(pid)
+    assert hd(get(:document).items).promoted_at == nil
+    refute Hints.held?("1")
+    next(pid)
+    assert {:ok, %{projections: [%{state: :waiting}], actions: []}} = GenServer.call(pid, :show)
+    assert length(get(:calls)) == 1
+    assert hd(get(:document).items).hold == nil
   end
 
   defp server do

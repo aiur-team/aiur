@@ -6,7 +6,15 @@ defmodule Aiur.BuildQueue.Reconcile do
   @spec plan(map()) :: {[Planner.item_state()], [Planner.action()], map(), MapSet.t(String.t())}
   def plan(state) do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
-    intents = Enum.filter(input.intents, &(state.reconciles - Map.get(state.intent_reconciles, &1.id, 0) < 2 or (&1.action == :withdraw and MapSet.member?(state.holds, &1.issue_id))))
+    promoted = Map.new(input.items, &{&1.issue_id, if(&1.promoted_at, do: DateTime.to_unix(&1.promoted_at, :millisecond))})
+
+    intents =
+      Enum.filter(input.intents, fn intent ->
+        recent? = state.reconciles - Map.get(state.intent_reconciles, intent.id, 0) < 2
+        outstanding? = promoted[intent.issue_id] != nil and intent.recorded_at_ms >= promoted[intent.issue_id]
+        recent? or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
+      end)
+
     opts = [label_prefix: state.settings.tracker.github.label_prefix, observation_max_age_ms: Settings.observation_max_age_ms(state.settings), withdrawal_holds: state.holds]
     input = %{input | opts: opts, observations: observations(state), intents: intents}
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)

@@ -5,6 +5,8 @@ defmodule Aiur.BuildQueue.Withdrawal do
 
   @spec prepare(Planner.Input.t(), module()) :: {Planner.Input.t(), [Planner.action()]}
   def prepare(input, probe) do
+    holds = recover_holds(input)
+    input = %{input | opts: Keyword.put(input.opts, :withdrawal_holds, holds)}
     {_, actions} = Planner.plan(input)
     begins = for {:begin_withdraw, _} = action <- actions, do: action
     holds = Enum.reduce(begins, Keyword.fetch!(input.opts, :withdrawal_holds), fn {_, id}, holds -> MapSet.put(holds, id) end)
@@ -12,6 +14,22 @@ defmodule Aiur.BuildQueue.Withdrawal do
     claims = probe.status(Enum.map(input.items, & &1.issue_id))
     claims = normalize(claims, holds)
     {%{input | claims: claims, opts: Keyword.put(input.opts, :withdrawal_holds, holds)}, begins}
+  end
+
+  defp recover_holds(input) do
+    recovered =
+      for item <- input.items,
+          item.promoted_at != nil,
+          intent <- input.intents,
+          intent.issue_id == item.issue_id and intent.action == :withdraw and intent.outcome in [nil, :ok],
+          observation = input.observations[item.issue_id],
+          observation != nil,
+          intent.recorded_at_ms >= DateTime.to_unix(item.promoted_at, :millisecond),
+          intent.recorded_at_ms <= observation.observed_at_ms,
+          MapSet.new(intent.target_labels) == MapSet.new(observation.labels),
+          do: item.issue_id
+
+    MapSet.union(Keyword.fetch!(input.opts, :withdrawal_holds), MapSet.new(recovered))
   end
 
   defp normalize(claims, holds) when is_map(claims) do
