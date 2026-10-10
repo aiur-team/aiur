@@ -98,7 +98,7 @@ check_workflow() {
 check_workflow "$workflow"
 
 # The guard must actually run in CI, not just exist on disk.
-workflow_security_job="$(sed -n '/^  workflow-security:$/,/^  merge-ruleset-drift:$/p' "$workflow")"
+workflow_security_job="$(sed -n '/^  workflow-security:$/,/^  merge-ruleset-drift:$/p' "$root/.github/workflows/ci-guards.yml")"
 grep -Fq 'Test quarantine _build cache invariants' <<<"$workflow_security_job" ||
   fail "the workflow-security job must run scripts/test-quarantine-build-cache.sh"
 grep -Fq 'bash scripts/test-quarantine-build-cache.sh' <<<"$workflow_security_job" ||

@@ -52,7 +52,8 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
-    readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)
+    guards = File.read!(Path.join(root, ".github/workflows/ci-guards.yml"))
+    readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}, {".github/workflows/ci-guards.yml", guards}], checks)
     assert readiness.ready?
     assert length(readiness.required_checks) == 13
   end

@@ -65,7 +65,8 @@ class CoverageFlakesTest(unittest.TestCase):
             self.assertIn("continue-on-error: true", step)
             self.assertIn("always()", step)
             self.assertIn("needs.changes.outputs.docs_only != 'true'", step)
-        self.assertIn("run: python3 scripts/test-record-coverage-flakes.py", workflow)
+        guards = (ROOT / ".github/workflows/ci-guards.yml").read_text()
+        self.assertIn("run: python3 scripts/test-record-coverage-flakes.py", guards)
 
 
 if __name__ == "__main__":
