@@ -1,6 +1,8 @@
 defmodule Aiur.TestSupport.WorkflowFiles do
   require Logger
 
+  alias Aiur.TestSupport.{RuntimeChildren, WorkflowYaml}
+
   @workflow_reload_timeout_ms 15_000
 
   @doc """
@@ -14,7 +16,7 @@ defmodule Aiur.TestSupport.WorkflowFiles do
     write_workflow_content!(path, overrides)
 
     if active_workflow_file?(path) do
-      Aiur.TestSupport.RuntimeChildren.ensure_workflow_store_running()
+      RuntimeChildren.ensure_workflow_store_running()
       :ok = Aiur.WorkflowStore.force_reload(@workflow_reload_timeout_ms)
     end
 
@@ -63,7 +65,7 @@ defmodule Aiur.TestSupport.WorkflowFiles do
   end
 
   defp write_workflow_content!(path, overrides) do
-    {config_yaml, prompt} = Aiur.TestSupport.WorkflowYaml.workflow_content(overrides)
+    {config_yaml, prompt} = WorkflowYaml.workflow_content(overrides)
 
     config_yaml =
       if is_binary(prompt) and prompt != "" do
