@@ -1,8 +1,13 @@
 defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentRunner.CheckpointDelivery
+  alias Aiur.AgentQueue
+  alias Aiur.AgentQueueStore
+  alias Aiur.AgentRunner.{CheckpointDelivery, TurnLoop}
   alias Aiur.AppServer.OperatorDelivery
+  alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.Orchestrator.{OperatorMessages, State}
+  alias Aiur.Workspace.Provisioner
 
   defmodule StubBackend do
     def send_operator_message(session, message) do
@@ -31,7 +36,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       do: {:reply, :empty, state}
 
     def handle_call({:claim_next_checkpoint_queue_item, _id}, _from, state),
-      do: {:reply, state.checkpoint, state}
+      do: {:reply, state.checkpoint, %{state | checkpoint: :empty}}
 
     def handle_call({:restore_queue_item_pending, item_id}, _from, state) do
       send(state.report, {:restore, item_id})
@@ -42,6 +47,49 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       send(state.report, {:mark_failed, item_id, reason})
       {:reply, :ok, state}
     end
+  end
+
+  # Runs the production queue claim transition against an actual Orchestrator
+  # State/AgentQueueStore. The GenServer only supplies the RPC boundary used by
+  # CheckpointDelivery; it does not implement claim or drain behavior itself.
+  defmodule QueueStateOrchestrator do
+    use GenServer
+
+    def start_link(state), do: GenServer.start_link(__MODULE__, state)
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:claim_blocker_critical_events_digest, id}, _from, state) do
+      reply_with_state(OperatorMessages.claim_blocker_critical_events_digest_call(state, id))
+    end
+
+    def handle_call({:claim_next_checkpoint_queue_item, id}, _from, state) do
+      reply_with_state(OperatorMessages.claim_next_checkpoint_queue_item_call(state, id))
+    end
+
+    def handle_call({:get_item, id}, _from, state) do
+      {:reply, AgentQueueStore.get(state.queue_store, id), state}
+    end
+
+    def handle_call({:claim_next_queue_item, identifier}, _from, state) do
+      reply_with_state(OperatorMessages.claim_next_queue_item_call(state, identifier))
+    end
+
+    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
+      reply_with_state(OperatorMessages.consume_delivered_queue_items_call(state, identifier))
+    end
+
+    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
+      reply_with_state(OperatorMessages.fail_delivered_queue_items_call(state, identifier, reason))
+    end
+
+    def handle_call({:acknowledge_queue_item_delivery, item_id, metadata}, _from, state) do
+      reply_with_state(OperatorMessages.acknowledge_queue_item_delivery_call(state, item_id, metadata))
+    end
+
+    defp reply_with_state({:reply, reply, next_state}), do: {:reply, reply, next_state}
   end
 
   test "checkpoint is skipped while a parent provider turn is live" do
@@ -120,6 +168,105 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert_receive {:operator_message, %{kind: :text, body: "survive closed checkpoint"}}, 1000
     assert_receive {:restore, 77}, 1000
     refute_receive {:mark_failed, 77, _reason}, 100
+  end
+
+  test "a retired-turn interrupt reaches the safe checkpoint and delivers the queued message once" do
+    error = %{"code" => -32_004, "message" => "No active turn to interrupt."}
+
+    completed_turn_state =
+      state(%{
+        active_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(["turn-1"]),
+        outstanding_turns: 1,
+        pending_interrupt_request_id: 80,
+        interrupt_action: :operator_message,
+        current_turn_id: "turn-1"
+      })
+
+    interrupt_result = ClaudeAgent.handle_interrupt_error(completed_turn_state, error)
+
+    issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
+
+    attrs = AgentQueue.operator_message(issue.identifier, "deliver after turn boundary", delivery_policy: :interrupt)
+
+    {queue_store, item} = AgentQueueStore.enqueue(AgentQueueStore.new(), attrs)
+    {:ok, orch} = QueueStateOrchestrator.start_link(%State{queue_store: queue_store})
+
+    active_turn_state =
+      state(%{
+        outstanding_turns: 1,
+        on_safe_checkpoint: CheckpointDelivery.safe_checkpoint_handler(issue, orch, "codex")
+      })
+
+    # This is the successful turn result produced by the interrupt-error
+    # classifier. Once the turn is retired, the safe checkpoint must leave the
+    # interrupt-requested item pending for the production boundary drain.
+    retired_state = %{active_turn_state | outstanding_turns: 0}
+
+    assert OperatorDelivery.maybe_process_safe_checkpoint(
+             session(),
+             retired_state,
+             %{kind: :notification}
+           ) == retired_state
+
+    refute_receive {:operator_message, _}, 100
+    assert GenServer.call(orch, {:get_item, item.id}).status == :pending
+
+    test_root = Aiur.TestSupport.tmp_root!("retired-turn-queue-drain")
+    workspace = Path.join(test_root, "workspace")
+    File.mkdir_p!(workspace)
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
+    on_exit(fn -> File.rm_rf!(test_root) end)
+
+    parent = self()
+    call_key = {__MODULE__, :retired_turn_queue_drain, self()}
+
+    run_turn = fn _session, text, _issue, opts ->
+      case Process.get(call_key, 0) do
+        0 ->
+          Process.put(call_key, 1)
+
+          case interrupt_result do
+            {:ok, result} -> {:ok, %{result: result, session_id: "completed-parent-turn"}}
+            {:paused, payload} -> {:paused, payload}
+            {:error, reason} -> {:error, reason}
+          end
+
+        1 ->
+          Process.put(call_key, 2)
+          send(parent, {:queued_turn, text})
+          opts[:on_provider_delivery].(%{turn_id: "interrupt-boundary-turn"})
+          {:ok, %{result: :turn_completed, session_id: "interrupt-boundary-turn"}}
+      end
+    end
+
+    assert {:completed, _completed_issue} =
+             TurnLoop.run_turns(
+               %{backend: "codex", workspace: workspace, worker_host: nil},
+               workspace,
+               %{issue | state: "in-progress"},
+               self(),
+               [resumed: true, run_turn: run_turn],
+               fn _identifiers -> {:ok, [%{issue | state: "in-progress"}]} end,
+               orch,
+               nil,
+               1,
+               1
+             )
+
+    assert_receive {:queued_turn, "deliver after turn boundary"}, 1000
+    refute_receive {:queued_turn, "deliver after turn boundary"}, 100
+
+    assert Process.get(call_key) == 2
+    Process.delete(call_key)
+    assert {:ok, :turn_interrupted_for_operator_message} = interrupt_result
+
+    delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), retired_state, %{kind: :notification})
+    after_second_checkpoint = OperatorDelivery.maybe_process_safe_checkpoint(session(), delivered_state, %{kind: :notification})
+
+    refute_receive {:operator_message, %{kind: :text, body: "deliver after turn boundary"}}, 100
+    assert after_second_checkpoint == delivered_state
+    assert GenServer.call(orch, {:get_item, item.id}).status == :consumed
   end
 
   test "a real closed-port checkpoint write still fails a Claude item" do

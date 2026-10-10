@@ -66,6 +66,45 @@ defmodule Aiur.Codex.InterruptsTest do
                Interrupts.handle_interrupt_error(state, %{"message" => "there is no active turn to interrupt"})
     end
 
+    test "keeps a normally completed turn successful when its interrupt loses the race" do
+      error = %{"code" => -32_004, "message" => "No active turn to interrupt."}
+
+      state = %{
+        active_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(["turn-1"]),
+        outstanding_turns: 1,
+        pending_operator_requests: %{},
+        pending_interrupt_request_id: 457,
+        interrupt_action: :operator_message,
+        pause_request_id: nil,
+        current_turn_id: "turn-1"
+      }
+
+      assert {:ok, :turn_interrupted_for_operator_message} = Interrupts.handle_interrupt_error(state, error)
+    end
+
+    test "preserves a pause when its completed turn was already retired" do
+      error = %{"code" => -32_004, "message" => "No active turn to interrupt."}
+
+      state = %{
+        active_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(["turn-1"]),
+        outstanding_turns: 0,
+        pending_operator_requests: %{},
+        pending_interrupt_request_id: 458,
+        interrupt_action: :pause,
+        pause_request_id: 17,
+        current_turn_id: "turn-1"
+      }
+
+      assert {:paused,
+              %{
+                request_id: 17,
+                turn_id: "turn-1",
+                details: %{"error" => ^error, "status" => "interrupted"}
+              }} = Interrupts.handle_interrupt_error(state, error)
+    end
+
     test "no active turn preserves a previously armed anonymous completion guard" do
       {:ok, store} = ProviderTurnLedger.start_store()
       on_exit(fn -> ProviderTurnLedger.stop_store(store) end)

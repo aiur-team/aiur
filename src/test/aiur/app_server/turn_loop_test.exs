@@ -106,6 +106,38 @@ defmodule Aiur.AppServer.TurnLoopTest do
     assert TurnLoop.receive_loop(%{port: port}, guarded_state) == {:ok, :turn_completed}
   end
 
+  test "no-active-turn interrupt response ends the operator-message turn cleanly" do
+    port = cat_port()
+
+    completed = %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"id" => "turn-1", "status" => "completed"}}
+    }
+
+    error = %{
+      "id" => 42,
+      "error" => %{"code" => -32_004, "message" => "No active turn to interrupt."}
+    }
+
+    send(self(), {port, {:data, {:eol, Jason.encode!(error)}}})
+    send(self(), {port, {:data, {:eol, Jason.encode!(completed)}}})
+
+    codex_state =
+      state(%{
+        backend: Aiur.Claude.CodingAgent,
+        pending_interrupt_request_id: 42,
+        interrupt_action: :operator_message,
+        active_turn_ids: MapSet.new(["turn-1"]),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false,
+        pending_anonymous_completion?: false
+      })
+
+    assert TurnLoop.receive_loop(%{port: port}, codex_state) == {:ok, :turn_interrupted_for_operator_message}
+    Port.close(port)
+  end
+
   test "nonzero port exit does not settle a guarded anonymous completion candidate" do
     port = cat_port()
 

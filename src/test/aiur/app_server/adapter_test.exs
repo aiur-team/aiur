@@ -3,6 +3,7 @@ defmodule Aiur.AppServer.AdapterTest do
 
   alias Aiur.AppServer.Adapter
   alias Aiur.AppServer.Rpc.StreamDiagnostics
+  alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.{Interrupts, TurnLoop}
 
   defmodule StubBackend do
@@ -242,6 +243,26 @@ defmodule Aiur.AppServer.AdapterTest do
 
   test "run_turn reconciles idle after a successful pause acknowledgement" do
     assert_deferred_idle_pause(:ack_then_idle, 45)
+  end
+
+  test "Claude treats no-active-turn as a terminal interrupt boundary" do
+    error = %{"code" => -32_004, "message" => "No active turn to interrupt."}
+
+    state = %{
+      active_turn_ids: MapSet.new(["turn-1"]),
+      accepted_turn_ids: MapSet.new(),
+      retired_turn_ids: MapSet.new(),
+      anonymous_completion_consumed?: false,
+      pending_anonymous_completion?: false,
+      outstanding_turns: 1,
+      pending_operator_requests: %{},
+      pending_interrupt_request_id: 91,
+      interrupt_action: :operator_message,
+      pause_request_id: nil,
+      current_turn_id: "turn-1"
+    }
+
+    assert ClaudeAgent.handle_interrupt_error(state, error) == {:ok, :turn_interrupted_for_operator_message}
   end
 
   test "run_turn does not promote accepted steering response IDs without turn/started" do

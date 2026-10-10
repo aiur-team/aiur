@@ -3,6 +3,8 @@ defmodule Aiur.AppServer.Interrupts do
   Shared pause and Executor-queue interrupt state machine.
   """
 
+  alias Aiur.AppServer.TurnState
+
   @spec handle_pause_request(map(), map(), integer() | map()) ::
           {:continue, map()} | {:error, term()}
   def handle_pause_request(_session, %{pause_request_id: request} = state, request)
@@ -52,6 +54,50 @@ defmodule Aiur.AppServer.Interrupts do
     end
   end
 
+  @doc false
+  @spec handle_no_active_turn_error(map(), term()) ::
+          {:ok, :turn_completed}
+          | {:paused, map()}
+          | {:ok, :turn_interrupted_for_operator_message}
+          | {:error, term()}
+  def handle_no_active_turn_error(state, error) do
+    if completed_turn_already_retired?(state) do
+      TurnState.fail_pending_operator_requests(
+        Map.get(state, :pending_operator_requests, %{}),
+        {:turn_interrupted, %{"error" => error, "status" => "interrupted"}}
+      )
+
+      handle_retired_turn_interrupt(state, error)
+    else
+      if state.interrupt_action in [:pause, :operator_message] do
+        TurnState.continue_after_turn_interrupted(
+          %{state | pending_interrupt_request_id: nil},
+          %{"error" => error, "status" => "interrupted"},
+          :preserve
+        )
+      else
+        state
+        |> Map.put(:pending_interrupt_request_id, nil)
+        |> TurnState.complete_all_provider_turns()
+      end
+    end
+  end
+
+  defp handle_retired_turn_interrupt(%{interrupt_action: :pause} = state, error) do
+    {:paused,
+     TurnState.pause_result_payload(
+       state.pause_request_id,
+       state.current_turn_id,
+       %{"error" => error, "status" => "interrupted"}
+     )}
+  end
+
+  defp handle_retired_turn_interrupt(%{interrupt_action: :operator_message}, _error),
+    do: {:ok, :turn_interrupted_for_operator_message}
+
+  defp handle_retired_turn_interrupt(state, _error),
+    do: TurnState.maybe_finish_after_pending_response(%{state | pending_interrupt_request_id: nil})
+
   @spec interrupt_turn(module(), map(), String.t()) :: {:ok, integer()} | {:error, term()}
   def interrupt_turn(backend, %{port: port, thread_id: thread_id}, turn_id)
       when is_port(port) and is_binary(thread_id) and is_binary(turn_id) do
@@ -73,4 +119,11 @@ defmodule Aiur.AppServer.Interrupts do
   end
 
   def interrupt_turn(_backend, _session, _turn_id), do: {:error, :invalid_session}
+
+  defp completed_turn_already_retired?(%{retired_turn_ids: retired_turn_ids, current_turn_id: turn_id})
+       when is_struct(retired_turn_ids, MapSet) and is_binary(turn_id) do
+    MapSet.member?(retired_turn_ids, turn_id)
+  end
+
+  defp completed_turn_already_retired?(_state), do: false
 end
