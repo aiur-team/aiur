@@ -4,7 +4,7 @@ defmodule Aiur.AgentCommandInstaller do
   import Bitwise, only: [band: 2]
 
   alias Aiur.Fs
-  alias Aiur.Workspace.Remote
+  alias Aiur.Shell
 
   @spec bin_dir(Path.t(), Path.t()) :: Path.t()
   def bin_dir(workspace, relative_dir), do: Path.join(workspace, relative_dir)
@@ -38,7 +38,7 @@ defmodule Aiur.AgentCommandInstaller do
 
     [
       "set -eu",
-      Remote.remote_shell_assign("workspace", workspace),
+      Shell.remote_assign("workspace", workspace),
       "runtime=\"$workspace/.aiur-runtime\"",
       "bin=\"$workspace/#{relative_dir}\"",
       "if [ -L \"$runtime\" ] || [ -L \"$bin\" ]; then echo 'unsafe symlink in agent support path' >&2; exit 73; fi",

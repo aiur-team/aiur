@@ -59,7 +59,7 @@
     },
     {
       "id": "agent-runner", "name": "Turn engine for one ticket", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
+      "paths": ["src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel", "identity"], "optional": ["build-orders"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -67,9 +67,9 @@
     },
     {
       "id": "agent-sandbox", "name": "Agent OS-process safety", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_build_guard.ex", "src/lib/aiur/agent_environment.ex", "src/lib/aiur/agent_environment/**", "src/lib/aiur/agent_github_guard.ex", "src/lib/aiur/agent_resource_guard.ex", "src/lib/aiur/build_gate.ex", "src/lib/aiur/build_gate/**", "src/lib/aiur/build_gate_hold_monitor.ex", "src/lib/aiur/pause_containment.ex", "src/lib/aiur/process_reaper.ex", "src/lib/aiur/sandbox/**"],
+      "paths": ["src/lib/aiur/agent_build_guard.ex", "src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_environment.ex", "src/lib/aiur/agent_environment/**", "src/lib/aiur/agent_github_guard.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_resource_guard.ex", "src/lib/aiur/agent_scratch.ex", "src/lib/aiur/build_gate.ex", "src/lib/aiur/build_gate/**", "src/lib/aiur/build_gate_hold_monitor.ex", "src/lib/aiur/pause_containment.ex", "src/lib/aiur/process_reaper.ex", "src/lib/aiur/sandbox/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["kernel", "config"], "optional": [],
+      "requires": ["kernel", "config", "signal"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_AGENT_IR_SANDBOX", "AIUR_AGENT_WORKSPACE", "PATH"], "state": [], "capabilities": []},
       "prior": ["RUN"]
     },
@@ -124,10 +124,10 @@
     },
     {
       "id": "workspace", "name": "Workspace and repo base", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_scratch.ex", "src/lib/aiur/prewarm/**", "src/lib/aiur/repo_base.ex", "src/lib/aiur/workspace.ex", "src/lib/aiur/workspace/**"],
+      "paths": ["src/lib/aiur/prewarm/**", "src/lib/aiur/repo_base.ex", "src/lib/aiur/workspace.ex", "src/lib/aiur/workspace/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "agent-sandbox", "tracker"], "optional": [],
-      "owns": {"config": ["hooks", "prewarm", "workspace"], "env": ["AIUR_REAL_GIT", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_NAME", "TEMP", "TMP", "TMPDIR"], "state": [], "capabilities": []},
+      "owns": {"config": ["hooks", "prewarm", "workspace"], "env": ["AIUR_REAL_GIT", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_NAME", "TEMP", "TMP", "TMPDIR"], "state": ["repo_state_path", "repo_state_relative_path"], "capabilities": []},
       "prior": ["WS"]
     },
     {

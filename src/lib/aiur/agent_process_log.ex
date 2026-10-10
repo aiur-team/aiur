@@ -78,7 +78,7 @@ defmodule Aiur.AgentProcessLog do
   require Logger
 
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.RepoBase
+  alias Aiur.Config.Paths
 
   @default_interval_ms 2_000
   # Sized separately from the request logs on purpose: agent builds spawn far
@@ -563,7 +563,7 @@ defmodule Aiur.AgentProcessLog do
     case GitHubConfig.repo() do
       repo when is_binary(repo) and repo != "" ->
         repo
-        |> RepoBase.repo_path()
+        |> Paths.repo_state_path()
         |> Path.join("github-quota")
         |> Path.join("agent-processes.tsv")
 
