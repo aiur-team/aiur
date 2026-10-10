@@ -121,6 +121,9 @@ defmodule Aiur.Config.Schema.Agent do
     # this never caps a long run of real work — unlike `max_turns`, which does.
     # 0 / `nil` disables the bound.
     field(:max_consecutive_noop_turns, :integer, default: 3)
+    # How long a worker parked after a no-op turn waits for a wake before it
+    # resumes with a normal turn. 0 disables the timer.
+    field(:noop_park_timeout_ms, :integer, default: 900_000)
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
@@ -229,6 +232,7 @@ defmodule Aiur.Config.Schema.Agent do
         :build_gate_max_hold_seconds,
         :build_gate_retain_seconds,
         :max_turns,
+        :noop_park_timeout_ms,
         :max_retry_attempts,
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
@@ -276,6 +280,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:max_retry_attempts, greater_than: 0)
     |> validate_number(:max_retry_backoff_ms, greater_than: 0)
     |> validate_number(:turn_timeout_ms, greater_than: 0)
+    |> validate_number(:noop_park_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)

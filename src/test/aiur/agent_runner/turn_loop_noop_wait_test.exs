@@ -76,6 +76,14 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
     stop(task)
   end
 
+  test "a park with no wake resumes after the park timeout", ctx do
+    task = start_loop(ctx, park_timeout_ms: 100)
+
+    # No wake is ever sent: the timer alone starts the fourth turn.
+    assert eventually(fn -> Agent.get(ctx.turns, & &1) >= 4 end)
+    stop(task)
+  end
+
   defp start_loop(ctx, opts \\ []) do
     turns = ctx.turns
 
@@ -95,6 +103,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
           end,
           workspace_probe: fn _workspace, _worker_host -> {:ok, "unchanged-workspace"} end,
           max_consecutive_noop_turns: 3,
+          noop_park_timeout_ms: Keyword.get(opts, :park_timeout_ms, 0),
           open_pr_fetcher: fn _ -> {:ok, nil} end
         ],
         fn _ids -> {:ok, [ctx.issue]} end,
