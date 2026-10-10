@@ -1152,7 +1152,7 @@ defmodule Aiur.ExtensionsTest do
     assert response(sortable_table_hook_conn, 200) =~ "AiurSortableTableHook"
     assert Plug.Conn.get_resp_header(sortable_table_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js"] do
+    for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js", "streamdeck-emulator-knob.js"] do
       hook_conn = get(build_conn(), "/#{hook}")
       assert response(hook_conn, 200) != ""
       assert Plug.Conn.get_resp_header(hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]

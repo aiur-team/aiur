@@ -33,7 +33,7 @@ import {
 } from "../src/dial.js";
 
 const emulatorHookSource = readFileSync(
-  new URL("../../../src/priv/static/streamdeck-emulator-hook.js", import.meta.url),
+  new URL("../../../src/priv/static/streamdeck-emulator-knob.js", import.meta.url),
   "utf8",
 );
 

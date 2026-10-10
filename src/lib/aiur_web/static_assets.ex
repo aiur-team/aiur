@@ -24,6 +24,7 @@ defmodule AiurWeb.StaticAssets do
     elevenlabs-symbol.svg
     sortable-table-hook.js
     streamdeck-emulator-hook.js
+    streamdeck-emulator-knob.js
     ticket-context-dialog-hook.js
     time-brush-hook.js
     voice-capture-worklet.js
@@ -52,6 +53,7 @@ defmodule AiurWeb.StaticAssets do
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
+    "/streamdeck-emulator-knob.js" => {"application/javascript", "priv/static/streamdeck-emulator-knob.js"},
     "/elevenlabs-symbol.svg" => {"image/svg+xml", "priv/static/elevenlabs-symbol.svg"},
     "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"}
   }

@@ -93,6 +93,8 @@ Code.require_file("support/webhook_mode_contract.exs", __DIR__)
 
 Code.require_file("support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("support/build_home/protocol_case.ex", __DIR__)
+Code.require_file("support/streamdeck_live_case.ex", __DIR__)
+Code.require_file("support/streamdeck_channel_case.ex", __DIR__)
 Code.require_file("support/webhook_deliveries.ex", __DIR__)
 Code.require_file("support/comments_poller_fixture.ex", __DIR__)
 Code.require_file("support/webhook_equivalence_fixture.ex", __DIR__)
