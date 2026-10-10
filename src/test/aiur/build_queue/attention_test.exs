@@ -29,6 +29,41 @@ defmodule Aiur.BuildQueue.AttentionTest do
     {:ok, document: document, root: root}
   end
 
+  defmodule CaptureSink do
+    def emit_system(topic, opts) do
+      send(Application.fetch_env!(:aiur, :queue_attention_test_pid), {:signal_alert, topic, opts})
+      :ok
+    end
+  end
+
+  test "attention goes through Signal.alert with the E1 payload" do
+    previous = Application.fetch_env!(:aiur, :signal)
+    Application.put_env(:aiur, :queue_attention_test_pid, self())
+    Application.put_env(:aiur, :signal, alert_sink: CaptureSink)
+
+    on_exit(fn ->
+      Application.put_env(:aiur, :signal, previous)
+      Application.delete_env(:aiur, :queue_attention_test_pid)
+    end)
+
+    assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
+    assert_received {:signal_alert, @topic, opts}
+
+    assert Keyword.delete(opts, :message) == [
+             issue: "12",
+             needs_attention: true,
+             severity: "warning",
+             durable: true,
+             refs_only: true,
+             bypass_contamination: true,
+             exchange_payload: @payload
+           ]
+
+    assert opts[:message] =~ "#12 closed as not planned; #13, #14 wait on it"
+    # The queue adds no fallback to the alerts ledger behind the port.
+    assert alerts(@topic) == []
+  end
+
   test "duplicate closure attention preserves and names its unknown completion cause" do
     payload = %{@payload | cause: :duplicate}
     assert :ok = Attention.open(:prerequisite_failed, "12", payload)

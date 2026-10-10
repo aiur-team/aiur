@@ -139,11 +139,11 @@
       "prior": ["BO"]
     },
     {
-      "id": "build-queue", "name": "Build queue (MP-E1, new; ships before the refactor on a seam)", "layer": 3, "kind": "optional",
+      "id": "build-queue", "name": "Build queue (MP-E1)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_queue.ex", "src/lib/aiur/build_queue_cli.ex", "src/lib/aiur/build_queue/**", "src/lib/aiur_web/build_queue/**"],
       "facades": ["Aiur.BuildQueue", "Aiur.BuildQueue.Hints", "Aiur.BuildQueue.ClaimProbe", "Aiur.BuildQueueCLI", "AiurWeb.BuildQueue.Runtime"], "facade_pending": null,
-      "requires": ["tracker", "event-bus", "config", "identity", "kernel", "executor-attention", "web-kit"], "optional": ["build-orders"],
-      "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": []},
+      "requires": ["tracker", "event-bus", "config", "identity", "kernel", "signal", "executor-attention", "web-kit"], "optional": ["build-orders"],
+      "owns": {"config": ["build_queue"], "env": [], "state": ["build_queue_dir"], "capabilities": ["build_queue", "build_queue.build_order_source"]},
       "prior": [],
       "forbid": ["Aiur.Orchestrator", "Aiur.Orchestrator.*", "Aiur.GitHub", "Aiur.GitHub.*"]
     },
