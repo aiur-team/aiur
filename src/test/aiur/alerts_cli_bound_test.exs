@@ -1,0 +1,90 @@
+defmodule Aiur.AlertsCLIBoundTest do
+  use ExUnit.Case, async: true
+
+  import ExUnit.CaptureIO
+
+  alias Aiur.{AgentControlCLI, AlertFeed}
+
+  setup do
+    root = Aiur.TestSupport.tmp_root!("alerts-cli-bound")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    %{ledger: Path.join(root, "alerts.ndjson")}
+  end
+
+  test "parse maps argv to opts and rejects bad input" do
+    assert {:ok, opts} = Aiur.AlertsCLI.parse(["--needs-attention", "--limit", "7"])
+    assert Enum.sort(opts) == [limit: 7, needs_attention: true]
+    assert {:ok, [limit: :all]} = Aiur.AlertsCLI.parse(["--all"])
+    assert {:error, "aiur: alerts --limit needs a positive integer"} = Aiur.AlertsCLI.parse(["--limit", "0"])
+    assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--limit"])
+    assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--bogus"])
+  end
+
+  test "argv entry point exits 64 on bad input" do
+    assert capture_io(:stderr, fn -> assert Aiur.AlertsCLI.run(argv: ["--bogus"]) == 64 end) =~ "alerts accepts"
+  end
+
+  test "default view keeps every open attention item and caps only other rows", %{ledger: ledger} do
+    open = Enum.map(1..150, &alert(&1, true))
+    history = Enum.map(1001..1200, &alert(&1, false))
+    resolved = [alert(2001, true), Map.put(alert(2001, false), "topic", "system.test.2001.resolved")]
+    write_ledger(ledger, open ++ history ++ resolved)
+
+    [notice | alerts] = run_alerts(ledger_path: ledger)
+    assert notice["event"] == "alert_feed_truncated"
+    assert notice["limit"] == 100
+    assert notice["omitted_count"] == 101
+    attention = Enum.filter(alerts, & &1["needs_attention"])
+    assert Enum.map(attention, & &1["topic"]) == Enum.map(1..150, &"system.test.#{&1}")
+    others = Enum.reject(alerts, & &1["needs_attention"])
+    assert length(others) == 100
+    assert hd(others)["topic"] == "system.test.1102"
+    assert List.last(alerts)["topic"] == "system.test.2001.resolved"
+  end
+
+  test "--needs-attention never truncates and excludes resolved conditions", %{ledger: ledger} do
+    records = Enum.map(1..151, &alert(&1, true))
+    write_ledger(ledger, records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")])
+
+    alerts = run_alerts(ledger_path: ledger, needs_attention: true)
+    assert length(alerts) == 150
+    refute Enum.any?(alerts, &(&1["event"] == "alert_feed_truncated"))
+  end
+
+  test "limit and :all expose rows the default cut", %{ledger: ledger} do
+    write_ledger(ledger, Enum.map(1..250, &alert(&1, false)))
+
+    [notice | alerts] = run_alerts(ledger_path: ledger, limit: 5)
+    assert notice["omitted_count"] == 245
+    assert Enum.map(alerts, & &1["topic"]) == Enum.map(246..250, &"system.test.#{&1}")
+    assert length(run_alerts(ledger_path: ledger, limit: :all)) == 250
+  end
+
+  test "feed reconstruction grows linearly within the bounded ledger", %{ledger: ledger} do
+    small = reductions(ledger, 1_000)
+    large = reductions(ledger, 4_000)
+    assert large < small * 6
+  end
+
+  defp write_ledger(ledger, records), do: File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
+
+  defp run_alerts(opts), do: capture_io(fn -> AgentControlCLI.alerts(opts) end) |> decode_output()
+
+  defp decode_output(output) do
+    output |> String.split("\n", trim: true) |> Enum.filter(&String.starts_with?(&1, "{")) |> Enum.map(&Jason.decode!/1)
+  end
+
+  defp reductions(ledger, count) do
+    records = Enum.map(1..count, &alert(&1, rem(&1, 2) == 0))
+    File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
+    {:reductions, before} = Process.info(self(), :reductions)
+    assert length(AlertFeed.list(ledger_path: ledger)) == count
+    {:reductions, after_count} = Process.info(self(), :reductions)
+    after_count - before
+  end
+
+  defp alert(index, attention) do
+    %{"event" => "alert", "timestamp" => "2026-10-09T00:00:00Z", "topic" => "system.test.#{index}", "needs_attention" => attention}
+  end
+end

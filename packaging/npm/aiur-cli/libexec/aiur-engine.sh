@@ -463,7 +463,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
-       aiur alerts [--needs-attention]  show structured alert feed
+       aiur alerts [--needs-attention] [--limit <n> | --all]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
        aiur executor-listen [--topic <pattern>]  deprecated alias for listen
@@ -3172,22 +3172,14 @@ cmd_github_usage() {
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
-  local needs_attention=0 arg
+  local args="" arg
   for arg in "$@"; do
     case "$arg" in
-      --needs-attention) needs_attention=1 ;;
-      *)
-        echo "aiur: alerts only accepts --needs-attention" >&2
-        exit 64
-        ;;
+      '' | *[!a-z0-9-]*) echo "aiur: alerts accepts --needs-attention, --limit <n>, --all" >&2; exit 64 ;;
     esac
+    args="${args}\"$arg\", "
   done
-
-  if [ "$needs_attention" -eq 1 ]; then
-    run_control_rpc "Aiur.AgentControlCLI.alerts(needs_attention: true)"
-  else
-    run_control_rpc "Aiur.AgentControlCLI.alerts()"
-  fi
+  run_control_rpc "Aiur.AgentControlCLI.alerts(argv: [${args%, }])"
 }
 
 # `aiur watch` — the server-side status board. Compiles one row per active
