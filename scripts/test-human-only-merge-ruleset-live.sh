@@ -174,7 +174,7 @@ expect_queue_rejected() {
 
 expect_queue_rejected "disabled" '.enforcement = "disabled"'
 expect_queue_rejected "no-queue" '.rules |= map(select(.type != "merge_queue"))'
-expect_queue_rejected "batch-size" '(.rules[] | select(.type == "merge_queue") | .parameters.min_entries_to_merge) = 1'
+expect_queue_rejected "batch-size" '(.rules[] | select(.type == "merge_queue") | .parameters.min_entries_to_merge) = 4'
 expect_queue_rejected "allgreen" '(.rules[] | select(.type == "merge_queue") | .parameters.grouping_strategy) = "ALLGREEN"'
 
 if output="$(RULESET_LIST_FIXTURE='[{"name":"human-only-merge-gate","id":123}]' run_drift_check "$declaration" 2>&1)" ||

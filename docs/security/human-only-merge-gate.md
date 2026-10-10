@@ -30,9 +30,9 @@ Protects `main`. Declaration:
 2026-10-10 after being disabled since 2026-07-30.
 
 - `deletion` and `non_fast_forward`, as above.
-- `merge_queue`: squash merges, `HEADGREEN` grouping, a batch of at least 4
-  entries or a 15-minute wait, at most 5 entries per merge and 2 building at
-  once, and a 120-minute check response timeout.
+- `merge_queue`: squash merges, `HEADGREEN` grouping, merges as soon as 1
+  entry is ready (no wait), at most 5 entries per merge and 5 building at
+  once, and a 360-minute check response timeout.
 
 The declaration omits `bypass_actors`, which a read-only token cannot read, so
 applying it leaves the live bypass list as it is.

@@ -21,12 +21,12 @@
       "type": "merge_queue",
       "parameters": {
         "merge_method": "SQUASH",
-        "max_entries_to_build": 2,
-        "min_entries_to_merge": 4,
+        "max_entries_to_build": 5,
+        "min_entries_to_merge": 1,
         "max_entries_to_merge": 5,
-        "min_entries_to_merge_wait_minutes": 15,
+        "min_entries_to_merge_wait_minutes": 0,
         "grouping_strategy": "HEADGREEN",
-        "check_response_timeout_minutes": 120
+        "check_response_timeout_minutes": 360
       }
     }
   ]

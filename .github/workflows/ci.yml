@@ -40,7 +40,7 @@ jobs:
   #
   # The jobs are NOT skipped. Every engine job still runs and still publishes
   # its check name; only its steps short-circuit. The human-only merge ruleset
-  # requires 13 contexts by name (docs/security/human-only-merge-ruleset.json),
+  # requires 12 contexts by name (docs/security/human-only-merge-ruleset.json),
   # and a required check that never reports leaves the pull request unmergeable
   # forever. Running-but-empty jobs report `success` unambiguously, which a
   # job-level `if:` skip does not.
