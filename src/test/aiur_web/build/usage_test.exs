@@ -3,7 +3,12 @@ defmodule AiurWeb.Build.UsageTest do
   alias Aiur.ProviderMeterSnapshot
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
   alias AiurWeb.Build.{Payload, Read, Usage}
-  defp block(inputs), do: Usage.block({:ok, nil}, inputs, I.now())
+  defp block(inputs) do
+    usage = Usage.block({:ok, nil}, inputs, I.now())
+    fixture = File.read!(Path.expand("../../fixtures/build_home/live.json", __DIR__)) |> Jason.decode!()
+    assert Payload.validate(Map.put(fixture, "usage", Payload.scrub(usage))) == :ok
+    usage
+  end
 
   defp provider(windows, overrides \\ %{}, family \\ :codex) do
     inputs = I.inputs(%{families: [family], meters: %{family => I.snapshot(family, windows, overrides)}})
