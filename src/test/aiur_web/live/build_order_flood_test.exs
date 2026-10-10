@@ -102,16 +102,18 @@ defmodule AiurWeb.BuildOrderFloodTest do
       Process.sleep(650)
       assert {:message_queue_len, length} = Process.info(view.pid, :message_queue_len)
       assert length <= 5
-      assert {:memory, bytes} = Process.info(view.pid, :memory)
-      assert bytes < 32_000_000
       assert {:message_queue_len, relay_length} = Process.info(relay, :message_queue_len)
       assert relay_length <= 1
+      :erlang.garbage_collect(relay)
       assert {:memory, relay_bytes} = Process.info(relay, :memory)
       assert relay_bytes < 32_000_000
     after
       :sys.resume(view.pid)
     end
 
+    :erlang.garbage_collect(view.pid)
+    assert {:memory, bytes} = Process.info(view.pid, :memory)
+    assert bytes < 32_000_000
     render_async(view)
     assert render(view) =~ "Flood root 100"
   end

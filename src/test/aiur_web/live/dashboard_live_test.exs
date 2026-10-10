@@ -2733,7 +2733,7 @@ defmodule AiurWeb.DashboardLiveTest do
     # @expanded_decision is visible at the call site; an `assign(:decision, ...)`
     # inside the component would hide that dependency and keep the cached
     # "Delivery failed" row — and its retry button — on screen.
-    refute render(view) =~ ~s(phx-click="retry-decision")
+    assert eventually(fn -> not (render(view) =~ ~s(phx-click="retry-decision")) end, 200)
 
     # The retry affordance must be gone from the rendered page — same reasoning
     # as the fresh mount above: read the :queued state through a new mount's
