@@ -24,6 +24,7 @@ defmodule AiurWeb.Build.PayloadValidator do
   defp check(value, {:integer_range, low, high}, _path) when is_integer(value) and value >= low and value <= high, do: []
   defp check(value, {:range, low, high}, _path) when is_number(value) and value >= low and value <= high, do: []
   defp check(value, :string, _path) when is_binary(value), do: []
+  defp check(value, {:short_string, max}, path) when is_binary(value), do: if(String.length(value) <= max, do: [], else: error(path, :length))
   defp check(value, :integer, _path) when is_integer(value), do: []
   defp check(value, :positive, _path) when is_integer(value) and value > 0, do: []
   defp check(value, :nonnegative, _path) when is_integer(value) and value >= 0, do: []
