@@ -180,7 +180,7 @@ defmodule Aiur.GitHub.ResourceStore do
 
   Worse than a missing marker is a `nil` one, and it is worth stating because
   the failure is silent at every level.
-  `Aiur.Events.GitHubWebhook.Deposit.regression?/2` refuses an out-of-order
+  `regression?/2` refuses an out-of-order
   delivery only when it has a binary marker on **both** sides, so a single
   version-less deposit does not weaken that guard for the resource — it switches
   it off, and every later late delivery lands. Deposit a version for anything a
@@ -708,15 +708,37 @@ defmodule Aiur.GitHub.ResourceStore do
   reader something false, and the cost of the honest answer is at most one extra
   re-render of a subscribed view, which spends nothing upstream.
   """
-  @spec put_resource(key() | nil, term(), keyword()) :: :ok
+  @spec put_resource(key() | nil, term(), keyword()) :: :ok | {:error, term()}
   def put_resource(key, data, opts \\ [])
 
-  def put_resource(nil, _data, _opts), do: :ok
+  def put_resource(nil, _data, _opts), do: {:error, :invalid_key}
 
   def put_resource(key, data, opts) do
     update_resource(key, fn _held -> data end, opts)
-    :ok
   end
+
+  @doc """
+  Atomically refuses strictly older binary version markers. Equal or missing
+  markers write; a superseded deposit changes no body, validator or freshness.
+  """
+  @spec deposit_unless_older(key() | nil, term(), keyword()) :: :ok | {:ok, :superseded} | {:error, term()}
+  def deposit_unless_older(key, data, opts \\ [])
+  def deposit_unless_older(nil, _data, _opts), do: {:error, :invalid_key}
+
+  def deposit_unless_older(key, data, opts) do
+    version = resolve_version(Keyword.get(opts, :version), data)
+    accept = fn _body, held -> if regression?(held.version, version), do: :unchanged, else: data end
+
+    case update_resource(key, accept, opts) do
+      :unchanged -> {:ok, :superseded}
+      result -> result
+    end
+  end
+
+  @doc "Strictly older GitHub ISO-8601 markers regress; equal or missing markers do not."
+  @spec regression?(term(), term()) :: boolean()
+  def regression?(held, version) when is_binary(held) and is_binary(version), do: version < held
+  def regression?(_held, _version), do: false
 
   @doc """
   Deposits a body derived from the one currently held, atomically.
@@ -730,34 +752,11 @@ defmodule Aiur.GitHub.ResourceStore do
   but `:full_body_at_ms` in `fetch/1`'s answer keeps the time of the last
   whole-body write.
 
-  ## The concurrency guarantee, stated plainly
-
-  A caller that does the same thing with `fetch/1` followed by `put_resource/3`
-  **loses writes**, and not rarely: two processes merging into one `:issue` key
-  regressed the held body within the first twenty writes. The read-modify-write
-  spans an entire round trip through the caller, so anything deposited in
-  between — a webhook delivery carrying the fresh object, another mutation's
-  response — is overwritten by the stale snapshot the loser read first. The
-  rolled-back fields include `"state"`, so a reader can be handed `open` for a
-  ticket Aiur has closed: a correctness failure on dispatch-relevant state, not
-  cosmetic staleness. Worse, a merge that deposits with no `:version` writes
-  `data_version: nil` in the same breath, so nothing marks the body as older
-  than what it replaced.
-
-  This function closes that window: the read, `fun`, and the write are one
-  compare-and-swap against the exact entry that was read (`:ets.select_replace/2`,
-  or `:ets.insert_new/2` when the entry is absent). A concurrent write makes this
-  call re-read and re-apply `fun`, so both writes survive and the held body never
-  goes backwards.
-
-  **`fun` must therefore be pure and cheap** — it can run more than once, and it
-  must not perform IO, spend an API call, or depend on anything but its
-  argument. It sees the held body only while it is still current; anything
-  needing the wider world happens before the call and is passed in.
-
-  The guarantee is scoped to this store's entry for one key. It is not a
-  distributed lock: two daemons on one checkpoint file still resolve by
-  last-writer-wins at checkpoint time.
+  The read, pure and cheap `fun`, and write share one compare-and-swap. A
+  concurrent writer makes it retry against the current entry, never overwrite
+  from a stale read. `fun` may run more than once and must not perform IO.
+  This is local to one key; checkpoint files shared by daemons remain
+  last-writer-wins.
 
   ## What happens when the swap cannot win
 
@@ -845,7 +844,7 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   # A body with no version disarms every downstream staleness guard for that
-  # resource, silently. `Aiur.Events.GitHubWebhook.Deposit.regression?/2` needs a
+  # resource, silently. `regression?/2` needs a
   # binary marker on *both* sides to refuse a late delivery, so one version-less
   # deposit makes every later out-of-order delivery for that key acceptable — the
   # guard is not weakened, it is switched off, and nothing says so.

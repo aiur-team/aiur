@@ -35,6 +35,10 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
+  # Embedded struct defaults must rebuild when the agent schema changes.
+  require Agent
+  require Tracker
+
   @primary_key false
 
   @type t :: %__MODULE__{}
@@ -121,6 +125,21 @@ defmodule Aiur.Config.Schema do
   @spec add_runtime_turn_sandbox_roots(map(), [Path.t()]) :: {:ok, map()} | {:error, term()}
   def add_runtime_turn_sandbox_roots(policy, roots) do
     CodexSandboxPolicy.add_runtime_writable_roots(policy, roots)
+  end
+
+  @doc false
+  @spec workspace_write_policy?(map()) :: boolean()
+  def workspace_write_policy?(policy) do
+    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
+  end
+
+  @doc false
+  @spec policy_writable_roots(map()) :: {:ok, list()} | {:error, term()}
+  def policy_writable_roots(policy) do
+    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+    end
   end
 
   @doc false

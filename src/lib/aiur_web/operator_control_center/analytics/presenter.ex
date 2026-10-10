@@ -19,8 +19,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
-  alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
+  alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, ProjectedSeries, TicketRow}
 
   @default_buckets 180
   @max_series_actors 8
@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   @type model :: %{
           available?: boolean(),
+          retained_runs: %{included: non_neg_integer(), total: non_neg_integer()} | nil,
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
@@ -104,31 +105,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     _error -> {:unavailable, :error}
   end
 
-  # Cross-session view: the current boot is read live from raw (bounded tail so
-  # it stays fresh on the 30 s tick); every prior boot is read from its
-  # materialized run summary instead of re-parsing the retained stream. When no
-  # summaries exist yet this falls back to the historical full raw parse so the
-  # Full-log view keeps working before the first materialization.
-  defp cross_session(file) do
-    current = current_boot_id()
-    prior = Summaries.load_prior_datasets(current)
-
-    if prior == [] do
-      Dataset.build(file, [])
-    else
-      case Dataset.build(file, session: :current, boot_id: current) do
-        {:ok, current_dataset} -> {:ok, merge_datasets([current_dataset | prior])}
-        {:error, _reason} -> {:ok, merge_datasets(prior)}
-      end
-    end
-  end
-
-  # `Dataset.merge/1` already unions provenance across the merged boots; only the
-  # producer label differs, so name this path rather than recomputing the union.
-  defp merge_datasets(datasets) do
-    merged = Dataset.merge(datasets)
-    Map.update!(merged, :provenance, &Map.put(&1, :generated_by, "presenter:cross"))
-  end
+  defp cross_session(file), do: SummaryMerge.load(file, current_boot_id())
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
@@ -259,12 +236,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
     rows =
       tickets
-      |> Enum.map(fn {id, t} -> ticket_row(id, t, timeline) end)
+      |> Enum.map(fn {id, t} -> TicketRow.build(id, t, &Timeline.project(timeline, &1)) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.sort_by(& &1.start_ms)
 
     %{
       available?: true,
+      retained_runs: Map.get(dataset, :retained_runs),
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
       source_boot_id: single_boot_id(dataset),
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
@@ -440,6 +418,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     samples
     |> Enum.reduce(%{}, fn s, acc -> accumulate_sample(acc, s, timeline, axis0, bw, buckets) end)
     |> Map.new(fn {b, {cs, cn, rs, rn}} -> {b, %{cpu: mean(cs, cn), rss: mean(rs, rn)}} end)
+    |> ProjectedSeries.fill(samples, fn ts -> bucket_index(Timeline.project(timeline, ts), axis0, bw, buckets) end)
   end
 
   defp accumulate_sample(acc, sample, timeline, axis0, bw, buckets) do
@@ -738,42 +717,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   # ---- ticket lifecycle rows ----
 
-  defp ticket_row(id, ticket, timeline) do
-    intervals = Map.get(ticket, :intervals, [])
-    starts = intervals |> Enum.map(&Map.get(&1, :start_ms)) |> Enum.filter(&is_integer/1)
-
-    if starts == [] do
-      nil
-    else
-      ends = intervals |> Enum.map(fn iv -> Map.get(iv, :end_ms) || Map.get(iv, :start_ms) end) |> Enum.filter(&is_integer/1)
-      start_ms = Enum.min(starts)
-      work_ms = phase_start(intervals, ["implement", "agent_spinup", "build_test"]) || start_ms
-      merged_at = phase_start(intervals, ["pr_merged"])
-      end_ms = merged_at || Enum.max([start_ms | ends])
-      project = &Timeline.project(timeline, &1)
-
-      %{
-        id: id,
-        start_ms: project.(start_ms),
-        work_ms: project.(work_ms),
-        end_ms: project.(end_ms),
-        merged_at: merged_at && project.(merged_at),
-        status: ticket_status(intervals, merged_at)
-      }
-    end
-  end
-
-  defp ticket_status(intervals, merged_at) do
-    phases = intervals |> Enum.map(&Map.get(&1, :phase)) |> MapSet.new()
-
-    cond do
-      merged_at -> :merged
-      MapSet.member?(phases, "rework_start") -> :rework
-      MapSet.member?(phases, "agent_pause") -> :paused
-      true -> :active
-    end
-  end
-
   defp merged?(ticket) do
     ticket |> Map.get(:intervals, []) |> Enum.any?(&(Map.get(&1, :phase) == "pr_merged"))
   end
@@ -848,16 +791,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp average_integer([]), do: nil
   defp average_integer(values), do: round(Enum.sum(values) / length(values))
-
-  defp phase_start(intervals, phases) do
-    intervals
-    |> Enum.filter(&(Map.get(&1, :phase) in phases and is_integer(Map.get(&1, :start_ms))))
-    |> Enum.map(&Map.get(&1, :start_ms))
-    |> case do
-      [] -> nil
-      list -> Enum.min(list)
-    end
-  end
 
   # ---- window + axis ----
 

@@ -172,6 +172,10 @@ defmodule Aiur.PromptBuilderTest do
     assert prompt =~ "configured `tracker.base_branch` is `integration`"
     assert prompt =~ ~s(--base "$AIUR_BASE_BRANCH")
     assert prompt =~ "never from `origin/HEAD`"
+    assert prompt =~ "open, unmerged direct `blocked_by` blocker's PR"
+    restatement = PromptBuilder.integration_branch_restatement()
+    assert restatement =~ "open, unmerged direct `blocked_by` blocker's PR"
+    assert restatement =~ "repairs the base to `integration`"
     assert log =~ "Authoritative integration branch"
     assert log =~ ~s(tracker.base_branch="integration")
   end

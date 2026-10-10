@@ -6,8 +6,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.AgentContextPresentation
   alias Aiur.Bounded
   alias Aiur.CodingAgent
+  alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPolicy, UnitsPresentation, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)

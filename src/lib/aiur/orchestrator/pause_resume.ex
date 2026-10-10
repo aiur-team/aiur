@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   Owns the pause, resume, and reactivation state machine for running agents.
   All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, ModelAvailability, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Commands, Config, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}
@@ -2369,7 +2369,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     do: %{decision_ids: [], store: :unavailable}
 
   defp blocking_decision_detail(issue, _state, opts) do
-    lookup = Keyword.get(opts, :decision_lookup, &DecisionStore.open_blocking_decision_ids/1)
+    lookup = Keyword.get(opts, :decision_lookup, &Commands.open_blocking_decision_ids/1)
 
     ticket_ids =
       [Map.get(issue, :id), Map.get(issue, :identifier)]

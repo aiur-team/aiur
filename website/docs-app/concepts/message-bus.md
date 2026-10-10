@@ -149,9 +149,11 @@ See [Commands](/concepts/commands) for the Executor view.
 | Source | Events it supplies |
 | --- | --- |
 | Repository events | Default-branch pushes and opened or merged PRs. |
-| Ticket-branch watch | Validated ticket ref changes. |
+| Ticket-branch watch | `ticket.N.branch.push` with the ref, SHA, and `previous_sha` (nil for a new ref); subscribed rewrites also emit `ticket.N.branch.force-push`. |
 | Trusted comment polling | Issue comments, PR comments, reviews, and threads. |
 | CI polling | Terminal results for `agent:ci-wait` tickets. |
+
+Force-push verdicts carry `compare_status`, `previous_missing` (404), and `superseded` (a newer SHA was observed). Compare failures or budget holds emit no verdict; agents still check ancestry locally.
 
 See [GitHub](/apis/github) for polling, rate budgets, and optional webhook setup.
 

@@ -5,7 +5,7 @@ defmodule Aiur.CurrentRunRefreshChurnTest do
 
   alias Aiur.{CurrentRunProjections, CurrentRunSummary}
   alias Aiur.CurrentRunProjections.State
-  alias AiurWeb.OperatorControlCenter.UnitsRow
+  alias Aiur.Projections.UnitsRow
 
   test "unchanged full inputs project once, including when only the clock advances" do
     {source, owner, builds, _reads} = start_owner()

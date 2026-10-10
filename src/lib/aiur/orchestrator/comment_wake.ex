@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Issue
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
-  alias Aiur.Orchestrator.ReviewFindings
+  alias Aiur.Orchestrator.{MergeAttribution, ReviewFindings}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
@@ -1721,7 +1721,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           error
       end
 
-    audit_merge_attribution(identifier, merged_by_login, merger_allowed_fun, emit_alert_fun)
+    audit_merge_attribution(identifier, MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)
     {target, result}
   end

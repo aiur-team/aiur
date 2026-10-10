@@ -4,7 +4,7 @@ defmodule Aiur.BuildQueue.Readiness do
 
   `edge_verdict/2` requires `:now_ms`, `:max_age_ms`, and `:label_prefix`.
   Optional `:not_planned` defaults to `:fail` (or `:satisfy`); `:cyclic`
-  overrides observation evidence. Merged-but-open prerequisites stay pending.
+  overrides observation evidence. `:trigger` defaults to `:issue_closed`.
 
   `cyclic_items/1` returns cycle members, including self-loops. On more than
   1,000 distinct endpoints it returns `{:unknown, :graph_too_large}` instead
@@ -17,12 +17,31 @@ defmodule Aiur.BuildQueue.Readiness do
 
   @spec edge_verdict(Observation.t() | nil, keyword()) :: edge_verdict()
   def edge_verdict(observation, opts) do
-    cond do
-      Keyword.get(opts, :cyclic, false) -> {:unknown, :cyclic}
-      match?(%Observation{unavailable_reason: :closed_reason}, observation) -> {:unknown, :closed_reason}
-      stale?(observation, opts) -> {:unknown, :stale}
-      true -> classify(observation, opts)
+    result = Aiur.StartTrigger.edge_verdict(Keyword.get(opts, :trigger, :issue_closed), evidence(observation, Keyword.fetch!(opts, :label_prefix)), opts)
+
+    case result do
+      {:satisfied, _} -> :satisfied
+      verdict -> verdict
     end
+  end
+
+  @spec evidence(Observation.t() | nil, String.t()) :: Aiur.StartTrigger.Evidence.t() | nil
+  def evidence(nil, _prefix), do: nil
+
+  def evidence(observation, prefix) do
+    states = for label <- observation.labels, String.starts_with?(label, prefix <> ":"), do: String.replace_prefix(label, prefix <> ":", "")
+    # An error must win over any competing lifecycle label.
+    state = if "error" in states, do: "error", else: Enum.find(["done", "merging", "human-review", "rework", "ci-wait"], &(&1 in states))
+
+    %Aiur.StartTrigger.Evidence{
+      issue_open?: observation.open?,
+      state_reason: observation.state_reason,
+      state_label: state,
+      pr: observation.pr,
+      stage_reached: observation.stage_reached,
+      observed_at_ms: observation.observed_at_ms,
+      unavailable_reason: observation.unavailable_reason
+    }
   end
 
   @spec item_verdict([edge_verdict()]) :: item_verdict()
@@ -48,28 +67,6 @@ defmodule Aiur.BuildQueue.Readiness do
       graph = Enum.reduce(edges, Map.new(nodes, &{&1, []}), fn edge, graph -> Map.update!(graph, edge.prerequisite, &[edge.dependent | &1]) end)
       state = %{next: 0, index: %{}, low: %{}, active: MapSet.new(), stack: [], cyclic: MapSet.new()}
       Enum.reduce(nodes, state, &visit([{:enter, &1}], graph, &2)).cyclic
-    end
-  end
-
-  defp stale?(nil, _opts), do: true
-  defp stale?(%Observation{open?: :unknown}, _opts), do: true
-  defp stale?(%Observation{observed_at_ms: observed}, opts), do: Keyword.fetch!(opts, :now_ms) - observed > Keyword.fetch!(opts, :max_age_ms)
-
-  defp classify(%Observation{open?: false, state_reason: "completed"}, _opts), do: :satisfied
-
-  defp classify(%Observation{open?: false, state_reason: "not_planned"}, opts) do
-    if Keyword.get(opts, :not_planned, :fail) == :satisfy, do: :satisfied, else: {:failed, :not_planned}
-  end
-
-  defp classify(%Observation{open?: false, state_reason: "duplicate"}, _opts), do: {:unknown, :duplicate}
-
-  defp classify(%Observation{open?: false}, _opts), do: {:unknown, :closed_reason}
-
-  defp classify(%Observation{labels: labels, pr: pr}, opts) do
-    cond do
-      "#{Keyword.fetch!(opts, :label_prefix)}:error" in labels -> {:failed, :agent_error}
-      pr == :closed_unmerged -> {:failed, :pr_closed_unmerged}
-      true -> :pending
     end
   end
 
