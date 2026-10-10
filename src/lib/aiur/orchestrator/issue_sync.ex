@@ -1583,7 +1583,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       end
     end
 
-    TrackerTasks.run(state, {:dependency_subscription, issue.id, blocker[:id], event_type}, fn -> mutation.(issue, blocker) end, apply_result)
+    TrackerTasks.chain(state, {:dependency_subscription, issue.id, blocker[:id]}, fn -> mutation.(issue, blocker) end, apply_result)
   end
 
   # Public because `PushRouting` enqueues a `:blocker_became_terminal` event
