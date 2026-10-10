@@ -33,7 +33,7 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.Executor.{Claims, Roster}
-  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, ResourceStore, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
@@ -221,10 +221,10 @@ defmodule Aiur.AgentControlCLI do
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
-
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
     print_build_gate_status()
+    if Config.tracker_kind() == "github", do: ResourceStore.Memory.print_status()
     print_prewarm_status()
     print_blocking_asks(opts)
     exit_marker(supervision_exit_code)

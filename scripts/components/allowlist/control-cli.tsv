@@ -52,3 +52,4 @@ R-optional	AiurWeb.OperatorControlCenter.DecisionProvider	baseline 22b2fa407c5d4
 R-optional	AiurWeb.OperatorControlCenter.PayloadLoader	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.ResourceStore.Memory	#3997 status prints the GitHub resource store size; gated on the GitHub tracker like CiReadiness
