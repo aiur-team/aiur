@@ -11,6 +11,10 @@ defmodule Aiur.AgentRunner.NoopWait do
 
   require Logger
 
+  # Near the old 60s no-op backoff ceiling, so an idle ticket still reaches
+  # `max_consecutive_noop_turns` in minutes. Not a config key; opts is a test seam.
+  @park_timeout_ms 120_000
+
   alias Aiur.AgentRunner.{QueueDrain, TurnLoop, TurnProgress}
 
   @spec park(map(), map(), fun(), Aiur.Issue.t(), TurnProgress.t()) ::
@@ -56,16 +60,9 @@ defmodule Aiur.AgentRunner.NoopWait do
   # watchdog. On timeout it resumes with a normal turn; the surviving no-op
   # count then ends a still-idle ticket at `max_consecutive_noop_turns`.
   defp arm_timeout(opts) do
-    case Keyword.get_lazy(opts, :noop_park_timeout_ms, &configured_timeout_ms/0) do
+    case Keyword.get(opts, :noop_park_timeout_ms, @park_timeout_ms) do
       ms when is_integer(ms) and ms > 0 -> Process.send_after(self(), :noop_park_timeout, ms)
       _disabled -> nil
-    end
-  end
-
-  defp configured_timeout_ms do
-    case Aiur.Config.settings() do
-      {:ok, settings} -> settings.agent.noop_park_timeout_ms
-      _unavailable -> nil
     end
   end
 

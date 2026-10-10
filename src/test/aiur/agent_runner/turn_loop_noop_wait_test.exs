@@ -76,12 +76,17 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
     stop(task)
   end
 
-  test "a park with no wake resumes after the park timeout", ctx do
-    task = start_loop(ctx, park_timeout_ms: 100)
+  test "a park with no wake times out and the no-op bound still ends the run", ctx do
+    task = start_loop(ctx, park_timeout_ms: 50)
 
-    # No wake is ever sent: the timer alone starts the fourth turn.
-    assert eventually(fn -> Agent.get(ctx.turns, & &1) >= 4 end)
-    stop(task)
+    # No wake is ever sent: only the timer resumes the worker, and the
+    # surviving no-op count must still end the run at the cap.
+    assert {:ok, result} = Task.yield(task, 5000) || Task.shutdown(task, :brutal_kill)
+    refute match?({:error, _}, result)
+    turns = Agent.get(ctx.turns, & &1)
+    assert turns >= 4
+    Process.sleep(200)
+    assert Agent.get(ctx.turns, & &1) == turns
   end
 
   # #3971 on the park path: fixes pushed by an earlier run must hand back to
