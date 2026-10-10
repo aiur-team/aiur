@@ -1,9 +1,9 @@
 defmodule Aiur.Codex.AccountGenerationTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Codex.AccountGeneration
+  alias Aiur.Codex.{AccountGeneration, RateLimitAdapter}
   alias Aiur.ProviderAccountGeneration
-  alias Aiur.ProviderMeters.Store
+  alias Aiur.ProviderMeters.{Input, Store}
 
   import Aiur.Codex.AccountGenerationTestSupport
 
