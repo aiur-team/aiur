@@ -133,7 +133,7 @@
     {
       "id": "build-orders", "name": "Build Order graph, catalog, progress, pages", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/build_order/**", "src/lib/aiur/build_progress.ex", "src/lib/aiur/build_order_funnel_health.ex", "src/lib/aiur/build_orders_cli.ex", "src/lib/aiur/epic_cli.ex", "src/lib/aiur_web/build_order*.ex", "src/lib/aiur_web/build_order/**", "src/lib/aiur_web/live/build_order*.ex"],
-      "facades": ["Aiur.BuildOrder.History", "Aiur.BuildOrder.History.Timing", "Aiur.BuildOrder.GraphProjection", "Aiur.BuildOrder.GraphProjection.Snapshot", "Aiur.BuildOrder.Catalog", "Aiur.BuildOrder.ProgressRenderer", "Aiur.BuildOrder.ProviderHealth", "Aiur.BuildOrder.RootSummary", "Aiur.BuildOrder.Readiness", "Aiur.BuildOrder.Metadata", "Aiur.BuildOrder.GitHubGraph", "Aiur.BuildOrder.Component", "AiurWeb.BuildOrder.DataSource", "AiurWeb.BuildOrder.Runtime", "Aiur.BuildOrdersCLI", "Aiur.EpicCLI"], "facade_pending": null,
+      "facades": ["Aiur.BuildOrder.History", "Aiur.BuildOrder.History.Timing", "Aiur.BuildOrder.DependencyChain", "Aiur.BuildOrder.GraphProjection", "Aiur.BuildOrder.GraphProjection.Snapshot", "Aiur.BuildOrder.Catalog", "Aiur.BuildOrder.ProgressRenderer", "Aiur.BuildOrder.ProviderHealth", "Aiur.BuildOrder.RootSummary", "Aiur.BuildOrder.Readiness", "Aiur.BuildOrder.Metadata", "Aiur.BuildOrder.GitHubGraph", "Aiur.BuildOrder.Component", "AiurWeb.BuildOrder.DataSource", "AiurWeb.BuildOrder.Runtime", "Aiur.BuildOrdersCLI", "Aiur.EpicCLI"], "facade_pending": null,
       "requires": ["identity", "tracker", "github", "config", "web-kit", "projections", "kernel", "commands", "orchestration", "event-bus", "agent-runner", "workspace", "github-listeners", "accounting"], "optional": ["build-queue", "ticket-context", "executor-attention", "web-shell", "dashboard-ui", "conversations", "telemetry"],
       "owns": {"config": ["build_order"], "env": [], "state": ["build_features_state_dir", "build_history_state_dir", "epic_overrides_state_dir"], "capabilities": ["build_orders", "build_orders.progress"]},
       "prior": ["BO"]
@@ -282,7 +282,7 @@
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
       "paths": ["src/lib/aiur_web/routes/dashboard_pages.ex", "src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
-      "requires": ["web-kit", "web-shell", "projections", "kernel", "orchestration", "signal"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server", "github", "ticket-context", "telemetry"],
+      "requires": ["web-kit", "web-shell", "projections", "kernel", "orchestration", "signal"], "optional": ["commands", "build-orders", "build-queue", "conversations", "voice-stt", "accounting", "streamdeck-server", "github", "ticket-context", "telemetry"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
       "prior": ["WEB"]
     },
