@@ -52,6 +52,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   priority: [codex]
   # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
   # account_selection: balance

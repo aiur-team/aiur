@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.State do
   @moduledoc """
-  Runtime state for the orchestrator polling loop.
+  Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
   """
 
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.State do
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
           tracker_tasks: %{reference() => map()},
+          restack_completed: map(),
           last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
@@ -63,6 +64,8 @@ defmodule Aiur.Orchestrator.State do
           startup_claim_reconciliation_complete?: boolean(),
           orphaned_claim_since: map(),
           startup_claim_reconciliation_failures: map(),
+          contradictory_state_label_tickets: %{optional(String.t()) => %{identifier: String.t(), labels: [String.t()], since_ms: integer()}},
+          contradictory_state_label_alert_active: boolean(),
           queue_store: term(),
           last_polled_issues: map(),
           tracker_observations: %{optional(String.t()) => DateTime.t()},
@@ -111,8 +114,7 @@ defmodule Aiur.Orchestrator.State do
           # Monotonic ms when the DecisionStore first read as `:unavailable`
           # while dispatchable work was queued (nil when no such hold is in
           # progress). The `system.dispatch.decision_store_unavailable` alert is
-          # only raised once the outage has persisted past the capacity-
-          # starvation dwell, so a momentary blip raises nothing (#2453).
+          # Raised after the capacity-starvation dwell, not a momentary blip (#2453).
           decision_store_unavailable_since_ms: integer() | nil,
           decision_store_unavailable_alert_active: boolean(),
           decision_store_unavailable_alert_resolution_emitted: boolean(),
@@ -131,10 +133,8 @@ defmodule Aiur.Orchestrator.State do
           comment_rework_retries: %{
             {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
           },
-          # Transient pause/error backoff keyed by issue_id (AutoResume, #1453).
           auto_resume: %{String.t() => map()},
-          # Claims released after retry exhaustion, retained until a later
-          # dispatch successfully re-establishes ownership.
+          # Claims released after retry exhaustion until dispatch re-establishes ownership.
           released_claims: %{String.t() => map()},
           fallback_backoff: %{String.t() => {pos_integer(), integer()}},
           model_fallback_waiting: MapSet.t(),
@@ -208,8 +208,7 @@ defmodule Aiur.Orchestrator.State do
           prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
-  # The Orchestrator is the single owner of the correlated control lifecycle;
-  # keeping that aggregate here avoids a second process/state authority.
+  # Keeping the correlated control lifecycle here preserves one process/state authority.
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
@@ -282,6 +281,7 @@ defmodule Aiur.Orchestrator.State do
     running: %{},
     running_issue_cache: %{},
     tracker_tasks: %{},
+    restack_completed: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
@@ -740,10 +740,10 @@ defmodule Aiur.Orchestrator.State do
   # A provider usage limit belongs here for the same reason: the account, not
   # this agent, is what the fleet waits on, there is no turn in flight, and
   # holding the slot turns one account limit into a fleet-wide dispatch stall.
-  # Nineteen such pauses once left four runners and twelve ready tickets waiting
-  # on capacity. `CodingAgent.select_for_dispatch/2` is what keeps a freed slot
-  # from being handed straight back to the exhausted backend.
   @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]
+
+  @spec non_reserving_pause_reason?(term()) :: boolean()
+  def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons
 
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do

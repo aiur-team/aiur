@@ -141,15 +141,15 @@ test('design WebSocket guard', async ({ browser }) => {
 test('live-stream ticket refused', async ({ browser }) => {
   const { readFile } = await import('node:fs/promises')
   const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
-  const ticket = fixture.data.now.find(t => t.agent.state === 'active').id
+  const ticket = 'AIUR-' + fixture.sections.now.find(t => t.agent.state === 'active').num
   await expect(openDesign(await pageFor(browser), cell, { ticket })).rejects.toThrow(`ticket ${ticket} runs the design's mock live stream`)
 })
 for (const variant of ['duplicate query', 'empty override']) {
   test(`live-stream query refused: ${variant}`, async ({ browser }) => {
     const { readFile } = await import('node:fs/promises')
     const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
-    const active = fixture.data.now.find(t => t.agent.state === 'active').id
-    const inactive = fixture.data.hist[0].id
+    const active = 'AIUR-' + fixture.sections.now.find(t => t.agent.state === 'active').num
+    const inactive = 'AIUR-' + fixture.sections.hist[0].num
     const opts = variant === 'duplicate query' ? { query: `?ticket=${inactive}&ticket=${active}` } : { ticket: '', query: `?ticket=${active}` }
     await expect(openDesign(await pageFor(browser), cell, opts)).rejects.toThrow(`ticket ${active} runs the design's mock live stream`)
   })
