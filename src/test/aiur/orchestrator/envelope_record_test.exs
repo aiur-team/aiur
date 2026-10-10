@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.EnvelopeRecordTest do
   use Aiur.TestSupport
+  import ExUnit.CaptureIO
   alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, EnvelopeResume, EnvelopeStore, Slots, State}
-  alias Aiur.Workflow
+  alias Aiur.{AgentControlCLI, Workflow}
 
   setup do
     path = Path.join(System.tmp_dir!(), "record-#{System.unique_integer([:positive])}.json")
@@ -24,6 +25,9 @@ defmodule Aiur.Orchestrator.EnvelopeRecordTest do
     assert state.effective_concurrent_agents == 1
     assert state.load_envelope_state.bootstrap_complete? == false
     assert state.load_envelope_state.resume_level == 7
+    snapshot = %{statuses: [], global_pause: %{globally_paused: false, paused_at: nil, source: nil}, capacity: Slots.max_concurrent_agent_status(state), polling: %{}}
+    output = capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}}) end)
+    assert output =~ "resuming toward 7 (safe level from 0m ago)"
   end
 
   test "failed persistence keeps a pending record for the next fresh retry", %{path: path} do

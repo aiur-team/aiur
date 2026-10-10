@@ -2192,7 +2192,8 @@ defmodule Aiur.AgentControlCLI do
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and
               is_integer(configured) do
     binding = capacity_binding(capacity, polling)
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})")
+    resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}")
   end
 
   defp print_capacity_status(_capacity, _polling), do: :ok
