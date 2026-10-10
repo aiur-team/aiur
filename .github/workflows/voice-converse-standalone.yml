@@ -1,0 +1,38 @@
+name: voice-converse-standalone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/elixir/voice_converse/**'
+      - 'scripts/check-voice-converse-isolation.sh'
+      - '.github/workflows/voice-converse-standalone.yml'
+  pull_request:
+    paths:
+      - 'packages/elixir/voice_converse/**'
+      - 'scripts/check-voice-converse-isolation.sh'
+      - '.github/workflows/voice-converse-standalone.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  voice-converse-standalone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          version: "2026.8.8"
+          install: true
+          cache: true
+      - name: No aiur reference
+        run: scripts/check-voice-converse-isolation.sh
+      - name: Compile and test the package alone
+        working-directory: packages/elixir/voice_converse
+        run: |
+          mise exec -- mix deps.get
+          mise exec -- mix compile --warnings-as-errors
+          mise exec -- mix format --check-formatted
+          mise exec -- mix test
