@@ -203,6 +203,12 @@ defmodule Aiur.AppServer.Adapter do
           ]
         )
 
+      # A write to a provider that already closed its stdin ends the port with
+      # reason `:epipe`. Through the link that kills this runner before it can
+      # restore a claimed queue item, so observe the port by monitor instead.
+      Process.unlink(port)
+      Port.monitor(port)
+
       # Invoke this while the spawn primitive still owns control. Callers use
       # it to record the local process-group lease before any handshake or
       # session setup can expose a live descendant to an abrupt runner death.
