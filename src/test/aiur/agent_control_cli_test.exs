@@ -1565,12 +1565,13 @@ defmodule Aiur.AgentControlCLITest do
           exec 9<>"$2"
           flock 9
           printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
+          while [[ -d $(dirname "$1") && ! -e $3 ]] && kill -0 "$4" 2>/dev/null; do sleep 0.5; done
           """,
           "build-gate-holder",
           slot_lock,
           queue_path,
-          release_path
+          release_path,
+          System.pid()
         ]
       ])
 
@@ -1578,7 +1579,14 @@ defmodule Aiur.AgentControlCLITest do
 
     on_exit(fn ->
       File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
+
+      if Port.info(holder) do
+        receive do
+          {^holder, {:exit_status, _status}} -> :ok
+        after
+          1_000 -> Port.close(holder)
+        end
+      end
 
       if is_nil(previous) do
         Application.delete_env(:aiur, :build_gate_dir_override)
@@ -1649,12 +1657,13 @@ defmodule Aiur.AgentControlCLITest do
           exec 9<>"$2"
           flock 9
           printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
+          while [[ -d $(dirname "$1") && ! -e $3 ]] && kill -0 "$4" 2>/dev/null; do sleep 0.5; done
           """,
           "build-gate-holder",
           slot_lock,
           queue_path,
-          release_path
+          release_path,
+          System.pid()
         ]
       ])
 
@@ -1662,7 +1671,14 @@ defmodule Aiur.AgentControlCLITest do
 
     on_exit(fn ->
       File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
+
+      if Port.info(holder) do
+        receive do
+          {^holder, {:exit_status, _status}} -> :ok
+        after
+          1_000 -> Port.close(holder)
+        end
+      end
 
       if is_nil(previous) do
         Application.delete_env(:aiur, :build_gate_dir_override)

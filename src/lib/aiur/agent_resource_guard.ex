@@ -31,14 +31,32 @@ defmodule Aiur.AgentResourceGuard do
   def enforce_once(opts \\ []) do
     cap = Keyword.get_lazy(opts, :cap, &Aiur.Config.synthetic_load_process_cap/0)
 
-    if cap <= 0 do
-      []
-    else
-      entries_fun = Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0)
+    entries_fun = Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0)
+    roots = entries_fun.() |> agent_root_pids()
+    cap_results = if cap <= 0, do: [], else: Enum.flat_map(roots, &trim_root(&1, cap, opts))
+    cap_results ++ reap_orphaned_build_gate_holders(roots, opts)
+  end
 
-      entries_fun.()
-      |> agent_root_pids()
-      |> Enum.flat_map(&trim_root(&1, cap, opts))
+  @doc false
+  @spec orphaned_build_gate_holders(Path.t(), Path.t()) :: [pos_integer()]
+  def orphaned_build_gate_holders(proc_dir \\ "/proc", lock_root \\ nil) do
+    lock_root = lock_root || Aiur.BuildGate.lock_dir()
+
+    with {:ok, entries} <- File.ls(proc_dir) do
+      for entry <- entries,
+          {pid, ""} <- [Integer.parse(entry)],
+          info = proc_info_at(proc_dir, pid),
+          is_map(info),
+          info.comm == "bash",
+          build_gate_holder?(info.cmdline),
+          lock_path = holder_lock_path(info.cmdline),
+          is_binary(lock_path),
+          String.starts_with?(Path.expand(lock_path), Path.expand(lock_root) <> "/"),
+          not File.exists?(lock_path) do
+        pid
+      end
+    else
+      _ -> []
     end
   end
 
@@ -122,6 +140,42 @@ defmodule Aiur.AgentResourceGuard do
         Logger.warning("agent_resource_guard trimmed_synthetic_load root_pid=#{root_pid} cap=#{cap} killed=#{inspect(pids)}")
 
         [%{root_pid: root_pid, cap: cap, killed: pids}]
+    end
+  end
+
+  defp reap_orphaned_build_gate_holders(roots, opts) do
+    find_fun = Keyword.get(opts, :orphan_holders_fun, &orphaned_build_gate_holders/0)
+    kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.graceful_kill/1)
+
+    find_fun.()
+    |> Enum.reject(&(&1 in roots))
+    |> Enum.map(fn pid ->
+      _ = kill_fun.(pid)
+      Logger.warning("agent_resource_guard reaped_orphaned_build_gate_holder pid=#{pid}")
+      %{root_pid: nil, cap: 0, killed: [pid]}
+    end)
+  end
+
+  defp build_gate_holder?(cmdline), do: String.contains?(cmdline, "build-gate-holder")
+
+  defp holder_lock_path(cmdline) do
+    case String.split(cmdline, <<0>>, trim: true) do
+      ["/usr/bin/bash", "-c", script | args] ->
+        if String.contains?(script, "flock 8") and String.contains?(script, "sleep 0.05"), do: Enum.at(args, 0)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp proc_info_at(proc_dir, pid) do
+    entry = Path.join(proc_dir, Integer.to_string(pid))
+
+    with {:ok, comm} <- File.read(Path.join(entry, "comm")),
+         {:ok, cmdline} <- File.read(Path.join(entry, "cmdline")) do
+      %{pid: pid, comm: String.trim(comm), cmdline: String.replace(cmdline, <<0>>, " ") |> String.trim()}
+    else
+      _ -> nil
     end
   end
 

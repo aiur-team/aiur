@@ -65,8 +65,52 @@ defmodule Aiur.AgentResourceGuardTest do
     assert [] =
              AgentResourceGuard.enforce_once(
                cap: 0,
-               entries_fun: fn -> flunk("entries should not be read when disabled") end
+               entries_fun: fn -> [] end,
+               orphan_holders_fun: fn -> [] end
              )
+  end
+
+  test "reaps only build-gate-holder processes below a missing lock directory" do
+    proc_dir = Aiur.TestSupport.tmp_root!("build-gate-orphan-proc")
+    lock_root = Path.join(proc_dir, "locks")
+    missing_lock_dir = Path.join(lock_root, "removed.locks")
+    File.mkdir_p!(lock_root)
+    File.touch!(Path.join(lock_root, "live.locks"))
+    File.mkdir_p!(Path.join(proc_dir, "123"))
+    File.mkdir_p!(Path.join(proc_dir, "124"))
+    File.write!(Path.join([proc_dir, "123", "comm"]), "bash\n")
+
+    File.write!(
+      Path.join([proc_dir, "123", "cmdline"]),
+      "/usr/bin/bash\0-c\0exec 8<>\"$1\"; flock 8; while [[ ! -e $3 ]]; do sleep 0.05; done\0build-gate-holder\0#{missing_lock_dir}/slot-1.lock\0"
+    )
+
+    File.write!(Path.join([proc_dir, "124", "comm"]), "bash\n")
+    File.write!(Path.join([proc_dir, "124", "cmdline"]), "bash\0-c\0sleep forever\0")
+    File.mkdir_p!(Path.join(proc_dir, "125"))
+    File.write!(Path.join([proc_dir, "125", "comm"]), "bash\n")
+
+    File.write!(
+      Path.join([proc_dir, "125", "cmdline"]),
+      "/usr/bin/bash\0-c\0exec 8<>\"$1\"; flock 8; while [[ ! -e $3 ]]; do sleep 0.05; done\0build-gate-holder\0#{lock_root}/live.locks/slot-1.lock\0"
+    )
+
+    assert AgentResourceGuard.orphaned_build_gate_holders(proc_dir, lock_root) == [123]
+    File.rm_rf!(proc_dir)
+  end
+
+  test "enforce_once reaps discovered orphan holders even when the load cap is disabled" do
+    test_pid = self()
+
+    assert [%{root_pid: nil, killed: [777]}] =
+             AgentResourceGuard.enforce_once(
+               cap: 0,
+               entries_fun: fn -> [] end,
+               orphan_holders_fun: fn -> [777] end,
+               kill_fun: fn pid -> send(test_pid, {:killed, pid}) end
+             )
+
+    assert_received {:killed, 777}
   end
 
   test "collect_descendants walks recursively" do
