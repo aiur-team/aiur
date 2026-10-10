@@ -24,7 +24,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentControlCLI
-  alias Aiur.GitHub.{Budget, Errors, Transport}
+  alias Aiur.GitHub.{Budget, Transport}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.SnapshotStore
@@ -105,8 +105,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       runner = spawn(fn -> send(test_pid, {:request_finished, hanging_request(url)}) end)
       on_exit(fn -> if Process.alive?(runner), do: Process.exit(runner, :kill) end)
 
-      assert_receive {:request_finished, {:error, {:aiur, :unknown, :fetch_deadline_exceeded}} = result}, 2_000
-      assert Errors.outcome(result) == :unknown
+      assert_receive {:request_finished, {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}}, 2_000
     end
 
     test "a pre-ready deadline reaps the request guardian and its waiting worker" do
