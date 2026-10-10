@@ -345,7 +345,7 @@ class TrustedRepositoryRefTests(unittest.TestCase):
             self.assertIsNone(_github_json("repos/example/repo"))
 
         with patch(
-            "publication_rendering.subprocess.run",
+            "publication_rendering_sections.subprocess.run",
             side_effect=subprocess.TimeoutExpired(
                 ["git", "status"], AUTHORITY_GIT_TIMEOUT_SECONDS,
             ),
