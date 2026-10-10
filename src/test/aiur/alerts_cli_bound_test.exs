@@ -12,34 +12,40 @@ defmodule Aiur.AlertsCLIBoundTest do
     %{ledger: Path.join(root, "alerts.ndjson")}
   end
 
-  test "RPC bounds output after resolving and filtering retained history", %{ledger: ledger} do
-    records = Enum.map(1..200, &alert(&1, false))
-    records = records ++ [alert(201, true), Map.put(alert(201, false), "topic", "system.test.201.resolved")]
-    File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
+  test "default view keeps every open attention item and caps only other rows", %{ledger: ledger} do
+    open = Enum.map(1..150, &alert(&1, true))
+    history = Enum.map(1001..1200, &alert(&1, false))
+    resolved = [alert(2001, true), Map.put(alert(2001, false), "topic", "system.test.2001.resolved")]
+    write_ledger(ledger, open ++ history ++ resolved)
 
-    output = capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger) end)
-    [notice | alerts] = decode_output(output)
+    [notice | alerts] = run_alerts(ledger_path: ledger)
     assert notice["event"] == "alert_feed_truncated"
     assert notice["limit"] == 100
-    assert notice["matching_count"] == 201
-    assert notice["message"] =~ "older matches omitted"
-    assert length(alerts) == 100
-    assert hd(alerts)["topic"] == "system.test.102"
-    assert List.last(alerts)["topic"] == "system.test.201.resolved"
-    refute capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger, needs_attention: true) end) =~ "system.test.201"
+    assert notice["omitted_count"] == 101
+    attention = Enum.filter(alerts, & &1["needs_attention"])
+    assert Enum.map(attention, & &1["topic"]) == Enum.map(1..150, &"system.test.#{&1}")
+    others = Enum.reject(alerts, & &1["needs_attention"])
+    assert length(others) == 100
+    assert hd(others)["topic"] == "system.test.1102"
+    assert List.last(alerts)["topic"] == "system.test.2001.resolved"
   end
 
-  test "attention RPC caps matching results and excludes resolved conditions", %{ledger: ledger} do
+  test "--needs-attention never truncates and excludes resolved conditions", %{ledger: ledger} do
     records = Enum.map(1..151, &alert(&1, true))
-    records = records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")]
-    File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
+    write_ledger(ledger, records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")])
 
-    output = capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger, needs_attention: true) end)
-    [notice | alerts] = decode_output(output)
-    assert notice["matching_count"] == 150
-    assert length(alerts) == 100
-    assert hd(alerts)["topic"] == "system.test.51"
-    assert List.last(alerts)["topic"] == "system.test.150"
+    alerts = run_alerts(ledger_path: ledger, needs_attention: true)
+    assert length(alerts) == 150
+    refute Enum.any?(alerts, &(&1["event"] == "alert_feed_truncated"))
+  end
+
+  test "limit and :all expose rows the default cut", %{ledger: ledger} do
+    write_ledger(ledger, Enum.map(1..250, &alert(&1, false)))
+
+    [notice | alerts] = run_alerts(ledger_path: ledger, limit: 5)
+    assert notice["omitted_count"] == 245
+    assert Enum.map(alerts, & &1["topic"]) == Enum.map(246..250, &"system.test.#{&1}")
+    assert length(run_alerts(ledger_path: ledger, limit: :all)) == 250
   end
 
   test "feed reconstruction grows linearly within the bounded ledger", %{ledger: ledger} do
@@ -65,6 +71,10 @@ defmodule Aiur.AlertsCLIBoundTest do
     [small, large] = costs
     assert large < small * 2
   end
+
+  defp write_ledger(ledger, records), do: File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
+
+  defp run_alerts(opts), do: capture_io(fn -> AgentControlCLI.alerts(opts) end) |> decode_output()
 
   defp decode_output(output) do
     output |> String.split("\n", trim: true) |> Enum.filter(&String.starts_with?(&1, "{")) |> Enum.map(&Jason.decode!/1)

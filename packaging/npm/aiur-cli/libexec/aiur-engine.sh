@@ -463,7 +463,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
-       aiur alerts [--needs-attention]  show structured alert feed
+       aiur alerts [--needs-attention] [--limit <n> | --all]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
        aiur executor-listen [--topic <pattern>]  deprecated alias for listen
@@ -3172,22 +3172,31 @@ cmd_github_usage() {
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
-  local needs_attention=0 arg
-  for arg in "$@"; do
+  local opts="" arg
+  while [ $# -gt 0 ]; do
+    arg="$1"
+    shift
     case "$arg" in
-      --needs-attention) needs_attention=1 ;;
+      --needs-attention) opts="${opts}needs_attention: true, " ;;
+      --all) opts="${opts}limit: :all, " ;;
+      --limit)
+        case "${1:-}" in
+          '' | *[!0-9]* | 0)
+            echo "aiur: alerts --limit needs a positive integer" >&2
+            exit 64
+            ;;
+        esac
+        opts="${opts}limit: $1, "
+        shift
+        ;;
       *)
-        echo "aiur: alerts only accepts --needs-attention" >&2
+        echo "aiur: alerts accepts --needs-attention, --limit <n>, --all" >&2
         exit 64
         ;;
     esac
   done
 
-  if [ "$needs_attention" -eq 1 ]; then
-    run_control_rpc "Aiur.AgentControlCLI.alerts(needs_attention: true)"
-  else
-    run_control_rpc "Aiur.AgentControlCLI.alerts()"
-  fi
+  run_control_rpc "Aiur.AgentControlCLI.alerts([${opts%, }])"
 }
 
 # `aiur watch` — the server-side status board. Compiles one row per active
