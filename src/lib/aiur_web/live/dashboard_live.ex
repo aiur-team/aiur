@@ -4,24 +4,20 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias AiurWeb.DashboardLive.{Controls, Summaries, UnitsPanel}
+
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.AgentChat
 
-  alias Aiur.AgentPubSub
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.Conversation.History, as: ConversationHistory
-  alias Aiur.CurrentRunOutcomeSnapshot
-  alias Aiur.CurrentRunSummary
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
-  alias Aiur.OpenTicketSource
-  alias Aiur.Orchestrator.GlobalPause
-  alias Aiur.Orchestrator.Slots
   alias Aiur.ProviderMeterRefresh
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
@@ -36,7 +32,6 @@ defmodule AiurWeb.DashboardLive do
     AddAgentModal,
     AddAgentSubmission,
     AgentLogModal,
-    AgentRoutingPreview,
     CapacityPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
@@ -51,13 +46,12 @@ defmodule AiurWeb.DashboardLive do
     ProviderMeterSource,
     ProviderMetersPresenter,
     RouteRegistry,
-    RunSummaryPresenter,
     RunSummaryStrip,
+    RunSummaryPresenter,
     TicketContext,
     TicketDetailModal,
     TicketsPanel,
     TicketsPresenter,
-    UnitsControlPolicy,
     UnitsFilters,
     UnitsPresenter,
     UnitsTable,
@@ -73,7 +67,6 @@ defmodule AiurWeb.DashboardLive do
   # ElevenLabs credit is a whole-account figure that moves far more slowly than a
   # per-request GitHub budget, so it refreshes on its own, longer tick.
   @elevenlabs_quota_tick_ms 60_000
-  @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
   @usage_summary_max_age_ms 30_000
   @usage_drill_limit 25
@@ -81,22 +74,12 @@ defmodule AiurWeb.DashboardLive do
 
   @max_ticket_query_length 128
   @provider_meters_flush_ms 250
-  @current_run_outcomes_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   # What "the operator is finished with it" means, mirrored from the retained
   # store's `historic` lifecycle. Deferred Commands remain open because the
   # Executor still owes an answer.
   @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :moot, :expired]
   @decision_events DecisionEvents.events()
-  @table_sort_columns %{
-    "units" => ~w(id unit ticket latest),
-    "fleet" => ~w(ticket state waiting latest elapsed commands),
-    "tickets" => ~w(id title labels),
-    "command-history" => ~w(command decision result),
-    "ticket-logs" => ~w(activity detail when),
-    "provider-routes" => ~w(route provider api)
-  }
-
   @impl true
   def mount(_params, _session, socket) do
     socket = NavState.assign_nav(socket)
@@ -131,13 +114,13 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:unit_controls, %{})
       |> assign(:unit_control_subscriptions, MapSet.new())
       |> assign(:tickets_visible, TicketsPresenter.initial_reveal())
-      |> assign_units_view()
-      |> sync_unit_control_subscriptions(connected)
+      |> UnitsPanel.assign_units_view()
+      |> Controls.sync_unit_control_subscriptions(connected)
       |> assign(:capacity_input, "")
       |> assign(:capacity_feedback, nil)
-      |> assign_initial_run_summary(connected)
+      |> Summaries.assign_initial_run_summary(connected)
       |> assign_initial_provider_meters(connected)
-      |> assign_initial_current_run_outcomes(connected)
+      |> Summaries.assign_initial_current_run_outcomes(connected)
       |> assign_initial_usage_summary(connected)
       |> assign(:ticket_detail, nil)
       |> assign(:tickets_query, "")
@@ -185,15 +168,15 @@ defmodule AiurWeb.DashboardLive do
     {:noreply,
      socket
      |> assign(:decision_filter, filter)
-     |> assign(:table_sort, normalize_table_sort(params["sort"]))
+     |> assign(:table_sort, UnitsPanel.normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign(:conversation_from_route?, conversation_route?)
-     |> assign_units_selection(params)
+     |> UnitsPanel.assign_units_selection(params)
      |> assign_decision_page(filter, params)
      |> load_history(:first_page)
      |> assign_selected_decision(params["decision_id"])
      |> maybe_open_conversation_route(if(conversation_route?, do: params, else: %{}))
-     |> maybe_canonicalize_units_url(params)}
+     |> UnitsPanel.maybe_canonicalize_units_url(params)}
   end
 
   defp maybe_open_conversation_route(socket, %{"owner" => owner, "repository" => repository, "identifier" => identifier}) do
@@ -263,11 +246,11 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_info({:current_run_summary_changed, snapshot}, socket) do
-    {:noreply, stash_run_summary(socket, snapshot)}
+    {:noreply, Summaries.stash_run_summary(socket, snapshot)}
   end
 
   def handle_info(:flush_run_summary, socket) do
-    {:noreply, flush_run_summary(socket)}
+    {:noreply, Summaries.flush_run_summary(socket)}
   end
 
   def handle_info({FinancialData, :updated, _identity} = message, socket) do
@@ -288,11 +271,11 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_info({:current_run_outcome_snapshot_changed, snapshot}, socket) do
-    {:noreply, stash_current_run_outcomes(socket, snapshot)}
+    {:noreply, Summaries.stash_current_run_outcomes(socket, snapshot)}
   end
 
   def handle_info(:flush_current_run_outcomes, socket) do
-    {:noreply, flush_current_run_outcomes(socket)}
+    {:noreply, Summaries.flush_current_run_outcomes(socket)}
   end
 
   def handle_info({:current_run_membership_health_changed, payload}, socket) do
@@ -342,7 +325,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_info({:control_lifecycle, payload}, socket) when is_map(payload) do
-    {:noreply, apply_control_lifecycle(socket, payload)}
+    {:noreply, Controls.apply_control_lifecycle(socket, payload)}
   end
 
   # A unit's agent topic also carries transcript, alert, turn, and aiur-turn
@@ -381,7 +364,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
 
   def handle_event("table-sort-changed", %{"sort" => sort}, socket),
-    do: {:noreply, assign(socket, :table_sort, normalize_table_sort(sort))}
+    do: {:noreply, assign(socket, :table_sort, UnitsPanel.normalize_table_sort(sort))}
 
   def handle_event("table-sort-changed", _params, socket), do: {:noreply, socket}
 
@@ -399,28 +382,28 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("select-units-scope", %{"scope" => scope}, socket) do
     selection = UnitsPresenter.select_scope(socket.assigns.units_selection, scope)
-    {:noreply, push_patch(socket, to: units_path(socket, selection))}
+    {:noreply, push_patch(socket, to: UnitsPanel.units_path(socket, selection))}
   end
 
   def handle_event("select-units-scope", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle-units-condition", %{"condition" => condition}, socket) do
     selection = UnitsPresenter.toggle_condition(socket.assigns.units_selection, condition)
-    {:noreply, push_patch(socket, to: units_path(socket, selection))}
+    {:noreply, push_patch(socket, to: UnitsPanel.units_path(socket, selection))}
   end
 
   def handle_event("toggle-units-condition", _params, socket), do: {:noreply, socket}
 
   def handle_event("select-all-units-filters", _params, socket) do
-    {:noreply, push_patch(socket, to: units_path(socket, UnitsPresenter.select_all_filters()))}
+    {:noreply, push_patch(socket, to: UnitsPanel.units_path(socket, UnitsPresenter.select_all_filters()))}
   end
 
   def handle_event("select-no-units-filters", _params, socket) do
-    {:noreply, push_patch(socket, to: units_path(socket, UnitsPresenter.select_no_filters()))}
+    {:noreply, push_patch(socket, to: UnitsPanel.units_path(socket, UnitsPresenter.select_no_filters()))}
   end
 
   def handle_event("reset-units-filters", _params, socket) do
-    {:noreply, push_patch(socket, to: units_path(socket, UnitsURL.zero_result_reset()))}
+    {:noreply, push_patch(socket, to: UnitsPanel.units_path(socket, UnitsURL.zero_result_reset()))}
   end
 
   def handle_event("inspect-unit", %{"unit" => token}, socket) when is_binary(token) do
@@ -437,7 +420,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("request-unit-control", %{"unit" => token, "action" => action}, socket)
       when is_binary(token) and action in ["pause", "resume"] do
     handle_writable_event(socket, fn ->
-      {:noreply, request_unit_control(socket, token, String.to_existing_atom(action))}
+      {:noreply, Controls.request_unit_control(socket, token, String.to_existing_atom(action))}
     end)
   end
 
@@ -471,19 +454,19 @@ defmodule AiurWeb.DashboardLive do
     # Clamped server-side as well as in the input: a filter over the whole
     # backlog is real work, and a pasted plan or stack trace would otherwise buy
     # seconds of it inside the socket process that serves the rest of the page.
-    {:noreply, socket |> assign(:tickets_query, String.slice(query, 0, @max_ticket_query_length)) |> assign_tickets_panel_view()}
+    {:noreply, socket |> assign(:tickets_query, String.slice(query, 0, @max_ticket_query_length)) |> UnitsPanel.assign_tickets_panel_view()}
   end
 
   def handle_event("search-tickets", _params, socket), do: {:noreply, socket}
 
   def handle_event("clear-ticket-search", _params, socket) do
-    {:noreply, socket |> assign(:tickets_query, "") |> assign_tickets_panel_view()}
+    {:noreply, socket |> assign(:tickets_query, "") |> UnitsPanel.assign_tickets_panel_view()}
   end
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
     if socket.assigns.writable and dashboard_writable?() do
       case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
-        {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+        {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, UnitsPanel.add_agent_modal(row))}
         {:error, :not_found} -> {:noreply, socket}
       end
     else
@@ -504,7 +487,7 @@ defmodule AiurWeb.DashboardLive do
         params,
         %{assigns: %{add_agent_modal: %{} = modal}} = socket
       ) do
-    {:noreply, assign(socket, :add_agent_modal, change_add_agent(modal, params))}
+    {:noreply, assign(socket, :add_agent_modal, UnitsPanel.change_add_agent(modal, params))}
   end
 
   def handle_event("change-add-agent", _params, socket), do: {:noreply, socket}
@@ -518,8 +501,8 @@ defmodule AiurWeb.DashboardLive do
         %{assigns: %{add_agent_modal: %{} = modal}} = socket
       ) do
     handle_writable_event(socket, fn ->
-      modal = if Map.has_key?(params, "backend"), do: change_add_agent(modal, params), else: modal
-      orchestrator = capacity_orchestrator()
+      modal = if Map.has_key?(params, "backend"), do: UnitsPanel.change_add_agent(modal, params), else: modal
+      orchestrator = Controls.capacity_orchestrator()
 
       {:noreply,
        socket
@@ -568,7 +551,7 @@ defmodule AiurWeb.DashboardLive do
     socket = close_conversation(socket)
 
     if socket.assigns.conversation_from_route? do
-      {:noreply, push_patch(socket, to: units_path(socket, socket.assigns.units_selection), replace: true)}
+      {:noreply, push_patch(socket, to: UnitsPanel.units_path(socket, socket.assigns.units_selection), replace: true)}
     else
       {:noreply, socket}
     end
@@ -668,15 +651,15 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("capacity-input-change", _params, socket), do: {:noreply, socket}
 
   def handle_event("capacity-decrement", _params, socket) do
-    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, -1)} end)
+    handle_writable_event(socket, fn -> {:noreply, Controls.adjust_capacity(socket, -1)} end)
   end
 
   def handle_event("capacity-increment", _params, socket) do
-    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, 1)} end)
+    handle_writable_event(socket, fn -> {:noreply, Controls.adjust_capacity(socket, 1)} end)
   end
 
   def handle_event("capacity-set", %{"max" => value}, socket) when is_binary(value) do
-    handle_writable_event(socket, fn -> {:noreply, set_capacity(socket, value)} end)
+    handle_writable_event(socket, fn -> {:noreply, Controls.set_capacity(socket, value)} end)
   end
 
   def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
@@ -695,15 +678,15 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("toggle-global-pause", _params, socket) do
-    handle_writable_event(socket, fn -> {:noreply, toggle_global_pause(socket)} end)
+    handle_writable_event(socket, fn -> {:noreply, Controls.toggle_global_pause(socket)} end)
   end
 
   @impl true
   def handle_async(:add_agent_submission, {:ok, result}, socket),
-    do: finish_add_agent(socket, result)
+    do: UnitsPanel.finish_add_agent(socket, result)
 
   def handle_async(:add_agent_submission, {:exit, reason}, socket) do
-    finish_add_agent(socket, %{
+    UnitsPanel.finish_add_agent(socket, %{
       added: [],
       removed: [],
       error: {:submission_exit, reason},
@@ -711,44 +694,13 @@ defmodule AiurWeb.DashboardLive do
     })
   end
 
-  defp toggle_global_pause(socket) do
-    target = not global_paused?(socket.assigns.payload)
-
-    case GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard") do
-      {:ok, _status} ->
-        socket
-        |> assign(:global_pause_error, nil)
-        |> reload_after_action()
-
-      {:error, {:global_pause_persistence_failed, _reason}} ->
-        assign(
-          socket,
-          :global_pause_error,
-          "Global pause was not changed because its state could not be persisted. The daemon remains in its previous state; check the daemon log and retry."
-        )
-
-      {:error, reason} ->
-        assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
-    end
-  end
-
-  defp global_pause_state(%{fleet: %{error: _error}}), do: nil
-  defp global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
-  defp global_pause_state(_payload), do: nil
-
-  defp global_paused?(payload) when is_map(payload) do
-    payload |> Map.get(:fleet, %{}) |> Map.get(:globally_paused, false) == true
-  end
-
-  defp global_paused?(_payload), do: false
-
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
     if Map.get(modal, :writable_target?) == true do
       modal
       |> agent_log_target()
-      |> pause_agent()
+      |> Controls.pause_agent()
       |> pause_agent_result(socket, key)
     else
       {:noreply, put_chat_error(socket, key, :ambiguous_identifier)}
@@ -760,76 +712,6 @@ defmodule AiurWeb.DashboardLive do
 
   defp pause_agent_result({:error, reason}, socket, key),
     do: {:noreply, put_chat_error(socket, key, reason)}
-
-  defp adjust_capacity(socket, delta) do
-    prior = capacity_max(socket.assigns.payload)
-    reconcile_capacity(socket, capacity_adjust(delta), prior)
-  end
-
-  defp set_capacity(socket, value) do
-    case parse_capacity(value) do
-      {:ok, next} ->
-        prior = capacity_max(socket.assigns.payload)
-        reconcile_capacity(socket, capacity_set(next), prior)
-
-      :error ->
-        assign(socket, :capacity_feedback, %{kind: :invalid})
-    end
-  end
-
-  defp reconcile_capacity(socket, {:ok, %{} = status}, prior) do
-    new_max = Map.get(status, :max)
-
-    kind =
-      cond do
-        is_integer(prior) and new_max == prior -> :noop
-        Map.get(status, :draining?) == true -> :draining
-        true -> :applied
-      end
-
-    socket
-    |> reload_after_action()
-    |> assign(:capacity_feedback, %{kind: kind, max: new_max})
-  end
-
-  defp reconcile_capacity(socket, {:error, reason}, _prior) do
-    assign(socket, :capacity_feedback, %{kind: capacity_error_kind(reason)})
-  end
-
-  defp capacity_error_kind(:timeout), do: :timeout
-  defp capacity_error_kind(_reason), do: :unavailable
-
-  defp parse_capacity(value) do
-    case value |> to_string() |> String.trim() |> Integer.parse() do
-      {next, ""} when next >= 1 -> {:ok, next}
-      _other -> :error
-    end
-  end
-
-  defp capacity_facts(payload), do: get_in(payload, [:fleet, :capacity])
-
-  defp capacity_max(payload) do
-    case capacity_facts(payload) do
-      %{max: max} when is_integer(max) -> max
-      _other -> nil
-    end
-  end
-
-  defp capacity_adjust(delta) do
-    case Endpoint.config(:capacity_adjust_fun) do
-      fun when is_function(fun, 1) -> fun.(delta)
-      _other -> Slots.adjust_max_concurrent_agents(capacity_orchestrator(), delta)
-    end
-  end
-
-  defp capacity_set(next) do
-    case Endpoint.config(:capacity_set_fun) do
-      fun when is_function(fun, 1) -> fun.(next)
-      _other -> Slots.set_max_concurrent_agents(capacity_orchestrator(), next)
-    end
-  end
-
-  defp capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
 
   @impl true
   def render(assigns) do
@@ -855,7 +737,7 @@ defmodule AiurWeb.DashboardLive do
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
-      |> then(&Map.put_new(&1, :units_count_label, units_count_label(&1.units_view)))
+      |> then(&Map.put_new(&1, :units_count_label, UnitsPanel.units_count_label(&1.units_view)))
       |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
       |> Map.put_new(:tickets_visible, TicketsPresenter.initial_reveal())
       |> Map.put_new(:tickets_query, "")
@@ -864,7 +746,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:add_agent_modal, nil)
       |> Map.put_new(:add_agent_pending, nil)
       |> Map.put_new(:add_agent_notice, nil)
-      |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
+      |> Map.put_new(:capacity_view, CapacityPresenter.present(Controls.capacity_facts(assigns.payload)))
       |> Map.put_new(:capacity_input, "")
       |> Map.put_new(:capacity_feedback, nil)
       |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
@@ -903,9 +785,9 @@ defmodule AiurWeb.DashboardLive do
       routes={RouteRegistry.routes(@payload.analytics)}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
-      nav_counts={nav_counts(@units_view, @retained_counts)}
+      nav_counts={UnitsPanel.nav_counts(@units_view, @retained_counts)}
       nav_collapsed={@nav_collapsed}
-      globally_paused={global_pause_state(@payload)}
+      globally_paused={Controls.global_pause_state(@payload)}
       writable={@writable}
     >
       <:banner>
@@ -1047,9 +929,9 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:retained_counts, Map.get(payload, :retained_counts, unavailable_retained_counts()))
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
-    |> assign_units_view()
-    |> sync_unit_control_subscriptions(connected?(socket))
-    |> reconcile_unit_controls()
+    |> UnitsPanel.assign_units_view()
+    |> Controls.sync_unit_control_subscriptions(connected?(socket))
+    |> Controls.reconcile_unit_controls()
     |> refresh_ticket_context_row()
     |> refresh_conversation_row()
     |> reload_decision_page()
@@ -1057,7 +939,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign_selected_decision(socket.assigns.selected_decision_id)
   end
 
-  defp reload_after_action(socket) do
+  @doc false
+  def reload_after_action(socket) do
     socket
     |> reload_payload(:fresh)
     |> PayloadLoader.mark_loaded()
@@ -1152,292 +1035,6 @@ defmodule AiurWeb.DashboardLive do
 
   defp decision_path(nil, filter, query), do: DecisionPath.inbox(filter, query)
   defp decision_path(decision_id, filter, query), do: DecisionPath.detail(decision_id, filter, query)
-
-  defp units_path(socket, selection) do
-    params = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort])
-    "/?" <> URI.encode_query(params)
-  end
-
-  # Emit only positive known counts; this producer cannot distinguish zero from unknown.
-  defp nav_counts(units_view, retained_counts) do
-    %{}
-    |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
-    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :awaiting))
-  end
-
-  defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
-    do: Map.put(counts, key, value)
-
-  defp put_nav_count(counts, _key, _value), do: counts
-
-  defp assign_units_selection(socket, params) do
-    selection = UnitsURL.decode(params)
-
-    socket
-    |> assign(:units_selection, selection)
-    |> assign_units_view()
-  end
-
-  defp maybe_canonicalize_units_url(socket, params) do
-    selection = socket.assigns.units_selection
-    expected = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort]) |> Map.new()
-
-    if socket.assigns.live_action == :index and not socket.assigns.conversation_from_route? and map_size(params) > 0 and
-         params != expected do
-      push_patch(socket, to: units_path(socket, selection), replace: true)
-    else
-      socket
-    end
-  end
-
-  defp maybe_put_table_sort(params, nil), do: params
-  defp maybe_put_table_sort(params, sort), do: params ++ [{"sort", sort}]
-
-  defp normalize_table_sort(sort) when is_binary(sort) do
-    with [table, column, direction] <- String.split(sort, ":"),
-         true <- direction in ["asc", "desc"],
-         columns when is_list(columns) <- Map.get(@table_sort_columns, table),
-         true <- column in columns do
-      sort
-    else
-      _invalid -> nil
-    end
-  end
-
-  defp normalize_table_sort(_sort), do: nil
-
-  defp assign_units_view(socket) do
-    catalog = socket.assigns.payload |> Map.get(:units, %{})
-    view = UnitsPresenter.project(catalog, socket.assigns.units_selection)
-    tickets_view = socket.assigns.payload |> Map.get(:tickets) |> TicketsPresenter.normalize()
-
-    socket
-    |> assign(:units_view, view)
-    |> assign(:units_announcement, UnitsPresenter.announcement(view))
-    |> assign(:units_count_label, units_count_label(view))
-    |> assign(:tickets_view, tickets_view)
-    |> assign_tickets_panel_view()
-  end
-
-  # The unfiltered projection stays in `tickets_view` and the panel renders the
-  # searched one. Lookups — the add-agent modal, the ticket-context refresh —
-  # then keep resolving a row the current query happens to hide, so a ticket
-  # already open on screen does not go dead the moment the operator types.
-  defp assign_tickets_panel_view(socket) do
-    # Reached during mount before the query default is assigned, so the query is
-    # read defensively: no search yet means the unfiltered projection.
-    query = Map.get(socket.assigns, :tickets_query, "")
-    assign(socket, :tickets_panel_view, TicketsPresenter.search(socket.assigns.tickets_view, query))
-  end
-
-  # The modal opens on the routing the dispatcher would have applied, so the
-  # operator confirms a prediction rather than filling in a blank form.
-  #
-  # The model falls back to `resolved_model` only when routing named no model at all.
-  # `model` is the *requested* model and is `nil` whenever routing names just a
-  # backend, which would preselect "Backend default" and hide the model that is
-  # actually going to run — the prediction the Tickets table used to print in a
-  # "Would route to" column, and which now lives only here.
-  #
-  # The requested model is preferred over the resolved one so a family alias stays
-  # an alias. `CodingAgent.override_labels/0` seeds family tags and no versions
-  # because "a pinned tag expires with its version"; preselecting `gpt-5.6-sol` for a
-  # `codex:sol` routing entry would write that expiry onto the ticket and strand it
-  # on 5.6 while every untouched ticket follows the alias forward.
-  #
-  # `normalize_selection/1` clamps whichever value wins to the backend's seedable
-  # vocabulary (registry plus what its CLI reported), so an unlisted model falls back to the backend default.
-  defp add_agent_modal(row) do
-    routing = row.routing
-
-    selection = %{
-      backend: routing.backend,
-      model: routing.model || routing.resolved_model,
-      effort: routing.effort,
-      complexity: routing.complexity
-    }
-
-    build_add_agent_modal(row, selection)
-  end
-
-  defp change_add_agent(modal, params) do
-    backend = blank_to_nil(params["backend"]) || modal.selection.backend
-
-    # A new backend invalidates the model and effort vocabularies, so a stale
-    # selection is dropped rather than carried onto a backend that rejects it.
-    # `normalize_selection/1` then clamps every field to what the daemon can
-    # honour, because all four arrive from the browser.
-    carry_over? = backend == modal.selection.backend
-
-    selection = %{
-      backend: backend,
-      model: carry_over? && blank_to_nil(params["model"]),
-      effort: carry_over? && blank_to_nil(params["effort"]),
-      complexity: parse_complexity(params["complexity"])
-    }
-
-    build_add_agent_modal(modal, selection)
-  end
-
-  defp build_add_agent_modal(row, selection) do
-    selection = AgentRoutingPreview.normalize_selection(selection)
-    labels = Map.get(row, :labels, [])
-
-    %{
-      token: row.token,
-      identifier: row.identifier,
-      title: row.title,
-      identity: Map.get(row, :identity),
-      routing: Map.get(row, :routing, %{available?: false}),
-      selection: selection,
-      options: AgentRoutingPreview.options(selection.backend),
-      labels: labels,
-      plan: AgentRoutingPreview.plan(selection, labels),
-      pending?: false,
-      result: nil
-    }
-  end
-
-  defp finish_add_agent(socket, result) do
-    modal = socket.assigns.add_agent_pending
-    socket = socket |> assign(:add_agent_pending, nil) |> refresh_open_tickets({:ok, []})
-    message = "Ticket ##{modal.identifier}: " <> AddAgentSubmission.message(result)
-
-    if result.error do
-      labels = AddAgentSubmission.labels(result, modal.labels)
-      updated = build_add_agent_modal(Map.put(modal, :labels, labels), modal.selection)
-
-      socket =
-        retain_add_agent_result(socket, modal.token, Map.put(updated, :result, {:error, message}))
-
-      {:noreply, assign(socket, :add_agent_notice, message)}
-    else
-      socket = retain_add_agent_result(socket, modal.token, nil)
-      {:noreply, assign(socket, :add_agent_notice, message)}
-    end
-  end
-
-  defp retain_add_agent_result(socket, token, modal) do
-    case socket.assigns.add_agent_modal do
-      %{token: ^token} -> assign(socket, :add_agent_modal, modal)
-      _ -> socket
-    end
-  end
-
-  # Confirming changed the tracker, so the panel's labels and its routing
-  # prediction are both stale until the event stream carries it. Ask the
-  # projection to re-list now, in addition to the delivery that is already on
-  # its way.
-  defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
-    OpenTicketSource.refresh()
-    Aiur.Orchestrator.request_refresh(capacity_orchestrator())
-    reload_after_action(socket)
-  rescue
-    _error -> socket
-  catch
-    _kind, _reason -> socket
-  end
-
-  defp refresh_open_tickets(socket, _result), do: socket
-
-  defp parse_complexity(value) do
-    case blank_to_nil(value) do
-      nil ->
-        nil
-
-      value ->
-        case Integer.parse(value) do
-          {complexity, ""} when complexity in 1..5 -> complexity
-          _other -> nil
-        end
-    end
-  end
-
-  defp blank_to_nil(value) when is_binary(value), do: if(String.trim(value) == "", do: nil, else: String.trim(value))
-  defp blank_to_nil(_value), do: nil
-
-  # The Units panel counts what the panel actually shows, so a filtered view
-  # never claims a fleet size the table below it does not contain. A partial
-  # catalog is qualified rather than rounded down to a confident number.
-  defp units_count_label(view) do
-    case Map.get(view, :count_status, :unavailable) do
-      :unavailable -> "units unavailable"
-      :partial -> "at least #{unit_phrase(view)}"
-      _exact -> unit_phrase(view)
-    end
-  end
-
-  defp unit_phrase(view) do
-    case view |> Map.get(:rows, []) |> length() do
-      1 -> "1 unit"
-      count -> "#{count} units"
-    end
-  end
-
-  # Read the current DASH-014 snapshot on mount/reconnect. On the dead first
-  # render, or when the projection process is unreachable, fall back to the
-  # loading view rather than crashing the LiveView.
-  defp assign_initial_run_summary(socket, connected) do
-    snapshot = if connected, do: read_run_summary_snapshot(), else: nil
-
-    socket
-    |> assign(:run_summary_source, nil)
-    |> assign(:run_summary_pending, nil)
-    |> assign(:run_summary_flush_scheduled?, false)
-    |> apply_run_summary(snapshot)
-  end
-
-  defp read_run_summary_snapshot do
-    CurrentRunSummary.snapshot()
-  rescue
-    _error -> nil
-  catch
-    :exit, _reason -> nil
-  end
-
-  # Coalesce bursts of daemon updates: keep only the latest pending snapshot
-  # and flush once per debounce window so high-frequency renders and
-  # screen-reader announcements stay bounded.
-  defp stash_run_summary(socket, snapshot) do
-    socket = assign(socket, :run_summary_pending, snapshot)
-
-    if socket.assigns.run_summary_flush_scheduled? do
-      socket
-    else
-      schedule_run_summary_flush()
-      assign(socket, :run_summary_flush_scheduled?, true)
-    end
-  end
-
-  defp flush_run_summary(socket) do
-    socket = assign(socket, :run_summary_flush_scheduled?, false)
-
-    case socket.assigns.run_summary_pending do
-      nil -> socket
-      snapshot -> socket |> assign(:run_summary_pending, nil) |> apply_run_summary(snapshot)
-    end
-  end
-
-  # Reconcile an incoming snapshot against the displayed source (last-known-good
-  # retention lives in the presenter) and assign the presented view plus a
-  # single bounded announcement.
-  defp apply_run_summary(socket, snapshot) do
-    {source, retained?} = RunSummaryPresenter.reconcile(socket.assigns.run_summary_source, snapshot)
-    status_source = if retained?, do: snapshot, else: nil
-    view = RunSummaryPresenter.present(source, retained?, status_source)
-
-    socket
-    |> assign(:run_summary_source, source)
-    |> assign(:run_summary, view)
-    |> assign(:run_summary_announcement, RunSummaryPresenter.announcement(view))
-  end
-
-  defp schedule_run_summary_flush do
-    case Endpoint.config(:run_summary_flush_timer) do
-      timer when is_function(timer, 3) -> timer.(self(), :flush_run_summary, @run_summary_flush_ms)
-      _other -> Process.send_after(self(), :flush_run_summary, @run_summary_flush_ms)
-    end
-  end
 
   # --- DASH-031 authenticated usage and cost summary -----------------------
 
@@ -1841,68 +1438,6 @@ defmodule AiurWeb.DashboardLive do
   # Read the current DASH-032 outcome snapshot on mount/reconnect. On the dead
   # first render, or when the projection process is unreachable, fall back to the
   # loading view rather than crashing the LiveView.
-  defp assign_initial_current_run_outcomes(socket, connected) do
-    snapshot = if connected, do: read_current_run_outcomes_snapshot(), else: nil
-
-    socket
-    |> assign(:current_run_outcomes_source, nil)
-    |> assign(:current_run_outcomes_pending, nil)
-    |> assign(:current_run_outcomes_flush_scheduled?, false)
-    |> apply_current_run_outcomes(snapshot)
-  end
-
-  defp read_current_run_outcomes_snapshot do
-    CurrentRunOutcomeSnapshot.snapshot()
-  rescue
-    _error -> nil
-  catch
-    :exit, _reason -> nil
-  end
-
-  # Coalesce bursts of daemon updates: keep only the latest pending snapshot and
-  # flush once per debounce window so high-frequency renders and screen-reader
-  # announcements stay bounded.
-  defp stash_current_run_outcomes(socket, snapshot) do
-    socket = assign(socket, :current_run_outcomes_pending, snapshot)
-
-    if socket.assigns.current_run_outcomes_flush_scheduled? do
-      socket
-    else
-      schedule_current_run_outcomes_flush()
-      assign(socket, :current_run_outcomes_flush_scheduled?, true)
-    end
-  end
-
-  defp flush_current_run_outcomes(socket) do
-    socket = assign(socket, :current_run_outcomes_flush_scheduled?, false)
-
-    case socket.assigns.current_run_outcomes_pending do
-      nil -> socket
-      snapshot -> socket |> assign(:current_run_outcomes_pending, nil) |> apply_current_run_outcomes(snapshot)
-    end
-  end
-
-  # Reconcile an incoming snapshot against the displayed source (last-known-good
-  # retention lives in the presenter) and assign the presented, generation-pinned
-  # view plus a single bounded announcement.
-  defp apply_current_run_outcomes(socket, snapshot) do
-    {source, retained?} = CurrentRunOutcomesPresenter.reconcile(socket.assigns.current_run_outcomes_source, snapshot)
-    status_source = if retained?, do: snapshot, else: nil
-    view = CurrentRunOutcomesPresenter.present(source, retained?, status_source)
-
-    socket
-    |> assign(:current_run_outcomes_source, source)
-    |> assign(:current_run_outcomes, view)
-    |> assign(:current_run_outcomes_announcement, CurrentRunOutcomesPresenter.announcement(view))
-  end
-
-  defp schedule_current_run_outcomes_flush do
-    case Endpoint.config(:current_run_outcomes_flush_timer) do
-      timer when is_function(timer, 3) -> timer.(self(), :flush_current_run_outcomes, @current_run_outcomes_flush_ms)
-      _other -> Process.send_after(self(), :flush_current_run_outcomes, @current_run_outcomes_flush_ms)
-    end
-  end
-
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do
     socket = replace_ticket_context_subscription(socket, identity)
     detail = request_context(:ticket_detail_request_fun, &TicketDetailCoordinator.request/1, identity)
@@ -2598,13 +2133,13 @@ defmodule AiurWeb.DashboardLive do
     |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
     |> maybe_put_query(:cursor, params["cursor"])
-    |> maybe_put_query(:sort, normalize_table_sort(params["sort"]))
+    |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
   end
 
   defp decision_query(_filter, params) do
     %{}
     |> maybe_put_query(:cursor, params["cursor"])
-    |> maybe_put_query(:sort, normalize_table_sort(params["sort"]))
+    |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
   end
 
   defp provider_query(filter, query) do
@@ -2736,207 +2271,6 @@ defmodule AiurWeb.DashboardLive do
       _fun -> AgentChat.send(target, text, message_id: message_id)
     end
   end
-
-  defp pause_agent(target) do
-    case Endpoint.config(:agent_chat_pause_fun) do
-      fun when is_function(fun, 1) -> fun.(target)
-      _fun -> AgentChat.pause(target)
-    end
-  end
-
-  # --- Unit controls (DASH-005) --------------------------------------------
-
-  # Resolve the row server-side by opaque token, recheck live capability, then
-  # invoke DASH-004. Applied state is mirrored only from lifecycle evidence, so
-  # this only records the request; it never mutates the row's lifecycle.
-  defp request_unit_control(socket, token, action) do
-    control = Map.get(socket.assigns.unit_controls, token)
-
-    if UnitsControlPolicy.settled?(control) do
-      resolve_unit_control_row(socket, token, action)
-    else
-      # A request for this unit is already pending; activation is idempotent.
-      socket
-    end
-  end
-
-  defp resolve_unit_control_row(socket, token, action) do
-    catalog = Map.get(socket.assigns.payload, :units, %{})
-
-    case UnitsPresenter.lookup(catalog, token) do
-      {:ok, row} -> invoke_unit_control(socket, token, row, action)
-      {:error, :not_found} -> socket
-    end
-  end
-
-  defp invoke_unit_control(socket, token, row, action) do
-    case UnitsControlPolicy.identifier(row) do
-      nil ->
-        put_unit_control(socket, token, %{action: action, status: :no_identity, identifier: nil})
-
-      identifier ->
-        recheck_and_invoke(socket, token, identifier, action)
-    end
-  end
-
-  defp recheck_and_invoke(socket, token, identifier, action) do
-    case unit_capabilities(identifier) do
-      {:ok, capabilities} ->
-        recheck_result(socket, token, identifier, action, UnitsControlPolicy.recheck(capabilities, action))
-
-      {:error, reason} ->
-        put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
-    end
-  end
-
-  defp recheck_result(socket, token, identifier, action, :ok),
-    do: dispatch_unit_control(socket, token, identifier, action)
-
-  defp recheck_result(socket, token, identifier, action, {:error, reason}),
-    do: put_unit_control(socket, token, %{action: action, status: reason, identifier: identifier})
-
-  defp dispatch_unit_control(socket, token, identifier, action) do
-    case invoke_control_owner(action, identifier) do
-      {:ok, result} ->
-        # Subscribe to this unit's agent topic now, before its lifecycle
-        # evidence can arrive, even if the row is not in the :running bucket the
-        # periodic subscription sync tracks. The pending control is also unioned
-        # into the sync set so the subscription survives reloads until it settles.
-        socket
-        |> put_unit_control(token, %{
-          action: action,
-          status: :requested,
-          request_id: control_request_id(result),
-          identifier: identifier
-        })
-        |> ensure_control_subscription(identifier)
-
-      {:error, reason} ->
-        put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
-    end
-  end
-
-  defp ensure_control_subscription(socket, identifier) do
-    subscriptions = socket.assigns.unit_control_subscriptions
-
-    if connected?(socket) and not MapSet.member?(subscriptions, identifier) do
-      AgentPubSub.subscribe_agent(identifier)
-      assign(socket, :unit_control_subscriptions, MapSet.put(subscriptions, identifier))
-    else
-      socket
-    end
-  end
-
-  defp invoke_control_owner(:pause, identifier), do: pause_agent(identifier)
-  defp invoke_control_owner(:resume, identifier), do: resume_agent(identifier)
-
-  defp control_request_id(result) when is_integer(result), do: result
-  defp control_request_id(_result), do: nil
-
-  defp put_unit_control(socket, token, control_state) do
-    assign(socket, :unit_controls, Map.put(socket.assigns.unit_controls, token, control_state))
-  end
-
-  defp resume_agent(identifier) do
-    case Endpoint.config(:agent_chat_resume_fun) do
-      fun when is_function(fun, 1) -> fun.(identifier)
-      _fun -> AgentChat.resume(identifier)
-    end
-  end
-
-  defp unit_capabilities(identifier) do
-    case Endpoint.config(:agent_chat_capabilities_fun) do
-      fun when is_function(fun, 1) -> fun.(identifier)
-      _fun -> AgentChat.capabilities(identifier)
-    end
-  end
-
-  defp apply_control_lifecycle(socket, payload) do
-    identifier = get_in(payload, [:tracker_identity, :identifier])
-
-    case find_control_token(socket.assigns.unit_controls, identifier) do
-      {token, control} ->
-        put_unit_control(socket, token, UnitsControlPolicy.apply_lifecycle(control, payload))
-
-      nil ->
-        socket
-    end
-  end
-
-  defp find_control_token(controls, identifier) when is_binary(identifier) do
-    Enum.find(controls, fn {_token, control} -> Map.get(control, :identifier) == identifier end)
-  end
-
-  defp find_control_token(_controls, _identifier), do: nil
-
-  defp sync_unit_control_subscriptions(socket, false), do: socket
-
-  defp sync_unit_control_subscriptions(socket, true) do
-    desired = controllable_identifiers(socket)
-    current = socket.assigns.unit_control_subscriptions
-
-    Enum.each(MapSet.difference(desired, current), &AgentPubSub.subscribe_agent/1)
-    Enum.each(MapSet.difference(current, desired), &AgentPubSub.unsubscribe_agent/1)
-
-    assign(socket, :unit_control_subscriptions, desired)
-  end
-
-  # Subscribe to units that are controllable now, unioned with any unit that
-  # still has an in-flight control, so a request whose row leaves the running
-  # bucket mid-flight keeps its subscription until the lifecycle settles it.
-  defp controllable_identifiers(socket) do
-    running =
-      socket.assigns.payload
-      |> Map.get(:units, %{})
-      |> unit_rows()
-      |> Enum.filter(&(get_in(&1, [:runtime, :bucket]) == :running))
-      |> Enum.map(&UnitsControlPolicy.identifier/1)
-      |> Enum.reject(&is_nil/1)
-      |> MapSet.new()
-
-    MapSet.union(running, in_flight_control_identifiers(socket))
-  end
-
-  defp in_flight_control_identifiers(socket) do
-    socket.assigns.unit_controls
-    |> Enum.reject(fn {_token, control} -> UnitsControlPolicy.settled?(control) end)
-    |> Enum.map(fn {_token, control} -> Map.get(control, :identifier) end)
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
-  end
-
-  # A changed or terminal row cancels stale in-flight UI intent rather than
-  # targeting a replacement unit; settled states are left untouched.
-  defp reconcile_unit_controls(%{assigns: %{unit_controls: controls}} = socket) when controls == %{},
-    do: socket
-
-  defp reconcile_unit_controls(socket) do
-    catalog = Map.get(socket.assigns.payload, :units, %{})
-    rows_by_token = Map.new(unit_rows(catalog), fn row -> {UnitsPresenter.row_token(row), row} end)
-
-    reconciled =
-      Map.new(socket.assigns.unit_controls, fn {token, control} ->
-        {token, reconcile_control(control, Map.get(rows_by_token, token))}
-      end)
-
-    assign(socket, :unit_controls, reconciled)
-  end
-
-  defp reconcile_control(control, row) do
-    if UnitsControlPolicy.settled?(control) or not stale_control_row?(row) do
-      control
-    else
-      Map.put(control, :status, :state_changed)
-    end
-  end
-
-  defp stale_control_row?(nil), do: true
-
-  defp stale_control_row?(row),
-    do: Map.get(row, :terminal?) == true or Map.get(row, :replacement_boundary?) == true
-
-  defp unit_rows(%{snapshot: %{rows: rows}}) when is_list(rows), do: rows
-  defp unit_rows(_catalog), do: []
 
   defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
   defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
