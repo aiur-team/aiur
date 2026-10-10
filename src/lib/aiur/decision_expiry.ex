@@ -22,7 +22,6 @@ defmodule Aiur.DecisionExpiry do
   @grace_seconds 300
   @stale_after_seconds 86_400
   @reason_class "agent_not_running"
-  @orchestrator_timeout 1_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -86,14 +85,8 @@ defmodule Aiur.DecisionExpiry do
   defp active_identifiers(opts) do
     case Keyword.get(opts, :active_identifiers_fun) do
       fun when is_function(fun, 0) -> fun.()
-      nil -> fetch_active_identifiers()
+      nil -> Aiur.Commands.DeliveryTarget.impl().active_identifiers()
     end
-  end
-
-  defp fetch_active_identifiers do
-    {:ok, GenServer.call(Aiur.Orchestrator, :list_active_identifiers, @orchestrator_timeout)}
-  catch
-    :exit, reason -> {:error, {:orchestrator_unavailable, reason}}
   end
 
   defp decisions(opts) do

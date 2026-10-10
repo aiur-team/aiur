@@ -55,11 +55,11 @@ defmodule Aiur.DecisionStore do
     SecretRedactor
   }
 
+  alias Aiur.Commands.DeliveryTarget
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.{ProjectionRecovery, RetainedSnapshot}
   alias Aiur.Events.{IdGenerator, Publisher}
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Tracker
 
   @ndjson_filename "decisions.ndjson"
@@ -3317,7 +3317,7 @@ defmodule Aiur.DecisionStore do
   # conservative re-raise path stays in effect.
   defp default_terminal_ticket_resolver(ticket_identifiers) do
     with {:ok, issues} <- Tracker.fetch_issue_states_by_ids(ticket_identifiers) do
-      terminal_states = DispatchPolicy.terminal_state_set()
+      terminal_states = DeliveryTarget.impl().terminal_state_set()
       {:ok, terminal_identities(issues, terminal_states)}
     end
   end
@@ -3332,7 +3332,7 @@ defmodule Aiur.DecisionStore do
   def terminal_identities(issues, terminal_states)
       when is_list(issues) and is_struct(terminal_states, MapSet) do
     issues
-    |> Enum.filter(&DispatchPolicy.terminal_issue_state?(&1.state, terminal_states))
+    |> Enum.filter(&DeliveryTarget.impl().terminal_issue_state?(&1.state, terminal_states))
     |> Enum.map(&issue_terminal_identity/1)
     |> Enum.reject(&is_nil/1)
     |> MapSet.new()
@@ -4600,6 +4600,13 @@ defmodule Aiur.DecisionStore do
   defp dispatch_failure_class(:max_concurrent_agents_reached), do: "target_agent_unavailable"
   defp dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   defp dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
+  defp dispatch_failure_class(:delivery_target_unbound), do: "delivery_target_unbound"
+
+  # An unbound target is not a tracker fault: keep its own cause instead of the
+  # transient `target_revalidation_failed`, which would retry a missing binding.
+  defp dispatch_failure_class({:target_revalidation_failed, :delivery_target_unbound}),
+    do: "delivery_target_unbound"
+
   defp dispatch_failure_class(:decision_dispatch_overloaded), do: "decision_dispatch_overloaded"
   defp dispatch_failure_class(:decision_dispatch_unavailable), do: "decision_dispatch_unavailable"
   defp dispatch_failure_class(:decision_dispatch_timeout), do: "decision_dispatch_timeout"

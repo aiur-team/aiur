@@ -17,7 +17,7 @@ defmodule Aiur.DecisionDispatch do
   """
 
   alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
-  alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Commands.DeliveryTarget
 
   @max_message_chars 7_800
 
@@ -36,8 +36,8 @@ defmodule Aiur.DecisionDispatch do
   def dispatch(%Decision{answer: %DecisionAnswer{} = answer} = decision, opts) do
     attempt_id = Keyword.fetch!(opts, :attempt_id)
     retry_failed = Keyword.get(opts, :retry_failed, false)
-    server = Keyword.get(opts, :operator_messages, Aiur.Orchestrator)
-    send_fun = Keyword.get(opts, :send_fun, &OperatorMessages.send_correlated_operator_message/3)
+    server = Keyword.get(opts, :operator_messages)
+    send_fun = Keyword.get(opts, :send_fun, &send_through_target/3)
 
     correlation = %{
       decision_id: decision.decision_id,
@@ -66,6 +66,9 @@ defmodule Aiur.DecisionDispatch do
   end
 
   def dispatch(%Decision{}, _opts), do: {:error, :answer_missing}
+
+  defp send_through_target(_server, ticket_identifier, payload),
+    do: DeliveryTarget.impl().send_correlated(ticket_identifier, payload)
 
   @doc "Render a concise, product-focused answer envelope for the agent."
   @spec render(Decision.t()) :: String.t()

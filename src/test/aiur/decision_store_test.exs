@@ -4715,6 +4715,50 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
+  # MP-R1-C8-T02: a composition with no delivery target bound must fail with
+  # its own cause. `orchestrator_unavailable` is transient and would retry a
+  # missing binding forever while blaming a healthy Orchestrator.
+  test "unbound target fails delivery with its own cause, not orchestrator_unavailable", %{dir: dir} do
+    original = Application.fetch_env(:aiur, :commands_delivery_target)
+    Application.put_env(:aiur, :commands_delivery_target, Aiur.Commands.DeliveryTarget.Unbound)
+
+    on_exit(fn ->
+      case original do
+        {:ok, value} -> Application.put_env(:aiur, :commands_delivery_target, value)
+        :error -> Application.delete_env(:aiur, :commands_delivery_target)
+      end
+    end)
+
+    parent = self()
+
+    dispatch_scheduler = fn recipient, message, delay_ms ->
+      send(parent, {:scheduled, recipient, message, delay_ms})
+      make_ref()
+    end
+
+    pid =
+      start_store!(dir,
+        dispatch_delay_ms: 0,
+        reconcile_delay_ms: 0,
+        retry_delays_ms: [0],
+        dispatch_scheduler: dispatch_scheduler
+      )
+
+    assert_receive {:scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+    assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-unbound-target"))
+    payload = %{"idempotency_key" => "unbound-1", "expected_version" => 1, "custom_response" => "Proceed"}
+    assert {:ok, _result} = answer(pid, decision.decision_id, payload)
+
+    assert_receive {:scheduled, ^pid, first_dispatch, 0}, 2_000
+    send(pid, first_dispatch)
+
+    failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+    assert [%{status: :failed, failure_reason_class: "delivery_target_unbound"}] = failed.dispatch_attempts
+    # The store has settled the attempt; a transient class would have
+    # scheduled its retry before `:failed` became observable.
+    refute_received {:scheduled, ^pid, {:dispatch_action, _fence, _retry?}, _delay_ms}
+  end
+
   defp answerable_request(source_id) do
     %{
       "question" => "Deploy now?",
