@@ -73,7 +73,7 @@ defmodule Aiur.TestSupport do
           {:running_changed, _summaries} when map_size(refs) == 0 -> :ok
           {:poll_state_changed, _poll} when map_size(refs) == 0 -> :ok
         after
-          remaining -> raise("Timed out waiting for orchestrator tracker result")
+          remaining -> raise("Timed out waiting for orchestrator tracker result; tracker tasks held: #{inspect(Enum.map(state.tracker_tasks, fn {_ref, job} -> job.key end))}")
         end
       after
         Enum.each(refs, fn {ref, _} -> Process.demonitor(ref, [:flush]) end)
