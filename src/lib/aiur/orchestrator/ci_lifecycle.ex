@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     PauseResume,
     ReadyForReviewTransitions,
     Reconciler,
+    RestackScheduler,
     RetryEngine,
     State,
     TicketTransition,
@@ -34,10 +35,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
+    state = RestackScheduler.reconcile(state, [])
+
     case Config.tracker_kind() do
       # See `CommentPolling.poll_github_comments/2`: CI polling also keeps the
-      # configured cadence rather than widening on quiet, so CI detection
-      # latency is unchanged at the same polling interval.
       "github" ->
         if within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
           state
@@ -493,6 +494,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     |> note_ci_poll_connectivity(targets, errors)
     |> log_ci_poll_errors(errors)
     |> apply_ci_poll_results(results, issues_by_target, opts)
+    |> RestackScheduler.reconcile(Map.values(issues_by_target))
   end
 
   defp apply_ci_observation(state, {:error, reason}, _targets, _issues, _opts) do
@@ -627,10 +629,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         if Map.get(result, :delivered) do
-          # A target the batch displaced because a webhook delivery answered it:
-          # the read was skipped, and nothing rides on the delivery — no state
-          # transition, no alert, no cache projection — because a CI verdict is
-          # never answered from a held body at any age (R10). The next
+          # Displaced by a webhook delivery: the read was skipped — no state
+          # transition, alert or projection: held bodies never answer CI (R10). The next
           # non-displaced read produces the real verdict.
           state
         else

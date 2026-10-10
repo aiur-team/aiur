@@ -14,6 +14,9 @@ defmodule AiurWeb.BuildLiveTest do
     end
 
     @impl true
+    def earlier(_before, _zone, _opts), do: {:error, :not_wired}
+
+    @impl true
     def snapshot(opts) do
       send(opts[:test_pid], {:snapshot, self()})
 

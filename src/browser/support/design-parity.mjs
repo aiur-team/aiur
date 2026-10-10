@@ -66,7 +66,7 @@ async function prepare(page, phase, side, motion = false, pauseAtSelector) {
 async function refuseLiveTicket(dataset, ticket) {
   if (!ticket || dataset === 'offline') return
   const fixture = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${dataset}.json`, import.meta.url), 'utf8'))
-  if (fixture.data.now.some(t => t.id === ticket && t.agent?.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
+  if (fixture.sections.now.some(t => `AIUR-${t.num}` === ticket && t.agent?.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
 }
 
 export async function openDesign(page, cell, opts = {}) {
