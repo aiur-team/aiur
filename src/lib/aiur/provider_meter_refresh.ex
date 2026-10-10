@@ -29,7 +29,6 @@ defmodule Aiur.ProviderMeterRefresh do
 
   use GenServer
 
-  alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config
   alias Aiur.ProviderMeterProbe
 
@@ -83,7 +82,7 @@ defmodule Aiur.ProviderMeterRefresh do
     state = %{
       observer: Keyword.get(opts, :observer, &ProviderMeterProbe.observe/1),
       agents_running?: Keyword.get(opts, :agents_running_fun, &agents_running?/0),
-      headroom?: Keyword.get(opts, :headroom_fun, &HeadroomDispatch.enabled?/0),
+      headroom?: Keyword.get(opts, :headroom_fun, &headroom_selection?/0),
       interval_fun: Keyword.get(opts, :interval_fun, &configured_interval_ms/0),
       now_fun: Keyword.get(opts, :now_fun, &System.monotonic_time/0),
       grace_ms: Keyword.get(opts, :grace_ms, @default_grace_ms),
@@ -224,6 +223,15 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   defp schedule_refresh(state), do: Process.send_after(self(), :refresh, state.interval_fun.())
+
+  # Read from config, not `HeadroomDispatch.enabled?/0`: accounting may not depend on the coding agent.
+  defp headroom_selection? do
+    match?({:ok, %{agent: %{account_selection: "headroom"}}}, Config.settings())
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
 
   defp configured_interval_ms do
     case Config.settings() do
