@@ -1,8 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
-
-  alias Aiur.{CodingAgent, Config, DecisionMetrics, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
-  alias AiurWeb.{Endpoint, StreamDeckGrid}
+  alias Aiur.{CodingAgent, Commands, Config, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias AiurWeb.{Endpoint, StreamdeckFleet}
 
   @version 1
   @voice_unconfigured_reason "Aiur has no ElevenLabs API key - transcription is off"
@@ -13,9 +12,12 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec snapshot() :: map()
   def snapshot do
+    snapshot = safe_call(snapshot_fun(), %{})
+
     %{
       version: @version,
-      fleet: fleet(),
+      fleet: fleet(snapshot),
+      grid: grid(snapshot),
       usage: provider_meters(),
       decisions: decisions(),
       voice: voice()
@@ -30,6 +32,7 @@ defmodule AiurWeb.StreamdeckProjection do
   it is off without a round trip. Only the *presence* of a credential is ever
   reported — never the credential, nor any part of it.
   """
+
   @spec voice() :: map()
   def voice do
     if configured_elevenlabs_key?() do
@@ -61,36 +64,16 @@ defmodule AiurWeb.StreamdeckProjection do
   def fleet_agents(summaries) when is_list(summaries), do: Enum.map(summaries, &agent/1)
 
   @spec fleet() :: map()
-  def fleet, do: %{agents: fleet_agents()} |> external_value()
+  @spec fleet(term()) :: map()
+  def fleet(snapshot \\ safe_call(snapshot_fun(), %{})), do: StreamdeckFleet.fleet(snapshot)
 
-  @doc "The render-ready grid projection carried alongside the channel fleet event."
   @spec grid() :: map()
-  def grid do
-    case safe_call(snapshot_fun(), %{}) do
-      {status, snapshot, freshness} when status in [:current, :stale] and is_map(snapshot) ->
-        snapshot |> StreamDeckGrid.project() |> Map.put(:snapshot_freshness, freshness)
+  @spec grid(term()) :: map()
+  def grid(snapshot \\ safe_call(snapshot_fun(), %{})), do: StreamdeckFleet.grid(snapshot)
 
-      snapshot when is_map(snapshot) ->
-        StreamDeckGrid.project(snapshot)
-
-      _ ->
-        StreamDeckGrid.project(%{})
-    end
-  end
-
-  defp fleet_agents do
-    case safe_call(snapshot_fun(), %{agents: []}) do
-      %{agents: agents} when is_list(agents) -> fleet_agents(agents)
-      {_status, %{running: running, retrying: retrying, idle: idle}, _freshness} -> snapshot_agents(running, retrying, idle)
-      %{running: running, retrying: retrying, idle: idle} -> snapshot_agents(running, retrying, idle)
-      _ -> []
-    end
-  end
-
-  defp snapshot_agents(running, retrying, idle) do
-    Enum.map(running, &agent(Map.put(&1, :status, :running))) ++
-      Enum.map(retrying, &agent(Map.put(&1, :status, :retrying))) ++
-      Enum.map(idle, &agent(Map.put(&1, :status, :queued)))
+  @spec fleet_with_grid([map()] | nil) :: map()
+  def fleet_with_grid(summaries) do
+    snapshot_fun() |> safe_call(:unavailable) |> StreamdeckFleet.with_grid(summaries)
   end
 
   @spec agent(map()) :: map()
@@ -106,7 +89,7 @@ defmodule AiurWeb.StreamdeckProjection do
       pause_reason: field(summary, :pause_reason),
       tracker_paused: field(summary, :tracker_paused),
       backend: field(summary, :backend),
-      model: field(summary, :model)
+      model: field(summary, :model) || field(summary, :requested_model)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -137,7 +120,7 @@ defmodule AiurWeb.StreamdeckProjection do
   @doc false
   @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
   def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) do
-    if provider in CodingAgent.provider_families() and newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
+    if provider in CodingAgent.provider_families() and AiurWeb.StreamdeckMeterRetention.newer?(snapshot, Map.get(meters, Atom.to_string(provider))) do
       meter = normalize_provider_meter(provider, provider_meter(snapshot), DateTime.utc_now()) |> external_value()
       Map.put(meters, Atom.to_string(provider), meter)
     else
@@ -206,11 +189,13 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp decisions_fun do
-    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: DecisionMetrics.snapshots() |> map_size()} end
+    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: Commands.metrics_snapshots() |> map_size()} end
   end
 
   defp provider_meter(snapshot) do
     %{
+      summary_label: snapshot.summary_label,
+      ingested_at: snapshot.ingested_at,
       provider: snapshot.provider,
       state: if(is_nil(snapshot.observed_at), do: :unknown, else: :observed),
       observed_at: snapshot.observed_at,
@@ -240,6 +225,8 @@ defmodule AiurWeb.StreamdeckProjection do
     normalized =
       %{
         provider: provider,
+        summary_label: field(meter, :summary_label),
+        ingested_at: field(meter, :ingested_at),
         state: state,
         observed_at: observed_at,
         age_seconds: age_seconds(observed_at, now),
@@ -468,19 +455,6 @@ defmodule AiurWeb.StreamdeckProjection do
       _ -> @default_usage_interval_seconds
     end
   end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, nil), do: true
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: observed_at}, %{"observed_at" => current_observed_at}) do
-    case DateTime.from_iso8601(current_observed_at) do
-      {:ok, current_observed_at, _offset} -> DateTime.compare(observed_at, current_observed_at) != :lt
-      _ -> true
-    end
-  end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, _current), do: true
 
   defp age_seconds(nil), do: nil
   defp age_seconds(observed_at), do: age_seconds(observed_at, DateTime.utc_now())

@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
+    EnvelopeResume,
     GlobalPauseStore,
     OrphanedWorkers,
     PauseResume,
@@ -24,6 +25,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     StatusReport,
     TrackedSet,
     TrackerHealth,
+    TrackerTasks,
     WorkspaceCleanup
   }
 
@@ -39,6 +41,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.agent.unblocked",
     "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
+    "ticket.*.branch.force-push",
     "system.*.branch.push"
   ]
   @empty_agent_totals %{
@@ -124,6 +127,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       globally_paused: global_pause.globally_paused,
       global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
+      load_envelope_state: EnvelopeResume.boot(config.agent),
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       poll_frozen: false,
@@ -154,8 +158,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # cannot track them. Stop them before startup cleanup or the first poll, so
     # the ticket is redispatched instead of refused as a live session (#2705).
     state = OrphanedWorkers.stop_untracked_runners(state)
-    state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
-    state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
+    state = WorkspaceCleanup.start_startup_workspace_cleanup(state, wake?: Keyword.get(opts, :initial_poll?, true))
     RemoteControlMode.cleanup_stray_remote_control_servers()
     TrackedSet.reset([])
     install_event_tracked_fn(tracked_issue?)
@@ -199,6 +202,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
+    _ = TrackerTasks.stop(state)
     # The comment poll owns linked target tasks whose guarded request workers
     # may still hold GitHub sockets. Reap that tree before this owner exits so
     # an orderly stop never overlaps it with a successor's first poll.

@@ -431,7 +431,7 @@ defmodule Aiur.Opencode.Slot do
   defp do_attach_known(identifier, state) do
     span = Aiur.Perf.span_begin(:slot_do_attach, slot: state.slot_index, identifier: identifier)
 
-    case Sessions.ensure(identifier, state.base_url) do
+    case Sessions.ensure(identifier, state.base_url, state.token) do
       {:ok, session_id} ->
         Aiur.Perf.span_end(span, slot: state.slot_index, identifier: identifier, session_id: session_id)
         new_state = %{state | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)}
@@ -495,7 +495,7 @@ defmodule Aiur.Opencode.Slot do
   defp do_select(identifier, state) do
     do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)
 
-    case Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index) do
+    case Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index, state.token) do
       {:ok, session_id} ->
         select_with_respawn(state, identifier, session_id, do_select_span)
 

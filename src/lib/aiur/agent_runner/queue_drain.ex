@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, PauseContainment}
+  alias Aiur.{AgentPubSub, Alerts, Commands, Issue, PauseContainment}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -236,7 +236,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   @doc false
   @spec prepare_operator_delivery(map(), map(), GenServer.server()) ::
           :ok | {:error, {:retry | :failed, term()}}
-  def prepare_operator_delivery(item, issue, decision_store \\ DecisionStore)
+  def prepare_operator_delivery(item, issue, decision_store \\ Commands.default_store())
 
   def prepare_operator_delivery(
         %{category: :operator_message, id: request_id, action_id: action_id, correlation: correlation} = item,
@@ -244,7 +244,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         decision_store
       )
       when is_integer(request_id) and is_binary(identifier) and is_binary(action_id) and is_map(correlation) do
-    case DecisionStore.validate_delivery(item, decision_store) do
+    case Commands.validate_delivery(item, decision_store) do
       {:ok, :accepted} ->
         resolve_delivery_correlation_attention(identifier, action_id)
         :ok
@@ -277,7 +277,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   @doc false
   @spec record_provider_delivery(map(), map(), GenServer.server()) :: :ok
-  def record_provider_delivery(item, issue, decision_store \\ DecisionStore)
+  def record_provider_delivery(item, issue, decision_store \\ Commands.default_store())
 
   def record_provider_delivery(
         %{category: :operator_message, id: request_id, action_id: action_id, correlation: correlation} = item,
@@ -285,7 +285,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         decision_store
       )
       when is_integer(request_id) and is_binary(identifier) and is_binary(action_id) and is_map(correlation) do
-    case DecisionStore.record_delivery(item, decision_store) do
+    case Commands.record_delivery(item, decision_store) do
       {:ok, status} when status in [:accepted, :duplicate] ->
         resolve_delivery_correlation_attention(identifier, action_id)
 

@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
 
   use Phoenix.Component
 
+  alias Aiur.Conversation.History
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
@@ -145,21 +146,21 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   def format_error(reason), do: inspect(reason)
 
   defp refresh_from_path(%{path: path} = modal) when is_binary(path) do
-    %{modal | messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
+    %{modal | messages: path |> History.read_log() |> History.parse_log()}
   end
 
   defp refresh_from_path(modal), do: modal
 
   defp read_agent_log(%{workspace_path: workspace_path}) when is_binary(workspace_path) do
-    Aiur.AgentLog.read_workspace(workspace_path)
+    History.workspace_log(workspace_path)
   end
 
   defp read_agent_log(entry) do
     path = agent_log_path(entry)
-    %{path: path, messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
+    %{path: path, messages: path |> History.read_log() |> History.parse_log()}
   end
 
-  defp agent_log_path(%{workspace_path: workspace_path}), do: Aiur.AgentLog.workspace_log_path(workspace_path)
+  defp agent_log_path(%{workspace_path: workspace_path}), do: History.workspace_log_path(workspace_path)
   defp agent_log_path(_entry), do: nil
   defp writable_target?(%{writable_target?: true}), do: true
   defp writable_target?(_modal), do: false

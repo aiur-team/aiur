@@ -7,6 +7,7 @@ defmodule Aiur.ExtensionsTest do
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.DashboardFontAssertions
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
@@ -560,10 +561,7 @@ defmodule Aiur.ExtensionsTest do
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
     last_failure_at = ~U[2026-09-29 12:00:00Z]
-
-    snapshot =
-      static_snapshot()
-      |> update_in([:retrying], fn [retrying] -> [Map.put(retrying, :last_failure_at, last_failure_at)] end)
+    snapshot = update_in(static_snapshot(), [:retrying], fn [retrying] -> [Map.put(retrying, :last_failure_at, last_failure_at)] end)
 
     orchestrator_name = Module.concat(__MODULE__, :ObservabilityApiOrchestrator)
 
@@ -580,12 +578,12 @@ defmodule Aiur.ExtensionsTest do
       )
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
-
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
     assert_occ_sections(state_payload)
+    assert %{"snapshot_freshness" => %{"status" => "current", "freshness_window_ms" => 600_000}, "observations" => nil, "daemon_started_at" => nil} = state_payload
 
-    assert without_occ_sections(state_payload) == %{
+    assert state_payload |> without_occ_sections() |> Map.drop(~w(snapshot_freshness observations daemon_started_at)) == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
@@ -619,6 +617,7 @@ defmodule Aiur.ExtensionsTest do
                  "last_event_at" => nil,
                  "stale_for_seconds" => nil,
                  "waiting_reason" => "active",
+                 "waiting" => nil,
                  "open_decision_count" => 0,
                  "open_decision_count_health" => "unknown",
                  "ci" => nil,
@@ -643,6 +642,7 @@ defmodule Aiur.ExtensionsTest do
                  "work_state" => "retrying",
                  "tracker_paused" => false,
                  "waiting_reason" => "backing_off",
+                 "waiting" => nil,
                  "open_decision_count" => 0,
                  "open_decision_count_health" => "unknown",
                  "ci" => nil,
@@ -658,8 +658,7 @@ defmodule Aiur.ExtensionsTest do
                "next_poll_in_ms" => 480_000,
                "poll_interval_ms" => 120_000
              },
-             # The global pause switch rides along on every state payload so
-             # API consumers can tell a quiet fleet from a held one.
+             # The global pause switch rides on every payload: a quiet fleet reads apart from a held one.
              "globally_paused" => false
            }
 
@@ -1057,8 +1056,7 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     html = html_response(get(build_conn(), "/"), 200)
-    assert html =~ "/dashboard.css"
-    assert html =~ "/build-home/loader.js"
+    DashboardFontAssertions.assert_bootstrap(html)
     assert html =~ "Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook()"
     assert {dashboard_offset, _} = :binary.match(html, "/dashboard.css")
     assert {home_offset, _} = :binary.match(html, "/build-home/home.css")
@@ -1113,10 +1111,9 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ":root {"
     refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
-    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .shell-nav-sidebar"
-    # Collapsing hides the route list, not the whole sidebar: the `<aside>` stays
-    # as a bare rail so the control that reopens the nav is still on screen.
-    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .shell-nav-toggle"
+    assert dashboard_css =~ "html.nav-collapsed .snav-label"
+    # The collapsed rail retains its drag handle and route icons.
+    assert dashboard_css =~ "html.nav-collapsed .sidenav"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
@@ -1186,9 +1183,7 @@ defmodule Aiur.ExtensionsTest do
     assert response(github_mark, 200) =~ "<svg"
     assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    bungee = get(build_conn(), "/bungee.woff2")
-    assert response(bungee, 200) != ""
-    assert Plug.Conn.get_resp_header(bungee, "content-type") == ["font/woff2"]
+    DashboardFontAssertions.assert_fonts(&get(build_conn(), &1))
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -1305,7 +1300,7 @@ defmodule Aiur.ExtensionsTest do
     refute html =~ "Transport"
     refute html =~ "status-badge-live"
     assert html =~ "status-badge-offline"
-    assert html =~ ~s(id="nav-toggle")
+    assert html =~ ~s(id="ax-drag")
     assert html =~ ~s(phx-hook="NavToggle")
 
     updated_snapshot =
@@ -1349,9 +1344,7 @@ defmodule Aiur.ExtensionsTest do
 
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
-    assert_eventually(fn ->
-      render(view) =~ "Updated unit title"
-    end)
+    assert_eventually(fn -> render(view) =~ "Updated unit title" end, 200)
 
     token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
@@ -1388,9 +1381,7 @@ defmodule Aiur.ExtensionsTest do
 
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
-    assert_eventually(fn ->
-      render(view) =~ "fresh modal update"
-    end)
+    assert_eventually(fn -> render(view) =~ "fresh modal update" end, 200)
 
     closed_html =
       view
@@ -1598,7 +1589,8 @@ defmodule Aiur.ExtensionsTest do
           "/provider-assets/codex-color.svg",
           "/build-home/loader.js",
           "/build-home/logos/kimi-logo.png",
-          "/build-home/nope.js"
+          "/build-home/nope.js",
+          "/fonts/space-grotesk-v22-latin.woff2"
         ] do
       unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
       assert unauthenticated_asset.status == 401
@@ -1894,14 +1886,7 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp without_occ_sections(payload) do
-    Map.drop(payload, [
-      "decision_history",
-      "recent_merges",
-      "analytics",
-      "capacity",
-      "capacity_hold",
-      "dispatch_hold"
-    ])
+    Map.drop(payload, ~w(decision_history recent_merges analytics capacity capacity_hold dispatch_hold daemon_started_at observations snapshot_freshness))
   end
 
   # Dashboard routes are behind the FinancialDataAccess plug, which challenges

@@ -27,9 +27,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.State
-  alias Aiur.Tracker
 
   @doc """
   Returns the open pull request for the rework target.
@@ -118,7 +116,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
     end
   end
 
-  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # A `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review with no inline comments
   # opens no review thread at all, so the thread read below reports zero
   # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
   # much did make (#2473). Where the caller is routing *that review submission*
@@ -156,9 +154,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # it is the one a refactor must not delete.
   #
   # The option defaults to `false`, so every caller that is *not* holding a live
-  # changes-requested review keeps the pre-#2473 behaviour exactly.
+  # blocking review submission keeps the pre-#2473 behaviour exactly.
   defp no_thread_verdict(opts) do
-    if Keyword.get(opts, :changes_requested_review?, false) do
+    if Keyword.get(opts, :blocking_review_submission?, false) do
       {:ok, :rework}
     else
       {:skip, :no_unresolved_review_threads}
@@ -194,9 +192,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
 
-  Pass `changes_requested_review?: true` when the caller is routing a live
-  `CHANGES_REQUESTED` review submission. A body-only review opens no review
-  thread, so the thread read cannot see it (#2473); the submission is itself
+  Pass `blocking_review_submission?: true` when the caller is routing a trusted
+  live `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review submission. A body-only
+  review opens no review thread, so the thread read cannot see it (#2473); the submission is itself
   the outstanding finding and stands in for an unresolved thread.
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
@@ -305,13 +303,13 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # and the precondition is still pinned by the dedicated tests.
   @spec available?() :: boolean()
   def available? do
-    Tracker.adapter() == GitHubTracker and
+    Aiur.CodeHost.available?() and
       github_client_exported?()
   end
 
   defp default_fetcher(issue_key) do
     if available?() do
-      Tracker.fetch_open_pull_request_for_branch(issue_key)
+      Aiur.CodeHost.fetch_open_pull_request_for_branch(issue_key)
     else
       {:ok, %{}}
     end

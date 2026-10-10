@@ -4,6 +4,8 @@
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
   base_branch: {{BASE_BRANCH}}           # required integration branch; `aiur init` offers the repository default read from GitHub
+  # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
+  # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
@@ -40,6 +42,7 @@ agent:
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
+  # build_nice: 10                      # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   # max_concurrent_builds: 4             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
@@ -82,8 +85,9 @@ agent:
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
-  # max_load_average: 1.5                # load ceiling, CPU-corroborated; set null to disable
-  # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
+  # max_load_average: 1.5                # minus CPU niced above the daemon, CPU-corroborated; null disables
+  # target_load_average: 1.0             # per-scheduler target on the same signal; null disables
+  # load_resume_max_age_seconds: 21600  # safe occupancy record lifetime; 0 disables resume
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
@@ -223,6 +227,7 @@ alerts:
 
 # Build queue (GitHub only; defaults shown).
 # build_queue:
+#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes

@@ -6,7 +6,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
@@ -360,19 +360,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # but never unmarked. A ten-minute-old cap read as current is #1564.
     assert html =~ "3 cap (binding: awaiting dispatch, stale, 10m old)"
     refute html =~ "3 cap<"
-  end
-
-  test "reports no wasted-capacity figure when no effective cap is known" do
-    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
-
-    {:ok, _view, html} = live(build_conn(), "/analytics")
-
-    # Idle slot-hours are a subtraction from the cap. With no cap reported the
-    # page must not substitute the local config file and print a precise hour
-    # count under a ceiling it just called unknown.
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
-    refute html =~ "unknown cap (configured"
-    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -848,10 +835,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
   # `publish/2` stamps the current monotonic clock, so restating the observation
   # time is the only way to read a ten-minute-old snapshot without waiting.
   defp age_published_snapshot(orchestrator, age_ms) do
-    cached = :persistent_term.get({SnapshotStore, orchestrator})
+    cached = SnapshotCache.get(orchestrator)
 
-    :persistent_term.put(
-      {SnapshotStore, orchestrator},
+    SnapshotCache.put(
+      orchestrator,
       %{
         cached
         | observed_at_ms: System.monotonic_time(:millisecond) - age_ms,

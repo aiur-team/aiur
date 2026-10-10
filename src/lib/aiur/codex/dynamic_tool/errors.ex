@@ -7,6 +7,12 @@ defmodule Aiur.Codex.DynamicTool.Errors do
   alias Aiur.Codex.DynamicTool.TicketState
 
   @spec payload(term()) :: map()
+  def payload(:invalid_epic_arguments), do: %{"error" => %{"message" => "Invalid epic arguments; choose an epic or clear, without actor or source fields."}}
+  def payload({:unknown_epic, epic, known}), do: %{"error" => %{"message" => "Unknown general epic #{inspect(epic)}", "epic" => epic, "known" => known}}
+  def payload(:epic_overrides_unavailable), do: %{"error" => %{"message" => "Epic overrides unavailable; no assignments were changed."}}
+  def payload(:epic_overrides_outcome_unknown), do: %{"error" => %{"message" => "Epic write outcome is unknown. Retry the identical set to observe changed or unchanged."}}
+  def payload(:epic_config_unavailable), do: %{"error" => %{"message" => "Epic config unavailable; no default catalog is assumed."}}
+
   def payload(:missing_query) do
     %{
       "error" => %{
@@ -259,6 +265,19 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     do: %{
       "error" => %{
         "message" => "`aiur_declare_blocker` is unavailable in the current runtime context."
+      }
+    }
+
+  def payload({:stale_review_base, detail}),
+    do: %{
+      "error" => %{
+        "message" =>
+          "Human-review refused: PR ##{detail.pr_number} conflicts with or overlaps changes in current origin/#{detail.base_branch}. " <>
+            "Integrate the configured base at most once per handoff, resolve conflicts, validate and push. " <>
+            "Keep the PR ready before returning to ci-wait; wait for CI on the new head before requesting human-review. " <>
+            "If another unsafe base change appears after that integration, alert the Executor instead of repeating the merge/CI cycle.",
+        "reason" => "stale_review_base",
+        "detail" => Response.jsonable(detail)
       }
     }
 

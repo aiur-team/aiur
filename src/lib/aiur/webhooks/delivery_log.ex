@@ -62,7 +62,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionLog, Fs}
+  alias Aiur.{Alerts, Config, Fs, Journal}
 
   @filename "webhook_deliveries.ndjson"
   @retention_ms 72 * 60 * 60 * 1000
@@ -184,7 +184,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
 
   defp settings(opts) do
     %{
-      append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+      append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
       compact_fun: Keyword.get(opts, :compact_fun, &compact_log/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
@@ -213,14 +213,14 @@ defmodule Aiur.Webhooks.DeliveryLog do
   defp boot(dir, settings) do
     path = Path.join(dir, @filename)
 
-    case DecisionLog.prepare(dir, path, settings.sync_fun) do
+    case Journal.prepare(dir, path, settings.sync_fun) do
       :ok -> replay(path, settings)
       {:error, reason} -> unavailable_state(path, settings, {:directory_unavailable, reason})
     end
   end
 
   defp replay(path, settings) do
-    case DecisionLog.replay(path, &decode_record/1) do
+    case Journal.replay(path, &decode_record/1) do
       {:ok, records, corruption} ->
         path
         |> base_state(settings)

@@ -61,148 +61,24 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  # Keep the webhook receiver ahead of every other scope: the dashboard's
-  # trailing `/*path` catch-all would otherwise claim this path and answer with
-  # a Basic-Auth challenge instead of a signature check. The literal path is
-  # asserted against `AiurWeb.GithubWebhook.path/0` in the router tests, since
-  # the endpoint's body reader keys raw-body caching off that same value.
-  scope "/", AiurWeb do
-    pipe_through(:github_webhook)
+  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
 
-    # `log: false` suppresses Phoenix's default dispatch log, which would
-    # otherwise write the entire decoded webhook payload into the debug log.
-    post("/api/v1/github/webhook", GithubWebhookController, :create, log: false)
-  end
+  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
 
-  # Supervisor Decision mutations retain the dashboard's existing write
-  # defenses in addition to their dedicated machine credential. Keep these
-  # specific routes before `/api/v1/:issue_identifier` so `decisions` cannot
-  # be interpreted as an issue identifier.
-  scope "/", AiurWeb do
-    pipe_through([:supervisor_auth, :api_write, :require_writable])
-
-    post("/api/v1/decisions/:decision_id/enrich", DecisionApiController, :enrich)
-    post("/api/v1/decisions/:decision_id/decide", DecisionApiController, :decide)
-    post("/api/v1/decisions/:decision_id/revise", DecisionApiController, :revise)
-  end
-
-  # Read operations require the same supervisor identity but remain available
-  # while the dashboard is observe-only and need no browser mutation headers.
-  scope "/", AiurWeb do
-    pipe_through(:supervisor_auth)
-
-    get("/api/v1/decisions", DecisionApiController, :index)
-    get("/api/v1/decisions/:decision_id", DecisionApiController, :show)
-  end
-
-  # Authenticated method/shape catches keep unsupported Decision requests from
-  # falling through into the dashboard Basic-Auth issue API.
-  scope "/", AiurWeb do
-    pipe_through(:supervisor_auth)
-
-    match(:*, "/api/v1/decisions", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/enrich", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/decide", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/revise", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/*path", DecisionApiController, :not_found)
-  end
-
-  scope "/", AiurWeb do
-    pipe_through(:dashboard_auth)
-
-    get("/dashboard.css", StaticAssetController, :dashboard_css)
-    get("/ticket-context-dialog-hook.js", StaticAssetController, :ticket_context_dialog_hook)
-    get("/build-order-grid-hook.js", StaticAssetController, :build_order_grid_hook)
-    get("/time-brush-hook.js", StaticAssetController, :time_brush_hook)
-    get("/sortable-table-hook.js", StaticAssetController, :sortable_table_hook)
-    get("/streamdeck-emulator-hook.js", StaticAssetController, :streamdeck_emulator_hook)
-    get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
-    get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
-    get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
-    get("/aiur-logo.png", StaticAssetController, :aiur_logo)
-    get("/images/github-mark.svg", StaticAssetController, :github_mark)
-    get("/bungee.woff2", StaticAssetController, :bungee_font)
-    get("/provider-assets/*provider_asset", StaticAssetController, :provider_asset)
-    get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
-    get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
-    get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
-    get("/vendor/layout/:version/:digest/:asset", StaticAssetController, :layout_asset)
-  end
-
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :browser])
-
-    get("/decisions", CommandsRedirectController, :legacy)
-    get("/decisions/:decision_id", CommandsRedirectController, :legacy)
-
-    live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
-      live("/", DashboardLive, :index)
-      live("/chat/:owner/:repository/:identifier", DashboardLive, :index)
-      live("/commands", DashboardLive, :decisions)
-      live("/commands/:decision_id", DashboardLive, :decision)
-      live("/build-orders", BuildOrderLive, :build_orders)
-      live("/build-orders/:root_number", BuildOrderLive, :build_order)
-      live("/analytics", AnalyticsLive, :analytics)
-      live("/streamdeck", StreamdeckLive, :streamdeck)
-    end
-  end
-
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :secure_document])
-
-    get("/build-order-documents/:owner/:repository/:root_number/:member_number", PlanningDocumentController, :show)
-  end
-
-  # Agent-write endpoints driven from the browser/API. Writes are enabled by
-  # default; set `observability.dashboard_writable: false` to make them read-only.
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :api_write, :require_writable])
-
-    post("/api/v1/refresh", ObservabilityApiController, :refresh)
-    match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/messages", ObservabilityApiController, :send_message)
-    match(:*, "/api/v1/:issue_identifier/messages", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/pause", ObservabilityApiController, :pause)
-    match(:*, "/api/v1/:issue_identifier/pause", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/resume", ObservabilityApiController, :resume)
-    match(:*, "/api/v1/:issue_identifier/resume", ObservabilityApiController, :method_not_allowed)
-  end
-
-  # Machine-to-machine write surfaces that are NOT browser-facing and must keep
-  # working in read-only mode: the TUI's tmux pane key bindings (interrupt/hide,
-  # see aiur.tmux.conf) and the RC claude lifecycle-hook sink (#367).
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :api_write])
-
-    post("/api/v1/pane/interrupt", ObservabilityApiController, :pane_interrupt)
-    match(:*, "/api/v1/pane/interrupt", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/pane/hide", ObservabilityApiController, :pane_hide)
-    match(:*, "/api/v1/pane/hide", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/claude-hook", ObservabilityApiController, :claude_hook)
-    match(:*, "/api/v1/:issue_identifier/claude-hook", ObservabilityApiController, :method_not_allowed)
-  end
-
-  scope "/", AiurWeb do
-    pipe_through(:dashboard_auth_required)
-
-    post("/api/v1/streamdeck/token", StreamdeckSessionController, :create)
-  end
-
-  scope "/", AiurWeb do
-    pipe_through(:dashboard_auth)
-
-    get("/api/v1/state", ObservabilityApiController, :state)
-    get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
-    get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)
-    match(:*, "/api/v1/:issue_identifier/events", ObservabilityApiController, :method_not_allowed)
-    get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
-    match(:*, "/", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/api/v1/streamdeck/grid", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/api/v1/:issue_identifier", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/*path", ObservabilityApiController, :not_found)
-  end
+  # The receiver must precede every dashboard scope.
+  GithubWebhook.receiver()
+  # Decision routes and catches must precede generic issue reads.
+  Decisions.mutations()
+  Decisions.reads()
+  Decisions.method_catches()
+  DashboardPages.static_assets()
+  DashboardPages.pages()
+  Api.agent_writes()
+  Api.machine_writes()
+  Streamdeck.session()
+  Capabilities.reads()
+  # Generic issue reads and the catch-all stay last.
+  Api.reads_and_catch_all()
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()

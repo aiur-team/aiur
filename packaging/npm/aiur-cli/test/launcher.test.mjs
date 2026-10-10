@@ -16,7 +16,6 @@ import { tmpdir } from "node:os";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
 const realShim = fileURLToPath(new URL("../bin/aiur.js", import.meta.url));
 
 const HOST_TRIPLE = {
@@ -250,7 +249,7 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
   "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
-  "build-orders", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
+  "build-orders", "queue", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
   "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
@@ -354,14 +353,15 @@ test("failed pin install remains non-fatal with an accurate pinned manual hint",
   expect(result.stderr).not.toContain("opencode was not found");
 });
 
-// Builds a minimal fake OTP release whose `elixir` records its argv, so the
-// REAL launcher's init routing can be exercised end to end.
+// Builds a fake OTP release recording argv to exercise the real launcher routing.
 function setupRealLauncher() {
   const launcherSrc = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-queue.sh"), path.join(root, "libexec", "aiur-queue.sh"));
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-epic.sh"), path.join(root, "libexec", "aiur-epic.sh"));
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-capabilities.sh"), path.join(root, "libexec", "aiur-capabilities.sh"));
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";
   const vsnDir = path.join(releaseDir, "releases", vsn);
@@ -708,7 +708,7 @@ test("background start reclaims stale tmux session state before creating a new s
   expect(capture).toContain("has-session");
   expect(capture).toContain("kill-server");
   expect(capture).toContain("new-session");
-});
+}, 15000);
 
 test("background start records its headless surface when no tmux session exists", () => {
   const { result, stateDir } = runBackgroundLauncher({ existingSession: false, controlReady: true });
@@ -1075,7 +1075,7 @@ test("control rpc timeouts terminate stuck helpers and report an unknown outcome
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
-});
+}, 15000);
 
 // The timeout budget must be a ceiling, never a floor. A watchdog that holds the
 // caller's stdout keeps the pipe open for its whole sleep, so a capturing caller

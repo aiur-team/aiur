@@ -6,7 +6,6 @@ defmodule ScriptsAiurdevTest do
   # files via relative paths) and surfaces as a `MatchError {:error, :enoent}`
   # compiling some unrelated `test/...` file under the temp cwd (#589).
   use ExUnit.Case, async: false
-
   # aiurdev is now a thin dev shim: it resolves the repo-local release, rebuilds
   # it when stale, and execs the shared engine with AIUR_RELEASE_DIR set. The
   # command surface itself is covered by AiurEngineTest; here we only verify the
@@ -26,6 +25,7 @@ defmodule ScriptsAiurdevTest do
     File.write!(
       engine,
       "#!/usr/bin/env bash\n" <>
+        "if [ \"${1:-}\" = __identity ]; then echo AIUR_INSTANCE_KEY=0123456789; exit; fi\n" <>
         "if [ -n \"${AIUR_ENGINE_TRACE:-}\" ]; then\n" <>
         "  {\n" <>
         "    echo '---'\n" <>
@@ -230,8 +230,7 @@ defmodule ScriptsAiurdevTest do
     path
   end
 
-  # A throwaway HOME so `--clear` (which wipes ~/.aiur/logs) never touches the
-  # real one. Seeds a stale session dir the caller can assert was removed.
+  # Throwaway HOME keeps log-clearing tests away from real run evidence.
   defp sandbox_home do
     home = Aiur.TestSupport.tmp_root!("aiurdev-home")
     File.mkdir_p!(Path.join([home, ".aiur", "logs", "old-session"]))
@@ -442,6 +441,7 @@ defmodule ScriptsAiurdevTest do
 
     for {args, expected} <- [
           {["agents"], "ENGINE_ARGS: agents"},
+          {["epic", "list"], "ENGINE_ARGS: epic list"},
           {["status"], "ENGINE_ARGS: status"},
           {["set", "max-agents", "3"], "ENGINE_ARGS: set max-agents 3"},
           {["pause", "--all"], "ENGINE_ARGS: pause --all"},
@@ -873,7 +873,7 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "--clear requires --debug"
   end
 
-  test "--debug --clear wipes the logs root then execs the engine" do
+  test "--debug --clear preserves unmarked logs then execs the engine" do
     root = fake_repo()
     home = sandbox_home()
     mise = fake_mise()
@@ -887,7 +887,7 @@ defmodule ScriptsAiurdevTest do
         {"HOME", home}
       ])
 
-    refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     assert out =~ "AIUR_DEBUG: 1"
     assert out =~ "ENGINE_ARGS:"
   end
@@ -912,9 +912,7 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99"
     # --test is consumed by the shim, never handed to the engine/release.
     refute out =~ "ENGINE_ARGS: --test"
-    # Operator runs outside an agent workspace keep the real home-log clear and
-    # never enter the agent IR sandbox branch.
-    refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     refute out =~ "agent IR sandbox"
   end
 
@@ -937,7 +935,7 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99,100,101"
     refute out =~ "--single"
     refute out =~ "ENGINE_ARGS: --test3"
-    refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     refute out =~ "agent IR sandbox"
   end
 

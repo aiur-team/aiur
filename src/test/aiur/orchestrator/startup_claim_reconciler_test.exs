@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     log =
       capture_log(fn ->
         result =
-          StartupClaimReconciler.reconcile(%State{}, [issue],
+          reconcile(%State{}, [issue],
             update_issue_state_fun: fn identifier, state_name, expected_state ->
               send(parent, {:transition, identifier, state_name, expected_state})
               :ok
@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
       end)
 
     assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
-    assert_receive {:alert, "ticket.2076.agent.startup_orphan_claim_released", alert_opts}, 1000
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", alert_opts}, 1000
     refute alert_opts[:needs_attention]
     assert alert_opts[:message] =~ "released"
     assert alert_opts[:reason] =~ "no live runtime"
@@ -43,7 +43,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     parent = self()
 
     {state, [%Issue{state: "Todo"}]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         active_states: ["Todo", "In Progress"],
         update_issue_state_fun: fn identifier, state_name, expected_state ->
           send(parent, {:transition, identifier, state_name, expected_state})
@@ -66,7 +66,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     }
 
     {result, [retained]} =
-      StartupClaimReconciler.reconcile(state, [issue],
+      reconcile(state, [issue],
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           flunk("a live runtime must protect its tracker claim")
         end,
@@ -90,7 +90,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     }
 
     {result, [retained]} =
-      StartupClaimReconciler.reconcile(state, [issue],
+      reconcile(state, [issue],
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           flunk("a staged entry must protect its tracker claim")
         end,
@@ -113,7 +113,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     }
 
     {result, [%Issue{state: "todo"}]} =
-      StartupClaimReconciler.reconcile(state, [issue],
+      reconcile(state, [issue],
         update_issue_state_fun: fn "2076", "todo", "in-progress" -> :ok end,
         emit_alert_fun: fn _topic, _opts -> :ok end
       )
@@ -125,7 +125,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     issue = issue("2076", "todo")
 
     {state, [retained]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           flunk("startup reconciliation must only write in-progress claims")
         end,
@@ -142,7 +142,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     boot_id = Aiur.Boot.run_id()
 
     {state, [%Issue{state: "todo"}]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         read_boot_marker_fun: fn -> {:ok, nil} end,
         mark_boot_marker_fun: fn id ->
           send(parent, {:claimed_boot, id})
@@ -156,22 +156,15 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert state.startup_claim_reconciliation_complete?
   end
 
-  test "an Orchestrator-only restart never re-runs the pass against a live claim" do
-    # The Orchestrator GenServer restarted in place: the agent tasks survived,
-    # the boot marker still names the current boot, and this generation's
-    # registry is empty. The pass must NOT release the surviving agent's claim
-    # and fork the work (#2076 review P1).
+  test "an Orchestrator-only restart protects surviving workspace leases" do
     issue = issue("2076", "in-progress")
     boot_id = Aiur.Boot.run_id()
 
     {result, [retained]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         read_boot_marker_fun: fn -> {:ok, boot_id} end,
-        mark_boot_marker_fun: fn _id -> flunk("a claimed boot must not re-run the pass") end,
-        update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
-          flunk("an Orchestrator-only restart must not release a surviving claim")
-        end,
-        emit_alert_fun: fn _topic, _opts -> flunk("a skipped pass must not alert") end
+        ownership_fun: fn "2076" -> {:ok, %{phase: :active}} end,
+        update_issue_state_fun: fn _, _, _ -> flunk("a lease protects a surviving worker") end
       )
 
     assert retained == issue
@@ -182,7 +175,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     issue = issue("2076", "in-progress")
 
     {result, [%Issue{state: "todo"}]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         read_boot_marker_fun: fn -> {:ok, "an-earlier-boot-id"} end,
         update_issue_state_fun: fn "2076", "todo", "in-progress" -> :ok end,
         emit_alert_fun: fn _topic, _opts -> :ok end
@@ -195,7 +188,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     issue = issue("2076", "in-progress")
 
     {result, [retained]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         read_boot_marker_fun: fn -> {:error, :corrupt_marker} end,
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           flunk("an unreadable marker must fail closed, never release")
@@ -211,7 +204,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     issue = issue("2076", "in-progress")
 
     {result, [retained]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         mark_boot_marker_fun: fn _id -> {:error, :disk_full} end,
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           flunk("an unclaimable boot must fail closed, never release")
@@ -230,7 +223,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     log =
       capture_log(fn ->
         result =
-          StartupClaimReconciler.reconcile(%State{}, [issue],
+          reconcile(%State{}, [issue],
             update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
               {:error, :tracker_unavailable}
             end,
@@ -254,7 +247,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     repeated_log =
       capture_log(fn ->
         result =
-          StartupClaimReconciler.reconcile(failed_state, [issue],
+          reconcile(failed_state, [issue],
             update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
               {:error, :tracker_unavailable}
             end,
@@ -270,6 +263,14 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert repeated_log =~ "retry 2/3"
     refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 100
 
+    {deferred_state, [^issue]} =
+      reconcile(repeated_state, [issue],
+        open_pr_fetcher: fn _identifier -> {:error, :read_deferred} end,
+        update_issue_state_fun: fn _, _, _ -> flunk("unavailable PR evidence must not write") end
+      )
+
+    assert deferred_state.startup_claim_reconciliation_failures["2076"].attempts == 2
+
     # The third failure reaches the per-ticket cap: the claim is latched and
     # the pass completes instead of reaping forever.
     final_log =
@@ -277,7 +278,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         send(
           parent,
           {:final_result,
-           StartupClaimReconciler.reconcile(repeated_state, [issue],
+           reconcile(deferred_state, [issue],
              update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
                {:error, :tracker_unavailable}
              end,
@@ -290,7 +291,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert final_state.startup_claim_reconciliation_complete?
     assert final_state.startup_claim_reconciliation_failures["2076"].attempts == 3
     assert final_log =~ "exhausted 3 attempts"
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 100
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", exhausted_opts}, 1000
+    assert exhausted_opts[:needs_attention] and exhausted_opts[:central] and exhausted_opts[:durable]
+    assert exhausted_opts[:message] =~ "2076"
+    assert exhausted_opts[:message] =~ "exhausted 3 attempts"
+    assert exhausted_opts[:reason] =~ "tracker_unavailable"
 
     # The completed pass never re-attempts the latched ticket.
     assert {^final_state, [^issue]} =
@@ -300,7 +305,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
   end
 
   defp reconcile_latched(state, issue) do
-    StartupClaimReconciler.reconcile(state, [issue],
+    reconcile(state, [issue],
       read_boot_marker_fun: fn -> {:ok, Aiur.Boot.run_id()} end,
       mark_boot_marker_fun: fn _id -> :ok end,
       update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
@@ -315,7 +320,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     parent = self()
 
     {failed_state, [^issue]} =
-      StartupClaimReconciler.reconcile(%State{}, [issue],
+      reconcile(%State{}, [issue],
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           {:error, :tracker_unavailable}
         end,
@@ -325,7 +330,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 1000
 
     {recovered_state, [%Issue{state: "todo"}]} =
-      StartupClaimReconciler.reconcile(failed_state, [issue],
+      reconcile(failed_state, [issue],
         update_issue_state_fun: fn "2076", "todo", "in-progress" -> :ok end,
         emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
       )
@@ -333,7 +338,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert recovered_state.startup_claim_reconciliation_complete?
     assert recovered_state.startup_claim_reconciliation_failures == %{}
 
-    assert_receive {:alert, "ticket.2076.agent.startup_orphan_claim_released", _opts}, 1000
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", _opts}, 1000
 
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}, 1000
     refute resolved_opts[:needs_attention]
@@ -349,7 +354,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     }
 
     {reconciled, [^issue]} =
-      StartupClaimReconciler.reconcile(state, [issue],
+      reconcile(state, [issue],
         update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
           flunk("a non-orphan must not be updated")
         end,
@@ -363,16 +368,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert opts[:reason] =~ "no longer reports an orphaned"
   end
 
-  test "a completed startup pass never releases claims discovered on later polls" do
-    {complete_state, []} = StartupClaimReconciler.reconcile(%State{}, [])
+  test "a completed startup pass still releases claims discovered on later polls" do
+    {complete_state, []} = reconcile(%State{}, [])
     issue = issue("later", "in-progress")
+    {recovered, [%Issue{state: "todo"}]} = reconcile(complete_state, [issue], update_issue_state_fun: fn "later", "todo", "in-progress" -> :ok end)
+    assert recovered.startup_claim_reconciliation_complete?
+  end
 
-    assert {^complete_state, [^issue]} =
-             StartupClaimReconciler.reconcile(complete_state, [issue],
-               update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
-                 flunk("startup reconciliation is one-shot after successful completion")
-               end
-             )
+  defp reconcile(state, issues, opts \\ []) do
+    defaults = [grace_ms: 0, open_pr_fetcher: fn _ -> {:ok, nil} end, create_comment_fun: fn _, _ -> :ok end, emit_alert_fun: fn _, _ -> :ok end]
+    StartupClaimReconciler.reconcile(state, issues, Keyword.merge(defaults, opts))
   end
 
   defp issue(identifier, state) do

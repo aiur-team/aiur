@@ -53,7 +53,7 @@ defmodule Aiur.CIApprovalStoreTest do
        %{logs_parent: logs_parent, state_dir: state_dir} do
     launch(logs_parent, "20260917T160044Z-1")
 
-    assert :ok = CIApprovalStore.save(%{"101" => "approved-sha"}, %{"102" => "flaky-sha"})
+    assert :ok = CIApprovalStore.save(%{"101" => "approved-sha"}, %{"102" => "flaky-sha"}, %{}, %{"101" => "approved-sha"})
 
     assert :ok =
              CIApprovalStore.journal_base_repair("103", %{
@@ -68,6 +68,7 @@ defmodule Aiur.CIApprovalStoreTest do
 
     assert %{
              approved_heads: %{"101" => "approved-sha"},
+             passed_heads: %{"101" => "approved-sha"},
              test_failure_heads: %{"102" => "flaky-sha"},
              base_repair_invalidations: %{
                "103" => %{head_sha: "repair-sha", repaired_at: 1_700_000_000, repair_state: :repairing}

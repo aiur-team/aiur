@@ -5,8 +5,8 @@ defmodule Aiur.Codex.AppServerPort do
 
   alias Aiur.{AgentEnvironment, Config, PathSafety, ProcessReaper, SSH}
   alias Aiur.AppServer.Adapter
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.Config, as: CodexConfig
+  alias Aiur.ProcessTree
 
   @spec validate_workspace_cwd(Path.t(), String.t() | nil) :: {:ok, Path.t()} | {:error, term()}
   def validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
@@ -150,8 +150,13 @@ defmodule Aiur.Codex.AppServerPort do
     error
   end
 
+  # Startup primes this owner-local cache; message deltas never need another OS inspection.
   @spec port_metadata(port(), String.t() | nil) :: map()
   def port_metadata(port, worker_host \\ nil) when is_port(port) do
+    Process.get({__MODULE__, port}) || cache_port_metadata(port, worker_host)
+  end
+
+  defp cache_port_metadata(port, worker_host) do
     metadata =
       case :erlang.port_info(port, :os_pid) do
         {:os_pid, os_pid} ->
@@ -164,11 +169,12 @@ defmodule Aiur.Codex.AppServerPort do
     metadata
     |> maybe_put_local_process_group(worker_host)
     |> maybe_put_worker_host(worker_host)
+    |> tap(&Process.put({__MODULE__, port}, &1))
   end
 
   @doc false
   @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
-  defdelegate process_group_for_pid(pid), to: RemoteControl
+  defdelegate process_group_for_pid(pid), to: ProcessTree
 
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
@@ -184,11 +190,13 @@ defmodule Aiur.Codex.AppServerPort do
   @doc false
   @spec stop_port(port(), pos_integer() | nil) :: :ok
   def stop_port(port, os_pid) when is_port(port) do
+    Process.delete({__MODULE__, port})
+
     # Retain the PID before IO: a broken pipe can close the port but leave its child alive.
     if os_pid do
       ProcessReaper.unregister({:os_pid, os_pid})
       # Reap descendants while the root still anchors them, before closing its pipes.
-      RemoteControl.graceful_kill_tree(os_pid)
+      ProcessTree.graceful_kill_tree(os_pid)
     end
 
     try do
@@ -310,7 +318,7 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_provider_processes(provider, worker_host) when is_binary(worker_host), do: provider
 
   defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _worker_host),
-    do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
+    do: Map.put(provider, :descendant_pids, ProcessTree.process_tree(root_pid))
 
   defp maybe_put_provider_processes(provider, _worker_host), do: provider
 end

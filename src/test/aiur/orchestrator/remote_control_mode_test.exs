@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.RemoteControlModeTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.RemoteControlMode
+  alias Aiur.Orchestrator.{RemoteControlMode, TrackerTasks}
 
   test "remote control summary requires both the alias label and session URL" do
     issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:remote"]}
@@ -103,6 +104,45 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
     refute Map.has_key?(next_state.running, issue.id)
     assert Map.has_key?(next_state.retry_attempts, issue.id)
     assert next_state.claimed == MapSet.new([issue.id])
+  end
+
+  test "a late remote-control label write replies without replacing a new runner" do
+    parent = self()
+    reply_ref = make_ref()
+    issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:codex"]}
+    entry = running_entry(issue) |> Map.put(:session_id, "original")
+    state = %Aiur.Orchestrator.State{running: %{issue.id => entry}}
+
+    assert {:noreply, pending} =
+             RemoteControlMode.set_remote_control_call(state, issue.identifier, true,
+               from: {parent, reply_ref},
+               dashboard_url_fun: fn -> "http://localhost:4000" end,
+               dispatch_ready_fun: fn current, _, _ -> {:ok, current} end,
+               trust_fun: fn _, _ -> :ok end,
+               add_label_fun: fn _, _ ->
+                 send(parent, {:rc_writer, self()})
+
+                 receive do
+                   :release -> :ok
+                 end
+               end,
+               teardown_fun: fn _, _ -> flunk("replacement runner was torn down") end
+             )
+
+    receive_barrier({:rc_writer, worker})
+
+    assert {:reply, {:error, :remote_control_change_in_progress}, ^pending} =
+             RemoteControlMode.set_remote_control_call(pending, issue.identifier, false, from: {parent, make_ref()})
+
+    refute worker == self()
+    refute_received {^reply_ref, _}
+    replacement = %{entry | session_id: "replacement"}
+    current = %{pending | running: %{issue.id => replacement}}
+    send(worker, :release)
+    receive_barrier({task_ref, result})
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
+    receive_barrier({^reply_ref, {:error, :stale_runner}})
+    assert applied.running[issue.id] == replacement
   end
 
   defp running_entry(issue) do

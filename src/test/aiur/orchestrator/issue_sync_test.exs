@@ -1583,11 +1583,11 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   test "records exactly one Executor wake when an issue transitions to human-review" do
     Publisher.set_tracked_fn(fn _ -> true end)
-    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest})
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
     previous = issue("handoff", "in-progress")
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
     current = %{previous | state: "human-review"}
     sha = String.duplicate("c", 40)
     key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)

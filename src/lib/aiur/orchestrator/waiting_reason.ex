@@ -3,10 +3,11 @@ defmodule Aiur.Orchestrator.WaitingReason do
   Derives one explicit fleet-row waiting reason for OCC-5. Every branch names
   a concrete cause or `:active` — never a generic "blocked".
 
-  Pure and orchestrator-state-free by design: callers (`StatusReport`,
-  `Presenter`) extract the handful of fields each classification needs from
-  live state so this module stays trivially unit-testable.
+  Classification and descriptions use supplied facts only. Status rows
+  attach existing in-memory evidence without querying stores or persisting it.
   """
+
+  require Logger
 
   alias Aiur.Orchestrator.DispatchPolicy
 
@@ -31,6 +32,179 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :stale_claim
           | :workspace_ownership_waiting
           | :active
+
+  # JSON-safe names identify the part that can clear the wait.
+  @owners %{
+    waiting_for_human: "Executor",
+    waiting_for_supervisor: "Executor",
+    waiting_for_dependency: "DispatchPolicy",
+    waiting_for_ci: "CiLifecycle",
+    waiting_for_review: "Executor",
+    paused: "PauseResume",
+    run_paused: "PauseResume",
+    awaiting_dispatch: "Dispatcher",
+    paused_operator: "PauseResume",
+    paused_transient: "AutoResume",
+    provider_limited: "RateLimitFallback",
+    latched_lifetime: "Dispatcher",
+    tracker_unavailable: "Dispatcher",
+    backing_off: "RetryEngine",
+    unresponsive: "RuntimeWatchdog",
+    claim_released: "AutoResume",
+    orphaned_claim: "StartupClaimReconciler",
+    stale_claim: "Reconciler",
+    workspace_ownership_waiting: "Workspace.Ownership",
+    active: "AgentRunner"
+  }
+
+  @spec describe(t(), map()) :: map()
+  def describe(reason, facts) do
+    {cause, since} = evidence(reason, facts)
+    owner = if reason == :backing_off and facts[:capacity_hold_active?], do: "Dispatcher", else: Map.fetch!(@owners, reason)
+    %{reason: reason, owner: owner, cause: cause || :unknown, since: since}
+  end
+
+  defp evidence(:backing_off, %{capacity_hold_active?: true} = facts), do: {facts[:hold_cause], facts[:hold_since]}
+  defp evidence(:backing_off, facts), do: {facts[:error], facts[:last_failure_at]}
+
+  defp evidence(:paused_transient, %{auto_resume_cause: cause} = facts) when not is_nil(cause),
+    do: {cause, facts[:auto_resume_since]}
+
+  defp evidence(reason, facts) when reason in [:paused, :paused_operator, :paused_transient, :provider_limited],
+    do: {facts[:pause_reason], facts[:paused_at]}
+
+  defp evidence(:run_paused, facts), do: {facts[:global_pause][:source] || facts[:pause_reason], facts[:global_pause][:paused_at]}
+
+  defp evidence(:waiting_for_human, %{open_decision_count: count} = facts) when is_integer(count) and count > 0,
+    do: {%{open_decision_count: count}, facts[:human_wait_since]}
+
+  defp evidence(:waiting_for_human, facts), do: {facts[:pause_reason], facts[:human_wait_since] || facts[:paused_at]}
+
+  # No recorded start exists for these two waits: a normalized blocker edge
+  # carries no creation time, and the lifetime latch persists only a dispatch
+  # count. They report `since: nil` ("since unknown"), never another clock.
+  defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
+  defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
+
+  defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
+  defp evidence(:workspace_ownership_waiting, facts), do: {facts[:workspace_wait][:cause] || facts[:workspace_wait][:owner], facts[:workspace_wait][:since]}
+  defp evidence(:unresponsive, facts), do: {:activity_timeout, facts[:last_codex_timestamp] || facts[:started_at]}
+  defp evidence(:tracker_unavailable, facts), do: {facts[:dispatch_hold_reason], facts[:hold_since]}
+  defp evidence(:awaiting_dispatch, facts), do: {facts[:work_state], facts[:started_at]}
+  defp evidence(:active, facts), do: {:active, facts[:started_at]}
+
+  # Collapsed cause: these waits have no cause evidence on the row, so they
+  # name the collapse instead of guessing a specific cause.
+  defp evidence(_reason, _facts), do: {:unknown, nil}
+
+  @doc false
+  @spec attach(map(), map(), map()) :: map()
+  def attach(row, state, entry \\ %{}) do
+    now = DateTime.utc_now()
+    facts = Map.merge(entry, row) |> Map.merge(wait_facts(row, state, now))
+    waiting = row.waiting_reason |> describe(facts) |> fence_wait(entry)
+    waiting = Map.put(waiting, :age_ms, age_ms(waiting.since, now))
+    Map.put(row, :waiting, waiting)
+  end
+
+  defp wait_facts(row, state, now) do
+    release = Map.get(state.released_claims, row.issue_id) || %{}
+    resume = Map.get(state.auto_resume, row.issue_id) || %{}
+    hold = if(row[:capacity_hold_active?], do: state.capacity_hold, else: state.dispatch_hold) || %{}
+
+    %{
+      global_pause: state.global_pause,
+      auto_resume_cause: resume[:cause],
+      auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
+      human_wait_since: get_in(state.waiting_for_human_episodes, [row.identifier, :since]),
+      released_at: monotonic_since(release[:released_at_ms], now),
+      hold_since: monotonic_since(hold[:held_since_ms], now),
+      hold_cause: hold[:detail] || hold[:signal],
+      workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
+    }
+  end
+
+  # A pending fence names who holds the row and since when; the reason atom
+  # stays the row's own classification.
+  defp fence_wait(waiting, %{lifecycle_fence: %{pending_item_ids: ids, opened_at: since}} = entry) do
+    if Map.get(entry[:control] || %{}, :status) != :deactivated and MapSet.size(ids) > 0 and waiting.reason in [:active, :awaiting_dispatch] do
+      Map.merge(waiting, %{owner: "LifecycleFence", cause: :provider_delivery_pending, since: since, pending_item_ids: Enum.sort(ids)})
+    else
+      waiting
+    end
+  end
+
+  defp fence_wait(waiting, _entry), do: waiting
+
+  defp monotonic_since(nil, _now), do: nil
+  defp monotonic_since(since_ms, now), do: DateTime.add(now, -elapsed(System.monotonic_time(:millisecond) - since_ms), :millisecond)
+
+  defp age_ms(%DateTime{} = since, now), do: elapsed(DateTime.diff(now, since, :millisecond))
+
+  defp age_ms(since, now) when is_binary(since) do
+    case DateTime.from_iso8601(since) do
+      {:ok, at, _offset} -> age_ms(at, now)
+      _invalid -> nil
+    end
+  end
+
+  defp age_ms(_since, _now), do: nil
+
+  defp elapsed(ms) when ms < 0 do
+    Logger.warning("Waiting reason timestamp is in the future; clamping age #{ms}ms")
+    0
+  end
+
+  defp elapsed(ms), do: ms
+
+  @spec render_wait(map()) :: String.t()
+  def render_wait(%{waiting: %{reason: :active, owner: "AgentRunner"}}), do: ""
+
+  def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age} = waiting}),
+    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_pending_ids(waiting)
+
+  def render_wait(_row), do: ""
+
+  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
+  defp render_pending_ids(_waiting), do: ""
+
+  defp render_age(nil), do: "since unknown"
+  defp render_age(ms), do: "#{div(ms, 1_000)}s"
+
+  @spec public_wait(map()) :: map() | nil
+  def public_wait(%{waiting: waiting}) do
+    Map.update!(waiting, :cause, fn cause ->
+      if match?({:ok, _}, Jason.encode(cause)), do: cause, else: inspect(cause)
+    end)
+  end
+
+  def public_wait(_row), do: nil
+
+  @doc false
+  @spec workspace_recovery?(map(), term(), term()) :: boolean()
+  def workspace_recovery?(state, issue_id, identifier), do: not is_nil(workspace_wait(state, issue_id, identifier))
+
+  defp workspace_wait(state, issue_id, identifier) do
+    ownership = state.dispatch_recovery.workspace_ownership
+
+    Enum.find_value([ownership.waits, ownership.ready], &find_workspace_wait(&1, issue_id, identifier))
+  end
+
+  defp find_workspace_wait(envelopes, issue_id, identifier) when is_map(envelopes) do
+    Enum.find_value(envelopes, fn {key, envelope} ->
+      if key == issue_id or (not is_nil(identifier) and key == identifier) or
+           (is_map(envelope) and (matches?(envelope, :issue_id, issue_id) or matches?(envelope, :identifier, identifier))),
+         do: workspace_envelope(envelope)
+    end)
+  end
+
+  defp find_workspace_wait(_envelopes, _issue_id, _identifier), do: nil
+
+  defp workspace_envelope(envelope) when is_map(envelope), do: envelope
+  defp workspace_envelope(_envelope), do: %{}
+
+  defp matches?(_envelope, _key, nil), do: false
+  defp matches?(envelope, key, value), do: Map.get(envelope, key) == value
 
   @doc """
   Classifies a row backed by a live running process.

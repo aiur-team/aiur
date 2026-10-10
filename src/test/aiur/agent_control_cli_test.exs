@@ -152,6 +152,36 @@ defmodule Aiur.AgentControlCLITest do
     assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
   end
 
+  for prior_role <- ["owner", "observer"] do
+    test "renewer switches a displaced #{prior_role} wait to observer without acknowledging" do
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+      waiter = Task.async(fn -> capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, as: "old-owner") end) end)
+      await_executor_wait(waiter.pid)
+      {:ok, old} = Claims.owner()
+      {:ok, _} = Claims.revoke("old-owner")
+      {:ok, successor} = Claims.claim("successor")
+      expired = old |> Map.put("lease_expires_at", "2000-01-01T00:00:00Z") |> Map.put("role", unquote(prior_role))
+      Aiur.JsonStore.write!(StatePaths.claims_path(), %{"consumers" => %{"old-owner" => expired, "successor" => successor}})
+      {:links, links} = Process.info(waiter.pid, :links)
+      renewer = Enum.find(links, &(&1 != self()))
+      :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, true, [:local])
+      :erlang.trace(renewer, true, [:send, :call])
+      on_exit(fn -> :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, false, [:local]) end)
+      send(renewer, :renew)
+      receive_barrier({:trace, ^renewer, :call, {AgentControlCLI, :renew_lease_forever, _args}})
+      assert_received {:trace, ^renewer, :send, {:executor_ownership_lost, ^renewer}, _destination}
+      :erlang.trace(renewer, false, [:send, :call])
+
+      :ok = ExecutorWakeInbox.enqueue(wake_record(1, "3412", "ticket.3412.pr.opened", "ticket.pr.opened"))
+      output = Task.await(waiter)
+      assert output =~ "not the live owner"
+      assert output =~ ~s("role":"observer")
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert ExecutorWakeInbox.cursor() == 0
+      assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
+    end
+  end
+
   test "executor-wait separates a store failure from contention with exit 1 (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     # An unreadable ledger is a daemon/store failure, not something a caller can
@@ -164,6 +194,12 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ ~s("stage":"wait")
     assert output =~ "executor wake inbox unavailable"
     refute output =~ "__AIUR_CONTROL_EXIT__:69"
+  end
+
+  defp await_executor_wait(pid) do
+    if Enum.any?(:sys.get_state(ExecutorWakeInbox).waiters, fn {{waiter, _tag}, _} -> waiter == pid end),
+      do: :ok,
+      else: await_executor_wait(pid)
   end
 
   defp await_consumer(id, attempts \\ 200) do
@@ -231,88 +267,6 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "FAST-FORWARDED from=0 through=2 acknowledged=2 pending=1"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert Enum.map(ExecutorWakeInbox.pending(), & &1["wake_id"]) == [3]
-  end
-
-  defp capture_todo(ids, opts) do
-    parent = self()
-    ref = make_ref()
-
-    stderr =
-      capture_io(:stderr, fn ->
-        stdout =
-          capture_io(fn ->
-            send(parent, {ref, :exit_code, AgentControlCLI.todo(ids, opts)})
-          end)
-
-        send(parent, {ref, :stdout, stdout})
-      end)
-
-    assert_receive {^ref, :stdout, stdout}, 1000
-    assert_receive {^ref, :exit_code, exit_code}, 1000
-    {stdout, stderr, exit_code}
-  end
-
-  defp todo_config do
-    %{
-      queue_label: "sym:todo",
-      active_states: ["todo", "working", "rework"],
-      active_labels: ["sym:todo", "sym:working", "sym:rework"],
-      terminal_labels: ["sym:done", "sym:cancelled"]
-    }
-  end
-
-  defp todo_deps(issues, opts \\ []) do
-    parent = self()
-    active = Keyword.get(opts, :active, Map.values(issues))
-    fetch_active_result = Keyword.get(opts, :fetch_active_result, {:ok, active})
-    add_result = Keyword.get(opts, :add_result, fn _id, _label -> :ok end)
-    remove_result = Keyword.get(opts, :remove_result, fn _id, _label -> :ok end)
-    ensure_started_result = Keyword.get(opts, :ensure_started_result, :ok)
-
-    %{
-      ensure_started: fn -> ensure_started_result end,
-      load_config: fn -> {:ok, Keyword.get(opts, :config, todo_config())} end,
-      fetch_issue: fn id ->
-        send(parent, {:todo_fetch_issue, id})
-
-        case Map.fetch(issues, id) do
-          {:ok, {:error, reason}} -> {:error, reason}
-          {:ok, issue} -> {:ok, [issue]}
-          :error -> {:ok, []}
-        end
-      end,
-      fetch_active: fn states ->
-        send(parent, {:todo_fetch_active, states})
-        fetch_active_result
-      end,
-      add_label: fn id, label ->
-        send(parent, {:todo_add_label, id, label})
-        add_result.(id, label)
-      end,
-      remove_label: fn id, label ->
-        send(parent, {:todo_remove_label, id, label})
-        remove_result.(id, label)
-      end,
-      request_refresh: fn identifiers ->
-        send(parent, {:todo_request_refresh, identifiers})
-        Keyword.get(opts, :request_refresh_result, %{queued: true})
-      end,
-      now_ms: Keyword.get(opts, :now_ms, fn -> 0 end)
-    }
-  end
-
-  # A monotonic clock the budget tests drive by hand: it returns each element of
-  # `readings` once, then pins to the last one. Every real `--todo` clock read is
-  # a budget check, so a scripted list places the deadline at an exact call.
-  defp scripted_clock(readings) do
-    {:ok, agent} = Agent.start_link(fn -> readings end)
-
-    fn ->
-      Agent.get_and_update(agent, fn
-        [last] -> {last, [last]}
-        [head | rest] -> {head, rest}
-      end)
-    end
   end
 
   # Tests that overwrite the shared workflow config must put it back: `Config`
@@ -623,431 +577,6 @@ defmodule Aiur.AgentControlCLITest do
     after
       send(pid, barrier)
       Task.await(blocker)
-    end
-  end
-
-  describe "todo/2" do
-    test "requests an immediate reconciliation after queueing work" do
-      issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
-
-      {_stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues))
-
-      # The queued identifiers ride along so the daemon keeps polling at the
-      # base interval until it has actually seen them (#2640).
-      assert_receive {:todo_request_refresh, ["11"]}, 1000
-      assert stderr == ""
-    end
-
-    # A dropped wake must not be silent: the operator otherwise watches a
-    # backed-off countdown that nothing shortened with no way to tell whether
-    # the daemon heard them (#2640). The tracker write still succeeded, so the
-    # exit code stays 0.
-    test "says so when the daemon did not accept the poll refresh" do
-      issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
-
-      {stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues, request_refresh_result: :unavailable))
-
-      assert_receive {:todo_request_refresh, ["11"]}, 1000
-      assert stdout =~ "queued 1 ticket(s)"
-      assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
-    end
-
-    # An explicit `aiur --todo` on a ticket that is already mid-flight (the
-    # `agent:rework` re-queue the operator reaches for after a reviewer asks
-    # for changes) keeps its label instead of adding the queue label. Before
-    # this fix the refresh hint was gated on `queued > 0 or cleared > 0`, so a
-    # request made up entirely of mid-flight tickets sent the daemon nothing at
-    # all: no label write, no poll wake, no dispatch. The operator's explicit
-    # queue was a silent no-op.
-    test "requests a poll refresh for mid-flight tickets it kept" do
-      issues = %{
-        "138" => %Issue{id: "138", identifier: "138", state: "rework", labels: ["sym:rework"]},
-        "139" => %Issue{id: "139", identifier: "139", state: "rework", labels: ["sym:rework"]}
-      }
-
-      {stdout, stderr, 0} = capture_todo(~w(138 139), deps: todo_deps(issues))
-
-      assert_receive {:todo_request_refresh, ["138", "139"]}, 1000
-      assert stdout =~ "• #138 kept sym:rework"
-      assert stdout =~ "kept 2 in flight"
-      assert stderr == ""
-    end
-
-    test "mutates the tracker and emits the control exit marker" do
-      issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"],
-          deps: todo_deps(%{"11" => issue}),
-          emit_exit_marker: true
-        )
-
-      assert exit_code == 0
-      assert stderr == ""
-      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      assert stdout =~ "__AIUR_CONTROL_EXIT__:0"
-      assert_received {:todo_add_label, "11", "sym:todo"}
-    end
-
-    test "emits a failure marker when tracker mutation fails" do
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"],
-          deps: todo_deps(%{"11" => {:error, :unavailable}}),
-          emit_exit_marker: true
-        )
-
-      assert exit_code == 1
-      assert stderr =~ "orchestrator unavailable"
-      assert stdout =~ "queued 0 ticket(s); cleared 0 other(s)"
-      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
-    end
-
-    test "reports a stopped application without a summary or stacktrace" do
-      {stdout, stderr, exit_code} =
-        capture_todo(["123"], deps: todo_deps(%{}, ensure_started_result: {:error, :application_not_started}))
-
-      assert exit_code == 1
-      assert stdout == ""
-      assert stderr == "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
-      refute stderr =~ "GenServer"
-    end
-
-    test "queues requested tickets with config-derived labels and streaming feedback" do
-      issues =
-        Map.new(~w(11 12 13), fn id ->
-          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
-        end)
-
-      {stdout, stderr, exit_code} = capture_todo(~w(11 12 13), deps: todo_deps(issues))
-
-      assert exit_code == 0
-      assert stderr == ""
-      assert stdout =~ "✓ #11 → sym:todo"
-      assert stdout =~ "✓ #12 → sym:todo"
-      assert stdout =~ "✓ #13 → sym:todo"
-      assert stdout =~ "queued 3 ticket(s); cleared 0 other(s)"
-      assert_received {:todo_add_label, "11", "sym:todo"}
-      assert_received {:todo_add_label, "12", "sym:todo"}
-      assert_received {:todo_add_label, "13", "sym:todo"}
-    end
-
-    test "treats an existing todo as idempotent and preserves configured mid-flight states" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]},
-        "12" => %Issue{id: "12", identifier: "12", state: "working", labels: ["sym:working"]}
-      }
-
-      {stdout, stderr, exit_code} = capture_todo(~w(11 12), deps: todo_deps(issues))
-
-      assert exit_code == 0
-      assert stderr == ""
-      assert stdout =~ "✓ #11 already sym:todo"
-      assert stdout =~ "• #12 kept sym:working"
-      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      refute_received {:todo_add_label, _, _}
-    end
-
-    test "only clears custom todo labels from other pending tickets" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
-      }
-
-      active = [
-        issues["11"],
-        %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]},
-        %Issue{id: "21", identifier: "21", state: "working", labels: ["sym:working"]},
-        %Issue{id: "22", identifier: "22", state: "done", labels: ["sym:todo", "sym:done"]}
-      ]
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"], deps: todo_deps(issues, active: active), only: true)
-
-      assert exit_code == 0
-      assert stderr == ""
-      assert stdout =~ "– #20 cleared sym:todo"
-      assert stdout =~ "queued 1 ticket(s); cleared 1 other(s)"
-      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      refute_received {:todo_remove_label, "11", _}
-      refute_received {:todo_remove_label, "21", _}
-      refute_received {:todo_remove_label, "22", _}
-    end
-
-    test "continues requested IDs but fails closed before only cleanup" do
-      issues = %{
-        "12" => {:error, :timeout},
-        "13" => %Issue{id: "13", identifier: "13", state: "Closed", labels: []},
-        "14" => %Issue{id: "14", identifier: "14", state: "done", labels: ["sym:done"]},
-        "15" => %Issue{id: "15", identifier: "15", state: nil, labels: []}
-      }
-
-      {stdout, stderr, exit_code} =
-        capture_todo(~w(11 12 13 14 15), deps: todo_deps(issues), only: true)
-
-      assert exit_code == 1
-      assert stdout =~ "✓ #15 → sym:todo"
-      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      assert stderr =~ "✗ #11 not found"
-      assert stderr =~ "✗ #12 orchestrator timed out"
-      assert stderr =~ "✗ #13 terminal ticket"
-      assert stderr =~ "✗ #14 terminal ticket"
-      assert stderr =~ "--only cleanup skipped because 4 requested ticket(s) failed"
-      assert_received {:todo_add_label, "15", "sym:todo"}
-      refute_received {:todo_fetch_active, _}
-    end
-
-    test "continues requested IDs after an add failure and skips only cleanup" do
-      issues =
-        Map.new(~w(11 12), fn id ->
-          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
-        end)
-
-      add_result = fn
-        "11", "sym:todo" -> {:error, :timeout}
-        _id, _label -> :ok
-      end
-
-      {stdout, stderr, exit_code} =
-        capture_todo(~w(11 12), deps: todo_deps(issues, add_result: add_result), only: true)
-
-      assert exit_code == 1
-      assert stdout =~ "✓ #12 → sym:todo"
-      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      assert stderr =~ "✗ #11 failed to add sym:todo: orchestrator timed out"
-      assert stderr =~ "--only cleanup skipped because 1 requested ticket(s) failed"
-      assert_received {:todo_add_label, "11", "sym:todo"}
-      assert_received {:todo_add_label, "12", "sym:todo"}
-      refute_received {:todo_fetch_active, _}
-    end
-
-    test "reports active-ticket enumeration failures and exits non-zero" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
-      }
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"],
-          deps: todo_deps(issues, fetch_active_result: {:error, :timeout}),
-          only: true
-        )
-
-      assert exit_code == 1
-      assert stdout =~ "✓ #11 already sym:todo"
-      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      assert stderr =~ "aiur: failed to enumerate active tickets (orchestrator timed out)"
-      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}
-      refute_received {:todo_remove_label, _, _}
-    end
-
-    test "continues clearing after a removal failure and exits non-zero" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
-      }
-
-      active = [
-        issues["11"],
-        %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]},
-        %Issue{id: "21", identifier: "21", state: "todo", labels: ["sym:todo"]}
-      ]
-
-      remove_result = fn
-        "20", "sym:todo" -> {:error, :timeout}
-        _id, _label -> :ok
-      end
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"], deps: todo_deps(issues, active: active, remove_result: remove_result), only: true)
-
-      assert exit_code == 1
-      assert stdout =~ "– #21 cleared sym:todo"
-      assert stdout =~ "queued 1 ticket(s); cleared 1 other(s)"
-      assert stderr =~ "✗ #20 failed to clear sym:todo: orchestrator timed out"
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      assert_received {:todo_remove_label, "21", "sym:todo"}
-    end
-
-    test "caps --only cleanup at a batch size and reports what was left untouched" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
-      }
-
-      others =
-        Enum.map(21..71, fn n ->
-          id = to_string(n)
-          %Issue{id: id, identifier: id, state: "todo", labels: ["sym:todo"]}
-        end)
-
-      active = [issues["11"] | others]
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"], deps: todo_deps(issues, active: active), only: true)
-
-      assert exit_code == 0
-      assert stdout =~ "queued 1 ticket(s); cleared 50 other(s)"
-      assert stderr =~ "aiur: --only cleanup capped at 50 ticket(s); 1 other ticket(s) left untouched"
-      assert_received {:todo_remove_label, "70", "sym:todo"}
-      refute_received {:todo_remove_label, "71", "sym:todo"}
-    end
-
-    test "stops --only cleanup after repeated rate-limit failures mid-stream" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
-      }
-
-      active = [
-        issues["11"],
-        %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]},
-        %Issue{id: "21", identifier: "21", state: "todo", labels: ["sym:todo"]},
-        %Issue{id: "22", identifier: "22", state: "todo", labels: ["sym:todo"]},
-        %Issue{id: "23", identifier: "23", state: "todo", labels: ["sym:todo"]}
-      ]
-
-      rate_limited = {:error, {:github, :rate_limited, %{status: 429, retry_after: 60, poll_interval: nil}}}
-
-      remove_result = fn
-        id, "sym:todo" when id in ["20", "21", "22"] -> rate_limited
-        _id, _label -> :ok
-      end
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"], deps: todo_deps(issues, active: active, remove_result: remove_result), only: true)
-
-      assert exit_code == 1
-      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      assert stderr =~ "aiur: --only cleanup stopped after 3 consecutive rate-limit failures"
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      assert_received {:todo_remove_label, "21", "sym:todo"}
-      assert_received {:todo_remove_label, "22", "sym:todo"}
-      refute_received {:todo_remove_label, "23", "sym:todo"}
-    end
-
-    test "stops queueing at the daemon budget and reports the tickets it never reached" do
-      issues =
-        Map.new(~w(11 12 13), fn id ->
-          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
-        end)
-
-      {stdout, stderr, exit_code} =
-        capture_todo(~w(11 12 13),
-          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
-          budget_ms: 100,
-          emit_exit_marker: true
-        )
-
-      assert exit_code == 1
-      assert stdout =~ "✓ #11 → sym:todo"
-      assert stdout =~ "✓ #12 → sym:todo"
-      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
-      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
-      assert stderr =~ "aiur: --todo stopped after its 1s daemon budget; 1 requested ticket(s) not reached (#13)"
-      assert stderr =~ "raise AIUR_CONTROL_RPC_TIMEOUT_SECONDS"
-      assert_received {:todo_add_label, "11", "sym:todo"}
-      assert_received {:todo_add_label, "12", "sym:todo"}
-      refute_received {:todo_add_label, "13", _}
-    end
-
-    test "fails --only cleanup closed when the budget stops the queueing phase" do
-      issues =
-        Map.new(~w(11 12), fn id ->
-          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
-        end)
-
-      {_stdout, stderr, exit_code} =
-        capture_todo(~w(11 12),
-          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 100])),
-          budget_ms: 100,
-          only: true
-        )
-
-      assert exit_code == 1
-      assert stderr =~ "--only cleanup skipped because 1 requested ticket(s) failed"
-      refute_received {:todo_fetch_active, _}
-    end
-
-    test "stops --only cleanup at the daemon budget and counts what it left queued" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
-      }
-
-      active =
-        [issues["11"]] ++
-          Enum.map(~w(20 21 22), fn id ->
-            %Issue{id: id, identifier: id, state: "todo", labels: ["sym:todo"]}
-          end)
-
-      {stdout, stderr, exit_code} =
-        capture_todo(["11"],
-          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0, 0, 0, 0, 0, 100])),
-          budget_ms: 100,
-          only: true,
-          emit_exit_marker: true
-        )
-
-      assert exit_code == 1
-      assert stdout =~ "– #20 cleared sym:todo"
-      assert stdout =~ "– #21 cleared sym:todo"
-      assert stdout =~ "queued 1 ticket(s); cleared 2 other(s)"
-      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
-      assert stderr =~ "aiur: --only cleanup stopped after its 1s daemon budget; 1 other ticket(s) left untouched"
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      assert_received {:todo_remove_label, "21", "sym:todo"}
-      refute_received {:todo_remove_label, "22", _}
-    end
-
-    test "skips the active-ticket enumeration when queueing consumed the whole budget" do
-      issues =
-        Map.new(~w(11 12), fn id ->
-          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
-        end)
-
-      {stdout, stderr, exit_code} =
-        capture_todo(~w(11 12),
-          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
-          budget_ms: 100,
-          only: true
-        )
-
-      assert exit_code == 1
-      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
-      assert stderr =~ "aiur: --only cleanup skipped; the 1s daemon budget elapsed while queueing the requested tickets"
-      refute_received {:todo_fetch_active, _}
-      refute_received {:todo_remove_label, _, _}
-    end
-
-    test "a budget that outlasts the work changes nothing about the outcome" do
-      issues = %{
-        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]},
-        "12" => %Issue{id: "12", identifier: "12", state: nil, labels: []}
-      }
-
-      active = [issues["11"], issues["12"], %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]}]
-
-      {stdout, stderr, exit_code} =
-        capture_todo(~w(11 12),
-          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0])),
-          budget_ms: 120_000,
-          only: true
-        )
-
-      assert exit_code == 0
-      assert stderr == ""
-      assert stdout =~ "queued 2 ticket(s); cleared 1 other(s)"
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-    end
-
-    test "truncates a long not-reached list into one readable line" do
-      ids = Enum.map(1..14, &to_string/1)
-      issues = Map.new(ids, fn id -> {id, %Issue{id: id, identifier: id, state: nil, labels: []}} end)
-
-      {_stdout, stderr, exit_code} =
-        capture_todo(ids,
-          deps: todo_deps(issues, now_ms: scripted_clock([0, 100])),
-          budget_ms: 100
-        )
-
-      assert exit_code == 1
-      assert stderr =~ "14 requested ticket(s) not reached (#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, … and 4 more)"
-      refute_received {:todo_add_label, _, _}
     end
   end
 
@@ -1965,14 +1494,14 @@ defmodule Aiur.AgentControlCLITest do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 
     Application.put_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
-      %{trusted: ["its-applekid", "its-everdred"], source: :file, path: path}
+      %{trusted: ["its-applekid", "its-everdred"], source: :file, path: path, degradation: %{cause: :repo_owner_unknown, observed_at: nil}}
     end)
 
     on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_trust_snapshot_fun) end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "COMMENT TRUST source=file trusted=[@its-applekid, @its-everdred] path=.github/CODEOWNERS"
+    assert output =~ "COMMENT TRUST source=file trusted=[@its-applekid, @its-everdred] path=.github/CODEOWNERS degraded=Repository owner is unknown age unknown"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert Process.alive?(pid)
   end
@@ -2373,6 +1902,46 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 
+  test "busy handle_info leaves reset-budget and resume outcomes unknown", %{orchestrator: original} do
+    issue = %Issue{id: "issue-49", identifier: "repo#49", state: "in-progress", title: "Budget reset"}
+    :ok = DispatchBudgetStore.put_lifetime(issue.id, 40)
+    state = :sys.get_state(original)
+    state = %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}, last_polled_issues: %{issue.id => issue}}
+    state = put_in(state.dispatch_recovery.codex_thrash_budget[issue.id], %{lifetime: 40, count: 0})
+    previous_timeout = Application.get_env(:aiur, :control_api_call_timeout_ms)
+    Application.put_env(:aiur, :control_api_call_timeout_ms, 20)
+    Process.unregister(Orchestrator)
+    busy = start_supervised!({__MODULE__.BusyOrchestrator, state})
+
+    try do
+      :ok = SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
+      send(busy, {:block, self()})
+      receive_barrier(:blocked)
+
+      for {command, description} <- [
+            {fn -> AgentControlCLI.reset_budget(["49", "49"]) end, "reset lifetime dispatch budget for #49"},
+            {fn -> AgentControlCLI.resume(["44"]) end, "resume #44"}
+          ] do
+        output = capture_io(command)
+        assert output =~ "outcome unknown for #{description}"
+        assert output =~ "may still apply"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+        refute output =~ "failed to"
+      end
+
+      assert {:ok, 40} = DispatchBudgetStore.lifetime(issue.id)
+      send(busy, :release)
+      :sys.get_state(busy)
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(issue.id)
+    after
+      send(busy, :release)
+      stop_supervised!(__MODULE__.BusyOrchestrator)
+      Process.register(original, Orchestrator)
+      SnapshotStore.forget(Orchestrator)
+      if previous_timeout, do: Application.put_env(:aiur, :control_api_call_timeout_ms, previous_timeout), else: Application.delete_env(:aiur, :control_api_call_timeout_ms)
+    end
+  end
+
   describe "global pause switch" do
     test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
@@ -2532,7 +2101,8 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+    assert output =~ "outcome unknown for resume #44"
+    refute output =~ "failed to resume"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -3492,10 +3062,10 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "Orchestrator mailbox="
 
       # The current function is the load-bearing half: it names *where* the
-      # process is parked. A suspended gen_server reports `:waiting` in
-      # `:sys.suspend_loop/6`, which pinpoints the stall the same way the live
-      # capture in #1731 pinpointed `:gen.do_call/4`.
-      assert output =~ "status=waiting in :sys.suspend_loop/6"
+      # process is parked in `:sys.suspend_loop/6`, as #1731 pinpointed
+      # `:gen.do_call/4`. Status is unasserted: the query's own message can wake
+      # the process to scan its mailbox, so it may read `running` (#3891).
+      assert output =~ ~r/status=\w+ in :sys\.suspend_loop\/6/
       assert output =~ "means one process is stuck, not that the host is busy"
     after
       :sys.resume(pid)
@@ -4470,4 +4040,21 @@ defmodule Aiur.AgentControlCLITest do
       refute output =~ "#46 ci-wait · needs review/merge"
     end
   end
+end
+
+defmodule Aiur.AgentControlCLITest.BusyOrchestrator do
+  use GenServer
+
+  def start_link(state), do: GenServer.start_link(__MODULE__, state, name: Aiur.Orchestrator)
+  @impl true
+  def init(state), do: {:ok, state}
+  @impl true
+  def handle_info({:block, parent}, state) do
+    send(parent, :blocked)
+    receive do: (:release -> {:noreply, state})
+  end
+
+  def handle_info(message, state), do: Aiur.Orchestrator.handle_info(message, state)
+  @impl true
+  def handle_call(request, from, state), do: Aiur.Orchestrator.handle_call(request, from, state)
 end
