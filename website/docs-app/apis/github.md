@@ -738,11 +738,9 @@ Idle restacks use delivered PR facts and the agent credential file, with cached 
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
 
-Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending.
+Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending. A non-empty queue with a stale open-issue snapshot [lists open issues itself](/concepts/build-orders#queue-cost) as `build_queue_open_issue_list`.
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
-
-A non-empty build queue lists open issues itself, with caller `build_queue_open_issue_list`, when the dispatch poll has left the shared open-issue snapshot older than the observation age. It makes at most one listing per observation age, starting one observation age after boot, and selects or authorizes no dispatch candidates. This is an added read cost whenever the dispatch cadence is wider than the observation age, as under idle or webhook widening. It needs the daemon scheduled and GitHub reachable, so a saturated host can still leave freshness `unknown`.
 
 Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; markers and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. No saving is claimed ([cost](/concepts/build-orders#queue-cost)).
 
