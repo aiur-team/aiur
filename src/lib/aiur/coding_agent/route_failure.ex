@@ -31,9 +31,9 @@ defmodule Aiur.CodingAgent.RouteFailure do
   the point.
   """
 
-  alias Aiur.Signal
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
+  alias Aiur.Signal
 
   @type class :: :usage_limit | :transient | :auth_rejected | :fatal
 

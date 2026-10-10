@@ -10,7 +10,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.AgentRunner.EpicSetter
   alias Aiur.AgentRunner.SessionLifecycle
 
-  alias Aiur.{Signal, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
+  alias Aiur.{Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}

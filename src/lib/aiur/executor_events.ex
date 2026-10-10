@@ -9,7 +9,6 @@ defmodule Aiur.ExecutorEvents do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.Events.IdGenerator
@@ -22,6 +21,7 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Journal
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
+  alias Aiur.Signal
 
   @default_topic "executor.#"
 

@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{AgentPubSub, Signal, Commands, Issue, PauseContainment}
+  alias Aiur.{AgentPubSub, Commands, Issue, PauseContainment, Signal}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool

@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.{Signal, Issue}
   alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, Transport}
+  alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw

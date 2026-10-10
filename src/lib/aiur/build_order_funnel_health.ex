@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   malformed or failed status reads retain a neutral cause and a separate reason.
   """
 
-  alias Aiur.{Signal, Config, HttpServer, TailscaleFunnel}
+  alias Aiur.{Config, HttpServer, Signal, TailscaleFunnel}
 
   @default_timeout_ms 5_000
   @healthy_statuses [200, 301, 302, 304, 307, 308, 401]

@@ -8,7 +8,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
 
   require Logger
 
-  alias Aiur.{Signal, CodingAgent, Issue}
+  alias Aiur.{CodingAgent, Issue, Signal}
   alias Aiur.CodingAgent.RouteFailure
 
   @doc "Emits the quota alert, forwarding ledger options such as `:now` for clock-consistent incident replay."

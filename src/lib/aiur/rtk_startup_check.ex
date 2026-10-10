@@ -3,7 +3,7 @@ defmodule Aiur.RtkStartupCheck do
 
   require Logger
 
-  alias Aiur.{Signal, Rtk}
+  alias Aiur.{Rtk, Signal}
 
   @alert_topic "system.rtk.gh_rewrite"
   @remedy ~s(Add `exclude_commands = ["gh"]` under `[hooks]` in rtk's config.)

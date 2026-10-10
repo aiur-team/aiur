@@ -2,9 +2,9 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   @moduledoc false
   require Logger
 
-  alias Aiur.{Signal, Config, Fs}
   alias Aiur.BuildOrder.Features.Journal
   alias Aiur.BuildOrder.ProviderHealth
+  alias Aiur.{Config, Fs, Signal}
   alias Aiur.Journal, as: AppendJournal
 
   @spec boot(keyword()) :: map()

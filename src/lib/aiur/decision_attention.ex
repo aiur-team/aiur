@@ -11,7 +11,7 @@ defmodule Aiur.DecisionAttention do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Signal, DecisionStore, Issue}
+  alias Aiur.{AlertFeed, DecisionStore, Issue, Signal}
   alias Aiur.Events.SubscriptionStore
 
   @default_reask_interval_ms :timer.minutes(15)

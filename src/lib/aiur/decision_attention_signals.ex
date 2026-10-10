@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionAttentionSignals do
   @moduledoc false
 
-  alias Aiur.{AlertFeed, Signal, Decision}
+  alias Aiur.{AlertFeed, Decision, Signal}
 
   @open_statuses [:open, :deferred]
 

@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, Signal, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
+  alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Signal, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.GitHub.Config, as: GitHubConfig

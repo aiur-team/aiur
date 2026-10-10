@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Hooks do
   @moduledoc "Workspace lifecycle hooks: run_hook/5 with env-scrub and Task-timeout envelope, after-create / after-run / before-remove dispatch, and GitHub connectivity preflight."
 
   require Logger
-  alias Aiur.{AgentBuildGuard, Signal, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, BuildGate, Config, RepoBase, Signal}
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig

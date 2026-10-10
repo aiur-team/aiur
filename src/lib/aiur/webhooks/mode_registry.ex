@@ -30,7 +30,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   require Logger
 
-  alias Aiur.{Signal, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
   alias Aiur.Webhooks.{DeliveryMode, DeliveryModeEvents, ModeTable}
 

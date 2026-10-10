@@ -25,7 +25,7 @@ defmodule Aiur.BuildGateHoldMonitor do
 
   require Logger
 
-  alias Aiur.{Signal, BuildGate, Config}
+  alias Aiur.{BuildGate, Config, Signal}
 
   @default_interval_ms 30_000
   @topic_prefix "system.build_gate.hold_timeout"

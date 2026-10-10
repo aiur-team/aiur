@@ -33,7 +33,7 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
-  alias Aiur.{Signal, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.EndpointPolicy
   alias Aiur.GitHub.GraphQLCost

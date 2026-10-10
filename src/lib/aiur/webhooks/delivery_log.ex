@@ -62,7 +62,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
 
   require Logger
 
-  alias Aiur.{Signal, Config, Fs, Journal}
+  alias Aiur.{Config, Fs, Journal, Signal}
 
   @filename "webhook_deliveries.ndjson"
   @retention_ms 72 * 60 * 60 * 1000

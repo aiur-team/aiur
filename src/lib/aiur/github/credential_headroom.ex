@@ -23,8 +23,8 @@ defmodule Aiur.GitHub.CredentialHeadroom do
 
   use GenServer
 
-  alias Aiur.Signal
   alias Aiur.GitHub.{Budget, Transport}
+  alias Aiur.Signal
 
   @table __MODULE__
   @disagreements_table Module.concat(__MODULE__, Disagreements)

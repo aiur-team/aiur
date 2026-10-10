@@ -5,8 +5,8 @@ defmodule Aiur.PauseContainment do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.ProcessTree
+  alias Aiur.Signal
 
   @default_grace_ms 5_000
   @liveness_poll_ms 1_000

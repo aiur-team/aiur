@@ -33,7 +33,6 @@ defmodule Aiur.DecisionStore do
   require Logger
 
   alias Aiur.{
-    Signal,
     Boot,
     Config,
     Decision,
@@ -52,7 +51,8 @@ defmodule Aiur.DecisionStore do
     ExecutorEvents,
     Issue,
     Journal,
-    SecretRedactor
+    SecretRedactor,
+    Signal
   }
 
   alias Aiur.DecisionEvent.Unrecognized

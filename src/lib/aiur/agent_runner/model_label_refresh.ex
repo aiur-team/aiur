@@ -20,7 +20,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefresh do
 
   require Logger
 
-  alias Aiur.{Signal, CodingAgent, Config, Issue, ModelDiscovery}
+  alias Aiur.{CodingAgent, Config, Issue, ModelDiscovery, Signal}
 
   # One overall budget for refreshing every catalogue concurrently; each probe
   # is itself bounded by `ModelDiscovery.refresh_now/2`.

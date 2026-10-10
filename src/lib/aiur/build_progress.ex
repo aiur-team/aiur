@@ -14,7 +14,7 @@ defmodule Aiur.BuildProgress do
 
   require Logger
 
-  alias Aiur.{Signal, BuildOrder.ProgressGeneration, Config.Paths, JsonStore}
+  alias Aiur.{BuildOrder.ProgressGeneration, Config.Paths, JsonStore, Signal}
 
   @topic "build_progress"
   @changed_fields [:percent, :resolution, :freshness, :generation]

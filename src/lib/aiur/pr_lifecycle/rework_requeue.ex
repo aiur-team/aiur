@@ -57,10 +57,10 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   use Aiur.PeriodicWorker
 
   require Logger
-  alias Aiur.{Signal, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
+  alias Aiur.{Issue, Signal, Tracker}
   alias Aiur.Orchestrator.TicketTransition
 
   @default_interval_ms 30 * 60 * 1_000

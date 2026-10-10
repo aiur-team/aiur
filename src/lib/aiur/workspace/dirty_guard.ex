@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.DirtyGuard do
 
   require Logger
 
-  alias Aiur.{Signal, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.Workspace.Remote
 
   @timeout_ms 5_000

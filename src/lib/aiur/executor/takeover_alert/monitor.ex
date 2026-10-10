@@ -20,11 +20,11 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.Executor.TakeoverAlert
   alias Aiur.Executor.TakeoverAlert.{Snapshot, Store}
   alias Aiur.Issue
+  alias Aiur.Signal
 
   @default_interval_ms :timer.minutes(5)
   # Re-fetch open-PR evidence no more often than this, regardless of a tighter

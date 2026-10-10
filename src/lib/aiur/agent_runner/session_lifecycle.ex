@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{AgentPubSub, Signal, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Tracker}
+  alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Signal, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, Telemetry}
   alias Aiur.LiveConversation.Source

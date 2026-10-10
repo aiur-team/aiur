@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
-  alias Aiur.{Signal, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.GitHub.{BudgetBroker, CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger

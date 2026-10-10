@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionStore.ProjectionRecovery do
   @moduledoc false
 
-  alias Aiur.{Signal, Decision, DecisionEvent, DecisionProjection, JsonStore}
+  alias Aiur.{Decision, DecisionEvent, DecisionProjection, JsonStore, Signal}
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   require Logger
 

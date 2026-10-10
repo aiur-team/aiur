@@ -1,8 +1,8 @@
 defmodule Aiur.ExecutorCommandAttention do
   @moduledoc false
 
-  alias Aiur.{Signal, JsonStore}
   alias Aiur.Config.Paths
+  alias Aiur.{JsonStore, Signal}
 
   @spec topic(String.t(), String.t()) :: String.t()
   def topic(decision_id, ticket_id) when is_binary(decision_id) and is_binary(ticket_id) do

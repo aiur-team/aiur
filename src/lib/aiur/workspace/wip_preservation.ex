@@ -64,9 +64,9 @@ defmodule Aiur.Workspace.WipPreservation do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.Config.Paths
+  alias Aiur.Signal
   alias Aiur.Workspace.WipPreservation.{Capture, Command, Retention}
 
   @root_name "wip-preserved"

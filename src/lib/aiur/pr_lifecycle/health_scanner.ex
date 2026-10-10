@@ -32,9 +32,9 @@ defmodule Aiur.PRLifecycle.HealthScanner do
 
   require Logger
 
-  alias Aiur.{Signal, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.{Signal, Tracker}
 
   @default_interval_ms 30 * 60 * 1_000
   @default_stale_hours 24

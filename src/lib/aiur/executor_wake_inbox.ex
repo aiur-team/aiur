@@ -5,12 +5,12 @@ defmodule Aiur.ExecutorWakeInbox do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.Fs
   alias Aiur.Journal
   alias Aiur.JsonStore
+  alias Aiur.Signal
 
   @default_debounce_ms 2_000
   @default_max_records 10_000

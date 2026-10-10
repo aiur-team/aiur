@@ -37,7 +37,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
 
   use GenServer
 
-  alias Aiur.{Signal, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.Config.Schema.Agent, as: AgentConfig
 
   @retry_topic "system.github.budget_broker_retry"
