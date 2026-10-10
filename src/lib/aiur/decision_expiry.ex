@@ -16,6 +16,7 @@ defmodule Aiur.DecisionExpiry do
 
   require Logger
 
+  alias Aiur.Commands.DeliveryTarget
   alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
 
   @interval_ms 60_000
@@ -85,7 +86,7 @@ defmodule Aiur.DecisionExpiry do
   defp active_identifiers(opts) do
     case Keyword.get(opts, :active_identifiers_fun) do
       fun when is_function(fun, 0) -> fun.()
-      nil -> Aiur.Commands.DeliveryTarget.impl().active_identifiers()
+      nil -> DeliveryTarget.impl().active_identifiers()
     end
   end
 

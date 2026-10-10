@@ -9,8 +9,8 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
   alias Aiur.Commands.DeliveryTarget
+  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
 
   @max_message_chars 7_800
 

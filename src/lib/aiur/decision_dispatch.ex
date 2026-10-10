@@ -16,8 +16,8 @@ defmodule Aiur.DecisionDispatch do
   copy of a mooted or replaced answer just before it reaches the agent.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
   alias Aiur.Commands.DeliveryTarget
+  alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
 
   @max_message_chars 7_800
 
