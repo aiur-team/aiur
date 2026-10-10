@@ -1118,8 +1118,6 @@ defmodule Aiur.GitHub.IssuesTest do
       candidates = [repo_local, Path.join([dir, "repo", ".aiurconfig"]), global, Path.join([dir, "home", ".aiurconfig"])]
       assert Workflow.resolve_config_path(candidates) == repo_local
 
-      # Seed before the repo-less config goes live: activating it notifies app
-      # singletons that resolve the real checkout while the cache is unset (#4071).
       :persistent_term.put(@origin_cache_key, "acme/widgets")
       Workflow.set_workflow_file_path(repo_local)
 
