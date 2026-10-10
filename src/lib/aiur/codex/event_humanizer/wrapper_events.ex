@@ -5,6 +5,7 @@ defmodule Aiur.Codex.EventHumanizer.WrapperEvents do
 
   alias Aiur.Codex.EventHumanizer
 
+  @spec humanize_wrapper_event(String.t(), term()) :: String.t()
   def humanize_wrapper_event("mcp_startup_update", payload) do
     server =
       map_path(payload, ["params", "msg", "server"]) ||

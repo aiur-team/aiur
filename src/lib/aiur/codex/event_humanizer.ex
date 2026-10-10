@@ -210,6 +210,7 @@ defmodule Aiur.Codex.EventHumanizer do
   end
 
   @doc false
+  @spec humanize_streaming_event(String.t(), term()) :: String.t()
   def humanize_streaming_event(label, payload) do
     case extract_delta_preview(payload) do
       nil -> label
@@ -247,6 +248,7 @@ defmodule Aiur.Codex.EventHumanizer do
   defp fallback_command(command, _payload), do: command
 
   @doc false
+  @spec normalize_command(term()) :: String.t() | nil
   def normalize_command(%{} = command) do
     binary_command = map_value(command, ["parsedCmd", :parsedCmd, "command", :command, "cmd", :cmd])
     args = map_value(command, ["args", :args, "argv", :argv])
@@ -320,6 +322,7 @@ defmodule Aiur.Codex.EventHumanizer do
   defp append_if_present(list, _value), do: list
 
   @doc false
+  @spec extract_first_path(term(), [[term()]]) :: term()
   def extract_first_path(payload, paths) do
     Enum.find_value(paths, fn path -> map_path(payload, path) end)
   end
