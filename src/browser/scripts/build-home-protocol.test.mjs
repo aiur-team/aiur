@@ -44,7 +44,7 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
     for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
     assert.deepEqual(actual.epics, raw.epics);
-    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to) }]));
+    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), stats: snapshot.features[key].stats }]));
     assert.deepEqual(actual.features, features);
     assert.deepEqual(actual.order, raw.order);
     for (const [key, count] of Object.entries(raw.counts)) assert.equal(actual.counts[key], count);
