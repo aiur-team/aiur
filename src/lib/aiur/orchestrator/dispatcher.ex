@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerHealth
   }
 
-  alias Aiur.RunTelemetry, as: RunTelemetry
+  alias Aiur.{RunTelemetry, Signal}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
@@ -2649,10 +2649,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
-    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    lifecycle_attempt_id = Signal.new_attempt_id(dispatch_attempt_ticket(issue))
 
     if TelemetryLifecycle.enabled?() do
-      TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
+      Signal.lifecycle(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
         worker_host: worker_host,
@@ -2841,7 +2841,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do
     if DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
-      TelemetryLifecycle.record(
+      Signal.lifecycle(
         issue.identifier,
         attempt_id,
         :agent_resume,

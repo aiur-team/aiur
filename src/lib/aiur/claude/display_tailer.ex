@@ -29,7 +29,7 @@ defmodule Aiur.Claude.DisplayTailer do
 
   alias Aiur.Claude.{HookEvents, TranscriptTailer}
   alias Aiur.LiveConversation.Source
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   # Cap oversized reasoning/tool bodies so a 10k-line tool dump or a long
   # thinking block can't flood the pane. Mirrors the spirit of the RC view's
@@ -271,7 +271,7 @@ defmodule Aiur.Claude.DisplayTailer do
 
     Logger.warning(
       "display_tailer #{operation} #{state.log_context} " <>
-        "session=#{opaque_session} reason_class=#{Lifecycle.reason_class(reason)}"
+        "session=#{opaque_session} reason_class=#{Signal.reason_class(reason)}"
     )
   end
 

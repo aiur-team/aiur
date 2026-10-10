@@ -19,10 +19,10 @@ defmodule Aiur.AgentRunner.MessageHandler do
     TrackerIdentity
   }
 
-  alias Aiur.AgentRunner.CodexUpdateRelay
-  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.AgentRunner.{CodexUpdateRelay, QueueDrain}
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Usage.Headless.Emitter
 
   @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) :: (map() -> :ok)
@@ -65,7 +65,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_lifecycle(%Issue{identifier: identifier}, backend, message, lifecycle_opts)
        when is_binary(identifier) and is_list(lifecycle_opts) do
-    Lifecycle.observe_backend_message(
+    Signal.backend_message(
       identifier,
       Keyword.get(lifecycle_opts, :attempt_id),
       backend,
@@ -493,7 +493,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     end
   catch
     :exit, reason ->
-      reason_class = Lifecycle.reason_class(reason)
+      reason_class = Signal.reason_class(reason)
       log_projection_failure(issue, operation, reason_class)
       {:error, {:live_conversation_unavailable, operation}}
   end

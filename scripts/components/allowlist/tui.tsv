@@ -8,7 +8,6 @@ R-declared	Aiur.Events.SubscriptionStore	baseline 4aba33f8aae03cdaec432d6614e70a
 R-declared	Aiur.HttpServer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.IssueLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Os	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Perf	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProviderMeterProjection	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProviderMeters.Text	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839

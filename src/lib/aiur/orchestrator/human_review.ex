@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.HumanReview do
     TrackerTasks
   }
 
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @doc false
   @spec human_review_state?(binary() | term()) :: boolean()
@@ -59,7 +59,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   defp apply_verification(state, issue, opts, result) do
     case result do
       :ok ->
-        Lifecycle.record(
+        Signal.lifecycle(
           issue.identifier,
           get_in(state.running, [issue.id, :telemetry_attempt_id]),
           :review_pause,
