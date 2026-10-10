@@ -75,3 +75,14 @@ prompt_file: linear-codex.prompt.md
 #   max_writes_per_minute: 20           # 1..60 writes
 #   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
 #   merged_open_grace_seconds: 600      # 60..86400 seconds
+
+# Experiment specs and audit history are stored under the repo state node.
+# experiments:
+#   enabled: true
+#   default_min_samples: 15
+#   default_before_days: 14
+#   pack_dirs: [".aiur/experiments/packs"]
+#   disabled_packs: []
+#   script_timeout_ms: 60000
+#   checkpoint_interval_ms: 3600000
+#   max_snapshot_observations: 50000

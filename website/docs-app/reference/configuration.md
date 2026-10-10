@@ -32,11 +32,9 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 
 ## executor takeover alerts
 
-Aiur watches nonterminal tickets in the run scope and, once a ticket's
-**convergence age** crosses a configurable threshold, raises an advisory
+Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory
 `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
-watch actionable section. The alerts are advisory takeover prompts — they never
-perform a takeover automatically.
+watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
 - `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
   first raises the advisory once its convergence age reaches this value.
@@ -45,8 +43,7 @@ perform a takeover automatically.
   A value of `0` disables repeats (first alert only); `0` on the first threshold
   disables the feature. Negative or non-integer values are rejected.
 
-**Convergence age** is `now − min(first_observed_active_work_at,
-open_pr_created_at)`:
+**Convergence age** is `now − min(first_observed_active_work_at, open_pr_created_at)`:
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon
   state, set once the first time the monitor observes the ticket as nonterminal
@@ -298,8 +295,7 @@ agent:
     avoid_peak_pricing: true
 ```
 
-**A model reachable two ways may appear twice, and the order is the fallback
-order.** Duplicate *routes* are rejected; duplicate backends are not.
+**A model reachable two ways may appear twice, and the order is the fallback order.** Duplicate *routes* are rejected; duplicate backends are not.
 
 | Model name | Behavior |
 | --- | --- |
@@ -308,11 +304,9 @@ order.** Duplicate *routes* are rejected; duplicate backends are not.
 | Alias claimed by multiple vendors | Rejected during config load. |
 | Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
-**OpenRouter needs an explicit model.** It fronts a catalog rather than a
-product, so a bare `openrouter` entry is a config error.
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a product, so a bare `openrouter` entry is a config error.
 
-**An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
-means direct-only, always. Routing through OpenRouter is something you write.
+**An untagged model never falls back to OpenRouter implicitly.** Bare `claude` means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
@@ -372,10 +366,7 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 
 Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
 
-Local Muse sessions retain a native session handle across Aiur restarts. Aiur
-starts a fresh session only when Muse explicitly reports that the stored session
-was not found. Other resume errors, including a busy session, timeout, or
-mismatched session identity, remain failures to preserve conversation continuity.
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures to preserve conversation continuity.
 
 Remote workers and Claude Remote Control are unsupported for Muse.
 
@@ -413,8 +404,7 @@ Reviewer worktrees run `<repo>/scripts/build-gate mise exec -- mix lint` from `s
 
 Malformed compounds and command strings that could hide a Mix build fail with status
 `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
-canonicalized, but deliberately invoking a separate real executable by absolute,
-relative, or symlinked path bypasses the entrypoint and is not admitted.
+canonicalized, but deliberately invoking a separate real executable by absolute, relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
 Fleet admission uses CPU PSI and configured reserves. Load is the PSI-unavailable fallback; missing reserve measurements fail open.
@@ -445,8 +435,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 ## agent.codex
 
-Codex settings belong under `agent.codex`; a legacy root-level `codex:` section
-is rejected with a migration hint rather than silently falling back to defaults.
+Codex settings belong under `agent.codex`; a legacy root-level `codex:` section is rejected with a migration hint rather than silently falling back to defaults.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -462,14 +451,10 @@ is rejected with a migration hint rather than silently falling back to defaults.
 
 ## Model discovery
 
-Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers
-release models faster than that list is edited, so for OpenAI-compatible backends aiur
-also asks the provider's own catalogue endpoint which models it currently serves, and
-caches the answer.
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers release models faster than that list is edited, so for OpenAI-compatible backends aiur
+also asks the provider's own catalogue endpoint which models it currently serves, and caches the answer.
 
-Discovery **extends** the curated list without replacing registry-owned effort vocabularies,
-capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins
-when an ID collides.
+Discovery **extends** the curated list without replacing registry-owned effort vocabularies, capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins when an ID collides.
 
 | Backend | Endpoint | Credential | Returns |
 | --- | --- | --- | --- |
@@ -748,6 +733,21 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.serve_args` | array | `[]` | Extra `opencode serve` arguments. |
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
+
+## experiments
+
+The daemon owns [experiment](../concepts/experiments) writes through control RPC.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `experiments.enabled` | boolean | true | Start the experiment store. Disabled stores refuse writes. |
+| `experiments.default_min_samples` | integer | 15 | Minimum samples per arm; positive. |
+| `experiments.default_before_days` | integer | 14 | Default baseline window in days; positive. |
+| `experiments.pack_dirs` | string list | [".aiur/experiments/packs"] | Consumer metric pack directories, relative to the base checkout; reserved for metric packs. |
+| `experiments.disabled_packs` | string list | [] | Pack IDs to disable; reserved for metric packs. |
+| `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
+| `experiments.checkpoint_interval_ms` | integer | 3600000 | Observation checkpoint interval in milliseconds; positive, reserved for snapshot capture. |
+| `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
 
 ## build_queue
 

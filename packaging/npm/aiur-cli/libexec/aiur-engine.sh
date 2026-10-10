@@ -461,6 +461,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur epic list [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
+       aiur experiments show <id> [--json]
+       aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
@@ -4283,14 +4286,9 @@ aiur_engine_main() {
       shift
       cmd_build_orders "$@"
       ;;
-    analytics)
-      shift
-      cmd_analytics "$@"
-      ;;
-    github-cost)
-      shift
-      cmd_github_cost "$@"
-      ;;
+    analytics) shift; cmd_analytics "$@" ;;
+    github-cost) shift; cmd_github_cost "$@" ;;
+    experiments) shift; cmd_experiments "$@" ;;
     capabilities)
       shift; cmd_capabilities "$@" ;;
     github-usage)
@@ -4403,6 +4401,7 @@ aiur_engine_main() {
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-experiments.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"
 fi

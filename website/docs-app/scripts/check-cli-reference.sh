@@ -37,12 +37,16 @@ source_flags="$(
     # without such a parse arm is not a shipped flag and must not be required.
     awk '
       /^[a-z_]+\(\)/ { in_command = 1; in_case = 0 }
-      in_command && /^[[:space:]]*case[[:space:]]/ { in_case = 1 }
+      in_command && /^[[:space:]]*case[[:space:]]/ { in_case++ }
       in_command && in_case && /^[[:space:]]*--[a-z0-9-]*([=][*])?\)/ { print }
-      in_command && in_case && /^[[:space:]]*esac/ { in_case = 0 }
+      in_command && in_case && /^[[:space:]]*esac/ { in_case-- }
       in_command && /= "--[a-z0-9-]*"/ { print }
       in_command && /^}/ { in_command = 0; in_case = 0 }
-    ' "$engine" "$queue_handler" "$repo_root/packaging/npm/aiur-cli/libexec/aiur-epic.sh"
+    ' "$engine" "$queue_handler" "$repo_root/packaging/npm/aiur-cli/libexec/aiur-epic.sh" "$repo_root/packaging/npm/aiur-cli/libexec/aiur-experiments.sh"
+
+    # Experiments transports argv in the shell; its control client validates flags.
+    sed -n '/^  @switches /p' "$repo_root/src/lib/aiur/experiments_cli.ex" \
+      | rg -o '[a-z_]+:' | tr -d ':' | sed '/^spec_json$/d; s/^/--/; s/_/-/g'
 
     # doctor delegates its flag parser to the standalone helper.
     sed -n 's/.*\$mode == \(--repair\).*/\1/p' "$repo_root/packaging/npm/aiur-cli/libexec/aiur-mise-doctor"
@@ -52,9 +56,9 @@ source_flags="$(
     sed -n '/^if \[ "${1:-}" = "build" \]; then/,/^# --- dev test/p' "$dev_shim" \
       | awk '/= "--[a-z0-9-]*"/ { print }'
     sed -n '/^# --- dev test/,/^if \[ -n "\$agent_workspace_marker" \]; then/p' "$dev_shim" \
-      | awk '/^[[:space:]]*case[[:space:]]/ { in_case = 1 }
+      | awk '/^[[:space:]]*case[[:space:]]/ { in_case++ }
              in_case && /^[[:space:]]*--[a-z0-9-]*([=][*])?\)/ { print }
-             in_case && /^[[:space:]]*esac/ { in_case = 0 }'
+             in_case && /^[[:space:]]*esac/ { in_case-- }'
   } \
     | rg -o -- '--[a-z][a-z0-9-]*' \
     | sort -u

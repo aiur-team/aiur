@@ -153,13 +153,13 @@ defmodule Aiur.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:bandit, "~> 1.12"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},
+      {:ex_json_schema, "~> 0.11", only: :test},
       {:phoenix, "~> 1.8.9"},
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
