@@ -64,6 +64,24 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
     fetch_snapshot({:labels, repo_key(owner, repo)}, max_age_ms)
   end
 
+  @doc "The build queue refresh's conditional page cache for `owner/repo`; empty when none is held."
+  @spec refresh_cache(String.t(), String.t()) :: map()
+  def refresh_cache(owner, repo) do
+    case lookup({:refresh_cache, repo_key(owner, repo)}) do
+      {cache, _} -> cache
+      nil -> %{}
+    end
+  end
+
+  @doc "Retains the build queue refresh's conditional page cache; dropped when the table is absent."
+  @spec put_refresh_cache(String.t(), String.t(), map()) :: :ok
+  def put_refresh_cache(owner, repo, cache) when is_map(cache) do
+    :ets.insert(@table, {{:refresh_cache, repo_key(owner, repo)}, cache, 0})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   defp fetch_snapshot(key, max_age_ms) do
     case lookup(key) do
       {snapshot, taken_at_ms} -> if now_ms() - taken_at_ms <= max_age_ms, do: {:ok, snapshot, taken_at_ms}, else: :none

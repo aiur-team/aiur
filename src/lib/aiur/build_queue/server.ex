@@ -18,6 +18,7 @@ defmodule Aiur.BuildQueue.Server do
     ReadModel,
     Reconcile,
     Recovery,
+    Refresh,
     Settings,
     Store,
     Withdrawal,
@@ -59,6 +60,8 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       observations: %{},
       observed_at_ms: nil,
+      refresh_not_before_ms: nil,
+      refresh_pid: nil,
       actions: [],
       holds: MapSet.new(),
       build_order_projection: Keyword.get(opts, :build_order_projection, BuildOrderSource.projection()),
@@ -313,7 +316,7 @@ defmodule Aiur.BuildQueue.Server do
 
   defp reconcile(state) do
     {freshness, observations, observed_at_ms} = Reconcile.observed_snapshot(state)
-    state = Recovery.resolve(%{state | freshness: freshness, observed_at_ms: observed_at_ms}, observations)
+    state = Recovery.resolve(Refresh.maybe_request(%{state | freshness: freshness, observed_at_ms: observed_at_ms}), observations)
     state = state |> sync_sources(observations) |> replay_list_markers(observations)
     plan(state, Reconcile.observations(state))
   end
