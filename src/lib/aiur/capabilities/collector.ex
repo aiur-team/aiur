@@ -35,7 +35,7 @@ defmodule Aiur.Capabilities.Collector do
   end
 
   defp failed_collection(detail) do
-    entry = %{state: :unknown, reason: :collection_failed, detail: detail}
+    entry = %{state: :unknown, reason: :unknown, detail: detail}
     report = %{machine: nil, instance: nil, repository: nil, executor: nil, capabilities: Map.new(@known_ids, &{&1, entry})}
     {report, MapSet.new([{:collection_failed, detail}])}
   end
