@@ -4,7 +4,7 @@ defmodule Aiur.AppServer.Rpc.Await do
   alias Aiur.AppServer.Rpc
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
-  @spec response(port(), integer(), non_neg_integer(), String.t(), String.t(), Rpc.notification_handler(), boolean()) ::
+  @spec response(port() | pid(), integer(), non_neg_integer(), String.t(), String.t(), Rpc.notification_handler(), boolean()) ::
           {:ok, map()} | {:error, term()}
   def response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?) do
     receive do
