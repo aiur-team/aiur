@@ -247,7 +247,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Alerts.emit_custom(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
-      "Merged PR could not confirm ticket #{identifier} as done (#{reason}).",
+      "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
       issue: identifier,
       reason: "The merge transition failed (#{reason}); check the ticket's current state and labels.",
       needs_attention: true,
