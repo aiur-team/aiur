@@ -801,7 +801,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    render_async(view, 2_000)
+    LiveViewAsync.render_after_refresh(view)
     assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="working"]), "agent live")
     assert has_element?(view, ~s([data-bo-card="7"]), "30%")
 
@@ -811,14 +811,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     :ok = AgentPubSub.broadcast_running_change([])
 
-    render_async(view, 2_000)
+    LiveViewAsync.render_after_refresh(view)
     assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "Paused")
     assert has_element?(view, ~s([data-bo-card="7"]), "45%")
 
     Agent.update(sources, fn _sources -> sources_for_ci_wait_member(member.identity, 60) end)
     :ok = AgentPubSub.broadcast_running_change([])
 
-    render_async(view, 2_000)
+    LiveViewAsync.render_after_refresh(view)
     assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "CI waiting")
     assert has_element?(view, ~s([data-bo-card="7"]), "60%")
   end
