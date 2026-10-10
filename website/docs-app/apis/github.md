@@ -339,10 +339,10 @@ its SQLite connection and batches queued commands before replying. Shell
 `gh` guards keep the one-shot interface against the same shared database;
 separate daemons never get separate quota ledgers for a shared credential.
 
-A broker deadline is a **local hold**, before a request reaches GitHub.
-Aiur backs off, keeps the ticket claim, and preserves worker attempt counters,
-even when the bounded in-call retries run out. Broker holds do not report lost
-GitHub connectivity.
+A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and
+keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`,
+`:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown
+review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.

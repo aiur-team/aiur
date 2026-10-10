@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.ReviewThreads.Reply
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -170,6 +171,161 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
                  attempts: 1,
                  retry_delay_ms: 0
                )
+    end
+
+    test "deadline after GitHub applied the reply does not post twice" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+      now = DateTime.utc_now() |> DateTime.add(5, :second) |> DateTime.to_iso8601()
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(posts, &(&1 + 1))
+            {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_applied", [
+              review_thread_comment(1, "owner", "please fix"),
+              %{review_thread_comment(2, "aiur-bot", "Done.") | "createdAt" => now}
+            ])
+        end
+      end
+
+      assert {:ok, %{reconciled: true}} =
+               Reply.reply_to_review_thread("PRRT_applied", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(posts, & &1) == 1
+    end
+
+    test "second-precision createdAt at the attempt start is found, not reposted" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+      created = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(posts, &(&1 + 1))
+            {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_sec", [
+              %{review_thread_comment(2, "aiur-bot", "Done.") | "createdAt" => created}
+            ])
+        end
+      end
+
+      assert {:ok, %{reconciled: true}} =
+               Reply.reply_to_review_thread("PRRT_sec", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(posts, & &1) == 1
+    end
+
+    test "reply applied by attempt 1 is found when attempt 2 also times out" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+      {:ok, reads} = Agent.start_link(fn -> 0 end)
+      # Inside the reply window (started 60 s ago) but outside a fresh clock's
+      # 5 s skew: only a start time carried across retries finds it.
+      created = DateTime.utc_now() |> DateTime.add(-30) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(posts, &(&1 + 1))
+            {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            # The first read lags; the reply shows up only on the second read.
+            comments =
+              if Agent.get_and_update(reads, &{&1, &1 + 1}) == 0,
+                do: [],
+                else: [%{review_thread_comment(2, "aiur-bot", "Done.") | "createdAt" => created}]
+
+            review_thread_node_response("PRRT_two", comments)
+        end
+      end
+
+      assert {:ok, %{reconciled: true}} =
+               Reply.reply_to_review_thread("PRRT_two", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0,
+                 reply_started_at: DateTime.add(DateTime.utc_now(), -60)
+               )
+
+      assert Agent.get(posts, & &1) == 2
+    end
+
+    test "deadline with no applied reply retries once" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            if Agent.get_and_update(posts, &{&1, &1 + 1}) == 0 do
+              {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+            else
+              {:ok,
+               %{
+                 status: 200,
+                 body: %{
+                   "data" => %{
+                     "addPullRequestReviewThreadReply" => %{
+                       "comment" => review_thread_comment(2, "aiur-bot", "Done.")
+                     }
+                   }
+                 }
+               }}
+            end
+
+          body["query"] =~ "query AiurReviewThread" ->
+            # An identical older reply must not count as the applied attempt.
+            review_thread_node_response("PRRT_none", [
+              %{review_thread_comment(1, "aiur-bot", "Done.") | "createdAt" => "2000-01-01T00:00:00Z"}
+            ])
+        end
+      end
+
+      assert {:ok, %{verified: true}} =
+               Reply.reply_to_review_thread("PRRT_none", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(posts, & &1) == 2
+    end
+
+    test "reconcile read failure returns unknown without a second post" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(posts, &(&1 + 1))
+            {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            {:error, %Req.TransportError{reason: :timeout}}
+        end
+      end
+
+      assert {:error, reason} =
+               Reply.reply_to_review_thread("PRRT_readfail", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Errors.outcome({:error, reason}) == :unknown
+      assert Agent.get(posts, & &1) == 1
     end
 
     test "sleep_fun is injectable and called with linear backoff" do

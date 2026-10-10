@@ -171,6 +171,23 @@ defmodule Aiur.GitHub.Errors do
   @spec rate_limit_message?(term()) :: boolean()
   defdelegate rate_limit_message?(body), to: GraphQLErrors
 
+  @typedoc """
+  What a GitHub access result proves: `:complete` (GitHub answered in full),
+  `:held` (we never sent it: local budget hold), `:unknown` (sent, outcome not
+  known: deadline, owner exit, timeout after send), `:failed` (a definite error).
+  """
+  @type outcome :: :complete | :held | :unknown | :failed
+
+  @doc "Classifies any GitHub access result into `t:outcome/0`, raw or transport-wrapped."
+  @spec outcome(term()) :: outcome()
+  def outcome({:ok, _value}), do: :complete
+  def outcome({:ok, _value, _meta}), do: :complete
+  def outcome({:error, {:aiur, :locally_held, _hold}}), do: :held
+  def outcome({:error, {:aiur, :unknown, _reason}}), do: :unknown
+  def outcome({:error, {:github, :local_hold, _detail}}), do: :held
+  def outcome({:error, {:github, :transport, %{reason: {:aiur, _, _} = reason}}}), do: outcome({:error, reason})
+  def outcome(_result), do: :failed
+
   @doc """
   The single shared transient-fault classifier for GitHub and broker errors.
 
