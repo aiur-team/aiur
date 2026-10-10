@@ -122,7 +122,8 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
   def build_answer_payload(_payload), do: {:error, :invalid_answer}
 
   @spec command_store(term()) :: term()
-  @spec command_store() :: term()
   def command_store(_socket), do: command_store()
+
+  @spec command_store() :: term()
   def command_store, do: Endpoint.config(:decision_store) || Commands.default_store()
 end

@@ -260,9 +260,10 @@ defmodule AiurWeb.StreamdeckProjection.Meters do
   end
 
   @spec age_seconds(DateTime.t() | nil) :: non_neg_integer() | nil
-  @spec age_seconds(DateTime.t() | nil, DateTime.t()) :: non_neg_integer() | nil
   def age_seconds(nil), do: nil
   def age_seconds(observed_at), do: age_seconds(observed_at, DateTime.utc_now())
+
+  @spec age_seconds(DateTime.t() | nil, DateTime.t()) :: non_neg_integer() | nil
   def age_seconds(nil, _now), do: nil
   def age_seconds(observed_at, now), do: DateTime.diff(now, observed_at) |> max(0)
 

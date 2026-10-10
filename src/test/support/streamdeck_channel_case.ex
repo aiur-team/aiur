@@ -24,8 +24,8 @@ defmodule AiurWeb.StreamdeckChannelCase do
       alias Aiur.DecisionQuery.Cursor
       alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
       alias Aiur.ProviderMeterSnapshot
-      alias AiurWeb.StreamdeckChannelCase.FakeDecisionStore
       alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckChannel, StreamdeckProjection, StreamdeckSocket}
+      alias AiurWeb.StreamdeckChannelCase.FakeDecisionStore
       alias Phoenix.Socket.Message
       alias Phoenix.Socket.V2.JSONSerializer
 
@@ -43,6 +43,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   # validation path so `StreamdeckCommands.item/1` projects it as production
   # would.
   defmodule FakeDecisionStore do
+    @moduledoc false
     use GenServer
 
     def start_link(decision, report), do: GenServer.start_link(__MODULE__, {decision, report})
