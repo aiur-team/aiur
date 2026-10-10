@@ -99,19 +99,22 @@ defmodule AiurWeb.Build.NowRows do
     work_state = get_in(row, [:runtime, :work_state])
     waiting = get_in(row, [:reasons, :waiting])
     pause = get_in(row, [:reasons, :pause])
-    count = row[:open_command_count]
     paused? = UnitsPolicy.condition?(:paused, row)
 
     cond do
-      work_state == :error or get_in(row, [:runtime, :bucket]) == :retrying or UnitsPolicy.condition?(:stuck, row) -> "error"
+      error?(row) -> "error"
       waiting == :latched_lifetime -> "retries"
-      (is_integer(count) and count > 0) or waiting == :waiting_for_human -> "command"
-      paused? and (State.non_reserving_pause_reason?(pause) or pause == :github_budget_hold) -> "parked"
+      command?(row[:open_command_count], waiting) -> "command"
+      parked?(paused?, pause) -> "parked"
       paused? -> "paused"
       UnitsPolicy.in_scope?(row, :live) and work_state in [:starting, :allocated, :working] -> "active"
       true -> nil
     end
   end
+
+  defp error?(row), do: get_in(row, [:runtime, :work_state]) == :error or get_in(row, [:runtime, :bucket]) == :retrying or UnitsPolicy.condition?(:stuck, row)
+  defp command?(count, waiting), do: (is_integer(count) and count > 0) or waiting == :waiting_for_human
+  defp parked?(paused?, pause), do: paused? and (State.non_reserving_pause_reason?(pause) or pause == :github_budget_hold)
 
   defp model(family) when is_atom(family) and not is_nil(family) do
     key = Atom.to_string(family)
