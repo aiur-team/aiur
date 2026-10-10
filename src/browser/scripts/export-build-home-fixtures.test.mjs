@@ -97,6 +97,41 @@ test('API usage literals still in build.js', () => {
     assert.ok(source.includes(`head: "${row.head}", rows: [["${row.rows[0][0]}", "${row.rows[0][1]}"]]`));
   }
 });
+test('GitHub is one icon row with the design core and GraphQL lines, without Search', () => {
+  const { apis } = fixture('live').usage;
+  assert.equal(apis.length, 1);
+  assert.equal(apis[0].name, 'GitHub');
+  assert.equal(apis[0].icon, 'github');
+  assert.equal(apis[0].session, null);
+  assert.equal(apis[0].weekly, null);
+  assert.deepEqual(apis[0].lines, API_ROWS.slice(0, 2).map(a => ({ tag: a.tag, acc: [a.pct],
+    reset_at: 1791408000000 + Number.parseInt(a.reset, 10) * 60000,
+    win: a.win, tip: a.rows, hold_until: null })));
+});
+test('provider logos use LOGOS keys instead of design asset paths', () => {
+  assert.deepEqual(fixture('live').usage.providers.map(p => [p.name, p.logo]),
+    [['Claude', 'claude'], ['Codex', 'codex'], ['Kimi', 'kimi'], ['DeepSeek', 'deepseek']]);
+  const { dataFor, NOW } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW'] });
+  const mapped = mapRawToPayload({ meta: { now: NOW, tz: 'America/Los_Angeles' }, data: dataFor('live'),
+    usage: { models: [{ name: 'Unknown', logo: 'assets/unknown.svg' }, { name: 'Claude', logo: 'claude' }],
+      apis: API_ROWS }, daemon: fixture('live').daemon });
+  assert.deepEqual(mapped.usage.providers.map(p => p.logo), [null, 'claude']);
+});
+test('usage mapper preserves unknown windows and optional observation fields', () => {
+  const { dataFor, NOW } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW'] });
+  const lines = [{ tag: 'session', acc: [null], reset_at: null, win: null,
+    tip: [['Limits', 'not observed']], hold_until: NOW + 60000 }];
+  const provider = { name: 'Unknown', session: { acc: [null], reset: null, win: null },
+    lines, icon: null, stale: true, observed_at: NOW - 1000, note: 'Last known' };
+  const mapped = mapRawToPayload({ meta: { now: NOW, tz: 'America/Los_Angeles' }, data: dataFor('live'),
+    usage: { models: [provider, { name: 'Missing' }], apis: [{ tag: 'core', pct: null }] }, daemon: fixture('live').daemon });
+  assert.deepEqual(mapped.usage.providers[0].session, { acc: [null], reset_at: null, win: null });
+  assert.deepEqual(mapped.usage.providers[0].lines, lines);
+  for (const key of ['icon', 'stale', 'observed_at', 'note']) assert.equal(mapped.usage.providers[0][key], provider[key]);
+  assert.deepEqual(mapped.usage.apis[0].lines[0].acc, [null]);
+  for (const key of ['lines', 'icon', 'observed_at', 'note']) assert.equal(mapped.usage.providers[1][key], null);
+  assert.equal(mapped.usage.providers[1].stale, false);
+});
 test('encode refuses ambiguous values', () => {
   assert.throws(() => encode({ a: { b: NaN } }), /a.b: NaN/);
   assert.throws(() => encode({ a: -Infinity }), /a: -Infinity/);
