@@ -13,6 +13,10 @@ defmodule Aiur.ProviderMeterRefresh do
     last watcher looks away. An abandoned tab stops costing requests; a glance
     elsewhere does not cost a stale meter on return. A surface gaining focus is
     observed immediately rather than waiting out the interval.
+  - **Headroom dispatch is a watcher.** `agent.account_selection: headroom`
+    ranks accounts by these readings at every claim, so the policy keeps
+    polling with no surface open (#4127). With no agents running it polls
+    Claude only.
   - **One baseline shortly after boot**, so the first surface to open shows real
     values rather than "not observed".
   - **Codex only while agents run.** Observing Codex means opening an app-server
@@ -25,6 +29,7 @@ defmodule Aiur.ProviderMeterRefresh do
 
   use GenServer
 
+  alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config
   alias Aiur.ProviderMeterProbe
 
@@ -78,6 +83,7 @@ defmodule Aiur.ProviderMeterRefresh do
     state = %{
       observer: Keyword.get(opts, :observer, &ProviderMeterProbe.observe/1),
       agents_running?: Keyword.get(opts, :agents_running_fun, &agents_running?/0),
+      headroom?: Keyword.get(opts, :headroom_fun, &HeadroomDispatch.enabled?/0),
       interval_fun: Keyword.get(opts, :interval_fun, &configured_interval_ms/0),
       now_fun: Keyword.get(opts, :now_fun, &System.monotonic_time/0),
       grace_ms: Keyword.get(opts, :grace_ms, @default_grace_ms),
@@ -113,7 +119,13 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   def handle_info(:refresh, state) do
-    state = if watched?(state), do: observe(state, refresh_target(state)), else: state
+    state =
+      cond do
+        watched?(state) -> observe(state, refresh_target(state))
+        state.headroom?.() -> observe(state, headroom_target(state))
+        true -> state
+      end
+
     schedule_refresh(state)
 
     {:noreply, state}
@@ -183,6 +195,10 @@ defmodule Aiur.ProviderMeterRefresh do
   # that cost is paid. `agents_running?` is retained: it is still the honest
   # answer to "is this fleet consuming anything", and callers inject it.
   defp refresh_target(_state), do: :all
+
+  # Dispatch reads the meter with nobody looking. Codex is observed by opening
+  # an app-server session, so an idle fleet pays only for the Claude read.
+  defp headroom_target(state), do: if(state.agents_running?.(), do: :all, else: :claude)
 
   # An observer failure must never take the scheduler down: a provider being
   # unreachable is an expected condition, and the retained observation keeps

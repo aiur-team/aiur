@@ -424,8 +424,8 @@ defmodule Aiur.Application do
       # is broadcast before there is anything retaining it.
       Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
-      # Decides when usage is observed: one baseline after boot, then only
-      # while agents are running. Starts after the projection so a baseline
+      # Decides when usage is observed: one baseline after boot, then while a
+      # surface is watched or headroom account selection is on. Starts after the projection so a baseline
       # observation always has somewhere to land.
       Aiur.ProviderMeterRefresh,
       Aiur.UsageLedger,
