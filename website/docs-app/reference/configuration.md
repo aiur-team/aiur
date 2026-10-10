@@ -74,7 +74,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `tracker.kind` | string | required | Selects `linear`, `github`, or `memory`. |
-| `tracker.propagate_blocker_pushes` | boolean | optimistic queue: true; otherwise false | Cascade direct blocker pushes into idle dependent branches. Coalesces for 2 seconds, at most 2 propagations concurrently. Live agents pull themselves; conflicts dispatch rework. |
+| `tracker.propagate_blocker_pushes` | boolean or nil | nil | Unset enables optimistic queue members; otherwise false. Cascade direct blocker pushes into idle dependents. Coalesces for 2 seconds, at most 2 propagations concurrently. Live agents pull themselves; conflicts dispatch rework. |
 | `tracker.restack_after_blocker_merge` | boolean | true | Fast-forward restack idle GitHub dependents after a blocker squash-merges. Requires git 2.40+. Live agents restack themselves; false disables only the daemon path. |
 | `tracker.base_branch` | string | required | Branch agents target with PRs. `aiur init` offers the repository default read from GitHub, but there is no runtime fallback: an unset value raises. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
