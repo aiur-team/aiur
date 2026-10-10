@@ -24,10 +24,10 @@ defmodule AiurWeb.Build.Protocol do
     )
   end
 
-  @spec store(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
-  def store(socket, data) do
-    data = Payload.scrub(data)
-    assign(socket, build_snapshot: data, build_history: data["history"], build_index_generation: data["index_generation"])
+  @spec store(Phoenix.LiveView.Socket.t(), map(), keyword() | nil) :: Phoenix.LiveView.Socket.t()
+  def store(socket, data, opts \\ nil) do
+    data = data |> Payload.scrub() |> access(opts || Read.source_opts(socket))
+    assign(socket, build_snapshot: data, build_history: data["history"], build_index_generation: data["index_generation"], build_usage_last: data["usage"])
   end
 
   @spec resync(Phoenix.LiveView.Socket.t(), keyword()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
@@ -68,14 +68,15 @@ defmodule AiurWeb.Build.Protocol do
 
   def changes(socket, _changes, _opts), do: restart(socket)
 
-  defp snapshot_reply({:ok, data}, socket, opts) do
+  defp snapshot_reply({:ok, data}, socket, _opts) do
+    opts = Read.source_opts(socket)
     data = data |> Payload.scrub() |> access(opts)
     message = Payload.snapshot(data, socket.assigns.build_epoch, socket.assigns.build_generation)
 
     case validate(message) do
       :ok ->
         warn_size(message)
-        {:reply, message, socket |> store(data) |> assign(build_resynced: true)}
+        {:reply, message, socket |> store(data, opts) |> assign(build_resynced: true)}
 
       :error ->
         {:reply, Payload.error(:unavailable), socket}
@@ -101,6 +102,7 @@ defmodule AiurWeb.Build.Protocol do
       |> assign(
         build_generation: generation,
         build_history: Map.get(message["set"], "history", socket.assigns.build_history),
+        build_usage_last: Map.get(message["set"], "usage", socket.assigns.build_usage_last),
         build_index_generation: Map.get(changes, "index_generation", socket.assigns.build_index_generation)
       )
       |> Phoenix.LiveView.push_event("build-diff", message)

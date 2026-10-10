@@ -96,3 +96,5 @@ Code.require_file("support/webhook_equivalence_fixture.ex", __DIR__)
 Code.require_file("support/webhook_poll_fixture.ex", __DIR__)
 Code.require_file("support/mutation_fixture.ex", __DIR__)
 Code.require_file("support/deposit_fixture.ex", __DIR__)
+
+Code.require_file("support/build_home/usage_inputs.ex", __DIR__)
