@@ -130,7 +130,14 @@ export async function openParityPair(browser, cell, opts = {}) {
 export async function captureStable(target, opts) {
   let previous
   for (let attempt = 0; attempt < 10; attempt++) {
-    const png = await target.screenshot(opts)
+    let png
+    try { png = await target.screenshot(opts) }
+    catch (error) {
+      if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
+      // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
+      await delay(100)
+      png = await target.screenshot(opts)
+    }
     if (previous?.equals(png)) return png
     previous = png
     await delay(100)
