@@ -263,6 +263,14 @@
       "prior": []
     },
     {
+      "id": "voice-conversation-core", "name": "Host-agnostic voice assistant core (MP-E6, born as a package)", "layer": 3, "kind": "optional",
+      "paths": ["packages/elixir/voice_converse/**", "scripts/check-voice-converse-isolation.sh", ".github/workflows/voice-converse-standalone.yml"],
+      "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
+      "requires": [], "optional": [],
+      "owns": {"config": [], "env": [], "state": [], "capabilities": []},
+      "prior": []
+    },
+    {
       "id": "voice-stt", "name": "Speech-to-text and TTS (MP-R5)", "layer": 3, "kind": "optional",
       "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/sockets/voice.ex", "src/lib/aiur_web/voice*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
