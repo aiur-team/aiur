@@ -194,3 +194,13 @@ GitHub labels and sets no baseline.
 Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;
 unknown start, end, and join times remain unknown.
+
+### Cascading blocker pushes
+
+With `tracker.propagate_blocker_pushes`, an idle dependent incorporates only its direct blocker’s new push. The default enables this for members of queues with optimistic start triggers (`pr_opened`, `pr_ci_green`, `pr_approved`); an explicit boolean overrides it. 
+
+In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. Every blocker history rewrite dispatches agent rework (`upstream_rewrite`); the daemon never rebases draft or reviewed dependents. 
+
+A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes. 
+
+Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.
