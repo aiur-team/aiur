@@ -867,11 +867,9 @@ defmodule Aiur.BuildGateTest do
       exec {fd}<>"$path"
       flock "$fd"
     done
-    printf 'ready\n'
-    while [[ -d $2 && ! -e $3 ]] && kill -0 "$4" 2>/dev/null; do sleep 0.5; done
     """
 
-    _holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", context.gate_dir, context.lock_dir, release_path, System.pid()], release_path)
+    _holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", context.gate_dir, context.lock_dir], context.lock_dir, release_path)
 
     status = build_gate_status(gate_dir: context.gate_dir, capacity: 2, strategy: :linux_lock)
 
@@ -2668,23 +2666,16 @@ defmodule Aiur.BuildGateTest do
 
   defp test_holder(bash, slot_lock, owner_path, release_path, pid_path) do
     script = ~S"""
-    printf '%s\n' "$$" > "$5"
+    printf '%s\n' "$$" > "$3"
     exec 8<>"$1"
     flock 8
     if [[ -n $2 ]]; then
       exec 9<>"$2"
       flock 9
     fi
-    printf 'ready\n'
-    while [[ -d $4 && ! -e $3 ]] && kill -0 "$6" 2>/dev/null; do sleep 0.5; done
     """
 
-    Aiur.BuildGateTestHolder.start!(
-      bash,
-      script,
-      ["build-gate-holder", slot_lock, owner_path, release_path, Path.dirname(slot_lock), pid_path, System.pid()],
-      release_path
-    )
+    Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, owner_path, pid_path], Path.dirname(slot_lock), release_path)
   end
 
   defp start_gated_port(command, context) do

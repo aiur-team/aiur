@@ -15,6 +15,8 @@ defmodule Aiur.AgentResourceGuard do
   require Logger
 
   @default_interval_ms 1_000
+  # A leaked holder lives for days; scanning /proc for one every tick is waste.
+  @orphan_interval_ms 60_000
   @load_generator_comms ~w(yes stress stress-ng)
 
   @type proc_info :: %{pid: pos_integer(), comm: String.t(), cmdline: String.t()}
@@ -31,30 +33,47 @@ defmodule Aiur.AgentResourceGuard do
   def enforce_once(opts \\ []) do
     cap = Keyword.get_lazy(opts, :cap, &Aiur.Config.synthetic_load_process_cap/0)
 
-    entries_fun = Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0)
-    roots = entries_fun.() |> agent_root_pids()
-    cap_results = if cap <= 0, do: [], else: Enum.flat_map(roots, &trim_root(&1, cap, opts))
-    cap_results ++ reap_orphaned_build_gate_holders(roots, opts)
+    if cap <= 0 do
+      []
+    else
+      entries_fun = Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0)
+
+      entries_fun.()
+      |> agent_root_pids()
+      |> Enum.flat_map(&trim_root(&1, cap, opts))
+    end
   end
 
   @doc false
-  @spec orphaned_build_gate_holders(Path.t(), Path.t(), (pos_integer() -> {:ok, term()} | :gone | :unknown)) ::
-          [{pos_integer(), term()}]
-  def orphaned_build_gate_holders(proc_dir \\ "/proc", lock_root \\ nil, identity_fun \\ &ProcessTree.process_identity/1) do
-    lock_root = lock_root || Aiur.BuildGate.lock_dir()
+  @spec reap_orphaned_build_gate_holders(keyword()) :: [pos_integer()]
+  def reap_orphaned_build_gate_holders(opts \\ []) do
+    find_fun = Keyword.get(opts, :orphan_holders_fun, &orphaned_build_gate_holders/0)
+    kill_fun = Keyword.get(opts, :orphan_kill_fun, &ProcessTree.reap_process/2)
 
+    for {pid, identity} <- find_fun.() do
+      _ = kill_fun.(pid, identity)
+      Logger.warning("agent_resource_guard reaped_orphaned_build_gate_holder pid=#{pid}")
+      pid
+    end
+  end
+
+  # Leaked holders lock test temp dirs, never the daemon's gate root, so they are
+  # matched by script shape and a vanished lock path, not by location (#4183).
+  @doc false
+  @spec orphaned_build_gate_holders(Path.t(), (pos_integer() -> {:ok, term()} | :gone | :unknown)) ::
+          [{pos_integer(), term()}]
+  def orphaned_build_gate_holders(proc_dir \\ "/proc", identity_fun \\ &ProcessTree.process_identity/1) do
     case File.ls(proc_dir) do
       {:ok, entries} ->
         for entry <- entries,
             {pid, ""} <- [Integer.parse(entry)],
+            proc_entry = Path.join(proc_dir, entry),
+            {:ok, "bash\n"} <- [File.read(Path.join(proc_entry, "comm"))],
+            # Identity is captured before argv is read, so a recycled pid fails the reap.
             {:ok, identity} <- [identity_fun.(pid)],
-            info = proc_info_at(proc_dir, pid),
-            is_map(info),
-            info.comm == "bash",
-            build_gate_holder?(info.cmdline),
-            lock_path = holder_lock_path(info.cmdline),
+            {:ok, cmdline} <- [File.read(Path.join(proc_entry, "cmdline"))],
+            lock_path = holder_lock_path(cmdline),
             is_binary(lock_path),
-            String.starts_with?(Path.expand(lock_path), Path.expand(lock_root) <> "/"),
             not File.exists?(lock_path) do
           {pid, identity}
         end
@@ -99,10 +118,23 @@ defmodule Aiur.AgentResourceGuard do
     }
 
     schedule_tick(state.interval_ms)
+    Process.send_after(self(), :reap_orphans, @orphan_interval_ms)
     {:ok, state}
   end
 
   @impl true
+  def handle_info(:reap_orphans, state) do
+    try do
+      reap_orphaned_build_gate_holders(state.enforce_opts)
+    rescue
+      error -> Logger.warning("agent_resource_guard orphan_reap_failed_open error=#{inspect(error)}")
+    after
+      Process.send_after(self(), :reap_orphans, @orphan_interval_ms)
+    end
+
+    {:noreply, state}
+  end
+
   def handle_info(:tick, state) do
     try do
       enforce_once(state.enforce_opts)
@@ -147,39 +179,14 @@ defmodule Aiur.AgentResourceGuard do
     end
   end
 
-  defp reap_orphaned_build_gate_holders(roots, opts) do
-    find_fun = Keyword.get(opts, :orphan_holders_fun, &orphaned_build_gate_holders/0)
-    kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.reap_process/2)
-
-    find_fun.()
-    |> Enum.reject(fn {pid, _identity} -> pid in roots end)
-    |> Enum.map(fn {pid, identity} ->
-      _ = kill_fun.(pid, identity)
-      Logger.warning("agent_resource_guard reaped_orphaned_build_gate_holder pid=#{pid}")
-      %{root_pid: nil, cap: 0, killed: [pid]}
-    end)
-  end
-
-  defp build_gate_holder?(cmdline), do: String.contains?(cmdline, "build-gate-holder")
-
   defp holder_lock_path(cmdline) do
     case String.split(cmdline, <<0>>, trim: true) do
-      ["/usr/bin/bash", "-c", script | args] ->
-        if String.contains?(script, "flock 8") and String.contains?(script, "sleep 0.05"), do: Enum.at(args, 1)
+      [bash, "-c", script, "build-gate-holder", lock_path | _rest] ->
+        if Path.basename(bash) == "bash" and String.contains?(script, "flock 8") and String.contains?(script, "sleep 0.05"),
+          do: lock_path
 
       _ ->
         nil
-    end
-  end
-
-  defp proc_info_at(proc_dir, pid) do
-    entry = Path.join(proc_dir, Integer.to_string(pid))
-
-    with {:ok, comm} <- File.read(Path.join(entry, "comm")),
-         {:ok, cmdline} <- File.read(Path.join(entry, "cmdline")) do
-      %{pid: pid, comm: String.trim(comm), cmdline: cmdline}
-    else
-      _ -> nil
     end
   end
 

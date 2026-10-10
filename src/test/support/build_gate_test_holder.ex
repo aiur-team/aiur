@@ -4,13 +4,25 @@ defmodule Aiur.BuildGateTestHolder do
   import ExUnit.Callbacks, only: [on_exit: 1]
   import ExUnit.Assertions, only: [flunk: 1]
 
-  def start!(bash, script, args, release_path) do
+  # The one wait loop every test holder runs: it ends on release, when the lock
+  # directory disappears, or when the owning process dies (#4183).
+  @wait ~S"""
+  printf 'ready\n'
+  while [[ -d $AIUR_TEST_HOLDER_LOCK_DIR && ! -e $AIUR_TEST_HOLDER_RELEASE ]] && kill -0 "$AIUR_TEST_HOLDER_PARENT" 2>/dev/null; do sleep 0.5; done
+  """
+
+  def start!(bash, setup_script, args, lock_dir, release_path, parent_pid \\ System.pid()) do
     port =
       Port.open({:spawn_executable, String.to_charlist(bash)}, [
         :binary,
         :exit_status,
         :stderr_to_stdout,
-        args: ["-c", script | args]
+        args: ["-c", setup_script <> @wait | args],
+        env: [
+          {~c"AIUR_TEST_HOLDER_LOCK_DIR", String.to_charlist(lock_dir)},
+          {~c"AIUR_TEST_HOLDER_RELEASE", String.to_charlist(release_path)},
+          {~c"AIUR_TEST_HOLDER_PARENT", String.to_charlist(parent_pid)}
+        ]
       ])
 
     pid = holder_pid(port)

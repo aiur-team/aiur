@@ -1557,11 +1557,9 @@ defmodule Aiur.AgentControlCLITest do
     flock 8
     exec 9<>"$2"
     flock 9
-    printf 'ready\n'
-    while [[ -d $(dirname "$1") && ! -e $3 ]] && kill -0 "$4" 2>/dev/null; do sleep 0.5; done
     """
 
-    holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, queue_path, release_path, System.pid()], release_path)
+    holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, queue_path], Path.dirname(slot_lock), release_path)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -1625,11 +1623,9 @@ defmodule Aiur.AgentControlCLITest do
     flock 8
     exec 9<>"$2"
     flock 9
-    printf 'ready\n'
-    while [[ -d $(dirname "$1") && ! -e $3 ]] && kill -0 "$4" 2>/dev/null; do sleep 0.5; done
     """
 
-    holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, queue_path, release_path, System.pid()], release_path)
+    holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, queue_path], Path.dirname(slot_lock), release_path)
 
     on_exit(fn ->
       if is_nil(previous) do
