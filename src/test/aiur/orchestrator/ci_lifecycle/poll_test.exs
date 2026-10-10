@@ -3,11 +3,17 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
 
   import Aiur.CiLifecycleTestSupport
 
-  alias Aiur.{ExecutorListener, ExecutorWakeInbox, PollCadence}
+  alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
+  alias Aiur.CiLifecycleTestSupport.SlowTransitionClient
   alias Aiur.Events.Publisher
+  alias Aiur.ExecutorListener
+  alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CiLifecycle, IssueSync, State, TrackerTasks}
-  alias Aiur.CiLifecycleTestSupport.{RecordingGitHubClient, SlowTransitionClient}
+  alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.IssueSync
+  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.PollCadence
 
   setup :ci_lifecycle_setup
 

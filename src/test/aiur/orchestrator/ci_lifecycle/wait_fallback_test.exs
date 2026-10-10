@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
   import Aiur.CiLifecycleTestSupport
 
   alias Aiur.AgentQueueStore
-  alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
+  alias Aiur.Orchestrator.CiLifecycle
 
   setup :ci_lifecycle_setup
 

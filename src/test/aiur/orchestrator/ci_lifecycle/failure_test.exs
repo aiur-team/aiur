@@ -3,12 +3,16 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
 
   import Aiur.CiLifecycleTestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator}
+  alias Aiur.AgentQueueStore
   alias Aiur.AgentRunner.MessageHandler
-  alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CiLifecycle, State}
+  alias Aiur.CIApprovalStore
   alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
+  alias Aiur.Events.Exchange
+  alias Aiur.Events.Publisher
+  alias Aiur.GitHub.ResourceStore
+  alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.State
 
   setup :ci_lifecycle_setup
 

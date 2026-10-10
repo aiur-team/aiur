@@ -5,11 +5,15 @@ defmodule Aiur.CiLifecycleTestSupport do
   import ExUnit.Callbacks, only: [on_exit: 1]
   import Aiur.TestSupport, only: [write_workflow_file!: 2]
 
-  alias Aiur.{Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator.{CiLifecycle, State}
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.State
+  alias Aiur.TrackerIdentity
+  alias Aiur.Workflow
 
   defmodule RecordingGitHubClient do
+    @moduledoc false
     alias Aiur.GitHub.IssueState
 
     @recipient_key {__MODULE__, :recipient}
@@ -72,6 +76,8 @@ defmodule Aiur.CiLifecycleTestSupport do
   end
 
   defmodule SlowTransitionClient do
+    @moduledoc false
+
     def update_issue_state(issue_id, next_state, opts) do
       recipient = Application.fetch_env!(:aiur, :ci_slow_transition_recipient)
       send(recipient, {:ci_transition_started, self(), issue_id, next_state, opts})

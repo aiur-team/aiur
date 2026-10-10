@@ -3,9 +3,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
   import Aiur.CiLifecycleTestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore}
-  alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.AgentQueueStore
+  alias Aiur.CIApprovalStore
   alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
+  alias Aiur.Orchestrator.CiLifecycle
 
   setup :ci_lifecycle_setup
 

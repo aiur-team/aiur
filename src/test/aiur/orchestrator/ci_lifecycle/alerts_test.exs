@@ -3,8 +3,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.AlertsTest do
 
   import Aiur.CiLifecycleTestSupport
 
-  alias Aiur.PollCadence
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.PollCadence
 
   setup :ci_lifecycle_setup
 
