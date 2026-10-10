@@ -1061,9 +1061,7 @@ defmodule Aiur.GitHub.Issues do
   # `state: "closed"` resolving to the terminal "Closed". A blocker with no
   # derivable state keeps `state: nil`, which the gate treats as non-terminal
   # (blocking) — fail-closed on incomplete payloads.
-  defp normalize_blockers(blockers, prefix) when is_list(blockers) do
-    Enum.map(blockers, &normalize_blocker(&1, prefix))
-  end
+  defp normalize_blockers(blockers, prefix) when is_list(blockers), do: Enum.map(blockers, &normalize_blocker(&1, prefix))
 
   defp normalize_blocker(blocker, prefix) when is_map(blocker) do
     number = Map.get(blocker, "number")
