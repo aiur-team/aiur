@@ -474,7 +474,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   test "orchestrator shutdown reaps a held tracker task", %{server: server, token: token} do
     send(server, :run_poll_cycle)
     receive_barrier({:poll_started, ^token, tracker})
-    refute tracker == server
+    assert tracker != server and Enum.any?(:sys.get_state(server).tracker_tasks, fn {_ref, job} -> job.task.pid == tracker end)
     monitor = Process.monitor(tracker)
     on_exit(fn -> if Process.alive?(tracker), do: Process.exit(tracker, :kill) end)
     assert GenServer.stop(server) == :ok
