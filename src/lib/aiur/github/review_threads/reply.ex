@@ -42,6 +42,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     end
   end
 
+  @reconcile_skew_seconds 5
+
   @spec do_reply_to_review_thread(
           function(),
           String.t(),
@@ -53,7 +55,10 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
         ) ::
           {:ok, map()} | {:error, term()}
   def do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
-    started_at = DateTime.utc_now()
+    # Taken once for the whole reply so a retry's reconcile still sees an
+    # earlier attempt's applied post.
+    started_at = Keyword.get_lazy(opts, :reply_started_at, &DateTime.utc_now/0)
+    opts = Keyword.put(opts, :reply_started_at, started_at)
 
     case add_review_thread_reply(request_fun, token, thread_id, body) do
       {:ok, mutation_body} ->
@@ -132,7 +137,11 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     with true <- get_in(comment, ["author", "login"]) == daemon_account,
          true <- comment["body"] == body,
          {:ok, created_at, _offset} <- DateTime.from_iso8601(to_string(comment["createdAt"])) do
-      DateTime.compare(created_at, started_at) != :lt
+      # createdAt has second precision and GitHub's clock may skew: truncate and
+      # allow a margin. An identical body from the bot in that window is the
+      # duplicate we are avoiding.
+      floor = started_at |> DateTime.truncate(:second) |> DateTime.add(-@reconcile_skew_seconds)
+      DateTime.compare(created_at, floor) != :lt
     else
       _ -> false
     end
