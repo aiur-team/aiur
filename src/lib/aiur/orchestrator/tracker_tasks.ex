@@ -90,6 +90,19 @@ defmodule Aiur.Orchestrator.TrackerTasks do
     :ok
   end
 
+  @spec cancel(State.t(), term()) :: State.t()
+  def cancel(state, key) do
+    Enum.reduce(state.tracker_tasks, state, fn {ref, job}, current ->
+      if job.key == key do
+        cancel_timer(job.timer)
+        Task.shutdown(job.task, :brutal_kill)
+        %{current | tracker_tasks: Map.delete(current.tracker_tasks, ref)}
+      else
+        current
+      end
+    end)
+  end
+
   defp retain_completion(state, key, apply_result) do
     jobs =
       Map.new(state.tracker_tasks, fn {ref, job} ->
