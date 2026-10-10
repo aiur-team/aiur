@@ -214,14 +214,16 @@ Verify the receipt-bound live comment directly:
 
 ```bash
 # Immediately before the only finalization mutation (pending only):
-python3 docs/build-order/scripts/publication_comment.py --state pending \
+PYTHONPATH=.claude/skills/aiur-build/scripts python3 \
+  .claude/skills/aiur-build/scripts/publication/publication_comment.py --state pending \
   aiur-team/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
   https://github.com/aiur-team/aiur/issues/<ROOT_NUMBER> \
   aiur-team/aiur
 
 # Immediately after the successful receipt is appended (pending + successful):
-python3 docs/build-order/scripts/publication_comment.py \
+PYTHONPATH=.claude/skills/aiur-build/scripts python3 \
+  .claude/skills/aiur-build/scripts/publication/publication_comment.py \
   aiur-team/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
   https://github.com/aiur-team/aiur/issues/<ROOT_NUMBER> \

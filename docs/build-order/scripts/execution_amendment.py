@@ -14,6 +14,7 @@ import stat
 from pathlib import Path
 from typing import Any
 
+import skill_publication_path  # noqa: F401
 from publication_common import (
     SHA,
     Report,

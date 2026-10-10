@@ -20,6 +20,7 @@ from execution_amendment import (
     render_authorization_comment,
     render_ticket_amendment_comment,
 )
+import skill_publication_path  # noqa: F401
 from publication_common import Report
 from publication_labels import routing_subset
 from publication_live_graph import (

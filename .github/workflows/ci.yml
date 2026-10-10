@@ -264,13 +264,13 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: npm ci --prefix scripts/components --ignore-scripts
-      - name: Component ownership, reference boundaries and fixtures
+      - name: Component ownership, reference boundaries, fixtures and Build Order script suites
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: |
           bash scripts/check-components-ci.sh
           bash scripts/test-check-components.sh --with-elixir --with-node
-          mise exec -- python3 scripts/test-check-pr-structure.py
+          mise exec -- python3 scripts/test-check-pr-structure.py && bash scripts/test-build-order-scripts.sh
       - name: .env.example matches the env-var schema
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
