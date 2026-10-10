@@ -66,9 +66,10 @@ defmodule Aiur.CapabilitiesInputFailureTest do
     report = Aiur.Capabilities.report(opts)
     assert report.instance == nil
     assert report.machine == nil
-    assert %{state: :unknown, reason: :collection_failed, detail: actual} = report.capabilities["identity"]
+    assert %{state: :unknown, reason: :unknown, detail: actual} = report.capabilities["identity"]
     assert actual =~ detail
     assert report.capabilities["build_queue"] == report.capabilities["identity"]
+    assert Aiur.Capabilities.to_wire(report)["capabilities"]["identity"] == %{"state" => "unknown", "reason" => "unknown"}
   end
 
   defp child_pids(supervisor), do: Map.new(Supervisor.which_children(supervisor), fn {id, pid, _type, _modules} -> {id, pid} end)

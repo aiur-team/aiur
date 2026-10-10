@@ -2,7 +2,6 @@ defmodule Aiur.Orchestrator.State do
   @moduledoc """
   Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
   """
-
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
@@ -23,6 +22,7 @@ defmodule Aiur.Orchestrator.State do
           poll_cycles_completed: non_neg_integer(),
           tracker_tasks: %{reference() => map()},
           restack_completed: map(),
+          blocker_propagations: map(),
           last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
@@ -275,12 +275,12 @@ defmodule Aiur.Orchestrator.State do
     running_issue_cache: %{},
     tracker_tasks: %{},
     restack_completed: %{},
+    blocker_propagations: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
-    # Timer refs for in-flight comment-rework retries, keyed by
-    # `{issue_key, source_key}`. Tracked so a superseded retry can be cancelled
+    # In-flight comment-rework timers keyed by `{issue_key, source_key}`, so superseded retries can be cancelled
     # and so `terminate/2` never leaves a timer firing into a dead orchestrator's
     # successor — see `Aiur.Orchestrator.CommentWake`.
     comment_rework_retries: %{},
