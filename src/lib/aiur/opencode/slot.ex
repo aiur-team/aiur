@@ -52,8 +52,8 @@ defmodule Aiur.Opencode.Slot do
   require Logger
 
   alias Aiur.Boot
-  alias Aiur.Opencode.{Protocol, SlotRegistry}
-  alias Aiur.Opencode.Slot.{AttachPane, Events, ServeLifecycle, Sessions, State}
+  alias Aiur.Opencode.Slot.{Attach, AttachPane, Events, Selection, ServeLifecycle, State}
+  alias Aiur.Opencode.SlotRegistry
 
   @default_poll_interval_ms 500
 
@@ -207,7 +207,7 @@ defmodule Aiur.Opencode.Slot do
     Events.slot_ready(state.slot_index, self())
     ServeLifecycle.maybe_run_session_gc(state)
     ready_state = State.attach_pane_ready(state, nil)
-    {:noreply, ready_state |> drain_pending_select() |> drain_pending_attaches()}
+    {:noreply, ready_state |> drain_pending_select() |> Attach.drain_pending_attaches()}
   end
 
   defp mark_ready_with_attach_pane(state) do
@@ -222,7 +222,7 @@ defmodule Aiur.Opencode.Slot do
       # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
       ServeLifecycle.maybe_run_session_gc(state)
       ready_state = State.attach_pane_ready(state, pane_id)
-      {:noreply, ready_state |> drain_pending_select() |> drain_pending_attaches()}
+      {:noreply, ready_state |> drain_pending_select() |> Attach.drain_pending_attaches()}
     else
       error ->
         Logger.warning("opencode_slot phase=attach_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}")
@@ -232,11 +232,11 @@ defmodule Aiur.Opencode.Slot do
 
   @impl true
   def handle_call({:select, identifier}, {owner, _tag} = from, %{status: :claimed, claim_owner: owner} = state),
-    do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
+    do: do_set_visible_call(identifier, from, Attach.clear_claim_for(from, state))
 
   def handle_call({:select, identifier}, from, %{status: status} = state)
       when status in [:ready, :active],
-      do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
+      do: do_set_visible_call(identifier, from, Attach.clear_claim_for(from, state))
 
   def handle_call({:select, _identifier}, _from, %{status: :claimed} = state),
     do: {:reply, {:error, {:slot_claimed, state.claim_owner}}, state}
@@ -255,7 +255,7 @@ defmodule Aiur.Opencode.Slot do
   end
 
   def handle_call({:attach, identifier}, {owner, _tag} = from, %{status: :claimed, claim_owner: owner} = state) do
-    do_attach_call(identifier, clear_claim_for(from, state))
+    do_attach_call(identifier, Attach.clear_claim_for(from, state))
   end
 
   def handle_call({:attach, identifier}, _from, %{status: status} = state)
@@ -270,11 +270,11 @@ defmodule Aiur.Opencode.Slot do
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
 
   def handle_call({:set_visible, identifier}, {owner, _tag} = from, %{status: :claimed, claim_owner: owner} = state),
-    do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
+    do: do_set_visible_call(identifier, from, Attach.clear_claim_for(from, state))
 
   def handle_call({:set_visible, identifier}, from, %{status: status} = state)
       when status in [:ready, :active] do
-    state = clear_claim_for(from, state)
+    state = Attach.clear_claim_for(from, state)
 
     if state.visible_identifier == identifier and is_binary(state.pane_id) do
       {:reply, {:ok, state.pane_id}, state}
@@ -336,7 +336,7 @@ defmodule Aiur.Opencode.Slot do
     do: {:reply, State.snapshot(state), state}
 
   defp do_attach_call(identifier, state) do
-    case do_attach(identifier, state) do
+    case Attach.do_attach(identifier, state) do
       {:ok, session_id, new_state} ->
         Events.attach_added(new_state.slot_index, identifier)
         {:reply, {:ok, session_id}, new_state}
@@ -347,7 +347,7 @@ defmodule Aiur.Opencode.Slot do
         {:reply, {:error, :identifier_unknown}, schedule_serve_rebuild(new_state, state.pending_select)}
 
       {:error, _} = err ->
-        {:reply, err, unclaim(state)}
+        {:reply, err, Attach.unclaim(state)}
     end
   end
 
@@ -414,48 +414,9 @@ defmodule Aiur.Opencode.Slot do
     ServeLifecycle.terminate_cleanup(state)
   end
 
-  defp do_attach(identifier, state) do
-    cond do
-      MapSet.member?(state.attached_identifiers, identifier) ->
-        sid = if state.visible_identifier == identifier, do: state.visible_session_id, else: :attached
-        {:ok, sid, state}
-
-      State.identifier_known?(state, identifier) ->
-        do_attach_known(identifier, state)
-
-      true ->
-        {:error, :identifier_unknown}
-    end
-  end
-
-  defp do_attach_known(identifier, state) do
-    span = Aiur.Perf.span_begin(:slot_do_attach, slot: state.slot_index, identifier: identifier)
-
-    case Sessions.ensure(identifier, state.base_url, state.token) do
-      {:ok, session_id} ->
-        Aiur.Perf.span_end(span, slot: state.slot_index, identifier: identifier, session_id: session_id)
-        new_state = %{state | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)}
-        # Note: leadoff render (`respawn_attach_with_session` to bind
-        # the slot's attach pane to a session) is NOT done here. It's
-        # driven explicitly by `AttachPool.kickoff_fan_out` calling
-        # `Slot.set_visible/2` on the slot's intended leadoff
-        # identifier — deterministic per slot. Doing it as a side effect
-        # of whichever attach finished first under parallel boot caused
-        # multiple slots to leadoff the same agent (race), leaving
-        # other agents 🔘 (no painted pane) instead of ⚪.
-        Aiur.Perf.event(:slot_attach_added, slot: state.slot_index, identifier: identifier, session_id: session_id)
-        Logger.info("opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}")
-        {:ok, session_id, new_state}
-
-      {:error, reason} = err ->
-        Aiur.Perf.span_end(span, result: :failed, slot: state.slot_index, identifier: identifier, reason: reason)
-        err
-    end
-  end
-
   defp do_set_visible_call(identifier, from, state) do
     if State.identifier_known?(state, identifier) do
-      case do_select(identifier, state) do
+      case Selection.do_select(identifier, state) do
         {:ok, _session_id, new_state} ->
           Events.session_changed(new_state.slot_index, identifier)
           Events.visible_changed(new_state.slot_index, identifier, new_state.pane_id)
@@ -465,7 +426,7 @@ defmodule Aiur.Opencode.Slot do
           {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
 
         {:error, _} = err ->
-          {:reply, err, unclaim(state)}
+          {:reply, err, Attach.unclaim(state)}
       end
     else
       Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
@@ -474,74 +435,10 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
-  defp clear_claim_for({owner, _tag}, %{claim_owner: owner, claim_ref: ref} = state)
-       when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    %{state | claim_owner: nil, claim_ref: nil}
-  end
-
-  defp clear_claim_for(_from, state), do: state
-
-  defp unclaim(%{status: :claimed} = state), do: clear_claim(state)
-  defp unclaim(state), do: state
-
-  defp clear_claim(%{claim_ref: ref} = state) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    %{state | status: :ready, claim_owner: nil, claim_ref: nil}
-  end
-
-  defp clear_claim(state), do: %{state | status: :ready, claim_owner: nil, claim_ref: nil}
-
-  defp do_select(identifier, state) do
-    do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)
-
-    case Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index, state.token) do
-      {:ok, session_id} ->
-        select_with_respawn(state, identifier, session_id, do_select_span)
-
-      {:replay_failed, reason} ->
-        span_kw = [result: :replay_failed, slot: state.slot_index, identifier: identifier, reason: reason]
-        Aiur.Perf.span_end(do_select_span, span_kw)
-        {:error, reason}
-
-      {:writer_failed, err} ->
-        Aiur.Perf.span_end(do_select_span, result: :writer_failed, slot: state.slot_index, identifier: identifier)
-        err
-    end
-  end
-
-  # Respawn opencode-attach with `--session <id>` so the TUI boots
-  # straight into the conversation view. POSTing
-  # `/tui/select-session` to an already-running pre-warmed attach
-  # returns 200 but does not switch the rendered view — opencode
-  # 1.15.6's TUI stays on the welcome screen ("Ask anything...",
-  # OPENCODE logo). The previously-pre-warmed attach pane is killed
-  # and a new one is split into aiur-hidden so PaneManager can
-  # move it to visible. State.pane_id is updated to the new pane.
-  defp select_with_respawn(state, identifier, session_id, do_select_span) do
-    attach_cmd = Protocol.attach_command(state.base_url, session_id)
-
-    case respawn_attach_with_session(state, session_id, attach_cmd) do
-      {:ok, new_pane_id} ->
-        Logger.info("opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}")
-        span_kw = [slot: state.slot_index, identifier: identifier, session_id: session_id, pane_id: new_pane_id]
-        Aiur.Perf.span_end(do_select_span, span_kw)
-        {:ok, session_id, State.select_applied(state, identifier, session_id, new_pane_id)}
-
-      {:error, _} = err ->
-        Aiur.Perf.span_end(do_select_span, result: :respawn_failed, slot: state.slot_index, identifier: identifier)
-        err
-    end
-  end
-
-  defp respawn_attach_with_session(state, session_id, attach_cmd) do
-    AttachPane.respawn_with_session(state, session_id, attach_cmd)
-  end
-
   defp drain_pending_select(%{pending_select: nil} = state), do: state
 
   defp drain_pending_select(%{pending_select: {from, identifier}} = state) do
-    case do_select(identifier, state) do
+    case Selection.do_select(identifier, state) do
       {:ok, _session_id, new_state} ->
         Events.session_changed(new_state.slot_index, identifier)
         # Match the non-rebuild path's broadcasts: visible_changed so
@@ -556,25 +453,6 @@ defmodule Aiur.Opencode.Slot do
       {:error, _} = err ->
         GenServer.reply(from, err)
         %{state | pending_select: nil}
-    end
-  end
-
-  defp drain_pending_attaches(%{pending_attaches: ms} = state) do
-    if MapSet.size(ms) == 0,
-      do: state,
-      else: Enum.reduce(ms, %{state | pending_attaches: MapSet.new()}, &retry_pending_attach/2)
-  end
-
-  defp retry_pending_attach(id, acc) do
-    case do_attach(id, acc) do
-      {:ok, _session_id, new_acc} ->
-        Events.attach_added(new_acc.slot_index, id)
-        Aiur.Perf.event(:slot_attach_retry_succeeded, slot: new_acc.slot_index, identifier: id)
-        new_acc
-
-      {:error, reason} ->
-        Aiur.Perf.event(:slot_attach_retry_failed, slot: acc.slot_index, identifier: id, reason: reason)
-        acc
     end
   end
 

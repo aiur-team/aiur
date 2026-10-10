@@ -20,7 +20,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
   use ExUnit.Case, async: true
 
   @app_source Path.expand("../../../lib/aiur/agent_list/app.ex", __DIR__)
-  @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
+  @attach_pool_source Enum.flat_map(~w(attach_pool.ex attach_pool/*.ex), &Path.wildcard(Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__)))
 
   describe ":attach_consumed must NOT clear warm_identifiers" do
     @describetag :skip
@@ -67,7 +67,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
   end
 
   describe "do_select must not crash on await_replay timeout" do
-    @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+    @slot_source Enum.map(~w(slot.ex slot/attach.ex slot/selection.ex), &Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__))
     @sessions_source Path.expand("../../../lib/aiur/opencode/slot/sessions.ex", __DIR__)
     @session_writer_source Path.expand(
                              "../../../lib/aiur/opencode/session_writer.ex",
@@ -75,7 +75,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
                            )
 
     test "Slot.do_select handles {:error, :timeout} from await_replay without MatchError" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
       sessions_source = File.read!(@sessions_source)
 
       # The bug was `:ok = SessionWriter.await_replay(...)`. The fix
@@ -170,7 +170,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
     # but the consumer is the per-identifier attach_state machine, not
     # a warming MapSet. Behavioral coverage moves to U11.
     test "AttachPool broadcasts :attach_failed when wait_for_paint times out" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       failed_block =
         case Regex.run(
