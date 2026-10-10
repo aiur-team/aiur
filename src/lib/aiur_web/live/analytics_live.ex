@@ -147,7 +147,7 @@ defmodule AiurWeb.AnalyticsLive do
             <p :if={@source} class="an-source" data-source-kind={@source.kind} title={source_title(@source)}>
               Source: <b>{source_kind_label(@source.kind)}</b>
               <span :if={@source.boot_id} class="an-source-boot"> · boot {short_boot(@source.boot_id)}</span>
-              <span class="an-source-age"> · {age_label(@source.age_ms)}</span>
+              <span class="an-source-age"> · {age_label(@source.age_ms)}</span><span :if={@model && Map.get(@model, :retained_runs)}> · newest {@model.retained_runs.included} of {@model.retained_runs.total} retained runs</span>
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">
