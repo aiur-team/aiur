@@ -1217,7 +1217,7 @@ If a current human approval and green checks still leave a PR `BLOCKED` and
 `REVIEW_REQUIRED`, follow `references/executor.md`: after the first ordinary
 merge refusal, read the failed rule suite with the operator-only credential and
 emit GitHub's exact active-rule detail as a `merge.rule-violation` alert. Do not
-use `--admin` as a diagnostic probe.
+use `--admin` as a diagnostic probe. Before every merge run `scripts/check-stack-order.sh <pr> <owner/repo> --repo-dir <clone>` (`references/merge-order-gate.md`); any exit other than 0 means do not merge.
 
 Before every merge, run `scripts/check-stack-order.sh <pr> <owner/repo>
 --repo-dir <clone>` (see `references/executor.md`, "Merge order gate"). Any exit
