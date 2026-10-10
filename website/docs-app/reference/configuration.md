@@ -274,8 +274,7 @@ grammar `agent.routing` has always used:
 - `claude`: the backend's own direct connection, exactly as before.
 - `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
-A colon-free entry means what it has always meant, so **existing configs need
-no change**.
+A colon-free entry means what it has always meant, so **existing configs need no change**.
 
 ```yaml
 agent:
