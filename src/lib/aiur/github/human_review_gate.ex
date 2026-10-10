@@ -240,27 +240,24 @@ defmodule Aiur.GitHub.HumanReviewGate do
     end
   end
 
-  # Mirrors GitHub's own `reviewDecision`: each reviewer's latest non-COMMENTED
-  # submission is their standing verdict, and the pull request is approved only
-  # when at least one reviewer approves and none is still requesting changes. An
-  # unreadable /reviews response fails closed to the pre-existing error.
   defp approved?(context, pr_number) do
+    approved_pull_request?(pr_number, request_fun: context.request_fun, token: context.token) == {:ok, true}
+  end
+
+  @doc "Returns whether at least one standing review approves and none requests changes."
+  @spec approved_pull_request?(String.t() | integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def approved_pull_request?(pr_number, opts \\ []) do
     key = ResourceStore.key_for_repo(:pull_request_reviews, repo_full_name(), pr_number)
 
-    # Conditional, so a strict read of an unchanged review list costs a request
-    # GitHub does not bill. The validator comes from the store and the response's
-    # goes back to it, which is what makes the next check free too.
-    fetcher = fn opts ->
-      PullRequests.fetch_pull_request_reviews_conditional(pr_number,
-        request_fun: context.request_fun,
-        token: context.token,
-        etag: Keyword.get(opts, :etag)
-      )
+    # A strict conditional read revalidates the standing verdict with GitHub.
+    fetcher = fn fetch_opts ->
+      PullRequests.fetch_pull_request_reviews_conditional(pr_number, Keyword.merge(opts, fetch_opts))
     end
 
     case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "merge decision: approval state") do
-      {:ok, reviews, _meta} when is_list(reviews) -> approved_decision?(standing_verdicts(reviews))
-      _other -> false
+      {:ok, reviews, _meta} when is_list(reviews) -> {:ok, approved_decision?(standing_verdicts(reviews))}
+      {:error, _reason} = error -> error
+      _other -> {:error, :invalid_pull_request_reviews}
     end
   end
 
