@@ -65,7 +65,7 @@ html[data-palette="gruvbox"][data-theme="light"] {
   --blocking-soft: rgba(204, 36, 29, 0.1);
   --blocking-line: rgba(204, 36, 29, 0.34);
   --good: #98971a;
-  --good-ink: #79740e;
+  --good-ink: #66620c;
   --good-soft: rgba(152, 151, 26, 0.14);
   --good-line: rgba(152, 151, 26, 0.36);
   --super: #b16286;
