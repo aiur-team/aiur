@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.Dispatcher.CapacityConstraints
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.EnvelopeResume
+  alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.RunTelemetry
@@ -74,24 +75,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    previous_signal = Map.get(state.load_envelope_state, :signal)
     overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
+    {envelope_value, envelope_target, envelope_schedulers} = PressureAdmission.envelope_signal(probes)
 
     state =
-      DispatchPolicy.update_load_envelope(
-        state,
-        if(fresh?, do: probes.load, else: :unavailable),
-        probes.target,
-        probes.schedulers,
-        now_ms,
-        probes.cpu_snapshot,
-        queued_demand?
-      )
-      |> CapacityConstraints.maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
+      PressureAdmission.update(state, probes, now_ms, queued_demand?, fresh?)
+      |> CapacityConstraints.maybe_record_load_envelope_constraint(envelope_value, envelope_target, envelope_schedulers)
 
-    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
+    # Reusing a sample neither confirms nor interrupts sustained overload.
+    state = if fresh? or previous_signal != state.load_envelope_state[:signal], do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = CapacityConstraints.record_capacity_constraints(state, probes)
@@ -113,7 +109,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers, queued_demand?),
+            envelope_hold(state, envelope_value, envelope_target, envelope_schedulers, queued_demand?),
             now_ms,
             opts
           )
@@ -132,39 +128,21 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   @doc false
   @spec admission_probes() :: map()
   def admission_probes do
-    hard_threshold = Config.max_load_average()
-    target = Config.target_load_average()
-    run_queue_threshold = Config.run_queue_threshold()
     memory_threshold_mb = Config.min_free_memory_mb()
-    schedulers = System.schedulers_online()
+    sample = Aiur.SystemLoad.sample(&PressureAdmission.sample/0)
 
-    sample =
-      Aiur.SystemLoad.sample(fn ->
-        %{
-          load: DispatchPolicy.read_load(hard_threshold, target),
-          cpu_snapshot: DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
-        }
-      end)
-
-    cpu_snapshot = sample.cpu_snapshot
-
-    %{
+    Map.merge(sample, %{
       memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
       memory_threshold_mb: memory_threshold_mb,
       fd_sample: DispatchPolicy.read_file_descriptors(),
-      runnable: runnable_from(cpu_snapshot),
-      run_queue_threshold: run_queue_threshold,
-      schedulers: schedulers,
-      load: sample.load,
-      sampled_at_ms: sample.sampled_at_ms,
-      sample_id: sample.sample_id,
-      load_threshold: hard_threshold,
-      build_status: DispatchPolicy.read_build_status(),
+      runnable: runnable_from(sample.cpu_snapshot),
+      run_queue_threshold: Map.get(sample, :run_queue_threshold, Config.run_queue_threshold()),
+      schedulers: System.schedulers_online(),
+      load_threshold: Map.get(sample, :load_threshold, Config.max_load_average()),
+      target: Map.get(sample, :target, Config.target_load_average()),
       provider_backends: DispatchPolicy.read_provider_backends(),
-      github_quota: DispatchPolicy.read_github_quota(),
-      cpu_snapshot: cpu_snapshot,
-      target: target
-    }
+      github_quota: DispatchPolicy.read_github_quota()
+    })
   end
 
   @doc false
@@ -375,12 +353,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     )
   end
 
-  defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
-    Logger.info(
-      "aiur_perf build_hold surface=dispatch active=#{inspect(Map.get(measured, :active))} " <>
-        "queued=#{inspect(Map.get(measured, :queued))} capacity=#{inspect(capacity)}"
-    )
-  end
+  defp log_admission_hold(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
+    do: Logger.info("aiur_perf cpu_pressure_hold avg60=#{pressure} threshold=#{threshold}")
 
   defp log_admission_hold(%{signal: :envelope, measured: effective, threshold: static}) do
     Logger.info("aiur_perf envelope_hold effective=#{effective} static=#{static}")

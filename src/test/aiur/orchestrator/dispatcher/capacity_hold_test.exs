@@ -192,7 +192,7 @@ defmodule Aiur.Orchestrator.Dispatcher.CapacityHoldTest do
       assert_received {:capacity_telemetry, :capacity_resumed, %{"signal" => "memory"}}
     end
 
-    test "a saturated build gate defers dispatch and reports :build as the limiting reason" do
+    test "a saturated build gate leaves dispatch available" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 2)
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
       Application.put_env(:aiur, :build_gate_status_override, fn -> %{enabled?: true, capacity: 2, active: 2, queued: 1} end)
@@ -208,9 +208,9 @@ defmodule Aiur.Orchestrator.Dispatcher.CapacityHoldTest do
           capacity_opts(test_pid, 1_000)
         )
 
-      assert %{signal: :build, threshold: 2} = held.capacity_hold
-      assert map_size(held.running) == 0
-      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
+      assert held.capacity_hold == nil
+      assert map_size(held.running) > 0
+      refute_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
     end
 
     # #2089: an unmeasurable CPU window cannot keep a load hold alive. The hold
