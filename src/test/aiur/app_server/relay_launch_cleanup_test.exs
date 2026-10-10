@@ -1,10 +1,10 @@
 defmodule Aiur.AppServer.RelayLaunchCleanupTest do
   use Aiur.TestSupport
 
-  alias Aiur.AppServer.RelayPort
+  alias Aiur.AppServer.{Adapter, RelayPort, Transport}
   alias Aiur.Config.Paths
 
-  test "failed launcher receives only runtime variables and explicit overrides, then removes its spec and directory" do
+  test "failed launcher inherits toolchain variables, applies overrides and removes its spec and directory" do
     root = Aiur.TestSupport.tmp_root!("relay-failed-launch")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf(root) end)
@@ -15,25 +15,50 @@ defmodule Aiur.AppServer.RelayLaunchCleanupTest do
     import json,sys
     from pathlib import Path
     spec=json.loads(Path(sys.argv[sys.argv.index('--spec')+1]).read_text())
-    Path(#{Jason.encode!(observed)}).write_text(json.dumps(spec['env']))
+    Path(#{Jason.encode!(observed)}).write_text(json.dumps({name: spec['env'].get(name) for name in ['AIUR_RELAY_TOOLCHAIN_TEST', 'AIUR_RELAY_OVERRIDE_TEST', 'AIUR_RELAY_REMOVE_TEST']}))
     sys.exit(7)
     """)
 
-    previous = System.get_env("DAEMON_RELAY_SECRET_TEST")
-    System.put_env("DAEMON_RELAY_SECRET_TEST", "must-not-be-serialized")
+    previous = Map.take(System.get_env(), ~w(AIUR_RELAY_TOOLCHAIN_TEST AIUR_RELAY_OVERRIDE_TEST AIUR_RELAY_REMOVE_TEST))
+    System.put_env(%{"AIUR_RELAY_TOOLCHAIN_TEST" => "inherited", "AIUR_RELAY_OVERRIDE_TEST" => "original", "AIUR_RELAY_REMOVE_TEST" => "remove"})
 
     try do
       assert {:error, {:relay_launch_failed, 7, _}} =
-               RelayPort.start(File.cwd!(), "exec cat", [{"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}], relay_script: script)
+               RelayPort.start(File.cwd!(), "exec cat", [{"AIUR_RELAY_OVERRIDE_TEST", "overridden"}, {"AIUR_RELAY_REMOVE_TEST", false}], relay_script: script)
 
       env = observed |> File.read!() |> Jason.decode!()
-      refute Map.has_key?(env, "DAEMON_RELAY_SECRET_TEST")
-      assert env["PATH"] == System.get_env("PATH")
-      assert env["HOME"] == System.get_env("HOME")
-      assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+      assert env == %{"AIUR_RELAY_TOOLCHAIN_TEST" => "inherited", "AIUR_RELAY_OVERRIDE_TEST" => "overridden", "AIUR_RELAY_REMOVE_TEST" => nil}
       assert_no_launch_artifacts()
     after
-      if previous, do: System.put_env("DAEMON_RELAY_SECRET_TEST", previous), else: System.delete_env("DAEMON_RELAY_SECRET_TEST")
+      Enum.each(~w(AIUR_RELAY_TOOLCHAIN_TEST AIUR_RELAY_OVERRIDE_TEST AIUR_RELAY_REMOVE_TEST), &restore_env(&1, previous[&1]))
+    end
+  end
+
+  test "direct and relay providers inherit toolchain variables while removing API keys" do
+    names = ~w(AIUR_RELAY_TOOLCHAIN_TEST AIUR_RELAY_TEST_API_KEY)
+    previous = Map.take(System.get_env(), names)
+    System.put_env(%{"AIUR_RELAY_TOOLCHAIN_TEST" => "inherited", "AIUR_RELAY_TEST_API_KEY" => "synthetic-secret"})
+
+    try do
+      for relay? <- [false, true] do
+        command = ~S|printf '%s:%s\n' "$AIUR_RELAY_TOOLCHAIN_TEST" "${AIUR_RELAY_TEST_API_KEY-unset}"; read line|
+        assert {:ok, provider} = Adapter.start_port(File.cwd!(), command, fn _ -> :ok end, relay: relay?)
+
+        try do
+          assert is_pid(provider) == relay?
+
+          if relay? do
+            directory = Transport.metadata(provider).directory
+            refute File.exists?(Path.join(directory, "spawn.json"))
+          end
+
+          assert_receive {^provider, {:data, {:eol, "inherited:unset"}}}, 5_000
+        after
+          Transport.close(provider)
+        end
+      end
+    after
+      Enum.each(names, &restore_env(&1, previous[&1]))
     end
   end
 

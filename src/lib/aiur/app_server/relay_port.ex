@@ -6,13 +6,6 @@ defmodule Aiur.AppServer.RelayPort do
   alias Aiur.{AgentEnvironment, Boot, Config, ProcessReaper, ProcessTree}
   alias Aiur.Config.Paths
 
-  @runtime_env ~w(PATH HOME USER LOGNAME SHELL TMPDIR LANG LANGUAGE LC_ALL LC_CTYPE TZ TERM
-                  MIX_ENV MIX_ARCHIVES MIX_HOME HEX_HOME
-                  XDG_CONFIG_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
-                  CODEX_HOME CLAUDE_CONFIG_DIR SSH_AUTH_SOCK HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
-                  http_proxy https_proxy all_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR
-                  NODE_EXTRA_CA_CERTS REQUESTS_CA_BUNDLE CURL_CA_BUNDLE)
-
   @spec start(Path.t(), String.t(), list(), keyword()) :: {:ok, pid()} | {:error, term()}
   def start(workspace, command, env, opts \\ []) do
     GenServer.start(__MODULE__, {:spawn, self(), workspace, command, env, opts})
@@ -118,7 +111,7 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   defp launch_env(env) do
-    Enum.reduce(env, Map.take(System.get_env(), @runtime_env), fn
+    Enum.reduce(env, System.get_env(), fn
       {key, false}, acc -> Map.delete(acc, to_string(key))
       {key, value}, acc -> Map.put(acc, to_string(key), to_string(value))
     end)
