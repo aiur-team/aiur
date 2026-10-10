@@ -29,7 +29,9 @@ defmodule Aiur.AgentRunner.DecisionLifecycleFailureAlertTest do
       })
 
     assert response["success"]
-    assert Jason.decode!(response["output"])["result"]["status"] == "recording_failed"
+    result = Jason.decode!(response["output"])["result"]
+    assert result["status"] == "recording_failed"
+    assert result["reason"] == "{:conflict, :wrong_action}"
 
     assert_receive {:alert,
                     %{

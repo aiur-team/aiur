@@ -5,13 +5,11 @@ defmodule Aiur.AgentRunner.DecisionLifecycleFailureAlert do
 
   alias Aiur.Alerts
 
-  @spec recording_failed(term(), map(), String.t(), term()) :: {:ok, %{status: String.t()}}
+  @spec recording_failed(term(), map(), String.t(), term()) :: {:ok, %{status: String.t(), reason: String.t()}}
   def recording_failed(issue, payload, name, reason) do
     decision_id = Map.get(payload, "decision_id", "unknown")
 
-    Logger.error(
-      "Decision lifecycle recording failed ticket=#{issue_identifier(issue)} decision=#{decision_id} name=#{name} reason=#{inspect(reason)}"
-    )
+    Logger.error("Decision lifecycle recording failed ticket=#{issue_identifier(issue)} decision=#{decision_id} name=#{name} reason=#{inspect(reason)}")
 
     try do
       Alerts.emit_custom(
@@ -27,7 +25,8 @@ defmodule Aiur.AgentRunner.DecisionLifecycleFailureAlert do
       _error -> :ok
     end
 
-    {:ok, %{status: "recording_failed"}}
+    # The agent needs the reason to correct a wrong action_id or stale version.
+    {:ok, %{status: "recording_failed", reason: inspect(reason)}}
   end
 
   defp issue_identifier(%{identifier: identifier}), do: identifier || "unknown"

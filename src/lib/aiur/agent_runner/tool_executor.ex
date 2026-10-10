@@ -659,7 +659,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
              |> Map.take([:decision_id, :version, :answered_version, :action_id, :status, :decision_status])
              |> Map.new(fn {key, value} -> {Atom.to_string(key), stringify_lifecycle_value(value)} end)}
 
-          {:error, reason} -> DecisionLifecycleFailureAlert.recording_failed(issue, payload, name, reason)
+          {:error, reason} ->
+            DecisionLifecycleFailureAlert.recording_failed(issue, payload, name, reason)
         end
     end
   end
