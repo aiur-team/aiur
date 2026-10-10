@@ -28,8 +28,11 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     dir="$(dirname "${BASH_SOURCE[0]}")/build_gate"
 
     for part in classify process lease run_pid run_linux; do
-      if [[ ! -r $dir/$part.bash ]] || ! source "$dir/$part.bash"; then
+      if [[ ! -r $dir/$part.bash ]]; then
         aiur_build_gate_fail missing_part "$dir/$part.bash"
+        return 125
+      elif ! source "$dir/$part.bash"; then
+        aiur_build_gate_fail part_load_failed "$dir/$part.bash"
         return 125
       fi
     done
@@ -38,9 +41,10 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   if ! aiur_build_gate_load_parts; then
     # Fail closed: without its parts the hook cannot admit a build, so the
     # wrapped commands refuse to run instead of bypassing admission.
-    elixir() { aiur_build_gate_fail missing_part "$(dirname "${BASH_SOURCE[0]}")/build_gate"; }
+    elixir() { aiur_build_gate_fail parts_unavailable "$(dirname "${BASH_SOURCE[0]}")/build_gate"; }
     mix() { elixir; }
     mise() { elixir; }
+    node() { elixir; }
     return 125
   fi
 

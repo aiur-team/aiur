@@ -22,13 +22,17 @@ defmodule Aiur.BuildGate.HookPartsTest do
       hook = copy_hook!(context, part)
       missing = Path.join(Path.dirname(hook), "build_gate/#{part}.bash")
       File.rm!(missing)
-
-      Enum.each(["mix compile", "mise exec -- mix compile", "elixir -S mix compile"], fn command ->
-        assert {output, 125} = run_bash(command, Map.put(context, :bash_env, hook))
-        assert output =~ "aiur_build_gate gate_error reason=missing_part path=#{missing} status=125"
-      end)
+      assert_fails_closed(hook, "missing_part", missing, context)
     end)
 
+    refute File.exists?(context.log_path)
+  end
+
+  test "a part that is present but does not load is reported as a load failure", context do
+    hook = copy_hook!(context, "broken")
+    broken = Path.join(Path.dirname(hook), "build_gate/run_pid.bash")
+    File.write!(broken, "\nif\n", [:append])
+    assert_fails_closed(hook, "part_load_failed", broken, context)
     refute File.exists?(context.log_path)
   end
 
@@ -44,6 +48,18 @@ defmodule Aiur.BuildGate.HookPartsTest do
       assert {output, 0} = System.cmd("bash", ["-c", "mix compile"], cd: cwd, env: env, stderr_to_stdout: true)
       assert output =~ "aiur_build_gate acquired slot=1"
       assert File.read!(context.log_path) == "compile\n"
+    end)
+  end
+
+  # The load-time line names the part; the per-command line proves the wrapped
+  # command itself refused, rather than merely being undefined.
+  defp assert_fails_closed(hook, reason, part_path, context) do
+    parts_dir = Path.dirname(part_path)
+
+    Enum.each(["mix compile", "mise exec -- mix compile", "elixir -S mix compile", "node --version"], fn command ->
+      assert {output, 125} = run_bash(command, Map.put(context, :bash_env, hook))
+      assert output =~ "aiur_build_gate gate_error reason=#{reason} path=#{part_path} status=125"
+      assert output =~ "aiur_build_gate gate_error reason=parts_unavailable path=#{parts_dir} status=125"
     end)
   end
 
