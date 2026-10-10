@@ -9,6 +9,7 @@ defmodule AiurWeb.BuildLiveUsageTest do
   defmodule UsageSpy do
     def read(_financial, opts) do
       send(Endpoint.config(:build_usage_test_pid), {:usage_read, opts})
+      if Endpoint.config(:build_usage_revoke_on_read), do: ProtocolCase.revoke_access()
       Endpoint.config(:build_usage_test_block)
     end
   end
@@ -35,6 +36,7 @@ defmodule AiurWeb.BuildLiveUsageTest do
   setup do
     if is_nil(Process.whereis(ProviderMeterRefresh)), do: start_supervised!({ProviderMeterRefresh, observer: fn _target -> :ok end})
     Phoenix.Config.put(Endpoint, :build_usage_revoke_on_snapshot, false)
+    Phoenix.Config.put(Endpoint, :build_usage_revoke_on_read, false)
     Phoenix.Config.put(Endpoint, :build_usage_source, UsageSpy)
     Phoenix.Config.put(Endpoint, :build_usage_test_pid, self())
     Phoenix.Config.put(Endpoint, :build_usage_test_block, data()["usage"])
@@ -161,6 +163,21 @@ defmodule AiurWeb.BuildLiveUsageTest do
     assert_reply(view, revoked)
     assert revoked["usage"] == Read.locked_usage()
     assert assigns(view).build_usage_last == Read.locked_usage()
+  end
+
+  test "quota tick rechecks access after its read revokes the configuration" do
+    {:ok, view, _} = live(build_conn(), "/build")
+    LiveViewAsync.render_when_complete(view)
+    changed = put_in(data(), ["usage", "providers", Access.at(0), "name"], "Updated provider")["usage"]
+    Phoenix.Config.put(Endpoint, :build_usage_test_block, changed)
+    Phoenix.Config.put(Endpoint, :build_usage_revoke_on_read, true)
+    send(view.pid, :build_usage_github_tick)
+    render(view)
+    assert_received {:usage_read, []}
+    assert_push_event(view, "build-diff", %{"generation" => 2, "set" => %{}})
+    assert assigns(view).build_usage_last == nil
+    assert assigns(view).build_usage_timers == nil
+    refute_diff(view)
   end
 
   defp assigns(view), do: :sys.get_state(view.pid).socket.assigns

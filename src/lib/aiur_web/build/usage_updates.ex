@@ -70,10 +70,17 @@ defmodule AiurWeb.Build.UsageUpdates do
       financial ->
         usage = source().read(financial, read_opts) |> Payload.scrub()
 
-        if usage == socket.assigns.build_usage_last do
-          socket
-        else
-          Protocol.changes(socket, %{now: System.system_time(:millisecond), upsert: [], remove: [], set: %{usage: usage}}, opts)
+        opts = Read.source_opts(socket)
+
+        cond do
+          opts[:financial] == :locked ->
+            revoke(socket, opts)
+
+          usage == socket.assigns.build_usage_last ->
+            socket
+
+          true ->
+            Protocol.changes(socket, %{now: System.system_time(:millisecond), upsert: [], remove: [], set: %{usage: usage}}, opts)
         end
     end
   end
