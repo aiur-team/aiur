@@ -197,7 +197,6 @@ warn_if_cli_behind_release_checkout() {
   fi
 }
 
-# --- distribution identity (per-instance: keyed by the aiur project root) -----
 
 # The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
 # shim) wins. Otherwise walk up from $PWD to the first dir holding a REPO-LOCAL
@@ -305,7 +304,6 @@ aiur_print_identity() {
   printf 'AIUR_COOKIE_FILE=%s\n' "$AIUR_COOKIE_FILE"
 }
 
-# --- BEAM distribution (cookie + named node) ---------------------------------
 
 ensure_bg_state_dir() {
   aiur_resolve_identity
@@ -362,7 +360,6 @@ prepare_distribution() {
   export AIUR_ERLANG_COOKIE="$RELEASE_COOKIE"
 }
 
-# --- release resolution ------------------------------------------------------
 
 release_dir=""
 vsn_dir=""
@@ -399,7 +396,6 @@ resolve_release() {
   fi
 }
 
-# --- argv round-trip (System.argv is empty under `elixir --eval`) -------------
 
 argv_file=""
 init_argv_file() {
@@ -457,10 +453,15 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
-       aiur queue show [--queue NAME] [--json]  show build queue state
+       aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/hold/release/recover/clear steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur epic clear <ids...> [--as <who>] [--json]
+       aiur epic show [<ids...>] [--json]
+       aiur epic list [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
@@ -495,7 +496,6 @@ Bare aiur: start or attach to this directory's interactive session.
 EOF
 }
 
-# --- one-shot: --version (no tmux) -------------------------------------------
 
 run_version() {
   resolve_release
@@ -511,7 +511,6 @@ run_version() {
   exec "${release_cmd[@]}"
 }
 
-# --- one-shot: init (interactive wizard, distribution-free, no tmux) ----------
 
 run_init() {
   resolve_release
@@ -1010,7 +1009,7 @@ run_session() {
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS \
       AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
-      AIUR_BG_STATE_DIR AIUR_CLI_VERSION; do
+      AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -3150,7 +3149,6 @@ cmd_github_cost() {
 
   run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"
 }
-
 # `aiur github-usage` — per-actor (daemon vs each agent workspace) Core/GraphQL
 # usage and ceilings from the shared admission broker. Read-only; it reads the
 # broker database and issues no GitHub request of its own.
@@ -3169,10 +3167,8 @@ cmd_github_usage() {
 
   local opts=""
   [ "$json" -eq 1 ] && opts="json: true"
-
   run_control_rpc "Aiur.AgentControlCLI.github_usage([$opts])"
 }
-
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
@@ -4282,6 +4278,7 @@ aiur_engine_main() {
       shift
       cmd_queue "$@"
       ;;
+    epic) shift; cmd_epic "$@" ;;
     build-orders)
       shift
       cmd_build_orders "$@"
@@ -4294,6 +4291,8 @@ aiur_engine_main() {
       shift
       cmd_github_cost "$@"
       ;;
+    capabilities)
+      shift; cmd_capabilities "$@" ;;
     github-usage)
       shift
       cmd_github_usage "$@"
@@ -4401,8 +4400,9 @@ aiur_engine_main() {
       ;;
   esac
 }
-
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"
 fi

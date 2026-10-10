@@ -15,7 +15,8 @@ defmodule Aiur.Capabilities.Collector do
     context = %{run_shape: instance.run_shape, settings: settings()}
     providers = Keyword.get_lazy(opts, :providers, fn -> Application.get_env(:aiur, :capability_providers, []) end)
     supervisor = Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor)
-    tasks = Enum.map(providers, &{&1, &1.capability_ids(), Task.Supervisor.async_nolink(supervisor, fn -> contribution(&1, context) end)})
+    declarations = Enum.map(providers, &{&1, &1.capability_ids()})
+    tasks = Enum.map(declarations, fn {provider, ids} -> {provider, ids, Task.Supervisor.async_nolink(supervisor, fn -> contribution(provider, context) end)} end)
     results = tasks |> Enum.map(&elem(&1, 2)) |> Task.yield_many(500) |> Map.new(fn {task, result} -> {task.ref, result} end)
     initial = {Map.new(@known_ids, &{&1, %{state: :unavailable, reason: :not_installed}}), %{}, MapSet.new(), MapSet.new()}
     {capabilities, sections, _claimed, warnings} = Enum.reduce(tasks, initial, &merge(&1, results, &2))
@@ -27,6 +28,16 @@ defmodule Aiur.Capabilities.Collector do
       end
 
     {%{machine: machine, instance: instance, repository: sections[:repository], executor: sections[:executor], capabilities: capabilities}, warnings}
+  rescue
+    error -> failed_collection(Exception.format_banner(:error, error))
+  catch
+    kind, reason -> failed_collection(Exception.format_banner(kind, reason))
+  end
+
+  defp failed_collection(detail) do
+    entry = %{state: :unknown, reason: :collection_failed, detail: detail}
+    report = %{machine: nil, instance: nil, repository: nil, executor: nil, capabilities: Map.new(@known_ids, &{&1, entry})}
+    {report, MapSet.new([{:collection_failed, detail}])}
   end
 
   defp settings do

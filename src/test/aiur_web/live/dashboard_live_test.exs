@@ -96,7 +96,12 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     @impl true
-    def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report)}}
+    def init(opts) do
+      state = %{report: Keyword.fetch!(opts, :report)}
+      {:reply, snapshot, state} = handle_call(:snapshot, nil, state)
+      :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
+      {:ok, state}
+    end
 
     @impl true
     def handle_call(:snapshot, _from, state) do
@@ -616,30 +621,51 @@ defmodule AiurWeb.DashboardLiveTest do
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
       {:ok, _view, html} = live(build_conn(), "/")
 
-      assert html =~ "global-pause-toggle is-paused"
-      assert html =~ ~s(aria-pressed="true")
-      assert html =~ "Resume all agents (globally paused)"
+      assert html =~ "ax-mi on"
+      assert html =~ ~s(aria-checked="true")
+      assert html =~ "Resume all agents"
       refute html =~ "global-pause-banner"
+    end
+
+    test "fleet errors render unknown pause rather than an off switch" do
+      for fleet <- [%{error: %{code: "orchestrator_unavailable", message: "Daemon unavailable"}}, Map.delete(global_pause_fleet(false), :globally_paused)] do
+        doc = fleet |> render_payload(writable: true) |> Floki.parse_document!()
+        item = Floki.find(doc, "#ax-pause")
+        assert Floki.text(item) =~ "Pause state unknown"
+        assert Floki.attribute(item, "disabled") == ["disabled"]
+        assert Floki.attribute(item, "aria-checked") == []
+        assert Floki.find(item, ".ax-sw") == []
+        assert Floki.find(doc, "#ax-paused.show") == []
+      end
+    end
+
+    test "future regression guard: a forged read-only pause event does not reach the orchestrator" do
+      orchestrator_name = Module.concat(__MODULE__, :ReadOnlyGlobalPauseOrchestrator)
+      start_supervised!({GlobalPauseFailureOrchestrator, name: orchestrator_name, report: self()})
+      start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: false)
+      {:ok, view, _html} = live(build_conn(), "/")
+      render_click(view, "toggle-global-pause")
+      refute_received {:global_pause_attempt, _, _}
+      assert view |> element("#ax-pause") |> render() =~ ~s(aria-checked="false")
     end
 
     test "renders a pause affordance while the daemon is running and writable" do
       html = render_payload(global_pause_fleet(false), writable: true)
 
-      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(id="ax-pause")
       assert html =~ ~s(phx-click="toggle-global-pause")
-      assert html =~ ~s(aria-pressed="false")
+      assert html =~ ~s(aria-checked="false")
       assert html =~ "Pause all agents"
-      refute html =~ "global-pause-toggle is-paused"
-      refute html =~ ~s|aria-label="Resume all agents (globally paused)"|
+      refute html =~ "ax-mi on"
+      refute html =~ ~s|aria-label="Resume all agents"|
     end
 
     test "renders a resume affordance while the daemon is globally paused" do
       html = render_payload(global_pause_fleet(true), writable: true)
 
-      assert html =~ "global-pause-toggle is-paused"
-      assert html =~ ~s(aria-pressed="true")
-      assert html =~ "Resume all agents (globally paused)"
-      # The nav toggle is the only global-pause signal; the standalone banner is gone.
+      assert html =~ "ax-mi on"
+      assert html =~ ~s(aria-checked="true")
+      assert html =~ "Resume all agents"
       refute html =~ "global-pause-banner"
       refute html =~ "lift the global pause"
     end
@@ -663,78 +689,52 @@ defmodule AiurWeb.DashboardLiveTest do
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
       {:ok, view, _html} = live(build_conn(), "/")
 
-      html = view |> element("#global-pause-toggle") |> render_click()
+      html = view |> element("#ax-pause") |> render_click()
 
-      assert_receive {:global_pause_attempt, true, "dashboard"}, 1000
+      receive_barrier({:global_pause_attempt, true, "dashboard"})
       assert html =~ "state could not be persisted"
       assert html =~ "The daemon remains in its previous state"
+      assert html =~ ~s(aria-checked="false")
     end
 
     test "disables the toggle when the dashboard is read-only" do
       html = render_payload(global_pause_fleet(false), writable: false)
 
-      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(id="ax-pause")
       assert html =~ ~s(aria-disabled="true")
       assert html =~ "disabled"
     end
 
-    # The sidebar is `display: none` below 960px, so pause needs a second
-    # instance in the mobile nav pill. The theme toggle does not: it lives in
-    # the topbar at every resolution, so exactly one ever renders.
-    test "places the pause and theme controls for both layouts" do
-      html = render_payload(global_pause_fleet(false), writable: true)
-      doc = Floki.parse_document!(html)
+    test "places one pause, theme and palette control in the settings menu for both layouts" do
+      doc = global_pause_fleet(false) |> render_payload(writable: true) |> Floki.parse_document!()
+      assert Floki.find(doc, ".ax-top .ax-brand #ax-menu #ax-pause") != []
+      assert Floki.find(doc, "aside.sidenav #theme-toggle") == []
+      assert length(Floki.find(doc, "#ax-menu [phx-hook=\"ThemeToggle\"]")) == 1
+      assert length(Floki.find(doc, "#ax-menu [phx-hook=\"PaletteToggle\"][aria-checked=\"true\"]")) == 1
 
-      mobile_nav = Floki.find(doc, "nav.shell-nav-mobile")
-      assert mobile_nav != []
-
-      assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
-             "the mobile nav must carry its own global pause toggle"
-
-      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #global-pause-toggle") != [],
-             "the desktop pause toggle sits top right, beside the theme control"
-
-      assert Floki.find(doc, ".topbar .brand-row #global-pause-toggle") == [],
-             "the pause toggle moved out of the brand row, which now carries only the brand"
-
-      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle") != [],
-             "the theme toggle lives in the topbar, top right"
-
-      assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") == [],
-             "the theme toggle moved out of the sidebar brand row"
-
-      assert Floki.find(mobile_nav, "#theme-toggle") == [],
-             "the theme toggle is not duplicated into the nav pill"
-
-      assert length(Floki.find(doc, "[phx-hook=\"ThemeToggle\"]")) == 1
-
-      assert length(Floki.find(doc, ".topbar-controls [phx-hook=\"PaletteToggle\"][aria-pressed=\"true\"]")) == 1
-
-      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle palette-toggle) do
+      for id <- ~w(ax-pause theme-toggle ax-palette) do
         assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
       end
     end
 
-    # The clock pill was the topbar's only occupant and forced itself onto its
-    # own line on narrow viewports.
     test "the topbar carries no clock" do
       doc =
         global_pause_fleet(false)
         |> render_payload(writable: true)
         |> Floki.parse_document!()
 
-      assert Floki.find(doc, ".topbar time") == []
+      assert Floki.find(doc, ".ax-top time") == []
     end
 
-    test "the mobile pause toggle mirrors paused state and read-only gating" do
+    test "the shared menu pause item mirrors paused state and read-only gating" do
       paused = render_payload(global_pause_fleet(true), writable: true)
-      mobile_paused = paused |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+      mobile_paused = paused |> Floki.parse_document!() |> Floki.find("#ax-pause")
 
-      assert Floki.attribute(mobile_paused, "aria-pressed") == ["true"]
-      assert Floki.attribute(mobile_paused, "class") |> List.first() =~ "is-paused"
+      assert Floki.attribute(mobile_paused, "aria-checked") == ["true"]
+      assert Floki.attribute(mobile_paused, "class") |> List.first() =~ "on"
 
       readonly = render_payload(global_pause_fleet(false), writable: false)
-      mobile_readonly = readonly |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+      mobile_readonly = readonly |> Floki.parse_document!() |> Floki.find("#ax-pause")
 
       assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
     end
@@ -750,7 +750,7 @@ defmodule AiurWeb.DashboardLiveTest do
         global_pause_fleet(false)
         |> render_payload(writable: true)
         |> Floki.parse_document!()
-        |> Floki.find(".dashboard-shell span[class$='-icon']")
+        |> Floki.find("#ax-frame .snav-ic, #ax-frame .toggle-icon")
         |> Enum.flat_map(&Floki.attribute([&1], "class"))
         |> Enum.uniq()
 
@@ -905,9 +905,9 @@ defmodule AiurWeb.DashboardLiveTest do
     available_units = render_payload(available_payload)
     commands = render_payload(available_payload, live_action: :decision)
 
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Aiur"]))) == 2
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
-    assert Floki.parse_document!(unavailable_units) |> Floki.find("h1#route-title") |> Floki.text() =~ "Units"
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label="Views"]))) == 1
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 1
+    assert Floki.parse_document!(unavailable_units) |> Floki.find("#route-title") |> Floki.text() =~ "Units"
     assert unavailable_units =~ ~s(href="/analytics")
     assert unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(data-phx-link="redirect")
@@ -918,8 +918,8 @@ defmodule AiurWeb.DashboardLiveTest do
     assert available_units =~ ~s(href="/analytics")
     assert Floki.find(Floki.parse_document!(available_units), ~s(a[aria-disabled="true"])) == []
 
-    assert Floki.parse_document!(commands) |> Floki.find("h1#route-title") |> Floki.text() =~ "Commands"
-    assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2
+    assert Floki.parse_document!(commands) |> Floki.find("#route-title") |> Floki.text() =~ "Commands"
+    assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 1
   end
 
   test "renders the approved decision surface with a stable escaped deep link" do

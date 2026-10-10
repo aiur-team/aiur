@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
-  alias Aiur.TestSupport.AwaitingCommands
+  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -210,7 +210,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     document = Floki.parse_document!(html)
 
     assert route_title(document) == "Build Order"
-    assert Floki.find(document, "h1#route-title a") == []
+    assert Floki.find(document, "#ax-title a.ax-back") == []
 
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
@@ -604,7 +604,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert length(Regex.scan(~r/#42/, Floki.text(document))) == 1
     assert Floki.find(document, ".bo-page-header") == []
 
-    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert [back_link] = Floki.find(document, ~s(#ax-title a.ax-back[aria-label="Back to all Build Orders"]))
     assert Floki.attribute(back_link, "href") == ["/build-orders"]
 
     assert html =~ ~s(data-build-order-root="42")
@@ -661,7 +661,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ "Invalid Build Order URL"
     assert route_title(document) == "Build Order"
 
-    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert [back_link] = Floki.find(document, ~s(#ax-title a.ax-back[aria-label="Back to all Build Orders"]))
     assert Floki.attribute(back_link, "href") == ["/build-orders"]
 
     refute Enum.any?(FakeDataSource.calls(source), &match?({:demand, _}, &1))
@@ -1684,7 +1684,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "No telemetry for this Build Order yet"
     # A zeroed KPI strip would read as "this build burned nothing".
@@ -1716,7 +1716,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "Sessions"
     assert html =~ "CPU burned"
@@ -1755,7 +1755,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
     [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
     [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
     start_ms = String.to_integer(start_ms)
@@ -1810,7 +1810,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    html = render_async(view)
+    html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "No telemetry for this Build Order yet"
     refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
@@ -1819,7 +1819,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   end
 
   defp route_title(document) do
-    document |> Floki.find("h1#route-title") |> Floki.text() |> String.trim()
+    document |> Floki.find("#route-title") |> Floki.text() |> String.trim()
   end
 
   defp selected_lede(document) do

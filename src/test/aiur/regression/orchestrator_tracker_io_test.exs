@@ -1,5 +1,9 @@
+Code.require_file("../../support/tracker_io_poll_barrier.exs", __DIR__)
+
 defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   use Aiur.TestSupport
+
+  import Aiur.TrackerIoPollBarrier, only: [await_poll_finished: 1]
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
@@ -108,7 +112,6 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     :ok = DispatchBudgetStore.put_lifetime(issue.id, 3)
 
     server = start_supervised!({Orchestrator, initial_poll?: false})
-    :ok = Aiur.AgentPubSub.subscribe_poll_state()
 
     worker = spawn(fn -> receive do: (:stop -> :ok) end)
 
@@ -297,7 +300,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     end
   end
 
-  test "a successful candidate poll applies after the owner handled concurrent calls", %{server: server, issue: issue, token: token} do
+  test "a successful candidate poll applies after concurrent calls without a PubSub subscription", %{server: server, issue: issue, token: token} do
     put_test_env(:tracker_io_test_result, {:ok, [issue]})
     send(server, :run_poll_cycle)
     receive_barrier({:poll_started, ^token, tracker_pid})
@@ -307,6 +310,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     state = await_poll_finished(server)
     assert state.last_polled_issues[issue.id] == issue
     assert Map.has_key?(state.running, issue.id)
+    assert await_poll_finished(server).poll_cycles_completed == 1
   end
 
   test "GitHub firehose and CI reads leave real handlers responsive", %{server: server, issue: issue, token: token} do
@@ -480,9 +484,9 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   defp trace_handler_io(server) do
     tracker_patterns =
-      Aiur.Tracker.behaviour_info(:callbacks)
-      |> Enum.reject(fn {function, _arity} -> function == :open_issue_labels end)
-      |> Enum.map(fn {function, arity} -> {Aiur.Tracker, function, arity} end)
+      Enum.flat_map([{Aiur.Tracker.IssueTracker, Aiur.Tracker}, {Aiur.Tracker.CodeHost, Aiur.CodeHost}], fn {behaviour, facade} ->
+        for {function, arity} <- behaviour.behaviour_info(:callbacks), function != :open_issue_labels, do: {facade, function, arity}
+      end)
 
     patterns =
       tracker_patterns ++
@@ -508,12 +512,6 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     Enum.each(patterns, fn {module, function, _arity} ->
       refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work"
     end)
-  end
-
-  defp await_poll_finished(server) do
-    receive_barrier({:poll_state_changed, _payload})
-    state = :sys.get_state(server)
-    if state.poll_cycles_completed > 0, do: state, else: await_poll_finished(server)
   end
 
   defp put_test_env(key, value) do

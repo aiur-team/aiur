@@ -40,7 +40,6 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   @secret_env "AIUR_GITHUB_WEBHOOK_SECRET"
   @secret "s3cr3t-webhook-token"
   @repo "owner/repo"
-  @topic "ticket.42.pr.review_comment"
   @dedup_table Aiur.Events.Publisher.Dedup
 
   setup do
@@ -85,23 +84,24 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    :ok
+    %{ticket: Integer.to_string(System.unique_integer([:positive]))}
   end
 
   describe "AC6: a submitted review wakes the ticket's agent through the receiver" do
-    test "a signed CHANGES_REQUESTED delivery publishes the wake with no poll cycle" do
-      :ok = Exchange.subscribe(@topic)
+    test "a signed CHANGES_REQUESTED delivery publishes the wake with no poll cycle", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
       orchestrator = stub_orchestrator()
 
-      assert deliver("pull_request_review", review_delivery()).status == 202
+      assert deliver("pull_request_review", review_delivery(ticket)).status == 202
 
-      event = await_event(@topic)
+      event = await_event(topic)
 
       # The fields that decide rework routing, not merely that *something*
       # arrived: `GithubCommentsPoller.actionable_review?/1` keys on exactly
       # this state, and `#1427` wakes the agent off exactly this topic.
-      assert event.topic == @topic
-      assert event.issue_number == "42"
+      assert event.topic == topic
+      assert event.issue_number == ticket
       assert event.comment["state"] == "CHANGES_REQUESTED"
       assert event.comment["body"] == "this needs a test"
       assert get_in(event.comment, ["user", "login"]) == "its-everdred"
@@ -109,21 +109,23 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       refute_received_poll_cycle(orchestrator)
     end
 
-    test "the wake does not survive removing the signature" do
-      :ok = Exchange.subscribe(@topic)
+    test "the wake does not survive removing the signature", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      conn = deliver("pull_request_review", review_delivery(), signature: nil)
+      conn = deliver("pull_request_review", review_delivery(ticket), signature: nil)
 
       assert conn.status == 401
-      refute_event(@topic)
+      refute_event(topic)
     end
 
-    test "a form-encoded delivery wakes the agent identically to a JSON one" do
-      :ok = Exchange.subscribe(@topic)
+    test "a form-encoded delivery wakes the agent identically to a JSON one", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      json = deliver("pull_request_review", review_delivery())
+      json = deliver("pull_request_review", review_delivery(ticket))
       assert json.status == 202
-      from_json = await_event(@topic)
+      from_json = await_event(topic)
 
       # Both dedupe layers see the second delivery as a repeat of the first —
       # `Publisher`'s replay window and W-4's semantic event key — and both are
@@ -132,9 +134,9 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       clear_dedup()
       fresh_admission_store!()
 
-      form = deliver_form("pull_request_review", review_delivery())
+      form = deliver_form("pull_request_review", review_delivery(ticket))
       assert form.status == 202
-      from_form = await_event(@topic)
+      from_form = await_event(topic)
 
       assert from_json.comment == from_form.comment
       assert from_json.topic == from_form.topic
@@ -142,23 +144,24 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       assert from_json.pull_request == from_form.pull_request
     end
 
-    test "a JSON delivery carrying a top-level payload key is not mistaken for a form" do
-      :ok = Exchange.subscribe(@topic)
+    test "a JSON delivery carrying a top-level payload key is not mistaken for a form", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
       # The form branch must key off the content type, not the presence of a
       # `payload` field: keying off the field would decode this body as a form,
       # fail, and silently drop a delivery the fleet should have woken on.
-      delivery = Map.put(review_delivery(), "payload", "not the body")
+      delivery = Map.put(review_delivery(ticket), "payload", "not the body")
 
       assert deliver("pull_request_review", delivery).status == 202
 
-      event = await_event(@topic)
+      event = await_event(topic)
       assert event.comment["state"] == "CHANGES_REQUESTED"
     end
   end
 
   describe "W-4 admission runs ahead of the dispatch" do
-    test "the admitted delivery id reaches the asynchronous delivery tail" do
+    test "the admitted delivery id reaches the asynchronous delivery tail", %{ticket: ticket} do
       test_pid = self()
       delivery_id = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
       previous_fun = Application.get_env(:aiur, :github_webhook_deliver_fun)
@@ -173,20 +176,21 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
           else: Application.put_env(:aiur, :github_webhook_deliver_fun, previous_fun)
       end)
 
-      payload = review_thread_delivery()
+      payload = review_thread_delivery(ticket)
       assert deliver("pull_request_review_thread", payload, delivery: delivery_id).status == 202
 
       assert_receive {:delivered, "pull_request_review_thread", ^payload, ^delivery_id}, 500
     end
 
-    test "a retried delivery publishes the wake exactly once" do
-      :ok = Exchange.subscribe(@topic)
+    test "a retried delivery publishes the wake exactly once", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      delivery = review_delivery()
+      delivery = review_delivery(ticket)
       retry_id = "22222222-3333-4444-5555-666666666666"
 
       assert deliver("pull_request_review", delivery, delivery: retry_id).status == 202
-      assert await_event(@topic)
+      assert await_event(topic)
 
       # GitHub retries under the *same* delivery id. `Publisher`'s replay window
       # is cleared first, so surviving this can only be the admission gate and
@@ -195,16 +199,17 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       clear_dedup()
 
       assert deliver("pull_request_review", delivery, delivery: retry_id).status == 202
-      refute_event(@topic)
+      refute_event(topic)
     end
 
-    test "a manual redelivery under a fresh delivery id publishes the wake exactly once" do
-      :ok = Exchange.subscribe(@topic)
+    test "a manual redelivery under a fresh delivery id publishes the wake exactly once", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      delivery = review_delivery()
+      delivery = review_delivery(ticket)
 
       assert deliver("pull_request_review", delivery).status == 202
-      assert await_event(@topic)
+      assert await_event(topic)
 
       clear_dedup()
 
@@ -212,35 +217,38 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       # the same underlying event, so delivery-id dedupe cannot see it. Only the
       # payload-derived event key catches this one.
       assert deliver("pull_request_review", delivery).status == 202
-      refute_event(@topic)
+      refute_event(topic)
     end
   end
 
   describe "containment" do
-    test "a delivery for an untracked repository publishes nothing" do
-      :ok = Exchange.subscribe(@topic)
+    test "a delivery for an untracked repository publishes nothing", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      delivery = put_in(review_delivery(), ["repository", "full_name"], "someone-else/other-repo")
+      delivery = put_in(review_delivery(ticket), ["repository", "full_name"], "someone-else/other-repo")
 
       assert deliver("pull_request_review", delivery).status == 202
-      refute_event(@topic)
+      refute_event(topic)
     end
 
-    test "an unrecognized event type is ignored and the endpoint stays up" do
-      :ok = Exchange.subscribe(@topic)
+    test "an unrecognized event type is ignored and the endpoint stays up", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      assert deliver("deployment_protection_rule", review_delivery()).status == 202
-      refute_event(@topic)
+      assert deliver("deployment_protection_rule", review_delivery(ticket)).status == 202
+      refute_event(topic)
 
       # Still serving after the unknown type.
-      assert deliver("pull_request_review", review_delivery()).status == 202
-      assert await_event(@topic)
+      assert deliver("pull_request_review", review_delivery(ticket)).status == 202
+      assert await_event(topic)
     end
 
-    test "a delivery with no event header is ignored without publishing" do
-      :ok = Exchange.subscribe(@topic)
+    test "a delivery with no event header is ignored without publishing", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
-      body = Jason.encode!(review_delivery())
+      body = Jason.encode!(review_delivery(ticket))
 
       conn =
         :post
@@ -250,22 +258,23 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
         |> call()
 
       assert conn.status == 202
-      refute_event(@topic)
+      refute_event(topic)
     end
 
-    test "a malformed payload is rejected without taking down the endpoint" do
-      :ok = Exchange.subscribe(@topic)
+    test "a malformed payload is rejected without taking down the endpoint", %{ticket: ticket} do
+      topic = "ticket.#{ticket}.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
 
       # Signed, well-formed JSON, but not a delivery: no repository, no review.
       assert deliver("pull_request_review", %{"action" => "submitted"}).status == 202
-      refute_event(@topic)
+      refute_event(topic)
 
-      assert deliver("pull_request_review", review_delivery()).status == 202
-      assert await_event(@topic)
+      assert deliver("pull_request_review", review_delivery(ticket)).status == 202
+      assert await_event(topic)
     end
   end
 
-  defp review_delivery do
+  defp review_delivery(ticket) do
     %{
       "action" => "submitted",
       "repository" => %{"full_name" => @repo},
@@ -276,12 +285,12 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
         "submitted_at" => "2026-06-24T12:00:00Z",
         "user" => %{"login" => "its-everdred"}
       },
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-some-slug", "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
     }
   end
 
-  defp review_thread_delivery do
+  defp review_thread_delivery(ticket) do
     %{
       "action" => "unresolved",
       "repository" => %{"full_name" => @repo},
@@ -289,7 +298,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       "updated_at" => nil,
       "pull_request" => %{
         "number" => 901,
-        "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
+        "head" => %{"ref" => "aiur/#{ticket}-some-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
       }
     }
   end

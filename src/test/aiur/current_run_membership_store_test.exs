@@ -1,7 +1,7 @@
 defmodule Aiur.CurrentRunMembership.StoreTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{CurrentRunMembership, DecisionLog, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, Journal, TrackerIdentity}
   alias Aiur.CurrentRunMembership.{Event, Store}
   alias Aiur.CurrentRunMembership.Store.TerminalVerification
 
@@ -129,7 +129,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
     journal = journal_path(dir)
     {:ok, running} = Event.new(@run_id, issue, :running, DateTime.add(@now, 1, :second))
-    assert :ok = DecisionLog.append(journal, Event.to_record(running))
+    assert :ok = Journal.append(journal, Event.to_record(running))
     assert :ok = File.write(journal, ~s({"incomplete":), [:append])
 
     recovered = start_store!(dir)
@@ -537,7 +537,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     {:ok, mode} = Agent.start_link(fn -> :fail end)
 
     append_fun = fn path, record ->
-      if Agent.get(mode, & &1) == :ok, do: DecisionLog.append(path, record), else: {:error, :disk_full}
+      if Agent.get(mode, & &1) == :ok, do: Journal.append(path, record), else: {:error, :disk_full}
     end
 
     pid = start_store!(dir, @run_id, append_fun: append_fun)
@@ -560,7 +560,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
   test "an ambiguous append failure is replayed before another transition can compact it", %{dir: dir} do
     append_fun = fn path, record ->
-      :ok = DecisionLog.append(path, record)
+      :ok = Journal.append(path, record)
       {:error, :acknowledgement_lost}
     end
 

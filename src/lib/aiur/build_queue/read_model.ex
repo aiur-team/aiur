@@ -45,12 +45,24 @@ defmodule Aiur.BuildQueue.ReadModel do
   end
 
   defp queue(queue, context) do
+    context = Map.put(context, :trigger, Settings.effective_trigger(queue, context.state.settings))
     members = Enum.filter(context.document.items, &(&1.queue_id == queue.id)) |> Map.new(&{&1.issue_id, &1})
     items = for projection <- context.state.projections, Map.has_key?(members, projection.issue_id), do: item(members[projection.issue_id], projection, context)
     missing = for member <- Map.values(members), not Enum.any?(items, &(&1.number == String.to_integer(member.issue_id))), do: unknown_item(member, context)
     items = items ++ Enum.sort_by(missing, & &1.position)
     progress = if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: Progress.summary(items)
-    %{queue_id: queue.id, kind: queue.kind, root: queue.root, name: queue.name, held: queue.held, progress: progress, items: items}
+
+    %{
+      queue_id: queue.id,
+      kind: queue.kind,
+      root: queue.root,
+      name: queue.name,
+      start_trigger: context.trigger,
+      start_trigger_override: queue.start_trigger,
+      held: queue.held,
+      progress: progress,
+      items: items
+    }
   end
 
   defp unknown_item(member, context), do: item(member, %{state: :unknown, verdict: {:unknown, [:not_reconciled]}, rank: nil}, context)
@@ -62,6 +74,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       number: String.to_integer(member.issue_id),
       position: member.position,
       state: projection.state,
+      reason: Map.get(projection, :reason),
       verdict: verdict(projection.verdict),
       prerequisites: prerequisites(member.issue_id, context),
       downstream_open: if(projection.rank, do: -elem(projection.rank, 0)),
@@ -72,16 +85,27 @@ defmodule Aiur.BuildQueue.ReadModel do
   end
 
   defp fresh_projection(projection, context) do
-    if context.tracker_source.freshness == :current and projection.state != :unknown, do: projection, else: %{projection | state: :unknown, verdict: {:unknown, [:observation_unavailable]}, rank: nil}
+    cond do
+      context.tracker_source.freshness != :current -> %{projection | state: :unknown, verdict: {:unknown, [:observation_unavailable]}, rank: nil} |> Map.put(:reason, :observation_unavailable)
+      projection.state == :unknown -> %{projection | rank: nil}
+      true -> projection
+    end
   end
 
   defp prerequisites(id, context) do
-    opts = [now_ms: context.now, max_age_ms: Settings.observation_max_age_ms(context.state.settings), label_prefix: context.state.settings.tracker.github.label_prefix]
+    opts = [trigger: context.trigger, now_ms: context.now, max_age_ms: Settings.observation_max_age_ms(context.state.settings), label_prefix: context.state.settings.tracker.github.label_prefix]
 
     for edge <- context.document.edges, edge.dependent == id do
       cyclic = match?({:unknown, _}, context.cycles) or MapSet.member?(context.cycles, edge.prerequisite)
       result = Readiness.edge_verdict(context.observations[edge.prerequisite], Keyword.put(opts, :cyclic, cyclic))
-      %{number: String.to_integer(edge.prerequisite), verdict: verdict(result), source: edge.source}
+
+      %{
+        number: String.to_integer(edge.prerequisite),
+        verdict: verdict(result),
+        source: edge.source,
+        trigger: context.trigger,
+        stage: Aiur.StartTrigger.stage(Readiness.evidence(context.observations[edge.prerequisite], opts[:label_prefix]))
+      }
     end
   end
 

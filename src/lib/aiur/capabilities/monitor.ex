@@ -4,6 +4,7 @@ defmodule Aiur.Capabilities.Monitor do
   require Logger
 
   alias Aiur.Capabilities.Collector
+  alias Aiur.Events.Publisher
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -32,20 +33,37 @@ defmodule Aiur.Capabilities.Monitor do
 
   defp compute(state) do
     {report, warnings} = Collector.collect(state.opts)
-    for warning <- MapSet.difference(warnings, state.warnings), do: Logger.warning("capability_registry #{inspect(warning)}")
     table = Keyword.get(state.opts, :table, :aiur_capabilities)
     digest = :erlang.phash2(report.capabilities)
-    revision = revision(table, digest)
+    {revision, changed?} = revision(table, digest)
     report = Map.merge(report, %{revision: revision, observed_at: DateTime.utc_now() |> DateTime.to_iso8601()})
     now = Keyword.get(state.opts, :now_fun, fn -> System.monotonic_time(:millisecond) end)
     :ets.insert(table, {:report, {report, now.(), digest}})
-    %{state | warnings: warnings}
+    warnings = if changed?, do: notify(revision, state.opts, warnings), else: warnings
+    for warning <- MapSet.difference(warnings, state.warnings), do: Logger.warning("capability_registry #{inspect(warning)}")
+    %{state | warnings: MapSet.union(state.warnings, warnings)}
   end
 
   defp revision(table, digest) do
     case :ets.lookup(table, :report) do
-      [{:report, {_report, _computed_at, ^digest}}] -> :ets.lookup_element(table, :revision, 2)
-      _changed -> :ets.update_counter(table, :revision, 1, {:revision, 0})
+      [{:report, {_report, _computed_at, ^digest}}] -> {:ets.lookup_element(table, :revision, 2), false}
+      _changed -> {:ets.update_counter(table, :revision, 1, {:revision, 0}), true}
     end
+  end
+
+  defp notify(revision, opts, warnings) do
+    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, "capabilities", {:capabilities_changed, revision})
+    publish = Keyword.get(opts, :publish_fun, &Publisher.publish/3)
+
+    case publish_change(publish, revision) do
+      {:error, reason} -> MapSet.put(warnings, {:publish_failed, reason})
+      _success -> warnings
+    end
+  end
+
+  defp publish_change(publish, revision) do
+    publish.("system.capabilities.changed", %{"revision" => revision, "boot_id" => Aiur.Boot.run_id()}, [])
+  catch
+    :exit, reason -> {:error, reason}
   end
 end

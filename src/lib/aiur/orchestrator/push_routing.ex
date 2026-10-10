@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionStore, Issue}
+  alias Aiur.{Alerts, Commands, Config, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
@@ -77,7 +77,7 @@ defmodule Aiur.Orchestrator.PushRouting do
     reason = Map.get(payload, :reason) || Map.get(payload, "reason")
 
     reason not in ["operator_decision", :operator_decision, "upstream_merge", :upstream_merge] and
-      DecisionStore.nonblocking_question_pause?(to_string(identifier)) == {:ok, true}
+      Commands.nonblocking_question_pause?(to_string(identifier)) == {:ok, true}
   end
 
   defp nonblocking_question_pause?(_identifier, _pause_reason, _event), do: false
@@ -527,27 +527,14 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  # snapshot/1 is a synchronous GenServer.call to the per-identifier
-  # store. The case clauses handle the documented contract; the rescue
-  # only narrows to :exit (call timeout) so genuine bugs surface as
-  # exceptions in tests instead of being silently swallowed.
   defp subscribed_to_topic?(identifier, topic) do
-    case SubscriptionStore.snapshot(identifier) do
-      %{subscribed_to: subs} when is_list(subs) ->
-        Enum.any?(subs, fn
-          %{"topic" => t} -> t == topic
-          %{topic: t} -> t == topic
-          _ -> false
-        end)
-
-      _ ->
-        false
-    end
-  catch
-    :exit, reason ->
-      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
-
-      false
+    identifier
+    |> SubscriptionStore.subscriptions()
+    |> Enum.any?(fn
+      %{"topic" => t} -> t == topic
+      %{topic: t} -> t == topic
+      _ -> false
+    end)
   end
 
   defp maybe_drain_pending_auto_resume(state, entry, hint) do

@@ -112,7 +112,7 @@ targets_release_deliberately() {
     doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
     watch | init | findings | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    ask | asks | usage | commands | units | build-orders | queue | analytics | github-cost | github-usage) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | epic | queue | analytics | github-cost | github-usage | capabilities) return 1 ;;
     executor-*) return 1 ;;
     *) return 0 ;;
   esac
@@ -242,7 +242,7 @@ requires_pinned_opencode() {
   case "$cmd" in
     "" | run | restart | --bg) return 0 ;;
     help | -h | -help | --h | --help | --version | --todo | --only | init | findings) return 1 ;;
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget) return 1 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget | epic) return 1 ;;
     -*) return 0 ;;
     *) [ -e "$cmd" ] ;;
   esac
@@ -501,7 +501,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage) return 0 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | capabilities | epic) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -685,7 +685,7 @@ fi
 #   --test    reset the single sandbox ticket (issue 99) then launch
 #   --test3   reset the 3-ticket blocker chain (drives the remote agent) then launch
 #   --debug   verbose logging (AIUR_DEBUG=1)
-#   --clear   delete prior ~/.aiur/logs sessions first (requires --debug)
+#   --clear   delete this instance's inactive log sessions (requires --debug)
 debug_mode=0
 clear_mode=0
 test_single=0
@@ -709,7 +709,7 @@ for arg in "$@"; do
     --port) has_port=1; passthrough+=("$arg"); expect_port_value=1 ;;
     --port=*) has_port=1; passthrough+=("$arg") ;;
     --test) test_single=1 debug_mode=1 clear_mode=1 ;;
-    --test3) test3_mode=1 debug_mode=1 clear_mode=1 allow_remote=1 ;;
+    --test3) test3_mode=1 debug_mode=1 allow_remote=1 ;;
     *) passthrough+=("$arg") ;;
   esac
 done
@@ -783,11 +783,8 @@ fi
 
 [ "$debug_mode" -eq 1 ] && export AIUR_DEBUG=1
 if [ "$clear_mode" -eq 1 ]; then
-  if [ -n "${AIUR_AGENT_IR_LOGS_PARENT:-}" ]; then
-    rm -rf "$AIUR_AGENT_IR_LOGS_PARENT/"* 2>/dev/null || true
-  else
-    rm -rf "$HOME/.aiur/logs/"* 2>/dev/null || true
-  fi
+  clear_key="$("$engine" __identity | sed -n 's/^AIUR_INSTANCE_KEY=//p')"
+  bash "$script_dir/aiur-clear-logs" "${AIUR_AGENT_IR_LOGS_PARENT:-$HOME/.aiur/logs}" "$clear_key"
 fi
 
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then

@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   @moduledoc false
 
   alias Aiur.Bounded
-  alias Aiur.BuildOrder.TicketDetail.Failure
+  alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure}
   alias Aiur.{GitHub, TrackerIdentity, WorkflowStore}
   alias Aiur.GitHub.{IssueRelationships, Issues}
 
@@ -81,7 +81,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   def fetch_linked_pull_requests(identity, configured_repository, opts) do
     case Keyword.get(opts, :relationship_reader) do
       reader when is_function(reader, 2) -> reader.(identity, configured_repository)
-      _reader -> IssueRelationships.fetch_linked_pull_requests(identity, configured_repository, opts)
+      _reader -> IssueRelationships.fetch_linked_pull_requests(identity, configured_repository, Keyword.put(opts, :limit, DestinationNormalizer.max_pull_requests()))
     end
   end
 

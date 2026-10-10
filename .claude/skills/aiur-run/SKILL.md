@@ -225,21 +225,21 @@ Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
 authority.
 
-Whenever that authority permits a new ticket, give it an explicit disposition
-in the same creation request. Executable work carries the configured lifecycle
-todo label (`agent:todo` in the standard workflow). Deliberately parked work
-carries `needs-triage` or `human:todo` plus the reason. Build Order roots carry
-`build-order`, and `Epic:` containers remain undispatched hierarchy. Never
-create first and label second: a failed follow-up is a well-formed but invisible
-ticket that no worker can claim.
+Create each ticket with its disposition in the same creation request: executable Build Order members with
+open prerequisites carry `agent:queued` when the queue is enabled; other executable
+work carries the configured todo label (`agent:todo`). Follow the aiur-build skill's creation
+and adoption convention; when queue status is disabled, use todo for all members. Parked work carries `needs-triage` or `human:todo` with a
+reason; roots carry `build-order`, and `Epic:` containers stay undispatched. Never create first and label second.
 
-Then act on that envelope. When a fix is reversible and its rollback is one
-line, execute and report — do not ask. A correct diagnosis held while waiting
-for permission that was never required is pure lost time: in the 2026-07/08 run
-one instance sat at zero commits for 229 minutes and another spent roughly eight
-hours on ~8 futile `resume` calls, both already knowing the answer. Escalate
-only the decisions that are genuinely the operator's — irreversible actions,
-spend, external publication, and product direction.
+Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
+
+### Build queue
+
+Audit `"$AIUR_CMD" queue show` in preflight and periodically: status, source ages, prerequisites, holds and attentions.
+After a manual override, clear holds/overrides with `"$AIUR_CMD" queue release <id|--queue NAME>`.
+`--todo <ids...> --only` holds other promoted queue items by removing todo; release them explicitly to run again.
+`promoted_unauthorized` means ready work lacks dispatch authorization: an allowed human must apply the marker or todo, or hold it.
+`prerequisite_failed` names a failed prerequisite; inspect and repair its cause before dependents can advance.
 
 If a Build Order handoff exists, verify its approved plan version and GitHub
 selector. Query GitHub and Aiur for current state; do not trust a hand-written
@@ -797,7 +797,7 @@ them log anything. Work this ladder before any per-agent triage:
    roughly half agents and half the Executor's own identity, including two
    tickets the Executor filed the same day it was failing to notice them. Check
    your own filings, not just the fleet's — every ticket you open during a run
-   needs `agent:todo` at creation unless it is deliberately parked.
+   needs todo or the queued Build Order marker at creation unless parked.
 
    Tracked as #1793.
 
@@ -1002,7 +1002,7 @@ Alongside that, the meta-analysis of the work itself (proven repeatedly in the
    references, status, and ticket number (or `ticket: null` until it is filed).
    A finding without a ticket is not a completed retrospective:
    `aiurdev findings --unfiled` is the gate before treating the review as done.
-   **An executable ticket without `agent:todo` is not a filed finding.** An
+   **A finding needs todo or an adopted Build Order queued marker.** An
    unlabelled ticket is inert — no agent can claim it and it appears in no
    state-scoped view — so filing one and moving on records the finding without
    scheduling the work. Set the dispatch state in the same command that creates

@@ -24,6 +24,7 @@ the one that matches what you're doing; you don't need every reference each turn
 | Know which event names are allowed and what they mean | `event-taxonomy.md` |
 | Emit an event or subscribe to a topic pattern | `emit-and-subscribe.md` |
 | Open / close an Executor attention | `attention-and-resolve.md` |
+| Follow an Optimistic start prompt block | [Optimistic start](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker) |
 | Unblock yourself temporarily with a stub | `stub-then-fetch.md` |
 | Interpret a voice-originated ticket or operator message | `dictated-input.md` |
 
@@ -32,6 +33,7 @@ shared [dictated-input note](dictated-input.md).
 
 ## The shortest version
 
+- For an **Optimistic start** prompt block, follow [the canonical loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker) before the normal ready/CI handoff.
 - Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment
   current. When implementation and draft-PR self-review are complete, mark the
   PR ready before moving to `agent:ci-wait` and ending the turn. Drafts never
@@ -58,9 +60,10 @@ shared [dictated-input note](dictated-input.md).
 - Integration safety is your responsibility. Before CI or human-review
   handoff, assess the exact PR head against its configured base. Harmless
   staleness passes; conflicts or changed-file overlap require integration,
-  at most once per handoff. After new-head CI, another unsafe base change
-  requires an Executor alert rather than another merge/CI cycle. Follow the
-  assessment and durable attempt record in `dev-loop.md`.
+  up to 3 integrations per handoff without asking, each followed by relevant
+  local tests and format, size, components gates. After the third, emit a
+  non-blocking Executor alert; keep going if the base is safe. Never open a
+  blocking decision for base integration. Record attempts in `dev-loop.md`.
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
@@ -84,7 +87,6 @@ shared [dictated-input note](dictated-input.md).
   Commands cannot hold the worker waiting for human input.
 
 ## What stays in the per-turn prompt (not here)
-
 Two protocols live in the per-turn shared prompt instead of this skill because
 they fire between turns or must always be visible:
 

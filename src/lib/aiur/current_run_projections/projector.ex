@@ -13,7 +13,25 @@ defmodule Aiur.CurrentRunProjections.Projector do
     end
   end
 
-  def full(state, results), do: project_full(state, results)
+  def full(state, results) do
+    if state.checkpoint_health == :healthy and state.input_fingerprint == fingerprint(results) do
+      {projected, _force_full?, changes} = clock(canonical_state(state), Map.take(results, [:run]))
+      {projected, state.last_race_signature, changes}
+    else
+      project_full(state, results)
+    end
+  end
+
+  defp fingerprint(results) do
+    # Run time advances on every read; the existing clock path updates it without rebuilding rows.
+    Map.update(results, :run, nil, fn
+      {:ok, run} = result ->
+        if CurrentRunSummary.Facts.run(run).valid?, do: {:ok, Map.drop(run, [:observed_at, :elapsed_ms])}, else: result
+
+      result ->
+        result
+    end)
+  end
 
   defp project_full(state, results) do
     {sources, availability} = SourceFallback.resolve(results, state.sources)
@@ -93,6 +111,7 @@ defmodule Aiur.CurrentRunProjections.Projector do
         membership_signature: membership_signature,
         membership_generation: membership_generation,
         membership_index: membership_index,
+        input_fingerprint: fingerprint(results),
         summary_generation: summary.generation,
         outcome_generation: outcomes.generation,
         summary_snapshot: summary.snapshot,
@@ -120,40 +139,45 @@ defmodule Aiur.CurrentRunProjections.Projector do
     run = Map.fetch!(clock_sources, :run)
     run_id = Map.get(run, :id)
 
-    if is_binary(state.run_id) and is_binary(run_id) and state.run_id != run_id do
-      {restore_canonical(state), true, %{persist?: false, summary: false, outcomes: false}}
-    else
-      sources = Map.put(state.sources, :run, run)
-      availability = Map.put(state.availability, :run, Map.fetch!(clock_availability, :run))
+    cond do
+      run == state.sources.run and Map.fetch!(clock_availability, :run) == state.availability.run ->
+        {restore_canonical(state), false, %{persist?: false, summary: false, outcomes: false}}
 
-      raw =
-        CurrentRunSummary.Projection.snapshot(%{
-          run: run,
-          units: state.units,
-          generation: 0,
-          denominator_generation: state.denominator_generation,
-          weight_health: state.weight_health
-        })
+      is_binary(state.run_id) and is_binary(run_id) and state.run_id != run_id ->
+        {restore_canonical(state), true, %{persist?: false, summary: false, outcomes: false}}
 
-      summary =
-        Finalizer.summary(
-          canonical_state(state),
-          raw,
-          run_id,
-          state.denominator_signature
-        )
+      true ->
+        sources = Map.put(state.sources, :run, run)
+        availability = Map.put(state.availability, :run, Map.fetch!(clock_availability, :run))
 
-      candidate = %{
-        state
-        | sources: sources,
-          availability: availability,
-          run_id: run_id,
-          summary_generation: summary.generation,
-          summary_snapshot: summary.snapshot,
-          summary_lkg: summary.lkg
-      }
+        raw =
+          CurrentRunSummary.Projection.snapshot(%{
+            run: run,
+            units: state.units,
+            generation: 0,
+            denominator_generation: state.denominator_generation,
+            weight_health: state.weight_health
+          })
 
-      {candidate, false, %{persist?: true, summary: summary.changed?, outcomes: false}}
+        summary =
+          Finalizer.summary(
+            canonical_state(state),
+            raw,
+            run_id,
+            state.denominator_signature
+          )
+
+        candidate = %{
+          state
+          | sources: sources,
+            availability: availability,
+            run_id: run_id,
+            summary_generation: summary.generation,
+            summary_snapshot: summary.snapshot,
+            summary_lkg: summary.lkg
+        }
+
+        {candidate, false, %{persist?: true, summary: summary.changed?, outcomes: false}}
     end
   end
 

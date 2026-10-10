@@ -26,13 +26,14 @@ defmodule Aiur.Events.EventDeliveryTest do
     test_pid = self()
 
     SubscriptionStore.set_enqueue_fn(fn id, event ->
-      send(test_pid, {:enqueued, id, event})
+      # The hook is global; unrelated stores can outlive their originating test.
+      if id == identifier, do: send(test_pid, {:enqueued, id, event})
       :ok
     end)
 
     on_exit(fn ->
-      SubscriptionStore.set_enqueue_fn(nil)
       SubscriptionStore.stop(identifier)
+      SubscriptionStore.set_enqueue_fn(nil)
       Publisher.set_tracked_fn(fn _ -> true end)
 
       if original do
@@ -49,30 +50,46 @@ defmodule Aiur.Events.EventDeliveryTest do
 
   describe "SubscriptionStore receives + enqueues" do
     test "event published to a subscribed pattern reaches enqueue_fn", %{identifier: id} do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.#"
+      ticket_topic1 = "ticket.#{ticket}.branch.push"
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
-
-      Process.sleep(50)
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic, "test")
 
       Publisher.publish(
-        "ticket.42.branch.push",
-        %{sha: "abc", ref: "refs/heads/aiur/42"},
-        issue_number: 42
+        ticket_topic1,
+        %{sha: "abc", ref: "refs/heads/aiur/#{ticket}"},
+        issue_number: String.to_integer(ticket)
       )
 
-      assert_receive {:enqueued, ^id, %{topic: "ticket.42.branch.push", sha: "abc"}}, 1_000
+      SubscriptionStore.snapshot(id)
+      assert_received {:enqueued, ^id, %{topic: ^ticket_topic1, sha: "abc"}}
     end
 
     test "event published to a non-matching pattern does NOT reach enqueue_fn",
          %{identifier: id} do
+      ticket = System.unique_integer([:positive])
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.999.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, "ticket.#{ticket}.agent.#", "test")
 
-      Process.sleep(50)
+      assert {:ok, _, _} = Publisher.publish("ticket.#{ticket}.branch.push", %{sha: "abc"})
 
-      Publisher.publish("ticket.42.branch.push", %{sha: "abc"})
+      assert %{last_seen_event_id: nil} = SubscriptionStore.snapshot(id)
+      refute_received {:enqueued, ^id, _}
+    end
 
-      refute_receive {:enqueued, _, _}, 200
+    test "enqueue observations exclude base-branch alerts delivered to other stores",
+         %{identifier: id} do
+      other_id = "#{id}-other"
+      on_exit(fn -> SubscriptionStore.stop(other_id) end)
+      :ok = SubscriptionStore.attach(other_id)
+      :ok = SubscriptionStore.add_subscription(other_id, "system.config.base_branch.changed", "test")
+
+      {:ok, event_id, _} =
+        Publisher.publish("system.config.base_branch.changed", %{old_base: "integration", new_base: "main"})
+
+      assert %{last_seen_event_id: ^event_id} = SubscriptionStore.snapshot(other_id)
+      refute_received {:enqueued, ^other_id, _}
     end
   end
 end
