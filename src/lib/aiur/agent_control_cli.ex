@@ -2167,17 +2167,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp blocked_by_detail(_status), do: nil
 
-  # The binding constraint is read ONLY from the daemon's own capacity report.
-  # The local load sample printed above is deliberately NOT merged in here: the
-  # CLI may not run on the daemon's host, and it reads its own config file
-  # rather than the daemon's live config, so a locally re-derived gate can name
-  # a fleet-level cause the daemon never decided (#1610).
-  # `polling` is threaded in for one honest reason: the "ticket supply" binding
-  # is only claimable when the daemon recently polled and found nothing. While
-  # idle backoff is active (the last successful poll is a full backed-off
-  # interval old) or the candidate snapshot is not fresh (the last fetch
-  # failed), the fleet has not looked recently enough to see work that appeared
-  # — so the line says that instead of blaming ticket supply (#2138).
+  # The binding signal comes from the daemon; the CLI may run on another host.
   defp print_capacity_status(
          %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
          polling
@@ -2261,6 +2251,12 @@ defmodule Aiur.AgentControlCLI do
     do: ", next poll in #{poll_seconds(next_ms)}s"
 
   defp idle_backoff_countdown(_detail), do: ""
+
+  defp admission_detail(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
+    do: "CPU PSI some avg60=#{pressure}% threshold=#{threshold}%"
+
+  defp admission_detail(%{signal: :memory, measured: memory, threshold: threshold}),
+    do: "free memory=#{memory}MB threshold=#{threshold}MB"
 
   defp admission_detail(%{
          signal: :load,
@@ -2366,13 +2362,13 @@ defmodule Aiur.AgentControlCLI do
     suffix =
       case DispatchPolicy.load_gate(load, threshold, schedulers) do
         :hold ->
-          " (local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+          " (local host sample; over fallback load threshold, PSI governs dispatch when available)"
 
         :dispatch ->
           " (local host sample)"
       end
 
-    IO.puts("LOAD #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")
+    IO.puts("LOAD (local fallback diagnostic) #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")
   end
 
   defp print_load_status(_capacity), do: :ok
