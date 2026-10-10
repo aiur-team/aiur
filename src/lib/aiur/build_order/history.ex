@@ -13,6 +13,32 @@ defmodule Aiur.BuildOrder.History do
   def child_spec(opts), do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}, shutdown: 10_000}
   @spec apply([Row.event()], keyword()) :: {:ok, map()} | {:error, term()}
   def apply(events, opts \\ []), do: call(opts, {:apply, events, Keyword.get(opts, :checkpoint)})
+  @spec note_start(String.t(), :label | :dispatch, DateTime.t()) :: :ok
+  def note_start(identifier, source, %DateTime{} = at) when is_binary(identifier) and source in [:label, :dispatch] do
+    case Integer.parse(identifier) do
+      {number, ""} when number > 0 ->
+        field = if source == :label, do: :in_progress_at, else: :dispatched_at
+        GenServer.cast(__MODULE__, {:note_start, %{number: number, observed_at: at, source: :write, fields: %{field => at}}})
+
+      _invalid ->
+        :ok
+    end
+  end
+
+  @impl true
+  def handle_cast({:note_start, event}, state) do
+    case writable(state) do
+      :ok ->
+        rows = merge_event(event, state.rows)
+        changed = Enum.filter(Map.values(rows), &(Map.get(state.rows, &1.number) != &1))
+        {:noreply, commit(state, changed, nil)}
+
+      {:error, reason} ->
+        Logger.warning("aiur_build_history start_refused number=#{event.number} reason=#{inspect(reason)}")
+        {:noreply, state}
+    end
+  end
+
   @spec flush(keyword()) :: :ok | {:error, term()}
   def flush(opts \\ []), do: call(opts, :flush)
   @spec mark_complete(keyword()) :: :ok | {:error, term()}
