@@ -121,7 +121,15 @@ defmodule Aiur.Orchestrator.State.Owners do
 
   @members %{
     core: [Aiur.Orchestrator, Aiur.Orchestrator.IssueSync, Aiur.Orchestrator.TrackerHealth, Aiur.Orchestrator.TrackerTasks, Aiur.Orchestrator.SnapshotPublisher, Aiur.Orchestrator.SnapshotStore],
-    dispatch: [Aiur.Orchestrator.Dispatcher, Aiur.Orchestrator.DispatchOutcome, Aiur.Orchestrator.DispatchPolicy, Aiur.Orchestrator.CapacityBinding, Aiur.Orchestrator.Slots],
+    dispatch: [
+      Aiur.Orchestrator.Dispatcher,
+      Aiur.Orchestrator.DispatchOutcome,
+      Aiur.Orchestrator.DispatchPolicy,
+      Aiur.Orchestrator.CapacityBinding,
+      Aiur.Orchestrator.Slots,
+      Aiur.Orchestrator.LoadEnvelope,
+      Aiur.Orchestrator.EnvelopeResume
+    ],
     lifecycle: [
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,
