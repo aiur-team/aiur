@@ -173,8 +173,10 @@ test('settle guard survives a transient capture failure', async ({ page }) => {
       failed = true
       throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     }
-    await page.locator('div').evaluate((e, n) => { e.style.outline = `${n % 2 + 1}px solid red` }, n++)
-    return page.screenshot(opts)
+    await page.locator('div').evaluate((e, n) => { e.style.outline = `${n % 2 + 1}px solid red` }, n)
+    const png = await page.screenshot(opts)
+    n++
+    return png
   } }
   await expect(captureStable(target, { scale: 'device' })).rejects.toThrow('design did not settle after 10 captures')
   expect(n).toBe(10)
