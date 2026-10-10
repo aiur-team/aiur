@@ -164,7 +164,7 @@ Once the root exists, create one uniquely marked
 record its URL, parsed pending marker, and canonical body SHA-256. After all
 relationships requery successfully, commit and push that receipt, then append
 one distinct canonical `successful` comment with the exact immutable receipt
-commit and link. Run the read-only `scripts/publication_comment.py`
+commit and link. Run the read-only skill-owned `publication_comment.py`
 verifier once against the pending-only evidence immediately before creation and
 again against the pending-plus-successful evidence immediately afterward; the
 successful comment creation is the only finalization mutation. The verifier does not trust a caller-authored
