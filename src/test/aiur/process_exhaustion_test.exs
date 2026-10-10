@@ -52,6 +52,14 @@ defmodule Aiur.ProcessExhaustionTest do
     refute_received {:alert, _topic, _opts}
   end
 
+  test "descriptor exhaustion skips the probe too" do
+    Application.put_env(:aiur, :process_exhaustion_cmd_fun, fn _command, _args, _opts -> :erlang.error(:emfile) end)
+
+    assert ProcessExhaustion.cmd("pgrep", ["-P", "1"]) == {:error, :emfile}
+    assert_received {:alert, "system.host.process_exhaustion", opts}
+    assert opts[:message] =~ "could not spawn pgrep (emfile)"
+  end
+
   test "an unrelated spawn failure still raises" do
     Application.put_env(:aiur, :process_exhaustion_cmd_fun, fn _command, _args, _opts -> :erlang.error(:enoent) end)
 

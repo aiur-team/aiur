@@ -2,7 +2,8 @@ defmodule Aiur.ProcessExhaustion do
   @moduledoc """
   `System.cmd/3` for host probes that must survive a host out of processes.
 
-  When the host cannot fork, `open_port` raises `:eagain` (or `:enomem`) in the
+  When the host cannot fork, `open_port` raises `:eagain` (or `:enomem`; `:emfile`
+  and `:enfile` out of descriptors; `:system_limit` on a full port table) in the
   caller. On 2026-10-10 that caller was `Aiur.Orchestrator`, tearing an agent
   down through a `pgrep` probe while a runaway wrapper chain held 38k
   processes; the orchestrator crashed and the fleet dropped to zero (#4205).
@@ -14,9 +15,10 @@ defmodule Aiur.ProcessExhaustion do
 
   @alert "system.host.process_exhaustion"
   @alert_interval_ms 60_000
-  @reasons [:eagain, :enomem]
+  @reasons [:eagain, :enomem, :emfile, :enfile, :system_limit]
 
-  @type result :: {Collectable.t(), non_neg_integer()} | {:error, :eagain | :enomem}
+  @type reason :: :eagain | :enomem | :emfile | :enfile | :system_limit
+  @type result :: {Collectable.t(), non_neg_integer()} | {:error, reason()}
 
   @spec cmd(binary(), [binary()], keyword()) :: result()
   def cmd(command, args, opts \\ []) do
@@ -57,7 +59,7 @@ defmodule Aiur.ProcessExhaustion do
         message: message,
         reason:
           message <>
-            ". The host is out of processes or memory, so process probes and agent teardown are degraded. " <>
+            ". The host is out of processes, memory, or descriptors, so process probes and agent teardown are degraded. " <>
             "Look for a runaway process group (`ps -eo pgid=,comm= | sort | uniq -c | sort -n | tail`) and clear it with `kill -9 -- -<pgid>`.",
         needs_attention: true,
         severity: "critical"
