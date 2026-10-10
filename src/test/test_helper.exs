@@ -86,6 +86,7 @@ Code.require_file("support/fake_usage_adapter.ex", __DIR__)
 Code.require_file("support/grouped_scopes_support.ex", __DIR__)
 Code.require_file("support/awaiting_commands_support.ex", __DIR__)
 Code.require_file("support/snapshot_fence_support.ex", __DIR__)
+Code.require_file("support/tracker_task_drain_support.ex", __DIR__)
 Code.require_file("support/webhook_mode_contract.exs", __DIR__)
 
 Code.require_file("support/build_home/fixture_source.ex", __DIR__)
