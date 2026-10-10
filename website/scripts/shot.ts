@@ -16,7 +16,11 @@ const loopSec = Number(process.argv[2] ?? 19);
 const theme = process.argv[3] ?? "dark";
 const out = process.argv[4] ?? `/tmp/sim-${loopSec}.png`;
 
-const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+// Keep in sync with the @import list in src/styles.css (shot.ts does not resolve @import).
+const cssParts = ["tokens", "top", "hero", "terminal", "footer"];
+const css = cssParts
+  .map((p) => readFileSync(new URL(`../src/styles/${p}.css`, import.meta.url), "utf8"))
+  .join("");
 const frame = renderFrame(loopSec * 1000, 0);
 
 const html = `<!doctype html>

@@ -1,0 +1,37 @@
+  :root {
+    /* dark (default) */
+    --bg: #1a1b1e;
+    --bg-2: #161719;
+    --fg: #edeef0;
+    --muted: #8c8d93;
+    --line: rgba(221, 226, 235, 0.14);
+    --accent: #2f86ff;
+    --hairline: rgba(221, 226, 235, 0.10);
+    --pill-bd: rgba(221, 226, 235, 0.13);
+    --pill-bg: rgba(221, 226, 235, 0.03);
+  }
+  html[data-theme="light"] {
+    /* warm sand — pairs with the logo blue */
+    --bg: #e7d6b2;
+    --bg-2: #e2cfa6;
+    --fg: #2a2520;
+    --muted: #5f5645;
+    --line: rgba(42, 37, 26, 0.17);
+    --accent: #1f57c4;
+    --hairline: rgba(42, 37, 26, 0.12);
+    --pill-bd: rgba(42, 37, 26, 0.16);
+    --pill-bg: rgba(42, 37, 26, 0.035);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  html { background: var(--bg); transition: background-color 0.5s ease; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.5s ease, color 0.5s ease;
+    overflow-x: hidden;
+  }
+
