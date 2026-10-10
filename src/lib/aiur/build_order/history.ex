@@ -27,6 +27,15 @@ defmodule Aiur.BuildOrder.History do
     |> read_result()
   end
 
+  @spec numbers(keyword()) :: {:ok, [pos_integer()], ProviderHealth.t()} | {:error, ProviderHealth.t()}
+  def numbers(opts \\ []) do
+    read(opts, fn table ->
+      health = :ets.lookup_element(table, :__health__, 2)
+      if health.state == :healthy, do: {:ok, :ets.select(table, [{{:"$1", :_}, [{:is_integer, :"$1"}], [:"$1"]}]), health}, else: {:error, health}
+    end)
+    |> read_result()
+  end
+
   defp read_rows(table, numbers) do
     health = :ets.lookup_element(table, :__health__, 2)
     if health.state == :healthy, do: {:ok, Enum.flat_map(numbers, &lookup_row(table, &1)), health}, else: {:error, health}
@@ -115,7 +124,7 @@ defmodule Aiur.BuildOrder.History do
       rows = Enum.reduce(events, state.rows, &merge_event/2)
       changed = Enum.filter(Map.values(rows), &(Map.get(state.rows, &1.number) != &1))
       state = commit(state, changed, checkpoint)
-      {:reply, {:ok, %{generation: state.health.generation, changed: numbers(changed)}}, state}
+      {:reply, {:ok, %{generation: state.health.generation, changed: row_numbers(changed)}}, state}
     else
       {:error, _reason} = error -> {:reply, error, state}
     end
@@ -155,11 +164,11 @@ defmodule Aiur.BuildOrder.History do
     rows = Enum.reduce(changed_rows, state.rows, &Map.put(&2, &1.number, &1))
     state = %{state | rows: rows, health: health, checkpoints: checkpoints, dirty?: state.dirty? or changed? or checkpoints != state.checkpoints}
     mirror(state, changed_rows)
-    if changed?, do: broadcast(state, numbers(changed_rows))
+    if changed?, do: broadcast(state, row_numbers(changed_rows))
     schedule(state)
   end
 
-  defp numbers(rows), do: Enum.sort(Enum.map(rows, & &1.number))
+  defp row_numbers(rows), do: Enum.sort(Enum.map(rows, & &1.number))
   defp newest(rows, initial), do: Enum.reduce(rows, initial, fn row, acc -> if is_nil(acc) or DateTime.compare(row.observed_at, acc) == :gt, do: row.observed_at, else: acc end)
   defp mirror(state, rows), do: :ets.insert(state.table, [{:__health__, state.health}, {:__checkpoints__, state.checkpoints} | Enum.map(rows, &{&1.number, &1})])
 

@@ -41,10 +41,10 @@ defmodule Aiur.BuildOrder.Features.LabelProjection do
       history_opts: Keyword.get(opts, :history_options, []),
       entries: %{},
       snapshot: nil,
-      rows: %{},
       health: nil,
       available?: false,
       loaded?: false,
+      boot_pending?: true,
       rebuild?: false,
       writes: :running,
       ensured: MapSet.new(),
@@ -168,16 +168,27 @@ defmodule Aiur.BuildOrder.Features.LabelProjection do
   defp observation(health), do: health.state
 
   @impl true
-  def handle_info(:boot, state), do: {:noreply, pass(state, :all)}
+  def handle_info(:boot, state), do: {:noreply, pass(state, :boot)}
 
   def handle_info(:tick, state) do
     Process.send_after(self(), :tick, state.tick_ms)
-    {:noreply, pass(%{state | writes: :running, attempted: MapSet.new()}, :all)}
+    {:noreply, pass(%{state | writes: :running, attempted: MapSet.new()}, entry_numbers(state))}
   end
 
   def handle_info({:build_order_features_changed, %{changed: numbers}}, state), do: {:noreply, pass(state, {:registry, numbers})}
-  def handle_info({:build_order_history_changed, %{changed: numbers}}, state), do: {:noreply, pass(state, numbers)}
+  def handle_info({:build_order_history_changed, %{changed: numbers}}, state), do: {:noreply, pass(state, drain_history(MapSet.new(numbers)))}
+
   def handle_info({:recheck, n}, state), do: {:noreply, pass(%{state | rechecks: Map.delete(state.rechecks, n)}, [n])}
+
+  defp drain_history(numbers) do
+    receive do
+      {:build_order_history_changed, %{changed: changed}} -> drain_history(MapSet.union(numbers, MapSet.new(changed)))
+    after
+      0 -> MapSet.to_list(numbers)
+    end
+  end
+
+  defp entry_numbers(state), do: Enum.uniq(Enum.map(Map.keys(state.entries), &elem(&1, 1)) ++ Map.keys(state.rechecks))
 
   defp registry(state) do
     case state.features.snapshot(state.feature_opts) do
@@ -189,30 +200,49 @@ defmodule Aiur.BuildOrder.Features.LabelProjection do
   defp pass(%{tracker_status: :prefix_collision} = state, _), do: state
 
   defp pass(state, selection) do
-    state = registry(state) |> observations(selection) |> load()
+    selection = if state.boot_pending?, do: :boot, else: selection
+    state = registry(state)
+    state = %{state | health: state.history.health(state.history_opts)} |> load()
 
     if state.snapshot && state.loaded? do
       entries = LabelRules.reconcile_registry(state.entries, state.snapshot.owners, state.clock.())
       state = save_changes(state, entries)
-      state = if state.available? and match?(%{state: :healthy}, state.health), do: decide_rows(state, selection), else: state
+      state = if state.available? and match?(%{state: :healthy}, state.health), do: observe_selection(state, selection, MapSet.new(Map.keys(state.snapshot.features))), else: state
       if state.snapshot, do: LabelWriter.run(state), else: state
     else
       state
     end
   end
 
-  defp observations(state, {:registry, _numbers}), do: state
+  defp observe_selection(state, :boot, registered_slugs) do
+    case state.history.numbers(state.history_opts) do
+      {:ok, numbers, health} ->
+        next =
+          numbers
+          |> Enum.chunk_every(200)
+          |> Enum.reduce_while(%{state | health: health}, &observe_boot_chunk(&1, &2, registered_slugs))
 
-  defp observations(state, :all) do
-    case state.history.snapshot(state.history_opts) do
-      {:ok, %{rows: rows, health: health}} -> %{state | rows: rows, health: health}
-      {:error, health} -> %{state | health: health}
+        %{next | boot_pending?: next.health.state != :healthy}
+
+      {:error, health} ->
+        %{state | health: health}
     end
   end
 
-  defp observations(state, numbers) do
+  defp observe_selection(state, {:registry, numbers}, registered_slugs) do
+    observe_numbers(state, Enum.uniq(numbers ++ Map.keys(state.unregistered) ++ Map.keys(state.conflicts)), registered_slugs)
+  end
+
+  defp observe_selection(state, numbers, registered_slugs), do: observe_numbers(state, numbers, registered_slugs)
+
+  defp observe_boot_chunk(chunk, state, registered_slugs) do
+    next = observe_numbers(state, chunk, registered_slugs)
+    if next.health.state == :healthy, do: {:cont, next}, else: {:halt, next}
+  end
+
+  defp observe_numbers(state, numbers, registered_slugs) do
     case state.history.rows(numbers, state.history_opts) do
-      {:ok, rows, health} -> %{state | rows: Enum.reduce(rows, state.rows, &Map.put(&2, &1.number, &1)), health: health}
+      {:ok, rows, health} -> decide_rows(%{state | health: health}, rows, registered_slugs)
       {:error, health} -> %{state | health: health}
     end
   end
@@ -238,7 +268,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjection do
   end
 
   defp rebuild(%{health: %{state: :healthy}} = state) do
-    case LabelStateStore.rebuild(state.snapshot, state.rows, state.features, state.feature_opts, state.clock.()) do
+    case LabelStateStore.rebuild(state.snapshot, &state.history.rows(&1, state.history_opts), state.features, state.feature_opts, state.clock.()) do
       {:ok, entries} -> LabelWriter.persist(%{state | entries: entries, loaded?: true, rebuild?: false})
       {:error, _} -> state
     end
@@ -251,65 +281,58 @@ defmodule Aiur.BuildOrder.Features.LabelProjection do
     %{entry | state: if(owned?, do: :pending_label, else: :pending_unlabel), attempts: 0, last_error: nil, queued_at: state.clock.()}
   end
 
-  defp decide_rows(state, selection) do
-    rows =
-      case selection do
-        :all -> state.rows
-        {:registry, numbers} -> Map.take(state.rows, numbers)
-        numbers -> Map.take(state.rows, numbers)
-      end
-
+  defp decide_rows(state, rows, registered_slugs) do
     by_number = Enum.group_by(state.entries, fn {{_slug, n}, _} -> n end)
 
-    Enum.reduce(Enum.sort(rows), state, fn {n, row}, acc ->
+    Enum.reduce(Enum.sort_by(rows, & &1.number), state, fn %{number: n} = row, acc ->
       acc = %{acc | conflicts: Map.delete(acc.conflicts, n), unregistered: Map.delete(acc.unregistered, n)}
 
       if acc.snapshot do
-        row = Map.merge(row, %{registered_slugs: MapSet.new(Map.keys(acc.snapshot.features)), health: acc.health})
+        row = Map.merge(row, %{registered_slugs: registered_slugs, health: acc.health})
         actions = LabelRules.decide(row, acc.snapshot.owners[n], Map.new(Map.get(by_number, n, [])), acc.clock.())
-        Enum.reduce(actions, acc, &action/2)
+        Enum.reduce(actions, acc, &action(&1, &2, row.observed_at))
       else
         acc
       end
     end)
   end
 
-  defp action({:put, key, entry}, state) do
+  defp action({:put, key, entry}, state, _observed_at) do
     changed? = Map.delete(state.entries[key], :seen_at) != Map.delete(entry, :seen_at)
     next = %{state | entries: Map.put(state.entries, key, entry)}
     if changed?, do: LabelWriter.persist(next), else: next
   end
 
-  defp action({:conflict, n, slugs}, state), do: %{state | conflicts: Map.put(state.conflicts, n, slugs)}
-  defp action({:unregistered, n, slug}, state), do: %{state | unregistered: Map.update(state.unregistered, n, [{n, slug}], &[{n, slug} | &1])}
+  defp action({:conflict, n, slugs}, state, _observed_at), do: %{state | conflicts: Map.put(state.conflicts, n, slugs)}
+  defp action({:unregistered, n, slug}, state, _observed_at), do: %{state | unregistered: Map.update(state.unregistered, n, [{n, slug}], &[{n, slug} | &1])}
 
-  defp action({:recheck, at, n}, state) do
+  defp action({:recheck, at, n}, state, _observed_at) do
     unless Map.has_key?(state.rechecks, n), do: Process.send_after(self(), {:recheck, n}, max(DateTime.diff(at, state.clock.(), :millisecond) + 1, 1))
     %{state | rechecks: Map.put(state.rechecks, n, at)}
   end
 
-  defp action({operation, slug, [n] = numbers, meta}, state) when operation in [:add, :remove] do
+  defp action({operation, slug, [n] = numbers, meta}, state, observed_at) when operation in [:add, :remove] do
     case apply(state.features, operation, [slug, numbers, meta ++ state.feature_opts]) do
       {:ok, _} ->
-        registry_action(operation, slug, n, registry(state))
+        registry_action(operation, slug, n, registry(state), observed_at)
 
       {:error, {:owned_elsewhere, pairs}} ->
         %{state | conflicts: Map.put(state.conflicts, n, Enum.sort(Enum.uniq([slug | Enum.map(pairs, &elem(&1, 1))])))}
 
       {:error, _} ->
-        registry(state)
+        action({:recheck, DateTime.add(state.clock.(), 60), n}, registry(state), observed_at)
     end
   end
 
-  defp registry_action(_operation, _slug, _n, %{snapshot: nil} = state), do: state
+  defp registry_action(_operation, _slug, _n, %{snapshot: nil} = state, _observed_at), do: state
 
-  defp registry_action(operation, slug, n, state) do
+  defp registry_action(operation, slug, n, state, observed_at) do
     entries = LabelRules.reconcile_registry(state.entries, state.snapshot.owners, state.clock.())
 
     entry =
       if operation == :remove,
         do: %{LabelRules.entry(:unlabelled, state.clock.()) | written_at: state.clock.()},
-        else: %{entries[{slug, n}] | seen_at: state.rows[n].observed_at}
+        else: %{entries[{slug, n}] | seen_at: observed_at}
 
     save_changes(state, Map.put(entries, {slug, n}, entry))
   end

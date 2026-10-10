@@ -96,31 +96,65 @@ defmodule Aiur.BuildOrder.Features.LabelStateStore do
 
   defp time(_), do: :error
 
-  @spec rebuild(map(), map(), module(), keyword(), DateTime.t()) :: {:ok, map()} | {:error, term()}
-  def rebuild(snapshot, rows, features, opts, now) do
+  @spec rebuild(map(), ([pos_integer()] -> tuple()), module(), keyword(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def rebuild(snapshot, read_rows, features, opts, now) do
     entries = LabelRules.reconcile_registry(%{}, snapshot.owners, now)
 
-    entries =
-      Map.new(entries, fn {{slug, n} = key, entry} ->
-        if entry.state in [:pending_label, :held_backfill, :labelled] and has_label?(rows[n], slug), do: {key, %{entry | state: :labelled, seen_at: rows[n].observed_at}}, else: {key, entry}
-      end)
+    with {:ok, entries} <- restore_labels(entries, read_rows), do: restore_journals(snapshot, entries, read_rows, features, opts, now)
+  end
 
+  defp restore_journals(snapshot, entries, read_rows, features, opts, now) do
     Enum.reduce_while(Map.keys(snapshot.features), {:ok, entries}, fn slug, {:ok, acc} ->
-      case features.journal(slug, opts) do
-        {:ok, events} -> {:cont, {:ok, tombstones(events, acc, snapshot.owners, rows, now)}}
+      with {:ok, events} <- features.journal(slug, opts),
+           {:ok, entries} <- restore_tombstones(events, acc, snapshot.owners, read_rows, now) do
+        {:cont, {:ok, entries}}
+      else
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp tombstones(events, entries, owners, rows, now) do
+  defp restore_labels(entries, read_rows) do
+    numbers = entries |> Map.keys() |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    read_chunks(numbers, entries, read_rows, &restore_row_labels/2)
+  end
+
+  defp restore_row_labels(row, entries) do
+    Enum.reduce(if(is_list(row.labels), do: row.labels, else: []), entries, &restore_label(&1, row, &2))
+  end
+
+  defp restore_label(label, row, entries) do
+    with {:ok, slug} <- LabelRules.parse(label),
+         %{state: state} = entry when state in [:pending_label, :held_backfill, :labelled] <- entries[{slug, row.number}] do
+      Map.put(entries, {slug, row.number}, %{entry | state: :labelled, seen_at: row.observed_at})
+    else
+      _ -> entries
+    end
+  end
+
+  defp restore_tombstones(events, entries, owners, read_rows, now) do
     latest = events |> Enum.filter(&(&1.type in ["member.added", "member.removed"])) |> Enum.reduce(%{}, &Map.put(&2, &1.number, &1))
 
-    Enum.reduce(latest, entries, fn {n, event}, acc ->
-      if event.type == "member.removed" and not String.starts_with?(event.source, "label:") and
-           not match?(%{feature: slug} when slug == event.feature, owners[n]) and has_label?(rows[n], event.feature),
-         do: Map.put(acc, {event.feature, n}, LabelRules.entry(:pending_unlabel, now)),
-         else: acc
+    removed =
+      Map.filter(latest, fn {n, event} ->
+        event.type == "member.removed" and not String.starts_with?(event.source, "label:") and not match?(%{feature: slug} when slug == event.feature, owners[n])
+      end)
+
+    read_chunks(Map.keys(removed), entries, read_rows, fn row, acc ->
+      event = removed[row.number]
+      if has_label?(row, event.feature), do: Map.put(acc, {event.feature, row.number}, LabelRules.entry(:pending_unlabel, now)), else: acc
+    end)
+  end
+
+  defp read_chunks(numbers, entries, read_rows, update) do
+    numbers
+    |> Enum.chunk_every(200)
+    |> Enum.reduce_while({:ok, entries}, fn chunk, {:ok, acc} ->
+      case read_rows.(chunk) do
+        {:ok, rows, _health} -> {:cont, {:ok, Enum.reduce(rows, acc, update)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
     end)
   end
 
