@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{ReworkGate, TelemetryCohort, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -35,7 +35,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     State,
     StatusObservation,
     StatusReport,
-    TelemetryCohort,
     TrackedSet,
     TrackerHealth
   }
