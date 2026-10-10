@@ -39,13 +39,16 @@ fi
 
 ruleset="$(gh api "repos/$repo/rulesets/$ruleset_id")"
 
-if ! jq -e '
+# The protected branch list is compared with the declaration, so a branch
+# dropped from the live ruleset is drift, not only the loss of main.
+if ! jq -e --argjson expected "$(jq -c '.conditions.ref_name.include | sort' "$declaration")" '
   .target == "branch" and
   .enforcement == "active" and
   (.conditions.ref_name.include | type == "array") and
-  (.conditions.ref_name.include | index("refs/heads/main"))
+  (.conditions.ref_name.include | index("refs/heads/main")) and
+  (.conditions.ref_name.include | sort) == $expected
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must target branches and actively protect main" >&2
+  echo "ruleset must target branches and actively protect main and every declared branch" >&2
   exit 1
 fi
 

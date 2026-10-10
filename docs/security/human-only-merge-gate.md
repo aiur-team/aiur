@@ -63,7 +63,7 @@ alongside the status-check rule. It does not cover the `main` ruleset.
 A read-only drift check (`scripts/verify-human-only-merge-ruleset-live.sh`) runs
 in CI on every pull request and merge as the `merge ruleset drift` check. It
 verifies every property a read-only token can see. For `human-only-merge-gate`:
-active protection of `main`, the `required_status_checks` rule matching the
+the declared branch list actively protected, the `required_status_checks` rule matching the
 declaration exactly, and the same set of rule types as the declaration, so a
 rule added or removed in the UI is drift. For `main`: target, enforcement,
 branch conditions and every rule parameter equal to the declaration. It does not

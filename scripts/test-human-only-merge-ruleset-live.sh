@@ -86,6 +86,11 @@ expect_rejected \
   "ruleset must target branches and actively protect main"
 
 expect_rejected \
+  "dropped-develop-protection" \
+  '.conditions.ref_name.include -= ["refs/heads/develop"]' \
+  "ruleset must target branches and actively protect main"
+
+expect_rejected \
   "reintroduced-pull-request-rule" \
   '.rules += [{"type": "pull_request", "parameters": {"required_approving_review_count": 1}}]' \
   "ruleset rule types must match the declaration"
