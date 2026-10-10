@@ -7,6 +7,7 @@ defmodule Aiur.ModelDiscovery.Fetch do
 
   @request_timeout_ms 30_000
 
+  @spec ingest([map()]) :: {[map()], [map()]}
   def ingest(models) do
     {kept, refused} =
       Enum.reduce(models, {[], []}, fn model, {kept, refused} ->
@@ -43,6 +44,7 @@ defmodule Aiur.ModelDiscovery.Fetch do
   defp encode_value(%{} = value), do: Map.new(value, fn {key, inner} -> {to_string(key), encode_value(inner)} end)
   defp encode_value(value), do: value
 
+  @spec fetch_source(Aiur.CodingAgent.backend()) :: {:ok, module()} | {:error, term()}
   def fetch_source(backend) do
     case source_module(backend) do
       nil -> {:error, {:model_discovery_unsupported, backend}}
@@ -50,6 +52,7 @@ defmodule Aiur.ModelDiscovery.Fetch do
     end
   end
 
+  @spec source_module(Aiur.CodingAgent.backend()) :: module() | nil
   def source_module(backend) do
     case get_in(CodingAgent.backends(), [backend, :openai_compat, :models_endpoint]) do
       module when is_atom(module) and not is_nil(module) -> module
@@ -57,8 +60,10 @@ defmodule Aiur.ModelDiscovery.Fetch do
     end
   end
 
+  @spec instance(Aiur.CodingAgent.backend()) :: map()
   def instance(backend), do: get_in(CodingAgent.backends(), [backend, :openai_compat]) || %{}
 
+  @spec api_key(Aiur.CodingAgent.backend(), keyword()) :: String.t() | nil
   def api_key(backend, opts) do
     fetcher = Keyword.get(opts, :api_key_fetcher, &System.get_env/1)
 
@@ -68,6 +73,7 @@ defmodule Aiur.ModelDiscovery.Fetch do
     end
   end
 
+  @spec fetch(map(), keyword()) :: {:ok, term()} | {:error, term()}
   def fetch(request, opts) do
     fetch_fun = Keyword.get(opts, :fetch, &default_fetch/1)
 

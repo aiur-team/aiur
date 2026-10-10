@@ -13,6 +13,7 @@ defmodule Aiur.AgentProcessLog.Rows do
   # Returns `{tree, tickets}` where `tree` is `%{pid => %{root_pid, ppid, comm,
   # cmdline, cwd, start_time}}` for every process under every registered agent
   # root and `tickets` maps the root pid to its reaper `ticket` meta.
+  @spec observe_tree(map()) :: {map(), map()}
   def observe_tree(state) do
     roots = state.roots_fun.()
     tickets = Map.new(roots, fn {root_pid, ticket} -> {root_pid, ticket} end)
@@ -89,6 +90,7 @@ defmodule Aiur.AgentProcessLog.Rows do
     end
   end
 
+  @spec diff_processes(map(), map()) :: {map(), map()}
   def diff_processes(previous, seen) do
     starts =
       seen
@@ -105,6 +107,7 @@ defmodule Aiur.AgentProcessLog.Rows do
     {starts, exits}
   end
 
+  @spec start_row(DateTime.t(), map()) :: String.t()
   def start_row(now, entry) do
     {argv, argv_sha} = argv_record(entry.cmdline)
 
@@ -123,6 +126,7 @@ defmodule Aiur.AgentProcessLog.Rows do
     ])
   end
 
+  @spec exit_row(DateTime.t(), map()) :: String.t()
   def exit_row(now, entry) do
     duration =
       case Map.get(entry, :first_seen) do

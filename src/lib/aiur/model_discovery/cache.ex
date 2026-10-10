@@ -7,6 +7,7 @@ defmodule Aiur.ModelDiscovery.Cache do
 
   @cache_version 1
 
+  @spec entry(Aiur.CodingAgent.backend(), keyword()) :: map()
   def entry(backend, opts) do
     state = Keyword.get_lazy(opts, :state, fn -> read_state(opts) end)
 
@@ -52,6 +53,7 @@ defmodule Aiur.ModelDiscovery.Cache do
 
   defp memoized_load(_path), do: empty_state()
 
+  @spec write_entry(Aiur.CodingAgent.backend(), [map()], [map()], keyword()) :: {:ok, %{models: [map()], rejected: [map()]}}
   def write_entry(backend, models, refused, opts) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
     result = %{models: models, rejected: refused}
@@ -70,6 +72,7 @@ defmodule Aiur.ModelDiscovery.Cache do
 
   # A failed attempt only stamps `last_attempt_at`; merging (rather than
   # replacing the entry) keeps the last good model list and its `fetched_at`.
+  @spec record_attempt(Aiur.CodingAgent.backend(), keyword()) :: :ok
   def record_attempt(backend, opts) do
     case cache_path(opts) do
       nil ->
@@ -118,5 +121,6 @@ defmodule Aiur.ModelDiscovery.Cache do
     :ok
   end
 
+  @spec empty_state() :: map()
   def empty_state, do: %{"version" => @cache_version, "backends" => %{}}
 end

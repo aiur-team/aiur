@@ -3,6 +3,7 @@ defmodule Aiur.Accounts.SessionHistory do
 
   # Merges a moved session's `history.jsonl` rows into the destination profile.
 
+  @spec merge_history(Path.t(), Path.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
   def merge_history(_source, _destination, nil, _opts), do: :ok
 
   def merge_history(source, destination, session_id, opts) do
@@ -28,6 +29,7 @@ defmodule Aiur.Accounts.SessionHistory do
     end
   end
 
+  @spec update_source_history(:ok | {:error, term()}, Path.t(), binary()) :: :ok | {:error, term()}
   def update_source_history(:ok, _destination, _original_data), do: :ok
 
   def update_source_history({:error, reason}, destination, original_data) do
@@ -37,6 +39,7 @@ defmodule Aiur.Accounts.SessionHistory do
     end
   end
 
+  @spec restore_history(Path.t(), binary()) :: :ok | {:error, term()}
   def restore_history(path, data) do
     if data == "" do
       case File.rm(path) do

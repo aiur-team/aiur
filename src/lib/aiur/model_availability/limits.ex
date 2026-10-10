@@ -11,6 +11,7 @@ defmodule Aiur.ModelAvailability.Limits do
   # The second refusal holds for twice this; each repeat doubles the hold.
   @backoff_base_seconds 300
 
+  @spec limited?(map(), DateTime.t()) :: boolean()
   def limited?(entry, now) do
     explicit_limit? = Map.get(entry, "limited") == true
     reset_at = parse_time(Map.get(entry, "reset_at"))
@@ -45,6 +46,7 @@ defmodule Aiur.ModelAvailability.Limits do
   # within the repeat window extends the streak; the second and later ones set
   # an exponential hold, capped at the unknown-reset ttl. Window-only
   # observations leave the streak and the hold alone.
+  @spec record_limit_streak(map(), map() | nil, map(), DateTime.t(), keyword()) :: map()
   def record_limit_streak(entry, existing, %{"limited" => true}, now, opts) do
     streak = if repeat_limit?(existing, now), do: Map.get(existing, "limit_streak", 1) + 1, else: 1
     base = Keyword.get(opts, :backoff_base_seconds, @backoff_base_seconds)
@@ -95,6 +97,7 @@ defmodule Aiur.ModelAvailability.Limits do
     end
   end
 
+  @spec normalize_limits(term()) :: map()
   def normalize_limits(limits) when is_map(limits) do
     limits = stringify_keys(limits)
 
@@ -117,6 +120,7 @@ defmodule Aiur.ModelAvailability.Limits do
 
   def normalize_limits(_), do: %{}
 
+  @spec merge_entry(map(), map() | nil) :: map()
   def merge_entry(new_entry, existing) do
     existing =
       cond do
@@ -137,6 +141,7 @@ defmodule Aiur.ModelAvailability.Limits do
     |> Map.merge(Map.take(new_entry, @windows))
   end
 
+  @spec record_observation(map(), map(), DateTime.t()) :: map()
   def record_observation(entry, normalized, now) do
     timestamp = DateTime.to_iso8601(now)
 
@@ -174,6 +179,7 @@ defmodule Aiur.ModelAvailability.Limits do
 
   defp available_window_observation?(_window), do: false
 
+  @spec positive_observation_after_limit?(map()) :: boolean()
   def positive_observation_after_limit?(entry) do
     later_than_limit?(
       parse_time(Map.get(entry, "available_observed_at")),
@@ -188,6 +194,7 @@ defmodule Aiur.ModelAvailability.Limits do
 
   defp later_than_limit?(_available_at, _limited_at), do: false
 
+  @spec elapsed_real_reset?(map(), DateTime.t()) :: boolean()
   def elapsed_real_reset?(entry, now) do
     explicit_reset_elapsed?(entry, now) or
       Enum.any?(@windows, &window_real_reset_elapsed?(Map.get(entry, &1), entry, now))
@@ -220,6 +227,7 @@ defmodule Aiur.ModelAvailability.Limits do
     end
   end
 
+  @spec add_unknown_reset_deadlines(map(), DateTime.t()) :: map()
   def add_unknown_reset_deadlines(entry, now) do
     Enum.reduce(@windows, entry, fn window, acc ->
       case Map.get(acc, window) do
@@ -282,6 +290,7 @@ defmodule Aiur.ModelAvailability.Limits do
 
   defp number(_), do: nil
 
+  @spec parse_time(term()) :: DateTime.t() | nil
   def parse_time(%DateTime{} = value), do: value
 
   def parse_time(value) when is_binary(value) do

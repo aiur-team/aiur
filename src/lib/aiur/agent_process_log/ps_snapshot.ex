@@ -3,6 +3,7 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
 
   # `ps` snapshot and `/proc` cwd sources for the process sweep.
 
+  @spec snapshot() :: %{optional(integer()) => map()}
   def snapshot do
     case System.find_executable("ps") do
       nil ->
@@ -90,6 +91,7 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
     end
   end
 
+  @spec proc_cwd(term()) :: String.t()
   def proc_cwd(pid) when is_integer(pid) and pid > 0 do
     case File.read_link("/proc/#{pid}/cwd") do
       {:ok, path} -> path

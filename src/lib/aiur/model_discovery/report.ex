@@ -7,6 +7,7 @@ defmodule Aiur.ModelDiscovery.Report do
 
   alias Aiur.ModelDiscovery.PriceDrift
 
+  @spec report(Aiur.CodingAgent.backend(), [map()], [map()], keyword()) :: :ok
   def report(backend, models, refused, opts) do
     Logger.info(
       "model discovery (#{backend}): #{length(models)} models, #{length(refused)} refused" <>

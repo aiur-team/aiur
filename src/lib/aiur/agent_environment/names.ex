@@ -50,15 +50,26 @@ defmodule Aiur.AgentEnvironment.Names do
   # daemon's own environment carries it.
   @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
 
+  @spec erlang_distribution() :: [String.t()]
   def erlang_distribution, do: @erlang_distribution_env_names
+  @spec daemon_dump() :: [String.t()]
   def daemon_dump, do: @daemon_dump_env_names
+  @spec aiur_distribution_pattern() :: Regex.t()
   def aiur_distribution_pattern, do: @aiur_distribution_env_pattern
+  @spec restart_build() :: [String.t()]
   def restart_build, do: @restart_build_env_names
+  @spec parent_log() :: [String.t()]
   def parent_log, do: @parent_log_env_names
+  @spec operator_only() :: [String.t()]
   def operator_only, do: @operator_only_env_names
+  @spec provider_credential() :: [String.t()]
   def provider_credential, do: @provider_credential_env_names
+  @spec provider_api_key_pattern() :: Regex.t()
   def provider_api_key_pattern, do: @provider_api_key_pattern
+  @spec app_credential() :: [String.t()]
   def app_credential, do: @app_credential_env_names
+  @spec app_credential_pattern() :: Regex.t()
   def app_credential_pattern, do: @app_credential_env_pattern
+  @spec github_credential() :: [String.t()]
   def github_credential, do: @github_credential_env_names
 end
