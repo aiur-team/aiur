@@ -13,12 +13,12 @@ defmodule AiurWeb.Build.PlannedRowsTest do
 
   defmodule Crashed do
     def show, do: exit({:timeout, :queue})
-    def snapshot(_opts), do: exit(:history_down)
+    def rows(_numbers, _opts), do: exit(:history_down)
   end
 
   defmodule Raised do
     def show, do: raise("queue down")
-    def snapshot(_opts), do: raise("snapshot must not be called")
+    def rows(_numbers, _opts), do: raise("history down")
   end
 
   test "queue order, state selection, dedupe and closed filtering" do
@@ -45,14 +45,12 @@ defmodule AiurWeb.Build.PlannedRowsTest do
 
   test "read failures preserve distinct source states and History crashes preserve rows" do
     for module <- [Crashed, Raised] do
-      assert PlannedRows.read(queue: module, history_snapshot: @history) == %{rows: [], source: %{state: "unavailable", observed_at: nil, reason: "read_failed"}}
+      assert PlannedRows.read(queue: module, history: Raised) == %{rows: [], source: %{state: "unavailable", observed_at: nil, reason: "read_failed"}}
     end
 
-    assert PlannedRows.read(queue: NotInstalled, history_snapshot: @history).source == %{state: "disabled", observed_at: nil, reason: "not_installed"}
+    assert PlannedRows.read(queue: NotInstalled, history: Raised).source == %{state: "disabled", observed_at: nil, reason: "not_installed"}
     assert [%{num: 1}] = PlannedRows.read(queue: Queue, history: Crashed).rows
     assert [%{num: 1}] = PlannedRows.read(queue: Queue, history: Raised).rows
-    closed = {:ok, %{rows: %{1 => %{lifecycle: %{state: :closed}}}}}
-    assert [] == PlannedRows.read(queue: Queue, history: Raised, history_snapshot: closed).rows
     assert [%{num: 1}] = PlannedRows.build(show([item(1)]), {:error, :unavailable}, []).rows
   end
 

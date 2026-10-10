@@ -1,5 +1,10 @@
 defmodule AiurWeb.Build.PlannedRows do
-  @moduledoc "Pure planned rows in queue order, with independent queue-source health."
+  @moduledoc """
+  Pure planned rows in queue order, with independent queue-source health.
+
+  `read/1` reads History only for planned queue numbers. Pass outside-queue
+  candidates as `:todo_rows` with `:todo_label`; queue lifecycle facts take precedence.
+  """
   alias AiurWeb.Build.{PlannedGraph, PlannedSource}
   @planned ~w(waiting ready promoted overridden promoted_unauthorized held failed_prerequisite unknown)a
   @terminal ~w(completed cancelled removed)a
@@ -21,8 +26,10 @@ defmodule AiurWeb.Build.PlannedRows do
     queue = Keyword.get(opts, :queue, Aiur.BuildQueue)
     history = Keyword.get(opts, :history, Aiur.BuildOrder.History)
     show = if Code.ensure_loaded?(queue), do: safely(fn -> queue.show() end), else: {:error, :not_installed}
-    snapshot = Keyword.get_lazy(opts, :history_snapshot, fn -> safely(fn -> history.snapshot([]) end) end)
-    build(show, snapshot, opts)
+    numbers = for {item, _queue} <- live_items(show), available?(show) and item.state in @planned, do: item.number
+    rows = read_history(history, numbers)
+    candidates = Map.new(Keyword.get(opts, :todo_rows, []), &{&1.number, &1})
+    build(show, {:ok, %{rows: Map.merge(candidates, rows)}}, opts)
   end
 
   @spec build(map() | {:error, term()}, {:ok, map()} | {:error, term()}, keyword()) :: result()
@@ -36,6 +43,15 @@ defmodule AiurWeb.Build.PlannedRows do
     rows = rows ++ todo_rows(history, live, active, Keyword.get(opts, :todo_label))
     rows = rows |> Enum.with_index() |> Enum.map(fn {row, ord} -> %{row | ord: ord, qpos: if(row.qpos, do: ord + 1)} end)
     %{rows: rows, source: PlannedSource.build(show)}
+  end
+
+  defp read_history(_history, []), do: %{}
+
+  defp read_history(history, numbers) do
+    case safely(fn -> history.rows(numbers, []) end) do
+      {:ok, rows, _health} -> Map.new(rows, &{&1.number, &1})
+      {:error, _reason} -> %{}
+    end
   end
 
   defp safely(fun) do
