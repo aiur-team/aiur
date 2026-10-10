@@ -31,7 +31,10 @@ Agents working on dependent tickets used to coordinate through the Executor (PR 
 
 - **At-least-once.** The renderer dedupes by event `id`; a digest that's delivered twice (e.g., after a runner crash) appears once in the prompt.
 - **Between turns by default.** Events you receive land in your inbox and are delivered at the next turn boundary as a digest.
-- **Mid-turn for blocking-critical events.** A narrow allowlist (`ticket.<blocker>.branch.push`, `ticket.<blocker>.agent.unblocked`, `ticket.<blocker>.agent.decision.*`) drains at the next safe checkpoint inside your turn so you can react sooner.
+- **Mid-turn for blocking-critical events.** A narrow allowlist (`ticket.<blocker>.branch.push`, `ticket.<blocker>.branch.force-push`, `ticket.<blocker>.pr.merged`, `ticket.<blocker>.agent.unblocked`, `ticket.<blocker>.agent.decision.*`) drains at the next safe checkpoint inside your turn so you can react sooner.
+
+An **Optimistic start** prompt block routes blocker events to [the canonical
+loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker).
 
 ## Sources of events
 
