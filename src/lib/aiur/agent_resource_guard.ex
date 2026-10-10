@@ -38,26 +38,29 @@ defmodule Aiur.AgentResourceGuard do
   end
 
   @doc false
-  @spec orphaned_build_gate_holders(Path.t(), Path.t()) :: [{pos_integer(), term()}]
+  @spec orphaned_build_gate_holders(Path.t(), Path.t(), (pos_integer() -> {:ok, term()} | :gone | :unknown)) ::
+          [{pos_integer(), term()}]
   def orphaned_build_gate_holders(proc_dir \\ "/proc", lock_root \\ nil, identity_fun \\ &ProcessTree.process_identity/1) do
     lock_root = lock_root || Aiur.BuildGate.lock_dir()
 
-    with {:ok, entries} <- File.ls(proc_dir) do
-      for entry <- entries,
-          {pid, ""} <- [Integer.parse(entry)],
-          {:ok, identity} <- [identity_fun.(pid)],
-          info = proc_info_at(proc_dir, pid),
-          is_map(info),
-          info.comm == "bash",
-          build_gate_holder?(info.cmdline),
-          lock_path = holder_lock_path(info.cmdline),
-          is_binary(lock_path),
-          String.starts_with?(Path.expand(lock_path), Path.expand(lock_root) <> "/"),
-          not File.exists?(lock_path) do
-        {pid, identity}
-      end
-    else
-      _ -> []
+    case File.ls(proc_dir) do
+      {:ok, entries} ->
+        for entry <- entries,
+            {pid, ""} <- [Integer.parse(entry)],
+            {:ok, identity} <- [identity_fun.(pid)],
+            info = proc_info_at(proc_dir, pid),
+            is_map(info),
+            info.comm == "bash",
+            build_gate_holder?(info.cmdline),
+            lock_path = holder_lock_path(info.cmdline),
+            is_binary(lock_path),
+            String.starts_with?(Path.expand(lock_path), Path.expand(lock_root) <> "/"),
+            not File.exists?(lock_path) do
+          {pid, identity}
+        end
+
+      _ ->
+        []
     end
   end
 
@@ -162,7 +165,7 @@ defmodule Aiur.AgentResourceGuard do
   defp holder_lock_path(cmdline) do
     case String.split(cmdline, <<0>>, trim: true) do
       ["/usr/bin/bash", "-c", script | args] ->
-        if String.contains?(script, "flock 8") and String.contains?(script, "sleep 0.05"), do: Enum.at(args, 0)
+        if String.contains?(script, "flock 8") and String.contains?(script, "sleep 0.05"), do: Enum.at(args, 1)
 
       _ ->
         nil
@@ -174,7 +177,7 @@ defmodule Aiur.AgentResourceGuard do
 
     with {:ok, comm} <- File.read(Path.join(entry, "comm")),
          {:ok, cmdline} <- File.read(Path.join(entry, "cmdline")) do
-      %{pid: pid, comm: String.trim(comm), cmdline: String.replace(cmdline, <<0>>, " ") |> String.trim()}
+      %{pid: pid, comm: String.trim(comm), cmdline: cmdline}
     else
       _ -> nil
     end
