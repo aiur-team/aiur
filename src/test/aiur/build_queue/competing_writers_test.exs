@@ -1,4 +1,5 @@
 defmodule Aiur.BuildQueue.CompetingWritersTest do
+  @moduledoc "Integration coverage for queue and tracker writers racing over ticket state."
   use ExUnit.Case, async: false
   alias Aiur.BuildQueue.{Hints, Model, Server}
   alias Aiur.Config.Schema

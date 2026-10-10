@@ -45,6 +45,8 @@ more than 20 members. These are current links, not deduplicated tickets or
 historical sizes. Empty closed roots stay in the denominator. Neither root size
 nor a successful-promotion count establishes the peak newly ready per reconcile.
 
+This runbook keeps the AC12 acceptance procedure beside the measurement steps it validates.
+
 ## Executor collection
 
 Read [GitHub accounting guidance](../../website/docs-app/apis/github.md#reading-these-numbers-without-fooling-yourself)
