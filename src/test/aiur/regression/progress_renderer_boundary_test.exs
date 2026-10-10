@@ -96,7 +96,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/components/operator_control_center/run_summary_strip.ex",
     "aiur_web/components/operator_control_center/ticket_context.ex",
     "aiur_web/components/operator_control_center/units_table.ex",
-    "aiur_web/live/streamdeck_live.ex",
+    "aiur_web/live/streamdeck_live/components.ex",
     "aiur_web/operator_control_center/run_summary_presenter.ex",
     "aiur_web/operator_control_center/units_presentation.ex",
     "aiur_web/streamdeck_key_face_contract.ex"
