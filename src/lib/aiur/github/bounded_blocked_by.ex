@@ -76,6 +76,10 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   Answers the raw blocker objects for `issue_number`, each carrying a state no
   older than `max_age_ms/0`. The shape is the endpoint's, so the caller
   normalizes it exactly as it normalizes a fresh read.
+
+  `cache_only: true` answers `{:error, :cache_miss}` instead of reading. Adding
+  `record_max_age_ms: :infinity` answers from held records of any age: last-known
+  evidence for ordering work, never for a dispatch decision.
   """
   @spec fetch(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch(issue_number, opts \\ []) do
@@ -84,8 +88,10 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
 
       open_issues = OpenIssueSnapshot.fetch(owner, repo, max_age_ms)
 
-      with {:ok, edges} <- fresh_edges(ResourceStore.key(:issue_blocked_by, owner, repo, issue_number), max_age_ms),
-           {:ok, blockers} <- current_blockers(edges, {owner, repo}, open_issues, max_age_ms) do
+      record_max_age_ms = Keyword.get(opts, :record_max_age_ms, max_age_ms)
+
+      with {:ok, edges} <- fresh_edges(ResourceStore.key(:issue_blocked_by, owner, repo, issue_number), record_max_age_ms),
+           {:ok, blockers} <- current_blockers(edges, {owner, repo}, open_issues, record_max_age_ms) do
         {:ok, blockers}
       else
         :stale -> read_or_miss(issue_number, owner, repo, opts)
@@ -94,7 +100,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   end
 
   defp read_or_miss(issue_number, owner, repo, opts) do
-    if Keyword.get(opts, :cache_only, false), do: {:error, :cache_miss}, else: read_blockers(issue_number, owner, repo, opts)
+    if Keyword.get(opts, :cache_only, false), do: {:error, :cache_miss}, else: read_blockers(issue_number, owner, repo, Keyword.delete(opts, :record_max_age_ms))
   end
 
   defp current_blockers(edges, {owner, repo} = tracker_repo, open_issues, max_age_ms) when is_list(edges) do
@@ -141,6 +147,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
     end
   end
 
+  defp within?(at_ms, :infinity) when is_integer(at_ms), do: true
   defp within?(at_ms, max_age_ms) when is_integer(at_ms), do: System.system_time(:millisecond) - at_ms <= max_age_ms
   defp within?(_at_ms, _max_age_ms), do: false
 
