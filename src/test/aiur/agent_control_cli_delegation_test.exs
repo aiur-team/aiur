@@ -1,14 +1,18 @@
 defmodule Aiur.AgentControlCLIDelegationTest do
   use ExUnit.Case, async: true
 
-  @engine Path.expand("../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
+  @libexec Path.expand("../../../packaging/npm/aiur-cli/libexec", __DIR__)
 
   test "every launcher-called AgentControlCLI function is exported" do
     exported = Aiur.AgentControlCLI.__info__(:functions) |> Keyword.keys() |> MapSet.new()
 
+    # The engine is split into sourced modules, so scan every launcher shell file.
+    scripts = Path.wildcard(Path.join(@libexec, "**/*.sh"))
+    assert scripts != []
+
     called =
       ~r/Aiur\.AgentControlCLI\.([a-z_]+[?!]?)\(/
-      |> Regex.scan(File.read!(@engine), capture: :all_but_first)
+      |> Regex.scan(Enum.map_join(scripts, "\n", &File.read!/1), capture: :all_but_first)
       |> List.flatten()
       |> Enum.uniq()
 
