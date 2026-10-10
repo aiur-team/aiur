@@ -35,7 +35,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
@@ -2218,7 +2218,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
-  defp capacity_binding_label({:envelope, %{} = detail}), do: Aiur.Orchestrator.EnvelopeResume.label(detail)
+  defp capacity_binding_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
 

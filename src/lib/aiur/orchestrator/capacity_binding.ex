@@ -1,4 +1,6 @@
 defmodule Aiur.Orchestrator.CapacityBinding do
+  alias Aiur.Orchestrator.EnvelopeResume
+
   @moduledoc """
   Names *which* constraint is currently binding the agent fleet.
 
@@ -212,7 +214,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def short_label({:awaiting_dispatch, _detail}), do: "awaiting dispatch"
   def short_label({:none, _detail}), do: nil
   def short_label({:paused_reservations, reserved}), do: "paused reservations=#{reserved}"
-  def short_label({:envelope, %{} = detail}), do: Aiur.Orchestrator.EnvelopeResume.label(detail)
+  def short_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
   def short_label({:envelope, _detail}), do: "AIMD envelope"
   def short_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   def short_label({:session_cap, _detail}), do: "session max_concurrent_agents"
@@ -243,7 +245,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
         {:paused_reservations, capacity.reserved_paused}
 
       effective < max and occupied >= effective ->
-        {:envelope, if(is_integer(Map.get(capacity, :resume_level)), do: capacity, else: effective)}
+        {:envelope, envelope_detail(capacity, effective)}
 
       occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
         {:config_cap, configured}
@@ -255,6 +257,9 @@ defmodule Aiur.Orchestrator.CapacityBinding do
         available_capacity_binding(capacity)
     end
   end
+
+  defp envelope_detail(%{resume_level: level} = capacity, _effective) when is_integer(level), do: capacity
+  defp envelope_detail(_capacity, effective), do: effective
 
   defp available_capacity_binding(capacity) do
     if Map.get(capacity, :queued_demand?, false) do

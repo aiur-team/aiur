@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
+    EnvelopeResume,
     IssueSync,
     Lifecycle,
     MergedTicketReconciler,
@@ -39,7 +40,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
-
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
 
@@ -973,7 +973,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
     state = record_capacity_sample(state, probes)
-    state = Aiur.Orchestrator.EnvelopeResume.persist(state, fresh?, probes.schedulers, now_ms)
+    state = EnvelopeResume.persist(state, fresh?, probes.schedulers, now_ms)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->

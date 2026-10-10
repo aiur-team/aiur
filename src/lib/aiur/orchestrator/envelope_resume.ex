@@ -36,7 +36,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
         (is_integer(age) and (age < 0 or age > max_age)) or
         (is_integer(envelope[:record_schedulers]) and envelope.record_schedulers != schedulers)
 
-    if invalid?, do: Map.drop(envelope, [:safe_level, :resume_level, :recorded_at, :record_schedulers, :safe_candidate, :safe_streak, :record_dirty?, :persisted_at_ms]), else: envelope
+    if invalid?, do: Map.drop(envelope, [:safe_level, :resume_level, :recorded_at, :record_schedulers, :safe_candidate, :safe_streak, :record_dirty?, :write_attempted_at_ms]), else: envelope
   end
 
   @spec level(map(), number() | nil) :: pos_integer() | nil
@@ -93,7 +93,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   @spec persist(State.t(), boolean(), pos_integer(), integer()) :: State.t()
   def persist(state, fresh?, schedulers, now_ms) do
     envelope = state.load_envelope_state
-    due? = is_nil(envelope[:persisted_at_ms]) or now_ms - envelope.persisted_at_ms >= 60_000
+    due? = is_nil(envelope[:write_attempted_at_ms]) or now_ms - envelope.write_attempted_at_ms >= 60_000
 
     if fresh? and envelope[:record_dirty?] == true and due? and Config.load_resume_max_age_seconds() > 0 do
       save(state, schedulers, now_ms)
@@ -107,12 +107,12 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
 
     case EnvelopeStore.save(state.load_envelope_state.safe_level, schedulers, now) do
       :ok ->
-        envelope = Map.merge(state.load_envelope_state, %{persisted_at_ms: now_ms, recorded_at: now, record_schedulers: schedulers, record_dirty?: false})
+        envelope = Map.merge(state.load_envelope_state, %{write_attempted_at_ms: now_ms, recorded_at: now, record_schedulers: schedulers, record_dirty?: false})
         %{state | load_envelope_state: envelope}
 
       {:error, reason} ->
         Logger.warning("Dispatch envelope persistence unavailable: #{inspect(reason)}")
-        state
+        %{state | load_envelope_state: Map.put(state.load_envelope_state, :write_attempted_at_ms, now_ms)}
     end
   end
 

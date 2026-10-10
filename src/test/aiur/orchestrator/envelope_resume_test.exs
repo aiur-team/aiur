@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.EnvelopeResumeTest do
   use Aiur.TestSupport
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, State, SustainedLoad}
   alias Aiur.Workflow
 
   setup do
@@ -31,17 +31,9 @@ defmodule Aiur.Orchestrator.EnvelopeResumeTest do
     steady_resumed = simulate(7, 7)
     assert halvings(steady_resumed) <= halvings(steady_baseline)
 
-    IO.inspect(
-      %{
-        startup_main: halvings(baseline),
-        startup_resume: halvings(resumed),
-        steady_main: halvings(steady_baseline),
-        steady_resume: halvings(steady_resumed),
-        main_recovery_sample: baseline_recovered,
-        resume_recovery_sample: resumed_recovered
-      },
-      label: "envelope simulation"
-    )
+    assert {halvings(baseline), halvings(resumed)} == {21, 23}
+    assert {halvings(steady_baseline), halvings(steady_resumed)} == {23, 23}
+    assert {baseline_recovered, resumed_recovered} == {8, 5}
   end
 
   test "cap raise retains the higher record and fast probing stops at half target" do
@@ -61,7 +53,7 @@ defmodule Aiur.Orchestrator.EnvelopeResumeTest do
       assert result.effective_concurrent_agents == 3
       refute Map.has_key?(result.load_envelope_state, :safe_level)
       refute Map.has_key?(result.load_envelope_state, :resume_level)
-      assert Aiur.Orchestrator.EnvelopeResume.status(state.load_envelope_state, 2, 16).resume_level == nil
+      assert EnvelopeResume.status(state.load_envelope_state, 2, 16).resume_level == nil
     end
   end
 
@@ -77,7 +69,7 @@ defmodule Aiur.Orchestrator.EnvelopeResumeTest do
     refute Map.has_key?(result.load_envelope_state, :resume_level)
     # Tracking restarts from the current occupancy after the old streak is removed.
     refute Map.has_key?(result.load_envelope_state, :safe_level)
-    assert Aiur.Orchestrator.EnvelopeResume.status(state.load_envelope_state, 2, 16).resume_level == nil
+    assert EnvelopeResume.status(state.load_envelope_state, 2, 16).resume_level == nil
   end
 
   test "above-record probing stays additive after recovery reaches a cap then the cap rises" do
@@ -119,7 +111,7 @@ defmodule Aiur.Orchestrator.EnvelopeResumeTest do
   end
 
   defp baseline_sample(state, load, i) do
-    overload = Aiur.Orchestrator.SustainedLoad.count(load, 1.0, 64, state.load_envelope_state)
+    overload = SustainedLoad.count(load, 1.0, 64, state.load_envelope_state)
 
     options = %{
       target: 1.0,

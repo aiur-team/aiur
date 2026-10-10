@@ -37,6 +37,9 @@ defmodule Aiur.Orchestrator.EnvelopeRecordTest do
     assert failed.load_envelope_state.record_dirty?
     refute Map.has_key?(failed.load_envelope_state, :recorded_at)
     File.rmdir!(path)
+    throttled = EnvelopeResume.persist(failed, true, 64, 600_001)
+    assert throttled.load_envelope_state.record_dirty?
+    refute File.exists?(path)
     saved = EnvelopeResume.persist(failed, true, 64, 720_000)
     refute saved.load_envelope_state.record_dirty?
     assert EnvelopeStore.load(21_600, 64).safe_level == 6

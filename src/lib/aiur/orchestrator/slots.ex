@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -234,7 +234,7 @@ defmodule Aiur.Orchestrator.Slots do
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
-    |> Map.merge(Aiur.Orchestrator.EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max))
+    |> Map.merge(EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max))
   end
 
   @spec dispatch_hold_status(State.t(), integer()) :: map()

@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.EnvelopeStoreTest do
   use Aiur.TestSupport
-  alias Aiur.Orchestrator.{EnvelopeResume, EnvelopeStore}
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
+  alias Aiur.Orchestrator.{EnvelopeResume, EnvelopeStore}
 
   setup do
     path = Path.join(System.tmp_dir!(), "envelope-#{System.unique_integer([:positive])}.json")
@@ -41,7 +42,7 @@ defmodule Aiur.Orchestrator.EnvelopeStoreTest do
     now = DateTime.utc_now()
     assert :ok = EnvelopeStore.save(7, System.schedulers_online(), now)
     agent = %Schema.Agent{}
-    :ok = Aiur.Events.Exchange.subscribe("system.fleet.capacity.resume_seeded")
+    :ok = Exchange.subscribe("system.fleet.capacity.resume_seeded")
     boot = EnvelopeResume.boot(agent)
     receive_barrier({:event, %{topic: "system.fleet.capacity.resume_seeded", resume_level: 7, age_seconds: age}})
     assert age in 0..1
