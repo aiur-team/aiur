@@ -3,29 +3,32 @@ defmodule Aiur.TrackerIoPollBarrier do
 
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
+  # Waits for the server to finish a poll cycle, whatever stage the poll is in
+  # (or not yet started): a sys debug hook sees every state the server commits,
+  # so no tracker-task bookkeeping has to exist when the barrier is installed.
   @spec await_poll_finished(pid()) :: map()
   def await_poll_finished(server) do
     owner = self()
     token = make_ref()
 
-    completed = fn current, _result ->
-      send(owner, {:poll_finished, token})
-      current
+    hook = fn :armed, event, _proc_state ->
+      if poll_finished?(event) do
+        send(owner, {:poll_finished, token})
+        :done
+      else
+        :armed
+      end
     end
 
-    :sys.replace_state(server, &observe_completion(&1, owner, token, completed))
+    :ok = :sys.install(server, {hook, :armed})
+    # A cycle that completed before the hook was installed never reaches it.
+    if :sys.get_state(server).poll_cycles_completed > 0, do: send(owner, {:poll_finished, token})
     receive_barrier({:poll_finished, ^token})
+    :ok = :sys.remove(server, hook)
     :sys.get_state(server)
   end
 
-  defp observe_completion(state, owner, token, completed) do
-    if state.poll_cycles_completed > 0 do
-      send(owner, {:poll_finished, token})
-      state
-    else
-      # Signal after the real result callback; shared PubSub is not a completion barrier.
-      {ref, job} = Enum.find(state.tracker_tasks, fn {_ref, job} -> job.key == :dispatch_poll end)
-      %{state | tracker_tasks: Map.put(state.tracker_tasks, ref, %{job | apply: job.apply ++ [completed]})}
-    end
-  end
+  defp poll_finished?({:noreply, state}), do: state.poll_cycles_completed > 0
+  defp poll_finished?({:out, _reply, _to, state}), do: state.poll_cycles_completed > 0
+  defp poll_finished?(_event), do: false
 end
