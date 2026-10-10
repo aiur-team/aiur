@@ -47,7 +47,9 @@ The theme follows your operating system until you toggle it. Both choices stay i
 
 Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
-The home page shows a named weekly bar for each [Claude account](/guide/claude-accounts), with freshness and observation age. Missing readings remain unknown. The provider summary names the selected account: “worst of N accounts” for complete readings, or the observed account count for partial readings.
+The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts). Each line shows the percentage used, a bar, and the reset time next to a recycle icon. Freshness and observation age are in the line's tooltip. A missing reading shows `unknown`, not zero.
+
+The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
 Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
 
@@ -66,6 +68,17 @@ Fleet and capacity facts show their observation age, including fresh data. Track
 A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github#who-aiur-trusts).
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
+
+The temporary, unlinked `/build` route previews the build timeline loading shell.
+It requires dashboard authentication; the production data source is not wired yet.
+
+Its links retain view, span, feature focus, filters and ticket selection in
+`view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
+`live`, `trees` and `ticket`. Invalid values are removed.
+
+Legacy Units
+parameters (`v`, `scope`, `conditions`) at this preview route become agent-state
+or ticket-state presets. The hook bridge replaces the current history entry.
 
 ## The pages
 
@@ -161,3 +174,5 @@ The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_T
 An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
+
+The Analytics ticket timeline marks the earliest PR-open time. Open PRs appear in review; merged, rework, and paused states take precedence.

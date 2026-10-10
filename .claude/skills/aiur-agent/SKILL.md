@@ -24,6 +24,7 @@ the one that matches what you're doing; you don't need every reference each turn
 | Know which event names are allowed and what they mean | `event-taxonomy.md` |
 | Emit an event or subscribe to a topic pattern | `emit-and-subscribe.md` |
 | Open / close an Executor attention | `attention-and-resolve.md` |
+| Follow an Optimistic start prompt block | [Optimistic start](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker) |
 | Unblock yourself temporarily with a stub | `stub-then-fetch.md` |
 | Interpret a voice-originated ticket or operator message | `dictated-input.md` |
 
@@ -32,6 +33,7 @@ shared [dictated-input note](dictated-input.md).
 
 ## The shortest version
 
+- For an **Optimistic start** prompt block, follow [the canonical loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker) before the normal ready/CI handoff.
 - Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment
   current. When implementation and draft-PR self-review are complete, mark the
   PR ready before moving to `agent:ci-wait` and ending the turn. Drafts never

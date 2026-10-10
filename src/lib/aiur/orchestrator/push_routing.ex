@@ -527,27 +527,14 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  # snapshot/1 is a synchronous GenServer.call to the per-identifier
-  # store. The case clauses handle the documented contract; the rescue
-  # only narrows to :exit (call timeout) so genuine bugs surface as
-  # exceptions in tests instead of being silently swallowed.
   defp subscribed_to_topic?(identifier, topic) do
-    case SubscriptionStore.snapshot(identifier) do
-      %{subscribed_to: subs} when is_list(subs) ->
-        Enum.any?(subs, fn
-          %{"topic" => t} -> t == topic
-          %{topic: t} -> t == topic
-          _ -> false
-        end)
-
-      _ ->
-        false
-    end
-  catch
-    :exit, reason ->
-      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
-
-      false
+    identifier
+    |> SubscriptionStore.subscriptions()
+    |> Enum.any?(fn
+      %{"topic" => t} -> t == topic
+      %{topic: t} -> t == topic
+      _ -> false
+    end)
   end
 
   defp maybe_drain_pending_auto_resume(state, entry, hint) do
