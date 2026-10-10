@@ -90,6 +90,18 @@ failing check you believe is inherited from the base, with evidence (for
 example the same check failing on the base head). Inherited red CI is the
 reviewer's call. Fix a failure your own change caused before handing off.
 
+### Never refresh an approved PR
+
+Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its
+branch unless GitHub reports it `CONFLICTING`
+(`gh pr view --json mergeable,reviewDecision`). The merge queue tests the
+merge, so branch freshness buys nothing, while every push cancels the
+in-flight CI run and can dismiss the approval. A red, cancelled, or missing
+check is never a reason to merge the base: a base merge can restart CI but
+cannot fix it. When the PR is `CONFLICTING`, integrate once and say why in a PR
+comment. The agent `git` guard refuses a push to a PR that is in the merge
+queue unless it is conflicting or has changes requested.
+
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
 Change your ticket's `agent:*` state **only** with

@@ -11,6 +11,7 @@ defmodule Aiur.Events.GithubCIPoller do
   require Logger
 
   alias Aiur.CIApprovalStore
+  alias Aiur.Events.GithubCIPoller.RequiredVerdict
   alias Aiur.GitHub.{CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
@@ -351,8 +352,15 @@ defmodule Aiur.Events.GithubCIPoller do
     evaluation(classification, failed_checks)
   end
 
+  defp enforce_required_checks(result, check_runs, commit_status, pr, opts) do
+    runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
+    {:ok, head_sha} = head_sha(pr)
+
+    result |> RequiredVerdict.settle(runs, head_sha, opts) |> enforce_passed(runs, commit_status, pr, opts)
+  end
+
   # A skipped draft job satisfies GitHub's check state but never proves the full suite ran.
-  defp enforce_required_checks(%{decision: :passed} = result, check_runs, commit_status, pr, opts) do
+  defp enforce_passed(%{decision: :passed} = result, runs, commit_status, pr, opts) do
     draft? = Map.get(merge_queue_observation(pr), :draft?, pr_draft?(pr))
 
     case {draft?, Keyword.fetch!(opts, :required_checks)} do
@@ -360,10 +368,9 @@ defmodule Aiur.Events.GithubCIPoller do
         Map.merge(result, %{decision: :pending, pending_reason: :draft_pull_request})
 
       {false, {:ok, required}} ->
-        runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
         statuses = Map.get(commit_status, "statuses", [])
 
-        if Enum.all?(required, &required_check_passed?(&1, runs, statuses)) do
+        if Enum.all?(required, &RequiredVerdict.passed?(&1, runs, statuses)) do
           result
         else
           Map.merge(result, %{decision: :pending, pending_reason: :required_checks_incomplete})
@@ -374,16 +381,7 @@ defmodule Aiur.Events.GithubCIPoller do
     end
   end
 
-  defp enforce_required_checks(result, _runs, _statuses, _pr, _opts), do: result
-
-  defp required_check_passed?(%{name: name, app_id: app_id}, runs, statuses) do
-    Enum.any?(runs, fn run ->
-      Map.get(run, "name") == name and Map.get(run, "status") == "completed" and
-        Map.get(run, "conclusion") in ~w(success neutral) and
-        (app_id in [nil, -1] or get_in(run, ["app", "id"]) == app_id)
-    end) or
-      (app_id in [nil, -1] and Enum.any?(statuses, &(Map.get(&1, "context") == name and Map.get(&1, "state") == "success")))
-  end
+  defp enforce_passed(result, _runs, _statuses, _pr, _opts), do: result
 
   # A head sha can carry check runs from several runs of the same workflow when
   # a run was superseded by a re-run on the same sha. A superseded run's
