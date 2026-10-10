@@ -1258,8 +1258,8 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ ~r/AGENTS 0\/10 \(binding: load, .* sampled=\d+s ago\)/
 
     assert output =~
-             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
-               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+             "LOAD (local fallback diagnostic) #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over fallback load threshold, PSI governs dispatch when available)"
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -1289,7 +1289,7 @@ defmodule Aiur.AgentControlCLITest do
              "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
                "reclaimable_cpu=5.0% threshold=60.0% sampled="
 
-    assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
+    assert persisted_hold_output =~ "LOAD (local fallback diagnostic) 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
     refute persisted_hold_output =~ "(binding: load)"
 
     :sys.replace_state(pid, fn state ->
@@ -1337,8 +1337,8 @@ defmodule Aiur.AgentControlCLITest do
     refute fallback_output =~ "AGENTS 0/10 (binding: load"
 
     assert fallback_output =~
-             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
-               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+             "LOAD (local fallback diagnostic) #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over fallback load threshold, PSI governs dispatch when available)"
   end
 
   test "status gives the GitHub quota measurement and its observation time", %{orchestrator: pid} do
@@ -1421,8 +1421,8 @@ defmodule Aiur.AgentControlCLITest do
     # The local reading is still reported — just as a local host sample, not as
     # the fleet's decision.
     assert output =~
-             "LOAD #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
-               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+             "LOAD (local fallback diagnostic) #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+               "(local host sample; over fallback load threshold, PSI governs dispatch when available)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -3047,8 +3047,8 @@ defmodule Aiur.AgentControlCLITest do
       output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
 
       assert output =~
-               "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
-                 "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+               "LOAD (local fallback diagnostic) #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+                 "(local host sample; over fallback load threshold, PSI governs dispatch when available)"
 
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"

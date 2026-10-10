@@ -124,11 +124,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy.AdmissionTest do
                )
     end
 
-    test "reports build pressure and provider limits in priority order" do
+    test "build occupancy does not mask provider limits" do
       build = %{enabled?: true, capacity: 2, active: 2, queued: 1}
 
-      assert {:hold, %{signal: :build, threshold: 2}} =
-               DispatchPolicy.admission_gate(gate_input(%{build_status: build}))
+      assert :dispatch = DispatchPolicy.admission_gate(gate_input(%{build_status: build}))
 
       future = ~U[2099-01-01 00:00:00Z]
       :ok = ModelAvailability.mark_limited("codex", DateTime.to_iso8601(future))

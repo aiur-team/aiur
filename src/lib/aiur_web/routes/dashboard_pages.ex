@@ -5,7 +5,7 @@ defmodule AiurWeb.Routes.DashboardPages do
   defmacro static_assets do
     quote do
       scope "/" do
-        pipe_through(:dashboard_auth)
+        pipe_through([:dashboard_auth, :dashboard_pages])
 
         get("/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css)
         get("/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook)
@@ -30,12 +30,12 @@ defmodule AiurWeb.Routes.DashboardPages do
   defmacro pages do
     quote do
       scope "/" do
-        pipe_through([:dashboard_auth, :browser])
+        pipe_through([:dashboard_auth, :dashboard_pages, :browser])
 
         get("/decisions", AiurWeb.CommandsRedirectController, :legacy)
         get("/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy)
 
-        live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
+        live_session :dashboard, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/", AiurWeb.DashboardLive, :index)
           live("/chat/:owner/:repository/:identifier", AiurWeb.DashboardLive, :index)
           live("/commands", AiurWeb.DashboardLive, :decisions)
@@ -49,7 +49,7 @@ defmodule AiurWeb.Routes.DashboardPages do
       end
 
       scope "/" do
-        pipe_through([:dashboard_auth, :secure_document])
+        pipe_through([:dashboard_auth, :dashboard_pages, :secure_document])
 
         get("/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show)
       end

@@ -26,8 +26,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defdelegate read_memory(threshold), to: Gates
   @spec read_file_descriptors() :: SystemFileDescriptors.sample_result()
   defdelegate read_file_descriptors(), to: Gates
-  @spec read_build_status() :: map()
-  defdelegate read_build_status(), to: Gates
   @spec read_provider_backends() :: [String.t()]
   defdelegate read_provider_backends(), to: Gates
   @spec read_github_quota() :: :available | {:hold, map()}
@@ -62,8 +60,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           SystemCpu.headroom() | :unavailable
         ) :: :dispatch | {:hold, admission_reason()}
   defdelegate run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom), to: Gates
-  @spec build_gate(map()) :: :dispatch | :hold
-  defdelegate build_gate(status), to: Gates
   @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
   defdelegate provider_gate(backends, opts \\ []), to: Gates
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
@@ -116,7 +112,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defdelegate active_state_set(), to: IssueStates
 
   @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
-  def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
+  def initial_load_envelope_limit(%{target_load_average: nil, target_cpu_pressure: nil}), do: nil
   def initial_load_envelope_limit(_agent), do: 1
 
   @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, Aiur.Orchestrator.LoadEnvelope.envelope_options()) :: {pos_integer(), integer() | nil}
