@@ -1645,8 +1645,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
       assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
-
-      second = poll_ci(first, issue, parked_observation(), alert_emitter: emitter)
+      # Past the :ci cadence gate, so dedupe (not the throttle) suppresses the re-emit.
+      second = poll_ci(%{first | last_ci_poll_started_at_ms: nil}, issue, parked_observation(), alert_emitter: emitter)
 
       assert_received {:parked_alert, ^ref, _topic, _opts}
       refute_received {:parked_alert, ^ref, _topic, _opts}
@@ -1659,16 +1659,16 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       state = running_state(issue, self(), :working, [])
       ref = make_ref()
       emitter = capture_alert_emitter(self(), ref)
-
+      # A published :ci cadence would throttle the chained poll into a silent no-op (#3860).
+      PollCadence.publish_effective_interval_ms(300_000, class: :ci)
+      on_exit(&PollCadence.forget_effective_interval_ms/0)
       first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
       assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
-      assert_receive {:parked_alert, ^ref, _topic, _opts}, 1_000
-
+      assert_received {:parked_alert, ^ref, _topic, _opts}
       armed = parked_observation(%{auto_merge_request: %{"enabledAt" => "2026-08-13T20:00:00Z"}})
-      next = poll_ci(first, issue, armed, alert_emitter: emitter)
+      next = poll_ci(%{first | last_ci_poll_started_at_ms: nil}, issue, armed, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
-
-      assert_receive {:parked_alert, ^ref, ^resolved_topic, resolve_opts}, 1_000
+      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}
       assert Keyword.get(resolve_opts, :needs_attention) == false
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
