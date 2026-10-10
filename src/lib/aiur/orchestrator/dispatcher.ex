@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Lifecycle,
     MergedTicketReconciler,
     PrAnchored,
+    PressureAdmission,
     Reconciler,
     RetryEngine,
     Slots,
@@ -952,24 +953,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    previous_signal = Map.get(state.load_envelope_state, :signal)
     overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
+    {envelope_value, envelope_target, envelope_schedulers} = PressureAdmission.envelope_signal(probes)
 
     state =
-      DispatchPolicy.update_load_envelope(
-        state,
-        if(fresh?, do: probes.load, else: :unavailable),
-        probes.target,
-        probes.schedulers,
-        now_ms,
-        probes.cpu_snapshot,
-        queued_demand?
-      )
-      |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
+      PressureAdmission.update(state, probes, now_ms, queued_demand?, fresh?)
+      |> maybe_record_load_envelope_constraint(envelope_value, envelope_target, envelope_schedulers)
 
-    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
+    # Reusing a sample neither confirms nor interrupts sustained overload.
+    state = if fresh? or previous_signal != state.load_envelope_state[:signal], do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
@@ -991,7 +987,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers, queued_demand?),
+            envelope_hold(state, envelope_value, envelope_target, envelope_schedulers, queued_demand?),
             now_ms,
             opts
           )
@@ -1008,39 +1004,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # the whole board; the auto-resume mirror treats the pending ticket itself as
   # the demand) and is injected at the gate.
   defp admission_probes do
-    hard_threshold = Config.max_load_average()
-    target = Config.target_load_average()
-    run_queue_threshold = Config.run_queue_threshold()
     memory_threshold_mb = Config.min_free_memory_mb()
-    schedulers = System.schedulers_online()
+    sample = Aiur.SystemLoad.sample(&PressureAdmission.sample/0)
 
-    sample =
-      Aiur.SystemLoad.sample(fn ->
-        %{
-          load: DispatchPolicy.read_load(hard_threshold, target),
-          cpu_snapshot: DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
-        }
-      end)
-
-    cpu_snapshot = sample.cpu_snapshot
-
-    %{
+    Map.merge(sample, %{
       memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
       memory_threshold_mb: memory_threshold_mb,
       fd_sample: DispatchPolicy.read_file_descriptors(),
-      runnable: runnable_from(cpu_snapshot),
-      run_queue_threshold: run_queue_threshold,
-      schedulers: schedulers,
-      load: sample.load,
-      sampled_at_ms: sample.sampled_at_ms,
-      sample_id: sample.sample_id,
-      load_threshold: hard_threshold,
-      build_status: DispatchPolicy.read_build_status(),
+      runnable: runnable_from(sample.cpu_snapshot),
+      run_queue_threshold: Map.get(sample, :run_queue_threshold, Config.run_queue_threshold()),
+      schedulers: System.schedulers_online(),
+      load_threshold: Map.get(sample, :load_threshold, Config.max_load_average()),
+      target: Map.get(sample, :target, Config.target_load_average()),
       provider_backends: DispatchPolicy.read_provider_backends(),
-      github_quota: DispatchPolicy.read_github_quota(),
-      cpu_snapshot: cpu_snapshot,
-      target: target
-    }
+      github_quota: DispatchPolicy.read_github_quota()
+    })
   end
 
   @doc false
@@ -2201,12 +2179,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
-  defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
-    Logger.info(
-      "aiur_perf build_hold surface=dispatch active=#{inspect(Map.get(measured, :active))} " <>
-        "queued=#{inspect(Map.get(measured, :queued))} capacity=#{inspect(capacity)}"
-    )
-  end
+  defp log_admission_hold(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
+    do: Logger.info("aiur_perf cpu_pressure_hold avg60=#{pressure} threshold=#{threshold}")
 
   defp log_admission_hold(%{signal: :envelope, measured: effective, threshold: static}) do
     Logger.info("aiur_perf envelope_hold effective=#{effective} static=#{static}")
@@ -2248,28 +2222,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       probes.memory_threshold_mb
     )
     |> maybe_record_fd_constraint(DispatchPolicy.fd_gate(probes.fd_sample), probes.fd_sample)
-    |> maybe_record_load_constraint(
-      DispatchPolicy.load_admission_reason(
-        probes.load,
-        probes.load_threshold,
-        probes.schedulers,
-        Map.get(probes, :cpu_headroom, :unavailable)
-      ),
-      probes
-    )
-    |> maybe_record_run_queue_constraint(
-      DispatchPolicy.run_queue_admission_reason(
-        probes.runnable,
-        probes.schedulers,
-        probes.run_queue_threshold,
-        Map.get(probes, :cpu_headroom, :unavailable)
-      ),
-      probes
-    )
-    |> maybe_record_build_constraint(
-      DispatchPolicy.build_gate(probes.build_status),
-      probes.build_status
-    )
+    |> record_cpu_constraints(probes)
     |> maybe_record_provider_constraint(
       DispatchPolicy.provider_gate(probes.provider_backends, Map.get(probes, :provider_gate_opts, [])),
       probes.provider_backends
@@ -2277,39 +2230,27 @@ defmodule Aiur.Orchestrator.Dispatcher do
     |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))
   end
 
+  defp record_cpu_constraints(state, probes) do
+    Enum.reduce(PressureAdmission.constraints(probes), state, fn gate, current -> maybe_record_load_constraint(current, gate, probes) end)
+  end
+
   defp record_capacity_sample(%State{} = state, probes) do
     %{
       state
-      | dispatch_capacity_sample: %{
-          load: probes.load,
-          load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
-          load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
-          gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
-          load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
-          load_threshold: probes.load_threshold,
-          target: probes.target,
-          schedulers: probes.schedulers,
-          observed_at: StatusObservation.sample_observed_at(probes)
-        }
+      | dispatch_capacity_sample:
+          Map.merge(PressureAdmission.status_sample(probes), %{
+            load: probes.load,
+            load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
+            load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
+            gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
+            load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
+            load_threshold: probes.load_threshold,
+            target: probes.target,
+            schedulers: probes.schedulers,
+            observed_at: StatusObservation.sample_observed_at(probes)
+          })
     }
   end
-
-  defp maybe_record_run_queue_constraint(state, {:hold, reason}, probes) do
-    record_capacity_constraint(
-      state,
-      :run_queue,
-      "runnable=#{inspect(probes.runnable)} threshold=#{inspect(probes.run_queue_threshold)} " <>
-        "schedulers=#{probes.schedulers} " <>
-        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
-    )
-  end
-
-  defp maybe_record_run_queue_constraint(state, _gate, _probes), do: state
-
-  defp maybe_record_build_constraint(state, :hold, status),
-    do: record_capacity_constraint(state, :build_queue, "build=#{inspect(status)}")
-
-  defp maybe_record_build_constraint(state, _gate, _status), do: state
 
   defp maybe_record_provider_constraint(state, :hold, backends),
     do: record_capacity_constraint(state, :provider, ModelAvailability.provider_freshness_detail(backends))
@@ -2337,10 +2278,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp record_fallback_binding_constraint(%State{} = state, _reason), do: state
 
-  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
-  # different condition from the prewarm hold that records the `:build`
-  # constraint kind; keep them distinct so an alert never misattributes one.
-  defp binding_constraint_kind(:build), do: :build_queue
   defp binding_constraint_kind(signal), do: signal
 
   defp maybe_record_memory_constraint(state, :hold, available_memory_mb, threshold_mb) do
@@ -2358,13 +2295,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_record_fd_constraint(state, _gate, _sample), do: state
 
-  defp maybe_record_load_constraint(state, {:hold, reason}, probes) do
-    record_capacity_constraint(
-      state,
-      :load,
-      "load=#{inspect(probes.load)} threshold=#{probes.load_threshold} schedulers=#{probes.schedulers} " <>
-        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
-    )
+  defp maybe_record_load_constraint(state, {:hold, reason}, _probes) do
+    record_capacity_constraint(state, reason.signal, "measured=#{inspect(reason.measured)} threshold=#{inspect(reason.threshold)}")
   end
 
   defp maybe_record_load_constraint(state, _gate, _probes), do: state
@@ -2656,6 +2588,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
+        dispatch_selection: issue.dispatch_selection && issue.dispatch_selection.summary,
         worker_host: worker_host,
         remote: is_binary(worker_host),
         retry_attempt: RetryEngine.normalize_retry_attempt(attempt)

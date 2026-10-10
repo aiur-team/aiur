@@ -325,12 +325,11 @@ defmodule Aiur.Application do
       # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
       Aiur.Webhooks.ModeTable,
       Aiur.Capabilities.Table,
-      # `Aiur.PubSub.Boot` is `{Phoenix.PubSub, name: Aiur.PubSub}` with one
-      # thing added: it waits for a previous incarnation's registry names to be
-      # released before starting. Without that wait a PubSub crash restarts
-      # into its own still-registered partitions, fails three times inside a
-      # millisecond, and takes this whole supervisor down with it (#2557).
+      # `Aiur.PubSub.Boot` wraps `{Phoenix.PubSub, name: Aiur.PubSub}` and waits for a previous incarnation's registry names to be released before starting.
+      # Without that wait, a PubSub crash restarts into its own still-registered partitions, fails three times inside a millisecond,
+      # and takes this whole supervisor down with it (#2557).
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
+      Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
@@ -449,6 +448,7 @@ defmodule Aiur.Application do
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
+      Aiur.Orchestrator.SnapshotCache,
       Aiur.Orchestrator.SnapshotStore,
       Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
@@ -495,7 +495,7 @@ defmodule Aiur.Application do
       executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
-      dashboard_children(dashboard?, tailscale_funnel?),
+      dashboard_children(dashboard?, Keyword.get(opts, :dashboard_pages?, true), tailscale_funnel?),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
@@ -539,11 +539,11 @@ defmodule Aiur.Application do
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
 
-  defp dashboard_children(dashboard?, tailscale_funnel?) do
+  defp dashboard_children(dashboard?, dashboard_pages?, tailscale_funnel?) do
     [
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
-      if(dashboard?, do: Aiur.HttpServer),
+      if(dashboard?, do: {Aiur.HttpServer, dashboard_pages?: dashboard_pages?}),
       if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel)
     ]
   end

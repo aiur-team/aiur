@@ -19,11 +19,12 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     agent_pause agent_resume
   )
   @boundaries ~w(start end point)
+  # Headroom dispatch summary (#3960): dispatch_selection holds the chosen backend/account and every alternative's score.
   @metadata_fields ~w(
     outcome cause operation_id command_class duration_status source source_id actor
     pr_number comment_id review_thread_id author_trusted source_timestamp worker_host backend
     prewarm_outcome reason_class exit_status turn_number remote retry_attempt
-    workspace_owner workspace_generation workspace_phase complexity
+    workspace_owner workspace_generation workspace_phase complexity dispatch_selection
     model effort feature epic tags blockers start_mode
   )a
 
@@ -42,14 +43,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   @doc "Records one lifecycle start, end, or point without propagating failures."
-  @spec record(
-          String.t(),
-          String.t() | nil,
-          atom() | String.t(),
-          atom() | String.t(),
-          map(),
-          keyword()
-        ) :: :ok
+  @spec record(String.t(), String.t() | nil, atom() | String.t(), atom() | String.t(), map(), keyword()) :: :ok
   def record(ticket, attempt_id, event, boundary, metadata \\ %{}, opts \\ [])
 
   def record(ticket, attempt_id, event, boundary, metadata, opts)
