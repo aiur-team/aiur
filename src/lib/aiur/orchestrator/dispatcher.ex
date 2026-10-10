@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, BuildOrder.History, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -2674,8 +2674,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case start_runner_task(issue, runner, recipient, runner_context, opts) do
       {:ok, pid} ->
+        History.note_start(issue.identifier, :dispatch, DateTime.utc_now())
         ref = Process.monitor(pid)
-
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
         record_rework_resume(issue, lifecycle_attempt_id)
 
