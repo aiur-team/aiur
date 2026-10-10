@@ -2,7 +2,8 @@ defmodule AiurWeb.Build.SeamTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../../..", __DIR__)
-  @allowed ~w(AiurWeb.BuildLive Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime)
+  # C3-T02 uses Endpoint only for dashboard_writable; C3-T03 adds legacy Units decoding.
+  @allowed ~w(AiurWeb.BuildLive AiurWeb.Endpoint Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL)
   @shell ~w(UnitsRow UnitsControlPolicy DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
 
   test "web side references only the seam (future regression guard)" do

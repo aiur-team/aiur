@@ -61,6 +61,17 @@ defmodule Aiur.GitHub.TrackerTicketPullRequestTest do
     assert {:ok, nil} = Aiur.Linear.Tracker.ticket_pull_request("42")
   end
 
+  test "delivered PR facts include head, base and merged commit, with nil for absent fields" do
+    deposit(%{"state" => "open", "head" => %{"ref" => "aiur/42-pr-evidence", "sha" => "head-sha"}, "base" => %{"ref" => "main"}})
+    assert {:ok, %{head_ref: "aiur/42-pr-evidence", head_sha: "head-sha", base_ref: "main", merge_commit_sha: nil}} = Tracker.ticket_pull_request("42")
+    ResourceStore.reset()
+    deposit(%{"merged" => true, "merge_commit_sha" => "merge-sha"})
+    assert {:ok, %{merged?: true, merge_commit_sha: "merge-sha"}} = Tracker.ticket_pull_request("42")
+    ResourceStore.reset()
+    ResourceStore.put_resource(ResourceStore.key(:branch_pull_request, "owner", "repo", "42"), Map.delete(body(), "head"), source: :webhook)
+    assert {:ok, %{head_ref: nil, head_sha: nil, base_ref: nil, merge_commit_sha: nil}} = Tracker.ticket_pull_request("42")
+  end
+
   defp body, do: %{"number" => 77, "state" => "closed", "merged" => false, "merged_at" => nil, "updated_at" => "2026-10-08T00:00:00Z", "head" => %{"ref" => "aiur/42-pr-evidence"}}
   defp deposit(changes), do: Deposit.deposit("pull_request", %{"action" => "closed", "pull_request" => Map.merge(body(), changes)}, "owner/repo")
 end

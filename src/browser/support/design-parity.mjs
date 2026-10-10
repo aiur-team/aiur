@@ -27,6 +27,10 @@ export const PARITY_VIEWPORTS = [
 export const PARITY_MATRIX = FIXTURE_META.datasets.flatMap(dataset => PARITY_VIEWPORTS.flatMap(viewport => ['dark', 'light'].flatMap(theme => ['gruvbox', 'aiur'].map(palette => ({ ...viewport, theme, palette, dataset })))))
 PARITY_MATRIX.push({ ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox', dataset: 'live', reducedMotion: 'reduce' })
 
+// C9-T08 consumes these registered cells after the Now-band renderer lands.
+export const NOW_BAND_PARITY_MATRIX = PARITY_MATRIX.filter(cell => cell.dataset === 'live' && !cell.reducedMotion)
+  .map(cell => ({ ...cell, name: 'now-band-from-units', region: '#bd-now' }))
+
 export function parityContextOptions(cell) {
   const { viewport, deviceScaleFactor = 1, isMobile = false, hasTouch = false } = cell
   return { viewport, deviceScaleFactor, isMobile, hasTouch, timezoneId: FIXTURE_META.tz, locale: 'en-US', colorScheme: cell.theme, reducedMotion: cell.reducedMotion ?? 'no-preference', serviceWorkers: 'block' }
@@ -52,7 +56,7 @@ async function prepare(page, phase, side) {
 async function refuseLiveTicket(dataset, ticket) {
   if (!ticket || dataset === 'offline') return
   const fixture = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${dataset}.json`, import.meta.url), 'utf8'))
-  if (fixture.data.now.some(t => t.id === ticket && t.agent?.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
+  if (fixture.sections.now.some(t => `AIUR-${t.num}` === ticket && t.agent?.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
 }
 
 export async function openDesign(page, cell, opts = {}) {
