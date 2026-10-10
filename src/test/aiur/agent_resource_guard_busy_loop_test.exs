@@ -3,6 +3,7 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
 
   alias Aiur.AgentResourceGuard
   alias Aiur.AgentResourceGuard.BusyLoop
+  alias Aiur.Config.Schema
 
   defp sample(pid, overrides), do: Map.merge(%{pid: pid, start: "1", state: "R", cpu: 0, minflt: 10, io: 5, ctxt: 3}, Map.new(overrides))
 
@@ -130,8 +131,8 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
   end
 
   test "killing detected load is opt-in by config" do
-    assert {:ok, %{agent: %{synthetic_load_kill_detected: false}}} = Aiur.Config.Schema.parse(%{tracker: %{kind: "memory"}})
-    assert {:ok, %{agent: %{synthetic_load_kill_detected: true}}} = Aiur.Config.Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_kill_detected: true}})
+    assert {:ok, %{agent: %{synthetic_load_kill_detected: false}}} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert {:ok, %{agent: %{synthetic_load_kill_detected: true}}} = Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_kill_detected: true}})
   end
 
   test "legitimate CPU-heavy work under a workspace is never killed, in the tree or orphaned" do
