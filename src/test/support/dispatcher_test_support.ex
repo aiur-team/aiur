@@ -40,12 +40,14 @@ defmodule Aiur.DispatcherTestSupport do
   end
 
   defmodule CandidateFetchFailureLinearClient do
+    @moduledoc false
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
   end
 
   # A stand-in Orchestrator whose poll outlasts a delivery call into it. It
   # handles the spawn's redelivery message as `Aiur.Orchestrator` does.
   defmodule SlowPollOrchestrator do
+    @moduledoc false
     use GenServer
 
     alias Aiur.Orchestrator.Dispatcher
