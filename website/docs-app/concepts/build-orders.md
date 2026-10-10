@@ -133,7 +133,7 @@ The task holds the workspace lock and leaves the checkout and index untouched. A
 
 ## Queue cost
 
-Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. The queue's own stale-snapshot listing uses `build_queue_open_issue_list` ([when it runs](/apis/github#changes-aiur-makes-itself)). Other open-list reads remain shared cost, and cached reads make no request.
 
 Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready` backlog and `newly_ready`: items now ready that were not ready in the previous pass, including the initial population. Both measure demand, not successful writes.
 

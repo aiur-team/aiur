@@ -742,6 +742,8 @@ Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#clos
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
+A non-empty build queue lists open issues itself, with caller `build_queue_open_issue_list`, when the dispatch poll has left the shared open-issue snapshot older than the observation age. It makes at most one listing per observation age, starting one observation age after boot, and selects or authorizes no dispatch candidates. This is an added read cost whenever the dispatch cadence is wider than the observation age, as under idle or webhook widening. It needs the daemon scheduled and GitHub reachable, so a saturated host can still leave freshness `unknown`.
+
 Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; markers and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. No saving is claimed ([cost](/concepts/build-orders#queue-cost)).
 
 Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.

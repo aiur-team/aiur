@@ -78,6 +78,12 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
+  @spec refresh_open_issue_labels() :: :ok | {:error, term()}
+  def refresh_open_issue_labels do
+    Issues.refresh_open_issues(request_fun: &Transport.default_request_fun(Map.put(&1, :caller, "build_queue_open_issue_list")))
+  end
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
 

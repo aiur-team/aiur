@@ -136,7 +136,9 @@ Queue-owned label requests use `build_queue_label_post` and
 `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`.
 Closure reads retain `build_queue_observe`; native dependency reads retain
 `build_queue_blocked_by`. Cached reads produce no HTTP request/ledger row.
-Shared open-list/catalog reads are shared cost, not exclusively queue cost.
+The queue's own stale-snapshot listing (#3946) uses `build_queue_open_issue_list`
+and is queue cost; the counting script below includes it. Other shared
+open-list/catalog reads are shared cost, not exclusively queue cost.
 
 The durable TSV has no header: columns 1–13 are `ts` (Unix seconds), `pid`,
 `consumer`, `caller`, `method`, `host`, `path`, `status`, `resource`, `direction`,
@@ -207,6 +209,24 @@ print({"samples": len(rows),
        "peak_ready_backlog": max((r["ready"] for r in rows), default=None)})
 PY
 ```
+
+## Stalled dispatch poll (#3946)
+
+During the 2026-10-09 acceptance run, after `saturation_sentinel entered
+load1=25.02`, the daemon made no `open_issue_list*` request for ten minutes and
+queue freshness stayed `unknown` for six. A non-empty queue now requests its own
+listing (`build_queue_open_issue_list`) once its snapshot is older than the
+observation age, at most once per observation age. The AC12 sequence above is
+unchanged.
+
+`src/test/aiur/build_queue/refresh_test.exs` reproduces the stall
+deterministically: no dispatch poll ever lists, and the queue recovers a fresh
+observation and promotes. It covers a stalled or delayed dispatch poll cycle
+while the daemon still schedules the queue server. It does not cover a host that
+cannot schedule the daemon at all, or a listing that fails or times out; the
+same test's first refresh fails and freshness stays `unknown`. The fix has not
+been measured under real host load, and each refresh is an added read, not a
+saving.
 
 ## Results — pending Executor measurement
 
