@@ -734,6 +734,8 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
+Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
+
 Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
@@ -746,9 +748,7 @@ Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20)
 
 Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
 
-The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
-
-Two consequences:
+The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |

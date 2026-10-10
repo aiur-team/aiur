@@ -14,9 +14,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
-  alias Aiur.Commands
   alias Aiur.Conversation.History, as: ConversationHistory
-  alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
@@ -25,7 +23,6 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.ProviderMeterRefresh
-  alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
@@ -34,7 +31,6 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.Endpoint
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
-  alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
     AddAgentModal,
@@ -72,10 +68,10 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  # Also the payload refresh interval: reloads are otherwise event-driven only (#3937).
   @github_quota_tick_ms 15_000
-  # The ElevenLabs credit quota is a whole-account figure that moves far more
-  # slowly than a per-request GitHub budget, so it refreshes on its own, longer
-  # tick rather than riding GitHub's.
+  # ElevenLabs credit is a whole-account figure that moves far more slowly than a
+  # per-request GitHub budget, so it refreshes on its own, longer tick.
   @elevenlabs_quota_tick_ms 60_000
   @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
@@ -106,16 +102,8 @@ defmodule AiurWeb.DashboardLive do
     socket = NavState.assign_nav(socket)
     connected = connected?(socket)
 
-    if connected do
-      :ok = ObservabilityPubSub.subscribe()
-      :ok = Commands.subscribe()
-      :ok = CurrentRunMembership.subscribe()
-      :ok = CurrentRunSummary.subscribe()
-      :ok = CurrentRunOutcomeSnapshot.subscribe()
-      :ok = TicketActivity.subscribe()
-      :ok = OpenTicketSource.subscribe()
-      :ok = subscribe_ticket_context_resets()
-    end
+    socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
+    if connected, do: subscribe_ticket_context_resets()
 
     payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
 
@@ -244,7 +232,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:github_quota_tick, socket) do
     schedule_github_quota_tick()
-    {:noreply, assign(socket, :github_quota, github_quota_snapshot())}
+    {:noreply, socket |> assign(:github_quota, github_quota_snapshot()) |> PayloadLoader.schedule()}
   end
 
   def handle_info(:elevenlabs_quota_tick, socket) do
