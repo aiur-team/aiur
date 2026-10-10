@@ -3,10 +3,10 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, Shell}
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
@@ -246,7 +246,7 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
     [hex, mix, npm_cache] = package_cache_paths(opts)
-    state_path = repo_url(opts) |> RepoBase.repo_path()
+    state_path = repo_url(opts) |> Paths.repo_state_path()
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
     real_gh = AgentGitHubGuard.real_gh()
@@ -403,7 +403,7 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env_export_prefix(workspace, opts) when is_binary(workspace) do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
-    state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
+    state_path = Path.join("~", Paths.repo_state_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
@@ -423,7 +423,7 @@ defmodule Aiur.AgentEnvironment do
         variable = Atom.to_string(name)
 
         [
-          Remote.remote_shell_assign(variable, path),
+          Shell.remote_assign(variable, path),
           "export #{variable}"
         ]
         |> Enum.join("\n")
@@ -500,7 +500,7 @@ defmodule Aiur.AgentEnvironment do
   defp format_build_gate_exports(workspace, build_gate_env) do
     [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
     |> Enum.map_join("", fn {name, value} ->
-      "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
+      "#{Shell.remote_assign(name, value)}\nexport #{name}\n"
     end)
   end
 
@@ -562,9 +562,9 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec package_cache_paths(keyword()) :: [Path.t()]
   def package_cache_paths(opts \\ []) do
-    root = repo_url(opts) |> RepoBase.repo_path()
+    root = repo_url(opts) |> Paths.repo_state_path()
 
-    RepoBase.cache_sidecar_paths(root)
+    Paths.repo_cache_sidecar_paths(root)
   end
 
   # `false` unsets the variable for the child, which is what a non-GitHub
@@ -606,9 +606,9 @@ defmodule Aiur.AgentEnvironment do
   # transmit a stable, home-relative state-node identity rather than the
   # daemon host's absolute cache path.
   defp remote_sidecar_paths(opts) do
-    root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
+    root = Path.join("~", Paths.repo_state_relative_path(repo_url(opts)))
 
-    root |> RepoBase.cache_sidecar_paths() |> List.to_tuple()
+    root |> Paths.repo_cache_sidecar_paths() |> List.to_tuple()
   end
 
   @doc """

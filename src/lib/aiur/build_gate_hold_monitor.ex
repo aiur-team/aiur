@@ -25,7 +25,7 @@ defmodule Aiur.BuildGateHoldMonitor do
 
   require Logger
 
-  alias Aiur.{Alerts, BuildGate, Config}
+  alias Aiur.{BuildGate, Config, Signal}
 
   @default_interval_ms 30_000
   @topic_prefix "system.build_gate.hold_timeout"
@@ -81,7 +81,7 @@ defmodule Aiur.BuildGateHoldMonitor do
         interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
         threshold_seconds: Keyword.get(opts, :threshold_seconds, threshold(opts)),
         status_fun: Keyword.get(opts, :status_fun, &BuildGate.status/0),
-        emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
+        emit_fun: Keyword.get(opts, :emit_fun, &Signal.alert/2),
         alerted: MapSet.new()
       }
 

@@ -16,7 +16,7 @@ defmodule Aiur.AgentScratch do
 
   require Logger
 
-  alias Aiur.Workspace.Remote
+  alias Aiur.Shell
 
   @relative_path ".aiur-runtime/tmp"
 
@@ -54,7 +54,7 @@ defmodule Aiur.AgentScratch do
   def remote_install_script(workspace) when is_binary(workspace) do
     [
       "set -eu",
-      Remote.remote_shell_assign("aiur_scratch_workspace", workspace),
+      Shell.remote_assign("aiur_scratch_workspace", workspace),
       "aiur_scratch_dir=\"$aiur_scratch_workspace/#{@relative_path}\"",
       "if [ -L \"$aiur_scratch_dir\" ]; then echo 'unsafe symlink in agent scratch path' >&2; exit 73; fi",
       "mkdir -p \"$aiur_scratch_dir\"",
