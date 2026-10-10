@@ -1,7 +1,6 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc """
-  Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
-  """
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
+
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
@@ -33,7 +32,7 @@ defmodule Aiur.Orchestrator.State do
             %{
               optional(:reclaimable_cpu_percent) => float(),
               optional(:reclaimable_cpu_threshold) => float(),
-              signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
+              signal: :memory | :file_descriptors | :run_queue | :load | :cpu_pressure | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),
               measured_at: DateTime.t(),
@@ -88,6 +87,7 @@ defmodule Aiur.Orchestrator.State do
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
+            optional(:cpu_pressure | :pressure_threshold | :pressure_target | :memory_mb | :memory_threshold_mb) => term(),
             optional(:load_discount_reason | :load_daemon_nice) => :enabled | :unavailable | integer(),
             optional(:gate_signal) => number() | :unavailable,
             optional(:load_sampled_at_ms) => integer() | nil,
