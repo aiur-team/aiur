@@ -34,6 +34,10 @@ defmodule Aiur.AppServer.Rpc.Await do
         unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
         {:error, {:port_exit, status}}
 
+      {:DOWN, _ref, :port, ^port, reason} ->
+        unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
+        {:error, {:port_exit, reason}}
+
       {:EXIT, ^port, reason} ->
         unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
         {:error, {:port_exit, reason}}

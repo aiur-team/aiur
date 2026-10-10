@@ -1,6 +1,6 @@
 # Stream Deck parity reference
 
-The three files beside this one are the **verbatim** Stream Deck slice of the
+The files beside this one are the **verbatim** Stream Deck slice of the
 Claude Design mock, extracted from `Aiur Dashboard.html` in the design project
 `5e62b9a9-39c1-4ca2-9a76-6dff123a088c`. They are the parity target for
 `/streamdeck` and for the downloadable Stream Deck package.
@@ -9,7 +9,16 @@ Claude Design mock, extracted from `Aiur Dashboard.html` in the design project
 | --- | --- | --- |
 | `streamdeck.design.css` | 410-618 | every `.sd-*` rule, verbatim |
 | `streamdeck.design.html` | 1704-1723 | the panel markup (a shell; the surface is rendered by JS) |
-| `streamdeck.design.js` | 3645-4307 | the behavioural contract |
+| `streamdeck.design.1-grid.js` | 3645-3818 | behavioural contract: state, dials, windows, grid keys |
+| `streamdeck.design.2-cmd-logs.js` | 3819-4113 | behavioural contract: command mode, logs mode |
+| `streamdeck.design.3-init.js` | 4114-4307 | behavioural contract: `initStreamdeck` and shared dashboard helpers |
+
+The JS is split at top-level function boundaries so each part stays under 500
+lines (OWNER-U8-DESIGN option 1: split the verbatim slice, keep bytes
+identical). `streamdeck.design.manifest.json` lists the parts in order with the
+sha256 of their concatenation (`0d79442c…f1e6`);
+`python3 scripts/check-design-extract.py docs/design/streamdeck/streamdeck.design.manifest.json`
+fails on any byte change.
 
 Source artifact: 279,364 bytes, sha256
 `cbcb26fe5fac22f898dadae414650018a80e89e56a45869030c6c9249d542c80`.

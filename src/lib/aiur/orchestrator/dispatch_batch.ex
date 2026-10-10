@@ -88,7 +88,7 @@ defmodule Aiur.Orchestrator.DispatchBatch do
     sampled_at_ms = Map.get(state.load_envelope_state, :sampled_at_ms)
     period_ms = state.poll_interval_ms || Aiur.PollCadence.base_interval_ms(class: :dispatch)
 
-    not Map.has_key?(state.load_envelope_state, :sampled_at_ms) or is_nil(Config.target_load_average()) or
+    not Map.has_key?(state.load_envelope_state, :sampled_at_ms) or (is_nil(Config.target_load_average()) and is_nil(Config.target_cpu_pressure())) or
       (is_integer(sampled_at_ms) and System.monotonic_time(:millisecond) - sampled_at_ms <= period_ms)
   end
 end

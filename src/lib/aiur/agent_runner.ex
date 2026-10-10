@@ -89,7 +89,7 @@ defmodule Aiur.AgentRunner do
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
   def transient_run_error?(:port_closed), do: true
-  def transient_run_error?({:port_exit, status}) when is_integer(status), do: true
+  def transient_run_error?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def transient_run_error?(_reason), do: false
 
   @doc false
