@@ -237,15 +237,21 @@ defmodule Aiur.AgentResourceGuard do
   end
 
   # procfs reports cwd symlink-resolved, so the root must be canonical too. A
-  # mis-resolved "/" or "/home" would make the scan host-wide, so refuse it.
+  # mis-resolved "/" or "/home" would make the scan host-wide, and $HOME (or
+  # anything above it) would put the operator's own systemd-adopted apps in
+  # scope, so refuse those.
   defp scan_root(workspace_root) do
-    root =
-      case Aiur.PathSafety.canonicalize(workspace_root) do
-        {:ok, path} -> path
-        _ -> Path.expand(workspace_root)
-      end
+    root = canonical(workspace_root)
+    home = canonical(System.user_home() || "/")
 
-    if length(Path.split(root)) >= 3, do: {:ok, root}, else: :skip
+    if length(Path.split(root)) >= 3 and not String.starts_with?(home <> "/", root <> "/"), do: {:ok, root}, else: :skip
+  end
+
+  defp canonical(path) do
+    case Aiur.PathSafety.canonicalize(path) do
+      {:ok, path} -> path
+      _ -> Path.expand(path)
+    end
   end
 
   defp proc_stat(proc_dir, pid) do

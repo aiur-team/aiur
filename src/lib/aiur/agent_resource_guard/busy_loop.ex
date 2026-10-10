@@ -3,14 +3,16 @@ defmodule Aiur.AgentResourceGuard.BusyLoop do
   Behavioural detection of CPU busy loops such as `sh -c 'while :; do :; done'`.
 
   A process is spinning when, between two samples, it burned CPU while staying
-  runnable, made no read/write syscall and took no new page fault. A share of
-  one core is deliberately not the test: on a saturated host a busy loop is
-  starved well below 100%, which is exactly when it must still be recognised.
-  Compilers and test runs allocate or do I/O, so they never hold the signature.
+  runnable, made no read/write syscall, took no new page fault and never
+  blocked (no voluntary context switch). A share of one core is deliberately
+  not the test: on a saturated host a busy loop is starved well below 100%,
+  which is exactly when it must still be recognised. Compilers and test runs
+  allocate or do I/O, and a solver or game thread on a warm heap still blocks
+  on a futex, ioctl or epoll, so none of them hold the signature.
   """
 
   @type key :: {pos_integer(), String.t()}
-  @type sample :: %{pid: pos_integer(), start: String.t(), state: String.t(), cpu: non_neg_integer(), minflt: non_neg_integer(), io: non_neg_integer()}
+  @type sample :: %{pid: pos_integer(), start: String.t(), state: String.t(), cpu: non_neg_integer(), minflt: non_neg_integer(), io: non_neg_integer(), ctxt: non_neg_integer()}
   @type tracked :: %{key() => map()}
 
   @doc "Reads one process sample from procfs; `nil` when the process is gone or unreadable."
@@ -20,17 +22,20 @@ defmodule Aiur.AgentResourceGuard.BusyLoop do
 
     with {:ok, stat} <- File.read(Path.join(dir, "stat")),
          {:ok, io} <- File.read(Path.join(dir, "io")),
+         {:ok, status} <- File.read(Path.join(dir, "status")),
          # comm may contain spaces and parens, so fields start after the last ")".
          [_comm, rest] <- :binary.split(stat, ") ", [:global]) |> split_last(),
          fields when length(fields) >= 20 <- String.split(rest),
-         {:ok, io_calls} <- io_calls(io) do
+         {:ok, io_calls} <- io_calls(io),
+         [_, ctxt] <- Regex.run(~r/^voluntary_ctxt_switches:\s+(\d+)$/m, status) do
       %{
         pid: pid,
         state: Enum.at(fields, 0),
         minflt: String.to_integer(Enum.at(fields, 7)),
         cpu: String.to_integer(Enum.at(fields, 11)) + String.to_integer(Enum.at(fields, 12)),
         start: Enum.at(fields, 19),
-        io: io_calls
+        io: io_calls,
+        ctxt: String.to_integer(ctxt)
       }
     else
       _ -> nil
@@ -61,7 +66,7 @@ defmodule Aiur.AgentResourceGuard.BusyLoop do
   defp spinning?(nil, _sample), do: false
 
   defp spinning?(prev, sample),
-    do: sample.state == "R" and sample.cpu > prev.cpu and sample.io == prev.io and sample.minflt == prev.minflt
+    do: sample.state == "R" and sample.cpu > prev.cpu and sample.io == prev.io and sample.minflt == prev.minflt and sample.ctxt == prev.ctxt
 
   defp split_last(parts) when length(parts) >= 2, do: [Enum.drop(parts, -1), List.last(parts)]
   defp split_last(_parts), do: nil
