@@ -563,11 +563,11 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp trim_records(state, records) do
-    unread = Enum.filter(records, &(&1["wake_id"] > state.cursor))
-    consumed = Enum.filter(records, &(&1["wake_id"] <= state.cursor))
-    retained_unread = Enum.take(unread, -state.max_records)
-    consumed_limit = max(state.max_records - length(retained_unread), 0)
-    retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
+    {unread, consumed} = Enum.split_with(records, &(&1["wake_id"] > state.cursor))
+    # Hysteresis: past the cap, trim to 80% so the rename happens once per 20% of the cap, not per append (#4166).
+    limit = if length(records) > state.max_records, do: div(state.max_records * 4, 5), else: state.max_records
+    retained_unread = Enum.take(unread, -limit)
+    retained = Enum.take(consumed, -max(limit - length(retained_unread), 0)) ++ retained_unread
 
     if length(retained) < length(records) do
       contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])

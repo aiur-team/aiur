@@ -349,19 +349,19 @@ if [ ! -f "$wake_path" ]; then
 fi
 
 tail -F -n0 "$wake_path" \
-  | jq -rc --unbuffered 'select((.topic_class // "") | test("allowed_contributor|branch\\.push|pr\\.ready_for_review|pr\\.opened|agent\\.handoff\\.human_review|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
+  | jq -rcn --unbuffered 'foreach inputs as $w ({last: 0}; {last: ([.last, $w.wake_id] | max), new: ($w.wake_id > .last)}; select(.new) | $w) | select((.topic_class // "") | test("allowed_contributor|branch\\.push|pr\\.ready_for_review|pr\\.opened|agent\\.handoff\\.human_review|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
 ```
 
 Each detail is a trap someone already hit: `tail -F` (follow by name), not
 `-f`, because the file is rotated; `-n0` so arming does not replay the whole
-backlog as notifications; `jq --unbuffered -rc`, because without `--unbuffered`
-events sit in jq's buffer and never arrive. The existence check makes a wrong
-repository or uninitialized state node fail visibly instead of silently
-following a nonexistent filename. The filter must cover **failure**
-signals (`ci.failed`, `agent.attention`, `retry_exhausted`,
-`tokens_exhausted`, `connectivity_lost`), not only progress — a monitor that
-matches success alone is silent through a crashloop, and silence is
-indistinguishable from "nothing happening".
+backlog as notifications; `jq --unbuffered`, or events sit in jq's buffer and
+never arrive. **Dedupe by `wake_id`** (the `foreach`: print only `wake_id` above
+the last seen): past its 10,000-record cap the daemon trims the journal to 8,000
+by renaming a new file into place, and `tail -F` re-emits a renamed file from
+the top — unfiltered, one wake replays the whole history (#4166). The existence
+check makes a wrong repository fail visibly. The filter must cover **failure**
+signals (`ci.failed`, `agent.attention`, `retry_exhausted`, `tokens_exhausted`,
+`connectivity_lost`): silence must not look like "nothing happening".
 
 The tail is notification-only. It does **not** advance the durable cursor and
 cannot substitute for `executor-wait`: `-n0` skips the existing prefix, the
