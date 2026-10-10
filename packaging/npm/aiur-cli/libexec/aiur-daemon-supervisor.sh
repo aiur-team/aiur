@@ -9,9 +9,10 @@ supervisor_is_alive() {
 }
 
 record_daemon_recovery() {
-  local name="$1" message="$2" since="$3" ledger="" timestamp
+  local name="$1" message="$2" since="$3" quiet="${4:-}" ledger="" timestamp
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '%s %s; down since %s\n' "$timestamp" "$message" "$since" >>"$AIUR_LOGS_ROOT/log/aiur.recovery"
+  [ -z "$quiet" ] || return 0
   IFS= read -r ledger <"$AIUR_ALERT_LEDGER_PATH_FILE" || true
   [ -n "$ledger" ] || return 0
   mkdir -p "$(dirname "$ledger")"
@@ -22,7 +23,8 @@ record_daemon_recovery() {
 supervise_daemon() {
   local supervisor_file="$1" capture="$2" baseline="$3"
   shift 3
-  local status delay=1 started down_since="" child pane
+  local status delay=1 started down_since="" child pane prev_dump giving_up crashes=() now t kept first_dump
+  local max_crashes="${AIUR_DAEMON_MAX_RESTARTS:-5}" crash_window=600
   printf '%s\n' "$$" >"$supervisor_file"
   release_bin="$AIUR_RELEASE_DIR/bin/aiur"
   mkdir -p "$AIUR_LOGS_ROOT/log"
@@ -50,13 +52,33 @@ supervise_daemon() {
       rm -f "$supervisor_file"
       return "$status"
     fi
-    [ -n "$down_since" ] || down_since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # One needs-attention alert per outage; later attempts only reach the recovery log.
+    local quiet=1
+    [ -n "$down_since" ] || { down_since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; quiet=""; }
     record_beam_crash "$RELEASE_NODE" "$AIUR_LOGS_ROOT" "$(aiur_crash_marker_path)" "$AIUR_ALERT_LEDGER_PATH_FILE" "$baseline"
-    record_daemon_recovery down "Daemon down; retrying in ${delay}s (exit $status)" "$down_since"
+    now="$SECONDS"; kept=()
+    for t in "${crashes[@]}"; do [ "$((now - t))" -ge "$crash_window" ] || kept+=("$t"); done
+    crashes=("${kept[@]}" "$now")
+    giving_up=""
+    [ "${#crashes[@]}" -le "$max_crashes" ] || giving_up=1
+    if [ -n "$giving_up" ]; then
+      record_daemon_recovery gave-up "Daemon crashed ${#crashes[@]} times within ${crash_window}s; not restarting" "$down_since"
+    else
+      record_daemon_recovery down "Daemon down; retrying in ${delay}s (exit $status)" "$down_since" "$quiet"
+    fi
     # Archive before another VM can overwrite even an operator-selected dump path.
     if [ -f "$ERL_CRASH_DUMP" ]; then
       mv "$ERL_CRASH_DUMP" "$ERL_CRASH_DUMP.$(date -u +%Y%m%dT%H%M%SZ).$$.$SECONDS" || return 1
+      # Keep only the first and the latest dump; the middle ones are GBs of repeats.
+      first_dump="" prev_dump=""
+      for t in "$ERL_CRASH_DUMP".*; do
+        [ -f "$t" ] || continue
+        [ -n "$first_dump" ] || { first_dump="$t"; continue; }
+        [ -z "$prev_dump" ] || rm -f "$prev_dump"
+        prev_dump="$t"
+      done
     fi
+    [ -z "$giving_up" ] || { rm -f "$supervisor_file"; return "$status"; }
     crash_dump_identity "$ERL_CRASH_DUMP" >"$baseline" || :
     reap_aiur_agents "" "$AIUR_AGENT_TMPFILE"
     reap_workspace_cwd_from_file "$AIUR_WORKSPACE_ROOT_FILE"

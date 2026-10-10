@@ -430,7 +430,7 @@ signal.
 
 Executor subscriptions are the Executor's half of the event system; see [Message Bus](/concepts/message-bus). Agents do not need these commands: every agent is auto-subscribed to its own comment, review, and CI topics, and to both directions of every blocker edge.
 
-Normal control commands use a bounded RPC: after ten seconds the launcher kills its helper, exits 124, and reports the timeout. A background daemon that dies after becoming ready restarts with backoff, keeps its crash dump under a timestamped name, and records `system.daemon.down` and `system.daemon.restarted` alerts. `aiur stop` stops it for good.
+Normal control commands use a bounded RPC: after ten seconds the launcher kills its helper, exits 124, and reports the timeout. A daemon, background or foreground, that dies after becoming ready restarts with backoff and raises one `system.daemon.down` alert per outage, then `system.daemon.restarted` on recovery. It keeps the first and the latest crash dump under timestamped names. After more than five crashes within ten minutes (`AIUR_DAEMON_MAX_RESTARTS`) it stops restarting and raises `system.daemon.gave-up`. `aiur stop` stops it for good.
 
 An open **blocking** ask is also printed by plain `aiur status`; no extra flag is required. That keeps a durable request in the normal operating view instead of hiding it in a ledger that nobody reads.
 

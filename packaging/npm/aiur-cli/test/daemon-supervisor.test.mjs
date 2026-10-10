@@ -17,12 +17,13 @@ if [ "\${1:-}" = rpc ]; then
 fi
 printf '%s\\n' "$$" > "$ROOT/daemon-pid"
 if [ -f "$ROOT/booted" ]; then
-  touch "$ROOT/recovered"
+  [ "$MODE" = crash-loop ] || touch "$ROOT/recovered"
 else
   touch "$ROOT/booted"
   printf 'old dump\\n' > "$ERL_CRASH_DUMP"
 fi
-if [ "$MODE" = boot-failure ]; then exit 1; fi
+if [ "$MODE" = crash-loop ]; then echo ready >> "$ROOT/supervisor"; fi
+if [ "$MODE" = boot-failure ] || [ "$MODE" = crash-loop ]; then exit 1; fi
 if [ "$MODE" = normal ]; then exit 0; fi
 exec sleep 120
 `, { mode: 0o755 });
@@ -40,10 +41,11 @@ printf '%s' "$ROOT/ledger.ndjson" > "$ROOT/ledger-path"
 # No real tmux sessions are touched by this process-level test.
 tmux() { :; }
 export -f tmux
+[ "$MODE" != crash-loop ] || { sleep() { :; }; export AIUR_DAEMON_MAX_RESTARTS=2; }
 supervise_daemon "$ROOT/supervisor" "$ROOT/capture" "$ROOT/baseline" "$ROOT/daemon" &
 supervisor=$!
 trap 'kill "$supervisor" 2>/dev/null || true; if [ -f "$ROOT/daemon-pid" ]; then kill "$(cat "$ROOT/daemon-pid")" 2>/dev/null || true; fi' EXIT
-if [ "$MODE" = normal ] || [ "$MODE" = boot-failure ]; then
+if [ "$MODE" = normal ] || [ "$MODE" = boot-failure ] || [ "$MODE" = crash-loop ]; then
   wait "$supervisor" || true
 else
   for ((i=0;i<200;i++)); do [ -s "$ROOT/daemon-pid" ] && break; sleep 0.01; done
@@ -94,3 +96,12 @@ for (const mode of ["normal", "stop", "boot-failure"]) {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 }
+
+test("a crash loop stops after the cap with one down alert and a gave-up alert", () => {
+  const { root, result } = exercise("crash-loop");
+  try {
+    const alerts = readFileSync(path.join(root, "ledger.ndjson"), "utf8").trim().split("\n").map(JSON.parse);
+    expect(alerts.map(alert => alert.name)).toEqual(["system.daemon.down", "system.daemon.gave-up"]);
+    expect(readdirSync(root).filter(name => name.startsWith("erl_crash.dump."))).toHaveLength(1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
