@@ -92,7 +92,9 @@ defmodule Aiur.CodexProberTest do
                      os.close(0)
                      print(child.pid)
                      time.sleep(600)'
-                     """
+                     """,
+                     fn _port -> :ok end,
+                     relay: false
                    )
 
                  {:os_pid, pid} = Port.info(port, :os_pid)

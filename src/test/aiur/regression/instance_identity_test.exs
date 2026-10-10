@@ -225,7 +225,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
 
   describe "engine wiring (source asserts)" do
     test "tmux session and socket are keyed per-instance" do
-      src = File.read!(@engine)
+      src = Aiur.EngineSource.text()
 
       assert String.contains?(src, ~S(${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default)),
              "the tmux session name must include AIUR_INSTANCE_KEY so two instances never share a session"
@@ -235,7 +235,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
     end
 
     test "launch reclaims a legacy un-keyed orphan, guarded by a live-session check (success criterion 3)" do
-      src = File.read!(@engine)
+      src = Aiur.EngineSource.text()
 
       assert String.contains?(src, ~S(kill_beams_matching "-name aiur-${USER}@127.0.0.1")),
              "a keyed launch must reclaim a stale legacy-name beam so the old fixed name doesn't block startup"
