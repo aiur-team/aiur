@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   require Logger
 
-  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Signal, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Signal, Tracker, TrackerIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}

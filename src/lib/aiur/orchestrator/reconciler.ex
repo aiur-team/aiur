@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{Signal, CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, Issue, Orchestrator, Signal, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator.LifecycleFenceExpiry
 
   alias Aiur.Orchestrator.{

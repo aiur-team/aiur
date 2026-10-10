@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Signal, Config, Issue}
+  alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
   @interrupted_turn_grace_ms 30_000

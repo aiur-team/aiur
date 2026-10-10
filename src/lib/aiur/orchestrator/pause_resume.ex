@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   Owns the pause, resume, and reactivation state machine for running agents.
   All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentPubSub, Signal, CodingAgent, Commands, Config, Issue, ModelAvailability, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, CodingAgent, Commands, Config, Issue, ModelAvailability, Signal, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}

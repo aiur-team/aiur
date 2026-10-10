@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
-  alias Aiur.{Signal, Commands, Config, Issue}
+  alias Aiur.{Commands, Config, Issue, Signal}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore

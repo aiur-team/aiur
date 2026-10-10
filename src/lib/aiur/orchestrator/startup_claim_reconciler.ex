@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   require Logger
 
-  alias Aiur.{Signal, Issue}
+  alias Aiur.{Issue, Signal}
   alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
 

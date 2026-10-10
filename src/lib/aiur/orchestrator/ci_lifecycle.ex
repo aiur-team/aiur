@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   """
 
   require Logger
-  alias Aiur.{AlertFeed, Signal, CIApprovalStore, Config, Issue, PollCadence, StartTrigger.ProgressStore, Tracker}
+  alias Aiur.{AlertFeed, CIApprovalStore, Config, Issue, PollCadence, Signal, StartTrigger.ProgressStore, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 

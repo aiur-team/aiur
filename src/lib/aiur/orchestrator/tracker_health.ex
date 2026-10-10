@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   require Logger
 
-  alias Aiur.{Signal, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
