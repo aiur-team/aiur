@@ -472,7 +472,7 @@ emit_alert(
 )
 ```
 
-If no suite matches, report that the exact diagnostic is unavailable; do not
+If no suite matches, report that the exact diagnostic is unavailable (and before every merge run `scripts/check-stack-order.sh`, see `merge-order-gate.md`); do not
 invent a GitHub message. The normal attempt is what creates the failed suite,
 so this path surfaces the reason immediately after the first refusal instead of
 requiring a second `--admin` attempt.

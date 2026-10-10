@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
-  alias Aiur.Orchestrator.{BlockerPropagation, CiLifecycle, CommentWake, Dispatcher, Lifecycle, PushRouting, RestackScheduler, State}
+  alias Aiur.Orchestrator.{BlockerPropagation, CiLifecycle, CommentWake, Dispatcher, Lifecycle, MergeOrderAudit, PushRouting, RestackScheduler, State}
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
   defp route_classified(state, {:pr_merged, identifier}, event),
-    do: state |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event)) |> RestackScheduler.merged(identifier, event)
+    do: state |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event)) |> RestackScheduler.merged(identifier, event) |> MergeOrderAudit.merged(identifier, event)
 
   defp route_classified(state, {:ci_failed, identifier}, _event),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :failed)

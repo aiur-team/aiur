@@ -133,6 +133,18 @@ The task holds the workspace lock and leaves the checkout and index untouched. A
 
 `tracker.restack_after_blocker_merge` defaults to `true`. Set it to `false` to leave restacking to agents. Automatic restacking requires git 2.40 or newer. CI still checks clean textual merges for semantic failures; a restack push may dismiss approval and require review again.
 
+## Merge order
+
+The Executor runs `check-stack-order.sh` before every merge. It refuses a dependent PR unless its base is the integration branch and each `blocked_by` blocker has landed in the dependent's head.
+
+A blocker has landed when it is closed `completed`, or its PR is merged and the merge commit is contained in the dependent's head. Exit 2 means refuse and exit 3 means it could not decide; neither merges.
+
+A blocker closed `not_planned` or `duplicate`, a closed-unmerged blocker PR, or an ambiguous PR refuses. Remove the `blocked_by` edge to proceed.
+
+With `--approved <sha>` it prints `RESTACK-ONLY` when the only change since that approved head is a verified Aiur restack, so the Executor can re-approve without a new review.
+
+If a PR merges anyway, the daemon raises a critical `merge.out-of-order` alert naming the PR and blockers. It is detective and undoes nothing; missing blocker facts raise a warning, never a silent pass.
+
 ## Queue cost
 
 Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.

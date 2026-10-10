@@ -159,7 +159,8 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.ReadyForReviewTransitions,
       Aiur.Orchestrator.MergedTicketReconciler,
       Aiur.Orchestrator.ReworkRequeue,
-      Aiur.Orchestrator.RestackScheduler
+      Aiur.Orchestrator.RestackScheduler,
+      Aiur.Orchestrator.MergeOrderAudit
     ],
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],
