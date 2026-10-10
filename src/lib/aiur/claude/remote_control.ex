@@ -335,9 +335,7 @@ defmodule Aiur.Claude.RemoteControl do
   # *every* orphan, the exact #453 symptom. Refuse a dangerously-shallow root as
   # well: a mis-resolved `/` or `/home` would turn the broadened sweep into a
   # host-wide reap.
-  @doc false
-  @spec sweep_root(Path.t()) :: {:ok, Path.t()} | :skip
-  def sweep_root(workspace_root) do
+  defp sweep_root(workspace_root) do
     canonical =
       case Aiur.PathSafety.canonicalize(workspace_root) do
         {:ok, path} -> path

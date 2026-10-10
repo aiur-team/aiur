@@ -18,7 +18,6 @@ defmodule Aiur.AgentResourceGuard do
   use GenServer
 
   alias Aiur.AgentResourceGuard.BusyLoop
-  alias Aiur.Claude.RemoteControl
   alias Aiur.ProcessTree
   require Logger
 
@@ -88,7 +87,7 @@ defmodule Aiur.AgentResourceGuard do
   # is not enough.
   @spec workspace_orphans(Path.t(), Path.t()) :: [orphan()]
   def workspace_orphans(workspace_root, proc_dir \\ "/proc") when is_binary(workspace_root) do
-    with {:ok, root} <- RemoteControl.sweep_root(workspace_root),
+    with {:ok, root} <- scan_root(workspace_root),
          {:ok, entries} <- File.ls(proc_dir) do
       procs = for entry <- entries, {pid, ""} <- [Integer.parse(entry)], stat = proc_stat(proc_dir, pid), into: %{}, do: {pid, stat}
 
@@ -235,6 +234,18 @@ defmodule Aiur.AgentResourceGuard do
       else: []
   rescue
     _ -> []
+  end
+
+  # procfs reports cwd symlink-resolved, so the root must be canonical too. A
+  # mis-resolved "/" or "/home" would make the scan host-wide, so refuse it.
+  defp scan_root(workspace_root) do
+    root =
+      case Aiur.PathSafety.canonicalize(workspace_root) do
+        {:ok, path} -> path
+        _ -> Path.expand(workspace_root)
+      end
+
+    if length(Path.split(root)) >= 3, do: {:ok, root}, else: :skip
   end
 
   defp proc_stat(proc_dir, pid) do

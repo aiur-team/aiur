@@ -82,6 +82,35 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
   end
 
   @tag :tmp_dir
+  test "workspace_orphans selects ended-command leftovers under the root and refuses a shallow root", %{tmp_dir: proc_dir} do
+    proc = fn pid, comm, ppid, sid, cwd ->
+      dir = Path.join(proc_dir, "#{pid}")
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "stat"), "#{pid} (#{comm}) R #{ppid} #{pid} #{sid} 0 -1 0 0 0 0 0 0 0\n")
+      File.ln_s!(cwd, Path.join(dir, "cwd"))
+    end
+
+    proc.(1, "init", 0, 1, "/")
+    proc.(20, "systemd", 1, 20, "/")
+    proc.(30, "zsh", 999, 30, "/nonexistent-ws/aiur/7")
+    # Adopted by init, adopted by a systemd manager, and session leader gone.
+    proc.(41, "sh", 1, 41, "/nonexistent-ws/aiur/7/src")
+    proc.(42, "sh", 20, 42, "/nonexistent-ws/aiur/7")
+    proc.(43, "sh", 30, 777, "/nonexistent-ws/aiur/8")
+    # Still owned by a live command, and an orphan outside the root.
+    proc.(51, "sh", 30, 30, "/nonexistent-ws/aiur/7")
+    proc.(52, "sh", 1, 52, "/elsewhere/aiur/7")
+
+    assert "/nonexistent-ws/aiur" |> AgentResourceGuard.workspace_orphans(proc_dir) |> Enum.sort_by(& &1.pid) == [
+             %{pid: 41, cwd: "/nonexistent-ws/aiur/7/src"},
+             %{pid: 42, cwd: "/nonexistent-ws/aiur/7"},
+             %{pid: 43, cwd: "/nonexistent-ws/aiur/8"}
+           ]
+
+    assert AgentResourceGuard.workspace_orphans("/nonexistent-ws", proc_dir) == []
+  end
+
+  @tag :tmp_dir
   test "a busy loop backgrounded by an agent command is counted while it runs and reaped once the command ends", %{tmp_dir: tmp_dir} do
     # Stand-in for an agent root whose tool command backgrounds two real busy
     # loops and returns when told to; the root itself stays alive, like an agent.
