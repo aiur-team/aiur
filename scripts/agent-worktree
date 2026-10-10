@@ -258,6 +258,26 @@ create_worktree() {
     exit 64
   fi
 
+  # One create at a time per repository (#4193). `git worktree add` writes
+  # .git/worktrees/<id>/commondir non-atomically, and both `fetch` into a
+  # branch and `worktree add` read every registered worktree's commondir, so a
+  # concurrent create dies with "failed to read .../commondir".
+  # ponytail: no stale-lock reclaim; a SIGKILLed create leaves the directory
+  # and later creates fail loudly after the wait. Add owner-pid reclaim if
+  # that ever happens in practice.
+  create_lock=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)/agent-worktree-create.lock
+  lock_ticks=0
+  until mkdir "$create_lock" 2>/dev/null; do
+    lock_ticks=$((lock_ticks + 1))
+    if [ "$lock_ticks" -gt 3000 ]; then
+      printf 'agent-worktree: timed out waiting for another create; if none is running, remove %s\n' "$create_lock" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  trap 'rmdir "$create_lock" 2>/dev/null' EXIT
+  trap 'exit 129' HUP INT TERM
+
   # Fetch the PR head onto a unique local branch so a second agent reviewing
   # the same PR does not collide on the branch name either.
   # Auto-maintenance can prune a concurrent add between mkdir and its lock.

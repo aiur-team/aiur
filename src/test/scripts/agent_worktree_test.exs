@@ -154,6 +154,31 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     Enum.each(paths, fn path -> assert git!(path, ["rev-parse", "HEAD"]) == pr_head end)
   end
 
+  # #4193: the concurrent test above only loses the race about once in 240
+  # creates, so this pins the serialization itself. Git writes
+  # .git/worktrees/<id>/commondir non-atomically and every other create reads
+  # it; a create must not touch worktree metadata while another one holds the
+  # per-repository lock.
+  test "create waits for the per-repository create lock before touching worktree metadata" do
+    {repo, _origin} = new_repo!()
+    pr_head = add_pr!(repo, 123)
+
+    lock = Path.join(repo, ".git/agent-worktree-create.lock")
+    File.mkdir!(lock)
+
+    task = Task.async(fn -> run_helper!(repo, ["create", "123", "--unique", "waiter"]) end)
+
+    assert Task.yield(task, 1_000) == nil, "create ran while another create held the lock"
+    refute File.dir?(Path.join(repo, ".git/worktrees/pr-123-waiter"))
+    assert git!(repo, ["branch", "--list", "pr-123-waiter"]) == ""
+
+    File.rmdir!(lock)
+
+    {out, 0} = Task.await(task, 30_000)
+    assert git!(String.trim(out), ["rev-parse", "HEAD"]) == pr_head
+    refute File.dir?(lock), "create must release the lock when it finishes"
+  end
+
   test "create refuses an existing worktree path instead of reusing or repointing it" do
     {repo, _origin} = new_repo!()
     add_pr!(repo, 123)
