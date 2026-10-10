@@ -1,6 +1,7 @@
 tracker:
   kind: github
   base_branch: your-base-branch
+  # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states:
     - todo
