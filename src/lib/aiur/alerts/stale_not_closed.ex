@@ -1,20 +1,24 @@
 defmodule Aiur.Alerts.StaleNotClosed do
   @moduledoc """
-  Resolves `merge_terminal_write_failed` ("ticket was not closed") attentions
-  for tickets that are in fact closed `done` (#3943).
+  Resolves false "ticket was not closed" (`merge_terminal_write_failed`) and
+  "merge attribution could not be determined" (`attribution_check_failed`)
+  attentions for tickets that are in fact closed `done` (#3943).
   """
 
   alias Aiur.{AlertFeed, Alerts}
 
-  @slug "merge_terminal_write_failed"
+  # "ticket was not closed" and "merge attribution could not be determined"
+  @suffixes [".agent.attention.merge_terminal_write_failed", ".merge.attribution_check_failed"]
 
   @doc "Resolves the open alert for one ticket, if any. Safe to call when none is open."
   @spec resolve(String.t() | integer(), keyword()) :: :ok
   def resolve(identifier, opts \\ []) do
     identifier = to_string(identifier)
-    topic = "ticket.#{identifier}.agent.attention.#{@slug}"
+    open = open_topics(opts)
 
-    if topic in open_topics(opts), do: emit_resolved(identifier, topic, opts)
+    for suffix <- @suffixes, topic = "ticket.#{identifier}#{suffix}", topic in open do
+      emit_resolved(identifier, topic, opts)
+    end
 
     :ok
   end
@@ -29,6 +33,7 @@ defmodule Aiur.Alerts.StaleNotClosed do
 
     open
     |> Enum.map(&ticket_of/1)
+    |> Enum.uniq()
     |> done_fun.()
     |> Enum.each(&resolve(&1, opts))
 
@@ -50,7 +55,7 @@ defmodule Aiur.Alerts.StaleNotClosed do
     [{:needs_attention, true} | opts]
     |> AlertFeed.list()
     |> Enum.map(& &1["topic"])
-    |> Enum.filter(&String.ends_with?(&1 || "", ".agent.attention." <> @slug))
+    |> Enum.filter(fn topic -> Enum.any?(@suffixes, &String.ends_with?(topic || "", &1)) end)
     |> Enum.uniq()
   end
 
@@ -61,7 +66,7 @@ defmodule Aiur.Alerts.StaleNotClosed do
 
     alert_fun.(
       topic <> ".resolved",
-      "Ticket #{identifier} is closed done; the earlier \"ticket was not closed\" alert was false.",
+      "Ticket #{identifier} is closed done; the earlier merge alert was false.",
       issue: identifier,
       reason: "The ticket is observed closed with agent:done.",
       needs_attention: false,

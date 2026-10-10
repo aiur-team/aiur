@@ -24,6 +24,19 @@ defmodule Aiur.Alerts.StaleNotClosedTest do
         )
     end
 
+    :ok =
+      AlertLedger.append(
+        %{
+          "event" => "alert",
+          "timestamp" => "2026-10-01T00:00:00Z",
+          "topic" => "ticket.10.merge.attribution_check_failed",
+          "message" => "attribution could not be determined",
+          "needs_attention" => true,
+          "source_ticket_id" => "10"
+        },
+        ledger_path: ledger
+      )
+
     alert_fun = fn topic, message, opts ->
       AlertLedger.append(
         %{
@@ -43,6 +56,13 @@ defmodule Aiur.Alerts.StaleNotClosedTest do
 
   test "reconcile resolves the alert of a done ticket and keeps an open ticket's", %{opts: opts} do
     assert :ok = StaleNotClosed.reconcile(fn ["10", "11"] -> ["10"] end, opts)
+
+    assert [%{"topic" => "ticket.11.agent.attention.merge_terminal_write_failed"}] =
+             AlertFeed.list([needs_attention: true] ++ opts)
+  end
+
+  test "reconcile also resolves attribution alerts of a done ticket", %{opts: opts} do
+    :ok = StaleNotClosed.reconcile(fn ids -> ids -- ["11"] end, opts)
 
     assert [%{"topic" => "ticket.11.agent.attention.merge_terminal_write_failed"}] =
              AlertFeed.list([needs_attention: true] ++ opts)
