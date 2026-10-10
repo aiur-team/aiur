@@ -1,0 +1,364 @@
+/* Stream Deck emulator. The device stays physically dark in either dashboard
+   theme; all legible copy still uses the dashboard's themed ink tokens. */
+.sd-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 0;
+  padding: 1.2rem 0 0.4rem;
+}
+
+.sd-device {
+  --sd-wordmark: #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  gap: 1.15rem;
+  padding: 1.5rem 1.7rem 1.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 34px;
+  background: linear-gradient(180deg, #2a2b2e 0%, #201f22 55%, #161517 100%);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.sd-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding-bottom: 0.15rem;
+  color: var(--sd-wordmark);
+}
+
+.sd-install-control {
+  padding: 0.28rem 0.48rem;
+  border: 1px solid var(--accent-ink);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sd-package-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.sd-install-control:hover {
+  background: var(--accent-soft);
+}
+
+.sd-install-control:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-install-modal {
+  width: min(680px, 100%);
+  overflow: auto;
+}
+
+/* The dialog title carries the eyebrow's mono/uppercase treatment: the modal
+   now leads with the instruction itself, so the separate eyebrow line above it
+   was one label too many. The `.modal-header h2` qualifier is load-bearing —
+   `.modal-header h2` sets its own `font-size`, and a bare class selector loses
+   to it on specificity regardless of source order. */
+.modal-header h2.sd-install-title {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* `.modal-panel` sizes its third row `minmax(0, 1fr)`, which was written for a
+   panel whose third child is the scrollable body. This dialog's children are
+   header, steps, and an optional note, so that row would land on the note and
+   let it collapse to nothing on a short viewport — silently hiding the Windows
+   warning. Every row here sizes to its content; the panel itself scrolls. */
+.sd-install-modal {
+  grid-template-rows: none;
+}
+
+.sd-install-step-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.86rem;
+}
+
+.sd-install-download {
+  display: inline-block;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--accent-ink);
+  border-radius: 8px;
+  color: var(--accent-ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sd-install-download:hover {
+  background: var(--accent-soft);
+}
+
+.sd-install-download:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+/* A plain container: the prompt block below carries the box, so bordering this
+   too would frame the same content twice. */
+.sd-install-prompt {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  min-width: 0;
+}
+
+/* The prompt block grows to whatever height the wrapped text needs, at every
+   width: it must never scroll sideways and never clip its tail. */
+.sd-install-prompt-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sd-install-prompt-text:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
+.sd-install-prompt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.sd-install-copy-button {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.sd-install-copy-button:hover {
+  background: var(--surface-3);
+}
+
+.sd-install-copy-button:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-install-prompt [data-copy-status] {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.sd-install-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.sd-install-pairing p,
+.sd-install-result p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.sd-install-pairing,
+.sd-install-result {
+  padding: 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.sd-install-pairing h3,
+.sd-install-result h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.86rem;
+}
+
+/* The step titles number themselves, so the list markers would say it twice. */
+.sd-install-steps {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.sd-install-step {
+  min-width: 0;
+}
+
+.sd-brand-logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.sd-brand-name {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.sd-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  column-gap: 1.9rem;
+  row-gap: 1rem;
+}
+
+.sd-key {
+  --sd-accent: var(--accent);
+  --sd-glow: var(--accent-soft);
+  --sd-face: #0f151c;
+  --sd-progress-fill: var(--sd-accent);
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 3px;
+  border-radius: 15px;
+  background: var(--sd-glow);
+  color: var(--fg);
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.14s ease;
+}
+
+.sd-key-face {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--sd-face);
+  color: var(--fg);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.sd-key:hover { filter: brightness(1.07); }
+
+.sd-key:active { transform: translateY(1px) scale(0.98); }
+
+.sd-agent {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.55rem 0.55rem;
+  gap: 0.34rem;
+  text-align: left;
+}
+
+.sd-agent-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sd-ag-ic {
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sd-accent);
+}
+
+.sd-ag-ic svg { width: 20px; height: 20px; }
+
+.sd-ag-vendor,
+.sd-ag-vendor-fallback {
+  display: block;
+  width: 18px;
+  height: 18px;
+  justify-self: center;
+}
+
+.sd-ag-vendor-fallback {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(240, 242, 246, 0.72);
+  font-size: 0.7rem;
+}
+
+.sd-ag-idwrap,
+.sd-ag-foot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.sd-ag-idwrap { justify-self: end; gap: 0.25rem; }
+
+.sd-ag-id {
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sd-ag-prio {
+  display: inline-flex;
+  flex: none;
+  margin-left: 0;
+  color: var(--attention-ink);
+}
+
+.sd-ag-prio svg { width: 13px; height: 13px; }
+
+.sd-ag-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(240, 242, 246, 0.9);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.16;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+

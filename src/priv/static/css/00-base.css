@@ -1,0 +1,220 @@
+:root {
+  color-scheme: dark;
+  --bg: #16171a;
+  --bg-2: #1a1b1e;
+  --surface: #1e2025;
+  --surface-2: #23262c;
+  --surface-3: #292d34;
+  --fg: #edeef0;
+  --muted: #969aa4;
+  /* AA hold: design #676b74, pending Kevin (S-19) */
+  --faint: #8b8f99;
+  --line: rgba(221, 226, 235, 0.12);
+  --line-strong: rgba(221, 226, 235, 0.20);
+  --hairline: rgba(221, 226, 235, 0.08);
+  --pill-bg: rgba(221, 226, 235, 0.04);
+  --accent: #2f86ff;
+  --accent-ink: #8fbcff;
+  /* The fill under text that sits *on* the accent, as opposed to --accent-ink,
+     which is accent-coloured text on a surface. --accent itself is tuned bright
+     so it reads against the dark surfaces, and at that brightness it cannot
+     carry white text: #fff on #2f86ff is 3.51:1. This deeper blue takes #fff to
+     4.59:1 while its own edge still clears the 3:1 non-text minimum against
+     --surface (3.55:1) and --surface-3 (3.01:1). --accent stays as it was for
+     the progress fills, rings and borders, which carry no text. */
+  --accent-strong: #0070f0;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(47, 134, 255, 0.15);
+  --accent-line: rgba(47, 134, 255, 0.34);
+  --attention: #e3b341;
+  --attention-ink: #f1cf6f;
+  --attention-soft: rgba(227, 179, 65, 0.15);
+  --attention-line: rgba(227, 179, 65, 0.34);
+  --blocking: #ff7b72;
+  --blocking-ink: #ffa39c;
+  /* Ink on a --blocking fill. The dark theme's blocking red is a pale salmon so
+     that it reads on the dark surfaces, which leaves white text on it at
+     2.52:1; near-black ink reaches 7.30:1. The light theme keeps white, its
+     blocking red being dark enough to carry it (4.76:1). */
+  --on-blocking: #2a0906;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --blocking-line: rgba(255, 123, 114, 0.34);
+  --good: #3fb950;
+  --good-ink: #74d47f;
+  /* Shared with key-face-contract.json. Progress stays green at every measured
+     value; only exact completion steps up to the brighter shade. */
+  --progress-fill: #3fb950;
+  --progress-complete-fill: #74d47f;
+  --good-soft: rgba(63, 185, 80, 0.14);
+  --good-line: rgba(63, 185, 80, 0.32);
+  --super: #c69bff;
+  --super-ink: #d8bcff;
+  --super-soft: rgba(198, 155, 255, 0.15);
+  --super-line: rgba(198, 155, 255, 0.34);
+  --ack: #4fd6c4;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Between the hairline `sm` and the modal-scale `lg`: for a control that
+     hovers over the surface behind it and has to read as detached from it. */
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
+  --radius: 16px;
+  --radius-lg: 24px;
+  /* One height for every progress bar on the dashboard — the meter strip, the
+     run-summary and units-table tracks, the provider-meter tracks, and the
+     Stream Deck bars — so no two bars read as different gauges. */
+  --progress-bar-height: 0.5rem;
+  --pill-bd: rgba(221, 226, 235, 0.14);
+  --ack-soft: rgba(79, 214, 196, 0.14);
+  --attn: var(--attention);
+  --attn-ink: var(--attention-ink);
+  --attn-soft: var(--attention-soft);
+  --attn-line: var(--attention-line);
+  --block: var(--blocking);
+  --block-ink: var(--blocking-ink);
+  --block-soft: var(--blocking-soft);
+  --block-line: var(--blocking-line);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f1ec;
+  --bg-2: #f8f7f3;
+  --surface: #ffffff;
+  --surface-2: #f4f2ed;
+  --surface-3: #ebe8e1;
+  --fg: #1e1c19;
+  --muted: #67625a;
+  /* AA hold: design #9a958c, pending Kevin (S-19) */
+  --faint: #777269;
+  --line: rgba(40, 32, 20, 0.10);
+  --line-strong: rgba(40, 32, 20, 0.18);
+  --hairline: rgba(40, 32, 20, 0.07);
+  --pill-bg: rgba(40, 32, 20, 0.03);
+  --accent: #2563d9;
+  --accent-ink: #1d4fb3;
+  /* Preserve the product's text-bearing button fill in both palettes. */
+  --accent-strong: #1f57c4;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(37, 99, 217, 0.09);
+  --accent-line: rgba(37, 99, 217, 0.28);
+  --attention: #e3a321;
+  /* AA hold: design #94650a, pending Kevin (S-19) */
+  --attention-ink: #855b09;
+  --attention-soft: rgba(184, 130, 26, 0.13);
+  --attention-line: rgba(184, 130, 26, 0.32);
+  --blocking: #d23b32;
+  --blocking-ink: #a52a23;
+  --on-blocking: #ffffff;
+  --blocking-soft: rgba(210, 59, 50, 0.11);
+  --blocking-line: rgba(210, 59, 50, 0.30);
+  --good: #22b85a;
+  --good-ink: #15803d;
+  --good-soft: rgba(31, 157, 77, 0.13);
+  --good-line: rgba(31, 157, 77, 0.30);
+  --super: #8a4fd0;
+  --super-ink: #6d3aa8;
+  --super-soft: rgba(138, 79, 208, 0.12);
+  --super-line: rgba(138, 79, 208, 0.30);
+  --ack: #0e9e8e;
+  --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.10);
+  --shadow-md: 0 4px 12px -2px rgba(58, 44, 18, 0.22);
+  --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.30);
+  --pill-bd: rgba(40, 32, 20, 0.12);
+  --ack-soft: rgba(14, 158, 142, 0.13);
+}
+
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--bg);
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 520px at 78% -8%, var(--accent-soft) 0%, transparent 60%),
+    var(--bg);
+  color: var(--fg);
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+a {
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--accent-line);
+  outline-offset: 3px;
+}
+
+.mono,
+.ticket-id,
+.status-badge,
+.tool-btn,
+.chip,
+.filter-chip,
+.risk-tag,
+.section-eyebrow,
+.recent-subtitle {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.num {
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bo-page,
+.bo-surface {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.bo-surface {
+  padding: clamp(1rem, 2.5vw, 1.4rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(155deg, var(--surface), var(--surface-2));
+  box-shadow: var(--shadow-sm);
+}
+

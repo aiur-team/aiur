@@ -3,7 +3,9 @@ defmodule AiurWeb.StaticAssets do
 
   alias Aiur.CodingAgent
 
-  @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
+  # Ordered partials; see priv/static/css/README.md.
+  @dashboard_css_glob Path.expand("../../priv/static/css/*.css", __DIR__)
+  @dashboard_css_parts @dashboard_css_glob |> Path.wildcard() |> Enum.sort()
   @dashboard_fonts_path Path.expand("../../priv/static/dashboard-fonts.css", __DIR__)
   @dashboard_palette_path Path.expand("../../priv/static/dashboard-palette.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
@@ -56,7 +58,7 @@ defmodule AiurWeb.StaticAssets do
     "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"}
   }
 
-  @external_resource @dashboard_css_path
+  for part <- @dashboard_css_parts, do: @external_resource(part)
   @external_resource @dashboard_fonts_path
   @external_resource @dashboard_palette_path
   @external_resource @dom_svg_layout_adapter_path
@@ -64,7 +66,9 @@ defmodule AiurWeb.StaticAssets do
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path
 
-  @dashboard_css Enum.map_join([@dashboard_fonts_path, @dashboard_css_path, @dashboard_palette_path], "\n", &File.read!/1)
+  @dashboard_css Enum.map_join([[@dashboard_fonts_path], @dashboard_css_parts, [@dashboard_palette_path]], "\n", fn paths ->
+                   Enum.map_join(paths, &File.read!/1)
+                 end)
   @dom_svg_layout_adapter File.read!(@dom_svg_layout_adapter_path)
   @phoenix_html_js File.read!(@phoenix_html_js_path)
   @phoenix_js File.read!(@phoenix_js_path)
@@ -77,6 +81,11 @@ defmodule AiurWeb.StaticAssets do
     "/vendor/phoenix/phoenix.js" => {"application/javascript", @phoenix_js},
     "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
   }
+
+  # A partial added after compilation is not in the resource list above.
+  @doc false
+  @spec __mix_recompile__?() :: boolean()
+  def __mix_recompile__?, do: @dashboard_css_glob |> Path.wildcard() |> Enum.sort() != @dashboard_css_parts
 
   @spec revalidated_static_paths() :: [String.t()]
   def revalidated_static_paths, do: @revalidated_static_paths
