@@ -50,17 +50,17 @@ defmodule Aiur.Regression.ChatPaneLoadsSessionTest do
   end
 
   describe "Slot uses session-bound attach for :select" do
-    @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+    @slot_source Enum.map(~w(slot.ex slot/attach.ex slot/selection.ex), &Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__))
 
     test "do_select spawns a fresh attach pane bound to the session_id for cold opens" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       assert source =~ ~r/Protocol\.attach_command\(\s*state\.base_url\s*,\s*session_id\s*\)/,
              "Slot MUST retain Protocol.attach_command/2 so welcome→conversation transitions use --session"
     end
 
     test "Slot never calls /tui/select-session — every swap respawns" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       refute source =~ ~r/do_select_via_api/,
              "Slot MUST NOT route through /tui/select-session: opencode 1.15.6 returns 200 but exits the attach process seconds later, killing the user's chat pane. Every visible swap goes through kill+respawn instead."
