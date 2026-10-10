@@ -336,7 +336,7 @@ defmodule Aiur.Executor.Claims do
       "cursor_at_last_ack" => existing["cursor_at_last_ack"],
       "observation" => existing["observation"]
     }
-    |> HarnessSession.record(Keyword.get(opts, :session) || existing["session"], iso(now))
+    |> HarnessSession.record(opts, existing, now)
   end
 
   defp claimed_at(existing, role, now) do
@@ -451,7 +451,7 @@ defmodule Aiur.Executor.Claims do
   defp valid_consumer?(_entry), do: false
 
   defp write(path, opts, consumers, reply) do
-    JsonStore.write!(path, %{"consumers" => prune(consumers, now(opts))})
+    JsonStore.write!(path, %{"consumers" => prune(consumers, now(opts))}, mode: 0o600)
     reply
   rescue
     error -> {:error, {:executor_claims_unavailable, Exception.message(error)}}

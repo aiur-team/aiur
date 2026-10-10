@@ -32,7 +32,7 @@ defmodule Aiur.AgentControlCLI do
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.Executor.{Claims, HarnessSession, Roster}
+  alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
@@ -506,7 +506,7 @@ defmodule Aiur.AgentControlCLI do
   # waiting under it would print records nobody can acknowledge — the silent
   # no-progress loop #2600 reported. Fail with the stage instead.
   defp executor_wait_role(consumer_id, opts) do
-    case Claims.claim(consumer_id, session: HarnessSession.resolve(opts)) do
+    case Claims.claim(consumer_id, session_opts: Keyword.take(opts, [:session_id, :harness, :env])) do
       {:ok, _entry} ->
         {:ok, :owner, nil}
 

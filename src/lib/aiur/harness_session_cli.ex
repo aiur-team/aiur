@@ -1,4 +1,4 @@
-defmodule Aiur.ExecutorSessionCLI do
+defmodule Aiur.HarnessSessionCLI do
   @moduledoc "`aiur executor-session`: prints the live Executor's harness session handle."
 
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]

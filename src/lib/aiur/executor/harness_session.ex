@@ -42,10 +42,21 @@ defmodule Aiur.Executor.HarnessSession do
     end
   end
 
-  @doc "Adds `session` to an owner's claim `entry` (additive field); any other role gets nothing."
-  @spec record(map(), map() | nil, String.t()) :: map()
-  def record(%{"role" => "owner"} = entry, %{} = session, recorded_at), do: Map.put(entry, "session", Map.put_new(session, "recorded_at", recorded_at))
-  def record(entry, _session, _recorded_at), do: entry
+  @doc """
+  Adds the session to an owner's claim `entry` (additive field); any other role gets nothing.
+
+  A new session (`:session`, or `:session_opts` resolved by `resolve/1`) replaces the old one. The
+  consumer's previous session is carried over only across a renewal within a live lease: a claim
+  after a lapse must not inherit a handle that may name another conversation.
+  """
+  @spec record(map(), keyword(), map(), DateTime.t()) :: map()
+  def record(%{"role" => "owner"} = entry, opts, existing, now) do
+    carried = if Claims.live?(existing, now), do: existing["session"]
+    session = Keyword.get(opts, :session) || resolve(Keyword.get(opts, :session_opts, [])) || carried
+    if is_map(session), do: Map.put(entry, "session", Map.put_new(session, "recorded_at", DateTime.to_iso8601(now))), else: entry
+  end
+
+  def record(entry, _opts, _existing, _now), do: entry
 
   @doc "Whether `value` is an acceptable session id."
   @spec valid_session_id?(term()) :: boolean()
@@ -73,7 +84,8 @@ defmodule Aiur.Executor.HarnessSession do
 
   defp build(harness, id, env) do
     if valid_session_id?(id) and valid_harness?(harness) do
-      claude? = harness == "claude"
+      # Env-derived pid/config belong to the *current* session only.
+      claude? = harness == "claude" and env["CLAUDE_CODE_SESSION_ID"] in [nil, "", id]
 
       %{
         "harness" => harness,

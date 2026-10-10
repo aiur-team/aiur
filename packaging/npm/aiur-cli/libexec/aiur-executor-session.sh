@@ -34,5 +34,5 @@ executor_session_argument() {
 cmd_executor_session() {
   local json=false
   case "${1:-}" in "") ;; --json) json=true ;; *) echo "aiur: executor-session accepts only --json" >&2; exit 64 ;; esac
-  run_control_rpc "Aiur.ExecutorSessionCLI.rpc(json: $json)"
+  run_control_rpc "Aiur.HarnessSessionCLI.rpc(json: $json)"
 }

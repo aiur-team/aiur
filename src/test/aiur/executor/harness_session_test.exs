@@ -42,7 +42,7 @@ defmodule Aiur.Executor.HarnessSessionTest do
   test "an explicit session id overrides the environment and defaults to claude" do
     other = "11111111-2222-4333-8444-555555555555"
     assert %{"harness" => "codex", "session_id" => ^other} = HarnessSession.resolve(session_id: other, harness: "codex", env: encode(@claude_env))
-    assert %{"harness" => "claude", "session_id" => ^other, "harness_pid" => 4242} = HarnessSession.resolve(session_id: other, env: encode(@claude_env))
+    assert %{"harness" => "claude", "session_id" => @uuid, "harness_pid" => 4242} = HarnessSession.resolve(session_id: @uuid, env: encode(@claude_env))
   end
 
   test "owner records the Claude session from the environment", %{opts: opts} do
@@ -71,6 +71,25 @@ defmodule Aiur.Executor.HarnessSessionTest do
     assert {:ok, %{"session" => %{"session_id" => @uuid}}} = Claims.renew("a", opts)
     other = "11111111-2222-4333-8444-555555555555"
     assert {:ok, %{"session" => %{"session_id" => ^other}}} = Claims.claim("a", [session: HarnessSession.detect(%{@claude_env | "CLAUDE_CODE_SESSION_ID" => other})] ++ opts)
+  end
+
+  test "a claim after a lapsed lease does not inherit the old session", %{opts: opts} do
+    past = DateTime.add(DateTime.utc_now(), -10 * Claims.lease_ttl_ms(), :millisecond)
+    {:ok, _} = Claims.claim("a", [session: HarnessSession.detect(@claude_env), now: past] ++ opts)
+    {:ok, entry} = Claims.claim("a", opts)
+    refute Map.has_key?(entry, "session")
+    assert %{"reason" => "no_session"} = HarnessSession.current(opts)
+  end
+
+  test "claims resolve session_opts and the file is private", %{opts: opts} do
+    {:ok, entry} = Claims.claim("a", [session_opts: [env: encode(@claude_env)]] ++ opts)
+    assert entry["session"]["session_id"] == @uuid
+    assert Bitwise.band(File.stat!(opts[:path]).mode, 0o777) == 0o600
+  end
+
+  test "an explicit id does not borrow the pid of a different current session" do
+    other = "11111111-2222-4333-8444-555555555555"
+    assert %{"harness_pid" => nil, "config_dir" => nil} = HarnessSession.resolve(session_id: other, env: encode(@claude_env))
   end
 
   test "current returns the live handle", %{opts: opts} do
