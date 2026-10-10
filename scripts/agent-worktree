@@ -233,6 +233,26 @@ worktree_path() {
   build_path "$repo_root" "$pr_number" "$component"
 }
 
+# Start time of a process, rendered identically for every caller. It guards
+# the create lock against pid reuse; empty when the process is gone.
+process_start() {
+  TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null
+}
+
+# False only when the lock names a holder that is provably gone: its pid is
+# dead, or the pid now belongs to a process with a different start time. A
+# lock with no owner yet is a holder between mkdir and its owner write.
+create_lock_holder_alive() {
+  holder_pid=$(sed -n 1p "$1/owner" 2>/dev/null)
+  holder_start=$(sed -n 2p "$1/owner" 2>/dev/null)
+  case "$holder_pid" in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  kill -0 "$holder_pid" 2>/dev/null || return 1
+  live_start=$(process_start "$holder_pid")
+  [ -z "$holder_start" ] || [ -z "$live_start" ] || [ "$holder_start" = "$live_start" ]
+}
+
 create_worktree() {
   repo_root=$1
   pr_number=$2
@@ -262,12 +282,21 @@ create_worktree() {
   # .git/worktrees/<id>/commondir non-atomically, and both `fetch` into a
   # branch and `worktree add` read every registered worktree's commondir, so a
   # concurrent create dies with "failed to read .../commondir".
-  # ponytail: no stale-lock reclaim; a SIGKILLed create leaves the directory
-  # and later creates fail loudly after the wait. Add owner-pid reclaim if
-  # that ever happens in practice.
+  # The holder records its pid and start time so a create killed with SIGKILL
+  # does not wedge the repository: a waiter that finds the holder dead takes
+  # the lock over. A live holder is still waited on for up to 300s.
+  # ponytail: a kill between mkdir and the owner write (or while holding the
+  # .reclaim mutex) is not reclaimed; later creates time out loudly instead.
   create_lock=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)/agent-worktree-create.lock
   lock_ticks=0
   until mkdir "$create_lock" 2>/dev/null; do
+    # Only one waiter may reclaim, and it re-checks under the mutex so it
+    # cannot delete a lock another waiter has just taken.
+    if ! create_lock_holder_alive "$create_lock" && mkdir "$create_lock.reclaim" 2>/dev/null; then
+      create_lock_holder_alive "$create_lock" || rm -rf "$create_lock"
+      rmdir "$create_lock.reclaim"
+      continue
+    fi
     lock_ticks=$((lock_ticks + 1))
     if [ "$lock_ticks" -gt 3000 ]; then
       printf 'agent-worktree: timed out waiting for another create; if none is running, remove %s\n' "$create_lock" >&2
@@ -275,7 +304,8 @@ create_worktree() {
     fi
     sleep 0.1
   done
-  trap 'rmdir "$create_lock" 2>/dev/null' EXIT
+  printf '%s\n%s\n' "$$" "$(process_start "$$")" > "$create_lock/owner"
+  trap 'rm -rf "$create_lock"' EXIT
   trap 'exit 129' HUP INT TERM
 
   # Fetch the PR head onto a unique local branch so a second agent reviewing

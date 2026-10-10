@@ -40,6 +40,20 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     System.cmd(@helper, args, cd: repo, env: clean_env(), stderr_to_stdout: true)
   end
 
+  # The create lock as a holder leaves it: a directory naming the holder pid
+  # and that process start time, in the form the helper reads back.
+  defp hold_create_lock!(repo, pid, started) do
+    lock = Path.join(repo, ".git/agent-worktree-create.lock")
+    File.mkdir!(lock)
+    File.write!(Path.join(lock, "owner"), "#{pid}\n#{started}\n")
+    lock
+  end
+
+  defp process_start(pid) do
+    {out, 0} = System.cmd("ps", ["-o", "lstart=", "-p", pid], env: [{"TZ", "UTC"}, {"LC_ALL", "C"}])
+    String.trim(out)
+  end
+
   defp write!(repo, path, contents) do
     File.write!(Path.join(repo, path), contents)
   end
@@ -163,8 +177,7 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     {repo, _origin} = new_repo!()
     pr_head = add_pr!(repo, 123)
 
-    lock = Path.join(repo, ".git/agent-worktree-create.lock")
-    File.mkdir!(lock)
+    lock = hold_create_lock!(repo, System.pid(), process_start(System.pid()))
 
     task = Task.async(fn -> run_helper!(repo, ["create", "123", "--unique", "waiter"]) end)
 
@@ -172,11 +185,40 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     refute File.dir?(Path.join(repo, ".git/worktrees/pr-123-waiter"))
     assert git!(repo, ["branch", "--list", "pr-123-waiter"]) == ""
 
-    File.rmdir!(lock)
+    File.rm_rf!(lock)
 
     {out, 0} = Task.await(task, 30_000)
     assert git!(String.trim(out), ["rev-parse", "HEAD"]) == pr_head
     refute File.dir?(lock), "create must release the lock when it finishes"
+  end
+
+  # A create killed with SIGKILL cannot release its lock. Without reclaim every
+  # later create waits out the full 300s bound and fails, so this test would
+  # time out rather than finish.
+  test "create takes over a lock whose holder pid is dead" do
+    {repo, _origin} = new_repo!()
+    pr_head = add_pr!(repo, 123)
+
+    {dead_pid, 0} = System.cmd("sh", ["-c", "echo $$"])
+    lock = hold_create_lock!(repo, String.trim(dead_pid), "Thu Jan  1 00:00:00 1970")
+
+    {out, 0} = run_helper!(repo, ["create", "123", "--unique", "heir"])
+
+    assert git!(String.trim(out), ["rev-parse", "HEAD"]) == pr_head
+    refute File.dir?(lock), "the reclaimed lock must be released like any other"
+  end
+
+  # The recorded pid is alive here (it is this BEAM) but started at another
+  # time, which is what a recycled pid looks like after the real holder died.
+  test "create takes over a lock whose holder pid was reused by another process" do
+    {repo, _origin} = new_repo!()
+    pr_head = add_pr!(repo, 123)
+
+    hold_create_lock!(repo, System.pid(), "Thu Jan  1 00:00:00 1970")
+
+    {out, 0} = run_helper!(repo, ["create", "123", "--unique", "reused"])
+
+    assert git!(String.trim(out), ["rev-parse", "HEAD"]) == pr_head
   end
 
   test "create refuses an existing worktree path instead of reusing or repointing it" do
