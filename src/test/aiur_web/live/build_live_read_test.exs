@@ -24,6 +24,27 @@ defmodule AiurWeb.BuildLiveReadTest do
     assert Process.alive?(view.pid)
   end
 
+  test "resync floods are throttled to one read per interval" do
+    {:ok, view, _} = live(build_conn(), "/build")
+    render_async(view)
+    flush_reads()
+    ref = make_ref()
+    pid = self()
+    :telemetry.attach(ref, [:aiur, :build, :resync_throttled], fn _, m, _, _ -> send(pid, {:throttled, m.count}) end, nil)
+    on_exit(fn -> :telemetry.detach(ref) end)
+
+    start = System.monotonic_time(:millisecond)
+    for _ <- 1..100, do: render_hook(view, "build-resync", %{})
+    elapsed = System.monotonic_time(:millisecond) - start
+
+    reads = length(flush_reads())
+    assert reads >= 1 and reads <= 1 + div(elapsed, 2_000)
+    assert reads + length(flush_throttled()) == 99
+  end
+
+  defp flush_reads(acc \\ []), do: receive(do: ({:read, _} = m -> flush_reads([m | acc])), after: (0 -> acc))
+  defp flush_throttled(acc \\ []), do: receive(do: ({:throttled, _} = m -> flush_throttled([m | acc])), after: (0 -> acc))
+
   test "part failures preserve unavailable cause inside a valid snapshot" do
     source(part_failure: true)
     {:ok, view, _} = live(build_conn(), "/build")
