@@ -175,7 +175,7 @@ defmodule Aiur.Codex.EventHumanizer do
   end
 
   def humanize_method(<<"codex/event/", suffix::binary>>, payload) do
-    humanize_wrapper_event(suffix, payload)
+    Aiur.Codex.EventHumanizer.WrapperEvents.humanize_wrapper_event(suffix, payload)
   end
 
   def humanize_method(method, payload) do
@@ -207,7 +207,8 @@ defmodule Aiur.Codex.EventHumanizer do
     "item #{state}: #{item_type}#{detail_suffix}"
   end
 
-  defp humanize_streaming_event(label, payload) do
+  @doc false
+  def humanize_streaming_event(label, payload) do
     case extract_delta_preview(payload) do
       nil -> label
       preview -> "#{label}: #{preview}"
@@ -243,7 +244,8 @@ defmodule Aiur.Codex.EventHumanizer do
 
   defp fallback_command(command, _payload), do: command
 
-  defp normalize_command(%{} = command) do
+  @doc false
+  def normalize_command(%{} = command) do
     binary_command = map_value(command, ["parsedCmd", :parsedCmd, "command", :command, "cmd", :cmd])
     args = map_value(command, ["args", :args, "argv", :argv])
 
@@ -254,9 +256,9 @@ defmodule Aiur.Codex.EventHumanizer do
     end
   end
 
-  defp normalize_command(command) when is_binary(command), do: inline_text(command)
+  def normalize_command(command) when is_binary(command), do: inline_text(command)
 
-  defp normalize_command(command) when is_list(command) do
+  def normalize_command(command) when is_list(command) do
     if Enum.all?(command, &is_binary/1) do
       command |> Enum.join(" ") |> inline_text()
     else
@@ -264,7 +266,7 @@ defmodule Aiur.Codex.EventHumanizer do
     end
   end
 
-  defp normalize_command(_command), do: nil
+  def normalize_command(_command), do: nil
 
   defp dynamic_tool_name(payload) do
     map_path(payload, ["params", "tool"]) ||
@@ -315,7 +317,8 @@ defmodule Aiur.Codex.EventHumanizer do
   defp append_if_present(list, value) when is_binary(value) and value != "", do: list ++ [value]
   defp append_if_present(list, _value), do: list
 
-  defp extract_first_path(payload, paths) do
+  @doc false
+  def extract_first_path(payload, paths) do
     Enum.find_value(paths, fn path -> map_path(payload, path) end)
   end
 
@@ -355,156 +358,6 @@ defmodule Aiur.Codex.EventHumanizer do
       [:params, :msg, :payload, :summaryText],
       ["params", "msg", "payload", "content"],
       [:params, :msg, :payload, :content]
-    ]
-  end
-
-  # -- Codex wrapper events (codex/event/*) -----------------------------------
-
-  defp humanize_wrapper_event("mcp_startup_update", payload) do
-    server =
-      map_path(payload, ["params", "msg", "server"]) ||
-        map_path(payload, [:params, :msg, :server]) || "mcp"
-
-    state =
-      map_path(payload, ["params", "msg", "status", "state"]) ||
-        map_path(payload, [:params, :msg, :status, :state]) || "updated"
-
-    "mcp startup: #{server} #{state}"
-  end
-
-  defp humanize_wrapper_event("mcp_startup_complete", _payload), do: "mcp startup complete"
-  defp humanize_wrapper_event("task_started", _payload), do: "task started"
-  defp humanize_wrapper_event("user_message", _payload), do: "user message received"
-
-  defp humanize_wrapper_event("item_started", payload) do
-    case wrapper_payload_type(payload) do
-      "token_count" -> humanize_wrapper_event("token_count", payload)
-      type when is_binary(type) -> "item started (#{humanize_item_type(type)})"
-      _ -> "item started"
-    end
-  end
-
-  defp humanize_wrapper_event("item_completed", payload) do
-    case wrapper_payload_type(payload) do
-      "token_count" -> humanize_wrapper_event("token_count", payload)
-      type when is_binary(type) -> "item completed (#{humanize_item_type(type)})"
-      _ -> "item completed"
-    end
-  end
-
-  defp humanize_wrapper_event("agent_message_delta", payload),
-    do: humanize_streaming_event("agent message streaming", payload)
-
-  defp humanize_wrapper_event("agent_message_content_delta", payload),
-    do: humanize_streaming_event("agent message content streaming", payload)
-
-  defp humanize_wrapper_event("agent_reasoning_delta", payload),
-    do: humanize_streaming_event("reasoning streaming", payload)
-
-  defp humanize_wrapper_event("reasoning_content_delta", payload),
-    do: humanize_streaming_event("reasoning content streaming", payload)
-
-  defp humanize_wrapper_event("agent_reasoning_section_break", _payload), do: "reasoning section break"
-
-  defp humanize_wrapper_event("agent_reasoning", payload) do
-    value = extract_first_path(payload, reasoning_focus_paths())
-
-    if is_binary(value) do
-      trimmed = String.trim(value)
-      if trimmed == "", do: "reasoning update", else: "reasoning update: #{inline_text(trimmed)}"
-    else
-      "reasoning update"
-    end
-  end
-
-  defp humanize_wrapper_event("turn_diff", _payload), do: "turn diff updated"
-
-  defp humanize_wrapper_event("exec_command_begin", payload) do
-    command =
-      map_path(payload, ["params", "msg", "command"]) ||
-        map_path(payload, [:params, :msg, :command]) ||
-        map_path(payload, ["params", "msg", "parsed_cmd"]) ||
-        map_path(payload, [:params, :msg, :parsed_cmd])
-
-    command = normalize_command(command)
-    if is_binary(command), do: command, else: "command started"
-  end
-
-  defp humanize_wrapper_event("exec_command_end", payload) do
-    exit_code =
-      map_path(payload, ["params", "msg", "exit_code"]) ||
-        map_path(payload, [:params, :msg, :exit_code]) ||
-        map_path(payload, ["params", "msg", "exitCode"]) ||
-        map_path(payload, [:params, :msg, :exitCode])
-
-    if is_integer(exit_code), do: "command completed (exit #{exit_code})", else: "command completed"
-  end
-
-  defp humanize_wrapper_event("exec_command_output_delta", _payload), do: "command output streaming"
-  defp humanize_wrapper_event("mcp_tool_call_begin", _payload), do: "mcp tool call started"
-  defp humanize_wrapper_event("mcp_tool_call_end", _payload), do: "mcp tool call completed"
-
-  defp humanize_wrapper_event("token_count", payload) do
-    usage = extract_first_path(payload, token_usage_paths())
-
-    case format_usage_counts(usage) do
-      nil -> "token count update"
-      usage_text -> "token count update (#{usage_text})"
-    end
-  end
-
-  defp humanize_wrapper_event(other, payload) do
-    msg_type =
-      map_path(payload, ["params", "msg", "type"]) ||
-        map_path(payload, [:params, :msg, :type])
-
-    if is_binary(msg_type), do: "#{other} (#{msg_type})", else: other
-  end
-
-  defp wrapper_payload_type(payload) do
-    map_path(payload, ["params", "msg", "type"]) ||
-      map_path(payload, [:params, :msg, :type]) ||
-      map_path(payload, ["params", "msg", "payload", "type"]) ||
-      map_path(payload, [:params, :msg, :payload, :type])
-  end
-
-  defp token_usage_paths do
-    [
-      ["params", "msg", "payload", "info", "total_token_usage"],
-      [:params, :msg, :payload, :info, :total_token_usage],
-      ["params", "msg", "info", "total_token_usage"],
-      [:params, :msg, :info, :total_token_usage],
-      ["params", "tokenUsage", "total"],
-      [:params, :tokenUsage, :total]
-    ]
-  end
-
-  defp reasoning_focus_paths do
-    [
-      ["params", "reason"],
-      [:params, :reason],
-      ["params", "summaryText"],
-      [:params, :summaryText],
-      ["params", "summary"],
-      [:params, :summary],
-      ["params", "text"],
-      [:params, :text],
-      ["params", "msg", "reason"],
-      [:params, :msg, :reason],
-      ["params", "msg", "summaryText"],
-      [:params, :msg, :summaryText],
-      ["params", "msg", "summary"],
-      [:params, :msg, :summary],
-      ["params", "msg", "text"],
-      [:params, :msg, :text],
-      ["params", "msg", "payload", "reason"],
-      [:params, :msg, :payload, :reason],
-      ["params", "msg", "payload", "summaryText"],
-      [:params, :msg, :payload, :summaryText],
-      ["params", "msg", "payload", "summary"],
-      [:params, :msg, :payload, :summary],
-      ["params", "msg", "payload", "text"],
-      [:params, :msg, :payload, :text]
     ]
   end
 end
