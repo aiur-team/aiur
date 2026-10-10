@@ -1,3 +1,4 @@
+const labels = { claude: 'Claude', codex: 'Codex', deepseek: 'DeepSeek', kimi: 'Kimi' };
 const sections = ['hist', 'now', 'plan', 'nq'];
 const duration = text => [...text.matchAll(/(\d+)([dhm])/g)].reduce((ms, [, n, unit]) => ms + Number(n) * { d: 86400000, h: 3600000, m: 60000 }[unit], 0);
 const time = (obj, key) => obj[key] == null ? null : Math.trunc(obj[key]);
@@ -18,7 +19,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
   const row = (t, ord) => ({ id: id(t.id), num: t.num, title: t.title, type: t.type, epic: optional(t, 'epic'), feature: optional(t, 'feature'),
     also: t.also, cx: optional(t, 'cx'), pts: optional(t, 'pts'), sec: t.sec, ord,
     start: time(t, 'start'), end: time(t, 'end'), created: time(t, 'created'), status: t.status,
-    pct: optional(t, 'pct'), agent: optional(t, 'agent'), est: optional(t, 'est'), override: t.override ? { hours: t.override.hours, reason: t.override.reason, by: t.override.by ?? null, at: time(t.override, 'at') } : null,
+    pct: optional(t, 'pct'), agent: t.agent ? { ...t.agent, name: Object.hasOwn(labels, t.agent.model) ? labels[t.agent.model] : null } : null, est: optional(t, 'est'), override: t.override ? { hours: t.override.hours, reason: t.override.reason, by: t.override.by ?? null, at: time(t.override, 'at') } : null,
     added: t.added ?? false, deps: t.deps.map(id), wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
     cue: t.cue ? { held: optional(t.cue, 'held'), promoted: t.cue.promoted ? meta.now - duration(t.cue.promoted) : null,
       wait: optional(t.cue, 'wait'), waitAny: t.cue.waitAny ?? false, failed: optional(t.cue, 'failed'), blockedChain: t.cue.blockedChain ?? false } : null,
