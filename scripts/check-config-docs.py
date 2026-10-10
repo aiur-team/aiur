@@ -29,7 +29,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "src/lib/aiur/config/schema"
 ROOT_SCHEMA = REPO_ROOT / "src/lib/aiur/config/schema.ex"
-REFERENCE = REPO_ROOT / "website/docs-app/reference/configuration.md"
+REFERENCE_DIR = REPO_ROOT / "website/docs-app/reference"
+# A key may be documented on any of these pages, exactly one of which is needed.
+REFERENCES = [
+    REFERENCE_DIR / "configuration.md",
+    REFERENCE_DIR / "configuration-agent.md",
+    REFERENCE_DIR / "configuration-build-order.md",
+]
 
 ROOT_MODULE = "Aiur.Config.Schema"
 
@@ -128,8 +134,9 @@ def collect(modules: dict[str, str], module: str, prefix: str, seen: set[str], k
 
 
 def main() -> int:
-    if not REFERENCE.exists():
-        die(f"expected path is missing: {REFERENCE}\ncheck-config-docs: update this script if the layout moved.")
+    for page in REFERENCES:
+        if not page.exists():
+            die(f"expected path is missing: {page}\ncheck-config-docs: update this script if the layout moved.")
 
     modules = load_modules()
     if ROOT_MODULE not in modules:
@@ -141,7 +148,7 @@ def main() -> int:
     if not keys:
         die("found no config keys; that is a broken matcher, not an empty schema")
 
-    reference = REFERENCE.read_text(encoding="utf-8")
+    reference = "\n".join(page.read_text(encoding="utf-8") for page in REFERENCES)
     documented = set(INLINE_CODE_RE.findall(reference))
     missing = sorted(key for key in keys if key not in EXEMPT and key not in documented)
 
@@ -152,7 +159,7 @@ def main() -> int:
         print(
             "\nDocumentation ships in the same PR as the change (AGENTS.md, \"Docs ship\n"
             "with the change\"). Add a row for each key to\n"
-            "website/docs-app/reference/configuration.md under its section, giving the\n"
+            "website/docs-app/reference/configuration*.md under its section, giving the\n"
             "type, the default, and what an operator changes it for. Keep it to one\n"
             "line; a wrong entry is worse than a missing one.\n\n"
             "If a key is genuinely internal and no operator would ever set it, add it\n"
