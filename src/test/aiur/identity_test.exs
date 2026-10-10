@@ -79,13 +79,12 @@ defmodule Aiur.IdentityTest do
              run_shape: %{http_listener: true, dashboard_pages: true, dashboard: true, headless: false, interactive_cli: false, executor_mode: false}
            }
 
-    endpoint = Application.get_env(:aiur, AiurWeb.Endpoint, [])
-    on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, endpoint) end)
-    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(endpoint, :dashboard_pages, false))
+    on_exit(fn -> Application.delete_env(:aiur, :dashboard_pages) end)
+    Application.put_env(:aiur, :dashboard_pages, false)
 
     assert %{http_listener: true, dashboard_pages: false, dashboard: true} = Identity.instance_section().run_shape
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, endpoint)
+    Application.delete_env(:aiur, :dashboard_pages)
     for flag <- [:no_dashboard, :headless, :interactive_cli, :executor_mode], do: Application.put_env(:aiur, flag, true)
 
     assert Identity.instance_section().run_shape == %{

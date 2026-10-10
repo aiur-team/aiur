@@ -79,6 +79,8 @@ defmodule Aiur.HttpServer do
       |> Application.get_env(Endpoint, [])
       |> Keyword.merge(endpoint_opts)
 
+    # Mirrored outside the endpoint config so the capability report reads it without a web dependency.
+    Application.put_env(:aiur, :dashboard_pages, endpoint_opts[:dashboard_pages])
     Application.put_env(:aiur, Endpoint, endpoint_config)
   end
 
