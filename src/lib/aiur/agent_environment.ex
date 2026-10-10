@@ -346,9 +346,7 @@ defmodule Aiur.AgentEnvironment do
       ] ++
         scratch_env(workspace) ++
         __MODULE__.GitIdentity.port_env(opts) ++
-        Enum.map(mix_scheduler_env(), fn {name, value} ->
-          {String.to_charlist(name), String.to_charlist(value)}
-        end) ++
+        Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
         port_startup_env
 
