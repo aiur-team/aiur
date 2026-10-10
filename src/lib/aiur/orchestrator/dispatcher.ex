@@ -2655,14 +2655,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
+        dispatch_selection: issue.dispatch_selection && issue.dispatch_selection.summary,
         worker_host: worker_host,
         remote: is_binary(worker_host),
         retry_attempt: RetryEngine.normalize_retry_attempt(attempt)
       })
     end
 
-    supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
-    rework_head_sha = supplied_rework_head_sha || :pending
+    rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
 
     runner_context = %{
       attempt: attempt,
