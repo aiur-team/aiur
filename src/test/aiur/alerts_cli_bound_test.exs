@@ -17,16 +17,15 @@ defmodule Aiur.AlertsCLIBoundTest do
     records = records ++ [alert(201, true), Map.put(alert(201, false), "topic", "system.test.201.resolved")]
     File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
 
-    notice =
-      capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger) end)
-        alerts = output |> String.split("\n", trim: true) |> Enum.filter(&String.starts_with?(&1, "{")) |> Enum.map(&Jason.decode!/1)
-        assert length(alerts) == 100
-        assert hd(alerts)["topic"] == "system.test.102"
-        assert List.last(alerts)["topic"] == "system.test.201.resolved"
-      end)
-
-    assert notice =~ "latest 100 of 201"
+    output = capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger) end)
+    [notice | alerts] = decode_output(output)
+    assert notice["event"] == "alert_feed_truncated"
+    assert notice["limit"] == 100
+    assert notice["matching_count"] == 201
+    assert notice["message"] =~ "older matches omitted"
+    assert length(alerts) == 100
+    assert hd(alerts)["topic"] == "system.test.102"
+    assert List.last(alerts)["topic"] == "system.test.201.resolved"
     refute capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger, needs_attention: true) end) =~ "system.test.201"
   end
 
@@ -35,13 +34,12 @@ defmodule Aiur.AlertsCLIBoundTest do
     records = records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")]
     File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
 
-    capture_io(:stderr, fn ->
-      output = capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger, needs_attention: true) end)
-      alerts = output |> String.split("\n", trim: true) |> Enum.filter(&String.starts_with?(&1, "{")) |> Enum.map(&Jason.decode!/1)
-      assert length(alerts) == 100
-      assert hd(alerts)["topic"] == "system.test.51"
-      assert List.last(alerts)["topic"] == "system.test.150"
-    end)
+    output = capture_io(fn -> AgentControlCLI.alerts(ledger_path: ledger, needs_attention: true) end)
+    [notice | alerts] = decode_output(output)
+    assert notice["matching_count"] == 150
+    assert length(alerts) == 100
+    assert hd(alerts)["topic"] == "system.test.51"
+    assert List.last(alerts)["topic"] == "system.test.150"
   end
 
   test "feed reconstruction grows linearly within the bounded ledger", %{ledger: ledger} do
@@ -66,6 +64,10 @@ defmodule Aiur.AlertsCLIBoundTest do
 
     [small, large] = costs
     assert large < small * 2
+  end
+
+  defp decode_output(output) do
+    output |> String.split("\n", trim: true) |> Enum.filter(&String.starts_with?(&1, "{")) |> Enum.map(&Jason.decode!/1)
   end
 
   defp reductions(ledger, count) do

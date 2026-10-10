@@ -11,7 +11,14 @@ defmodule Aiur.AlertsCLI do
     count = length(alerts)
 
     if count > @limit do
-      IO.puts(:stderr, "aiur: showing latest #{@limit} of #{count} matching retained alerts; older matches omitted")
+      IO.puts(
+        Jason.encode!(%{
+          "event" => "alert_feed_truncated",
+          "limit" => @limit,
+          "matching_count" => count,
+          "message" => "Showing latest #{@limit} matching retained alerts; older matches omitted"
+        })
+      )
     end
 
     alerts
