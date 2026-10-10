@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{HoldDecline, ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -1190,7 +1190,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     case revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
-      {:ok, refreshed} -> {:validated, refreshed, hydrator.(refreshed)}
+      # The hydration read waits a short local hold out like the refresh above.
+      {:ok, refreshed} -> {:validated, refreshed, LocalHold.run(fn -> hydrator.(refreshed) end, LocalHold.caller_opts(opts))}
       other -> other
     end
   end
@@ -1231,8 +1232,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp apply_dispatch_validation(state, issue, _attempt, _host, _opts, result) do
-    Logger.warning("Asynchronous dispatch validation declined: #{State.issue_context(issue)} result=#{inspect(result)}")
-    emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
+    emit_dispatch_attempt_decline(state, issue, HoldDecline.classify(issue, result, :tracker_revalidation_failed), true)
   end
 
   defp dispatch_input(state, id) do
@@ -1344,23 +1344,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
           dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts)
         end
 
-      {:error, reason} ->
-        Logger.warning(
-          "Skipping dispatch; blocked-by hydration failed for #{State.issue_context(refreshed_issue)}: " <>
-            "#{inspect(reason)} (fail-closed: unknown blockers hold dispatch)"
-        )
-
-        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
-
-      # A hydrator that returns an unexpected shape must never crash the
-      # orchestrator; treat it as unknown blockers and hold dispatch.
-      other ->
-        Logger.warning(
-          "Skipping dispatch; blocked-by hydration returned an unexpected result for " <>
-            "#{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)"
-        )
-
-        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+      # A failed read, or a hydrator that returns an unexpected shape, must never
+      # crash the orchestrator: blockers are unknown, so dispatch is held. A
+      # local budget hold is the one failure that is a retry rather than an
+      # attention item until it repeats (#4067); `HoldDecline` decides and logs.
+      failure ->
+        emit_dispatch_attempt_decline(state, refreshed_issue, HoldDecline.classify(refreshed_issue, failure, :dependency_hydration_failed), true)
     end
   end
 
@@ -1420,7 +1409,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
       issue,
       reason,
       "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}",
-      attention?
+      # A transient budget hold is a retry, never an attention item (#4067).
+      attention? and reason != HoldDecline.hold_reason()
     )
   end
 
