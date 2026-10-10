@@ -89,7 +89,9 @@ class RelayTest(unittest.TestCase):
         frames = [self.read(stream), self.read(stream)]
         self.assertEqual({f["line"] for f in frames}, {"hello", "diagnostic"})
         self.assertEqual([f["offset"] for f in frames], sorted(f["offset"] for f in frames))
-        self.wait(lambda: (self.directory / "err.log").read_text() == "diagnostic\n")
+        journal = (self.directory / "out.journal").read_text().splitlines()
+        self.assertCountEqual(journal, ["hello", "diagnostic"])
+        self.assertFalse((self.directory / "err.log").exists())
 
     def test_provider_environment_is_exactly_the_scrubbed_spec(self):
         previous = os.environ.get("AIUR_RELAY_SECRET_TEST")
@@ -223,7 +225,7 @@ class RelayTest(unittest.TestCase):
         self.assert_group_dead(hello["pgid"])
         self.assertEqual(json.loads((self.directory / "relay.json").read_text())["exit_status"], 137)
 
-    def test_sweep_removes_only_old_exited_and_dead_relays(self):
+    def test_sweep_removes_old_dead_relays_and_failed_launches(self):
         self.start()
         _, _, live = self.connect(1)
         root = self.directory / "sweep"
@@ -239,11 +241,19 @@ class RelayTest(unittest.TestCase):
             directory = root / name
             directory.mkdir()
             (directory / "relay.json").write_text(json.dumps(manifest))
+        for name in ("old-manifestless", "young-manifestless"):
+            directory = root / name
+            directory.mkdir()
+            (directory / "spawn.json").write_text('{"env":{"SECRET":"retained"}}')
+            if name == "old-manifestless":
+                timestamp = (datetime.now(timezone.utc) - timedelta(days=2)).timestamp()
+                os.utime(directory, (timestamp, timestamp))
+        (root / "symlink").symlink_to(root / "old-manifestless", target_is_directory=True)
         module_spec = importlib.util.spec_from_file_location("agent_relay", SCRIPT)
         relay = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(relay)
         relay.sweep_dead_relays(root)
-        self.assertEqual({path.name for path in root.iterdir()}, {"young-dead", "old-live", "no-exit"})
+        self.assertEqual({path.name for path in root.iterdir()}, {"young-dead", "old-live", "young-manifestless", "symlink"})
 
     def test_invalid_offsets_cannot_discard_frames(self):
         self.start()

@@ -31,7 +31,6 @@ class Relay:
         self.failed = False
         self.finished = asyncio.Event()
         self.journal = open(directory / 'out.journal', 'wb', buffering=0)
-        self.stderr = open(directory / 'err.log', 'ab', buffering=0)
         self.cap = spec.get('journal_cap', CAP)
         self.retained_base = 0
         self.manifest = {}
@@ -160,17 +159,12 @@ class Relay:
         self.signal_group(signal.SIGKILL)
         asyncio.create_task(self.stop(0))
 
-    async def output(self, stream, diagnostic=False):
+    async def output(self, stream):
         pending = bytearray()
         try:
             while data := await stream.read(65536):
                 if self.failed:
                     continue
-                if diagnostic:
-                    if self.stderr.tell() + len(data) > CAP:
-                        self.stderr.seek(0)
-                        self.stderr.truncate()
-                    self.stderr.write(data)
                 if self.lossy:
                     continue
                 pending.extend(data)
@@ -316,7 +310,7 @@ class Relay:
                              pgid=self.provider.pid, created_at=datetime.now(timezone.utc).isoformat())
         self.persist()
         self.readers = [asyncio.create_task(self.output(self.provider.stdout)),
-                        asyncio.create_task(self.output(self.provider.stderr, diagnostic=True))]
+                        asyncio.create_task(self.output(self.provider.stderr))]
         path = self.directory / 'ctl.sock'
         server = await asyncio.start_unix_server(self.receive, path='ctl.sock', limit=self.cap * 2)
         os.chmod(path, 0o600)
@@ -337,7 +331,6 @@ class Relay:
             for task in tasks:
                 task.cancel()
             self.journal.close()
-            self.stderr.close()
 
 
 def sweep_dead_relays(root):
@@ -346,8 +339,13 @@ def sweep_dead_relays(root):
         if not directory.is_dir() or directory.is_symlink():
             continue
         try:
-            manifest = json.loads((directory / 'relay.json').read_text())
-            if manifest.get('exit_status') is None or datetime.fromisoformat(manifest['created_at']) >= cutoff:
+            manifest_path = directory / 'relay.json'
+            if not manifest_path.exists():
+                if datetime.fromtimestamp(directory.stat().st_mtime, timezone.utc) < cutoff:
+                    shutil.rmtree(directory)
+                continue
+            manifest = json.loads(manifest_path.read_text())
+            if datetime.fromisoformat(manifest['created_at']) >= cutoff:
                 continue
             pid = manifest['relay_pid']
             if type(pid) is not int or pid <= 0:

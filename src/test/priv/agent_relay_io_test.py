@@ -1,4 +1,4 @@
-"""Real relay filesystem-failure and diagnostic-log bounds."""
+"""Real relay filesystem-failure and diagnostic retention."""
 import json
 import os
 import signal
@@ -56,16 +56,15 @@ class RelayIOTest(unittest.TestCase):
         self.send(client, op='stdin', line='cannot persist\n')
         self.assert_io_failure_stops(client, stream, metadata)
 
-    def test_stderr_log_remains_bounded_and_retains_latest_output(self):
-        cap = 64 * 1024 * 1024
-        self.start("import os\nfor _ in range(65): os.write(2, b'x' * 1048575 + b'\\n')\nos.write(2, b'latest\\n')",
-                   journal_cap=cap * 2)
+    def test_stderr_is_delivered_and_journaled_once_without_duplicate_log(self):
+        self.start("import os\nos.write(2, b'diagnostic\\nlatest\\n')")
         self.wait(lambda: json.loads((self.directory / 'relay.json').read_text())['exit_status'] == 0)
-        log = self.directory / 'err.log'
-        self.assertLessEqual(log.stat().st_size, cap)
-        with log.open('rb') as stream:
-            stream.seek(-7, 2)
-            self.assertEqual(stream.read(), b'latest\n')
+        _, stream, _ = self.connect(1)
+        frames = [self.read(stream), self.read(stream)]
+        self.assertEqual([frame['line'] for frame in frames], ['diagnostic', 'latest'])
+        self.assertEqual(self.read(stream), {'op': 'exit', 'status': 0})
+        self.assertEqual((self.directory / 'out.journal').read_bytes(), b'diagnostic\nlatest\n')
+        self.assertFalse((self.directory / 'err.log').exists())
 
 
 if __name__ == '__main__':

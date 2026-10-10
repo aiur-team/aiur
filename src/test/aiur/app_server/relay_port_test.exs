@@ -30,6 +30,9 @@ defmodule Aiur.AppServer.RelayPortTest do
     {:ok, port} = Adapter.start_port(File.cwd!(), "printf 'fallback\\n'", fn _ -> :ok end, relay_script: "/missing/agent_relay.py")
     assert is_port(port)
     assert_receive {^port, {:data, {:eol, "fallback"}}}, 5_000
+    {:ok, root} = Paths.runtime_state_dir()
+    assert Path.wildcard(Path.join([root, "agent-relays", "*", "spawn.json"])) == []
+    assert Path.wildcard(Path.join([root, "agent-relays", "*", "relay.json"])) == []
   end
 
   test "relay preserves oversized lines and non-UTF8 provider bytes" do

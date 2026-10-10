@@ -6,6 +6,12 @@ defmodule Aiur.AppServer.RelayPort do
   alias Aiur.{AgentEnvironment, Boot, Config, ProcessReaper, ProcessTree}
   alias Aiur.Config.Paths
 
+  @runtime_env ~w(PATH HOME USER LOGNAME SHELL TMPDIR LANG LANGUAGE LC_ALL LC_CTYPE TZ TERM
+                  XDG_CONFIG_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
+                  CODEX_HOME CLAUDE_CONFIG_DIR SSH_AUTH_SOCK HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
+                  http_proxy https_proxy all_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR
+                  NODE_EXTRA_CA_CERTS REQUESTS_CA_BUNDLE CURL_CA_BUNDLE)
+
   @spec start(Path.t(), String.t(), list(), keyword()) :: {:ok, pid()} | {:error, term()}
   def start(workspace, command, env, opts \\ []) do
     GenServer.start(__MODULE__, {:spawn, self(), workspace, command, env, opts})
@@ -88,18 +94,30 @@ defmodule Aiur.AppServer.RelayPort do
       orphan_timeout_seconds: Config.settings!().agent.relay_orphan_timeout_seconds
     }
 
-    File.write!(spec_path, Jason.encode!(spec))
-    File.chmod!(spec_path, 0o600)
-    script = Keyword.get(opts, :relay_script, Application.app_dir(:aiur, "priv/agent_relay.py"))
+    try do
+      File.write!(spec_path, Jason.encode!(spec))
+      File.chmod!(spec_path, 0o600)
+      script = Keyword.get(opts, :relay_script, Application.app_dir(:aiur, "priv/agent_relay.py"))
 
-    case System.cmd("python3", [script, "--directory", directory, "--spec", spec_path], stderr_to_stdout: true) do
-      {_output, 0} -> {:ok, directory}
-      {output, status} -> {:error, {:relay_launch_failed, status, output}}
+      case System.cmd("python3", [script, "--directory", directory, "--spec", spec_path], stderr_to_stdout: true) do
+        {_output, 0} ->
+          {:ok, directory}
+
+        {output, status} ->
+          File.rm_rf(directory)
+          {:error, {:relay_launch_failed, status, output}}
+      end
+    rescue
+      error ->
+        File.rm_rf(directory)
+        {:error, {:relay_launch_failed, Exception.message(error)}}
+    after
+      File.rm(spec_path)
     end
   end
 
   defp launch_env(env) do
-    Enum.reduce(env, System.get_env(), fn
+    Enum.reduce(env, Map.take(System.get_env(), @runtime_env), fn
       {key, false}, acc -> Map.delete(acc, to_string(key))
       {key, value}, acc -> Map.put(acc, to_string(key), to_string(value))
     end)
