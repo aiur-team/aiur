@@ -32,6 +32,18 @@ defmodule Aiur.BuildQueue.PlannerTest do
     end
   end
 
+  test "queue add withdraws pre-existing todo only when known prerequisites are unmet" do
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    input = F.intent(input, :mark, target_labels: ~w(agent:queued agent:todo), outcome: :ok)
+    assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
+
+    manual = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    assert {[%{state: :overridden}], [{:mark_override, "1"}]} = Planner.plan(manual)
+
+    ready = F.input() |> F.update_observation(labels: ~w(agent:queued agent:todo)) |> F.intent(:mark, target_labels: ~w(agent:queued agent:todo), outcome: :ok)
+    assert {[%{state: :overridden, verdict: :ready}], [{:mark_override, "1"}]} = Planner.plan(ready)
+  end
+
   test "external removal holds once and matching withdrawal intent permits management" do
     input = F.input() |> F.update_item(promoted_at: DateTime.from_unix!(9_000, :millisecond))
     assert {[%{state: :held, reason: :external}], [{:mark_external_hold, "1"}]} = Planner.plan(input)

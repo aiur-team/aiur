@@ -776,7 +776,7 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. A queue can override it with `--start-on`; missing or stale evidence never releases dependents. Optimistic stages use lifecycle labels. |
+| `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. A queue can override it with `--start-on`; missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds a conditional review read only for watched blockers. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
