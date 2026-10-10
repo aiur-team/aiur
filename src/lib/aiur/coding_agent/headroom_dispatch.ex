@@ -114,6 +114,13 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   @doc """
   The usage-ledger reading for a backend, in the ranker's reading shape, or
   `nil` when the ledger has no current usage window for it.
+
+  The ledger is written only when a session of that backend starts or reports
+  its limits, or when the background probe runs (only while every candidate is
+  limited). A backend that is not getting work can therefore hold a reading
+  that is days old, and usage only rises inside a window. A reading older than
+  `agent.headroom_reading_max_age_seconds` is returned as `stale: true`, which
+  scores as unknown. `age_seconds` carries the age either way.
   """
   @spec backend_reading(String.t(), keyword()) :: Headroom.reading()
   def backend_reading(backend, opts \\ []) do
@@ -123,8 +130,12 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     windows =
       for {key, label} <- @ledger_windows, used = window_used(Map.get(entry, key), now), into: %{}, do: {label, used}
 
-    if windows == %{}, do: nil, else: %{windows: windows, source: "ledger"}
+    if windows == %{}, do: nil, else: with_age(%{windows: windows, source: "ledger"}, parse_time(entry["observed_at"]), now, opts)
   end
+
+  @doc "Readings older than this many seconds score as unknown. Pass `max_reading_age_seconds:` to override."
+  @spec max_reading_age_seconds(keyword()) :: pos_integer()
+  def max_reading_age_seconds(opts \\ []), do: Keyword.get_lazy(opts, :max_reading_age_seconds, &configured_max_age/0)
 
   @doc "Remaining percent of a reading's binding window, or `nil` when unknown (`Aiur.Accounts.Headroom`)."
   @spec remaining_percent(Headroom.reading()) :: non_neg_integer() | nil
@@ -204,7 +215,9 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
       status: scored.status,
       remaining_percent: scored.remaining && round(scored.remaining * 100),
       binding_window: scored.binding_window,
-      source: scored.source
+      source: scored.source,
+      age_seconds: scored.age_seconds,
+      stale: scored.stale
     }
   end
 
@@ -250,40 +263,63 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   defp readings(candidates, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     state = ledger_state(opts)
-    meters = account_meters(candidates, opts)
+    opts = Keyword.put(opts, :max_reading_age_seconds, max_reading_age_seconds(opts))
+    meters = account_meters(candidates, now, opts)
     per_backend = candidates |> Enum.uniq_by(&{&1.backend, &1.account}) |> Enum.frequencies_by(& &1.backend)
 
     Map.new(candidates, fn candidate ->
-      {Headroom.key(candidate), reading(candidate, state, meters, per_backend, now)}
+      {Headroom.key(candidate), reading(candidate, state, meters, per_backend, now, opts)}
     end)
   end
 
-  defp reading(%{backend: backend, account: account}, state, meters, per_backend, now) do
+  defp reading(%{backend: backend, account: account}, state, meters, per_backend, now, opts) do
     cond do
       not ModelAvailability.available?(backend, state: state, now: now) -> %{limited: true, source: "ledger"}
       reading = Map.get(meters, {account_backend(backend), account || "default"}) -> reading
-      Map.get(per_backend, backend) == 1 -> backend_reading(backend, state: state, now: now)
+      Map.get(per_backend, backend) == 1 -> backend_reading(backend, Keyword.merge(opts, state: state, now: now))
       true -> nil
     end
   end
 
-  defp account_meters(candidates, opts) do
+  defp account_meters(candidates, now, opts) do
     snapshot = Keyword.get(opts, :usage_snapshot, &UsageReadings.snapshot/2)
 
     candidates
     |> Enum.group_by(&account_backend(&1.backend), &(&1.account || "default"))
     |> Enum.flat_map(fn {harness, names} ->
-      for {name, entry} <- snapshot.(harness, names), reading = meter_reading(entry), do: {{harness, name}, reading}
+      for {name, entry} <- snapshot.(harness, names), reading = meter_reading(entry, now, opts), do: {{harness, name}, reading}
     end)
     |> Map.new()
   end
 
-  defp meter_reading(%{reading: %{windows: windows}}) when is_list(windows) do
+  defp meter_reading(%{reading: %{windows: windows}} = entry, now, opts) when is_list(windows) do
     used = for %{window: window, used_percent: percent} when window in ["five_hour", "seven_day"] and is_number(percent) <- windows, into: %{}, do: {window, percent}
-    if used == %{}, do: nil, else: %{windows: used, source: "meter"}
+    if used == %{}, do: nil, else: with_age(%{windows: used, source: "meter"}, parse_time(entry[:observed_at]), now, opts)
   end
 
-  defp meter_reading(_entry), do: nil
+  defp meter_reading(_entry, _now, _opts), do: nil
+
+  # A reading with no observation time cannot be shown as current.
+  defp with_age(reading, nil, _now, _opts), do: Map.put(reading, :stale, true)
+
+  defp with_age(reading, %DateTime{} = observed_at, now, opts) do
+    age = max(DateTime.diff(now, observed_at, :second), 0)
+
+    if age > max_reading_age_seconds(opts),
+      do: %{stale: true, age_seconds: age, source: reading.source},
+      else: Map.put(reading, :age_seconds, age)
+  end
+
+  defp parse_time(%DateTime{} = value), do: value
+
+  defp parse_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, time, _offset} -> time
+      _ -> nil
+    end
+  end
+
+  defp parse_time(_value), do: nil
 
   defp window_used(%{"used" => used, "limit" => limit} = window, now) when is_number(used) and is_number(limit) and limit > 0 do
     if reset_passed?(Map.get(window, "reset_at"), now), do: nil, else: used / limit * 100
@@ -316,6 +352,12 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     Config.settings!().agent.account_selection
   rescue
     _ -> nil
+  end
+
+  defp configured_max_age do
+    Config.settings!().agent.headroom_reading_max_age_seconds || 1800
+  rescue
+    _ -> 1800
   end
 
   defp configured_accounts do

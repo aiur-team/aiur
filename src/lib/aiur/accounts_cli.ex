@@ -199,16 +199,26 @@ defmodule Aiur.AccountsCLI do
   # Backends without a per-account meter (Codex today) read the usage ledger
   # that their sessions and the background probe write (#3960). The ledger is
   # per backend, so it only describes a backend with a single account.
+  # A reading older than `agent.headroom_reading_max_age_seconds` is stale:
+  # its numbers are not shown, only its age.
+  defp with_ledger(row, %{stale: true} = reading) do
+    Map.merge(row, %{freshness: "stale_ledger", age_ms: age_ms(reading)})
+  end
+
   defp with_ledger(row, %{windows: windows} = reading) do
     Map.merge(row, %{
       weekly_percent: round_percent(windows["weekly"]),
       five_hour_percent: round_percent(windows["short"]),
       remaining_percent: HeadroomDispatch.remaining_percent(reading),
-      freshness: "ledger"
+      freshness: "ledger",
+      age_ms: age_ms(reading)
     })
   end
 
   defp with_ledger(row, _no_reading), do: row
+
+  defp age_ms(%{age_seconds: age}) when is_integer(age), do: age * 1000
+  defp age_ms(_reading), do: nil
 
   defp round_percent(value) when is_number(value), do: round(value)
   defp round_percent(_value), do: nil
@@ -233,7 +243,7 @@ defmodule Aiur.AccountsCLI do
     fields =
       if Map.get(row, :identity) == nil,
         do: [:name, :harness, :usage, :remaining_percent],
-        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness]
+        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms]
 
     IO.puts(Enum.map_join(fields, "  ", fn key -> "#{key}=#{inspect(Map.get(row, key))}" end))
   end

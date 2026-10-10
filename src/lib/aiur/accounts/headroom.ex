@@ -33,9 +33,18 @@ defmodule Aiur.Accounts.Headroom do
   @typedoc """
   A usage reading. `:windows` maps a window name to its used percent (0..100).
   `limited: true` marks a candidate the caller already knows is refused.
-  `nil` means no reading exists.
+  `stale: true` marks a reading too old to trust; it scores as unknown.
+  `age_seconds` is shown next to the score. `nil` means no reading exists.
   """
-  @type reading :: %{optional(:windows) => %{optional(String.t()) => number() | nil}, optional(:limited) => boolean(), optional(:source) => String.t()} | nil
+  @type reading ::
+          %{
+            optional(:windows) => %{optional(String.t()) => number() | nil},
+            optional(:limited) => boolean(),
+            optional(:stale) => boolean(),
+            optional(:age_seconds) => non_neg_integer(),
+            optional(:source) => String.t()
+          }
+          | nil
 
   @type status :: :known | :low | :unknown | :exhausted
 
@@ -45,6 +54,8 @@ defmodule Aiur.Accounts.Headroom do
           remaining: float() | nil,
           binding_window: String.t() | nil,
           source: String.t() | nil,
+          age_seconds: non_neg_integer() | nil,
+          stale: boolean(),
           index: non_neg_integer()
         }
 
@@ -110,11 +121,28 @@ defmodule Aiur.Accounts.Headroom do
   def name(%{backend: backend, account: account}), do: backend <> "/" <> account
 
   defp value(%{status: :exhausted}), do: "exhausted"
+  defp value(%{status: :unknown, stale: true, age_seconds: age}) when is_integer(age), do: "unknown (stale, #{age_text(age)} old)"
   defp value(%{status: :unknown}), do: "unknown"
+  defp value(%{remaining: remaining, age_seconds: age}) when is_integer(age) and age >= 60, do: "#{round(remaining * 100)}% (#{age_text(age)} old)"
   defp value(%{remaining: remaining}), do: "#{round(remaining * 100)}%"
 
+  @doc "Compact age: `45s`, `12m`, `5h`, `3d`."
+  @spec age_text(non_neg_integer()) :: String.t()
+  def age_text(seconds) when seconds < 60, do: "#{seconds}s"
+  def age_text(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
+  def age_text(seconds) when seconds < 86_400, do: "#{div(seconds, 3_600)}h"
+  def age_text(seconds), do: "#{div(seconds, 86_400)}d"
+
   defp score(candidate, reading, index) do
-    base = %{candidate: candidate, index: index, source: source(reading), binding_window: nil, remaining: nil}
+    base = %{
+      candidate: candidate,
+      index: index,
+      source: source(reading),
+      age_seconds: reading_field(reading, :age_seconds),
+      stale: reading_field(reading, :stale) == true,
+      binding_window: nil,
+      remaining: nil
+    }
 
     case binding_window(reading) do
       :limited -> Map.put(base, :status, :exhausted)
@@ -128,6 +156,7 @@ defmodule Aiur.Accounts.Headroom do
   defp classify(scored), do: Map.put(scored, :status, :known)
 
   defp binding_window(%{limited: true}), do: :limited
+  defp binding_window(%{stale: true}), do: nil
 
   defp binding_window(%{windows: windows}) when is_map(windows) do
     windows
@@ -138,6 +167,9 @@ defmodule Aiur.Accounts.Headroom do
   defp binding_window(_reading), do: nil
 
   defp remaining(used), do: (100 - min(max(used, 0), 100)) / 100
+
+  defp reading_field(reading, key) when is_map(reading), do: Map.get(reading, key)
+  defp reading_field(_reading, _key), do: nil
 
   defp source(%{source: source}) when is_binary(source), do: source
   defp source(_reading), do: nil

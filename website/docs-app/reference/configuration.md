@@ -218,6 +218,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
 | `agent.accounts` | map | `%{}` | Machine-local account names enabled per harness, for example `{claude: [default, max]}`. The list is priority order; absent or empty keeps the existing single-account behavior. Claude and Codex use isolated profile directories; Kimi, DeepSeek, and OpenRouter use named API keys; Muse is unsupported. See [accounts by backend](/guide/claude-accounts). |
 | `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
+| `agent.headroom_reading_max_age_seconds` | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
 | `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
@@ -273,8 +274,7 @@ Each entry is a **route**, not just a backend name. A route uses the same gramma
 - `claude`: the backend's own direct connection, exactly as before.
 - `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
-A colon-free entry means what it has always meant, so **existing configs need
-no change**.
+A colon-free entry means what it has always meant, so **existing configs need no change**.
 
 ```yaml
 agent:

@@ -31,7 +31,7 @@ defmodule Aiur.Accounts do
   defp put_if_binary(map, :profile_dir, _value), do: Map.put(map, :profile_dir, nil)
   defp put_if_binary(map, _key, _value), do: map
 
-  @spec profile_env(String.t(), String.t()) :: [{String.t(), String.t()}]
+  @spec profile_env(String.t(), String.t()) :: [{String.t(), String.t() | false}]
   def profile_env(harness, name) do
     case account(harness, name) do
       {:ok, %{profile_dir: nil}} ->

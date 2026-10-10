@@ -11,7 +11,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   @future "2999-01-01T00:00:00Z"
 
   # Codex: 5% left on its weekly window, read from the usage ledger.
-  @ledger %{"backends" => %{"codex" => %{"weekly" => %{"used" => 95, "limit" => 100, "reset_at" => @future}}}}
+  @ledger %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 95, "limit" => 100, "reset_at" => @future}}}}
 
   defp meters(by_account) do
     fn
@@ -153,7 +153,46 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       past = %{"backends" => %{"codex" => %{"weekly" => %{"used" => 95, "limit" => 100, "reset_at" => "2026-01-01T00:00:00Z"}}}}
 
       assert HeadroomDispatch.backend_reading("codex", state: past, now: @now) == nil
-      assert HeadroomDispatch.backend_reading("codex", state: @ledger, now: @now) == %{windows: %{"weekly" => 95.0}, source: "ledger"}
+
+      assert HeadroomDispatch.backend_reading("codex", state: @ledger, now: @now, max_reading_age_seconds: 1800) ==
+               %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
+    end
+
+    # Review of #3969: the probe runs only while every candidate is limited, so
+    # a backend that gets no work keeps a ledger reading that can be days old.
+    test "a reading older than the freshness bound ranks as unknown and shows its age" do
+      old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
+
+      assert HeadroomDispatch.backend_reading("codex", state: old, now: @now, max_reading_age_seconds: 1800) ==
+               %{stale: true, age_seconds: 259_200, source: "ledger"}
+
+      # Codex at "5%" would lose to unknown anyway; make the old number look generous instead.
+      generous = put_in(old, ["backends", "codex", "weekly", "used"], 1)
+      exhausted_ish = meters(%{"default" => {100, 0}, "everdred" => {95, 0}})
+
+      assert {:ok, issue} = select(ticket(), state: generous, usage_snapshot: exhausted_ish, max_reading_age_seconds: 1800)
+      assert [%{name: "codex", status: :unknown, stale: true, age_seconds: 259_200} | _] = issue.dispatch_selection.candidates
+      assert issue.dispatch_selection.summary =~ "codex=unknown (stale, 3d old)"
+
+      fresh_claude = meters(%{"default" => {20, 0}, "everdred" => {95, 0}})
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} = select(ticket(), state: generous, usage_snapshot: fresh_claude, max_reading_age_seconds: 1800)
+    end
+
+    test "an old per-account meter reading is unknown too, and a current one shows its age" do
+      stale_meter = fn
+        "claude", _names ->
+          %{
+            "default" => %{reading: %{windows: [%{window: "seven_day", used_percent: 0}]}, observed_at: DateTime.add(@now, -7_200, :second)},
+            "everdred" => %{reading: %{windows: [%{window: "seven_day", used_percent: 50}]}, observed_at: DateTime.add(@now, -600, :second)}
+          }
+
+        _harness, _names ->
+          %{}
+      end
+
+      assert {:ok, %Issue{selected_account: "everdred"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
+      assert issue.dispatch_selection.summary =~ "claude/everdred=50% (10m old)"
+      assert issue.dispatch_selection.summary =~ "claude/default=unknown (stale, 2h old)"
     end
   end
 

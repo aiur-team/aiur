@@ -134,6 +134,8 @@ defmodule Aiur.Config.Schema.Agent do
     field(:routing_candidates, :map, default: %{})
     field(:accounts, :map, default: %{})
     field(:account_selection, :string, default: "balance")
+    # Headroom dispatch treats a usage reading older than this as unknown (#3960).
+    field(:headroom_reading_max_age_seconds, :integer, default: 1800)
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
     # that hits usage_limit_exhausted, reverted at a safe boundary once
@@ -239,6 +241,7 @@ defmodule Aiur.Config.Schema.Agent do
         :routing,
         :accounts,
         :account_selection,
+        :headroom_reading_max_age_seconds,
         :switch_model_on_ratelimit,
         :rate_limit_primary,
         :rate_limit_fallback,
@@ -265,6 +268,7 @@ defmodule Aiur.Config.Schema.Agent do
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
     |> validate_inclusion(:account_selection, ["balance", "priority", "headroom"])
+    |> validate_number(:headroom_reading_max_age_seconds, greater_than: 0)
     |> validate_change(:accounts, &validate_accounts/2)
     |> validate_number(:run_queue_threshold, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)

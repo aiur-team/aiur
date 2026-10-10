@@ -37,10 +37,18 @@ backend; headroom then picks only the account. A ticket that hits a usage
 limit pauses as before, and its next dispatch is scored again.
 
 Usage comes from the daemon's per-account meters for Claude, and from the
-usage ledger (`model-usage.json`) for Codex, which Codex sessions and the
-background probe fill from the app server's rate-limit read. The ledger is per
-backend, so two or more accounts on one backend without a per-account meter
-read as unknown. Unknown is never shown as a number.
+usage ledger (`model-usage.json`) for Codex. Codex writes the ledger when a
+session starts or reports its limits; the background probe runs only while
+every candidate is limited. So a backend that gets no work keeps an old
+reading.
+
+A reading older than `agent.headroom_reading_max_age_seconds` (default 1800)
+scores as unknown and is shown with its age, for example
+`codex=unknown (stale, 3d old)`. A current reading older than a minute shows
+its age too (`codex=40% (12m old)`).
+
+The ledger is per backend, so two or more accounts on one backend without a
+per-account meter read as unknown. Unknown is never shown as a number.
 
 Each dispatch records the chosen backend and account and every alternative's
 score: in the daemon log (`headroom_dispatch`), in the ticket's agent event

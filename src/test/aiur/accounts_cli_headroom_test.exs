@@ -28,7 +28,7 @@ defmodule Aiur.AccountsCLIHeadroomTest do
     end
 
     ledger = fn
-      "codex" -> %{windows: %{"short" => 12.0, "weekly" => 84.0}, source: "ledger"}
+      "codex" -> %{windows: %{"short" => 12.0, "weekly" => 84.0}, source: "ledger", age_seconds: 90}
       _other -> nil
     end
 
@@ -36,7 +36,10 @@ defmodule Aiur.AccountsCLIHeadroomTest do
     rows = output |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
 
     assert %{"remaining_percent" => 50} = Enum.find(rows, &(&1["harness"] == "claude"))
-    assert %{"remaining_percent" => 16, "weekly_percent" => 84, "five_hour_percent" => 12, "freshness" => "ledger"} = Enum.find(rows, &(&1["harness"] == "codex"))
+    assert %{"remaining_percent" => 16, "weekly_percent" => 84, "five_hour_percent" => 12, "freshness" => "ledger", "age_ms" => 90_000} = Enum.find(rows, &(&1["harness"] == "codex"))
+
+    stale = capture_io(fn -> assert :ok = AccountsCLI.accounts(true, "codex", snapshot, fn "codex" -> %{stale: true, age_seconds: 7_200, source: "ledger"} end) end)
+    assert [%{"freshness" => "stale_ledger", "age_ms" => 7_200_000, "remaining_percent" => nil, "weekly_percent" => nil}] = stale |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
 
     text = capture_io(fn -> assert :ok = AccountsCLI.accounts(false, "codex", snapshot, fn "codex" -> nil end) end)
     assert text =~ "remaining_percent=nil"
