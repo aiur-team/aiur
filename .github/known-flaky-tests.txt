@@ -97,7 +97,7 @@ Aiur.Orchestrator.LiveConversationRuntimeTest :: fences runtime status by worker
 # blocked PR #2423 (its-everdred, 2026-08-24). Wall-clock-deadline class: the
 # CLI's "running through the tracker poll" path races the runner replacement
 # under load.
-Aiur.OrchestratorStatusTest :: tracker poll unpause replaces a dead runner and reports running through the CLI
+Aiur.Orchestrator.Status.CompletedReworkTest :: tracker poll unpause replaces a dead runner and reports running through the CLI
 
 # Unticketed, observed 2026-08-24 run 32782984118 coverage (2/4). Same code was
 # fully green on head 1ff0f23aa (run 32780225293); passes locally in isolation.
