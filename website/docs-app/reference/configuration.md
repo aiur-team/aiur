@@ -263,8 +263,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 
 ### Routes in `agent.priority`
 
-Each entry is a **route**, not just a backend name. A route uses the same
-grammar `agent.routing` has always used:
+Each entry is a **route**, not just a backend name. A route uses the same grammar `agent.routing` has always used:
 
 ```
 <backend>[:<model>[:<effort>]][+remote]
@@ -273,17 +272,11 @@ grammar `agent.routing` has always used:
 - `claude`: the backend's own direct connection, exactly as before.
 - `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
-A colon-free entry means what it has always meant, so **existing configs need
-no change**.
+A colon-free entry means what it has always meant, so **existing configs need no change**.
 
-The effort segment must be one the backend accepts. Headless `claude` takes
-no effort segment, so write `claude:sonnet`. Append `+remote` to route through
-the Claude REPL, which accepts `low`, `medium`, `high`, `xhigh` and `max`:
-`claude:sonnet:medium+remote`.
+The effort segment must be one the backend accepts. Headless `claude` takes no effort segment, so write `claude:sonnet`. Append `+remote` to route through the Claude REPL, which accepts `low`, `medium`, `high`, `xhigh` and `max`: `claude:sonnet:medium+remote`.
 
-If a hot-reloaded `.aiur/config` fails validation, the daemon keeps running on
-the last good config. It raises a `system.config.reload_rejected` alert, and
-`aiur status` shows `CONFIG RELOAD REJECTED` until a corrected file loads.
+If a hot-reloaded `.aiur/config` fails validation, the daemon keeps running on the last good config. It raises a `system.config.reload_rejected` alert, and `aiur status` shows `CONFIG RELOAD REJECTED` until a corrected file loads.
 
 ```yaml
 agent:
@@ -305,8 +298,7 @@ agent:
     avoid_peak_pricing: true
 ```
 
-**A model reachable two ways may appear twice, and the order is the fallback
-order.** Duplicate *routes* are rejected; duplicate backends are not.
+**A model reachable two ways may appear twice, and the order is the fallback order.** Duplicate *routes* are rejected; duplicate backends are not.
 
 | Model name | Behavior |
 | --- | --- |
@@ -315,8 +307,7 @@ order.** Duplicate *routes* are rejected; duplicate backends are not.
 | Alias claimed by multiple vendors | Rejected during config load. |
 | Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
-**OpenRouter needs an explicit model.** It fronts a catalog rather than a
-product, so a bare `openrouter` entry is a config error.
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a product, so a bare `openrouter` entry is a config error.
 
 **An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
 means direct-only, always. Routing through OpenRouter is something you write.
