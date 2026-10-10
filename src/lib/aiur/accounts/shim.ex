@@ -1,7 +1,8 @@
 defmodule Aiur.Accounts.Shim do
   @moduledoc "Harness-specific account profile operations."
 
-  @callback profile_env(Path.t()) :: [{String.t(), String.t()}]
+  # `false` unsets the profile variable, so `default` runs on the harness's own default profile and never inherits the daemon's (#3970).
+  @callback profile_env(Path.t() | false) :: [{String.t(), String.t() | false}]
   @callback shared_paths() :: [String.t()]
   @callback never_shared() :: [String.t()]
   @callback login_command(Path.t()) :: {String.t(), [String.t()]}
