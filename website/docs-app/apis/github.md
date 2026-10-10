@@ -313,7 +313,7 @@ Dashboard state derives its staleness from the `dispatch` class (the cadence of 
 
 ExecutorList promotion candidates reuse the dispatch gate’s bounded `blocked_by` read (15-minute freshness, with early refresh on stale blocker evidence); unavailable or cross-repository edges hold promotion.
 
-Dispatch orders candidates with fresh cached native dependency holds after other candidates, preserving priority within each group. This ordering performs no GitHub reads; missing or stale evidence keeps the ordinary order and dispatch-time validation remains authoritative.
+Dispatch declines a `todo` candidate directly, with no validation read, when fresh cached native dependency evidence names an open blocker. The remaining candidates are validated in priority order, except that a candidate whose evidence is older than the 15-minute bound but last named an open blocker is validated after the others. Neither step performs a GitHub read. Evidence older than the bound only orders candidates; it never holds or releases a ticket, and dispatch-time validation remains authoritative for every candidate that is not held.
 
 `planning` is recommended as `0` (on-demand): its expensive query runs only when a page opens or a degradation needs a re-list.
 

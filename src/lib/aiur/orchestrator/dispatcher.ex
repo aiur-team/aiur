@@ -1066,7 +1066,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    {candidates, held} = DispatchCandidates.partition(issues, terminal_states)
+    state = hold_cached_dependencies(state, held, active_states, terminal_states)
+    choose_issues_in_order(state, candidates, opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+  end
+
+  # A hold that current cached evidence already proves is declined here, with no validation hop (#4174).
+  defp hold_cached_dependencies(%State{globally_paused: true} = state, _held, _active, _terminal), do: state
+
+  defp hold_cached_dependencies(state, held, active, terminal) do
+    Enum.reduce(held, state, fn hydrated, state ->
+      case recover_orphaned_claim(state, %{hydrated | blocked_by: []}, active, terminal) do
+        {state, :dispatch} -> apply_dispatch_validation(state, hydrated, nil, nil, [], {:held, hydrated})
+        {state, {:skip, reason}} -> maybe_emit_dispatch_decline(state, hydrated, reason)
+      end
+    end)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
@@ -1334,10 +1348,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # Fail-closed like the dependency gate: an unreadable decision store
         # holds dispatch.
         if DispatchPolicy.blocked_on_decision?(hydrated, state.blocked_ticket_ids) do
-          Logger.info(
-            "Skipping dispatch; issue has an open blocking Command: " <>
-              "#{State.issue_context(hydrated)}"
-          )
+          Logger.info("Skipping dispatch; issue has an open blocking Command: #{State.issue_context(hydrated)}")
 
           emit_dispatch_attempt_decline(state, hydrated, :blocked_on_decision, false)
         else
@@ -1345,20 +1356,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
         end
 
       {:error, reason} ->
-        Logger.warning(
-          "Skipping dispatch; blocked-by hydration failed for #{State.issue_context(refreshed_issue)}: " <>
-            "#{inspect(reason)} (fail-closed: unknown blockers hold dispatch)"
-        )
+        Logger.warning("Skipping dispatch; blocked-by hydration failed for #{State.issue_context(refreshed_issue)}: #{inspect(reason)} (fail-closed: unknown blockers hold dispatch)")
 
         emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
 
       # A hydrator that returns an unexpected shape must never crash the
       # orchestrator; treat it as unknown blockers and hold dispatch.
       other ->
-        Logger.warning(
-          "Skipping dispatch; blocked-by hydration returned an unexpected result for " <>
-            "#{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)"
-        )
+        Logger.warning("Skipping dispatch; blocked-by hydration returned an unexpected result for #{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)")
 
         emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
     end
@@ -1368,10 +1373,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     terminal_states = DispatchPolicy.terminal_state_set()
 
     if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
-      Logger.info(
-        "Skipping dispatch; #{State.issue_context(hydrated)} " <>
-          DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
-      )
+      Logger.info("Skipping dispatch; #{State.issue_context(hydrated)} " <> DispatchPolicy.describe_dependency_hold(hydrated, terminal_states))
 
       # Record the decline instead of only logging it. A ticket held here sits in
       # "awaiting-dispatch" for as long as its blocker is open, and with nothing
@@ -1415,13 +1417,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
-    record_dispatch_decline(
-      state,
-      issue,
-      reason,
-      "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}",
-      attention?
-    )
+    record_dispatch_decline(state, issue, reason, "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}", attention?)
   end
 
   defp record_dispatch_decline(%State{} = state, %Issue{} = issue, reason, alert_reason, attention?) do

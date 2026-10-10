@@ -1032,7 +1032,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case CycleFetchCache.fetch({:blocked_by, id}, fn -> fetch_blocked_by(id, opts) end) do
+    case CycleFetchCache.fetch({:blocked_by, id, opts[:record_max_age_ms]}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 

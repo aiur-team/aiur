@@ -82,7 +82,10 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
     assert order([ready, held]) == [held, ready]
   end
 
-  defp order(issues), do: DispatchCandidates.order(issues, DispatchPolicy.terminal_state_set())
+  defp order(issues) do
+    {chain, held} = DispatchCandidates.partition(issues, DispatchPolicy.terminal_state_set())
+    Enum.map(chain ++ held, & &1.id) |> Enum.map(fn id -> Enum.find(issues, &(&1.id == id)) end)
+  end
 
   defp cache_holds(issues) do
     blocker = %{"number" => 100, "state" => "open", "labels" => [%{"name" => "sym:todo"}]}
