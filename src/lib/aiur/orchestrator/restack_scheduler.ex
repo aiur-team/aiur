@@ -107,14 +107,16 @@ defmodule Aiur.Orchestrator.RestackScheduler do
     state
   end
 
-  defp run(issue, branch, blocker, base) do
+  @doc false
+  @spec run(Issue.t(), String.t(), map(), String.t(), keyword()) :: term()
+  def run(issue, branch, blocker, base, opts \\ []) do
     identifier = to_string(issue.identifier)
 
     with {:ok, workspace} <- Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil),
          true <- File.dir?(Path.join(workspace, ".git")) or File.regular?(Path.join(workspace, ".git")),
          {:ok, lease} <- Ownership.claim(identifier) do
       try do
-        run_locked(workspace, identifier, lease, branch, blocker, base)
+        run_locked(workspace, identifier, lease, branch, blocker, base, opts)
       after
         Ownership.release_and_wait(lease)
       end
@@ -124,22 +126,24 @@ defmodule Aiur.Orchestrator.RestackScheduler do
     end
   end
 
-  defp run_locked(workspace, identifier, lease, branch, blocker, base) do
+  defp run_locked(workspace, identifier, lease, branch, blocker, base, opts) do
     with {:ok, lock} <- HostLock.acquire(workspace, identifier),
          :ok <- HostLock.handoff_to_ownership(lock, lease) do
-      Restack.run(workspace, branch, blocker.number, base, blocker.sha, ownership: lease)
+      operation = Keyword.get(opts, :operation, fn workspace, lease -> Restack.run(workspace, branch, blocker.number, base, blocker.sha, ownership: lease) end)
+      operation.(workspace, lease)
     end
   end
 
   @doc false
   @spec report_conflict(Issue.t(), pos_integer(), [String.t()], keyword()) :: {:ok, :conflict_reported} | {:report_failed, term(), [String.t()], [atom()]}
   def report_conflict(issue, number, paths, opts \\ []) do
-    payload = %{reason: "restack_conflict", blocker_pr: number, paths: paths}
+    reason = Keyword.get(opts, :reason, "restack_conflict")
+    payload = %{reason: reason, blocker_pr: number, paths: paths}
 
     body =
-      "Restack conflict after blocker PR ##{number} merged (reason: restack_conflict).\n\nConflicted paths:\n" <>
+      "Restack needs agent reconciliation for blocker PR ##{number} (reason: #{reason}).\n\nConflicted paths:\n" <>
         Enum.map_join(paths, "\n", &"- `#{&1}`") <>
-        "\n\nResolve using the agent skill’s ‘After the blocker merges: restack’ recipe, then push and request fresh review. Nothing was pushed."
+        "\n\nReconcile the direct blocker using the agent skill, then push and request fresh review. Nothing was pushed."
 
     write = Keyword.get(opts, :write_state, &TicketTransition.write_state/3)
     comment = Keyword.get(opts, :comment, &Tracker.create_comment/2)
