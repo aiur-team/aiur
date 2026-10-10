@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{BoundedBlockedBy, OpenIssueSnapshot, ResourceStore}
+  alias Aiur.GitHub.{BoundedBlockedBy, CycleFetchCache, OpenIssueSnapshot, ResourceStore, Tracker}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, State, TrackerTasks}
 
@@ -87,11 +87,11 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     stale = candidate(1, 1)
     cache_holds([stale])
     age(ResourceStore.key(:issue_blocked_by, "owner", "repo", stale.id))
-    Aiur.GitHub.CycleFetchCache.start_cycle()
-    on_exit(&Aiur.GitHub.CycleFetchCache.end_cycle/0)
+    CycleFetchCache.start_cycle()
 
-    assert {:ok, %Issue{blocked_by: [_open]}} = Aiur.GitHub.Tracker.last_known_blocked_by(stale)
-    assert Aiur.GitHub.Tracker.cached_blocked_by(stale) == {:error, :cache_miss}
+    assert {:ok, %Issue{blocked_by: [%{identifier: "100"}]}} = Tracker.last_known_blocked_by(stale)
+    assert Tracker.cached_blocked_by(stale) == {:error, :cache_miss}
+    CycleFetchCache.end_cycle()
   end
 
   defp partition(issues), do: DispatchCandidates.partition(issues, DispatchPolicy.terminal_state_set())
