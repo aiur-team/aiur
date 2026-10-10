@@ -24,16 +24,16 @@ in `src/test/aiur/events/placement_rule_test.exs`:
 | --- | --- |
 | `decision_store.ex:697` | `decision_store.unrecognized_event_types` |
 | `decision_store.ex:719` | `decision_store.corrupted` |
-| `decision_store.ex:755` | `decision_store.repair_failed` |
+| `decision_store/projection_recovery.ex:117` | `decision_store.repair_failed` (moved since research) |
 | `decision_store.ex:2594` | `decision_store.append_ambiguous` (added since research) |
 | `executor_events.ex:468` | `executor_events.corrupted` |
 | `github/dispatch_authorization.ex:740` | `github.dispatch_authorization.ambiguous` |
 | `github/dispatch_authorization.ex:755` | `github.dispatch_authorization.timeline_unreadable` |
 | `orchestrator/retry_engine.ex:1219` | `orchestrator.claim_released` |
 
-The direct Exchange-to-PubSub bridges remain `Aiur.TicketActivity`,
+The direct Exchange-to-PubSub bridges are `Aiur.TicketActivity`,
 `Aiur.BuildOrder.TicketHistoryProvider` (including its options file), and
-`Aiur.DecisionMetrics`. The metrics wrapper is now
+`Aiur.DecisionMetrics`, plus `Aiur.BuildQueue.Server` (added since research). The metrics wrapper is now
 `DecisionPubSub.broadcast_metrics_changed/0`, recognized alongside
 `broadcast_changed`. Function captures such as `&Exchange.subscribe/1` also
 count as subscriptions. No direct PubSub-to-Exchange bridge was found; its

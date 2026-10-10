@@ -12,14 +12,14 @@ defmodule Aiur.Events.PlacementRuleTest do
   @known_violations [
     {"aiur/decision_store.ex", "decision_store.unrecognized_event_types"},
     {"aiur/decision_store.ex", "decision_store.corrupted"},
-    {"aiur/decision_store.ex", "decision_store.repair_failed"},
+    {"aiur/decision_store/projection_recovery.ex", "decision_store.repair_failed"},
     {"aiur/decision_store.ex", "decision_store.append_ambiguous"},
     {"aiur/executor_events.ex", "executor_events.corrupted"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.ambiguous"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.timeline_unreadable"},
     {"aiur/orchestrator/retry_engine.ex", "orchestrator.claim_released"}
   ]
-  @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex"]
+  @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex", "aiur/build_queue/server.ex"]
   @reverse_bridges []
   @topic_calls ~r/\b(?:emit_custom|emit_system|Publisher\.publish(?:_persisted)?|ExecutorEvents\.publish|Exchange\.publish)\(\s*"([^"#]*)"/s
   @exchange_subscriber ~r/\bExchange\.subscribe\s*(?:\(|\/)|\bexchange_subscribe_fun\b/
@@ -47,7 +47,7 @@ defmodule Aiur.Events.PlacementRuleTest do
     end
   end
 
-  test "only the three recorded bridges subscribe to the Exchange and broadcast PubSub", %{sources: sources} do
+  test "only the recorded bridges subscribe to the Exchange and broadcast PubSub", %{sources: sources} do
     for {file, source} <- sources do
       if Regex.match?(@exchange_subscriber, source) and Regex.match?(@pubsub_broadcaster, source) do
         assert file in @bridges, "R-4: #{file}:#{match_line(source, @pubsub_broadcaster)} bridges Exchange to PubSub"
