@@ -35,7 +35,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 The terminal states are exactly `done | cancelled | canceled`
 (`src/lib/aiur/github/state_policy.ex:23,31`). The two `@no_agent_work_states`
 — `merging` and `ci-wait` — stay active for polling and fence purposes but are
-never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy.ex:35,1001`).
+never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:27,63`).
 
 ### Markers are not states
 
@@ -474,8 +474,8 @@ ticket stays paused until you answer. The CLI even tells you so: on
 - **The pause is a dispatch gate, not an in-process block.** `blocked_ticket_ids`
   collects tickets with an open blocking Command (`decision_store.ex:938-950,
   :1570-1587`); the dispatcher refreshes it each poll and **fails closed** on
-  store outage (`dispatcher.ex:453-459`, `dispatch_policy.ex:979-984` →
-  `{:skip, :blocked_on_decision}` at `:823`). A ticket that opens a blocking
+  store outage (`dispatcher.ex:453-459`, `dispatch_policy/eligibility.ex:181-185` →
+  `{:skip, :blocked_on_decision}` at `dispatch_policy.ex:393`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
   deliberately fails **open** on store outage (`reconciler.ex:540-560`).
   Answering removes the ticket from that set, so the next poll dispatches it
@@ -649,7 +649,7 @@ daemon is down cannot produce a transition wake.
 The agent is subscribed to its own issue comments and PR review comments and
 unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
-`pause_resume.ex`, `push_routing.ex`).
+`pause_resume.ex`, `push_routing.ex`, `push_routing/`).
 
 Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
