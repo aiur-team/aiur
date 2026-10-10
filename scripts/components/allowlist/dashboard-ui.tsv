@@ -1,0 +1,27 @@
+# rule	target_module	reason
+R-declared	Aiur.AgentPubSub	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.CodingAgent.Models	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.ExecutorEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.ModelDiscovery	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.PollCadence	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Rtk	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	AiurWeb.GithubWebhook	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-private	Aiur.BuildOrder.AdHocSource.Snapshot	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:141 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.Diagnostic	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_selected.ex:221 (AiurWeb.OperatorControlCenter.BuildOrderSelected); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.Icon	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_icon.ex:54 (AiurWeb.OperatorControlCenter.BuildOrderIcon); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.Member	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/operator_control_center/analytics/scope_resolver.ex:74 (AiurWeb.OperatorControlCenter.Analytics.ScopeResolver); facade tightening preserves current callers
+R-private	Aiur.BuildOrder.SelectedRoot	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_selected.ex:152 (AiurWeb.OperatorControlCenter.BuildOrderSelected); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrder.PlanningSource	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/controllers/planning_document_controller.ex:12 (AiurWeb.PlanningDocumentController); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrder.RouteState	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_selected.ex:32 (AiurWeb.OperatorControlCenter.BuildOrderSelected); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrder.Truncation	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_selected.ex:161 (AiurWeb.OperatorControlCenter.BuildOrderSelected); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrderViewModel	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:114 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrderViewModel.Edge	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex:334 (AiurWeb.OperatorControlCenter.BuildOrderGridModel); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrderViewModel.Group	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:231 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrderViewModel.Node	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:280 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers
+R-private	AiurWeb.BuildOrderLive	MP-R1-C8-T08: component-owned dashboard routes from #3735 still mount the existing build-order page; retain the route without exposing page internals

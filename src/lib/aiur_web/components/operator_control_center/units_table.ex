@@ -4,10 +4,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   use Phoenix.Component
 
   alias Aiur.AgentContextPresentation
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias Aiur.CodingAgent
+  alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPolicy, UnitsPresentation, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -29,6 +30,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
       <div :if={@status == :unavailable} class="units-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
         <span><b>No live units.</b> {@message || "Fleet data is unavailable."}</span>
+      </div>
+
+      <div :if={@view[:retained_age_seconds]} class="units-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span><b>Stale list.</b> The last refresh failed. These units were last read {UnitsPresentation.age_label(@view[:retained_age_seconds])} ago.</span>
       </div>
 
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
@@ -112,7 +118,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </span>
                 <div class="ut-latest-meta mono num">
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
-                  <span><span class="sr-only">Runtime </span>{runtime(row, @now)}</span>
+                  <span><span class="sr-only">Runtime </span>{runtime(row, @now, @view)}</span>
                 </div>
                 <div class="ut-latest-meta ut-agent-context mono num">
                   <span title="Aiur orchestration turns in this running attempt">Turns {turn_count(row)}</span>
@@ -282,7 +288,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle), do: handle
   defp conversation_handle(_row), do: nil
 
-  defp runtime(row, now), do: UnitsPresentation.runtime_label(row, now)
+  # A retained catalog's runtimes are as old as the catalog; never show them as current.
+  defp runtime(_row, _now, %{retained_age_seconds: age}) when is_integer(age), do: "Stale"
+  defp runtime(row, now, _view), do: UnitsPresentation.runtime_label(row, now)
 
   # Paused and queued take precedence over blocking/alert so a paused or queued
   # row is never red regardless of its reasons.

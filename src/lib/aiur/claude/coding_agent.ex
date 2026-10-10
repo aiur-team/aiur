@@ -15,9 +15,9 @@ defmodule Aiur.Claude.CodingAgent do
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, NotificationPolicy}
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
   alias Aiur.Config
+  alias Aiur.ProcessTree
 
   @thread_start_id 2
   @turn_start_id 3
@@ -189,7 +189,7 @@ defmodule Aiur.Claude.CodingAgent do
       {:os_pid, os_pid} ->
         %{root_pid: os_pid}
         |> maybe_put_process_group(os_pid)
-        |> Map.put(:descendant_pids, RemoteControl.process_tree(os_pid))
+        |> Map.put(:descendant_pids, ProcessTree.process_tree(os_pid))
 
       _ ->
         %{}
@@ -450,23 +450,20 @@ defmodule Aiur.Claude.CodingAgent do
   end
 
   defp stop_port(port) when is_port(port) do
-    case :erlang.port_info(port) do
-      :undefined ->
-        :ok
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} ->
+        Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+        ProcessTree.graceful_kill_tree(os_pid)
 
       _ ->
-        case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} -> Aiur.ProcessReaper.unregister({:os_pid, os_pid})
-          _ -> :ok
-        end
+        :ok
+    end
 
-        try do
-          Port.close(port)
-          :ok
-        rescue
-          ArgumentError ->
-            :ok
-        end
+    try do
+      Port.close(port)
+      :ok
+    rescue
+      ArgumentError -> :ok
     end
   end
 

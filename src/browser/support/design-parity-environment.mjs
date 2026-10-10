@@ -8,12 +8,9 @@ import { fileURLToPath } from 'node:url'
 export const DESIGN_ORIGIN = 'http://design.parity.invalid'
 export const DESIGN_ROOT = fileURLToPath(new URL('../../test/fixtures/build_home/design-source/', import.meta.url)).replace(/\/$/, '')
 export const FIXTURE_META = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/manifest.json', import.meta.url), 'utf8'))
-// Copied from website/tests/support/visual.ts; font bytes stay in its fixture folder.
-const families = [
-  ['Bungee', 'Bungee-Regular.woff2', '400'],
-  ['Space Grotesk', 'SpaceGrotesk-Variable.woff2', '300 700'],
-  ['JetBrains Mono', 'JetBrainsMono-Variable.woff2', '100 800']
-]
+const families = [['Bungee'], ['Space Grotesk'], ['JetBrains Mono']]
+const fontCSS = await readFile(new URL('./fixtures/google-fonts-css2.css', import.meta.url), 'utf8')
+const fontPaths = JSON.parse(await readFile(new URL('./fixtures/google-fonts-map.json', import.meta.url), 'utf8'))
 const failures = new WeakMap()
 
 export function checkPage(page) {
@@ -70,11 +67,9 @@ export async function verifyDesignSource(root = DESIGN_ROOT, meta = FIXTURE_META
 
 export async function routeDesign(page) {
   await guardNetwork(page, [DESIGN_ORIGIN, 'https://fonts.googleapis.com', 'https://fonts.gstatic.com', 'https://cdn.jsdelivr.net'], async (route, url, errors) => {
-    if (url.origin === 'https://fonts.googleapis.com') return route.fulfill({ contentType: 'text/css', body: families.map(([family, file, weight]) =>
-      `@font-face { font-family: '${family}'; font-style: normal; font-weight: ${weight}; font-display: block; src: url('https://fonts.gstatic.com/visual/${file}') format('woff2'); }`).join('\n') })
-    if (url.origin === 'https://fonts.gstatic.com') {
-      const file = url.pathname.split('/').pop()
-      if (families.some(([, name]) => name === file)) return route.fulfill({ contentType: 'font/woff2', path: fileURLToPath(new URL(`../../../website/tests/fixtures/fonts/${file}`, import.meta.url)) })
+    if (url.origin === 'https://fonts.googleapis.com') return route.fulfill({ contentType: 'text/css', body: fontCSS })
+    if (url.origin === 'https://fonts.gstatic.com' && fontPaths[url.href]) {
+      return route.fulfill({ contentType: 'font/woff2', path: fileURLToPath(new URL(`../../../${fontPaths[url.href]}`, import.meta.url)) })
     }
     if (url.href === 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js') return route.fulfill({ contentType: 'application/javascript', body: '' })
     if (url.origin === DESIGN_ORIGIN) {
@@ -100,12 +95,18 @@ export async function seedRandom(page) {
   })
 }
 
-export async function waitParityReady(page, phase = 'board', side = 'design') {
+export async function waitParityReady(page, phase = 'board', side = 'design', motion = false) {
   await page.evaluate(() => document.fonts.ready)
   for (const [family] of families) {
     await expect.poll(() => page.evaluate(f => [...document.fonts].some(face => face.family.replace(/["']/g, '') === f && face.status === 'loaded'), family), {
       timeout: 10_000, message: `font not loaded: "${family}"`
     }).toBe(true)
+  }
+  if (motion && phase === 'board') {
+    for (let elapsed = 0; elapsed < 2000; elapsed += 16) {
+      if (await page.locator('#bd-content').count() && !await page.locator('.bd-loading').count()) break
+      await page.clock.runFor(16)
+    }
   }
   if (phase !== 'shell') {
     await expect.poll(() => page.evaluate(({ phase, side }) => phase === 'loading'
@@ -114,17 +115,17 @@ export async function waitParityReady(page, phase = 'board', side = 'design') {
     { phase, side }), { timeout: 10_000, message: `${side} not ready: ${phase === 'board' ? '.bd-loading still present or board not mounted' : 'loading skeleton absent'} after 10 s` }).toBe(true)
   }
   const frames = page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  if (phase === 'loading' && side === 'design') await page.clock.runFor(40)
+  if (motion || (phase === 'loading' && side === 'design')) await page.clock.runFor(40)
   await frames
   checkPage(page)
 }
 
-export async function assertCellState(page, cell) {
+export async function assertCellState(page, cell, expectedTime = FIXTURE_META.now) {
   checkPage(page)
   const state = await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, palette: document.documentElement.dataset.palette,
     zone: Intl.DateTimeFormat().resolvedOptions().timeZone, now: Date.now() }))
   expect(state.theme, 'theme not applied').toBe(cell.theme)
   expect(state.palette, 'palette not applied').toBe(cell.palette)
   expect(state.zone, `time zone ${state.zone}, expected ${FIXTURE_META.tz}`).toBe(FIXTURE_META.tz)
-  expect(state.now, `clock not frozen: Date.now() != ${FIXTURE_META.now}`).toBe(FIXTURE_META.now)
+  expect(state.now, `clock not frozen: Date.now() != ${expectedTime}`).toBe(expectedTime)
 }

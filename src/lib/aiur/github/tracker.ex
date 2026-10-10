@@ -3,15 +3,73 @@ defmodule Aiur.GitHub.Tracker do
   GitHub-backed tracker implementation.
   """
 
-  @behaviour Aiur.Tracker
+  @behaviour Aiur.Tracker.IssueTracker
 
+  @impl Aiur.Tracker.IssueTracker
+  def config_module, do: Aiur.GitHub.Config
+
+  @impl Aiur.Tracker.IssueTracker
+  def code_host, do: __MODULE__
+  @behaviour Aiur.Tracker.CodeHost
+
+  alias Aiur.BuildOrder.History
+  alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.Labels
   alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.TestTicketScope
 
+  @impl Aiur.Tracker.IssueTracker
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, blockers} <- BoundedBlockedBy.fetch(issue_id, caller: "build_queue_blocked_by") do
+      native_ids(blockers, owner, repo)
+    end
+  end
+
+  defp native_ids(blockers, owner, repo) do
+    Enum.reduce_while(blockers, {:ok, []}, fn blocker, {:ok, ids} ->
+      case native_id(blocker, owner, repo) do
+        {:ok, id} -> {:cont, {:ok, ids ++ [id]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp native_id(%{"number" => number, "repository_url" => url}, owner, repo) when is_integer(number) and number > 0 and is_binary(url) do
+    if String.downcase(URI.parse(url).path || "") == String.downcase("/repos/#{owner}/#{repo}"),
+      do: {:ok, to_string(number)},
+      else: {:error, :external_edge}
+  end
+
+  defp native_id(_blocker, _owner, _repo), do: {:error, :invalid_native_edge}
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms) do
+    with {:ok, body, _source} <- client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: "build_queue_observe") do
+      case body do
+        %{"state" => state, "state_reason" => reason} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
+          {:ok, %{open?: state == "open", state_reason: reason}}
+
+        _ ->
+          {:error, :invalid_issue_closure}
+      end
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
   @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
   def open_issue_labels(max_age_ms) do
     case Transport.parse_repo() do
@@ -40,6 +98,7 @@ defmodule Aiur.GitHub.Tracker do
     """
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()
 
@@ -89,9 +148,11 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states), do: client_module().fetch_issues_by_states(states)
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states, opts), do: client_module().fetch_issues_by_states(states, opts)
 
@@ -111,6 +172,7 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)
@@ -125,6 +187,11 @@ defmodule Aiur.GitHub.Tracker do
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{} = issue), do: client_module().hydrate_blocked_by(issue)
 
+  @doc "Reads bounded dependency evidence without fetching missing or stale resources."
+  @spec cached_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def cached_blocked_by(%Issue{} = issue), do: Issues.hydrate_blocked_by(issue, revalidate: :cached)
+
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache) do
@@ -137,74 +204,104 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
     client_module().create_comment(issue_id, body)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_classified_pr_review_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number) do
     client_module().fetch_classified_pr_review_comments(pr_number)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_reviews(pr_number) do
     client_module().fetch_classified_pr_reviews(pr_number)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_unaddressed_pr_review_thread_comments(pr_number) do
     client_module().fetch_unaddressed_pr_review_thread_comments(pr_number)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_classified_issue_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_id) do
     client_module().fetch_classified_issue_comments(issue_id)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_open_pull_request_for_branch(String.t() | integer()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_id) do
     client_module().fetch_open_pull_request_for_branch(issue_id)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_open_pull_requests_for_branch(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_for_branch(issue_id) do
     client_module().fetch_open_pull_requests_for_branch(issue_id)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
-    client_module().update_issue_state(issue_id, state_name)
+    note_in_progress(client_module().update_issue_state(issue_id, state_name), issue_id, state_name)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name, opts)
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     client = client_module()
 
-    cond do
-      Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
-        client.update_issue_state(issue_id, state_name, opts)
+    result =
+      cond do
+        Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
+          client.update_issue_state(issue_id, state_name, opts)
 
-      opts == [] ->
-        client.update_issue_state(issue_id, state_name)
+        opts == [] ->
+          client.update_issue_state(issue_id, state_name)
 
-      true ->
-        {:error, :expected_state_unsupported}
+        true ->
+          {:error, :expected_state_unsupported}
+      end
+
+    note_in_progress(result, issue_id, state_name)
+  end
+
+  defp note_in_progress(result, issue_id, state_name) do
+    if result == :ok and DispatchPolicy.state_slug(state_name) == "in-progress",
+      do: History.note_start(issue_id, :label, DateTime.utc_now())
+
+    result
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(labels) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      Labels.ensure(owner, repo, token, labels)
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
     client_module().add_label(issue_id, label)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
   def remove_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
     client_module().remove_label(issue_id, label)

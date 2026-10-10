@@ -101,6 +101,14 @@ server:
 
 The dashboard must also have credentials before it is usable — see the next section. See [server](/reference/configuration#server) for the full key.
 
+### What it does not do
+
+Tailscale decides who can *reach* the dashboard and encrypts the path.
+
+It never decides who is *allowed in*: every route still requires dashboard credentials, the supervisor token, or a webhook signature, whatever address the dashboard binds.
+
+Beyond loopback, without a tailnet, Basic Auth crosses the network in cleartext.
+
 ## Dashboard authentication
 
 ### Bottleneck it solves
@@ -109,13 +117,15 @@ Not an optimization but a gate, and it belongs here because omitting it silently
 
 ### The symptom
 
-With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback listener binds but no dashboard page is usable — a writable dashboard (the default) challenges every request with basic auth, a read-only one refuses with `503` naming both variables. Beyond loopback the listener refuses to start at all.
+With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback listener binds but no dashboard page is usable — a writable dashboard (the default) challenges every request with basic auth, a read-only one refuses with `503` naming both variables.
+
+Beyond loopback the dashboard listener is disabled; agents keep running.
 
 ### The `observability.dashboard_writable` interaction
 
 `dashboard_writable` defaults to `true` and authorizes the dashboard's write controls; set it to `false` to disable them. It is not authentication.
 
-Both credentials are still required to view the dashboard. A loopback listener binds without them but fails closed; beyond loopback it refuses to start. See [observability](/reference/configuration#observability).
+Both credentials are still required to view the dashboard. A loopback listener binds without them but fails closed; beyond loopback the dashboard listener is disabled and agents keep running. See [observability](/reference/configuration#observability).
 
 ### Configuration
 
@@ -125,6 +135,12 @@ export AIUR_DASHBOARD_PASSWORD=<secret>
 ```
 
 With both set, the dashboard requires Basic Auth on every request, writable or not.
+
+### Transport
+
+Aiur serves the dashboard over plain HTTP and never terminates TLS. Off the machine, encryption is the network's job — a tailnet encrypts the path; a LAN does not.
+
+Browsers allow the microphone only on HTTPS or `localhost`, so dashboard dictation is disabled on a plain-HTTP address beyond loopback.
 
 ## Stream Deck
 
@@ -166,7 +182,7 @@ Set `agent.priority` in `.aiur/config` and provide the matching provider keys vi
 | Webhook ingress and tunnel | Up to 120s event latency | Polling is the default fallback |
 | Custom webhook hostname / domain | A quick tunnel, or polling at the full interval | Webhooks with any hostname you control; polling fallback |
 | Budget broker (`python3`) | GitHub requests run unmetered, with no shared admission budget | All dispatch, GitHub requests, polling |
-| Tailscale | Dashboard reachable only on the machine | Local dashboard, CLI, TUI |
+| Tailscale | No tailnet path or encryption | Local dashboard, CLI, TUI; explicit dashboard binds on other networks |
 | Dashboard credentials | No usable dashboard (every request refused) | CLI and TUI |
 | Stream Deck | Browser emulator instead of physical keys | Dashboard controls |
 | Model routing and provider keys | codex default (codex → claude rate-limit reroute) | Agent dispatch |

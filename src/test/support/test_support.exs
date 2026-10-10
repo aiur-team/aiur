@@ -50,6 +50,39 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  @doc "Waits for tracked task completions until the orchestrator satisfies a state predicate."
+  @spec await_orchestrator_state(pid(), (map() -> boolean())) :: map()
+  def await_orchestrator_state(pid, predicate) do
+    :ok = Aiur.AgentPubSub.subscribe_running()
+    :ok = Aiur.AgentPubSub.subscribe_poll_state()
+    await_orchestrator_state(pid, predicate, System.monotonic_time(:millisecond) + 15_000)
+  end
+
+  defp await_orchestrator_state(pid, predicate, deadline) do
+    state = :sys.get_state(pid)
+
+    if predicate.(state) do
+      state
+    else
+      refs = Map.new(state.tracker_tasks, fn {_ref, job} -> {Process.monitor(job.task.pid), true} end)
+      remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      try do
+        receive do
+          {:DOWN, ref, :process, _task, _reason} when is_map_key(refs, ref) -> :ok
+          {:running_changed, _summaries} when map_size(refs) == 0 -> :ok
+          {:poll_state_changed, _poll} when map_size(refs) == 0 -> :ok
+        after
+          remaining -> raise("Timed out waiting for orchestrator tracker result; tracker tasks held: #{inspect(Enum.map(state.tracker_tasks, fn {_ref, job} -> job.key end))}")
+        end
+      after
+        Enum.each(refs, fn {ref, _} -> Process.demonitor(ref, [:flush]) end)
+      end
+
+      await_orchestrator_state(pid, predicate, deadline)
+    end
+  end
+
   @doc false
   @spec prepare_workflow_file_path!(Path.t()) :: Path.t()
   def prepare_workflow_file_path!(root) do
@@ -258,6 +291,7 @@ defmodule Aiur.TestSupport do
           write_workflow_file_async!: 2,
           write_workflow_file_atomic!: 2,
           receive_barrier: 1,
+          await_orchestrator_state: 2,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0

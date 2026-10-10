@@ -1,7 +1,6 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
-
-  alias Aiur.{CodingAgent, Config, DecisionMetrics, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Commands, Config, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
@@ -30,6 +29,7 @@ defmodule AiurWeb.StreamdeckProjection do
   it is off without a round trip. Only the *presence* of a credential is ever
   reported — never the credential, nor any part of it.
   """
+
   @spec voice() :: map()
   def voice do
     if configured_elevenlabs_key?() do
@@ -137,7 +137,7 @@ defmodule AiurWeb.StreamdeckProjection do
   @doc false
   @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
   def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) do
-    if provider in CodingAgent.provider_families() and newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
+    if provider in CodingAgent.provider_families() and AiurWeb.StreamdeckMeterRetention.newer?(snapshot, Map.get(meters, Atom.to_string(provider))) do
       meter = normalize_provider_meter(provider, provider_meter(snapshot), DateTime.utc_now()) |> external_value()
       Map.put(meters, Atom.to_string(provider), meter)
     else
@@ -206,11 +206,13 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp decisions_fun do
-    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: DecisionMetrics.snapshots() |> map_size()} end
+    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: Commands.metrics_snapshots() |> map_size()} end
   end
 
   defp provider_meter(snapshot) do
     %{
+      summary_label: snapshot.summary_label,
+      ingested_at: snapshot.ingested_at,
       provider: snapshot.provider,
       state: if(is_nil(snapshot.observed_at), do: :unknown, else: :observed),
       observed_at: snapshot.observed_at,
@@ -240,6 +242,8 @@ defmodule AiurWeb.StreamdeckProjection do
     normalized =
       %{
         provider: provider,
+        summary_label: field(meter, :summary_label),
+        ingested_at: field(meter, :ingested_at),
         state: state,
         observed_at: observed_at,
         age_seconds: age_seconds(observed_at, now),
@@ -468,19 +472,6 @@ defmodule AiurWeb.StreamdeckProjection do
       _ -> @default_usage_interval_seconds
     end
   end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, nil), do: true
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: observed_at}, %{"observed_at" => current_observed_at}) do
-    case DateTime.from_iso8601(current_observed_at) do
-      {:ok, current_observed_at, _offset} -> DateTime.compare(observed_at, current_observed_at) != :lt
-      _ -> true
-    end
-  end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, _current), do: true
 
   defp age_seconds(nil), do: nil
   defp age_seconds(observed_at), do: age_seconds(observed_at, DateTime.utc_now())

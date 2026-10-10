@@ -692,12 +692,12 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
-  per scheduler): queued cold starts seed daemon capacity from active and
-  reserved ticket slots plus observed reclaimable CPU headroom (idle and niced
-  time), bounded by the static cap. That bootstrap seed is one-shot and never
-  lowers a warmed envelope. Later
-  capacity grows by `agent.load_ramp_step` below the target, and high samples
-  halve it no more often than `agent.load_cooldown_seconds`. Set the target to
+  per scheduler). Boot starts at one slot; the first fresh sample does not widen.
+  Five fresh occupied samples without sustained overload record a safe level.
+  `agent.load_resume_max_age_seconds` defaults to 21600; 0 disables resume.
+  A same-scheduler record selects steps that double, at most +3, up to that level.
+  Above it, growth is additive except below half target before a sustained decrease. Three fresh overloads
+  halve capacity, bounded by `agent.load_cooldown_seconds`. Set the target to
   `null` to use only the static cap and hard gate.
 - `agent.max_load_average` remains the separate per-scheduler ceiling for new
   dispatch (default `1.5`). Aiur holds only when the ceiling is exceeded and a

@@ -131,6 +131,7 @@ defmodule Aiur.DecisionAttention do
       condition_attention_ttl_ms: condition_attention_ttl_ms(opts),
       attention_loader: Keyword.get(opts, :attention_loader, &AlertFeed.list_decision_attentions/0),
       decision_projector: Keyword.get(opts, :decision_projector, &DecisionStore.project_attention/2),
+      decision_store: Keyword.get(opts, :decision_store, DecisionStore),
       import_limit: import_limit(opts),
       importing?: true,
       resolved_during_import: MapSet.new()
@@ -199,7 +200,7 @@ defmodule Aiur.DecisionAttention do
         {:noreply, state}
 
       attention ->
-        if stale_condition_attention?(attention, state) do
+        if stale_condition_attention?(attention, state) or answered_operator_attention?(attention, state) do
           {:noreply, resolve_attention(state, attention.issue, attention.slug)}
         else
           emit(state.alert_emitter, attention)
@@ -434,6 +435,18 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp stale_condition_attention?(_attention, _state), do: false
+
+  defp answered_operator_attention?(%{slug: "operator-decision", issue: issue}, state) do
+    identifier = issue_identifier!(issue)
+
+    state.decision_store
+    |> DecisionStore.list()
+    |> Enum.all?(fn decision ->
+      decision.ticket.identifier != identifier or decision.decision_status not in [:open, :deferred]
+    end)
+  end
+
+  defp answered_operator_attention?(_attention, _state), do: false
 
   defp condition_attention?(slug) do
     base_branch = Aiur.Config.base_branch()

@@ -55,6 +55,7 @@ export interface ProviderMeterWindow {
 
 /** One provider's projected meter (the subset the segment needs). */
 export interface ProviderMeter {
+  readonly summary_label?: string;
   readonly provider?: string;
   readonly state?: string;
   readonly freshness?: string;

@@ -99,7 +99,7 @@ test('time zone guard', async ({ browser }) => {
 for (const missing of ['font file', 'stylesheet']) {
   test(`font guard: missing ${missing}`, async ({ browser }) => {
     const page = await pageFor(browser)
-    await page.route(missing === 'font file' ? '**/SpaceGrotesk-Variable.woff2' : 'https://fonts.googleapis.com/**', route => route.fulfill({ status: missing === 'font file' ? 404 : 200, contentType: 'text/css', body: '' }))
+    await page.route(missing === 'font file' ? '**/spacegrotesk/**' : 'https://fonts.googleapis.com/**', route => route.fulfill({ status: missing === 'font file' ? 404 : 200, contentType: 'text/css', body: '' }))
     await expect(openDesign(page, cell)).rejects.toThrow(/font not loaded:/)
   })
 }
@@ -141,15 +141,15 @@ test('design WebSocket guard', async ({ browser }) => {
 test('live-stream ticket refused', async ({ browser }) => {
   const { readFile } = await import('node:fs/promises')
   const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
-  const ticket = fixture.data.now.find(t => t.agent.state === 'active').id
+  const ticket = 'AIUR-' + fixture.sections.now.find(t => t.agent.state === 'active').num
   await expect(openDesign(await pageFor(browser), cell, { ticket })).rejects.toThrow(`ticket ${ticket} runs the design's mock live stream`)
 })
 for (const variant of ['duplicate query', 'empty override']) {
   test(`live-stream query refused: ${variant}`, async ({ browser }) => {
     const { readFile } = await import('node:fs/promises')
     const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
-    const active = fixture.data.now.find(t => t.agent.state === 'active').id
-    const inactive = fixture.data.hist[0].id
+    const active = 'AIUR-' + fixture.sections.now.find(t => t.agent.state === 'active').num
+    const inactive = 'AIUR-' + fixture.sections.hist[0].num
     const opts = variant === 'duplicate query' ? { query: `?ticket=${inactive}&ticket=${active}` } : { ticket: '', query: `?ticket=${active}` }
     await expect(openDesign(await pageFor(browser), cell, opts)).rejects.toThrow(`ticket ${active} runs the design's mock live stream`)
   })
@@ -163,16 +163,50 @@ test('loading phase holds the skeleton', async ({ browser }) => {
   await delay(1000)
   expect((await page.screenshot({ animations: 'disabled', scale: 'device' })).equals(a)).toBe(true)
 })
-test('settle guard', async ({ page }) => {
+test('settle guard survives a transient capture failure', async ({ page }) => {
   await page.setContent('<div style="width:100px;height:100px">changing</div>')
   let n = 0
+  let failed = false
   // Change between each real capture; this cannot accidentally sample the same timer phase.
   const target = { screenshot: async opts => {
-    await page.locator('div').evaluate((e, n) => { e.style.outline = `${n % 2 + 1}px solid red` }, n++)
-    return page.screenshot(opts)
+    if (n === 3 && !failed) {
+      failed = true
+      throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+    }
+    await page.locator('div').evaluate((e, n) => { e.style.outline = `${n % 2 + 1}px solid red` }, n)
+    const png = await page.screenshot(opts)
+    n++
+    return png
   } }
   await expect(captureStable(target, { scale: 'device' })).rejects.toThrow('design did not settle after 10 captures')
+  expect(n).toBe(10)
 })
+test('stable capture recovers from a transient capture failure', async ({ page }) => {
+  await page.setContent('<div>stable</div>')
+  const opts = { scale: 'device' }
+  const expected = await page.screenshot(opts)
+  let calls = 0
+  const target = { screenshot: async options => {
+    expect(options).toBe(opts)
+    if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+    return page.screenshot(options)
+  } }
+  expect((await captureStable(target, opts)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+})
+for (const [name, message, attempts] of [
+  ['persistent capture failure', 'page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot', 2],
+  // Future regression guard: unrelated errors already propagated before the retry was added.
+  ['unrelated protocol error', 'page.screenshot: Protocol error (Page.captureScreenshot): Target closed', 1]
+]) {
+  test(`stable capture propagates ${name}`, async () => {
+    const error = new Error(message)
+    let calls = 0
+    const target = { screenshot: async () => { calls++; throw error } }
+    await expect(captureStable(target, {})).rejects.toBe(error)
+    expect(calls).toBe(attempts)
+  })
+}
 test('region guard', async ({ browser }) => {
   const pair = await designPair(browser)
   await expect(expectDesignParity(pair, { name: 'missing', region: '.missing' })).rejects.toThrow('region missing on design')

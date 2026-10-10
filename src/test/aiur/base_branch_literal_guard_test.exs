@@ -2,7 +2,6 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
   use ExUnit.Case, async: true
 
   @allowed_main_literals %{
-    "aiur_web/components/operator_control_center/dashboard_shell.ex" => [~s(class="shell-main")],
     "aiur_web/live/streamdeck_live.ex" => [~s(class="sd-key-main")]
   }
 

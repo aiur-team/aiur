@@ -105,6 +105,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok
     end
 
+    def update_issue_state(issue_id, state_name, opts) do
+      "human-review" = Keyword.fetch!(opts, :expected_state)
+      update_issue_state(issue_id, state_name)
+    end
+
     defp recipient, do: Application.get_env(:aiur, :human_review_guard_recipient)
   end
 
@@ -487,6 +492,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert CIApprovalStore.load() == %{
                approved_heads: %{},
+               passed_heads: %{},
                test_failure_heads: %{},
                base_repair_invalidations: %{}
              }
@@ -930,6 +936,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert CIApprovalStore.load() == %{
                approved_heads: %{},
+               passed_heads: %{},
                test_failure_heads: %{},
                base_repair_invalidations: %{}
              }
@@ -2102,7 +2109,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 2
       }
 
-      assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+      assert {:reply, {:tracker_io, {action, ^identifier, stage}, :remove_label, args}, prepared} =
+               Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+
+      result = apply(Aiur.Tracker, :remove_label, args)
+      assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:tracker_control_result, action, identifier, stage, result}, self(), prepared)
       receive_barrier({:memory_tracker_remove_label, ^identifier, "agent:paused"})
       receive_barrier({:resume_agent, request_id, 101})
       resumed = next.running[issue_id]
@@ -2169,8 +2180,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 2
       }
 
-      assert {:reply, {:error, {:pause_override_clear_failed, :unavailable}}, next} =
+      assert {:reply, {:tracker_io, {action, ^identifier, stage}, :remove_label, args}, prepared} =
                Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+
+      result = apply(Aiur.Tracker, :remove_label, args)
+
+      assert {:reply, {:error, {:pause_override_clear_failed, :unavailable}}, next} =
+               Orchestrator.handle_call({:tracker_control_result, action, identifier, stage, result}, self(), prepared)
 
       receive_barrier({:pause_override_remove_label, ^identifier, "agent:paused"})
       # handle_call/3 returns after the failed override-clear path.
@@ -2687,7 +2703,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     # Executor sent `aiurdev message` by hand.
     #
     # The review is body-only, so it opens no review thread and the
-    # unresolved-thread read reports nothing — #2473's `changes_requested_review?`
+    # unresolved-thread read reports nothing — #2473's `blocking_review_submission?`
     # signal is what carries it through the gate.
     #
     # This is CHARACTERIZATION, not a guard: it hands the event straight to the
@@ -3795,7 +3811,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
@@ -3859,7 +3875,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"63" => "2026-06-24T11:59:59Z"}
@@ -3959,7 +3975,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [human_review_issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end
         )
 
       assert next.github_comments_since == %{
@@ -4024,7 +4040,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 2,
           max_concurrency: 1
         )
@@ -4097,7 +4113,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
@@ -4160,7 +4176,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end,
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
         )
 
@@ -4220,7 +4236,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 1,
           max_concurrency: 1
         )
@@ -4303,7 +4319,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [human_review_issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end,
           max_concurrency: 1
         )
 
@@ -4366,7 +4382,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:error, :tracker_down} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:error, :tracker_down} end
         )
 
       assert next.github_comments_since == "2026-06-24T11:00:00Z"
@@ -4749,7 +4765,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
         )
 
@@ -4824,7 +4840,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           repo: "owner/repo",
           request_fun: request_fun,
           max_concurrency: 1,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [healthy_pr, flaky_pr]} end
         )
 
@@ -4886,7 +4902,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             request_fun: request_fun,
             max_concurrency: 1,
             watch_comment_target_limit: 2,
-            review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+            review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
             watch_pull_request_fetcher: fn "agent:watch" ->
               {:ok, open_prs ++ [merged_pr, closed_pr]}
             end
@@ -4933,7 +4949,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn _label ->
             send(parent, :unexpected_watch_fetch)
             {:ok, []}
@@ -6907,8 +6923,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "branch-push topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid ticket.<id>.branch.push topic" do
-      assert {:ok, "99"} =
-               EventTopics.parse_branch_push_topic("ticket.99.branch.push")
+      assert {:ok, "99"} = EventTopics.parse_branch_push_topic("ticket.99.branch.push")
+      assert {:ok, "99"} = EventTopics.parse_branch_push_topic("ticket.99.branch.force-push")
     end
 
     test "rejects system-branch pushes (not ticket-scoped)" do
@@ -6918,7 +6934,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
     test "rejects nearby topics" do
       for unrelated <- [
-            "ticket.99.branch.force-push",
+            "ticket.99.branch.force-delete",
             "ticket.99.pr.opened",
             "ticket.99.agent.pause.request"
           ] do

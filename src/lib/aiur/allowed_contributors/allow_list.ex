@@ -23,74 +23,26 @@ defmodule Aiur.AllowedContributors.AllowList do
   allow-list, it is an unknown one, and unknown fails closed.
   """
 
-  @max_bytes 65_536
-  # GitHub ids are positive int64s. ASCII digits only — `String.to_integer/1`
-  # would happily accept a sign, and a lookalike digit must never parse.
-  @id ~r/\A[1-9][0-9]{0,18}\z/
-  # The one GitHub login shape this feature accepts anywhere (the allow-list's
-  # org lines and every login placed in an API path): ASCII alphanumerics and
-  # hyphens, not starting with a hyphen, at most 39 characters. Legacy logins
-  # with doubled or trailing hyphens are accepted; anything else — unicode
-  # lookalikes, `/`, `.`, whitespace — is rejected, never normalized. A login
-  # is only ever an API address here, never an identity.
-  @login ~r/\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\z/
-
-  @doc "Whether `login` is a plain ASCII GitHub login, safe to place in an API path."
-  @spec valid_login?(term()) :: boolean()
-  def valid_login?(login) when is_binary(login), do: Regex.match?(@login, login)
-  def valid_login?(_login), do: false
+  alias Aiur.Config.Schema.AllowedContributorsParser
 
   @type t :: %{users: %{optional(pos_integer()) => true}, orgs: %{optional(pos_integer()) => String.t()}}
   @type error :: {:line, pos_integer(), atom()} | :too_large | :not_utf8
 
+  @doc "Whether `login` is a plain ASCII GitHub login, safe to place in an API path."
+  @spec valid_login?(term()) :: boolean()
+  defdelegate valid_login?(login), to: AllowedContributorsParser
+
   @doc "An allow-list that admits nobody."
   @spec empty() :: t()
-  def empty, do: %{users: %{}, orgs: %{}}
+  defdelegate empty(), to: AllowedContributorsParser
 
   @doc "Parses the file body. Any malformed line fails the whole file."
   @spec parse(binary()) :: {:ok, t()} | {:error, error()}
-  def parse(body) when is_binary(body) and byte_size(body) > @max_bytes, do: {:error, :too_large}
+  defdelegate parse(body), to: AllowedContributorsParser
 
-  def parse(body) when is_binary(body) do
-    if String.valid?(body) do
-      body
-      |> String.split(["\r\n", "\n"])
-      |> Enum.with_index(1)
-      |> Enum.reduce_while({:ok, empty()}, &parse_line/2)
-    else
-      {:error, :not_utf8}
-    end
-  end
-
-  @doc "Validates the config form: numeric user ids and org maps with numeric id and API login."
+  @doc "Validates numeric user ids and org maps with numeric id and API login."
   @spec from_config(term()) :: {:ok, t()} | {:error, String.t()}
-  def from_config(config) when is_map(config) do
-    users = Map.get(config, "users", [])
-    orgs = Map.get(config, "orgs", [])
-
-    with true <- Enum.all?(Map.keys(config), &(&1 in ["users", "orgs"])),
-         true <- is_list(users) and Enum.all?(users, &valid_id?/1),
-         true <- is_list(orgs) and Enum.all?(orgs, &valid_org?/1) do
-      config_lines(users, orgs) |> Enum.join("\n") |> parse() |> config_result()
-    else
-      false -> {:error, "must contain only users (positive int64 ids) and orgs (maps with positive int64 id and valid login)"}
-    end
-  end
-
-  def from_config(_config), do: {:error, "must be a map with users and orgs; use {} to admit nobody"}
-
-  defp valid_id?(id), do: is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807
-
-  defp valid_org?(%{"id" => id, "login" => login} = org),
-    do: map_size(org) == 2 and valid_id?(id) and valid_login?(login)
-
-  defp valid_org?(_org), do: false
-
-  defp config_lines(users, orgs),
-    do: Enum.map(users, &"user #{&1}") ++ Enum.map(orgs, &"org #{&1["id"]} #{&1["login"]}")
-
-  defp config_result({:ok, list}), do: {:ok, list}
-  defp config_result({:error, reason}), do: {:error, "invalid allow-list: #{inspect(reason)}"}
+  defdelegate from_config(config), to: AllowedContributorsParser
 
   @doc """
   Entries added and removed between two allow-lists, as display strings
@@ -111,56 +63,5 @@ defmodule Aiur.AllowedContributors.AllowList do
     user_entries = Enum.map(users, fn {id, true} -> "user:#{id}" end)
     org_entries = Enum.map(orgs, fn {id, login} -> "org:#{id}:#{login}" end)
     MapSet.new(user_entries ++ org_entries)
-  end
-
-  defp parse_line({line, number}, {:ok, acc}) do
-    case line |> strip_comment() |> String.split([" ", "\t"], trim: true) do
-      [] -> {:cont, {:ok, acc}}
-      ["user", id] -> add_user(acc, id, number)
-      ["org", id, login] -> add_org(acc, id, login, number)
-      _other -> {:halt, {:error, {:line, number, :unrecognized_entry}}}
-    end
-  end
-
-  defp strip_comment(line) do
-    case String.split(line, "#", parts: 2) do
-      [content | _comment] -> content
-      [] -> ""
-    end
-  end
-
-  defp add_user(acc, id, number) do
-    case parse_id(id) do
-      {:ok, int} -> {:cont, {:ok, %{acc | users: Map.put(acc.users, int, true)}}}
-      :error -> {:halt, {:error, {:line, number, :invalid_id}}}
-    end
-  end
-
-  defp add_org(acc, id, login, number) do
-    with {:ok, int} <- parse_id(id),
-         true <- Regex.match?(@login, login) do
-      put_org(acc, int, login, number)
-    else
-      :error -> {:halt, {:error, {:line, number, :invalid_id}}}
-      false -> {:halt, {:error, {:line, number, :invalid_login}}}
-    end
-  end
-
-  defp put_org(acc, id, login, number) do
-    case Map.fetch(acc.orgs, id) do
-      {:ok, existing} when existing != login -> {:halt, {:error, {:line, number, :conflicting_org}}}
-      _same_or_new -> {:cont, {:ok, %{acc | orgs: Map.put(acc.orgs, id, login)}}}
-    end
-  end
-
-  defp parse_id(text) do
-    if Regex.match?(@id, text) do
-      case Integer.parse(text) do
-        {int, ""} when int > 0 and int <= 9_223_372_036_854_775_807 -> {:ok, int}
-        _other -> :error
-      end
-    else
-      :error
-    end
   end
 end

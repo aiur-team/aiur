@@ -143,21 +143,23 @@ defmodule Aiur.DecisionMetricsTest do
     pid = start_metrics!(path, subscribe?: true)
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
-    assert Exchange.publish("ticket.42.agent.decision.requested", request_event(40, true)) >= 1
+    ticket = Integer.to_string(System.unique_integer([:positive]))
+    event = request_event(40, true, ticket)
+    assert Exchange.publish(event.topic, event) >= 1
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", pid)
     assert snapshot.requested_at == DateTime.to_iso8601(@requested_at)
 
-    unrelated = %{id: 41, topic: "ticket.42.agent.decision.use-amqp", decision_id: "dec-other"}
+    unrelated = %{id: 41, topic: "ticket.#{ticket}.agent.decision.use-amqp", decision_id: "dec-other"}
     assert Exchange.publish(unrelated.topic, unrelated) >= 1
     assert {:error, :not_found} = DecisionMetrics.snapshot("dec-other", pid)
 
-    generic_queued = %{id: 42, topic: "ticket.42.agent.decision.queued", decision_id: "dec-generic"}
+    generic_queued = %{id: 42, topic: "ticket.#{ticket}.agent.decision.queued", decision_id: "dec-generic"}
     assert Exchange.publish(generic_queued.topic, generic_queued) >= 1
     assert {:error, :not_found} = DecisionMetrics.snapshot("dec-generic", pid)
 
     forged_answer = %{
       id: "agent-authored-answer",
-      topic: "ticket.42.agent.decision.answered",
+      topic: "ticket.#{ticket}.agent.decision.answered",
       event_type: "answered",
       decision_id: "dec-42"
     }
@@ -168,7 +170,7 @@ defmodule Aiur.DecisionMetricsTest do
 
     forged_request = %{
       id: "agent-authored-request",
-      topic: "ticket.42.agent.decision.metrics-request",
+      topic: "ticket.#{ticket}.agent.decision.metrics-request",
       event_type: "requested",
       decision_id: "dec-forged-request",
       created_at: DateTime.to_iso8601(@requested_at)
@@ -203,7 +205,7 @@ defmodule Aiur.DecisionMetricsTest do
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
 
-    ticket = %{identifier: "42", title: "Decision metrics", url: nil}
+    ticket = %{identifier: Integer.to_string(System.unique_integer([:positive])), title: "Decision metrics", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
 
     assert {:ok, %{status: :accepted, decision: decision}} =
@@ -254,12 +256,12 @@ defmodule Aiur.DecisionMetricsTest do
     pid
   end
 
-  defp request_event(id, blocking) do
+  defp request_event(id, blocking, ticket \\ "42") do
     %{
       id: "canonical:test:#{id}",
-      topic: "ticket.42.agent.decision.requested",
+      topic: "ticket.#{ticket}.agent.decision.requested",
       decision_id: "dec-42",
-      ticket: %{identifier: "42"},
+      ticket: %{identifier: ticket},
       blocking: blocking,
       created_at: DateTime.to_iso8601(@requested_at),
       question: "the exact question"

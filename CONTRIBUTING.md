@@ -48,8 +48,15 @@ untrusted input.
   work; concrete modules stay thin; dependencies point one direction
   (concrete → base, never back).
 
-These are guiding targets, not a lint rule — they inform review, and CI does
-not fail a build on line count alone.
+Aim for 200 lines and give a cohesion reason above that target. The required
+`workflow security` job rejects new text paths over 500 lines and growth of
+paths already over 500, comparing Git blobs against the event's base commit.
+Existing oversized files may stay unchanged or shrink; renames and copies to
+new paths must fit the limit. Text becoming binary is rejected. Binary files
+are otherwise skipped, and symlinks are reported without following them.
+Lines are LF bytes plus a non-empty unterminated final line (CRLF counts once).
+Run `python3 scripts/check-file-size.py --base <commit>` locally; without
+`--base`, it uses the merge base with `origin/main`.
 
 ## Reuse before invention
 
@@ -279,7 +286,49 @@ It finds component and near-miss forms that a joined-literal search misses and
 shows the owning coverage partition for test files. Review the output before
 rewriting; it is intentionally not an automatic replacement.
 
+## Component boundaries
+
+The required lint job checks the four Elixir reference rules: `R-declared`
+(declared dependency), `R-private` (provider facade), `R-down` (layer direction),
+and `R-optional` (required code must not depend on optional code). Failures name
+source component, target module and the reference location. Fix the boundary or
+manifest first; an exemption is temporary debt, not permission to add more.
+
+Allowlist TSVs in `scripts/components/allowlist/` match exact
+`(rule, source component, target module)` keys. A removed violation leaves a
+stale entry that fails lint: delete it in the same PR, or run
+`python3 scripts/check-components.py --prune`. Pruning removes only stale rows
+for the selected rules; it never adds exemptions and still fails on new violations.
+
+On pull requests, additions (including replacements and new files) are compared
+with the PR base SHA. Every added row needs a reason beginning with a ticket ID:
+`MP-…`, `U…` or `#NNNN`, followed by an explanation the reviewer can verify.
+Existing `baseline <sha>` rows are grandfathered, but new baseline rows cannot
+bypass this guard. `--write-baseline` is bootstrap-only and cannot be combined
+with `--prune`. Use `--growth-base <sha>` to reproduce the PR growth guard.
+If the base cannot be fetched, the guard warns and skips; ordinary new-violation
+and stale-entry checks still run. Push and merge-group runs skip only growth.
+The CI step summary reports per-rule debt, largest SCC size and checker runtime;
+cycles are informational, not failures.
+
 ## Enforcement
+
+Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
+to one component in `components.json`. Add new source paths and update moved
+paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
+toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
+unowned files, equally specific competing owners and stale globs fail the check.
+Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
+
+Every root config section and scalar field, env schema name, and public
+`Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
+owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
+as a new declaration; stale and duplicate ownership also fail lint.
+`shared_with` records collaborating components without assigning another owner.
+
+RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
+struct at compile time and `check-config-docs.py` reads those lines. Ownership
+is manifest data; it does not generate or move section modules.
 
 The gate is `make ci` from `src/` (build, `fmt-check`, `lint`, `coverage`,
 `regression`, `dialyzer`). The equivalent dev-loop commands are:

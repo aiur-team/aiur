@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -64,18 +64,10 @@ defmodule Aiur.Orchestrator.Slots do
   end
 
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
-    # The cap applies to state immediately. Do NOT force an immediate full poll
-    # from here: `Lifecycle.request_refresh_state/1` used to schedule a 0ms tick
-    # that runs the whole poll cycle — firehose, CI and candidate-fetch GitHub
-    # requests, each bounded to the 10s orchestrator request deadline — inline in
-    # this process. That wedged the orchestrator mailbox for ~10s after every
-    # `set max-agents`, so the write (and any control call that landed meanwhile)
-    # contended with the busy state and could either time out at the 5s
-    # `GenServer.call` budget (the first-write-after-restart failure, since the
-    # initial poll is equally slow) or race the launcher's 10s control-RPC
-    # watchdog (#2137). Re-dispatch still happens on the normal poll cadence; the
-    # cap and its status read take effect immediately.
+    previous = max_concurrent_agent_limit(state)
     state = Map.put(state, :session_max_concurrent_agents, next)
+    # Reschedule only; never run the tracker poll inline in this control call (#2137).
+    state = if next > previous, do: Lifecycle.wake_tick(state), else: state
 
     StatusReport.notify_dashboard(state)
     {:reply, {:ok, max_concurrent_agent_status(state)}, state}
@@ -231,6 +223,10 @@ defmodule Aiur.Orchestrator.Slots do
       capacity_hold: state.capacity_hold,
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,
+      load_discount_reason: Map.get(sample, :load_discount_reason, :unavailable),
+      load_daemon_nice: Map.get(sample, :load_daemon_nice, :unavailable),
+      gate_signal: Map.get(sample, :gate_signal, :unavailable),
+      load_sampled_at_ms: Map.get(sample, :load_sampled_at_ms),
       load: Map.get(sample, :load, :unavailable),
       load_threshold: Map.get(sample, :load_threshold),
       schedulers: Map.get(sample, :schedulers),
@@ -238,6 +234,7 @@ defmodule Aiur.Orchestrator.Slots do
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
+    |> Map.merge(EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max))
   end
 
   @spec dispatch_hold_status(State.t(), integer()) :: map()

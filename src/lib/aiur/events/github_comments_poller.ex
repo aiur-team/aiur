@@ -669,7 +669,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp suppressing_review?(_review), do: false
 
   # Limits /reviews fetches to targets whose issue is in a review-awaiting state
-  # — `human-review`, `merging`, or `rework` (`TargetSelection`'s
+  # — `human-review`, `merging`, `rework`, or `ci-wait` (`TargetSelection`'s
   # `@comment_poll_review_states`). This avoids polling the endpoint for every
   # active PR each cycle, which would consume ~48% of the 5,000 req/hr GitHub
   # budget at 20 agents.

@@ -24,12 +24,12 @@ export const API_ROWS = [
 ];
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
-export function loadBuildJs({ designDir, expose, context = {} }) {
+export function loadBuildJs({ designDir, expose, context = {}, prelude = '' }) {
   const src = readFileSync(join(designDir, 'assets/build.js'), 'utf8');
   const count = src.split(ANCHOR).length - 1;
   assert.equal(count, 1, `build.js anchor '${ANCHOR}' found ${count} times`);
   for (const name of expose) assert.match(name, /^[A-Za-z_$][\w$]*$/, `invalid expose name: ${name}`);
-  const patched = src.replace(ANCHOR, `  window.__E8 = { ${expose.join(', ')} };\n${ANCHOR}`);
+  const patched = src.replace(ANCHOR, `  ${prelude}\n  window.__E8 = { ${expose.join(', ')} };\n${ANCHOR}`);
   const ctx = { window: {}, document: {}, location: { search: '' }, history: {}, ...context };
   vm.runInContext(patched, vm.createContext(ctx), { filename: 'build.js', timeout: 10000 });
   return ctx.window.__E8;
@@ -61,28 +61,49 @@ function raw(d) {
   return data;
 }
 
+function statsOracle(data, featureStats, now) {
+  return { now, features: Object.fromEntries(Object.entries(featureStats).map(([key, expected]) => [key, {
+    expected,
+    members: Array.from(data.all.filter(t => t.feature === key), t => Object.fromEntries(
+      ['num', 'sec', 'status', 'pct', 'cx', 'pts', 'created', 'added'].map(k => [k, k === 'created' ? Math.floor(t[k]) : t[k]]))),
+    also: Array.from(data.all.filter(t => t.also.includes(key)), t => t.num),
+  }])) };
+}
+
 export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}) {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (zone !== TZ) throw new Error(`export needs TZ=${TZ}, got ${zone}`);
-  const { dataFor, NOW, PSETS } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW', 'PSETS'] });
+  const prelude = 'const featStatsFor = (k) => { const prev = D; D = dataFor(k); try { return Object.fromEntries(Object.keys(D.features).map((f) => [f, featStats(f)])); } finally { D = prev; } };';
+  const { dataFor, NOW, PSETS, featStatsFor } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW', 'PSETS', 'featStatsFor'], prelude });
   assert.equal(NOW, 1791408000000, `NOW moved: ${new Date(NOW).toISOString()}`);
-  const files = {};
+  const files = {}, oracle = {};
   for (const dataset of DATASETS) {
+    const kind = dataset === 'offline' ? 'live' : dataset;
+    const data = dataFor(kind), featureStats = featStatsFor(kind);
+    if (dataset !== 'offline') oracle[dataset] = statsOracle(data, featureStats, NOW);
     files[`${dataset}.json`] = encode(mapRawToPayload({
       meta: { dataset, now: NOW, tz: TZ, design_etag: ETAG },
-      data: raw(dataFor(dataset === 'offline' ? 'live' : dataset)),
+      data: raw(data),
       usage: { models: PSETS[4], apis: API_ROWS },
       daemon: { state: dataset === 'offline' ? 'offline' : 'live',
         heartbeat_at: dataset === 'offline' ? NOW - 360000 : NOW, observed_at: NOW },
-    }));
+    }, { featureStats }));
   }
+  files['feature-stats.json'] = encode(oracle);
+  const hostile = JSON.parse(files['live.json']);
+  hostile.sections.now[0].title = `<img src=x onerror="window.__xss=1">'"&`;
+  Object.values(hostile.epics)[0].label = '<b>x</b>';
+  Object.values(hostile.features)[0].label = '<b>x</b>';
+  hostile.sections.plan[0].cue.held = '" onmouseover="window.__xss=1';
+  hostile.sections.plan[0].override = { hours: 1, reason: '" onmouseover="window.__xss=1', by: 'fixture', at: NOW };
+  files['hostile.json'] = encode({ snapshot: hostile, invalid_title_base64: Buffer.from([65, 255, 66]).toString('base64') });
   files['usage-sets.json'] = encode(PSETS);
   const offsets = new Set();
   for (const text of Object.values(files)) walk(decode(text), v => {
     if (Number.isFinite(v) && v >= 1.7e12 && v <= 1.9e12) offsets.add(-new Date(v).getTimezoneOffset());
   });
   files['manifest.json'] = encode({
-    schema: 'build-home-raw/1', now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
+    schema: 'build-home-payload/1', ids: Object.fromEntries(DATASETS.flatMap(k => Object.values(JSON.parse(files[`${k}.json`]).sections).flat().map(r => [`AIUR-${r.num}`, r.id]))), now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
     design_etag: ETAG, datasets: DATASETS,
     design_sha256: Object.fromEntries(designFiles(designDir).map(f => [f, sha256(readFileSync(join(designDir, f)))])),
     fixture_sha256: Object.fromEntries(Object.entries(files).map(([f, text]) => [f, sha256(text)])),
