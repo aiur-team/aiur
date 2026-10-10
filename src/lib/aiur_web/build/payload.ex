@@ -14,7 +14,7 @@ defmodule AiurWeb.Build.Payload do
   created, status, pct, agent, est, override, added, deps, wave, qpos, cue, pr.
   Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
-  wave is positive or nil. Agent model is a safe slug; effort is low/medium/high.
+  wave is positive or nil. Agent model is a safe slug or nil; name is a string up to 64 characters or nil.
   Titles, labels and reasons remain unescaped; the client escapes on rendering.
 
   | Row field | Type |
@@ -29,9 +29,9 @@ defmodule AiurWeb.Build.Payload do
   | start_src | label, dispatch, unknown; null start always has unknown source |
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
-  | agent | nil or model slug, nullable state and nullable effort |
+  | agent | nil or nullable model, name, state and effort |
   | agent.state | active, error, retries, command, paused, parked, or nil |
-  | agent.effort | low, medium, high, or nil |
+  | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps | boolean / identifiers |
   | wave / qpos | integer or nil (positive on plan) / nonnegative integer or nil |
@@ -43,7 +43,10 @@ defmodule AiurWeb.Build.Payload do
   Epics require key/label strings, numeric hue and icon from
   bug/pen/server/docs/layers/unsorted; optional general/temp/unsorted are booleans,
   optional feature is a string. Features require key/label, numeric hue, epic keys
-  and nullable from/to milliseconds. Order and every row membership reference
+  and nullable from/to milliseconds. Required stats is an object or nil when unavailable.
+  Stats carries total/done/done_min, pct/pct_min, orig/added, baseline, spark, also
+  and reasons (complexity/no_weight/progress/status). Unknown done and percentages
+  stay nil; percentage bounds are integers in 0..100. Order and every row membership reference
   must resolve. Counts cover every ordered epic or the whole block is nil.
 
   History requires nullable from/total/undated, boolean more and string tz.
