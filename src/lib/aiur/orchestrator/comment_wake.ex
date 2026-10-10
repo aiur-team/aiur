@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.{MergeAttribution, ReviewFindings}
   alias Aiur.RecentMerge
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
 
@@ -1135,7 +1135,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     case Map.get(state.running, issue.id) do
       %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
         if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do
-          Lifecycle.record(
+          Signal.lifecycle(
             issue.identifier,
             Map.get(entry, :telemetry_attempt_id),
             :agent_resume,
@@ -1376,7 +1376,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
-        Lifecycle.record(
+        Signal.lifecycle(
           to_string(telemetry_ticket),
           attempt_id,
           :rework_start,

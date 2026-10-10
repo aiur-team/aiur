@@ -10,7 +10,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
 
@@ -130,7 +130,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
     operation_id = "turn:#{turn_number}"
 
-    Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
+    Signal.lifecycle(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
       operation_id: operation_id,
       turn_number: turn_number,
       backend: SessionLifecycle.session_backend_label(app_session)
@@ -271,10 +271,10 @@ defmodule Aiur.AgentRunner.TurnLoop do
       case result do
         {:ok, _session} -> {:success, nil}
         {:paused, _payload} -> {:paused, nil}
-        {:error, reason} -> {:failed, Lifecycle.reason_class(reason)}
+        {:error, reason} -> {:failed, Signal.reason_class(reason)}
       end
 
-    Lifecycle.record(issue.identifier, attempt_id, :implement, :end, %{
+    Signal.lifecycle(issue.identifier, attempt_id, :implement, :end, %{
       operation_id: operation_id,
       turn_number: turn_number,
       outcome: outcome,

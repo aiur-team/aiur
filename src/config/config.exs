@@ -2,7 +2,9 @@ import Config
 
 config :aiur, env: config_env()
 
-config :aiur, :signal, alert_sink: Aiur.Alerts
+config :aiur, :signal,
+  alert_sink: Aiur.Alerts,
+  lifecycle_sink: Aiur.RunTelemetry.Lifecycle
 
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,

@@ -46,12 +46,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :complexity
   ]
 
-  @doc "Creates an opaque identity for one dispatched worker attempt."
-  @spec new_attempt_id(String.t()) :: String.t()
-  def new_attempt_id(ticket) when is_binary(ticket) do
-    suffix = 10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
-    "#{ticket}:#{suffix}"
-  end
+  @doc "See `Aiur.Signal.new_attempt_id/1`."
+  defdelegate new_attempt_id(ticket), to: Aiur.Signal
 
   @doc false
   @spec enabled?(keyword()) :: boolean()
@@ -97,21 +93,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   def record(_ticket, _attempt_id, _event, _boundary, _metadata, _opts), do: :ok
 
   @doc false
-  @spec reason_class(term()) :: String.t()
-  def reason_class(reason)
-  def reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
-
-  def reason_class(%{__struct__: module}) when is_atom(module) do
-    module
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
-  end
-
-  def reason_class({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
-  def reason_class({tag, _detail, _more}) when is_atom(tag), do: Atom.to_string(tag)
-  def reason_class(status) when is_integer(status), do: "status_#{status}"
-  def reason_class(_reason), do: "unknown"
+  defdelegate reason_class(reason), to: Aiur.Signal
 
   @doc "Observes backend command lifecycle notifications and emits build/test boundaries."
   @spec observe_backend_message(String.t(), String.t() | nil, String.t(), map(), keyword()) :: :ok

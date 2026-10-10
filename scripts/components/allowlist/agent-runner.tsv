@@ -21,7 +21,6 @@ R-declared	Aiur.Orchestrator.ReworkGate	baseline 4aba33f8aae03cdaec432d6614e70a5
 R-declared	Aiur.Orchestrator.StatusReason	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.TicketTransition	#3306 sanctioned lifecycle owner; replaces direct tracker writes without moving caller decisions
 R-declared	Aiur.Orchestrator.TokenAccounting.Payloads	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Perf	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Lifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Usage.Headless.Emitter	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workflow	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839

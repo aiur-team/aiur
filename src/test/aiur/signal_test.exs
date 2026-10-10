@@ -3,6 +3,7 @@ defmodule Aiur.SignalTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Signal
   alias AiurWeb.ObservabilityPubSub
 
@@ -112,5 +113,66 @@ defmodule Aiur.SignalTest do
     files = Path.wildcard(Path.expand("../../lib/aiur/**/*.ex", __DIR__))
     assert files != []
     for file <- files, do: refute(File.read!(file) =~ "AiurWeb.ObservabilityPubSub", file)
+  end
+
+  defmodule LifecycleSink do
+    def record(ticket, attempt_id, event, boundary, metadata, opts) do
+      send(self(), {:record, ticket, attempt_id, event, boundary, metadata, opts})
+      :ok
+    end
+
+    def observe_backend_message(ticket, attempt_id, backend, message, opts) do
+      send(self(), {:backend, ticket, attempt_id, backend, message, opts})
+      :ok
+    end
+  end
+
+  describe "lifecycle telemetry" do
+    test "lifecycle delegates all six arguments to the sink" do
+      Application.put_env(:aiur, :signal, lifecycle_sink: LifecycleSink)
+
+      assert :ok = Signal.lifecycle("1", "1:a", :dispatch, :point, %{k: 1}, recorder: :r)
+      assert_received {:record, "1", "1:a", :dispatch, :point, %{k: 1}, [recorder: :r]}
+    end
+
+    test "backend_message delegates all five arguments to the sink" do
+      Application.put_env(:aiur, :signal, lifecycle_sink: LifecycleSink)
+
+      assert :ok = Signal.backend_message("1", "1:a", "codex", %{"m" => 1}, tracker: :t)
+      assert_received {:backend, "1", "1:a", "codex", %{"m" => 1}, [tracker: :t]}
+    end
+
+    test "missing lifecycle sink is a silent :ok" do
+      Application.put_env(:aiur, :signal, [])
+
+      log =
+        capture_log(fn ->
+          assert :ok = Signal.lifecycle("1", nil, :dispatch, :point)
+          assert :ok = Signal.backend_message("1", nil, "codex", %{})
+        end)
+
+      assert log == ""
+    end
+
+    test "reason_class maps each reason shape and Lifecycle delegates to it" do
+      for {reason, class} <- [
+            {:boom, "boom"},
+            {%ArgumentError{}, "argument_error"},
+            {{:down, :x}, "down"},
+            {{:down, :x, :y}, "down"},
+            {503, "status_503"},
+            {"text", "unknown"}
+          ] do
+        assert Signal.reason_class(reason) == class
+        assert Lifecycle.reason_class(reason) == class
+      end
+    end
+
+    test "new_attempt_id is ticket-prefixed and unique" do
+      id = Signal.new_attempt_id("42")
+      assert String.starts_with?(id, "42:")
+      refute id == Signal.new_attempt_id("42")
+      assert String.starts_with?(Lifecycle.new_attempt_id("42"), "42:")
+    end
   end
 end

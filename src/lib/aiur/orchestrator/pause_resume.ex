@@ -21,7 +21,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TrackedSet
   alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   require Logger
   # Attribution marker for agents held by the global pause switch, distinct
   # from every per-agent pause reason. Unpause resumes only these entries, so
@@ -2028,7 +2028,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp record_control_transition(_running_entry, status, status, _cause), do: :ok
 
   defp record_control_transition(running_entry, _old_status, :paused, cause) do
-    Lifecycle.record(
+    Signal.lifecycle(
       Map.get(running_entry, :identifier),
       Map.get(running_entry, :telemetry_attempt_id),
       :agent_pause,
@@ -2039,7 +2039,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp record_control_transition(running_entry, old_status, :working, cause)
        when old_status in [:paused, :deactivated] do
-    Lifecycle.record(
+    Signal.lifecycle(
       Map.get(running_entry, :identifier),
       Map.get(running_entry, :telemetry_attempt_id),
       :agent_resume,
