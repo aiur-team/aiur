@@ -19,8 +19,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     TrackerIdentity
   }
 
-  alias Aiur.AgentRunner.CodexUpdateRelay
-  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.AgentRunner.{CodexUpdateRelay, QueueDrain}
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Signal
