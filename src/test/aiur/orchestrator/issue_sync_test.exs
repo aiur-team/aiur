@@ -1584,9 +1584,9 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   test "records exactly one Executor wake when an issue transitions to human-review" do
     Publisher.set_tracked_fn(fn _ -> true end)
     start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest})
+    # Bound to the handoff binding only: the default bindings also journal other tests' late events (#3945).
+    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.*.agent.handoff.human_review"], reconcile?: false})
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
-
     previous = issue("handoff", "in-progress")
     current = %{previous | state: "human-review"}
     sha = String.duplicate("c", 40)
