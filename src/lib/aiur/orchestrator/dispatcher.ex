@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, BuildOrder.History, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
+    EnvelopeResume,
     IssueSync,
     Lifecycle,
     MergedTicketReconciler,
@@ -39,7 +40,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
-
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
 
@@ -968,12 +968,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
       |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
 
-    # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
     state = record_capacity_sample(state, probes)
+    state = EnvelopeResume.persist(state, fresh?, probes.schedulers, now_ms)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
@@ -2674,8 +2674,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case start_runner_task(issue, runner, recipient, runner_context, opts) do
       {:ok, pid} ->
+        History.note_start(issue.identifier, :dispatch, DateTime.utc_now())
         ref = Process.monitor(pid)
-
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
         record_rework_resume(issue, lifecycle_attempt_id)
 

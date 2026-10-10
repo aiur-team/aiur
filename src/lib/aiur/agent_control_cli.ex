@@ -35,7 +35,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
@@ -2177,7 +2177,6 @@ defmodule Aiur.AgentControlCLI do
   # CLI may not run on the daemon's host, and it reads its own config file
   # rather than the daemon's live config, so a locally re-derived gate can name
   # a fleet-level cause the daemon never decided (#1610).
-  #
   # `polling` is threaded in for one honest reason: the "ticket supply" binding
   # is only claimable when the daemon recently polled and found nothing. While
   # idle backoff is active (the last successful poll is a full backed-off
@@ -2191,7 +2190,8 @@ defmodule Aiur.AgentControlCLI do
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and
               is_integer(configured) do
     binding = capacity_binding(capacity, polling)
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})")
+    resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}")
   end
 
   defp print_capacity_status(_capacity, _polling), do: :ok
@@ -2216,8 +2216,8 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
 
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
-
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
 

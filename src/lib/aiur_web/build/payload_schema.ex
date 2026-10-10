@@ -16,6 +16,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "sec" => enum(~w(hist now plan nq)),
       "ord" => :integer,
       "start" => nullable(:integer),
+      "start_src" => enum(~w(label dispatch unknown)),
       "end" => nullable(:integer),
       "created" => nullable(:integer),
       "status" => enum(~w(done failed not_planned closed running queued open)),
@@ -49,7 +50,17 @@ defmodule AiurWeb.Build.PayloadSchema do
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
       "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
-      "features" => {:dictionary, object(%{"key" => :string, "label" => :string, "hue" => :number, "epics" => list(:string), "from" => nullable(:integer), "to" => nullable(:integer)})},
+      "features" =>
+        {:dictionary,
+         object(%{
+           "key" => :string,
+           "label" => :string,
+           "hue" => :number,
+           "epics" => list(:string),
+           "from" => nullable(:integer),
+           "to" => nullable(:integer),
+           "stats" => nullable(object(feature_stats()))
+         })},
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
       "history" => object(history()),
@@ -71,6 +82,22 @@ defmodule AiurWeb.Build.PayloadSchema do
   def usage("unavailable"), do: %{"state" => {:literal, "unavailable"}, "observed_at" => nullable(:integer), "reason" => :string}
   def usage("authorized"), do: %{"state" => {:literal, "authorized"}, "observed_at" => nullable(:integer), "apis" => list(object(provider())), "providers" => list(object(provider()))}
   def usage(_state), do: nil
+
+  defp feature_stats do
+    %{
+      "total" => :nonnegative,
+      "done" => nullable(:nonnegative),
+      "done_min" => :nonnegative,
+      "pct" => nullable({:integer_range, 0, 100}),
+      "pct_min" => nullable({:integer_range, 0, 100}),
+      "orig" => :nonnegative,
+      "added" => :nonnegative,
+      "baseline" => :boolean,
+      "spark" => list(:nonnegative),
+      "also" => :nonnegative,
+      "reasons" => list(enum(~w(complexity no_weight progress status)))
+    }
+  end
 
   defp provider do
     %{
