@@ -5,418 +5,125 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
   alias Aiur.BuildQueue.Hints
-  alias Aiur.GitHub.Quota
+  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{Slots, State}
 
-  @reclaimable_cpu_threshold 60.0
-  @fd_headroom_percent 10
+  @type admission_reason :: Gates.admission_reason()
 
-  # States in which, by definition, there is no agent work: the PR is sitting in
-  # GitHub's merge queue (`merging`) or CI is in flight (`ci-wait`). Dispatching
-  # into them cannot produce progress, only cost — and every committed dispatch
-  # bills a lifetime unit, so a ticket can burn the terminal (self-declared
-  # unrecoverable) latch while waiting for the merge queue, *after* its work was
-  # finished and approved (#1759: 48 dispatches in ~50 minutes on a ticket in
-  # `merging` with an approved, queued PR).
-  #
-  # This is a code-level refusal rather than an `active_states` edit because
-  # `merging` must stay an active state for comment polling
-  # (`CommentPolling.TargetSelection`), the paused-agent sweep, and terminal-fence
-  # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
-  # sweep as legitimate waiting; refusing it here makes the two beliefs
-  # consistent regardless of how an operator configures `active_states`.
-  #
-  # Neither state strands a ticket: leaving `ci-wait` (the CI result delivery and
-  # the `ci_wait_rewake` fallback) and leaving `merging` (a trusted comment
-  # promoting the ticket to `rework`) both transition the tracker label *first*,
-  # so dispatch is re-evaluated against the new state.
-  @no_agent_work_states ["merging", "ci-wait"]
-
-  # A tracker-closed ticket is terminal no matter what `tracker.terminal_states`
-  # lists. The GitHub tracker resolves a `state: "closed"` payload to the state
-  # "Closed" (`Aiur.GitHub.Issues.extract_state/2`), which is not an `agent:*`
-  # label and therefore never appears in the configured terminal set. Without
-  # this, a `blocked_by` blocker that is CLOSED on GitHub reads as non-terminal
-  # and holds its blockee undispatchable forever (#2545) — a closed issue cannot
-  # be blocking anything.
-  @closed_issue_state "closed"
-
-  # Kept as the pre-#2751 phrasing for the shapes that carry no nameable
-  # blocker, so an unreadable hold still reads as a hold.
-  @unknown_dependency_hold "blocked by a non-terminal dependency"
-
-  @doc false
-  # Reads the host 1-min load only when the hard gate or adaptive target is
-  # enabled, so explicit-disable configs never touch /proc. Exposed for
-  # unit-testing the short-circuit; the pure hold/dispatch decision is
-  # load_gate/3.
   @spec read_load(number() | nil) :: float() | :unavailable
-  def read_load(threshold), do: read_load(threshold, nil)
-
+  defdelegate read_load(threshold), to: Gates
   @spec read_load(number() | nil, number() | nil) :: float() | :unavailable
-  def read_load(hard_threshold, target)
-      when (is_number(hard_threshold) and hard_threshold > 0) or
-             (is_number(target) and target > 0),
-      do: SystemLoad.avg1()
-
-  def read_load(_hard_threshold, _target), do: :unavailable
-
-  @doc false
-  # Reads the host CPU snapshot when load admission, the adaptive envelope, or
-  # the run-queue gate is enabled, so explicit-disable configs never touch
-  # /proc/stat.
+  defdelegate read_load(hard_threshold, target), to: Gates
   @spec read_cpu(number() | nil, number() | nil) :: SystemCpu.snapshot() | :unavailable
-  def read_cpu(target, run_queue_threshold \\ nil), do: read_cpu(target, run_queue_threshold, nil)
+  defdelegate read_cpu(target, run_queue_threshold \\ nil), to: Gates
 
-  @spec read_cpu(number() | nil, number() | nil, number() | nil) :: SystemCpu.snapshot() | :unavailable
-  def read_cpu(target, run_queue_threshold, hard_threshold)
-      when (is_number(target) and target > 0) or
-             (is_number(run_queue_threshold) and run_queue_threshold > 0) or
-             (is_number(hard_threshold) and hard_threshold > 0),
-      do: SystemCpu.snapshot()
-
-  def read_cpu(_target, _run_queue_threshold, _hard_threshold), do: :unavailable
-
-  @doc false
-  # Reads MemAvailable only while memory admission is enabled. Keeping this
-  # short-circuit beside read_load/2 prevents disabled configs from touching
-  # Linux-specific /proc files.
+  @spec read_cpu(number() | nil, number() | nil, number() | nil) ::
+          SystemCpu.snapshot() | :unavailable
+  defdelegate read_cpu(target, run_queue_threshold, hard_threshold), to: Gates
   @spec read_memory(integer() | nil) :: non_neg_integer() | :unavailable
-  def read_memory(threshold) when is_integer(threshold) and threshold > 0,
-    do: SystemMemory.available_mb()
-
-  def read_memory(_threshold), do: :unavailable
-
-  @doc false
+  defdelegate read_memory(threshold), to: Gates
   @spec read_file_descriptors() :: SystemFileDescriptors.sample_result()
-  def read_file_descriptors, do: SystemFileDescriptors.sample()
-
-  @doc false
-  # Reads the shared build-gate status. The status call is the authoritative
-  # agent-launched Mix concurrency signal (the shell hook owns lock acquisition),
-  # so this reads the real gate unless a test seam overrides it. A disabled or
-  # unreadable gate yields a `build_gate/1` fail-open.
+  defdelegate read_file_descriptors(), to: Gates
   @spec read_build_status() :: map()
-  def read_build_status do
-    case Application.get_env(:aiur, :build_gate_status_override) do
-      fun when is_function(fun, 0) -> fun.()
-      _other -> BuildGate.status()
-    end
-  end
-
-  @doc false
-  # Dispatchable backends whose configured provider usage limits participate in
-  # fleet admission. When every one of them is usage-limited, `provider_gate/1`
-  # holds new admissions (a fleet-wide provider-limit signal).
+  defdelegate read_build_status(), to: Gates
   @spec read_provider_backends() :: [String.t()]
-  def read_provider_backends do
-    Config.agent_backend_configs() |> CodingAgent.dispatchable_backends()
-  end
-
-  @doc false
+  defdelegate read_provider_backends(), to: Gates
   @spec read_github_quota() :: :available | {:hold, map()}
-  def read_github_quota do
-    case Application.get_env(:aiur, :github_quota_status_override) do
-      :available -> :available
-      {:hold, %{} = hold} -> {:hold, hold}
-      fun when is_function(fun, 0) -> fun.()
-      _other -> Quota.dispatch_status()
-    end
-  end
-
-  @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
-  def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
-  def initial_load_envelope_limit(_agent), do: 1
-
-  @doc false
-  # Pure eager pre-warm decision.
+  defdelegate read_github_quota(), to: Gates
   @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
-  def prewarm_gate(false, _phase), do: :dispatch
-  def prewarm_gate(true, :ready), do: :dispatch
-  def prewarm_gate(true, {:error, _reason}), do: :dispatch
-  def prewarm_gate(true, _warming), do: :hold
-
-  @doc false
-  # The authoritative admission reason additionally corroborates an
-  # exceeded threshold with short-window CPU headroom so low-priority runnable
-  # processes cannot hold the fleet by themselves.
+  defdelegate prewarm_gate(eager?, phase), to: Gates
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
-  def load_gate(_load, nil, _schedulers), do: :dispatch
-  def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
-  def load_gate(:unavailable, _threshold, _schedulers), do: :dispatch
-  def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
-  def load_gate(_load, _threshold, _schedulers), do: :dispatch
+  defdelegate load_gate(load, threshold, schedulers), to: Gates
 
-  @doc false
-  # `cpu_headroom` is required rather than defaulted: an uncorroborated caller
-  # can never produce a hold, so a defaulted arity would silently read as "the
-  # load gate is off" (#2089).
   @spec load_admission_reason(
           number() | :unavailable,
           number() | nil,
           pos_integer(),
           SystemCpu.headroom() | :unavailable
         ) :: :dispatch | {:hold, admission_reason()}
-  def load_admission_reason(load, threshold, schedulers, cpu_headroom) do
-    load
-    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
-    |> load_gate(threshold, schedulers)
-    |> corroborated_admission_reason(:load, load, scaled_threshold(threshold, schedulers), cpu_headroom)
-  end
-
-  @doc false
-  # A configured floor holds normal new-work dispatch only when the host sample
-  # is strictly below it. Missing samples fail open for non-Linux hosts.
+  defdelegate load_admission_reason(load, threshold, schedulers, cpu_headroom), to: Gates
   @spec memory_gate(non_neg_integer() | :unavailable, integer() | nil) :: :dispatch | :hold
-  def memory_gate(_available_mb, nil), do: :dispatch
-  def memory_gate(_available_mb, threshold) when threshold <= 0, do: :dispatch
-  def memory_gate(:unavailable, _threshold), do: :dispatch
-  def memory_gate(available_mb, threshold) when available_mb < threshold, do: :hold
-  def memory_gate(_available_mb, _threshold), do: :dispatch
-
-  @doc false
+  defdelegate memory_gate(available_mb, threshold), to: Gates
   @spec fd_gate(SystemFileDescriptors.sample_result()) :: :dispatch | :hold
-  def fd_gate(:exhausted), do: :hold
-  def fd_gate(:unavailable), do: :dispatch
-
-  def fd_gate(%{available: available, limit: limit} = sample)
-      when is_integer(available) and available >= 0 and is_integer(limit) and limit > 0 do
-    if available < fd_headroom_threshold(sample), do: :hold, else: :dispatch
-  end
-
-  def fd_gate(_sample), do: :dispatch
-
-  @doc false
+  defdelegate fd_gate(sample), to: Gates
   @spec fd_headroom_threshold(map()) :: pos_integer() | :unavailable
-  def fd_headroom_threshold(%{limit: limit}) when is_integer(limit) and limit > 0 do
-    div(limit * @fd_headroom_percent + 99, 100)
-  end
-
-  def fd_headroom_threshold(_sample), do: :unavailable
-
-  @doc false
+  defdelegate fd_headroom_threshold(sample), to: Gates
   @spec fd_headroom_percent() :: 10
-  def fd_headroom_percent, do: @fd_headroom_percent
-
-  @doc false
-  # Instantaneous run-queue check; admission corroborates it with CPU headroom.
+  defdelegate fd_headroom_percent(), to: Gates
   @spec run_queue_gate(number() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
-  def run_queue_gate(_runnable, _schedulers, nil), do: :dispatch
-  def run_queue_gate(_runnable, _schedulers, threshold) when not is_number(threshold) or threshold <= 0, do: :dispatch
-  def run_queue_gate(:unavailable, _schedulers, _threshold), do: :dispatch
-  def run_queue_gate(runnable, schedulers, threshold) when runnable > threshold * schedulers, do: :hold
-  def run_queue_gate(_runnable, _schedulers, _threshold), do: :dispatch
+  defdelegate run_queue_gate(runnable, schedulers, threshold), to: Gates
 
-  @doc false
   @spec run_queue_admission_reason(
           integer() | :unavailable,
           pos_integer(),
           number() | nil,
           SystemCpu.headroom() | :unavailable
         ) :: :dispatch | {:hold, admission_reason()}
-  def run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom) do
-    runnable
-    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
-    |> run_queue_gate(schedulers, threshold)
-    |> corroborated_admission_reason(:run_queue, runnable, scaled_threshold(threshold, schedulers), cpu_headroom)
-  end
-
-  @doc false
-  # Concurrent-build-pressure gate: holds new dispatch while every agent-launched
-  # Mix build slot is busy or a build is queued behind them. This is the
-  # "concurrent build pressure" admission signal — it complements the CPU load
-  # gate, which sees external build load through the load average. Fails open
-  # when the build gate is disabled (`max_concurrent_builds: 0`) or its status
-  # is unavailable/degraded.
+  defdelegate run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom), to: Gates
   @spec build_gate(map()) :: :dispatch | :hold
-  def build_gate(%{enabled?: true, capacity: capacity, active: active, queued: queued})
-      when is_integer(capacity) and capacity > 0 and is_integer(active) and is_integer(queued) do
-    if active >= capacity or queued > 0, do: :hold, else: :dispatch
-  end
-
-  def build_gate(_status), do: :dispatch
-
-  @doc false
-  # Configured-provider-limit gate: holds new dispatch only when every
-  # dispatchable backend reports usage-limited (the fleet-wide provider signal),
-  # failing open when no limits are observed or there is nothing dispatchable.
-  # Per-issue provider selection (`CodingAgent.select_for_dispatch/1`) still owns
-  # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
-  # As a side effect, when we would hold due to all backends being limited,
-  # trigger probes for any stale limits to refresh the cached readings.
+  defdelegate build_gate(status), to: Gates
   @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
-  def provider_gate(backends, opts \\ [])
-
-  def provider_gate(backends, opts) when is_list(backends) and backends != [] do
-    case ModelAvailability.first_available(backends, opts) do
-      nil ->
-        # All backends are limited; trigger probes for any stale limits
-        # This is a non-blocking side effect that happens in the background
-        ModelAvailability.probe_stale_limits(backends, opts)
-        :hold
-
-      _backend ->
-        :dispatch
-    end
-  end
-
-  def provider_gate(_backends, _opts), do: :dispatch
-
-  @doc false
+  defdelegate provider_gate(backends, opts \\ []), to: Gates
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
-  def github_quota_gate({:hold, %{resource: resource}}) when resource in ["core", "graphql"], do: :hold
-  def github_quota_gate(_status), do: :dispatch
-
-  # The corroboration keys are optional but no longer incidental: a `load` or
-  # `run_queue` hold cannot be produced without them (#2089), so the type has to
-  # admit them or dialyzer intersects the inferred 5-key hold with a closed
-  # 3-key spec, finds nothing, and declares every load/run-queue hold dead.
-  @type admission_reason :: %{
-          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
-          :measured => term(),
-          :threshold => term(),
-          optional(:reclaimable_cpu_percent) => number(),
-          optional(:reclaimable_cpu_threshold) => number()
-        }
-
-  @doc """
-  One authoritative admission decision from every available host-pressure signal.
-
-  Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
-  (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, GitHub quota, run queue, load,
-  build, provider.
-  Every signal fails open when disabled or unavailable, so an explicit-disable
-  config never touches a Linux-specific probe.
-  """
+  defdelegate github_quota_gate(status), to: Gates
   @spec admission_gate(map()) :: :dispatch | {:hold, admission_reason()}
-  def admission_gate(%{} = probes) do
-    github_quota = Map.get(probes, :github_quota, :available)
+  defdelegate admission_gate(probes), to: Gates
 
-    case resource_admission_gate(probes, github_quota) do
-      :dispatch -> workload_admission_gate(probes)
-      hold -> hold
-    end
-  end
+  @spec state_slots_available?(term(), term()) :: boolean()
+  defdelegate state_slots_available?(issue, state), to: Eligibility
+  @spec effective_state_limit(term(), State.t()) :: pos_integer()
+  defdelegate effective_state_limit(issue_state, state), to: Eligibility
+  @spec running_issue_count_for_state(term(), term()) :: non_neg_integer()
+  defdelegate running_issue_count_for_state(running, issue_state), to: Eligibility
+  @spec issue_not_paused?(Issue.t()) :: boolean()
+  defdelegate issue_not_paused?(issue), to: Eligibility
+  @spec issue_not_parked?(Issue.t()) :: boolean()
+  defdelegate issue_not_parked?(issue), to: Eligibility
+  @spec issue_routable_to_worker?(term()) :: boolean()
+  defdelegate issue_routable_to_worker?(issue), to: Eligibility
+  @spec issue_dispatch_authorized?(term()) :: boolean()
+  defdelegate issue_dispatch_authorized?(issue), to: Eligibility
+  @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
+  defdelegate issue_dispatch_authorization_deferred?(issue), to: Eligibility
+  @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
+  defdelegate todo_issue_blocked_by_non_terminal?(issue, terminal_states), to: Eligibility
+  @spec non_terminal_blockers(term(), MapSet.t()) :: [term()]
+  defdelegate non_terminal_blockers(issue, terminal_states), to: Eligibility
+  @spec describe_dependency_hold(term(), MapSet.t()) :: String.t()
+  defdelegate describe_dependency_hold(issue, terminal_states), to: Eligibility
+  @spec blocked_on_decision?(Issue.t(), MapSet.t() | :unavailable | nil) :: boolean()
+  defdelegate blocked_on_decision?(issue, blocked), to: Eligibility
 
-  defp resource_admission_gate(
-         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample},
-         github_quota
-       ) do
-    cond do
-      memory_gate(memory_mb, memory_threshold_mb) == :hold ->
-        {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
+  @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
+  defdelegate terminal_issue_state?(state_name, terminal_states), to: IssueStates
+  @spec no_agent_work_state?(term()) :: boolean()
+  defdelegate no_agent_work_state?(state_name), to: IssueStates
+  @spec active_issue_state?(term(), MapSet.t()) :: boolean()
+  defdelegate active_issue_state?(state_name, active_states), to: IssueStates
+  @spec normalize_issue_state(term()) :: String.t()
+  defdelegate normalize_issue_state(state_name), to: IssueStates
+  @spec state_slug(term()) :: String.t() | nil
+  defdelegate state_slug(state_name), to: IssueStates
+  @spec resolve_state_labels([String.t()]) :: String.t() | nil
+  defdelegate resolve_state_labels(state_labels), to: IssueStates
+  @spec normalize_state_label(term()) :: String.t()
+  defdelegate normalize_state_label(label), to: IssueStates
+  @spec terminal_state_set() :: MapSet.t()
+  defdelegate terminal_state_set(), to: IssueStates
+  @spec active_state_set() :: MapSet.t()
+  defdelegate active_state_set(), to: IssueStates
 
-      fd_gate(fd_sample) == :hold ->
-        {:hold, %{signal: :file_descriptors, measured: fd_sample, threshold: fd_headroom_threshold(fd_sample)}}
-
-      github_quota_gate(github_quota) == :hold ->
-        {:hold, %{signal: :github_quota, measured: elem(github_quota, 1), threshold: :ten_percent_remaining}}
-
-      true ->
-        :dispatch
-    end
-  end
-
-  defp workload_admission_gate(
-         %{
-           runnable: runnable,
-           run_queue_threshold: run_queue_threshold,
-           schedulers: schedulers,
-           load: load,
-           load_threshold: load_threshold,
-           build_status: build_status,
-           provider_backends: provider_backends,
-           queued_demand?: queued_demand?
-         } = probes
-       ) do
-    cpu_headroom = Map.get(probes, :cpu_headroom, :unavailable)
-    run_queue_hold = run_queue_admission_reason(runnable, schedulers, run_queue_threshold, cpu_headroom)
-    load_hold = load_admission_reason(load, load_threshold, schedulers, cpu_headroom)
-
-    cond do
-      run_queue_hold != :dispatch ->
-        run_queue_hold
-
-      load_hold != :dispatch ->
-        load_hold
-
-      build_gate(build_status) == :hold ->
-        {:hold,
-         %{
-           signal: :build,
-           measured: %{active: Map.get(build_status, :active), queued: Map.get(build_status, :queued)},
-           threshold: Map.get(build_status, :capacity)
-         }}
-
-      queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
-        provider_opts = Map.get(probes, :provider_gate_opts, [])
-
-        {:hold,
-         %{
-           signal: :provider,
-           measured: provider_backends,
-           detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
-           threshold: :all_usage_limited
-         }}
-
-      true ->
-        :dispatch
-    end
-  end
+  @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
+  def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
+  def initial_load_envelope_limit(_agent), do: 1
 
   @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, Aiur.Orchestrator.LoadEnvelope.envelope_options()) :: {pos_integer(), integer() | nil}
   defdelegate load_envelope(effective, last_decrease_ms, load, options), to: Aiur.Orchestrator.LoadEnvelope
 
   @spec update_load_envelope(State.t(), number() | :unavailable, number() | nil, pos_integer(), integer(), SystemCpu.snapshot() | :unavailable, boolean()) :: State.t()
   defdelegate update_load_envelope(state, load, target, schedulers, now_ms, cpu_snapshot, queued_work?), to: Aiur.Orchestrator.LoadEnvelope
-
-  defp reclaimable_cpu_percent(%{reclaimable_percent: percent}) when is_number(percent), do: percent
-  defp reclaimable_cpu_percent(%{idle_percent: percent}) when is_number(percent), do: percent
-  defp reclaimable_cpu_percent(_headroom), do: :unavailable
-
-  defp corroborated_admission_reason(:dispatch, _signal, _measured, _threshold, _cpu_headroom),
-    do: :dispatch
-
-  defp corroborated_admission_reason(:hold, signal, measured, threshold, cpu_headroom) do
-    case reclaimable_cpu_percent(cpu_headroom) do
-      reclaimable when is_number(reclaimable) and reclaimable >= @reclaimable_cpu_threshold ->
-        :dispatch
-
-      reclaimable when is_number(reclaimable) ->
-        {:hold,
-         %{
-           signal: signal,
-           measured: measured,
-           threshold: threshold,
-           reclaimable_cpu_percent: reclaimable,
-           reclaimable_cpu_threshold: @reclaimable_cpu_threshold
-         }}
-
-      # An unmeasured corroboration is not a measurement of contention (#2089).
-      # `SystemCpu.headroom/2` needs two `/proc/stat` reads, so the first
-      # admission decision of a `State`'s life — the ramp-from-zero decision —
-      # has no window to compare against and returns `:unavailable`. Holding on
-      # that used to reinstate exactly the false positive this corroboration was
-      # added to remove (#1610): the raw 1-minute load average, which this fleet
-      # routinely inflates with niced `mix` builds and I/O wait, withheld new
-      # dispatch with no CPU evidence behind it. Every neighbouring probe
-      # (`SystemLoad`, `SystemCpu`, `memory_gate/2`, `build_gate/1`) degrades
-      # open when its sample is missing; this one now agrees. A hold therefore
-      # always carries a measured `reclaimable_cpu_percent`, and the next poll
-      # cycle — which does have a window — is what holds a genuinely saturated
-      # host.
-      :unavailable ->
-        :dispatch
-    end
-  end
-
-  defp scaled_threshold(threshold, schedulers) when is_number(threshold),
-    do: threshold * schedulers
-
-  defp scaled_threshold(_threshold, _schedulers), do: nil
 
   @spec sort_issues_for_dispatch([term()]) :: [term()]
   def sort_issues_for_dispatch(issues) when is_list(issues) do
@@ -727,46 +434,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     )
   end
 
-  @spec state_slots_available?(term(), term()) :: boolean()
-  def state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
-    limit = effective_state_limit(issue_state, state)
-    used = running_issue_count_for_state(state.running, issue_state)
-    limit > used
-  end
-
-  def state_slots_available?(_issue, _state), do: false
-
-  # Per-state cap honors explicit overrides in
-  # `agent.max_concurrent_agents_by_state` first, then falls back to the
-  # *session-aware* global limit. Without this, bumping the global cap at
-  # runtime (←/→ in the agent list) had no effect on dispatch eligibility
-  # because the per-state default was pinned to the workflow file value.
-  @spec effective_state_limit(term(), State.t()) :: pos_integer()
-  def effective_state_limit(issue_state, %State{} = state) do
-    config = Config.settings!()
-    normalized = normalize_issue_state(issue_state)
-
-    Map.get(
-      config.agent.max_concurrent_agents_by_state,
-      normalized,
-      Slots.max_concurrent_agent_limit(state)
-    )
-  end
-
-  @spec running_issue_count_for_state(term(), term()) :: non_neg_integer()
-  def running_issue_count_for_state(running, issue_state) when is_map(running) do
-    normalized_state = normalize_issue_state(issue_state)
-
-    Enum.count(running, fn
-      {_id, %{issue: %Issue{state: state_name}} = entry} ->
-        normalize_issue_state(state_name) == normalized_state and
-          State.active_running_entry?(entry)
-
-      _ ->
-        false
-    end)
-  end
-
   @spec candidate_issue?(term(), MapSet.t(), MapSet.t()) :: boolean()
   def candidate_issue?(
         %Issue{
@@ -788,314 +455,5 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
       not todo_issue_blocked_by_non_terminal?(issue, terminal_states)
-  end
-
-  @spec issue_not_paused?(Issue.t()) :: boolean()
-  def issue_not_paused?(%Issue{} = issue), do: not Issue.paused?(issue)
-
-  @spec issue_not_parked?(Issue.t()) :: boolean()
-  def issue_not_parked?(%Issue{} = issue), do: not Issue.parked?(issue)
-
-  @spec issue_routable_to_worker?(term()) :: boolean()
-  def issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
-      when is_boolean(assigned_to_worker),
-      do: assigned_to_worker
-
-  def issue_routable_to_worker?(_issue), do: true
-
-  @spec issue_dispatch_authorized?(term()) :: boolean()
-  def issue_dispatch_authorized?(%Issue{dispatch_authorized?: authorized?})
-      when is_boolean(authorized?), do: authorized?
-
-  def issue_dispatch_authorized?(_issue), do: false
-
-  # A deferred authorization (a transient budget hold / rate limit / transport
-  # failure prevented the provenance fetch) is distinct from a verified denial.
-  # Dispatch still skips the ticket this cycle (fail-closed), but the
-  # orchestrator must never read `:deferred` as revocation — that would kill a
-  # running agent over a 30-second throttle (#2409).
-  @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
-  def issue_dispatch_authorization_deferred?(%Issue{dispatch_authorization: :deferred}), do: true
-  def issue_dispatch_authorization_deferred?(_issue), do: false
-
-  @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
-  def todo_issue_blocked_by_non_terminal?(
-        %Issue{state: issue_state, blocked_by: blockers},
-        terminal_states
-      )
-      when is_binary(issue_state) and is_list(blockers) do
-    normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, &non_terminal_blocker?(&1, terminal_states))
-  end
-
-  def todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
-
-  @doc """
-  The `blocked_by` entries actually holding the issue: those whose state is not
-  terminal, plus any entry carrying no readable state (fail-closed, exactly as
-  the gate treats them).
-  """
-  @spec non_terminal_blockers(term(), MapSet.t()) :: [term()]
-  def non_terminal_blockers(%Issue{blocked_by: blockers}, terminal_states)
-      when is_list(blockers) do
-    Enum.filter(blockers, &non_terminal_blocker?(&1, terminal_states))
-  end
-
-  def non_terminal_blockers(_issue, _terminal_states), do: []
-
-  @doc """
-  Human-readable reason for a dependency hold, naming only the blockers that
-  cause it.
-
-  The dispatch log line used to `inspect/1` the whole `blocked_by` list, so a
-  hold whose list happened to lead with a terminal blocker read as though a
-  closed issue were blocking dispatch, and the one open blocker that mattered
-  was invisible unless the reader dumped the list (#2751).
-  """
-  @spec describe_dependency_hold(term(), MapSet.t()) :: String.t()
-  def describe_dependency_hold(%Issue{blocked_by: blockers} = issue, terminal_states)
-      when is_list(blockers) do
-    holding = non_terminal_blockers(issue, terminal_states)
-    describe_hold(holding, length(blockers) - length(holding))
-  end
-
-  def describe_dependency_hold(_issue, _terminal_states), do: @unknown_dependency_hold
-
-  defp non_terminal_blocker?(%{state: blocker_state}, terminal_states)
-       when is_binary(blocker_state),
-       do: !terminal_issue_state?(blocker_state, terminal_states)
-
-  defp non_terminal_blocker?(_blocker, _terminal_states), do: true
-
-  # Only ever reachable if a caller describes an issue that is not actually
-  # held; the gate itself never produces an empty holding list here.
-  defp describe_hold([], _ignored), do: @unknown_dependency_hold
-
-  defp describe_hold(holding, ignored) do
-    noun = if length(holding) == 1, do: "dependency", else: "dependencies"
-
-    "blocked by open #{noun} " <>
-      Enum.map_join(holding, ", ", &blocker_label/1) <> ignored_suffix(ignored)
-  end
-
-  defp ignored_suffix(count) when is_integer(count) and count > 0 do
-    noun = if count == 1, do: "terminal dependency", else: "terminal dependencies"
-    "; #{count} #{noun} ignored"
-  end
-
-  defp ignored_suffix(_count), do: ""
-
-  defp blocker_label(%{identifier: identifier} = blocker)
-       when is_binary(identifier) and identifier != "" do
-    "#{issue_number_sigil(identifier)}#{identifier} (#{blocker_state_label(blocker)})"
-  end
-
-  defp blocker_label(blocker), do: inspect(blocker)
-
-  defp blocker_state_label(%{state: state}) when is_binary(state) and state != "", do: state
-  defp blocker_state_label(_blocker), do: "unknown state"
-
-  defp issue_number_sigil(identifier) do
-    if Regex.match?(~r/\A\d+\z/, identifier), do: "#", else: ""
-  end
-
-  @doc """
-  True when dispatch of the issue must be held for an open blocking Command,
-  per the latest dispatch cycle's decision-store read.
-
-  `blocked_ticket_ids` is a `MapSet` of ticket identifiers with open blocking
-  Commands. The gate is fail-closed: `:unavailable` (the decision store could
-  not be read) returns true, because an open blocking Command is
-  indistinguishable from an empty store when the store cannot be read.
-  `nil` (no cycle computed the set) returns false, preserving compatibility
-  before the dispatcher has refreshed the store snapshot.
-
-  The Reconciler must NOT call this directly for its running-agent guard: it
-  deliberately fails OPEN there (stopping healthy running agents on a store
-  outage would be worse than letting a blocked agent run one more cycle), so
-  it checks `MapSet` membership explicitly.
-  """
-  @spec blocked_on_decision?(Issue.t(), MapSet.t() | :unavailable | nil) :: boolean()
-  def blocked_on_decision?(%Issue{id: id}, %MapSet{} = blocked),
-    do: MapSet.member?(blocked, id)
-
-  def blocked_on_decision?(_issue, :unavailable), do: true
-  def blocked_on_decision?(_issue, _blocked), do: false
-
-  @doc """
-  True when the state is terminal: either configured in `tracker.terminal_states`
-  or the tracker's own closed state (see `@closed_issue_state`).
-
-  A non-binary state (an unlabeled ticket, or a blocker whose payload carried no
-  derivable state) is NOT terminal — dependency and lifecycle callers stay
-  fail-closed on incomplete data.
-  """
-  @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
-  def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
-    normalized = normalize_issue_state(state_name)
-
-    normalized == @closed_issue_state or MapSet.member?(terminal_states, normalized)
-  end
-
-  def terminal_issue_state?(_state_name, _terminal_states), do: false
-
-  @doc """
-  True for a state where no agent work exists, so dispatch must be refused.
-
-  See `@no_agent_work_states`. Independent of `active_states`: an operator can
-  list `merging` as active (it is, for polling and fence purposes) without making
-  it dispatchable.
-  """
-  @spec no_agent_work_state?(term()) :: boolean()
-  def no_agent_work_state?(state_name) when is_binary(state_name) do
-    normalize_issue_state(state_name) in @no_agent_work_states
-  end
-
-  def no_agent_work_state?(_state_name), do: false
-
-  @spec active_issue_state?(term(), MapSet.t()) :: boolean()
-  def active_issue_state?(state_name, active_states) when is_binary(state_name) do
-    MapSet.member?(active_states, normalize_issue_state(state_name))
-  end
-
-  # Nil / non-binary state happens when the GitHub poll returns an
-  # issue with no `agent:*` label — extract_state returns nil. Treat
-  # as 'not active' so the reconcile cond falls through to the
-  # catch-all instead of crashing the orchestrator GenServer.
-  def active_issue_state?(_state_name, _active_states), do: false
-
-  @spec normalize_issue_state(term()) :: String.t()
-  def normalize_issue_state(state_name) when is_binary(state_name) do
-    String.downcase(String.trim(state_name))
-  end
-
-  # Same nil-safety reasoning as `active_issue_state?/2` above.
-  # Direct callers (routable_todo_issues, state_slots_available?,
-  # effective_state_limit, running_issue_count_for_state) all feed
-  # `issue.state` here without a binary guard; without this clause
-  # any unlabeled issue crashes the orchestrator.
-  def normalize_issue_state(_state_name), do: ""
-
-  @spec state_slug(term()) :: String.t() | nil
-  def state_slug(state_name) when is_binary(state_name) do
-    state_name
-    |> normalize_issue_state()
-    |> String.replace(~r/[\s_]+/, "-")
-    |> case do
-      "" -> nil
-      slug -> slug
-    end
-  end
-
-  def state_slug(_state_name), do: nil
-
-  # Explicit state precedence for contradictory-label resolution (#2437): the
-  # label with the most outstanding work wins. The terminal `done` must never
-  # beat `rework`/`in-progress`/`human-review`/`error` — resolving a done+rework
-  # pair to `done` silently discards the outstanding work and the heal would
-  # close the ticket with it. `ci-wait` is a transient sub-state that must never
-  # win a resolution, so it maps to an index strictly past every other label —
-  # including unknown ones (a mistyped or future state, `merging`, `cancelled`)
-  # — which keeps an unknown disposition from ever losing to the transient
-  # `ci-wait`. `todo` is a special case (it means "no work has been done yet"
-  # rather than a disposition) handled below.
-  @state_precedence ~w(rework in-progress human-review error done)
-  @ci_wait_state "ci-wait"
-
-  @doc """
-  Deterministically resolves a set of contradictory `agent:*` state labels to
-  the single state a ticket should be treated as.
-
-  `rework` means "work exists and was rejected"; `todo` means "no work exists
-  yet to redo". When both are present they contradict, and `todo` wins: a
-  ticket that is also `todo` has not been worked, so any `rework` verdict
-  stamped alongside it is the artifact of a broken writer, and "pick this up
-  again" (`todo`) is the honest fallback — never a review verdict.
-
-  Among labels that both assert a real disposition, the winner is the one with
-  the most outstanding work, in the explicit precedence order `rework` >
-  `in-progress` > `human-review` > `error` > `done`. Resolving the terminal
-  `done` over an outstanding disposition would silently discard the work —
-  nothing reopens the ticket and the heal would report the pair as healed
-  exactly when the work is lost — so the order deliberately favors re-opening
-  over closing (#2437). `ci-wait` is a transient sub-state and never wins a
-  resolution: it means "the agent is paused waiting for CI", so any other state
-  label on the ticket is the real disposition and takes precedence (a
-  `ci-wait`+`rework` ticket is really a rework ticket whose stale `ci-wait` was
-  never cleared). Labels outside the precedence list (`merging`, `cancelled`, a
-  mistyped or future state) lose to every known disposition but still outrank
-  the transient `ci-wait`, so `ci-wait` can never win a resolution; ties among
-  equally-ranked labels resolve by the order the labels arrived. Empty input
-  resolves to `nil`.
-  """
-  @spec resolve_state_labels([String.t()]) :: String.t() | nil
-  def resolve_state_labels(state_labels) when is_list(state_labels) do
-    normalized =
-      state_labels
-      |> Enum.map(&normalize_state_label/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.uniq()
-
-    cond do
-      "todo" in normalized ->
-        "todo"
-
-      normalized == [] ->
-        nil
-
-      true ->
-        Enum.min_by(normalized, &state_precedence_index/1)
-    end
-  end
-
-  def resolve_state_labels(_state_labels), do: nil
-
-  # Smaller index = more outstanding work and wins a resolution. Unknown labels
-  # map one step past the known dispositions (so a mistyped or future state
-  # never beats a real one) but still before `ci-wait`, which is the one label
-  # that must never win a resolution — it maps past the unknowns as well. Ties
-  # among equal indices resolve by the order the labels arrived.
-  defp state_precedence_index(state) do
-    case Enum.find_index(@state_precedence, &(&1 == state)) do
-      nil when state == @ci_wait_state -> length(@state_precedence) + 1
-      nil -> length(@state_precedence)
-      index -> index
-    end
-  end
-
-  @doc """
-  Normalizes a state label to its bare, unprefixed lowercase form so both the
-  GitHub ingestion shape (`"todo"`, prefix already stripped) and any
-  caller-provided `"agent:todo"` resolve identically.
-
-  Public so callers that reason about the same label set as
-  `resolve_state_labels/1` — the provenance-aware heal in
-  `IssueSync.reconcile_contradictory_state_labels/3` (#2805) — compare labels
-  through the identical normalization instead of a near-copy of it.
-  """
-  @spec normalize_state_label(term()) :: String.t()
-  def normalize_state_label(label) when is_binary(label) do
-    label
-    |> String.trim()
-    |> String.replace_prefix("agent:", "")
-    |> String.downcase()
-  end
-
-  def normalize_state_label(_label), do: ""
-
-  @spec terminal_state_set() :: MapSet.t()
-  def terminal_state_set do
-    Config.settings!().tracker.terminal_states
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.filter(&(&1 != ""))
-    |> MapSet.new()
-  end
-
-  @spec active_state_set() :: MapSet.t()
-  def active_state_set do
-    Config.settings!().tracker.active_states
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.filter(&(&1 != ""))
-    |> MapSet.new()
   end
 end
