@@ -1258,7 +1258,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
-         {:ok, %Issue{} = hydrated} <- hydrator.(issue),
+         {:ok, %Issue{} = hydrated} <- HoldDecline.observe(hydrator.(issue)),
          terminal_states = DispatchPolicy.terminal_state_set(),
          true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
@@ -1324,7 +1324,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
-    case hydrator.(refreshed_issue) do
+    case HoldDecline.observe(hydrator.(refreshed_issue)) do
       {:ok, %Issue{} = hydrated} ->
         # Dispatch-time mirror of the per-cycle gate in `choose_issues`. The
         # main dispatch path already refused the ticket, but resume/wake paths

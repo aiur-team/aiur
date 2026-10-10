@@ -32,14 +32,21 @@ defmodule Aiur.GitHub.HoldPressureTest do
     assert HoldPressure.dispatch_decline("1", name: name) == :attention
   end
 
-  test "a ticket needs attention only at the threshold within the window", %{name: name} do
-    # Defaults: 3 declines within 600 seconds.
+  test "a ticket needs attention on the third consecutive decline at any spacing", %{name: name} do
+    # Default threshold: 3. The run is counted, not timed: 300 s apart (a slow
+    # dispatch poll) must escalate exactly like 1 s apart.
     assert HoldPressure.dispatch_decline("1", name: name, now_ms: 0) == :transient
-    assert HoldPressure.dispatch_decline("1", name: name, now_ms: 1_000) == :transient
-    assert HoldPressure.dispatch_decline("2", name: name, now_ms: 1_500) == :transient
-    assert HoldPressure.dispatch_decline("1", name: name, now_ms: 2_000) == :attention
+    assert HoldPressure.dispatch_decline("1", name: name, now_ms: 300_000) == :transient
+    assert HoldPressure.dispatch_decline("2", name: name, now_ms: 300_500) == :transient
+    assert HoldPressure.dispatch_decline("1", name: name, now_ms: 600_000) == :attention
+    # A hold that still has not cleared stays escalated.
+    assert HoldPressure.dispatch_decline("1", name: name, now_ms: 3_600_000) == :attention
+  end
 
-    # The three declines aged out, so the next one starts a fresh count.
-    assert HoldPressure.dispatch_decline("1", name: name, now_ms: 700_000) == :transient
+  test "a cleared ticket starts a fresh run", %{name: name} do
+    assert HoldPressure.dispatch_decline("1", name: name) == :transient
+    assert HoldPressure.dispatch_decline("1", name: name) == :transient
+    assert HoldPressure.dispatch_cleared("1", name: name) == :ok
+    assert HoldPressure.dispatch_decline("1", name: name) == :transient
   end
 end
