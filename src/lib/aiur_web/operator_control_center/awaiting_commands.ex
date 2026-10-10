@@ -33,11 +33,8 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
   @doc "Subscribes to Command changes (when connected) and assigns the first counts."
   @spec mount(Socket.t(), boolean()) :: Socket.t()
   def mount(socket, connected?) do
-    if connected? do
-      Commands.subscribe()
-      schedule_tick()
-    end
-
+    socket = AiurWeb.RefreshRelay.mount(socket, &Commands.subscribe/0, [:decision_changed])
+    if connected?, do: schedule_tick()
     refresh(socket)
   end
 
