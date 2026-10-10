@@ -164,7 +164,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       {:workspace_guardian_call, from, ref, {:cancel_provider_expectation, generation}} ->
         {reply_value, next} = cancel_provider_expectation(state, generation)
         reply(from, ref, reply_value)
-        loop(next)
+
+        case reply_value do
+          :ok -> continue_after_provider_update(next)
+          _error -> loop(state)
+        end
 
       {:workspace_guardian_call, from, ref, {:track_provider, generation, provider}} ->
         {reply_value, next} = track_provider(state, generation, provider)
@@ -247,6 +251,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp continue_after_provider_update(%{owner_dead?: true} = state), do: maybe_release_or_reap(state)
+  defp continue_after_provider_update(%{release_requested?: true} = state), do: maybe_release_or_reap(state)
   defp continue_after_provider_update(state), do: loop(state)
 
   defp activate(state, generation) when generation == state.lease.generation do
