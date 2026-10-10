@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   require Logger
 
-  alias Aiur.{Signal, Config, Issue, TicketBranch}
+  alias Aiur.{Config, Issue, Signal, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TrackerTasks, WorkspaceCleanup}

@@ -28,7 +28,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   block `done`: an abandoned draft must not pin its ticket out of its terminal
   state. A failed open-PR lookup never closes the ticket.
   """
-  alias Aiur.{Signal, Issue, RecentMerge, RecentMergeStore}
+  alias Aiur.{Issue, RecentMerge, RecentMergeStore, Signal}
   alias Aiur.Orchestrator.{CommentWake, Lifecycle, PushRouting, Reconciler, ReworkGate, State, TicketTransition, TrackerTasks}
 
   require Logger

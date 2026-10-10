@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Signal, Config, PollCadence, RunTelemetry}
+  alias Aiur.{AlertFeed, Config, PollCadence, RunTelemetry, Signal}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator

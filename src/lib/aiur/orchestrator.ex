@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
   require Logger
 
-  alias Aiur.{Signal, Issue}
+  alias Aiur.{Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake}
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}

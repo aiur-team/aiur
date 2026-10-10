@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{AgentPubSub, AgentQueueStore, Signal, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Config, CurrentRunMembership, Issue, Signal, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
