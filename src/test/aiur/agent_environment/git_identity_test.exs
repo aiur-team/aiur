@@ -4,7 +4,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
   alias Aiur.AgentEnvironment
   alias Aiur.AgentEnvironment.GitIdentity
   alias Aiur.Config.Schema
-  alias Aiur.Workspace.Provisioner
+  alias Aiur.Workspace.{AttributionGuard, Provisioner}
 
   @identity {"Apple Kid", "its.applekid@gmail.com"}
   @git_names ~w(GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL)
@@ -80,7 +80,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
     File.write!(Path.join(workspace, ".claude/settings.local.json"), "{\"model\": \"x\"}\n")
     {_out, 0} = git(workspace, home, [], ["add", "-f", ".claude/settings.local.json"])
 
-    assert :ok = Aiur.Workspace.AttributionGuard.install(workspace)
+    assert :ok = AttributionGuard.install(workspace)
 
     assert File.read!(hook) == "#!/bin/sh\nexit 0\n"
     assert File.read!(Path.join(workspace, ".claude/settings.local.json")) == "{\"model\": \"x\"}\n"
