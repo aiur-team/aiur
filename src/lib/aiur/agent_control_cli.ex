@@ -638,8 +638,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp executor_wait_detail({:executor_claims_lock_timeout, lock}) do
-    %{timeout_ms: timeout_ms, retry_interval_ms: interval_ms, stale_after_seconds: stale_after_seconds} =
-      Claims.lock_retry_budget()
+    %{timeout_ms: timeout_ms, retry_interval_ms: interval_ms, stale_after_seconds: stale_after_seconds} = Claims.lock_retry_budget()
 
     "wake-stream lock contention: #{lock} was still held after retrying every #{interval_ms}ms for #{timeout_ms}ms " <>
       "(a lock older than #{stale_after_seconds}s is broken as stale). Nothing was consumed, so this is safe to retry"

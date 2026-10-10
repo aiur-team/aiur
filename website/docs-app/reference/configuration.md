@@ -35,8 +35,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's
 **convergence age** crosses a configurable threshold, raises an advisory
 `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
-watch actionable section. The alerts are advisory takeover prompts — they never
-perform a takeover automatically.
+watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
 - `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
   first raises the advisory once its convergence age reaches this value.
@@ -45,8 +44,7 @@ perform a takeover automatically.
   A value of `0` disables repeats (first alert only); `0` on the first threshold
   disables the feature. Negative or non-integer values are rejected.
 
-**Convergence age** is `now − min(first_observed_active_work_at,
-open_pr_created_at)`:
+**Convergence age** is `now − min(first_observed_active_work_at, open_pr_created_at)`:
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon
   state, set once the first time the monitor observes the ticket as nonterminal
