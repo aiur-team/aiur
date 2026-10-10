@@ -240,11 +240,11 @@ defmodule Aiur.Orchestrator.StatusReportTest do
         %{identifier => envelope}
       )
 
-    assert [%{waiting_reason: :workspace_ownership_waiting, reason: {:workspace_ownership_waiting, ^identifier, generation, :not_recorded}} = status] =
+    assert [%{waiting_reason: :workspace_retained, reason: {:workspace_retained, ^identifier, generation, :not_recorded}} = status] =
              StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
 
     assert generation == lease.generation
-    assert StatusReason.render(status.reason) =~ "workspace ownership held (generation #{generation})"
+    assert StatusReason.render(status.reason) =~ "workspace retained (generation #{generation})"
     assert StatusReason.render(status.reason) =~ "unknown provider; exit proof not recorded"
   end
 

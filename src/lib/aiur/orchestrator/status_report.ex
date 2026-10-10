@@ -32,8 +32,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
-  alias Aiur.Workspace.Ownership.HoldStatus
-
+  alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
   # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
   # node, so the work itself is microseconds; the only thing this budget has to
   # cover is queueing. 100 ms did not: behind a burst of ticket events, or any
@@ -50,7 +49,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   @activity_snapshot_timeout_ms 500
   @repo_base_status_timeout_ms 100
   @waiting_for_human_alert_after_seconds 600
-
   @doc """
   Reads the fleet view for a control query without sending a message to the
   Orchestrator.
@@ -482,6 +480,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     waiting_reason =
       WaitingReason.for_running(%{
         tracker_state: metadata.issue.state,
+        workspace_retained?: not is_nil(Retention.for_ticket(metadata.identifier)),
         pause_reason: pause_reason,
         work_state: work_state,
         open_decision_count: open_decision_count,
@@ -1043,6 +1042,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     waiting_reason =
       WaitingReason.for_running(%{
         tracker_state: Map.get(issue, :state),
+        workspace_retained?: not is_nil(Retention.for_ticket(identifier)),
         pause_reason: pause_reason,
         work_state: work_state,
         open_decision_count: open_decision_count,
@@ -1243,12 +1243,12 @@ defmodule Aiur.Orchestrator.StatusReport do
   # agent and naming why beats re-deriving it from work state. Everything else
   # falls through to the ordinary reason ladder, which the caller passes as a
   # thunk so it is only computed when it is needed.
-  @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting]
+  @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting, :workspace_retained]
 
-  defp idle_reason(:workspace_ownership_waiting, identifier, _fallback) do
+  defp idle_reason(reason, identifier, _fallback) when reason in [:workspace_ownership_waiting, :workspace_retained] do
     case HoldStatus.for_ticket(identifier) do
-      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, identifier, generation, proof}
-      nil -> :workspace_ownership_waiting
+      %{generation: generation, proof: proof} -> {reason, identifier, generation, proof}
+      nil -> reason
     end
   end
 
@@ -1277,6 +1277,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           dispatch_hold_reason: dispatch_hold_reason,
           capacity_hold_active?: capacity_hold_active?,
+          workspace_retained?: not is_nil(Retention.for_ticket(Map.get(issue, :identifier) || Map.get(issue, :id))),
           workspace_recovery?: WaitingReason.workspace_recovery?(state, Map.get(issue, :id), Map.get(issue, :identifier)),
           startup_reconciliation_complete?: state.startup_claim_reconciliation_complete?
         )

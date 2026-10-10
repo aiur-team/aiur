@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
       orphaned_claim: "StartupClaimReconciler",
       stale_claim: "Reconciler",
       workspace_ownership_waiting: "Workspace.Ownership",
+      workspace_retained: "Workspace.Ownership",
       active: "AgentRunner"
     }
 
