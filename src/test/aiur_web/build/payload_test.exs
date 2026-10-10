@@ -111,7 +111,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    assert bytes / rows <= 400
+    # Required agent names raise the fixture census from 397.84 to 411.43 bytes.
+    assert bytes / rows <= 420
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)
