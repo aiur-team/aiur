@@ -171,12 +171,25 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   defp invalid_routing_effort_error(field, value) do
     backend = routing_effort_backend(value)
+    [{field, "invalid effort #{inspect(RoutingValue.routing_effort(value))} for backend #{inspect(backend)}; " <> effort_hint(backend)}]
+  end
 
-    [
-      {field,
-       "invalid effort #{inspect(RoutingValue.routing_effort(value))} for backend #{inspect(backend)}; " <>
-         "valid efforts: #{inspect(Aiur.CodingAgent.efforts(backend))}"}
-    ]
+  # `valid efforts: []` read as a bug; say plainly that the backend takes no
+  # effort segment, and name the remote transport when that one does (#3961).
+  defp effort_hint(backend) do
+    case Aiur.CodingAgent.efforts(backend) do
+      [] -> "#{inspect(backend)} takes no effort segment, so drop it (#{backend}:<model>)" <> remote_effort_hint(backend)
+      efforts -> "valid efforts: #{inspect(efforts)}"
+    end
+  end
+
+  defp remote_effort_hint(backend) do
+    with true <- Aiur.CodingAgent.remote_control?(backend),
+         [_ | _] = efforts <- Aiur.CodingAgent.efforts(routing_effort_backend(backend <> "+remote")) do
+      ", or append +remote (#{backend}:<model>:<effort>+remote), which accepts #{Enum.join(efforts, ", ")}"
+    else
+      _no_remote_efforts -> ""
+    end
   end
 
   # A routing value's optional effort segment must be in the backend's valid
