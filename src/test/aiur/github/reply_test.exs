@@ -231,7 +231,9 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
     test "reply applied by attempt 1 is found when attempt 2 also times out" do
       {:ok, posts} = Agent.start_link(fn -> 0 end)
       {:ok, reads} = Agent.start_link(fn -> 0 end)
-      created = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+      # Inside the reply window (started 60 s ago) but outside a fresh clock's
+      # 5 s skew: only a start time carried across retries finds it.
+      created = DateTime.utc_now() |> DateTime.add(-30) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
       request_fun = fn %{method: :post, body: body} ->
         cond do
@@ -254,7 +256,8 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
                Reply.reply_to_review_thread("PRRT_two", "Done.",
                  request_fun: request_fun,
                  daemon_account: "aiur-bot",
-                 retry_delay_ms: 0
+                 retry_delay_ms: 0,
+                 reply_started_at: DateTime.add(DateTime.utc_now(), -60)
                )
 
       assert Agent.get(posts, & &1) == 2
