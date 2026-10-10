@@ -82,7 +82,7 @@ presence does not promise that its feature is installed or enabled.
 | `tracker.github` | GitHub tracker |
 | `tracker.linear` | Linear tracker |
 | `accounting.meters` | Provider usage meters |
-| `merge_policy` | Configured merge policy; `mode` is `ci=<mode> local_tests=<mode>` ([configuration](/reference/configuration#merge-policy)) |
+| `merge_policy` | Configured merge policy; `mode` is `ci=<mode> local_tests=<mode>` ([configuration](/reference/merge-policy)) |
 
 Per-capability `version` defaults to 1. Registered `route` attributes tell clients
 where to open a feature's dashboard page; do not hard-code those destinations.
