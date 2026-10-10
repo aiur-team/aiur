@@ -6,17 +6,17 @@ defmodule Aiur.OrchestratorStatusSupport do
   import ExUnit.Assertions
   import ExUnit.Callbacks
 
-  alias Aiur.Issue
-  alias Aiur.Orchestrator
-  alias Aiur.Workflow
   alias Aiur.AgentQueueStore
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
+  alias Aiur.Issue
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.State
   alias Aiur.TicketActivity
   alias Aiur.TicketActivity.Projection
   alias Aiur.TicketObservation
   alias Aiur.TrackerIdentity
+  alias Aiur.Workflow
 
   def normalize(event), do: CodexCodingAgent.normalize_event(event)
 

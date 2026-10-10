@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
 
   import Aiur.OrchestratorStatusSupport
 
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.SessionHandle
   alias Aiur.Workspace.Ownership
@@ -404,7 +405,7 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       assert :ok = WorkspaceCleanup.cleanup_issue_workspace("2413")
       assert File.read!(Path.join(unrelated_workspace, "dirty.txt")) == "uncommitted bytes must survive\n"
       assert {:ok, [%Issue{identifier: "99"}]} = Tracker.fetch_candidate_issues()
-      assert {:ok, [%Issue{identifier: "99"}], %{}} = Aiur.GitHub.Tracker.fetch_candidate_issues_conditional(%{})
+      assert {:ok, [%Issue{identifier: "99"}], %{}} = GitHubTracker.fetch_candidate_issues_conditional(%{})
       assert {:ok, [%Issue{identifier: "99"}]} = Tracker.fetch_issues_by_states(["todo"])
     after
       restore_application_env(:github_client_module, previous_github_client)
