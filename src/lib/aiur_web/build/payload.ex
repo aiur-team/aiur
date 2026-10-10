@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.Payload do
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
-  Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, end,
+  Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
   created, status, pct, agent, est, override, added, deps, wave, qpos, cue, pr.
   Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
@@ -26,6 +26,7 @@ defmodule AiurWeb.Build.Payload do
   | cx / pts / ord | 1..5 or nil / nonnegative integer or nil / integer |
   | sec | hist, now, plan, nq |
   | start / end / created | integer milliseconds or nil; hist end must be known |
+  | start_src | label, dispatch, unknown; null start always has unknown source |
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
@@ -65,7 +66,7 @@ defmodule AiurWeb.Build.Payload do
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts
   before history.from are excluded. Earlier: envelope without now plus rows/history.
-  Error: v/kind/reason (invalid_params/unavailable/read_only/not_found).
+  Error: v/kind/reason (invalid_params/unavailable/read_only/not_found/throttled).
 
   Epoch identifies a LiveView process; generation advances once per diff, twice
   for an index restart. Snapshots do not increment it. Source index_generation

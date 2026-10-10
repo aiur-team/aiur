@@ -16,6 +16,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "sec" => enum(~w(hist now plan nq)),
       "ord" => :integer,
       "start" => nullable(:integer),
+      "start_src" => enum(~w(label dispatch unknown)),
       "end" => nullable(:integer),
       "created" => nullable(:integer),
       "status" => enum(~w(done failed not_planned closed running queued open)),
@@ -73,7 +74,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   def message("snapshot"), do: Map.merge(envelope(), Map.put(blocks(), "sections", object(Map.new(~w(hist now plan nq), &{&1, list(:row)}))))
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
-  def message("error"), do: %{"v" => {:literal, 1}, "kind" => {:literal, "error"}, "reason" => enum(~w(invalid_params unavailable read_only not_found))}
+  def message("error"), do: %{"v" => {:literal, 1}, "kind" => {:literal, "error"}, "reason" => enum(~w(invalid_params unavailable read_only not_found throttled))}
   def message(_kind), do: nil
 
   @spec usage(String.t()) :: map() | nil

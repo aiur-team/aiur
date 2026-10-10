@@ -1,7 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc """
-  Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
-  """
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
 
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
@@ -23,24 +21,18 @@ defmodule Aiur.Orchestrator.State do
           poll_cycles_completed: non_neg_integer(),
           tracker_tasks: %{reference() => map()},
           restack_completed: map(),
+          blocker_propagations: map(),
           last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
-          load_envelope_state: %{
-            optional(:sample_id) => reference() | integer() | nil,
-            optional(:sampled_at_ms) => integer() | nil,
-            optional(:overload_samples) => non_neg_integer(),
-            last_decrease_ms: integer() | nil,
-            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
-            bootstrap_complete?: boolean()
-          },
+          load_envelope_state: map(),
           capacity_hold:
             %{
               optional(:reclaimable_cpu_percent) => float(),
               optional(:reclaimable_cpu_threshold) => float(),
-              signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
+              signal: :memory | :file_descriptors | :run_queue | :load | :cpu_pressure | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),
               measured_at: DateTime.t(),
@@ -95,6 +87,7 @@ defmodule Aiur.Orchestrator.State do
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
+            optional(:cpu_pressure | :pressure_threshold | :pressure_target | :memory_mb | :memory_threshold_mb) => term(),
             optional(:load_discount_reason | :load_daemon_nice) => :enabled | :unavailable | integer(),
             optional(:gate_signal) => number() | :unavailable,
             optional(:load_sampled_at_ms) => integer() | nil,
@@ -282,12 +275,12 @@ defmodule Aiur.Orchestrator.State do
     running_issue_cache: %{},
     tracker_tasks: %{},
     restack_completed: %{},
+    blocker_propagations: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
-    # Timer refs for in-flight comment-rework retries, keyed by
-    # `{issue_key, source_key}`. Tracked so a superseded retry can be cancelled
+    # In-flight comment-rework timers keyed by `{issue_key, source_key}`, so superseded retries can be cancelled
     # and so `terminate/2` never leaves a timer firing into a dead orchestrator's
     # successor — see `Aiur.Orchestrator.CommentWake`.
     comment_rework_retries: %{},

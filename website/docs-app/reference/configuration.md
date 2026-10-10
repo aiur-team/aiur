@@ -1,6 +1,5 @@
 # Configuration reference
 Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels.
-
 Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory.
@@ -20,7 +19,6 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
 ## Top-level
-
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
@@ -75,6 +73,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `tracker.kind` | string | required | Selects `linear`, `github`, or `memory`. |
+| `tracker.propagate_blocker_pushes` | boolean or nil | nil | Unset enables optimistic queue members; otherwise false. Cascade direct blocker pushes into idle dependents. Coalesces for 2 seconds, at most 2 propagations concurrently. Live agents pull themselves; conflicts dispatch rework. |
 | `tracker.restack_after_blocker_merge` | boolean | true | Fast-forward restack idle GitHub dependents after a blocker squash-merges. Requires git 2.40+. Live agents restack themselves; false disables only the daemon path. |
 | `tracker.base_branch` | string | required | Branch agents target with PRs. `aiur init` offers the repository default read from GitHub, but there is no runtime fallback: an unset value raises. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
@@ -218,14 +217,15 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | --- | --- | --- | --- |
 | `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
 | `agent.accounts` | map | `%{}` | Machine-local account names enabled per harness, for example `{claude: [default, max]}`. The list is priority order; absent or empty keeps the existing single-account behavior. Claude and Codex use isolated profile directories; Kimi, DeepSeek, and OpenRouter use named API keys; Muse is unsupported. See [accounts by backend](/guide/claude-accounts). |
-| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
+| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
+| `agent.headroom_reading_max_age_seconds` | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
 | `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
-| `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
-| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
+| `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The adaptive envelope reduces effective concurrency below this ceiling under CPU pressure. |
+| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
 | `agent.build_nice` | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. CPU niced above the daemon receives the existing load/run-queue discount; build capacity still counts it. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
@@ -233,22 +233,26 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.build_gate_retain_seconds` | integer | 120 | Maximum post-command window the lease holder keeps a slot after the wrapped command exits, gated on a descendant still consuming CPU. The holder releases the moment the retained tree goes idle, so this bounds only a genuinely-busy descendant (a runaway build), not an adopted idle daemon; `0` disables the courtesy. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
 | `agent.rtk.enabled` | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. At daemon startup Aiur also checks the host hook, independent of this setting, and raises an informational alert when it would rewrite `gh`. |
-| `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
+| `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. A value is one route (`"claude:sonnet"`) or, for `account_selection: headroom`, a list of the routes that level allows (`["claude:sonnet", "codex:gpt-5.5:high"]`). Every other policy and reader uses the list's first route. Claude takes no effort segment: `claude:sonnet:medium` is rejected. |
+| `agent.routing_candidates` | map | `%{}` | Read-only: every level's route list, derived from list values in `agent.routing`. A value set here is ignored. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
-| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; verified rework with no pushed head becomes `agent:error`; otherwise the current label is kept. A productive turn resets the count; 0 disables the bound. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. A productive turn resets the count; 0 disables the bound. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
-| `agent.max_load_average` | float | 1.5 | Per-scheduler ceiling on total load minus CPU of processes niced above the daemon, floored at zero. The fleet inherits the daemon's nice, so it always counts. Above the ceiling, holds below 60% reclaimable CPU. Null disables it; a missing CPU window admits. |
-| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler target using the hard gate’s signal; null disables it. Starts at one slot; halves after 3 fresh above-target samples. At-target or unavailable samples reset the streak; below-target samples widen. Samples expire after one dispatch period; probes time out after one second. |
-| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable ceiling; null disables it. Subtracts CPU of processes niced above the daemon from `procs_running`, floored at zero. Above the scaled ceiling, holds only below 60% reclaimable CPU. This estimates demand rather than counting tasks exactly. |
-| `agent.load_ramp_step` | integer | 1 | Capacity increase per fresh sample while load is below the target. CPU headroom cannot jump the startup envelope to the full cap. |
+| `agent.max_cpu_pressure` | float or nil | 20.0 | Linux CPU PSI `some avg60` ceiling in percent (greater than 0, at most 100). Holds new dispatch above the ceiling; null disables it. Independent of scheduler count; avg10 is diagnostic and does not gate dispatch. |
+| `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. Halves capacity after 3 fresh above-target samples, subject to the decrease cooldown; ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
+| `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
+| `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
+| `agent.run_queue_threshold` | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
+| `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
+| `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples without sustained overload demonstrate a level; reductions lower it. Same scheduler count required. Boot stays at one; the first fresh sample does not widen. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.budget_broker_rate_window_seconds` | integer | 300 | The sliding window over which budget-broker-timeout retries are counted for the retry-rate signal. The individual retry is uninteresting; the rate is the signal. |
@@ -263,8 +267,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 
 ### Routes in `agent.priority`
 
-Each entry is a **route**, not just a backend name. A route uses the same
-grammar `agent.routing` has always used:
+Each entry is a **route**, not just a backend name. A route uses the same grammar `agent.routing` has always used:
 
 ```
 <backend>[:<model>[:<effort>]][+remote]
@@ -273,8 +276,7 @@ grammar `agent.routing` has always used:
 - `claude`: the backend's own direct connection, exactly as before.
 - `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
-A colon-free entry means what it has always meant, so **existing configs need
-no change**.
+A colon-free entry means what it has always meant, so **existing configs need no change**.
 
 ```yaml
 agent:
@@ -415,21 +417,19 @@ canonicalized, but deliberately invoking a separate real executable by absolute,
 relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
-
-Fleet admission uses total host pressure instead of a hard-coded process count, and disabled or unreadable signals fail open.
+Fleet admission uses CPU PSI and configured reserves. Load is the PSI-unavailable fallback; missing reserve measurements fail open.
 
 | Signal | Admission behavior |
 | --- | --- |
-| CPU load and adaptive AIMD envelope | `agent.max_load_average`, `agent.target_load_average`, `agent.load_ramp_step`, and `agent.load_cooldown_seconds` reduce and re-ramp capacity around per-scheduler targets. |
-| Run queue | `agent.run_queue_threshold` reacts to `procs_running` spikes before the one-minute load average catches up. |
-| CPU corroboration | Reclaimable CPU is idle plus CPU of processes niced above the daemon, scanned from `/proc/<pid>/stat` every 10s off the dispatch path. Unreadable procfs gives no discount and idle-only headroom. Status shows total load, gate signal and daemon nice. The subtraction is an estimate. |
-| Memory, file descriptors, build pressure, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. |
-| Recovery | Gates reopen when pressure clears, and AIMD re-ramps within its cooldown window. |
+| CPU pressure and AIMD | `agent.max_cpu_pressure` and `agent.target_cpu_pressure` use Linux CPU PSI `some avg60` percentages. AIMD halves after 3 fresh overload samples, respects `agent.load_cooldown_seconds`, and adds `agent.load_ramp_step` only below 80% of target. |
+| PSI-unavailable fallback | `agent.max_load_average`, `agent.target_load_average`, and optional `agent.run_queue_threshold` use per-scheduler load and run queue; CPU corroboration applies when available, otherwise raw load. Status explicitly names the fallback. |
+| Memory, file descriptors, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. Build occupancy does not defer dispatch; build concurrency, stagger, and nice throttle bursts separately. |
+| Recovery | Gates reopen when pressure clears; unavailable CPU pressure does not count as a zero-pressure recovery sample. |
 
 | Hold signal | Where it appears |
 | --- | --- |
 | Idle rows | `backing off` |
-| Dashboard and status | `capacity_hold` with the measured signal, threshold, and corroborating reclaimable-CPU measurement |
+| Dashboard and status | `capacity_hold` with CPU pressure percent or free memory and its threshold; load fallback is explicitly identified. |
 | Telemetry | `capacity_hold` and `capacity_resumed` |
 | Alert feed | Debounced `system.fleet.capacity.backoff` |
 
@@ -755,7 +755,7 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. A queue can override it with `--start-on`; missing or stale evidence never releases dependents. Optimistic stages use lifecycle labels. |
+| `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. A queue can override it with `--start-on`; missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds a conditional review read only for watched blockers. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |

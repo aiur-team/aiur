@@ -2,6 +2,8 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
+High-rate snapshot notifications on Home, Units, Commands, Build Orders, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+
 ## Open the GUI
 
 | Launch condition | GUI result |
@@ -117,16 +119,15 @@ Analytics records fleet and build-gate whole-host sources alongside daemon proce
 telemetry. The pressure chart shows occupied agents, configured/max/effective
 agent capacity, active and queued builds, and the oldest live build wait.
 
-Its source state strip and timestamped data table distinguish current, stale,
-degraded, partial, and empty observations. The table additionally reports the
-binding admission signal and the measured load against its threshold, so a growing
-build queue with load far below threshold reads as build-gate-saturated rather
-than host-saturated.
+Its source strip and timestamped table distinguish current, stale, degraded,
+partial and empty observations. Load stays diagnostic. Dispatch uses CPU PSI when
+available; status names its threshold or load fallback. A growing build queue
+shows verification throttling; build occupancy does not hold dispatch.
 
 A gap means the source was not current enough to support that value; it is never
 silently plotted as zero. Build-queue wait is the oldest waiter still live at the
 sample time, not a completed-build latency. These measurements expose when the
-build gate is the fleet constraint; they do not automatically change the agent cap.
+build gate limits verification; they do not automatically change the agent cap.
 
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
@@ -176,3 +177,9 @@ An exported value wins, then the global file, then the repository file. The toke
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
 
 The Analytics ticket timeline marks the earliest PR-open time. Open PRs appear in review; merged, rework, and paused states take precedence.
+
+Retained Analytics charts use at most 180 evenly spaced resource observations per actor, including the first and last. Chart detail is sampled; headline CPU totals and resource peaks use the full retained profiles.
+
+Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
+
+Retained summaries that exceed the read budget also report unavailable.

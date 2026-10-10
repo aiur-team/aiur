@@ -1,6 +1,7 @@
 tracker:
   kind: github
   base_branch: your-base-branch
+  # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states:
     - todo
@@ -112,7 +113,7 @@ agent:
   # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   priority: [claude]
   # accounts: {claude: [default, work]}   # machine-local profiles; omit for legacy single-account behavior
-  # account_selection: balance            # or priority, following the accounts list order
+  # account_selection: balance            # or priority (accounts list order), or headroom (most usage left across backends)
   max_concurrent_agents: 5
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}

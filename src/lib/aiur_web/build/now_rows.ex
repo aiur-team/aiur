@@ -19,6 +19,7 @@ defmodule AiurWeb.Build.NowRows do
   Unknown model, state, effort, progress and session start remain nil.
   Source freshness comes from this same catalog, never a separate clock or probe.
   """
+  alias Aiur.BuildOrder.ProgressRenderer
   alias Aiur.Orchestrator.State
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
@@ -31,6 +32,7 @@ defmodule AiurWeb.Build.NowRows do
           status: String.t(),
           ord: integer(),
           start: integer() | nil,
+          start_src: String.t(),
           pct: 0..100 | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, effort: String.t() | nil}
         }
@@ -83,14 +85,18 @@ defmodule AiurWeb.Build.NowRows do
     num = String.to_integer(row.identity.identifier)
     family = UnitsPresentation.agent_family(row)
 
+    start = timestamp(get_in(row, [:timestamps, :started_at]))
+
     %{
       id: row.identity.identifier,
       num: num,
       sec: "now",
       status: "running",
       ord: num,
-      start: timestamp(get_in(row, [:timestamps, :started_at])),
-      pct: pct(row[:progress]),
+      start: start,
+      # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
+      start_src: if(start, do: "dispatch", else: "unknown"),
+      pct: pct(row),
       agent: %{model: model(family), name: UnitsPresentation.agent_label(family), state: agent_state(row), effort: effort(row[:effort])}
     }
   end
@@ -125,8 +131,14 @@ defmodule AiurWeb.Build.NowRows do
   defp effort(value) when is_atom(value), do: effort(Atom.to_string(value))
   defp effort(value) when value in ~w(none minimal low medium high xhigh max), do: value
   defp effort(_value), do: nil
-  defp pct(%{status: :known, percent: value}) when is_number(value) and value >= 0 and value <= 100, do: round(value)
-  defp pct(_value), do: nil
+  # The Units reading becomes the RootSummary progress contract and is rendered
+  # by ProgressRenderer; an unknown or out-of-range reading stays unknown (nil).
+  defp pct(row), do: row |> progress_contract() |> ProgressRenderer.json() |> Map.fetch!("progress")
+
+  defp progress_contract(%{progress: %{status: :known, percent: value}}) when is_number(value) and value >= 0 and value <= 100,
+    do: %{progress: round(value), progress_resolution: :resolved}
+
+  defp progress_contract(_row), do: %{progress: nil, progress_resolution: :unknown}
   defp timestamp(%DateTime{} = time), do: DateTime.to_unix(time, :millisecond)
 
   defp timestamp(time) when is_binary(time) do
