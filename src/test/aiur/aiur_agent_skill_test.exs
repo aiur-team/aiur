@@ -651,7 +651,7 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "agent dev loop requires the structural gate before ready and after integration" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
-    assert dev_loop =~ "After committing and after every base integration, run the structural gate before marking the PR ready:"
+    assert dev_loop =~ "After committing, before every push and after every base integration, run the structural gate"
   end
 
   test "agent instructions require all local checks and oversized-file fixes before PR handoff" do
