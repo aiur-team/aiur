@@ -553,7 +553,7 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
-The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+A cold, corrupt or stopped cache falls back to fetching. It costs throughput, never correctness.
 
 Comment, CI, and review-thread pollers consult these complete snapshots before
 building their GraphQL documents. A poll-written snapshot is only a baseline;
@@ -602,9 +602,7 @@ nothing retires. This is a deliberate divergence from the daemon's `ReadCache`
 policy, which refuses every `/actions` path wholesale — the two stores serve
 different callers with different invalidation reach.
 
-An answer is kept for 60 seconds.
-
-**Conditional requests and 304s.** `gh api` reads carry a validator where the
+Answers are kept for 60 seconds. **Conditional requests and 304s.** `gh api` reads carry a validator where the
 store holds one: a re-read sends `If-None-Match` with the entry's stored `ETag`,
 and an unchanged answer returns `304`, is served from the cache, and is
 reconciled free — the same contract as the daemon's REST reads.
@@ -624,10 +622,7 @@ The wrapper records hit and miss events in durable `agent-cache.tsv` files in
 each agent workspace. These counters describe the agent `gh` cache on that
 workspace's host; they do not include remote SSH workers in a local census.
 
-The cache key intentionally includes the exact requested output shape. Two
-reads of one pull request that request different JSON fields, templates, or
-queries cannot share an answer without changing `gh`'s output, so each shape
-misses independently.
+The cache key includes the exact requested output shape. Different JSON fields, templates or queries miss independently to preserve `gh`’s output.
 
 Likewise, a write or daemon delivery retires every shape of the changed
 resource to protect correctness.
@@ -660,7 +655,7 @@ fetch and the rest wait behind it, then read what it wrote.
 If the admitted one never answers, the others stop waiting and fetch. The cost is
 the single call the waiting was meant to save, never a stall.
 
-Sharing is controlled by these settings:
+Sharing settings:
 
 | Setting | Effect |
 | --- | --- |
@@ -734,6 +729,10 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
+Feature labels: Aiur writes `feature:<slug>` for CLI or agent joins and removes it for leaves, paced by `build_queue.max_writes_per_minute` and capped at 200 requests per hour, including label creation.
+
+Human label changes become journaled joins or leaves through History’s poll and webhook observations, with no extra reads. Imported members are exempt; unconfirmed backfill memberships wait for explicit release.
+
 Idle dependent restacks use delivered blocker PR facts without adding REST reads. The daemon fetches git refs and pushes through the agent credential file, with cached GitHub helpers cleared. It never force-pushes; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
@@ -765,7 +764,6 @@ Such a write still records the marker of the snapshot it was applied to, rather 
 A label write also corrects the labels on the issue Aiur already holds, and does so as one indivisible step. Reading the issue, changing it, and writing it back as separate steps would let a delivery that landed in between be overwritten by the older copy — including its `open` or `closed` state.
 
 A write that fails records nothing.
-
 ## Optional webhook
 
 The webhook shortens reaction time for repository events while polling continues as a reconciliation path.

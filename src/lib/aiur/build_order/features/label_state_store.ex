@@ -1,0 +1,129 @@
+defmodule Aiur.BuildOrder.Features.LabelStateStore do
+  @moduledoc false
+  require Logger
+  alias Aiur.BuildOrder.Features.{FeatureData, LabelRules}
+  alias Aiur.{Fs, JsonStore}
+  @states ~w(pending_label labelled exempt held_backfill pending_unlabel unlabelled failed)a
+
+  @spec load(Path.t() | nil) :: {:ok, map()} | :rebuild | {:error, term()}
+  def load(nil), do: {:error, :state_dir_unavailable}
+
+  def load(path) do
+    case JsonStore.read(path, nil) do
+      {:ok, nil} ->
+        :rebuild
+
+      {:ok, data} ->
+        case decode(data) do
+          {:ok, entries} -> {:ok, entries}
+          :error -> quarantine(path)
+        end
+
+      {:error, %Jason.DecodeError{}} ->
+        quarantine(path)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp quarantine(path) do
+    case File.rename(path, path <> ".corrupt-" <> Integer.to_string(System.os_time(:microsecond))) do
+      :ok ->
+        Logger.warning("feature label projection state corrupt; rebuilding")
+        :rebuild
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec save(Path.t() | nil, map()) :: :ok | {:error, term()}
+  def save(nil, _entries), do: {:error, :state_dir_unavailable}
+
+  def save(path, entries) do
+    records = entries |> Enum.sort() |> Enum.map(fn {{slug, n}, value} -> Map.merge(value, %{slug: slug, number: n}) end)
+    with :ok <- File.mkdir_p(Path.dirname(path)), do: Fs.atomic_write(path, Jason.encode!(%{version: 1, entries: records}), fsync: true, mode: 0o600)
+  end
+
+  defp decode(%{"version" => 1, "entries" => records}) when is_list(records) do
+    Enum.reduce_while(records, {:ok, %{}}, fn record, {:ok, entries} ->
+      case decode_entry(record) do
+        {:ok, key, value} -> decoded_entry(entries, key, value)
+        :error -> {:halt, :error}
+      end
+    end)
+  end
+
+  defp decode(_), do: :error
+
+  defp decoded_entry(entries, key, value) do
+    if Map.has_key?(entries, key), do: {:halt, :error}, else: {:cont, {:ok, Map.put(entries, key, value)}}
+  end
+
+  defp decode_entry(%{"slug" => slug, "number" => n, "state" => state, "attempts" => attempts, "last_error" => error} = record) do
+    state = Enum.find(@states, &(Atom.to_string(&1) == state))
+
+    with true <- FeatureData.slug?(slug) and is_integer(n) and n > 0 and not is_nil(state),
+         true <- is_integer(attempts) and attempts >= 0 and (is_nil(error) or is_binary(error)),
+         {:ok, written} <- time(record["written_at"]),
+         {:ok, seen} <- time(record["seen_at"]),
+         {:ok, %DateTime{} = queued} <- time(record["queued_at"]) do
+      {:ok, {slug, n},
+       %{
+         state: state,
+         attempts: attempts,
+         last_error: error,
+         written_at: written,
+         seen_at: seen,
+         queued_at: queued,
+         failed_from: Enum.find([:pending_label, :pending_unlabel], &(Atom.to_string(&1) == record["failed_from"]))
+       }}
+    else
+      _ -> :error
+    end
+  end
+
+  defp decode_entry(_), do: :error
+  defp time(nil), do: {:ok, nil}
+
+  defp time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, time, 0} -> {:ok, time}
+      _ -> :error
+    end
+  end
+
+  defp time(_), do: :error
+
+  @spec rebuild(map(), map(), module(), keyword(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def rebuild(snapshot, rows, features, opts, now) do
+    entries = LabelRules.reconcile_registry(%{}, snapshot.owners, now)
+
+    entries =
+      Map.new(entries, fn {{slug, n} = key, entry} ->
+        if entry.state in [:pending_label, :held_backfill, :labelled] and has_label?(rows[n], slug), do: {key, %{entry | state: :labelled, seen_at: rows[n].observed_at}}, else: {key, entry}
+      end)
+
+    Enum.reduce_while(Map.keys(snapshot.features), {:ok, entries}, fn slug, {:ok, acc} ->
+      case features.journal(slug, opts) do
+        {:ok, events} -> {:cont, {:ok, tombstones(events, acc, snapshot.owners, rows, now)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp tombstones(events, entries, owners, rows, now) do
+    latest = events |> Enum.filter(&(&1.type in ["member.added", "member.removed"])) |> Enum.reduce(%{}, &Map.put(&2, &1.number, &1))
+
+    Enum.reduce(latest, entries, fn {n, event}, acc ->
+      if event.type == "member.removed" and not String.starts_with?(event.source, "label:") and
+           not match?(%{feature: slug} when slug == event.feature, owners[n]) and has_label?(rows[n], event.feature),
+         do: Map.put(acc, {event.feature, n}, LabelRules.entry(:pending_unlabel, now)),
+         else: acc
+    end)
+  end
+
+  defp has_label?(%{labels: labels}, slug) when is_list(labels), do: ("feature:" <> slug) in labels
+  defp has_label?(_, _), do: false
+end
