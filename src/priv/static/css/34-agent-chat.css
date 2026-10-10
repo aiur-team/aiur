@@ -1,0 +1,459 @@
+.chat-log-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  min-height: 16rem;
+  overflow: auto;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+
+.log-message {
+  width: min(720px, 100%);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.log-message-assistant {
+  justify-self: end;
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.log-message-tool {
+  border-color: var(--attention-line);
+  background: var(--attention-soft);
+}
+
+.log-message-alert {
+  justify-self: center;
+  border-color: var(--blocking-line);
+  background: var(--blocking-soft);
+}
+
+.log-message-system {
+  justify-self: center;
+  color: var(--muted);
+}
+
+.log-message-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.log-message-body {
+  max-height: 24rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+.agent-chat-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.agent-chat-textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.agent-chat-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.agent-chat-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--blocking-ink);
+  font-size: 0.78rem;
+}
+
+.agent-chat-readonly {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes detail-open {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+
+@media (max-width: 980px) {
+  .decision-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .units-filter-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .units-filter {
+    width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .units-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 820px) {
+  .table-wrap {
+    overflow-x: visible;
+  }
+
+  .fleet-table {
+    min-width: 0;
+  }
+
+  .fleet-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .fleet-table tbody {
+    display: block;
+  }
+
+  .fleet-table tr.fleet-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "ticket ticket actions"
+      "state waiting decisions"
+      "latest latest latest"
+      "elapsed elapsed elapsed";
+    gap: 0.7rem 0.55rem;
+    align-items: start;
+    padding: 1rem 0.85rem;
+    border-top: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  .fleet-table tr.fleet-row td {
+    padding: 0;
+    border-top: 0;
+    background: transparent !important;
+  }
+
+  .fleet-table tr.fleet-row td::before {
+    display: block;
+    margin-bottom: 0.22rem;
+    color: var(--faint);
+    content: attr(data-label);
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(1) {
+    grid-area: ticket;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(2) {
+    grid-area: state;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(3) {
+    grid-area: waiting;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(4) {
+    grid-area: latest;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(5) {
+    grid-area: elapsed;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(6) {
+    grid-area: decisions;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(7) {
+    grid-area: actions;
+    justify-self: end;
+  }
+
+  .fleet-table tr.fleet-row td:nth-child(1)::before,
+  .fleet-table tr.fleet-row td:nth-child(7)::before {
+    display: none;
+  }
+
+  .fleet-row.blocked-row {
+    background: var(--blocking-soft);
+    box-shadow: inset 3px 0 var(--blocking);
+  }
+
+  .fleet-row.awaiting-row {
+    background: var(--attention-soft);
+    box-shadow: inset 3px 0 var(--attention);
+  }
+
+  .fleet-row.blocked-row td:first-child,
+  .fleet-row.awaiting-row td:first-child {
+    box-shadow: none;
+  }
+
+  .fleet-ticket {
+    min-width: 0;
+  }
+
+  .fleet-ticket strong {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .fleet-latest,
+  .fleet-latest-meta {
+    max-width: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .bo-catalog-entry {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bo-summary-grid,
+  .bo-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bo-breakdown-tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bo-adhoc-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .tool-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .overview-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.25rem 0.35rem;
+    border-radius: var(--radius);
+  }
+
+  .stat {
+    min-width: 0;
+    padding-right: 0.35rem;
+    padding-left: 0.35rem;
+    justify-content: flex-start;
+  }
+
+  .stat-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stat-divider {
+    display: none;
+  }
+
+  .decision-card-head {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-card-side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .decisions-banner {
+    flex-wrap: wrap;
+  }
+
+  /* Keep the CTA on the right at its own width. Stretching it full-width made
+     it read as a page-wide action bar rather than the banner's affordance. */
+  .decision-banner-cta {
+    width: auto;
+    margin-left: auto;
+    justify-content: center;
+  }
+
+  .option-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-action-header,
+  .decision-action-footer,
+  .decision-retry-row,
+  .decision-revision-entry {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .decision-axis {
+    justify-content: flex-start;
+  }
+
+  .decision-action-footer .btn,
+  .decision-retry-row .btn,
+  .decision-follow-up .btn {
+    width: 100%;
+  }
+
+  .decision-answer-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-answer-summary dd {
+    text-align: left;
+  }
+}
+
+@media (max-width: 500px) {
+  .fleet-table tr.fleet-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "ticket actions"
+      "state state"
+      "waiting decisions"
+      "latest latest"
+      "elapsed elapsed";
+  }
+
+  .status-badge {
+    font-size: 0.64rem;
+  }
+
+  .section-card,
+  .error-card {
+    padding: var(--section-card-padding, 0.9rem);
+    border-radius: var(--radius);
+  }
+
+  .section-card {
+    --section-card-padding: 0.9rem;
+  }
+
+  .stat {
+    flex-basis: 100%;
+  }
+
+  .filter-chip {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .decision-card-head,
+  .decision-detail {
+    padding-left: 1rem;
+    padding-right: 0.85rem;
+  }
+
+  .decision-card,
+  .decision-card-head,
+  .decision-detail,
+  .decision-action,
+  .decision-detail-grid,
+  .detail-block,
+  .link-list {
+    min-width: 0;
+  }
+
+  .lifecycle {
+    gap: 0.35rem 0.25rem;
+  }
+
+  .lifecycle-connector {
+    display: none;
+  }
+
+  .link-list .link-pill,
+  .decision-detail-footer .btn {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .metadata-list div {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+
+  .agent-chat-composer {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-chat-actions {
+    justify-content: flex-end;
+  }
+}
+

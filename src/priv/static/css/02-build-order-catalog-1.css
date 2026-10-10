@@ -1,0 +1,388 @@
+/* Grid items keep `min-width: auto`, so a track sizes itself to the widest
+   descendant's min-content — and the spatial graph's stage grows by one column
+   per epic. A Build Order with many epics therefore stretched the graph pane,
+   and with it every sibling pane in the same track, past the right edge of the
+   page instead of scrolling inside the graph's own viewport. The viewport is
+   already an `overflow: auto` scroller; zeroing the items' automatic minimum is
+   what lets it actually scroll. */
+.bo-surface > * {
+  min-width: 0;
+}
+
+.bo-state-card h3,
+.bo-state-card p,
+.bo-catalog-entry h3,
+.bo-catalog-entry p,
+.bo-selected-summary > p {
+  margin: 0;
+}
+
+.bo-selected-summary > p,
+.bo-state-card p {
+  max-width: 58rem;
+  margin-top: 0.35rem;
+  color: var(--muted);
+}
+
+.bo-provider-health,
+.bo-provider-health-status,
+.bo-layout-card-kicker,
+.bo-layout-card-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.bo-layout-card-kicker {
+  justify-content: space-between;
+}
+
+.bo-layout-card-status {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.status-badge.is-warning {
+  color: var(--attention-ink);
+  border-color: var(--attention-line);
+  background: var(--attention-soft);
+}
+
+.status-badge.is-unavailable {
+  color: var(--blocking-ink);
+  border-color: var(--blocking-line);
+  background: var(--blocking-soft);
+}
+
+.bo-catalog {
+  display: grid;
+  gap: 0.6rem;
+}
+
+/* The catalog card is full-bleed, so its one control re-inserts the padding the
+   surface dropped rather than sitting flush against the rounded corner. */
+.bo-catalog-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6rem 0.9rem 0;
+}
+
+/* Full-bleed catalog: drop the card's horizontal padding so the table fills the
+   whole card at width:100% (no width math that could overflow), and clip to the
+   rounded corners. The outer cells re-inset their content by the old padding. */
+.bo-surface-flush {
+  overflow: hidden;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.bo-surface-flush > .bo-catalog > .bo-state-card {
+  margin: 0 clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bo-catalog-table .bo-catalog-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bo-catalog-table .bo-catalog-completed {
+  opacity: .78;
+}
+
+.bo-catalog-table th:first-child,
+.bo-catalog-table td:first-child {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  padding-left: clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-table th:last-child,
+.bo-catalog-table td:last-child {
+  padding-right: clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-progress-head,
+.bo-catalog-progress-cell {
+  width: 100%;
+}
+
+.bo-catalog-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 6rem;
+}
+
+.bo-catalog-progress-track {
+  flex: 1 1 auto;
+  height: var(--progress-bar-height);
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-catalog-progress.is-unknown .bo-catalog-progress-track {
+  background: var(--line-strong);
+}
+
+.bo-catalog-progress-track > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.bo-catalog-progress-label {
+  flex: 0 0 auto;
+  min-width: 2.4rem;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* Partial resolution still shows the measured percentage, but uses a solid
+   muted fill so progress styling never falls back to hatching. */
+.bo-catalog-progress-partial .bo-catalog-progress-track > i {
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.bo-catalog-progress-coverage {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.85;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 0.35rem;
+}
+
+/* A zero-member Build Order is empty, not unstarted work at 0%. */
+.bo-catalog-progress-empty {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* An unresolved catalog count reads as a word rather than a fabricated zero. */
+.bo-catalog-count-unresolved {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--line-strong);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+/* Shared, keyboard-operable table sorting. The hook owns aria-sort and the
+   URL state; CSS supplies the visible direction cue on every table surface. */
+th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+}
+
+th[data-sort-key]::after {
+  content: "↕";
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.75em;
+}
+
+th[data-sort-key][aria-sort="descending"]::after {
+  content: "↓";
+  color: var(--accent);
+}
+
+th[data-sort-key][aria-sort="ascending"]::after {
+  content: "↑";
+  color: var(--accent);
+}
+
+th[data-sort-key]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bo-catalog-table tbody tr {
+  position: relative;
+  cursor: pointer;
+}
+
+.bo-catalog-table th {
+  padding: 0 0.5rem 0.7rem;
+  text-align: left;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.bo-catalog-table td {
+  min-width: 0;
+  padding: 0.85rem 0.5rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.78rem;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.bo-catalog-table tbody tr:hover td {
+  background: var(--pill-bg);
+}
+
+.bo-catalog-num {
+  text-align: right;
+  width: 4.25rem;
+  padding-left: 0.35rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.bo-catalog-link {
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.bo-catalog-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  justify-content: center;
+  margin-right: 0.35rem;
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.bo-catalog-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.bo-catalog-table tbody tr:hover .bo-catalog-link {
+  color: var(--accent-ink);
+}
+
+.bo-catalog-invalid {
+  color: var(--muted);
+}
+
+.bo-state-card {
+  padding: 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--pill-bg);
+}
+
+/* Loading shimmer: a skeleton of the selected-root surface (lede, summary
+   metrics, graph cards) that stands in while the planning graph is fetched,
+   instead of flashing a provider failure first. */
+.bo-loading {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--pill-bg);
+}
+
+.bo-shimmer {
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: bo-shimmer 1.4s ease-in-out infinite;
+}
+
+.bo-shimmer-lede {
+  height: 1.25rem;
+  max-width: 26rem;
+}
+
+.bo-shimmer-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.75rem;
+}
+
+.bo-shimmer-metric {
+  height: 2.75rem;
+}
+
+.bo-shimmer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 6px;
+}
+
+.bo-shimmer-card {
+  height: 6rem;
+  border-radius: 10px;
+}
+
+@keyframes bo-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bo-shimmer {
+    animation: none;
+    background: var(--surface-2);
+  }
+}
+
+.bo-error-state {
+  display: grid;
+  gap: 1rem;
+}
+
+.bo-error-fault {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.bo-error-fault code {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: 0.76rem/1.4 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.bo-debug-prompt {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 58rem;
+}
+
+.bo-debug-prompt label {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
