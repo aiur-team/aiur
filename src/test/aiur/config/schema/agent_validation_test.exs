@@ -137,6 +137,58 @@ defmodule Aiur.Config.Schema.AgentValidationTest do
       refute cs.valid?
       assert Keyword.has_key?(cs.errors, :routing)
     end
+
+    # #3961: Claude accepts no effort segment. The error says so and names the
+    # value to write, instead of "valid efforts: []".
+    test "explains that claude takes no effort segment" do
+      cs = make_routing_changeset(%{3 => "claude:sonnet:medium"}) |> AgentValidation.validate_agent_routing(:routing)
+
+      assert [routing: {message, []}] = cs.errors
+      assert message =~ ~s(invalid route "claude:sonnet:medium": backend "claude" accepts no effort segment; drop it and write "claude:sonnet")
+      refute message =~ "valid efforts: []"
+    end
+
+    test "an effort error on a backend with efforts lists them and names the route" do
+      cs = make_routing_changeset(%{3 => "codex:gpt-5.5:bogus"}) |> AgentValidation.validate_agent_routing(:routing)
+
+      assert [routing: {message, []}] = cs.errors
+      assert message =~ ~s(invalid effort "bogus" for backend "codex" in "codex:gpt-5.5:bogus"; valid efforts: [)
+    end
+  end
+
+  describe "list routing values (#3960)" do
+    defp routing_list_changeset(value) do
+      {%{}, %{routing: :map, routing_candidates: :map}}
+      |> Changeset.cast(%{routing: value}, [:routing])
+      |> Changeset.update_change(:routing, &AgentValidation.normalize_agent_routing/1)
+      |> AgentValidation.validate_agent_routing(:routing)
+      |> AgentValidation.split_routing_candidates()
+    end
+
+    test "a list names every route a level allows; routing keeps the first, candidates keep all" do
+      cs = routing_list_changeset(%{"3" => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => "claude:opus"})
+
+      assert cs.valid?
+      assert Changeset.get_change(cs, :routing) == %{3 => "claude:sonnet", 4 => "claude:opus"}
+      assert Changeset.get_change(cs, :routing_candidates) == %{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => ["claude:opus"]}
+    end
+
+    test "each list entry is validated with the single-value rules" do
+      cs = routing_list_changeset(%{3 => ["claude:sonnet", "claude:sonnet:medium"]})
+      assert [routing: {message, []}] = cs.errors
+      assert message =~ "accepts no effort segment"
+
+      assert [routing: {unknown, []}] = routing_list_changeset(%{3 => ["claude", "bogus"]}).errors
+      assert unknown =~ "unknown or disabled backend"
+    end
+
+    test "an empty or repeating list is rejected" do
+      assert [routing: {empty, []}] = routing_list_changeset(%{3 => []}).errors
+      assert empty =~ "must name at least one route"
+
+      assert [routing: {repeat, []}] = routing_list_changeset(%{3 => ["codex", "codex"]}).errors
+      assert repeat =~ "must not repeat a route"
+    end
   end
 
   describe "validate_complexity_prompts/2" do
