@@ -1,6 +1,6 @@
 # CI failure evidence
 
-Failed ExUnit shards emit `aiur-test-failure` annotations with classification and exact test identity, capped at nine tests plus a truncation notice. `Aiur.CI.FailureDigest.build(sha)` reads Checks annotations and returns checks/URLs, tests, signature and `truncated`/`flake_only` flags.
+GitHub App installs need the `Checks: Read` permission. Failed ExUnit shards emit `aiur-test-failure` annotations with classification and exact test identity, capped at nine tests plus a truncation notice. `Aiur.CI.FailureDigest.build(sha)` reads Checks annotations and returns checks/URLs, tests, signature and `truncated`/`flake_only` flags.
 
 Known flakes match the SHA-specific file or an open `flake` issue (whole line or Markdown code); `aiur init` provisions the label. Unknown reads, truncation and independent check errors are never flake-only. `aiur-derived-failure` names upstream checks: rollups are flake-only only when every named check is proven flake-only.
 
