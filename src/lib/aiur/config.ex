@@ -251,6 +251,8 @@ defmodule Aiur.Config do
   defdelegate prewarm_poll_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate synthetic_load_process_cap(), to: Aiur.Config.CapacitySettings
   defdelegate default_synthetic_load_process_cap(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate max_cpu_pressure(), to: Aiur.Config.CapacitySettings
+  defdelegate target_cpu_pressure(), to: Aiur.Config.CapacitySettings
   defdelegate max_load_average(), to: Aiur.Config.CapacitySettings
   defdelegate target_load_average(), to: Aiur.Config.CapacitySettings
   defdelegate load_ramp_step(), to: Aiur.Config.CapacitySettings
