@@ -142,7 +142,7 @@ The daemon aggregate also records whole-host fleet and build-gate pressure on th
 
 Fleet and build observations keep independent state and observation timestamps, so stale or degraded sources render as gaps instead of false zeroes.
 
-The binding admission signal (which host-pressure gate is holding dispatch) and the measured load against its threshold ride along, so a build-queue that is growing while load sits far below its threshold reads as build-gate-saturated rather than host-saturated.
+The binding admission signal (which host-pressure gate is holding dispatch) and diagnostic load measurements ride along. Status names the CPU PSI threshold, or the load fallback where PSI is unavailable. A growing build queue alone does not hold dispatch.
 
 Because reading the build gate scans its lock files, that probe runs on a reduced cadence and carries the last observation forward, so telemetry never disturbs a real build acquisition. `/analytics`, `aiurdev analytics` (including `--json`), and the self-contained HTML report expose the same pressure evidence.
 

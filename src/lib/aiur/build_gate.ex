@@ -248,7 +248,7 @@ defmodule Aiur.BuildGate do
   end
 
   defp with_scan_manifest(request, fun) do
-    path = Path.join(System.tmp_dir!(), "aiur-build-gate-scan-#{System.unique_integer([:positive, :monotonic])}.json")
+    path = Path.join(System.tmp_dir!(), "aiur-build-gate-scan-#{Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)}.json")
 
     with {:ok, encoded} <- Jason.encode(request),
          {:ok, io_device} <- File.open(path, [:write, :exclusive]) do
