@@ -74,7 +74,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     bootstrap? = Map.get(previous, :bootstrap_complete?, false)
 
     {next, decreased_at} =
-      if fresh? and is_number(target) and effective == 1 and is_nil(previous.last_decrease_ms) and not bootstrap?,
+      if bootstrap_hold?(effective, previous, target, fresh?),
         do: {1, nil},
         else: adjust(effective, previous, pressure, target, count, now_ms, fresh?, Slots.max_concurrent_agent_limit(state))
 
@@ -99,6 +99,9 @@ defmodule Aiur.Orchestrator.PressureAdmission do
       do: state,
       else: put_in(state.load_envelope_state[:overload_samples], 0)
   end
+
+  defp bootstrap_hold?(effective, previous, target, fresh?),
+    do: fresh? and is_number(target) and effective == 1 and is_nil(previous.last_decrease_ms) and not Map.get(previous, :bootstrap_complete?, false)
 
   defp adjust(_effective, _previous, _pressure, nil, _count, _now, _fresh?, limit), do: {limit, nil}
   defp adjust(effective, previous, _pressure, _target, _count, _now, false, limit), do: {min(effective, limit), previous.last_decrease_ms}
