@@ -135,7 +135,13 @@ The task holds the workspace lock and leaves the checkout and index untouched. A
 
 ## Merge order
 
-The Executor runs `check-stack-order.sh` before every merge. It refuses a dependent PR unless its base is the integration branch and each `blocked_by` blocker is closed `completed` or has a merged PR whose merge commit is contained in the dependent's head. Exit 2 means refuse, exit 3 means it could not decide; neither merges. A blocker closed `not_planned` or `duplicate`, a closed-unmerged blocker PR, or an ambiguous PR refuses; remove the `blocked_by` edge to proceed. With `--approved <sha>` it prints `RESTACK-ONLY` when the only change since that approved head is a verified Aiur restack, so the Executor can re-approve without a new review.
+The Executor runs `check-stack-order.sh` before every merge. It refuses a dependent PR unless its base is the integration branch and each `blocked_by` blocker has landed in the dependent's head.
+
+A blocker has landed when it is closed `completed`, or its PR is merged and the merge commit is contained in the dependent's head. Exit 2 means refuse and exit 3 means it could not decide; neither merges.
+
+A blocker closed `not_planned` or `duplicate`, a closed-unmerged blocker PR, or an ambiguous PR refuses. Remove the `blocked_by` edge to proceed.
+
+With `--approved <sha>` it prints `RESTACK-ONLY` when the only change since that approved head is a verified Aiur restack, so the Executor can re-approve without a new review.
 
 If a PR merges anyway, the daemon raises a critical `merge.out-of-order` alert naming the PR and blockers. It is detective and undoes nothing; missing blocker facts raise a warning, never a silent pass.
 

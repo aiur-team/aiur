@@ -14,8 +14,8 @@ defmodule Aiur.Orchestrator.MergeOrderAudit do
     number = pr["number"]
     head = get_in(pr, ["head", "sha"])
 
-    if is_integer(number) and not Map.has_key?(state.merge_order_audited, number) do
-      state = %{state | merge_order_audited: Map.put(state.merge_order_audited, number, true)}
+    if is_integer(number) and not Map.has_key?(state.restack_completed, {:merge_order, number}) do
+      state = %{state | restack_completed: Map.put(state.restack_completed, {:merge_order, number}, :done)}
       TrackerTasks.run(state, {:merge_order, number}, fn -> audit(identifier, number, head, opts) end, fn current, _result -> current end)
     else
       state

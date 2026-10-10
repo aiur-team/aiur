@@ -61,23 +61,6 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
-  @doc "Compare status of `head` against `base` (`ahead`, `identical`, `behind`, `diverged`)."
-  @spec fetch_compare_status(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def fetch_compare_status(base_sha, head_sha, opts \\ [])
-      when is_binary(base_sha) and is_binary(head_sha) and base_sha != "" and head_sha != "" do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/compare/#{base_sha}...#{head_sha}?per_page=1"
-
-      case request_fun.(%{method: :get, url: url, token: token}) do
-        {:ok, %{status: 200, body: %{"status" => status}}} when is_binary(status) -> {:ok, status}
-        {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
   defp compare_file_fingerprint(file) when is_map(file) do
     case {Map.get(file, "filename"), Map.get(file, "sha")} do
       {filename, sha} when is_binary(filename) and is_binary(sha) -> {filename, sha}
