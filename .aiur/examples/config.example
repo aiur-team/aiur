@@ -40,7 +40,7 @@ agent:
   # account_selection: balance            # balance = lowest weekly usage; priority = first eligible account;
   #                                       # headroom = backend+account with most usage left (routing values may be lists)
   # git_identity: {name: Agent Name, email: agent@example.com}  # author/committer of agent commits; default = github.bot_account
-  # kind: {{AGENT_KIND}}                 # deprecated; use `priority` instead
+  # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
