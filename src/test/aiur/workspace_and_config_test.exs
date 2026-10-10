@@ -1,5 +1,6 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
+  import Aiur.TestSupport.RejectedWorkflow
   alias Aiur.AgentEnvironment
   alias Aiur.CodingAgent
   alias Aiur.Config.{RoutingValue, Schema}
@@ -1964,46 +1965,39 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "writableRoots" => expected_explicit_roots
            }
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ",")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ",")
     assert message =~ "tracker.active_states"
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: "bad")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: "bad")
     assert message =~ "agent.max_concurrent_agents"
 
-    write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 0)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 0)
     assert message =~ "worker.max_concurrent_agents_per_host"
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_turn_timeout_ms: "bad")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_turn_timeout_ms: "bad")
     assert message =~ "agent.turn_timeout_ms"
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_read_timeout_ms: "bad")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_read_timeout_ms: "bad")
     assert message =~ "read_timeout_ms"
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_stall_timeout_ms: "bad")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_stall_timeout_ms: "bad")
     assert message =~ "agent.stall_timeout_ms"
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: %{todo: true},
-      tracker_terminal_states: %{done: true},
-      poll_interval_seconds: %{bad: true},
-      workspace_root: 123,
-      max_retry_backoff_ms: 0,
-      max_concurrent_agents_by_state: %{"Todo" => "1", "Review" => 0, "Done" => "bad"},
-      hook_timeout_ms: 0,
-      observability_enabled: "maybe",
-      observability_refresh_ms: %{bad: true},
-      observability_render_interval_ms: %{bad: true},
-      server_port: -1,
-      server_host: 123
-    )
-
-    assert {:error, {:invalid_workflow_config, _message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, _message}} =
+             write_rejected_workflow_file!(Workflow.workflow_file_path(),
+               tracker_active_states: %{todo: true},
+               tracker_terminal_states: %{done: true},
+               poll_interval_seconds: %{bad: true},
+               workspace_root: 123,
+               max_retry_backoff_ms: 0,
+               max_concurrent_agents_by_state: %{"Todo" => "1", "Review" => 0, "Done" => "bad"},
+               hook_timeout_ms: 0,
+               observability_enabled: "maybe",
+               observability_refresh_ms: %{bad: true},
+               observability_render_interval_ms: %{bad: true},
+               server_port: -1,
+               server_host: 123
+             )
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: "")
     assert :ok = Config.validate!()
@@ -2014,12 +2008,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert :ok = Config.validate!()
     assert Config.settings!().agent.codex.thread_sandbox == ""
 
-    write_workflow_file!(Workflow.workflow_file_path(), workspace_bootstrap_image: "")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), workspace_bootstrap_image: "")
     assert message =~ "workspace.bootstrap_image"
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_turn_sandbox_policy: "bad")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_turn_sandbox_policy: "bad")
     assert message =~ "codex.turn_sandbox_policy"
 
     write_workflow_file!(Workflow.workflow_file_path(),
