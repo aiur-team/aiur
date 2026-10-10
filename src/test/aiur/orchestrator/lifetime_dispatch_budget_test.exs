@@ -25,11 +25,10 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Application.delete_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :decision_state_dir, Path.join(dir, "stable-state"))
     Application.put_env(:aiur, :log_file, Path.join([dir, "session-one", "aiur.log"]))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(Path.join(dir, "stable-state"))
 
     on_exit(fn ->
-      File.rm_rf!(dir)
-
       if is_nil(previous) do
         Workflow.clear_workflow_file_path()
       else
