@@ -111,7 +111,7 @@ defmodule Aiur.Orchestrator.TrackerTasksTest do
     monitor = Process.monitor(worker)
 
     assert :ok = TrackerTasks.stop(pending)
-    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
     refute Process.alive?(worker)
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
   end
 end
