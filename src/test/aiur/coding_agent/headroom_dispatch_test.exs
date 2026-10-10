@@ -229,6 +229,26 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert Keyword.fetch!(opts, :env) == [{"CODEX_HOME", Path.join([home, ".aiur/accounts/codex/work"])}]
     end
 
+    # #3970: a daemon started from a shell with CLAUDE_CONFIG_DIR/CODEX_HOME set
+    # must not leak that profile into a worker that headroom put on `default`.
+    test "the default account unsets the inherited profile variable" do
+      for {backend, var} <- [{"claude", "CLAUDE_CONFIG_DIR"}, {"codex", "CODEX_HOME"}] do
+        issue = %Issue{
+          id: "default-#{backend}",
+          identifier: "HR-D",
+          selected_backend: backend,
+          selected_account: "default",
+          dispatch_selection: %{backend: backend, account: "default", route: backend, pinned: false, summary: "headroom: #{backend}/default=90%"}
+        }
+
+        {^backend, false, opts} =
+          SessionLifecycle.resolve_session_options(issue, [account_config: %{accounts: %{backend => ["default"]}, account_selection: "headroom"}], nil)
+
+        assert Keyword.fetch!(opts, :account_name) == "default"
+        assert Keyword.fetch!(opts, :env) == [{var, false}]
+      end
+    end
+
     test "a pinned claim whose accounts are all exhausted still gets an account from the session's own selection" do
       :ok = Accounts.register("claude", "max", nil)
       issue = %Issue{id: "pinned", identifier: "HR-2", selected_backend: "claude", dispatch_selection: %{backend: "claude", account: nil, pinned: true, summary: "x"}}

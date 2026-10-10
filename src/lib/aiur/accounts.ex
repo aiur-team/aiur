@@ -35,7 +35,7 @@ defmodule Aiur.Accounts do
   def profile_env(harness, name) do
     case account(harness, name) do
       {:ok, %{profile_dir: nil}} ->
-        []
+        shim_profile_env(shim!(harness), false)
 
       {:ok, %{api_key_env: _env_name}} ->
         []
