@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckChannel do
   @moduledoc false
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentControlCLI, AgentPubSub, Commands, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
@@ -26,8 +26,9 @@ defmodule AiurWeb.StreamdeckChannel do
           }
         } = socket
       ) do
-    :ok = AgentPubSub.subscribe_running()
-    :ok = AgentPubSub.subscribe_status()
+    Process.flag(:message_queue_data, :off_heap)
+    latch = :atomics.new(1, [])
+    :ok = AiurWeb.StreamdeckFleetUpdates.subscribe(latch)
     :ok = ProviderMeterEvents.subscribe_observed()
     :ok = Commands.subscribe()
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
@@ -35,7 +36,7 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil)}
+    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -231,7 +232,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot() |> Map.put("grid", StreamdeckProjection.grid()))
+    push(socket, "snapshot", StreamdeckProjection.snapshot())
     {:noreply, socket}
   end
 
@@ -242,26 +243,8 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
-  def handle_info({:running_changed, summaries}, socket) when is_list(summaries) do
-    push(
-      socket,
-      "fleet",
-      StreamdeckProjection.fleet()
-      |> Map.put("agents", StreamdeckProjection.fleet_agents(summaries))
-      |> Map.put("grid", StreamdeckProjection.grid())
-    )
-
-    {:noreply, socket}
-  end
-
-  # `agents:status` carries agent-list pane visibility (for example
-  # `:pane_opened`), not the fleet status named by this channel's public
-  # contract. Translate it to a fresh fleet projection instead of leaking the
-  # implementation detail to devices.
-  def handle_info({:status_changed, %{identifier: _identifier, status: _status}}, socket) do
-    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put("grid", StreamdeckProjection.grid()))
-    {:noreply, socket}
-  end
+  def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+  def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
 
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
     push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))

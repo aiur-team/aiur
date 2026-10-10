@@ -10,6 +10,7 @@ import {
   rmSync,
   chmodSync,
   copyFileSync,
+  cpSync,
   realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -358,10 +359,8 @@ function setupRealLauncher() {
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-daemon-supervisor.sh"), path.join(root, "libexec", "aiur-daemon-supervisor.sh"));
-  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-queue.sh"), path.join(root, "libexec", "aiur-queue.sh"));
-  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-epic.sh"), path.join(root, "libexec", "aiur-epic.sh"));
-  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-capabilities.sh"), path.join(root, "libexec", "aiur-capabilities.sh"));
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "engine"])
+    cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";
   const vsnDir = path.join(releaseDir, "releases", vsn);

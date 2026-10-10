@@ -134,6 +134,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.Dispatcher,
       Aiur.Orchestrator.DispatchOutcome,
       Aiur.Orchestrator.DispatchPolicy,
+      Aiur.Orchestrator.PressureAdmission,
       Aiur.Orchestrator.LoadEnvelope,
       Aiur.Orchestrator.EnvelopeResume,
       Aiur.Orchestrator.CapacityBinding,

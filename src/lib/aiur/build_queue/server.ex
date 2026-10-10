@@ -50,6 +50,7 @@ defmodule Aiur.BuildQueue.Server do
       clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),
       schedule: Keyword.get(opts, :schedule, &Process.send_after/3),
       exchange: Keyword.get(opts, :exchange, Exchange),
+      open_issues_topic: Keyword.get(opts, :open_issues_topic, "tracker:open_issues"),
       exchange_pid: nil,
       pending: nil,
       status: :disabled,
@@ -105,7 +106,7 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call(:recover, from, %{status: :store_unavailable} = state) do
     case state.store.load() do
       {:ok, document} ->
-        Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+        Phoenix.PubSub.subscribe(Aiur.PubSub, state.open_issues_topic)
         schedule_tick(state)
         state = %{state | document: document, status: :running, phase: :awaiting_first_observation, pending: nil, writer: Writer.new()}
         {:reply, :ok, state |> AttentionHealth.store() |> subscribe() |> request()}
@@ -233,7 +234,7 @@ defmodule Aiur.BuildQueue.Server do
     case Recovery.rebuild(state, force) do
       {:ok, document} ->
         if state.status == :store_unavailable do
-          Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+          Phoenix.PubSub.subscribe(Aiur.PubSub, state.open_issues_topic)
           schedule_tick(state)
         end
 
@@ -290,7 +291,7 @@ defmodule Aiur.BuildQueue.Server do
 
     case state.store.load() do
       {:ok, document} ->
-        Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+        Phoenix.PubSub.subscribe(Aiur.PubSub, state.open_issues_topic)
         state = %{state | status: :running, document: document}
         schedule_tick(state)
         state |> subscribe() |> request()
