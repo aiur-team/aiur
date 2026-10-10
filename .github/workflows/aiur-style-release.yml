@@ -1,0 +1,95 @@
+name: aiur-style release
+
+on:
+  pull_request:
+    paths:
+      - 'packages/aiur-style/**'
+      - '.github/workflows/aiur-style-release.yml'
+  push:
+    tags: ['aiur-style-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: aiur-style publish dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: packages/aiur-style/package-lock.json
+      - run: npm ci --prefix packages/aiur-style
+      # Provenance requires the published manifest to identify this repository.
+      - name: Set published repository metadata
+        run: npm pkg set repository.type=git repository.url=git+https://github.com/aiur-team/aiur.git repository.directory=packages/aiur-style --prefix packages/aiur-style
+      - name: Test release verifier
+        run: node packages/aiur-style/scripts/verify-release.mjs --self-test
+      - name: Check committed dist
+        run: npm run check-dist --prefix packages/aiur-style
+      - name: Pack and record file list
+        run: |
+          mkdir -p "$RUNNER_TEMP/aiur-style-pack"
+          npm pack ./packages/aiur-style --json --pack-destination "$RUNNER_TEMP/aiur-style-pack" > "$RUNNER_TEMP/aiur-style-pack/pack.json"
+          node -e 'const fs = require("node:fs"); const [pack] = JSON.parse(fs.readFileSync(process.argv[1])); console.log(pack.files.map(file => file.path).join("\n"));' "$RUNNER_TEMP/aiur-style-pack/pack.json" > "$RUNNER_TEMP/aiur-style-pack/files.txt"
+          cat "$RUNNER_TEMP/aiur-style-pack/files.txt"
+          {
+            echo '### aiur-style npm pack files'
+            echo '```text'
+            cat "$RUNNER_TEMP/aiur-style-pack/files.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish dry-run (no registry write)
+        run: npm publish ./packages/aiur-style --dry-run --access public
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiur-style-pack
+          path: ${{ runner.temp }}/aiur-style-pack/
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/aiur-style-v')
+    needs: dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # No registry-url: an empty authToken entry can prevent OIDC exchange.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: Ensure trusted-publishing npm version
+        run: |
+          npm install -g npm@11
+          node -e 'const got = process.argv[1].split(".").map(Number); const need = [11, 5, 1]; for (let i = 0; i < 3; i++) { if (got[i] > need[i]) break; if (got[i] < need[i]) throw new Error("npm >= 11.5.1 required"); }' "$(npm --version)"
+          test ! -f ~/.npmrc || ! grep -q _authToken ~/.npmrc
+      - run: npm ci --prefix packages/aiur-style
+      # Provenance requires the published manifest to identify this repository.
+      - name: Set published repository metadata
+        run: npm pkg set repository.type=git repository.url=git+https://github.com/aiur-team/aiur.git repository.directory=packages/aiur-style --prefix packages/aiur-style
+      - name: Verify release tag, changelog and dist
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node packages/aiur-style/scripts/verify-release.mjs "$RELEASE_TAG"
+      - name: Publish with provenance
+        run: npm publish ./packages/aiur-style --provenance --access public
+      - name: Wait for registry visibility
+        run: |
+          version=$(node -p 'require("./packages/aiur-style/package.json").version')
+          deadline=$((SECONDS + 120))
+          while :; do
+            got=$(npm view "aiur-style@$version" version --fetch-retries=0 --fetch-timeout=10000 2>/dev/null || true)
+            if [ "$got" = "$version" ]; then
+              echo "aiur-style@$version visible on npm" >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Registry did not converge: aiur-style@$version (got ${got:-<absent>})" >&2
+              exit 1
+            fi
+            sleep 5
+          done
