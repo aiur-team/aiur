@@ -38,6 +38,7 @@ defmodule Aiur.BuildQueue.Readiness do
       state_reason: observation.state_reason,
       state_label: state,
       pr: observation.pr,
+      stage_reached: observation.stage_reached,
       observed_at_ms: observation.observed_at_ms,
       unavailable_reason: observation.unavailable_reason
     }

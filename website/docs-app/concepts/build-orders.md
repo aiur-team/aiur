@@ -98,7 +98,7 @@ The build queue detects a prerequisite PR closed without merging from its latest
 
 Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
 
-This detection makes no GitHub request. Missing, stale, or malformed PR deliveries supply no PR stage; fresh lifecycle labels can still satisfy an optimistic queue trigger. A newer open PR delivery replaces the closed body and clears the failed verdict.
+This detection makes no GitHub request. Retained CI and merge facts survive label regressions; issue observations must still be fresh. A boot-seeded CI head needs local PR identity before it can release a dependent. A newer open PR delivery replaces the closed body and clears the failed verdict.
 
 ## Queueing a Build Order
 
