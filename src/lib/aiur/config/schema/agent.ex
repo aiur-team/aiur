@@ -207,9 +207,8 @@ defmodule Aiur.Config.Schema.Agent do
     field(:budget_broker_degraded_alert_after_seconds, :integer, default: 600)
     # A dispatch declined by a local GitHub budget hold is a retry. It raises an
     # Executor attention only once the same ticket has been declined this many
-    # times within the window below (#4067).
+    # times in a row (#4067).
     field(:dispatch_hold_attention_threshold, :integer, default: 3)
-    field(:dispatch_hold_attention_window_seconds, :integer, default: 600)
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -268,8 +267,7 @@ defmodule Aiur.Config.Schema.Agent do
         :budget_broker_rate_window_seconds,
         :budget_broker_degraded_retry_threshold,
         :budget_broker_degraded_alert_after_seconds,
-        :dispatch_hold_attention_threshold,
-        :dispatch_hold_attention_window_seconds
+        :dispatch_hold_attention_threshold
       ],
       empty_values: []
     )
@@ -307,7 +305,6 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
-    |> validate_number(:dispatch_hold_attention_window_seconds, greater_than: 0)
     |> validate_backend_configs()
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)

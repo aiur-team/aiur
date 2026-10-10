@@ -2,11 +2,11 @@ defmodule Aiur.Orchestrator.HoldDeclineTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentPubSub
-  alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.Orchestrator.{Dispatcher, HoldDecline, State}
 
   @hold {:github, :local_hold, %{hold: %{reason: :shared_budget, resource: "core", reset_at: ~U[2026-10-10 13:06:04Z]}}}
 
-  test "a hold-caused decline raises attention only on the third within the window (#4067)" do
+  test "a hold-caused decline raises attention only on the third in a row (#4067)" do
     candidate = %Issue{id: "hold-decline-#{System.unique_integer([:positive])}", identifier: "repo#hold", title: "hold", state: "todo"}
     :ok = AgentPubSub.subscribe_agent(candidate.identifier)
     attention = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
@@ -28,6 +28,33 @@ defmodule Aiur.Orchestrator.HoldDeclineTest do
     assert reason =~ "dependency_hydration_failed"
     refute_receive {:alert, %{name: ^attention}}, 300
     refute Map.has_key?(thrice.running, candidate.id)
+  end
+
+  test "a blocker read that gets through ends the run of holds" do
+    candidate = %Issue{id: "hold-decline-cleared-#{System.unique_integer([:positive])}", identifier: "repo#cleared", title: "cleared", state: "todo"}
+    blocked = %{candidate | blocked_by: [%{id: "b", identifier: "repo#b", state: "todo"}]}
+
+    decline = fn state, hydrated ->
+      Dispatcher.dispatch_issue(state, candidate, nil, nil,
+        issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+        blocked_by_hydrator: fn _issue -> hydrated end
+      )
+    end
+
+    state = %State{effective_concurrent_agents: 4} |> decline.({:error, @hold}) |> decline.({:error, @hold}) |> decline.({:ok, blocked})
+    assert state.dispatch_declines[candidate.id] == :dependency
+
+    # Without the reset this would be the third hold and escalate.
+    assert decline.(state, {:error, @hold}).dispatch_declines[candidate.id] == :github_budget_hold
+  end
+
+  test "a different failure ends the run of holds" do
+    candidate = %Issue{id: "hold-decline-mixed-#{System.unique_integer([:positive])}", identifier: "repo#mixed", title: "mixed", state: "todo"}
+
+    assert HoldDecline.classify(candidate, {:error, @hold}, :fallback) == :github_budget_hold
+    assert HoldDecline.classify(candidate, {:error, @hold}, :fallback) == :github_budget_hold
+    assert HoldDecline.classify(candidate, {:error, {:github, :http, %{status: 404}}}, :fallback) == :fallback
+    assert HoldDecline.classify(candidate, {:error, @hold}, :fallback) == :github_budget_hold
   end
 
   # Regression guard: already true before #4067; it keeps the hold exemption narrow.

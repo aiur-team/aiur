@@ -97,8 +97,7 @@ agent:
   # budget_broker_rate_window_seconds: 300       # window over which budget-broker-timeout retries are counted for the retry-rate signal
   # budget_broker_degraded_retry_threshold: 5    # retries in the window above which the broker counts as degraded (keep above an isolated timeout)
   # budget_broker_degraded_alert_after_seconds: 600  # dwell before the single `system.github.budget_broker_degraded` alert raises
-  # dispatch_hold_attention_threshold: 3         # local GitHub budget holds on one ticket's dispatch before it raises an Executor attention
-  # dispatch_hold_attention_window_seconds: 600  # window those holds are counted over; fewer are retried silently
+  # dispatch_hold_attention_threshold: 3         # consecutive local GitHub budget holds on one ticket's dispatch before it raises an Executor attention; fewer are retried silently
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===

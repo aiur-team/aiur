@@ -6,13 +6,13 @@ defmodule Aiur.GitHub.HoldPressure do
   A local hold is the request guard pacing a shared credential before the
   request reaches GitHub; it clears by itself within seconds. One hold says
   nothing, the rate says how hard the fleet is pressing on the pacer. This
-  process keeps two sliding windows:
+  process keeps:
 
   * holds per resource over the last minute, printed by `aiur status`;
-  * hold-caused dispatch declines per ticket, so a ticket only raises an
-    Executor attention once it has been declined
-    `agent.dispatch_hold_attention_threshold` times within
-    `agent.dispatch_hold_attention_window_seconds`.
+  * consecutive hold-caused dispatch declines per ticket, so a ticket only
+    raises an Executor attention once it has been declined
+    `agent.dispatch_hold_attention_threshold` times in a row. The run is
+    counted, not timed: a hold that never clears escalates at any poll cadence.
 
   `record/1` runs on the GitHub request path and must never fail a request: it
   casts and swallows a down process.
@@ -60,17 +60,26 @@ defmodule Aiur.GitHub.HoldPressure do
 
   @doc """
   Records one hold-caused dispatch decline for `issue_id` and says whether the
-  ticket has now been declined often enough to need the Executor.
+  ticket has now been declined often enough in a row to need the Executor.
+  `dispatch_cleared/2` ends the run.
 
   A monitor that is not running answers `:attention`: losing the count must not
   silence a ticket that is genuinely stuck.
   """
   @spec dispatch_decline(term(), keyword()) :: :transient | :attention
   def dispatch_decline(issue_id, opts \\ []) when is_list(opts) do
-    now_ms = Keyword.get_lazy(opts, :now_ms, &now_ms/0)
-    GenServer.call(Keyword.get(opts, :name, __MODULE__), {:decline, issue_id, now_ms, threshold(), window_ms()})
+    GenServer.call(Keyword.get(opts, :name, __MODULE__), {:decline, issue_id, threshold()})
   catch
     :exit, _reason -> :attention
+  end
+
+  @doc "Ends `issue_id`'s run of hold-caused declines: its dispatch read got through, or failed for another reason."
+  @spec dispatch_cleared(term(), keyword()) :: :ok
+  def dispatch_cleared(issue_id, opts \\ []) when is_list(opts) do
+    # A call, so a clear from the validation task is ordered before the next decline.
+    GenServer.call(Keyword.get(opts, :name, __MODULE__), {:cleared, issue_id})
+  catch
+    :exit, _reason -> :ok
   end
 
   @impl true
@@ -87,36 +96,27 @@ defmodule Aiur.GitHub.HoldPressure do
     {:reply, Enum.frequencies_by(holds, &elem(&1, 0)), %{state | holds: holds}}
   end
 
-  def handle_call({:decline, issue_id, now_ms, threshold, window_ms}, _from, state) do
-    cutoff = now_ms - window_ms
-    times = [now_ms | Enum.filter(Map.get(state.declines, issue_id, []), &(&1 > cutoff))]
+  def handle_call({:cleared, issue_id}, _from, state), do: {:reply, :ok, %{state | declines: Map.delete(state.declines, issue_id)}}
 
-    # Drop tickets whose window emptied so a long run does not accumulate ids.
-    declines =
-      state.declines
-      |> Map.reject(fn {_id, stamps} -> Enum.all?(stamps, &(&1 <= cutoff)) end)
-      |> Map.put(issue_id, times)
-
-    {:reply, if(length(times) >= threshold, do: :attention, else: :transient), %{state | declines: declines}}
+  def handle_call({:decline, issue_id, threshold}, _from, state) do
+    count = Map.get(state.declines, issue_id, 0) + 1
+    {:reply, if(count >= threshold, do: :attention, else: :transient), %{state | declines: Map.put(state.declines, issue_id, count)}}
   end
 
   defp recent_holds(holds, now_ms), do: Enum.filter(holds, fn {_resource, at_ms} -> at_ms > now_ms - @rate_window_ms end)
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 
-  defp threshold, do: config_integer(:dispatch_hold_attention_threshold)
-  defp window_ms, do: config_integer(:dispatch_hold_attention_window_seconds) * 1_000
-
   # A config that cannot be read degrades to the schema default rather than
   # crashing the dispatch path that asks.
-  defp config_integer(field) do
-    case Map.fetch!(Config.settings!().agent, field) do
+  defp threshold do
+    case Config.settings!().agent.dispatch_hold_attention_threshold do
       value when is_integer(value) and value > 0 -> value
-      _invalid -> schema_default(field)
+      _invalid -> schema_default()
     end
   rescue
-    _error -> schema_default(field)
+    _error -> schema_default()
   end
 
-  defp schema_default(field), do: AgentConfig |> struct!() |> Map.fetch!(field)
+  defp schema_default, do: struct!(AgentConfig).dispatch_hold_attention_threshold
 end
