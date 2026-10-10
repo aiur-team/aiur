@@ -529,17 +529,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
     do: {:completed, issue}
 
   @doc false
-  @spec confirm_pause_containment(map()) :: :ok | :ignored
-  def confirm_pause_containment(app_session) do
-    case Aiur.PauseContainment.confirm(Map.get(app_session, :containment)) do
-      :ok ->
-        :ok
-
-      :ignored ->
-        Logger.warning("Pause containment confirmation unavailable for #{inspect(Map.get(app_session, :containment))}; cooperative containment is unconfirmed")
-        :ignored
-    end
-  end
+  @spec confirm_pause_containment(map()) :: :ok
+  def confirm_pause_containment(app_session), do: Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
 
   @doc false
   @spec settle_paused_turn(map(), map(), map(), fun()) :: :ok | {:error, term()}
