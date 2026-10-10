@@ -166,6 +166,7 @@ export default withMermaid(defineConfig({
           text: 'Reference',
           items: [
             { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]
         }

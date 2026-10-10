@@ -28,6 +28,22 @@ tracker:
     planning_root_limit: 100
     planning_page_budget: 4
     planning_call_budget: 4
+merge_policy:
+  ci: pending_ok
+  local_tests: partial
+  full_ci_labels: [main-fix]
+  full_ci_paths: [".github/workflows/**", "src/mix.exs", "src/mix.lock"]
+  premerge_checks:
+    - python3 scripts/check-components.py --require-elixir
+    - python3 scripts/check-file-size.py --base origin/main
+  attribution_scan: true
+  main_watch:
+    enabled: true
+    workflows: [ci]
+    on_red: dispatch_fixer
+    fixer_label: main-fix
+    canary_minutes: 45
+    red_fallback_minutes: 0 # Optional: 60 waits for full CI after main is red for one hour.
 polling:
   # 5s burned the whole 5000/hr GraphQL budget (~7 points x 720 polls); 120s is the default.
   interval_seconds: 120

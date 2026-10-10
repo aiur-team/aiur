@@ -104,7 +104,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
 | `tracker.github.allowed_contributors` | map | nil | Whole intake allow-list: `users: [42]`, `orgs: [{id: 77, login: acme}]`. Positive numeric int64 ids; logins address the membership API only. Present empty map/null admits nobody; present key skips `.github/ALLOWED-CONTRIBUTORS`. Invalid entries fail startup validation. Reload/restart applies changes and alerts with added/removed entries. |
-| `tracker.github.human_mergers` | array | `[]` | GitHub logins allowed to perform human merge actions. |
+| `tracker.github.human_mergers` | array | `[]` | Explicit human-only post-merge attribution allowlist; also the identity allowlist for the planned `aiur pr merge` command. Never inherits CODEOWNERS, bot accounts, trusted accounts or dispatch users. |
 | `tracker.github.planning_root_limit` | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
 | `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub planning pages fetched in one cycle. |
 | `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub planning calls fetched in one cycle. |
