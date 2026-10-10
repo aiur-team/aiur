@@ -3,6 +3,7 @@ defmodule AiurWeb.Build.UsageTest do
   alias Aiur.ProviderMeterSnapshot
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
   alias AiurWeb.Build.{Payload, Read, Usage}
+
   defp block(inputs) do
     usage = Usage.block({:ok, nil}, inputs, I.now())
     fixture = File.read!(Path.expand("../../fixtures/build_home/live.json", __DIR__)) |> Jason.decode!()
