@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.ReconciliationTasksTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, RecentMerge}
-  alias Aiur.Orchestrator.{IssueSync, MergedTicketReconciler, Reconciler, StartupClaimReconciler, State, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.{AgentQueueStore, Issue, RecentMerge}
+  alias Aiur.Events.SubscriptionStore
+  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, MergedTicketReconciler, Reconciler, StartupClaimReconciler, State, TrackerTasks, WorkspaceCleanup}
 
   test "startup cleanup runs off the owner in order and never returns an old state" do
     parent = self()
@@ -101,6 +102,79 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     receive_barrier({:written, "3213", "todo"})
     assert next.last_polled_issues[issue.id].state_labels == ["todo"]
     assert MapSet.member?(next.completed, "unrelated-completion")
+  end
+
+  test "dependency add mutates real stores off-owner and enqueues only after the writes finish" do
+    :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+    blockee_id = "its-everdred/aiur#dependency-add-#{System.unique_integer([:positive])}"
+    blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
+    blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
+    previous = %Issue{id: "dependency-add", identifier: blockee_id, state: "in-progress", blocked_by: []}
+    current = %{previous | blocked_by: [blocker]}
+    :ok = SubscriptionStore.attach(blockee_id)
+    :ok = SubscriptionStore.attach(blocker_id)
+
+    on_exit(fn ->
+      SubscriptionStore.stop(blockee_id)
+      SubscriptionStore.stop(blocker_id)
+    end)
+
+    state = owned_state(last_polled_issues: %{previous.id => previous}, queue_store: AgentQueueStore.new())
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _, _ -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _, _ -> :ok end
+      )
+
+    assert TrackerTasks.running?(pending, {:dependency_subscription, previous.id, blocker.id, :dependency_added})
+    assert pending.queue_store.items == %{}
+    result = finish_task(pending)
+    assert Enum.any?(SubscriptionStore.snapshot(blockee_id).subscribed_to, &(&1["topic"] == "ticket.#{blocker_id}.agent.unblocked"))
+    assert Enum.any?(SubscriptionStore.snapshot(blocker_id).subscribed_to, &(&1["topic"] == "ticket.#{blockee_id}.agent.blocked"))
+    assert Enum.any?(result.queue_store.items, fn {_id, item} -> item.event_type == :dependency_added end)
+  end
+
+  test "dependency remove mutates real stores off-owner and enqueues only after the writes finish" do
+    :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+    blockee_id = "its-everdred/aiur#dependency-remove-#{System.unique_integer([:positive])}"
+    blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
+    blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
+    previous = %Issue{id: "dependency-remove", identifier: blockee_id, state: "in-progress", blocked_by: [blocker]}
+    current = %{previous | blocked_by: []}
+    :ok = AutoSubscriptions.auto_subscribe_for_dependency(previous, blocker)
+
+    on_exit(fn ->
+      SubscriptionStore.stop(blockee_id)
+      SubscriptionStore.stop(blocker_id)
+    end)
+
+    state = owned_state(last_polled_issues: %{previous.id => previous}, queue_store: AgentQueueStore.new())
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _, _ -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _, _ -> :ok end
+      )
+
+    assert TrackerTasks.running?(pending, {:dependency_subscription, previous.id, blocker.id, :dependency_removed})
+    assert pending.queue_store.items == %{}
+    # The cleared-dependency resume runs as its own tracker task beside the unsubscribe.
+    result = pending |> finish_task() |> finish_task()
+    assert result.tracker_tasks == %{}
+    refute Enum.any?(SubscriptionStore.snapshot(blockee_id).subscribed_to, &(&1["topic"] == "ticket.#{blocker_id}.agent.unblocked"))
+    refute Enum.any?(SubscriptionStore.snapshot(blocker_id).subscribed_to, &(&1["topic"] == "ticket.#{blockee_id}.agent.blocked"))
+    assert Enum.any?(result.queue_store.items, fn {_id, item} -> item.event_type == :dependency_removed end)
   end
 
   test "startup release does not apply a late response over a newly owned runtime" do

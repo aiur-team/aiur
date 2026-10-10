@@ -1558,39 +1558,32 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp unsubscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
-    case AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker) do
-      :ok ->
-        enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
-
-      {:error, reason} ->
-        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
-
-        Logger.warning(
-          "IssueSync: unsubscription failed for dependency_removed " <>
-            "(#{issue.identifier} unblocked by #{blocker_id}): " <>
-            "#{inspect(reason)}; event will emit on next reconcile"
-        )
-
-        state_acc
-    end
+    reconcile_dependency_subscription(state_acc, issue, blocker, :dependency_removed, &AutoSubscriptions.auto_unsubscribe_for_dependency/2)
   end
 
   defp subscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
-    case AutoSubscriptions.auto_subscribe_for_dependency(issue, blocker) do
-      :ok ->
-        enqueue_dependency_event(state_acc, issue, blocker, :dependency_added)
+    reconcile_dependency_subscription(state_acc, issue, blocker, :dependency_added, &AutoSubscriptions.auto_subscribe_for_dependency/2)
+  end
 
-      {:error, reason} ->
-        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+  defp reconcile_dependency_subscription(state, issue, blocker, event_type, mutation) do
+    apply_result = fn current, result ->
+      case result do
+        :ok ->
+          enqueue_dependency_event(current, issue, blocker, event_type)
 
-        Logger.warning(
-          "IssueSync: subscription failed for dependency_added " <>
-            "(#{issue.identifier} blocked by #{blocker_id}): " <>
-            "#{inspect(reason)}; event will emit on next reconcile"
-        )
+        {:error, reason} ->
+          blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
 
-        state_acc
+          Logger.warning(
+            "IssueSync: dependency subscription mutation failed for #{event_type} " <>
+              "(#{issue.identifier}, blocker #{blocker_id}): #{inspect(reason)}; event will emit on next reconcile"
+          )
+
+          current
+      end
     end
+
+    TrackerTasks.run(state, {:dependency_subscription, issue.id, blocker[:id], event_type}, fn -> mutation.(issue, blocker) end, apply_result)
   end
 
   # Public because `PushRouting` enqueues a `:blocker_became_terminal` event
