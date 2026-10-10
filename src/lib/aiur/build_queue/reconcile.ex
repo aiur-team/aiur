@@ -3,6 +3,8 @@ defmodule Aiur.BuildQueue.Reconcile do
 
   alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Planner, PRObserver, Settings, Withdrawal}
 
+  alias Aiur.StartTrigger.ProgressStore
+
   @type plan :: {[Planner.item_state()], [Planner.action()], map(), map(), MapSet.t(String.t()), map(), list()}
 
   @spec plan(map()) :: plan()
@@ -16,10 +18,10 @@ defmodule Aiur.BuildQueue.Reconcile do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     promoted = Map.new(input.items, &{&1.issue_id, if(&1.promoted_at, do: DateTime.to_unix(&1.promoted_at, :millisecond))})
 
-    latest_markers =
+    latest_label_intents =
       input.intents
       |> Enum.reverse()
-      |> Enum.filter(&(&1.action in [:mark, :unmark]))
+      |> Enum.filter(&(&1.action in [:mark, :unmark, :withdraw]))
       |> Enum.uniq_by(& &1.issue_id)
       |> MapSet.new(& &1.id)
 
@@ -27,7 +29,7 @@ defmodule Aiur.BuildQueue.Reconcile do
       Enum.filter(input.intents, fn intent ->
         recent? = state.reconciles - Map.get(state.intent_reconciles, intent.id, 0) < 2
         outstanding? = promoted[intent.issue_id] != nil and intent.recorded_at_ms >= promoted[intent.issue_id]
-        recent? or MapSet.member?(latest_markers, intent.id) or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
+        recent? or MapSet.member?(latest_label_intents, intent.id) or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
       end)
 
     opts = [
@@ -51,11 +53,19 @@ defmodule Aiur.BuildQueue.Reconcile do
     # Keep existing PR evidence fixed while selecting native-dependency candidates.
     {observations, published} = PRObserver.observe(input.observations, state)
     {input, cache} = NativeObserver.observe(%{input | observations: observations}, state, cache)
+    watch_approvals(input, state)
     known = MapSet.new(state.document.edges, & &1.prerequisite)
     new_edges = Enum.reject(input.edges, &MapSet.member?(known, &1.prerequisite))
     state = %{state | document: %{state.document | edges: new_edges}} |> Map.put(:published_pr_versions, published)
     {observations, published} = PRObserver.observe(input.observations, state)
     {%{input | observations: observations}, cache, published}
+  end
+
+  defp watch_approvals(input, state) do
+    queues = Map.new(input.queues, &{&1.id, &1})
+    triggers = Map.new(input.items, &{&1.issue_id, Settings.effective_trigger(queues[&1.queue_id], state.settings)})
+    ids = for edge <- input.edges, triggers[edge.dependent] == :pr_approved, do: edge.prerequisite
+    ProgressStore.watch(Enum.uniq(ids), :pr_approved, observation_max_age_ms: Settings.observation_max_age_ms(state.settings))
   end
 
   @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
