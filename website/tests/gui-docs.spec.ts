@@ -134,10 +134,14 @@ test('parity guides are linked and contain their operational contracts', async (
 
 test('capture inputs and checked-in assets stay example-only', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
-  const fixture = await readFile(
-    path.join(websiteRoot, '../src/test/manual/executor_control_center_docs_fixture.exs'),
-    'utf8'
-  )
+  // The fixture is split across sibling files; the assertions below cover them all.
+  const fixture = (
+    await Promise.all(
+      ['fixture', 'data', 'fleet', 'provider'].map((part) =>
+        readFile(path.join(websiteRoot, `../src/test/manual/executor_control_center_docs_${part}.exs`), 'utf8')
+      )
+    )
+  ).join('\n')
   const meterFixture = await readFile(
     path.join(websiteRoot, '../src/test/manual/executor_control_center_docs_meter_source.exs'),
     'utf8'
