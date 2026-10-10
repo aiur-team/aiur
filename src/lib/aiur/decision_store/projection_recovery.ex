@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionStore.ProjectionRecovery do
   @moduledoc false
 
-  alias Aiur.{Alerts, Decision, DecisionEvent, DecisionProjection, JsonStore}
+  alias Aiur.{Decision, DecisionEvent, DecisionProjection, JsonStore, Signal}
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   require Logger
 
@@ -114,7 +114,7 @@ defmodule Aiur.DecisionStore.ProjectionRecovery do
     unless match?({:stale, _, _}, state.projection) do
       Logger.error("aiur_decision_store phase=projection_repair_failed reason=#{inspect(reason)}")
 
-      Alerts.emit_custom("decision_store.repair_failed", "Decision projection stale since #{DateTime.to_iso8601(since)}; journal remains authoritative and writable.",
+      Signal.agent_alert("decision_store.repair_failed", "Decision projection stale since #{DateTime.to_iso8601(since)}; journal remains authoritative and writable.",
         reason: inspect(reason),
         needs_attention: true
       )

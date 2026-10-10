@@ -37,7 +37,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
 
   use GenServer
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.Config.Schema.Agent, as: AgentConfig
 
   @retry_topic "system.github.budget_broker_retry"
@@ -48,7 +48,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
   # dwell itself is config; this is only the granularity at which it is checked.
   @check_interval_ms 30_000
 
-  defstruct events: [], since_ms: nil, alert_active: false, check_interval_ms: @check_interval_ms, emit_fun: &Alerts.emit_system/2
+  defstruct events: [], since_ms: nil, alert_active: false, check_interval_ms: @check_interval_ms, emit_fun: &Signal.alert/2
 
   @type state :: %__MODULE__{}
 
@@ -138,7 +138,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
     check_interval_ms =
       Keyword.get(opts, :check_interval_ms, Application.get_env(:aiur, :broker_timeout_check_interval_ms, @check_interval_ms))
 
-    emit_fun = Keyword.get(opts, :emit_fun, &Alerts.emit_system/2)
+    emit_fun = Keyword.get(opts, :emit_fun, &Signal.alert/2)
 
     state = %__MODULE__{check_interval_ms: check_interval_ms, emit_fun: emit_fun}
     {:ok, maybe_schedule_check(state)}

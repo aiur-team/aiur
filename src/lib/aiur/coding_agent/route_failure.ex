@@ -31,9 +31,9 @@ defmodule Aiur.CodingAgent.RouteFailure do
   the point.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
+  alias Aiur.Signal
 
   @type class :: :usage_limit | :transient | :auth_rejected | :fatal
 
@@ -109,7 +109,7 @@ defmodule Aiur.CodingAgent.RouteFailure do
   defp emit(_class, _issue, _route, _reason, _opts), do: :ok
 
   defp emit_system(issue, suffix, opts, reason) do
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.route.#{suffix}",
       issue: issue,
       workspace: Keyword.get(opts, :workspace),

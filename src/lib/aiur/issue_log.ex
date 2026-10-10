@@ -500,7 +500,7 @@ defmodule Aiur.IssueLog do
   end
 
   def handle_info({:alert, %{name: _name, message: _message} = event}, state) do
-    # No Logger.info here — `Alerts.emit_system/2` already logs each
+    # No Logger.info here — `Signal.alert/2` already logs each
     # alert with `[alert] (#identifier) name: message`, so mirroring it
     # would double every alert row in aiur.log.
     write_and_continue(state, format_alert(event[:name], event[:message], event), {:alert, event})

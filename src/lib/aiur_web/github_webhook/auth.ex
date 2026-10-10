@@ -19,7 +19,7 @@ defmodule AiurWeb.GithubWebhook.Auth do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias AiurWeb.GithubWebhook
   alias AiurWeb.GithubWebhook.Signature
 
@@ -111,7 +111,7 @@ defmodule AiurWeb.GithubWebhook.Auth do
   end
 
   defp alert_fun do
-    Application.get_env(:aiur, :github_webhook_alert_fun, &Alerts.emit_system/2)
+    Application.get_env(:aiur, :github_webhook_alert_fun, &Signal.alert/2)
   end
 
   # The raw body is cached by `AiurWeb.GithubWebhook.BodyReader` while

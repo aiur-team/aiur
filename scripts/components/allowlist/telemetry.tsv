@@ -1,5 +1,4 @@
 # rule	target_module	reason
-R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.BuildGate	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.DaemonLifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -12,7 +11,6 @@ R-declared	Aiur.Orchestrator.CommentWake	baseline 4aba33f8aae03cdaec432d6614e70a
 R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.TicketBranch	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-down	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.DaemonLifecycle	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Orchestrator.CommentWake	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

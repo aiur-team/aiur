@@ -98,13 +98,13 @@ defmodule Aiur.GitHub.Connectivity do
     * `:repo` — `"owner/repo"` for the alert message (optional).
     * `:detail` — detail map forwarded to `backoff_ms/3` (default `%{}`).
     * `:emit_fun` — `(name, message, opts) -> term` alert emitter
-      override for tests (default `Aiur.Alerts.emit_custom/3`).
+      override for tests (default `Aiur.Signal.agent_alert/3`).
   """
   @spec record_failure(streaks(), source(), classification(), non_neg_integer(), keyword()) ::
           {streaks(), non_neg_integer()}
   def record_failure(streaks, source, classification, base_interval_ms, opts \\ []) do
     {streaks, alerts} = note_failure(streaks, source, classification)
-    emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Alerts.emit_custom/3)
+    emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Signal.agent_alert/3)
 
     Enum.each(alerts, fn alert ->
       message = alert_message(alert, repo: Keyword.get(opts, :repo))
@@ -275,7 +275,7 @@ defmodule Aiur.GitHub.Connectivity do
 
   @doc """
   Builds the Executor-facing alert message for an escalated connectivity
-  blocker. Used by pollers to drive `Aiur.Alerts.emit_custom/3`.
+  blocker. Used by pollers to drive `Aiur.Signal.agent_alert/3`.
   """
   @spec alert_message(alert(), keyword()) :: String.t()
   def alert_message(%{source: source, classification: classification, count: count}, opts \\ []) do
