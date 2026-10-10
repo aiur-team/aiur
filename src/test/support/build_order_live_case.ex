@@ -31,8 +31,8 @@ defmodule AiurWeb.BuildOrderLiveCase do
       alias Aiur.BuildOrder.TicketDetail.State
       alias Aiur.BuildOrder.TicketHistory
       alias AiurWeb.BuildOrder.Runtime
-      alias AiurWeb.Endpoint
       alias AiurWeb.BuildOrderLiveCase.FakeDataSource
+      alias AiurWeb.Endpoint
 
       @endpoint Endpoint
 
@@ -41,6 +41,7 @@ defmodule AiurWeb.BuildOrderLiveCase do
   end
 
   defmodule FakeDataSource do
+    @moduledoc false
     use GenServer
 
     alias Aiur.BuildOrder.GraphProjection.Snapshot
