@@ -3,7 +3,9 @@ defmodule AiurWeb.Build.SeamTest do
 
   @root Path.expand("../../..", __DIR__)
   # C3-T02 uses Endpoint only for dashboard_writable; C3-T03 adds legacy Units decoding.
-  @allowed ~w(AiurWeb.BuildLive AiurWeb.Endpoint Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL)
+  # C8-T01 Now-band rows read the Units catalog through its policy, tracker identity, and pause-reason facades;
+  # components.json declares these (dashboard-ui requires projections, kernel and orchestration).
+  @allowed ~w(AiurWeb.BuildLive AiurWeb.Endpoint Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State)
   @usage_facades [
     # Authorized usage reads configured Claude account labels.
     "Aiur.Accounts",
@@ -32,7 +34,7 @@ defmodule AiurWeb.Build.SeamTest do
     # Build and Stream Deck share the same pure window classification.
     "AiurWeb.ProviderMeterWindows"
   ]
-  @shell ~w(UnitsRow UnitsControlPolicy DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
+  @shell ~w(UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
 
   test "web side references only the seam (future regression guard)" do
     files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
