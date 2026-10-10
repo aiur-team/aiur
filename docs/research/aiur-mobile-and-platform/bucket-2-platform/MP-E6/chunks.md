@@ -204,3 +204,16 @@ C10-T03 (spike) + MP-R7-C2-T02 ─► C11-T05 ─► C10-T05
 C1-T01 + C2-T03 ─► C11-T06
 C11-T03 + C11-T04 ─► C11-T07
 ```
+
+## MP-E6-C12 — Executor as a voice target (added 2026-10-10)
+
+- **Goal:** the operator talks by voice to the Executor. The assistant forks the Executor's
+  session natively (read-only) for context, and confirmed drafts reach the live Executor as
+  wake-inbox proposals that only the live Executor applies. Plan §18.
+- **Tickets:** C12-T01 session registration; C12-T02 Executor fork; C12-T03 Executor
+  `AgentChannel`; C12-T04 skill and docs. All aiur adapter work; no core change.
+
+```text
+C12-T01 + C11-T05 + C10-T03 (spike) ─► C12-T02
+C12-T02 + C4-T06 + C5-T03 + C5-T04 + C10-T05 ─► C12-T03 ─► C12-T04 ◄── C7-T02
+```

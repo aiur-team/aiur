@@ -9,7 +9,7 @@ blocked_by: DESIGN-E6 (owner), owner authorization of the paid validation spike 
 owns_contracts: contracts/voice-session.md (owner; §4 conversation provider, §5.3 drafts, §6, §9, §10)
 consumes_contracts: listener mode (MP-E7), command request (MP-E2), conversations/transcripts (MP-E4), identity, capabilities (MP-R1), events (MP-R2)
 research_resolved: MP-Q3 (see provider-research.md)
-amended: 2026-10-09 (§17 independent package; read-only fork per harness)
+amended: 2026-10-09 (§17 independent package; read-only fork per harness); 2026-10-10 (§18 Executor as a voice target)
 ---
 
 # MP-E6 — Independent conversational voice component — Plan
@@ -609,3 +609,118 @@ agent-token hash check is not needed there. It is still needed for every `src/` 
 | E6-OQ19 | License for the package? | **Apache-2.0, the same as aiur** (`LICENSE` at the repo root). |
 | E6-OQ20 | Ship both provider adapters in v1, or only the bake-off winner? | **Both, winner first.** Standalone users may have only one vendor account. The fake-driven conformance suite makes the second adapter cheap (C11-T06 runs after the aiur path works). |
 | E6-OQ21 | Accept the replay fallback for harnesses without a native fork (Muse, Gemini, headless `claude` until `aiur-claude` adds a fork), with the spoken "from a summary" note? | **Yes.** Otherwise `ask_agent` on those harnesses must wait for the agent's checkpoint. Also file a cross-repo `aiur-claude` fork request when MP-E6 is promoted. |
+
+## 18. Executor as a voice target (2026-10-10)
+
+Kevin, 2026-10-10 (verbatim): "ensure the voice convo mode code is also accessible for the
+executor agent to use and fork itself so that the user can chat with the executor".
+
+§1–§17 plan for dispatched workers. C4-T06 adds an Executor *briefing* (fleet snapshot and
+Executor conversation tail) but not the Executor's own context, and nothing delivers to it.
+The Executor is different from a worker in four ways, and each one needs a decision:
+
+| # | Worker (§17.7, C11-T05) | Executor | Gap |
+| --- | --- | --- | --- |
+| X1 | aiur started the session, so it holds the harness and the session id (`providers/claude.ex`, Codex `thread/resume`). | The operator started it (interactive Claude Code or Codex). aiur knows only the claim entry: consumer id, host and pid (`Aiur.Executor.Claims`, `Principal`). | Session discovery. |
+| X2 | Fork through the harness adapter of a running agent. | No aiur adapter process exists. The fork must start from a plain session handle. | Fork from a handle, not from an agent ref. |
+| X3 | Answers and drafts go through E7 listener mode, delivered at the agent's checkpoint. | The Executor is not a listener-mode agent. Its only inbound channel is the wake inbox, read by `executor-wait`. | Delivery back to the live Executor. |
+| X4 | A worker has write scope on its own ticket. | The Executor holds merge, approve, label and restart authority. | Authority of the fork and of delivered text. |
+
+### 18.1 Session discovery (X1)
+
+- `executor-wait` (and the `--executor` launch) runs as a child of the Executor's shell, so it
+  sees the harness environment. Claude Code 2.1.296 sets `CLAUDE_CODE_SESSION_ID`,
+  `CLAUDE_CONFIG_DIR` (the account profile), `CLAUDE_PID` and, for subagents,
+  `CLAUDE_CODE_CHILD_SESSION` (observed in a live session, 2026-10-10; **not a documented
+  contract**, so the code reads them behind one function with a test fixture).
+- The claim entry gains an optional `session` object: `%{harness: "claude-code" | "codex",
+  session_id, config_dir, cwd, harness_pid, recorded_at}`. Only the **owner** writes it, and
+  only when the caller is not a child session (a subagent that runs `executor-wait` must not
+  register its own session as the Executor's).
+- Codex: no session-id environment variable is verified. The operator passes
+  `aiurdev executor-wait --session-id <uuid>` once (the id is in `codex resume` and the rollout
+  file name). Unknown → `fork: :none`, stated, and the briefing-only path still works.
+- Read: `aiur executor-session [--json]` and an RPC read for the adapter. A session handle
+  older than the claim lease, or with a dead `harness_pid`, is `unknown`, never reused.
+
+### 18.2 Fork mechanics (X2)
+
+- MP-R7 `fork_session/2` (C11-T05) takes a **session handle**, not an agent ref. The Executor
+  adapter builds the handle from §18.1 and calls the same `claude-repl` and `codex` native
+  forks. One-fork-at-a-time is keyed by `{:executor, consumer_id}`.
+- Claude Code (native): `claude -p --resume <session_id> --fork-session` with
+  `CLAUDE_CONFIG_DIR` set to the recorded profile (the session file lives under it; a different
+  profile cannot resume it), `cwd` = the recorded cwd, and these Executor-specific hard limits:
+  `--tools Read,Grep,Glob` (a closed set, not only `--disallowedTools`),
+  `--permission-mode plan`, `--strict-mcp-config` with no MCP config (the Executor's MCP
+  servers include write tools such as Khala send and Docs), `--no-session-persistence` (else
+  the fork's session file is the newest in the project directory and `claude --continue`
+  resumes the fork instead of the Executor), `--max-turns` small, and an environment with
+  `GITHUB_TOKEN`/`GH_TOKEN` and aiur RPC credentials removed.
+- Codex (native): app-server `thread/fork` `{threadId, ephemeral: true, sandbox: "read-only",
+  approvalPolicy: "never"}` on its own app-server process, as C11-T05.
+- **Mid-turn parent.** The Executor is almost always inside a tool call (`executor-wait`
+  blocks for minutes). A fork of a session whose last record is an open `tool_use` is the
+  SQ-6 risk in §17.7. Spike C10-T03 must add an Executor-shaped parent (a session blocked in a
+  long Bash call) and record whether the fork answers, and from which point in history.
+- **Cost.** The fork reads the Executor's whole context (up to 1M tokens). The fork records
+  `usage` (C11-T05 telemetry), and the voice session states the cost cap. E6-OQ15 applies.
+
+### 18.3 Delivery back to the live Executor (X3)
+
+- aiur's `AgentChannel` gets `kind: :executor` clauses. No core change: the core still calls
+  `ask/4`, `instruct/4` and `fork_query/3`.
+  - `fork_query` → §18.2. The answer returns as `{:fork_answer, ref, text}`.
+  - `ask` (needs fresh work) and `instruct` (a confirmed draft, V5) → one new wake record
+    `executor.voice.ask` / `executor.voice.proposal` with `conversation_id`, `draft_id`,
+    redacted text and the operator principal. It is persisted by `ExecutorWakeInbox` like
+    every other wake (`executor.#` is already bound), so it survives a restart and an
+    Executor handoff.
+  - The Executor answers with `aiur executor-voice-reply <draft_id|ask_ref> --applied |
+    --declined | --answer <text>`. That emits the receipt / `{:agent_reply, …}` to the voice
+    session, so the assistant can say "the Executor applied it" or read the answer.
+- **No race with the loop.** Nothing types into the Executor's terminal or appends to its
+  session file. The Executor reads the record on its next `executor-wait`, between its own
+  actions, like any other wake. A proposal waits at most one wake cycle. The briefing and the
+  fork answer most questions without waiting (§16).
+- `CLAUDE_CODE_MESSAGING_SOCKET` (also seen in the environment) might deliver into a live
+  session sooner. It is **unverified and out of scope**. The wake inbox is the path.
+
+### 18.4 Authority (X4)
+
+- The fork is read-only by construction (§18.2) and cannot run `gh`, `git` writes,
+  `aiurdev` or any RPC. It never registers as an Executor principal and never acknowledges a
+  wake.
+- The voice assistant has no merge, approve, label, pause, restart or dispatch tool (§6). A
+  confirmed draft is a **proposal** record. Only the live Executor acts on it, with its own
+  rules (review, merge policy, `--admin` limits). The Executor may decline and says why in the
+  reply.
+- One actor mutates: the live Executor. A voice session can have one outstanding proposal per
+  draft id (idempotent), and the Executor applies proposals one at a time in wake order.
+- If the Executor session is unknown or dead, `ask` and `instruct` are refused with
+  `executor_unavailable` (C4-T06 `target_not_writable`), and the session stays discussion-only.
+
+### 18.5 Package boundary (§17 rule kept)
+
+All Executor code is aiur adapter code: `Aiur.VoiceConverse.Host.{BriefingSource,
+AgentChannel}` clauses for `kind: :executor`, the claim `session` field, the wake record, the
+`executor-voice-reply` verb and the Executor skill text. The core (`packages/elixir/voice_converse`)
+gets no Executor code and no new callback. The only shared change is that MP-R7
+`fork_session/2` accepts a session handle without a running agent, which is a harness-layer
+rule, not voice code. Provider: ElevenLabs only for now (Kevin, 2026-10-09/10); this section
+does not depend on the provider.
+
+### 18.6 Tickets (chunk C12)
+
+| ID | Title | Blocked by |
+| --- | --- | --- |
+| [MP-E6-C12-T01](tickets/MP-E6-C12-T01.md) | Executor session registration and `aiur executor-session` read | — |
+| [MP-E6-C12-T02](tickets/MP-E6-C12-T02.md) | Read-only native fork of the Executor session (Claude Code, Codex) | C12-T01, C11-T05, C10-T03 |
+| [MP-E6-C12-T03](tickets/MP-E6-C12-T03.md) | Executor `AgentChannel`: fork query, voice wake records, `executor-voice-reply` | C12-T02, C4-T06, C5-T03, C5-T04, C10-T05 |
+| [MP-E6-C12-T04](tickets/MP-E6-C12-T04.md) | Executor skill and docs: handle voice proposals; converse with the Executor | C12-T03, C7-T02 |
+
+### 18.7 Open question
+
+| ID | Question | Recommendation |
+| --- | --- | --- |
+| E6-OQ22 | No MP-E6 ticket is on GitHub yet (no epic issue). Promote all of MP-E6 with C12, or only C12-T01 now? | **File C12-T01 now** (no dependency; it is useful alone for handoff and the roster). Promote the rest with MP-E6 when DESIGN-E6 and the spike are cleared. |

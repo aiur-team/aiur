@@ -59,6 +59,10 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | [MP-E6-C11-T05](MP-E6-C11-T05.md) | Harness `fork_session` (native / history copy / replay) | blocked | **C10-T03 (spike), E6-OQ21**, MP-R7-C2-T02, MP-R7 request R-6 | 4f |
 | [MP-E6-C11-T06](MP-E6-C11-T06.md) | Second provider adapter (bake-off runner-up) | blocked | **C1-T01 (spike), E6-OQ20**, C2-T03 | 4h |
 | [MP-E6-C11-T07](MP-E6-C11-T07.md) | Package docs + MP-R1 birth check | ready | C11-T03, C11-T04, C3-T03; E6-OQ16/OQ18 for publish only | 4i |
+| [MP-E6-C12-T01](MP-E6-C12-T01.md) | Executor session registration + `aiur executor-session` | ready | — | 4a |
+| [MP-E6-C12-T02](MP-E6-C12-T02.md) | Read-only native fork of the Executor session | blocked | **C10-T03 (spike)**, C12-T01, C11-T05 | 4g |
+| [MP-E6-C12-T03](MP-E6-C12-T03.md) | Executor `AgentChannel` + voice wake records + reply verb | blocked | C12-T02, C4-T06, C5-T03, C5-T04, C10-T05 | 4h |
+| [MP-E6-C12-T04](MP-E6-C12-T04.md) | Executor skill + docs for voice proposals | blocked | C12-T03, C7-T02 | 4i |
 
 Totals: 43 tickets — 22 ready, 21 blocked (C11 added 2026-10-09, plan §17: independent package and read-only fork per harness). Before that: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
 [../realtime-convo-research.md](../realtime-convo-research.md); several older tickets carry a
