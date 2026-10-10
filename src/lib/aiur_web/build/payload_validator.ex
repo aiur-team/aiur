@@ -49,6 +49,7 @@ defmodule AiurWeb.Build.PayloadValidator do
     |> rule(row["sec"] == "plan" and not is_map(row["cue"]), join(path, "cue"), :section)
     |> rule(row["sec"] == "plan" and row["wave"] != nil and (not is_integer(row["wave"]) or row["wave"] < 1), join(path, "wave"), :section)
     |> rule(row["sec"] == "hist" and not is_integer(row["end"]), join(path, "end"), :section)
+    |> rule(row["start"] == nil != (row["start_src"] == "unknown"), join(path, "start_src"), :timing)
     |> identity_rules(row, path)
   end
 
