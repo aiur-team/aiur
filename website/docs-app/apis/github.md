@@ -734,6 +734,8 @@ context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
+Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
+
 Idle dependent restacks use delivered blocker PR facts without adding REST reads. The daemon fetches git refs and pushes through the agent credential file, with cached GitHub helpers cleared. It never force-pushes; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).

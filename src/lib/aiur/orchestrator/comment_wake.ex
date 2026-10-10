@@ -1760,7 +1760,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           error
       end
 
-    audit_merge_attribution(identifier, merged_by_login, merger_allowed_fun, emit_alert_fun)
+    audit_merge_attribution(identifier, Aiur.Orchestrator.MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)
     {target, result}
   end
