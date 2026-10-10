@@ -17,7 +17,7 @@ class StructuralGateTest(unittest.TestCase):
         self.addCleanup(self.scratch.cleanup)
         self.root = Path(self.scratch.name)
         shutil.copytree(SOURCE / 'scripts/components', self.root / 'scripts/components',
-                        ignore=shutil.ignore_patterns('node_modules', 'allowlist', '__pycache__'))
+                        ignore=shutil.ignore_patterns('node_modules', 'allowlist', 'seams', '__pycache__'))
         for name in ('check-pr-structure.py', 'check-file-size.py', 'check-docs-prose.mjs', 'check-components.py'):
             shutil.copyfile(SOURCE / 'scripts' / name, self.root / 'scripts' / name)
         (self.root / 'scripts/components/node_modules').symlink_to(SOURCE / 'scripts/components/node_modules', target_is_directory=True)

@@ -320,6 +320,10 @@ toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The requir
 unowned files, equally specific competing owners and stale globs fail the check.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
 
+Seams live one per file in `scripts/components/seams/`, named
+`<from>--<to_module>--<kind>.json`, never inline in `components.json`: two PRs
+that each add a seam then touch different files and merge without conflict.
+
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
 owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR

@@ -1,0 +1,10 @@
+{
+  "from": "pr-lifecycle",
+  "to_module": "Aiur.Orchestrator.TicketTransition",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/pr_lifecycle/rework_requeue.ex"
+  ],
+  "allow_forbidden": true,
+  "reason": "MP-R1-C9-T06 RC-20: U2 keeps requeue decisions in the worker and routes writes through its single lifecycle owner (#3570)"
+}

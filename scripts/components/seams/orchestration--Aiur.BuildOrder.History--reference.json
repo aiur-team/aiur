@@ -1,0 +1,10 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.BuildOrder.History",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/dispatcher.ex"
+  ],
+  "allow_forbidden": true,
+  "reason": "MP-E8-C4-T04 (#3123): nonblocking start journal is a no-op without the optional history store"
+}

@@ -9,6 +9,7 @@ import tempfile
 
 REPO = Path(__file__).resolve().parent.parent
 MANIFEST = json.loads((REPO / 'components.json').read_text())
+MANIFEST['seams'] = [json.loads(path.read_text()) for path in sorted((REPO / 'scripts/components/seams').glob('*.json'))]
 
 
 def check(name, source_component, source, expected, message):

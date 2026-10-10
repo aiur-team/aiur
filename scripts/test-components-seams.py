@@ -12,6 +12,7 @@ REPO = Path(__file__).resolve().parent.parent
 CHECKER = REPO / 'scripts/check-components.py'
 SCHEMA = (REPO / 'components.schema.json').read_text()
 MANIFEST = json.loads((REPO / 'components.json').read_text())
+MANIFEST['seams'] = [json.loads(path.read_text()) for path in sorted((REPO / 'scripts/components/seams').glob('*.json'))]
 SELECTED = set(sys.argv[1:])
 RAN = set()
 
