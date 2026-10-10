@@ -379,6 +379,7 @@ defmodule Aiur.Application do
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
       Aiur.GitHub.BrokerTimeout,
+      Aiur.GitHub.HoldPressure,
       Aiur.GitHub.BudgetBroker,
       # The ElevenLabs account credit quota, read on its own schedule. Absent an
       # API key it observes nothing at all, so an unconfigured account costs a
