@@ -3,10 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.RoutingValue
   alias Aiur.Config.{Schema, SemanticChecks}
-  alias Aiur.Config.Schema.AgentValidation
-  alias Aiur.Config.Schema.Codex, as: CodexSchema
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -17,24 +14,6 @@ defmodule Aiur.Config do
   # fallbacks. Anything added to those paths must be added here, or the settings
   # memo will not expire when the variable changes.
   @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
-
-  @default_prompt_template """
-  You are working on a Linear issue.
-
-  Identifier: {{ issue.identifier }}
-  Title: {{ issue.title }}
-
-  Body:
-  {% if issue.description %}
-  {{ issue.description }}
-  {% else %}
-  No description provided.
-  {% endif %}
-  """
-
-  @default_telemetry_retention_max_bytes 64 * 1024 * 1024
-  @default_telemetry_retention_max_age_days 30
-  @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -189,986 +168,107 @@ defmodule Aiur.Config do
     end
   end
 
-  @spec max_concurrent_agents_for_state(term()) :: pos_integer()
-  def max_concurrent_agents_for_state(state_name) when is_binary(state_name) do
-    config = settings!()
-
-    Map.get(
-      config.agent.max_concurrent_agents_by_state,
-      AgentValidation.normalize_issue_state(state_name),
-      max_concurrent_agents()
-    )
-  end
-
-  def max_concurrent_agents_for_state(_state_name), do: max_concurrent_agents()
-
-  @spec tracker_kind() :: String.t() | nil
-  def tracker_kind do
-    settings!().tracker.kind
-  end
-
-  @doc "The configured tracker integration branch. Raises when it cannot be resolved safely."
-  @spec base_branch() :: String.t()
-  @spec base_branch(term()) :: String.t()
-  @spec base_branch(term(), keyword()) :: String.t()
-  def base_branch(source \\ settings(), context \\ [])
-
-  def base_branch({:ok, %{tracker: tracker}}, context), do: base_branch(tracker, context)
-
-  def base_branch({:error, reason}, context) do
-    raise_unresolved_base_branch({:config_error, reason}, context)
-  end
-
-  def base_branch(opts, context) when is_list(opts) do
-    case Keyword.fetch(opts, :base_branch) do
-      {:ok, branch} -> require_base_branch(branch, context)
-      :error -> base_branch(settings(), context)
-    end
-  end
-
-  def base_branch(%{tracker: tracker}, context), do: base_branch(tracker, context)
-  def base_branch(%{"tracker" => tracker}, context), do: base_branch(tracker, context)
-  def base_branch(%{base_branch: branch}, context), do: require_base_branch(branch, context)
-  def base_branch(%{"base_branch" => branch}, context), do: require_base_branch(branch, context)
-  def base_branch(%{}, context), do: raise_unresolved_base_branch(:missing, context)
-  def base_branch(source, context), do: raise_unresolved_base_branch({:invalid_source, source}, context)
-
-  defp require_base_branch(branch, context) when is_binary(branch) and byte_size(branch) > 0 do
-    case String.trim(branch) do
-      "" -> raise_unresolved_base_branch(:empty, context)
-      trimmed -> trimmed
-    end
-  end
-
-  defp require_base_branch(branch, context), do: raise_unresolved_base_branch({:invalid, branch}, context)
-
-  defp raise_unresolved_base_branch(reason, context) do
-    cwd = context |> Keyword.get_lazy(:cwd, &File.cwd!/0) |> Path.expand()
-
-    config_path =
-      context
-      |> Keyword.get_lazy(:config_path, &Workflow.workflow_file_path/0)
-      |> Path.expand(cwd)
-
-    raise ArgumentError,
-          "tracker.base_branch could not be resolved; config path searched: #{config_path}; " <>
-            "resolved working directory: #{cwd}; reason: #{inspect(reason)}"
-  end
-
-  @doc """
-  Ordered dispatch preference, as **routes** — each entry is a
-  `Aiur.Config.RoutingValue` (`backend[:model[:effort]][+remote]`), so
-  `"openrouter:anthropic/claude-sonnet-5"` and a bare `"claude"` are both
-  valid members and one model reachable two ways may appear twice. Empty means
-  the deprecated `agent.kind`/`agent.switch_model_on_ratelimit` fields apply.
-
-  Callers that need only the backend must map through
-  `agent_priority_backends/0` (or `RoutingValue.routing_backend/1`); anything
-  comparing a member against `known_backends()` directly will silently drop
-  every route that names a model.
-  """
-  @spec agent_priority() :: [String.t()]
-  def agent_priority, do: settings!().agent.priority || []
-
-  @doc """
-  Whether dispatch should route away from a route that is currently inside a
-  provider's peak-pricing window, falling through to the next `agent.priority`
-  entry. Defaults to `true`.
-
-  When the window cannot be determined, routing never reroutes (it fails toward
-  not rerouting). `false` means "ignore pricing windows entirely and use
-  `agent.priority` exactly as written"; it never changes how spend is
-  *reported*. See `Aiur.Config.Schema.PricingPolicy`.
-  """
-  @spec avoid_peak_pricing?() :: boolean()
-  def avoid_peak_pricing? do
-    avoid_peak_pricing_value(settings!())
-  end
-
-  @doc """
-  The effective `avoid_peak_pricing` value for already-parsed settings.
-
-  Defaults to `true` when the pricing policy is absent: the knob is opt-out,
-  not opt-in, so an operator who never touches it gets the conservative
-  peak-avoiding behaviour. The pure form is what the routing policy reads
-  through, so the default is asserted directly rather than only through a live
-  config read.
-  """
-  @spec avoid_peak_pricing_value(term()) :: boolean()
-  def avoid_peak_pricing_value(settings) do
-    case settings do
-      %{agent: %{pricing_policy: %{avoid_peak_pricing: value}}} when is_boolean(value) -> value
-      _ -> true
-    end
-  end
-
-  @doc "The backends named by `agent_priority/0`, in order, with the model segment stripped and duplicates collapsed."
-  @spec agent_priority_backends() :: [String.t()]
-  def agent_priority_backends do
-    agent_priority() |> Enum.map(&RoutingValue.routing_backend/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
-  end
-
-  @doc "Default backend: the backend of the first `agent.priority` route when present, else the deprecated `agent.kind` field."
-  @spec agent_kind() :: String.t()
-  def agent_kind do
-    case agent_priority_backends() do
-      [primary | _] -> primary
-      [] -> settings!().agent.kind || Aiur.CodingAgent.default_backend()
-    end
-  end
-
-  @doc """
-  ElevenLabs speech-to-text credential for Stream Deck voice input, or `nil` when
-  unconfigured. Resolved from `elevenlabs.api_key` (which may be a
-  `$ELEVENLABS_API_KEY` reference) with the `ELEVENLABS_API_KEY` env var as the
-  fallback. It is a secret: never log the returned value.
-  """
-  @spec elevenlabs_api_key() :: String.t() | nil
-  def elevenlabs_api_key, do: settings!().elevenlabs.api_key
-
-  @doc "ISO-639-3 transcription language for Stream Deck voice input."
-  @spec elevenlabs_language_code() :: String.t()
-  def elevenlabs_language_code, do: settings!().elevenlabs.language_code || "eng"
-
-  @doc "ElevenLabs voice used for dashboard interactive conversation replies."
-  @spec elevenlabs_voice_id() :: String.t() | nil
-  def elevenlabs_voice_id do
-    case settings!().elevenlabs.voice_id do
-      voice_id when is_binary(voice_id) -> if String.trim(voice_id) == "", do: nil, else: voice_id
-      _absent -> nil
-    end
-  end
-
-  @doc "Raw settings for a registry-named backend, or an empty map when absent."
-  @spec backend_config(String.t()) :: map()
-  def backend_config(backend) when is_binary(backend) do
-    agent_backend_configs()
-    |> Map.get(backend, %{})
-  end
-
-  @doc """
-  Raw settings for all registry-named backends, with the backend of each
-  `agent.priority` route marked enabled so naming a route makes its backend
-  dispatchable. Keyed by backend, never by route: several routes may share one
-  backend (`openrouter:a` and `openrouter:b`) and they configure one transport.
-  """
-  @spec agent_backend_configs() :: map()
-  def agent_backend_configs do
-    Enum.reduce(agent_priority_backends(), settings!().agent.backend_configs || %{}, fn backend, acc ->
-      Map.update(acc, backend, %{"enabled" => true}, &Map.put(&1, "enabled", true))
-    end)
-  end
-
-  @spec agent_routing() :: %{pos_integer() => String.t()}
-  def agent_routing do
-    settings!().agent.routing || %{}
-  end
-
-  @doc """
-  Claim-time fallback order: `agent.priority` when present, else the deprecated
-  `agent.switch_model_on_ratelimit` field. Returns **routes**, not backends —
-  selection consumes the model segment, so stripping it here would collapse
-  `[claude, "openrouter:anthropic/claude-sonnet-5"]` into one candidate and
-  erase the fallback the operator wrote.
-  """
-  @spec switch_model_on_ratelimit() :: [String.t()]
-  def switch_model_on_ratelimit do
-    case agent_priority() do
-      [] -> settings!().agent.switch_model_on_ratelimit || []
-      priority -> priority
-    end
-  end
-
-  @doc """
-  The registered backend the automatic usage-limit fallback reroutes *to*
-  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
-  `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
-  disabled. When `agent.priority` is set, this is the first eligible fallback
-  target after the primary; otherwise it reads the deprecated
-  `agent.rate_limit_fallback` field (`""` disables).
-  """
-  @spec rate_limit_fallback_backend() :: String.t() | nil
-  def rate_limit_fallback_backend do
-    case agent_priority_backends() do
-      [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
-      [] -> legacy_rate_limit_fallback()
-    end
-  end
-
-  defp legacy_rate_limit_fallback do
-    case settings!().agent.rate_limit_fallback do
-      backend when is_binary(backend) and backend != "" -> backend
-      _ -> nil
-    end
-  end
-
-  @doc """
-  The registered backend the usage-limit fallback reroutes *from* — the pair's
-  primary. Only an already-running agent on this backend that hits
-  `usage_limit_exhausted` is eligible for the reroute to
-  `rate_limit_fallback_backend/0`. When `agent.priority` is set this is its
-  first entry; otherwise it reads the deprecated `agent.rate_limit_primary`.
-  """
-  @spec rate_limit_primary_backend() :: String.t()
-  def rate_limit_primary_backend do
-    case agent_priority_backends() do
-      [primary | _] -> primary
-      [] -> settings!().agent.rate_limit_primary
-    end
-  end
-
-  @doc """
-  Setting #2: whether dispatched agents attach a `claude remote-control`
-  session. Orthogonal to `agent_kind/0` and only meaningful for an
-  RC-capable backend. The default lives in `Config.Schema` so flipping to
-  always-remote is a one-line change there.
-  """
-  @spec agent_remote_control?() :: boolean()
-  def agent_remote_control? do
-    settings!().agent.remote_control || false
-  end
-
-  @doc """
-  Lifetime cap on (re)dispatches for a single ticket, or 0 when disabled.
-  """
-  @spec agent_max_dispatches_per_ticket() :: non_neg_integer()
-  def agent_max_dispatches_per_ticket do
-    case settings() do
-      {:ok, settings} -> Map.get(settings.agent, :max_dispatches_per_ticket) || 0
-      _ -> 0
-    end
-  end
-
-  @doc """
-  Whether a recycled re-dispatch that could not resume its thread gets
-  continuation guidance instead of the cold-start prompt. Defaults to true so
-  a non-resumable backend switch picks up the shared workspace without claiming
-  cross-backend conversation continuity.
-  """
-  @spec agent_prior_work_continuation?() :: boolean()
-  def agent_prior_work_continuation? do
-    case settings() do
-      # Map.get, not dot access, so a config cached before this field existed
-      # uses the current default rather than raising after a schema upgrade.
-      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation, true)
-      _ -> true
-    end
-  end
-
-  @doc """
-  Per-complexity-level guidance strings, keyed by complexity level.
-  Appended to the end of the rendered prompt for an issue carrying the
-  matching `complexity:<n>` label. Returns `%{}` when unset or the config
-  cannot be loaded, so prompt building never fails on this lookup.
-  """
-  @spec agent_complexity_prompts() :: %{pos_integer() => String.t()}
-  def agent_complexity_prompts do
-    case settings() do
-      {:ok, settings} -> settings.agent.complexity_prompts || %{}
-      _ -> %{}
-    end
-  end
-
-  @doc """
-  Per-complexity turn-cap map, keyed by complexity level. `%{}` when unset.
-  """
-  @spec agent_max_turns_by_complexity() :: %{pos_integer() => pos_integer()}
-  def agent_max_turns_by_complexity do
-    case settings() do
-      # Map.get (not dot access) so a config cached before this field existed
-      # returns %{} rather than raising KeyError after a schema upgrade.
-      {:ok, settings} -> Map.get(settings.agent, :max_turns_by_complexity) || %{}
-      _ -> %{}
-    end
-  end
-
-  @spec active_states() :: [String.t()]
-  def active_states do
-    settings!().tracker.active_states
-  end
-
-  @spec terminal_states() :: [String.t()]
-  def terminal_states do
-    settings!().tracker.terminal_states
-  end
-
-  @doc """
-  How long a terminal tracker observation stays lifecycle-fenced while a queued
-  authoritative item is undelivered before the daemon finalizes the running
-  entry. Defaults to 30 seconds; raise it when provider turn-delivery latency is
-  longer (a queued authoritative input that lands after the grace expires is
-  dropped at teardown).
-  """
-  @spec terminal_fence_grace_seconds() :: pos_integer()
-  def terminal_fence_grace_seconds do
-    settings!().tracker.terminal_fence_grace_seconds
-  end
-
-  @spec poll_interval_seconds() :: pos_integer()
-  def poll_interval_seconds do
-    settings!().polling.interval_seconds
-  end
-
-  @doc """
-  Per-class poll cadences from `polling.intervals`, in seconds, keyed by poll
-  class atom. `%{}` when the operator set none, in which case every class falls
-  back to `poll_interval_seconds/0`. A value of `0` means the class is
-  on-demand (no timer, #2309). See `Aiur.PollCadence`.
-  """
-  @spec poll_intervals() :: %{required(atom()) => non_neg_integer()}
-  def poll_intervals do
-    settings!().polling.intervals
-    |> Enum.reduce(%{}, fn {class, seconds}, acc when is_binary(class) ->
-      Map.put(acc, String.to_existing_atom(class), seconds)
-    end)
-  rescue
-    ArgumentError -> %{}
-  end
-
-  @doc """
-  How often the single view-state reconciliation sweep runs.
-
-  A recovery bound for lost webhook deliveries, not a freshness knob. See
-  `Aiur.GitHub.ViewStateSweep`. The two view-only sources it sweeps
-  (`OpenTicketSource`, `AdHocSource`) are reconciled only while a LiveView is
-  watching them, so with no dashboard session open the sweep refreshes neither;
-  `PackStatus` stays reconciled on every tick regardless of viewers.
-  """
-  @spec view_state_sweep_seconds() :: pos_integer()
-  def view_state_sweep_seconds do
-    settings!().polling.view_state_sweep_seconds
-  end
-
-  @spec events_block_state_debounce_seconds() :: non_neg_integer()
-  def events_block_state_debounce_seconds do
-    settings!().events.block_state_debounce_seconds
-  end
-
-  @spec events_custom_events_per_turn_max() :: pos_integer()
-  def events_custom_events_per_turn_max do
-    settings!().events.custom_events_per_turn_max
-  end
-
-  @spec events_codeowners_refresh_seconds() :: pos_integer()
-  def events_codeowners_refresh_seconds do
-    settings!().events.codeowners_refresh_seconds
-  end
-
-  @spec workspace_root() :: Path.t()
-  def workspace_root do
-    settings!().workspace.root
-  end
-
-  @doc "Optional Docker image used to seed warm build artifacts into workspaces."
-  @spec workspace_bootstrap_image() :: String.t() | nil
-  def workspace_bootstrap_image do
-    settings!().workspace.bootstrap_image
-  end
-
-  @doc "Whether aiur should pull the configured workspace bootstrap image before seeding."
-  @spec workspace_bootstrap_image_pull?() :: boolean()
-  def workspace_bootstrap_image_pull? do
-    settings!().workspace.bootstrap_image_pull
-  end
-
-  @spec max_vertical_panes() :: pos_integer()
-  def max_vertical_panes do
-    settings!().max_vertical_panes
-  end
-
-  @spec max_log_history_mb() :: pos_integer()
-  def max_log_history_mb do
-    settings!().max_log_history_mb
-  end
-
-  @spec workspace_hooks() :: map()
-  def workspace_hooks do
-    hooks = settings!().hooks
-
-    %{
-      after_create: hooks.after_create,
-      before_run: hooks.before_run,
-      after_run: hooks.after_run,
-      before_remove: hooks.before_remove,
-      timeout_ms: hooks.timeout_ms
-    }
-  end
-
-  @spec hook_timeout_ms() :: pos_integer()
-  def hook_timeout_ms do
-    settings!().hooks.timeout_ms
-  end
-
-  @doc false
-  @spec usage_ledger_durability_timeout() :: timeout()
-  def usage_ledger_durability_timeout do
-    case Application.get_env(:aiur, :usage_ledger_durability_timeout, :infinity) do
-      :infinity -> :infinity
-      timeout when is_integer(timeout) and timeout > 0 -> timeout
-      _other -> :infinity
-    end
-  end
-
-  @doc """
-  Ceiling for new fleet admissions, derived from measured host capacity when the
-  workflow omits `max_concurrent_agents`. Explicit config always wins; see
-  `default_max_concurrent_agents/1` for the calibration.
-  """
-  @spec max_concurrent_agents() :: pos_integer()
-  def max_concurrent_agents do
-    case settings!().agent.max_concurrent_agents do
-      n when is_integer(n) and n > 0 -> n
-      _other -> default_max_concurrent_agents()
-    end
-  end
-
-  @doc """
-  Default fleet admission ceiling calibrated from measured host capacity rather
-  than a hard-coded global agent count.
-
-  The 2026-07-31 capacity run found a 16-core host saturates near ~19-20
-  concurrent agents (load ~14 of 16), so the calibration is
-  `schedulers + schedulers / 4` (16 → 20), floored at 2. This is a ceiling the
-  load envelope adaptively backs off from under pressure, not a guaranteed
-  concurrency target.
-  """
-  @spec default_max_concurrent_agents() :: pos_integer()
-  @spec default_max_concurrent_agents(pos_integer()) :: pos_integer()
-  def default_max_concurrent_agents(schedulers \\ System.schedulers_online())
-
-  def default_max_concurrent_agents(schedulers)
-      when is_integer(schedulers) and schedulers > 0 do
-    max(schedulers + div(schedulers, 4), 2)
-  end
-
-  def default_max_concurrent_agents(_schedulers), do: 2
-
-  @doc """
-  Per-scheduler runnable-process ceiling for the instantaneous run-queue
-  dispatch gate (#1430). `nil` disables the gate; a positive value holds new
-  dispatch while `procs_running` strictly exceeds it times the scheduler count.
-  """
-  @spec run_queue_threshold() :: float() | nil
-  def run_queue_threshold do
-    settings!().agent.run_queue_threshold
-  end
-
-  @doc """
-  Maximum number of agent-launched Mix compile/test commands allowed across the
-  local workspace fleet. `0` disables the build gate intentionally.
-  """
-  @spec max_concurrent_builds() :: non_neg_integer()
-  def max_concurrent_builds do
-    settings!().agent.max_concurrent_builds
-  end
-
-  @doc "Minimum whole-second spacing between concurrent local Mix compile/test starts."
-  @spec build_start_stagger_seconds() :: non_neg_integer()
-  def build_start_stagger_seconds do
-    settings!().agent.build_start_stagger_seconds || 0
-  end
-
-  @doc """
-  Minimum Linux `MemAvailable` headroom required for normal dispatch and local
-  agent Mix verification. `nil` disables memory admission.
-  """
-  @spec min_free_memory_mb() :: pos_integer() | nil
-  def min_free_memory_mb do
-    settings!().agent.min_free_memory_mb
-  end
-
-  @doc """
-  Absolute wall-clock cap (seconds) on how long any one build-gate slot may be
-  held before the detached lease holder releases it (#2349). `0` disables the
-  backstop.
-  """
-  @spec build_gate_max_hold_seconds() :: non_neg_integer()
-  def build_gate_max_hold_seconds do
-    settings!().agent.build_gate_max_hold_seconds || 0
-  end
-
-  @doc """
-  Maximum post-command courtesy window (seconds) the detached lease holder
-  keeps a slot after the wrapped command exits, gated on a descendant still
-  consuming CPU (#2398). The holder releases the moment the retained tree goes
-  idle, so this bounds only genuinely-busy descendants. `0` disables the
-  courtesy.
-  """
-  @spec build_gate_retain_seconds() :: non_neg_integer()
-  def build_gate_retain_seconds do
-    settings!().agent.build_gate_retain_seconds || 0
-  end
-
-  @doc "Scheduler count enforced for every Mix VM launched by an agent."
-  @spec mix_scheduler_cap() :: pos_integer()
-  def mix_scheduler_cap do
-    settings!().agent.mix_scheduler_cap || 4
-  end
-
-  @doc """
-  Whether the saturation sentinel recorder is enabled. The sentinel appends
-  VM-internal + host diagnostics to `saturation.log` when 1-min load crosses
-  the escalation threshold, so a crash under saturation is interpretable.
-  """
-  @spec saturation_log_enabled?() :: boolean()
-  def saturation_log_enabled? do
-    settings!().agent.saturation_log_enabled
-  end
-
-  @doc """
-  Number of opencode-serve instances to pre-warm at boot. Each pre-
-  warmed slot binds to a different active ticket as its leadoff so
-  the user's first click on that ticket opens its chat pane in
-  <100 ms. Defaults to 3 when absent from `.aiur/config`. `0` is valid
-  and disables pre-warm entirely (all opens go through the cold
-  placeholder path).
-  """
-  @spec pre_warmed_sessions() :: non_neg_integer()
-  def pre_warmed_sessions do
-    settings!().pre_warmed_sessions
-  end
-
-  @doc "Whether the repo-agnostic warm-base pre-warm is enabled (opt-in)."
-  @spec prewarm_enabled?() :: boolean()
-  def prewarm_enabled? do
-    settings!().prewarm.enabled
-  end
-
-  @doc """
-  The one-time base build command for the warm base, or nil when unset.
-  Populated by `aiur init`'s toolchain detection; runs in the base checkout.
-  """
-  @spec prewarm_base_build() :: String.t() | nil
-  def prewarm_base_build do
-    settings!().prewarm.base_build
-  end
-
-  @doc "Background warm-base refresh interval in seconds; 0 disables polling."
-  @spec prewarm_poll_seconds() :: non_neg_integer()
-  def prewarm_poll_seconds do
-    settings!().prewarm.poll_seconds
-  end
-
-  @doc """
-  Resolved alert sound settings (`enabled`, `use_os_default_sounds`,
-  `sound_dir`, `alerts_file`). Returns the non-raising `{:ok, _} | {:error, _}`
-  so `Aiur.Alerts` can fall back to safe defaults rather than crashing a turn
-  when no workflow config is loaded (early boot, tests).
-  """
-  @spec alerts_settings() :: {:ok, Schema.Alerts.t()} | {:error, term()}
-  def alerts_settings do
-    with {:ok, settings} <- settings(), do: {:ok, settings.alerts}
-  end
-
-  @doc """
-  First Executor takeover advisory threshold in hours, or `0` when disabled.
-  A nonterminal ticket first emits an advisory alert once its convergence age
-  reaches this value.
-  """
-  @spec executor_takeover_first_alert_hours() :: non_neg_integer()
-  def executor_takeover_first_alert_hours do
-    settings!().executor_takeover_first_alert_hours
-  end
-
-  @doc """
-  Repeated Executor takeover advisory cadence in hours, or `0` when disabled.
-  After the first advisory, the monitor re-alerts at most this often while the
-  ticket remains nonterminal and unresolved.
-  """
-  @spec executor_takeover_continuous_alert_hours() :: non_neg_integer()
-  def executor_takeover_continuous_alert_hours do
-    settings!().executor_takeover_continuous_alert_hours
-  end
-
-  @spec max_retry_attempts() :: pos_integer()
-  def max_retry_attempts do
-    settings!().agent.max_retry_attempts
-  end
-
-  @spec max_retry_backoff_ms() :: pos_integer()
-  def max_retry_backoff_ms do
-    settings!().agent.max_retry_backoff_ms
-  end
-
-  @spec codex_thrash_max_per_window() :: pos_integer()
-  def codex_thrash_max_per_window do
-    settings!().agent.codex.thrash_max_per_window
-  end
-
-  @spec codex_thrash_window_seconds() :: pos_integer()
-  def codex_thrash_window_seconds do
-    settings!().agent.codex.thrash_window_seconds
-  end
-
-  @spec agent_max_turns() :: pos_integer() | nil
-  def agent_max_turns do
-    settings!().agent.max_turns
-  end
-
-  @doc """
-  How many consecutive no-op continuation turns a run may take before
-  `Aiur.AgentRunner.TurnLoop` stops it and raises a needs-attention alert
-  (#2806). `nil` / 0 disables the bound. Reads as uncapped when the settings
-  cannot be loaded at all, so a config fault cannot invent a cap.
-  """
-  @spec agent_max_consecutive_noop_turns() :: pos_integer() | nil
-  def agent_max_consecutive_noop_turns do
-    case settings() do
-      {:ok, settings} -> Map.get(settings.agent, :max_consecutive_noop_turns)
-      _unavailable -> nil
-    end
-  end
-
-  @spec agent_turn_timeout_ms() :: pos_integer()
-  def agent_turn_timeout_ms do
-    settings!().agent.turn_timeout_ms
-  end
-
-  @spec agent_read_timeout_ms() :: pos_integer()
-  def agent_read_timeout_ms do
-    settings!().agent.codex.read_timeout_ms
-  end
-
-  @spec agent_stall_timeout_ms() :: non_neg_integer()
-  def agent_stall_timeout_ms do
-    settings!().agent.stall_timeout_ms
-  end
-
-  @spec max_agent_duration_minutes() :: non_neg_integer()
-  def max_agent_duration_minutes do
-    settings!().agent.max_agent_duration_minutes
-  end
-
-  @doc "Minutes before a CI-wait agent is re-woken for one recovery check."
-  @spec ci_wait_rewake_minutes() :: pos_integer()
-  def ci_wait_rewake_minutes do
-    settings!().agent.ci_wait_rewake_minutes
-  end
-
-  @doc """
-  Maximum known synthetic load-generator descendants allowed per agent process
-  tree. `nil` in config derives from available schedulers; `0` disables the
-  guard for Executors that prefer manual containment.
-  """
-  @spec synthetic_load_process_cap() :: non_neg_integer()
-  def synthetic_load_process_cap do
-    case settings!().agent.synthetic_load_process_cap do
-      cap when is_integer(cap) and cap >= 0 -> cap
-      _ -> default_synthetic_load_process_cap()
-    end
-  end
-
-  @spec default_synthetic_load_process_cap() :: pos_integer()
-  @spec default_synthetic_load_process_cap(integer()) :: pos_integer()
-  def default_synthetic_load_process_cap(schedulers \\ System.schedulers_online())
-
-  def default_synthetic_load_process_cap(schedulers)
-      when is_integer(schedulers) and schedulers > 0 do
-    max(1, div(schedulers, 4))
-  end
-
-  def default_synthetic_load_process_cap(_schedulers), do: 1
-
-  # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
-  # load is corroborated with short-window reclaimable CPU before holding. The
-  # default is 1.5; explicit YAML null disables the gate. The threshold is
-  # multiplied by System.schedulers_online/0 (BEAM online schedulers, ~= cores
-  # unless +S-limited).
-  @spec max_load_average() :: float() | nil
-  def max_load_average do
-    settings!().agent.max_load_average
-  end
-
-  @doc """
-  Per-scheduler 1-minute load target for adaptive dispatch capacity. Defaults
-  to 1.0; explicit YAML `null` disables the adaptive envelope while preserving
-  the independent `max_load_average` hard gate.
-  """
-  @spec target_load_average() :: float() | nil
-  def target_load_average do
-    settings!().agent.target_load_average
-  end
-
-  @doc """
-  Number of dispatch slots added by each below-target envelope sample.
-  """
-  @spec load_ramp_step() :: pos_integer()
-  def load_ramp_step, do: settings!().agent.load_ramp_step
-
-  @spec load_resume_max_age_seconds() :: non_neg_integer()
-  def load_resume_max_age_seconds, do: settings!().agent.load_resume_max_age_seconds
-
-  @doc """
-  Minimum number of seconds between high-load envelope decreases.
-  """
-  @spec load_cooldown_seconds() :: non_neg_integer()
-  def load_cooldown_seconds, do: settings!().agent.load_cooldown_seconds
-
-  @doc """
-  Minimum seconds a ready-work capacity-starvation condition must persist before
-  `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise
-  (#2447). The dwell is data, not a magic number, so the below-target ramp
-  (which clears itself within a few poll cycles) can be filtered without
-  hard-coding the bound in the alert path.
-  """
-  @spec capacity_starvation_alert_after_seconds() :: pos_integer()
-  def capacity_starvation_alert_after_seconds do
-    settings!().agent.capacity_starvation_alert_after_seconds
-  end
-
-  @doc """
-  The sliding window over which budget-broker-timeout retries are counted for
-  the retry-rate signal (#2464). Data, not magic, so the rate can be measured
-  against whatever window a quiet-period baseline was taken over.
-  """
-  @spec budget_broker_rate_window_seconds() :: pos_integer()
-  def budget_broker_rate_window_seconds do
-    settings!().agent.budget_broker_rate_window_seconds
-  end
-
-  @doc """
-  The retry count within the window above which the budget broker counts as
-  degraded (#2464). Set from a measured baseline — if the normal rate is zero,
-  almost any sustained rate is worth surfacing.
-  """
-  @spec budget_broker_degraded_retry_threshold() :: pos_integer()
-  def budget_broker_degraded_retry_threshold do
-    settings!().agent.budget_broker_degraded_retry_threshold
-  end
-
-  @doc """
-  How long the degraded budget-broker retry rate must persist before the single
-  `system.github.budget_broker_degraded` alert raises (#2464, dwell per
-  #2434/#2449).
-  """
-  @spec budget_broker_degraded_alert_after_seconds() :: pos_integer()
-  def budget_broker_degraded_alert_after_seconds do
-    settings!().agent.budget_broker_degraded_alert_after_seconds
-  end
-
-  @doc """
-  The IANA zone Codex usage-limit reset text is read in
-  (`agent.codex.reset_time_zone`), or `:local` for the daemon host's zone.
-  """
-  @spec codex_reset_time_zone() :: String.t() | :local
-  def codex_reset_time_zone do
-    case settings() do
-      {:ok, %{agent: %{codex: %{reset_time_zone: zone}}}} when is_binary(zone) -> zone
-      _ -> :local
-    end
-  end
-
-  @doc """
-  The least time Aiur waits before it resumes a worker whose Codex usage-limit
-  text names a reset that already passed (`agent.codex.reset_min_delay_seconds`).
-  """
-  @spec codex_reset_min_delay_seconds() :: pos_integer()
-  def codex_reset_min_delay_seconds do
-    case settings() do
-      {:ok, %{agent: %{codex: %{reset_min_delay_seconds: seconds}}}} when is_integer(seconds) and seconds > 0 -> seconds
-      _ -> 300
-    end
-  end
-
-  @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
-  def codex_turn_sandbox_policy(workspace \\ nil) do
-    case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do
-      {:ok, policy} ->
-        policy
-
-      {:error, reason} ->
-        raise ArgumentError, message: "Invalid codex turn sandbox policy: #{inspect(reason)}"
-    end
-  end
-
-  @spec workflow_prompt() :: String.t()
-  def workflow_prompt do
-    case Workflow.current() do
-      {:ok, %{prompt_template: prompt}} ->
-        if String.trim(prompt) == "", do: @default_prompt_template, else: prompt
-
-      _ ->
-        @default_prompt_template
-    end
-  end
-
-  @spec server_port() :: non_neg_integer() | nil
-  def server_port do
-    case Application.get_env(:aiur, :server_port_override) do
-      port when is_integer(port) and port >= 0 -> port
-      _ -> settings!().server.port
-    end
-  end
-
-  @spec server_host() :: String.t()
-  def server_host do
-    case Application.get_env(:aiur, :server_host_override) do
-      host when is_binary(host) and host != "" -> host
-      _ -> settings!().server.host
-    end
-  end
-
-  @spec server_tailscale_funnel?() :: boolean()
-  def server_tailscale_funnel? do
-    settings!().server.tailscale_funnel == true
-  end
-
-  @spec observability_enabled?() :: boolean()
-  def observability_enabled? do
-    settings!().observability.dashboard_enabled
-  end
-
-  @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
-  @spec telemetry_enabled?() :: boolean()
-  @spec telemetry_enabled?(term()) :: boolean()
-  def telemetry_enabled?(settings \\ settings_uncached()) do
-    case settings do
-      {:ok, %{observability: observability}} -> observability.telemetry_enabled
-      _other -> true
-    end
-  end
-
-  @doc "Whether startup should verify the persisted Tailscale Funnel target."
-  @spec build_order_funnel_health_check_enabled?(term()) :: boolean()
-  def build_order_funnel_health_check_enabled?(settings \\ settings_uncached()) do
-    case settings do
-      {:ok, %{observability: %{build_order_funnel_health_check: enabled?}}} -> enabled?
-      _other -> false
-    end
-  end
-
-  @doc """
-  Whether the `aiur run` upgrade-version notice is enabled. True by default;
-  set `upgrade.check_enabled: false` to suppress the registry check entirely.
-  Fails open (returns true) when the config cannot be read, so a config error
-  never silently disables the notice.
-  """
-  @spec upgrade_check_enabled?() :: boolean()
-  @spec upgrade_check_enabled?(term()) :: boolean()
-  def upgrade_check_enabled?(settings \\ settings_uncached()) do
-    case settings do
-      {:ok, %{upgrade: upgrade}} -> upgrade.check_enabled
-      _other -> true
-    end
-  end
-
-  # Whether the dashboard may drive agents (Executor chat, pause). Writes are
-  # enabled by default; set observability.dashboard_writable: false to disable.
-  @spec dashboard_writable?() :: boolean()
-  def dashboard_writable? do
-    settings!().observability.dashboard_writable
-  end
-
-  @spec supervisor_decision_policy() :: %{
-          allowed_kinds: [String.t()],
-          allow_non_reversible: boolean()
-        }
-  def supervisor_decision_policy do
-    decisions = settings!().decisions
-
-    %{
-      allowed_kinds: decisions.supervisor_allowed_kinds,
-      allow_non_reversible: decisions.supervisor_allow_non_reversible
-    }
-  end
-
-  @spec observability_refresh_ms() :: pos_integer()
-  def observability_refresh_ms do
-    settings!().observability.refresh_ms
-  end
-
-  @spec observability_render_interval_ms() :: pos_integer()
-  def observability_render_interval_ms do
-    settings!().observability.render_interval_ms
-  end
-
-  @doc """
-  Heartbeat staleness threshold in milliseconds for daemon downtime detection.
-  Defaults to 3,600,000 (1 hour).
-  """
-  @spec daemon_heartbeat_stale_ms() :: pos_integer()
-  def daemon_heartbeat_stale_ms do
-    settings!().monitoring.daemon_heartbeat_stale_ms
-  end
-
-  @doc """
-  Retention limits for the durable run-telemetry stream.
-
-  - `:max_bytes` — maximum file size in bytes. Whole boot groups are pruned
-    from oldest to newest until the file fits. Defaults to 64 MiB.
-  - `:max_age_days` — maximum age of a retained boot in days. Defaults to 30.
-  - `:prune_interval_bytes` — periodic in-writer pruning fires after this many
-    bytes have been written since the last prune. Defaults to `max(max_bytes/8, 1 MiB)`
-    and can be overridden with `observability.telemetry_retention_prune_interval_bytes`.
-  """
-  @spec telemetry_retention() :: [
-          max_bytes: pos_integer(),
-          max_age_days: pos_integer(),
-          prune_interval_bytes: pos_integer()
-        ]
-  def telemetry_retention do
-    case settings() do
-      {:ok, %{observability: observability}} ->
-        max_bytes = Map.get(observability, :telemetry_retention_max_bytes, @default_telemetry_retention_max_bytes)
-
-        [
-          max_bytes: max_bytes,
-          max_age_days: Map.get(observability, :telemetry_retention_max_age_days, @default_telemetry_retention_max_age_days),
-          prune_interval_bytes: Map.get(observability, :telemetry_retention_prune_interval_bytes) || default_prune_interval(max_bytes)
-        ]
-
-      _other ->
-        [
-          max_bytes: @default_telemetry_retention_max_bytes,
-          max_age_days: @default_telemetry_retention_max_age_days,
-          prune_interval_bytes: default_prune_interval(@default_telemetry_retention_max_bytes)
-        ]
-    end
-  end
-
-  defp default_prune_interval(max_bytes) when is_integer(max_bytes) and max_bytes > 0,
-    do: max(div(max_bytes, 8), @minimum_telemetry_retention_prune_interval_bytes)
+  defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
+  defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
+  defdelegate active_states(), to: Aiur.Config.TrackerSettings
+  defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
+  defdelegate terminal_fence_grace_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate poll_interval_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate poll_intervals(), to: Aiur.Config.TrackerSettings
+  defdelegate view_state_sweep_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
+  defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
+  defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
+  defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
+  defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
+  defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
+  defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
+  defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings
+  defdelegate elevenlabs_language_code(), to: Aiur.Config.ObservabilitySettings
+  defdelegate elevenlabs_voice_id(), to: Aiur.Config.ObservabilitySettings
+  defdelegate workflow_prompt(), to: Aiur.Config.ObservabilitySettings
+  defdelegate server_port(), to: Aiur.Config.ObservabilitySettings
+  defdelegate server_host(), to: Aiur.Config.ObservabilitySettings
+  defdelegate server_tailscale_funnel?(), to: Aiur.Config.ObservabilitySettings
+  defdelegate observability_enabled?(), to: Aiur.Config.ObservabilitySettings
+  defdelegate telemetry_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
+  defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
+  defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
+  defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
+  defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings
+  defdelegate observability_render_interval_ms(), to: Aiur.Config.ObservabilitySettings
+  defdelegate daemon_heartbeat_stale_ms(), to: Aiur.Config.ObservabilitySettings
+  defdelegate telemetry_retention(), to: Aiur.Config.ObservabilitySettings
+  defdelegate agent_priority(), to: Aiur.Config.AgentSettings
+  defdelegate avoid_peak_pricing?(), to: Aiur.Config.AgentSettings
+  defdelegate avoid_peak_pricing_value(settings), to: Aiur.Config.AgentSettings
+  defdelegate agent_priority_backends(), to: Aiur.Config.AgentSettings
+  defdelegate agent_kind(), to: Aiur.Config.AgentSettings
+  defdelegate backend_config(backend), to: Aiur.Config.AgentSettings
+  defdelegate agent_backend_configs(), to: Aiur.Config.AgentSettings
+  defdelegate agent_routing(), to: Aiur.Config.AgentSettings
+  defdelegate switch_model_on_ratelimit(), to: Aiur.Config.AgentSettings
+  defdelegate rate_limit_fallback_backend(), to: Aiur.Config.AgentSettings
+  defdelegate rate_limit_primary_backend(), to: Aiur.Config.AgentSettings
+  defdelegate agent_remote_control?(), to: Aiur.Config.AgentSettings
+  defdelegate agent_max_dispatches_per_ticket(), to: Aiur.Config.AgentSettings
+  defdelegate agent_prior_work_continuation?(), to: Aiur.Config.AgentSettings
+  defdelegate agent_complexity_prompts(), to: Aiur.Config.AgentSettings
+  defdelegate agent_max_turns_by_complexity(), to: Aiur.Config.AgentSettings
+  defdelegate alerts_settings(), to: Aiur.Config.AgentSettings
+  defdelegate executor_takeover_first_alert_hours(), to: Aiur.Config.AgentSettings
+  defdelegate executor_takeover_continuous_alert_hours(), to: Aiur.Config.AgentSettings
+  defdelegate max_retry_attempts(), to: Aiur.Config.AgentSettings
+  defdelegate max_retry_backoff_ms(), to: Aiur.Config.AgentSettings
+  defdelegate codex_thrash_max_per_window(), to: Aiur.Config.AgentSettings
+  defdelegate codex_thrash_window_seconds(), to: Aiur.Config.AgentSettings
+  defdelegate agent_max_turns(), to: Aiur.Config.AgentSettings
+  defdelegate agent_max_consecutive_noop_turns(), to: Aiur.Config.AgentSettings
+  defdelegate agent_turn_timeout_ms(), to: Aiur.Config.AgentSettings
+  defdelegate agent_read_timeout_ms(), to: Aiur.Config.AgentSettings
+  defdelegate agent_stall_timeout_ms(), to: Aiur.Config.AgentSettings
+  defdelegate max_agent_duration_minutes(), to: Aiur.Config.AgentSettings
+  defdelegate ci_wait_rewake_minutes(), to: Aiur.Config.AgentSettings
+  defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
+  defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
+  defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate run_queue_threshold(), to: Aiur.Config.CapacitySettings
+  defdelegate max_concurrent_builds(), to: Aiur.Config.CapacitySettings
+  defdelegate build_start_stagger_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate min_free_memory_mb(), to: Aiur.Config.CapacitySettings
+  defdelegate build_gate_max_hold_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate build_gate_retain_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate mix_scheduler_cap(), to: Aiur.Config.CapacitySettings
+  defdelegate saturation_log_enabled?(), to: Aiur.Config.CapacitySettings
+  defdelegate pre_warmed_sessions(), to: Aiur.Config.CapacitySettings
+  defdelegate prewarm_enabled?(), to: Aiur.Config.CapacitySettings
+  defdelegate prewarm_base_build(), to: Aiur.Config.CapacitySettings
+  defdelegate prewarm_poll_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate synthetic_load_process_cap(), to: Aiur.Config.CapacitySettings
+  defdelegate default_synthetic_load_process_cap(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate max_load_average(), to: Aiur.Config.CapacitySettings
+  defdelegate target_load_average(), to: Aiur.Config.CapacitySettings
+  defdelegate load_ramp_step(), to: Aiur.Config.CapacitySettings
+  defdelegate load_resume_max_age_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate load_cooldown_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate capacity_starvation_alert_after_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate budget_broker_rate_window_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate budget_broker_degraded_retry_threshold(), to: Aiur.Config.CapacitySettings
+  defdelegate budget_broker_degraded_alert_after_seconds(), to: Aiur.Config.CapacitySettings
+  defdelegate codex_reset_time_zone(), to: Aiur.Config.CodexRuntime
+  defdelegate codex_reset_min_delay_seconds(), to: Aiur.Config.CodexRuntime
+  defdelegate codex_turn_sandbox_policy(workspace \\ nil), to: Aiur.Config.CodexRuntime
+  defdelegate codex_runtime_settings(workspace \\ nil, opts \\ []), to: Aiur.Config.CodexRuntime
 
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
       SemanticChecks.validate(settings)
-    end
-  end
-
-  @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
-          {:ok, codex_runtime_settings()} | {:error, term()}
-  def codex_runtime_settings(workspace \\ nil, opts \\ []) do
-    with {:ok, settings} <- settings(),
-         {:ok, approval_policy} <-
-           validate_codex_approval_policy(settings.agent.codex.approval_policy),
-         {:ok, turn_sandbox_policy} <- codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
-      {:ok,
-       %{
-         approval_policy: approval_policy,
-         thread_sandbox: settings.agent.codex.thread_sandbox,
-         turn_sandbox_policy: turn_sandbox_policy
-       }}
-    end
-  end
-
-  defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
-    with {:ok, policy} <- Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-      Enum.reduce_while(Application.get_env(:aiur, :turn_sandbox_root_contributors, []), {:ok, policy}, &contribute_sandbox_roots(&1, &2, settings, opts))
-    end
-  end
-
-  defp contribute_sandbox_roots(contributor, {:ok, policy}, settings, opts) do
-    case contributor.contribute(policy, settings, opts) do
-      {:ok, policy} -> {:cont, {:ok, policy}}
-      {:error, _reason} = error -> {:halt, error}
-    end
-  end
-
-  defp validate_codex_approval_policy(value) do
-    case CodexSchema.validate_approval_policy(value) do
-      {:ok, trimmed} -> {:ok, trimmed}
-      {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
     end
   end
 
