@@ -286,7 +286,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # has not seen this head, so it goes back to the reviewer, red CI included.
   defp superseded_review_handoff(pr, head, opts) do
     with true <- Keyword.get(opts, :superseded_review_handoff?, false) and is_binary(head),
-         {:ok, reviews} <- Keyword.get(opts, :reviews_fetcher, &default_reviews_fetcher/1).(Map.get(pr, "number")),
+         {:ok, reviews} <- (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
          [_ | _] = blocking <- blocking_reviews(reviews),
          false <- Enum.any?(blocking, &(&1["commit_id"] == head)) do
       {:handoff, ci_handoff_state(head, opts)}

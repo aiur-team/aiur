@@ -423,9 +423,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       "aiur_autonomous_loop phase=noop_bound_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns_display(max_turns)} noop_turns=#{progress.consecutive_noops} cap=#{cap}"
     )
 
-    rework? = noop_failure_state(refreshed_issue) == "error"
-
-    case transition_agent_handoff(update_in(turn_context.opts, &Keyword.put(&1, :superseded_review_handoff?, rework?)), refreshed_issue) do
+    case transition_agent_handoff(update_in(turn_context.opts, &Keyword.put(&1, :superseded_review_handoff?, noop_failure_state(refreshed_issue) == "error")), refreshed_issue) do
       {:handoff, result} ->
         result
 
@@ -491,12 +489,14 @@ defmodule Aiur.AgentRunner.TurnLoop do
   end
 
   defp stopped_agent_handoff(issue, workspace, worker_host, opts) do
-    ReworkGate.stopped_agent_handoff(issue.identifier, Keyword.get(opts, :rework_head_sha), [
+    ReworkGate.stopped_agent_handoff(issue.identifier, Keyword.get(opts, :rework_head_sha),
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1),
       commit_ci_status_fetcher: Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1),
+      superseded_review_handoff?: Keyword.get(opts, :superseded_review_handoff?, false),
+      reviews_fetcher: Keyword.get(opts, :reviews_fetcher),
       workspace: workspace,
       worker_host: worker_host
-    ] ++ Keyword.take(opts, [:superseded_review_handoff?, :reviews_fetcher]))
+    )
   end
 
   defp noop_failure_state(issue) do
