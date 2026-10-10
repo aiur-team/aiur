@@ -1,5 +1,6 @@
-Frozen build-home design data: live, dense, newrepo, noqueue and offline.
-The unedited design-source is vendored from research commit 6732f5f9f448b1857a9643993849635f85321e19.
-From src/browser, run `npm run fixtures:build-home` to re-export; `npm run check:build-home-fixtures` verifies it.
-Infinity is encoded as a string; use the exporter's decode helper to recover numbers.
-To re-import, replace design-source unchanged and re-export; the C1-T02 visual diff shows what changed.
+Frozen schema-v1 build-home datasets: live, dense, newrepo, noqueue and offline.
+The source serves initial active-day windows and earlier pages from these full-index fixtures.
+The hostile fixture carries a snapshot plus an invalid UTF-8 title encoded in base64.
+The manifest maps original design ids to bare ticket identifiers.
+From src/browser, run `npm run fixtures:build-home` to regenerate and `npm run check:build-home-fixtures` to check.
+The vendored design-source remains unchanged; open feature ends map to null and intake restores Infinity.

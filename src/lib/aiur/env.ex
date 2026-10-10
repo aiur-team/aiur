@@ -33,6 +33,7 @@ defmodule Aiur.Env do
 
   require Logger
 
+  alias Aiur.Commands
   alias Aiur.Env.Dotenv
   alias Aiur.Env.Schema
   alias Aiur.Env.Types
@@ -329,7 +330,7 @@ defmodule Aiur.Env do
   end
 
   defp startup_check_errors(env) do
-    checks = Application.get_env(:aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck])
+    checks = Application.get_env(:aiur, :env_startup_checks, [Commands])
     Enum.flat_map(checks, & &1.errors(env))
   end
 

@@ -1,11 +1,10 @@
 defmodule Aiur.Orchestrator do
   @moduledoc "Polls the issue tracker and dispatches repository copies to agent-backed workers."
-
   use GenServer
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake}
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
@@ -44,6 +43,7 @@ defmodule Aiur.Orchestrator do
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
   def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
+  def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
 
   # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
   # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
@@ -661,8 +661,8 @@ defmodule Aiur.Orchestrator do
   def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
-  def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
-    do: OM.enqueue_event_digest_call(state, identifier, event)
+  def handle_call({:enqueue_event_digest, identifier, event}, _from, state), do: OM.enqueue_event_digest_call(state, identifier, event)
+  def handle_call({:enqueue_event_digest, id, event, %{subscribed_to: subs}}, _from, state) when is_list(subs), do: OM.enqueue_event_digest_call(state, id, event, subscribed_to: subs)
 
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events),

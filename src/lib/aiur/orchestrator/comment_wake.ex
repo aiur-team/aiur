@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
-  alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.TrackerIdentity
@@ -242,15 +242,14 @@ defmodule Aiur.Orchestrator.CommentWake do
     Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
-  # A merged PR that names a ticket but fails to transition it to `done` leaves
-  # the ticket stranded on an active-state label; surface it to the Executor
-  # rather than only logging it (#2420).
   defp emit_merge_terminal_write_failed_alert(identifier, reason) do
+    reason = MergeTransition.reason_name(reason)
+
     Alerts.emit_custom(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
-      "Merged PR could not transition ticket #{identifier} to done (#{inspect(reason)}); the ticket was not closed.",
+      "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
       issue: identifier,
-      reason: "The merge-to-done terminal write failed (#{inspect(reason)}) and the ticket keeps its active-state label; it is not stranded invisibly but needs attention.",
+      reason: "The merge transition failed (#{reason}); check the ticket's current state and labels.",
       needs_attention: true,
       severity: "warning",
       central: true
@@ -1760,7 +1759,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           error
       end
 
-    audit_merge_attribution(identifier, merged_by_login, merger_allowed_fun, emit_alert_fun)
+    audit_merge_attribution(identifier, MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)
     {target, result}
   end
@@ -1770,7 +1769,7 @@ defmodule Aiur.Orchestrator.CommentWake do
          outcome,
          {clear_session_handle_fun, entry, identifier, mark_reconciled_fun, observe_membership_fun, resume_blockees_fun, set_terminal_verification_pending_fun, terminate_running_issue_fun}
        ) do
-    case outcome do
+    case MergeTransition.normalize(outcome) do
       {"done", :ok} ->
         if TrackerTasks.same_runner?(
              State.find_running_by_identifier(current.running, identifier),
@@ -1794,7 +1793,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         current
 
       {_, {:error, reason}} ->
-        Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{MergeTransition.reason_name(reason)}")
 
         emit_merge_terminal_write_failed_alert(identifier, reason)
         current

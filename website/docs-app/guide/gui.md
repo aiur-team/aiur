@@ -2,6 +2,8 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
+High-rate snapshot notifications on Home, Units, Commands, Build Orders, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+
 ## Open the GUI
 
 | Launch condition | GUI result |
@@ -29,7 +31,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
 | **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
 | **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. | `aiur analytics` |
-| **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
+| **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
@@ -41,7 +43,15 @@ On narrow screens, scroll within the **Build queue** table to see prerequisites,
 
 The operator-facing UI and CLI call these records **Commands**.
 
-The home page shows a named weekly bar for each [Claude account](/guide/claude-accounts), with freshness and observation age. Missing readings remain unknown. The provider summary names the selected account: “worst of N accounts” for complete readings, or the observed account count for partial readings.
+Open the settings cog in the sticky top bar to pause or resume all agents, change the theme, or switch between Gruvbox (the default) and the aiur palette. Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “All agents paused” chip appears only when pause is confirmed.
+
+The theme follows your operating system until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
+
+Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
+
+The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts). Each line shows the percentage used, a bar, and the reset time next to a recycle icon. Freshness and observation age are in the line's tooltip. A missing reading shows `unknown`, not zero.
+
+The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
 Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
 
@@ -60,6 +70,17 @@ Fleet and capacity facts show their observation age, including fresh data. Track
 A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github#who-aiur-trusts).
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
+
+The temporary, unlinked `/build` route previews the build timeline loading shell.
+It requires dashboard authentication; the production data source is not wired yet.
+
+Its links retain view, span, feature focus, filters and ticket selection in
+`view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
+`live`, `trees` and `ticket`. Invalid values are removed.
+
+Legacy Units
+parameters (`v`, `scope`, `conditions`) at this preview route become agent-state
+or ticket-state presets. The hook bridge replaces the current history entry.
 
 ## The pages
 
@@ -156,4 +177,10 @@ An exported value wins, then the global file, then the repository file. The toke
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
 
-The theme follows your operating system until you toggle it. The palette button beside the theme button switches between Gruvbox (the default) and the aiur palette. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
+The Analytics ticket timeline marks the earliest PR-open time. Open PRs appear in review; merged, rework, and paused states take precedence.
+
+Retained Analytics charts use at most 180 evenly spaced resource observations per actor, including the first and last. Chart detail is sampled; headline CPU totals and resource peaks use the full retained profiles.
+
+Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
+
+Retained summaries that exceed the read budget also report unavailable.

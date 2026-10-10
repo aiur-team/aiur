@@ -48,7 +48,7 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
     {:ok, document} = Store.load()
     native? = context[:native] == true
     :ok = Store.save(%{document | queues: [%{hd(input.queues) | id: "q-abcd", held: not native?}], items: [%{hd(input.items) | queue_id: "q-abcd"}], edges: if(native?, do: [], else: input.edges)})
-    settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true, merged_open_grace_seconds: 60}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
+    settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true, start_trigger: "issue_closed", merged_open_grace_seconds: 60}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
 
     pid =
       start_supervised!(

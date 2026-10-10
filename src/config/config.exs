@@ -2,7 +2,23 @@ import Config
 
 config :aiur, env: config_env()
 
-config :aiur, :env_startup_checks, [Aiur.SupervisorToken.EnvCheck]
+config :aiur, :signal, alert_sink: Aiur.Alerts
+
+config :aiur, :turn_sandbox_root_contributors, [
+  Aiur.AgentEnvironment.SandboxRoots,
+  Aiur.GitHub.Budget.SandboxRoots,
+  Aiur.BuildGate.SandboxRoots
+]
+
+config :aiur, :tracker_adapters, %{
+  "github" => Aiur.GitHub.Tracker,
+  "linear" => Aiur.Linear.Tracker,
+  "memory" => Aiur.Memory.Tracker
+}
+
+config :aiur, :tracker_fallback_kind, "linear"
+
+config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :capability_providers, [
@@ -10,7 +26,7 @@ config :aiur, :capability_providers, [
   Aiur.BuildQueue.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
-  Aiur.DecisionStore.CapabilityProvider,
+  Aiur.Commands,
   Aiur.Tracker.CapabilityProvider,
   Aiur.Executor.CapabilityProvider,
   Aiur.BuildOrder.CapabilityProvider,
@@ -32,9 +48,7 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.MissingKind,
     Aiur.Tracker.SemanticCheck.UnsupportedKind,
     Aiur.CodingAgent.SemanticCheck.Dispatchable,
-    Aiur.Tracker.SemanticCheck.LinearToken,
-    Aiur.Tracker.SemanticCheck.LinearSlug,
-    Aiur.GitHub.Config.SemanticCheck,
+    Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
   always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]

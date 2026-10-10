@@ -372,7 +372,7 @@ because the first ordinary repair is inconvenient.
 Branch freshness is an owning-worker responsibility. A pull request reaches
 review-ready state only when all of these are true:
 
-- its `baseRefName` is the configured integration branch;
+- its `baseRefName` is the configured integration branch or an Aiur-verified open, unmerged direct blocker's head branch (stacked PRs require integration retargeting before merge);
 - the current remote base head is an ancestor of the exact PR head;
 - fresh CI for that exact head has passed the required gate.
 
@@ -487,7 +487,7 @@ merging; never merge a pending, failing, or stale head.
 
 A solo operator cannot merge a branch they authored through the gate
 (issue #1437). This used to bite hardest on the periodic `develop` -> `main`
-promotion; that promotion is retired now that `main` is the single base branch,
+promotion; that promotion is retired now that `main` is the integration branch,
 but the rule still governs any Executor-authored branch.
 With a two-owner CODEOWNERS entry plus `require_code_owner_review`
 and `require_last_push_approval`, the only in-gate path is a bot approval, which

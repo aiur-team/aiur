@@ -1,11 +1,8 @@
 # Configuration reference
-
 Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels.
-
 Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory.
-
 Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 ## Environment variables
@@ -22,7 +19,6 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
 ## Top-level
-
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
@@ -77,6 +73,8 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `tracker.kind` | string | required | Selects `linear`, `github`, or `memory`. |
+| `tracker.propagate_blocker_pushes` | boolean or nil | nil | Unset enables optimistic queue members; otherwise false. Cascade direct blocker pushes into idle dependents. Coalesces for 2 seconds, at most 2 propagations concurrently. Live agents pull themselves; conflicts dispatch rework. |
+| `tracker.restack_after_blocker_merge` | boolean | true | Fast-forward restack idle GitHub dependents after a blocker squash-merges. Requires git 2.40+. Live agents restack themselves; false disables only the daemon path. |
 | `tracker.base_branch` | string | required | Branch agents target with PRs. `aiur init` offers the repository default read from GitHub, but there is no runtime fallback: an unset value raises. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
@@ -227,6 +225,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
 | `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
+| `agent.build_nice` | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. CPU niced above the daemon receives the existing load/run-queue discount; build capacity still counts it. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
@@ -246,9 +245,10 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
 | `agent.max_load_average` | float | 1.5 | Per-scheduler ceiling on total load minus CPU of processes niced above the daemon, floored at zero. The fleet inherits the daemon's nice, so it always counts. Above the ceiling, holds below 60% reclaimable CPU. Null disables it; a missing CPU window admits. |
-| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler target using the hard gate’s signal; null disables it. Starts at one slot; halves after 3 fresh above-target samples. At-target or unavailable samples reset the streak; below-target samples widen. Samples expire after one dispatch period; probes time out after one second. |
+| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler target using the hard gate’s signal; null disables it. Starts at one slot and reports resume level and record age while ramping; halves after 3 fresh above-target samples. At-target or unavailable samples reset the streak; below-target samples widen. Samples expire after one dispatch period; probes time out after one second. |
 | `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable ceiling; null disables it. Subtracts CPU of processes niced above the daemon from `procs_running`, floored at zero. Above the scaled ceiling, holds only below 60% reclaimable CPU. This estimates demand rather than counting tasks exactly. |
-| `agent.load_ramp_step` | integer | 1 | Capacity increase per fresh sample while load is below the target. CPU headroom cannot jump the startup envelope to the full cap. |
+| `agent.load_ramp_step` | integer | 1 | Additive increase per fresh below-target sample. With a valid safe record, steps double (at most +3) up to that level, and above it only below half target before a sustained decrease. After a decrease, existing additive or CPU-headroom recovery applies. |
+| `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples without sustained overload demonstrate a level; reductions lower it. Same scheduler count required. Boot stays at one; the first fresh sample does not widen. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.budget_broker_rate_window_seconds` | integer | 300 | The sliding window over which budget-broker-timeout retries are counted for the retry-rate signal. The individual retry is uninteresting; the rate is the signal. |
@@ -755,12 +755,12 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
+| `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. A queue can override it with `--start-on`; missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds a conditional review read only for watched blockers. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
 | `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
-| `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for a merged PR whose issue remains open; 60..86400. |
-
+| `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for an `issue_closed` queue prerequisite whose PR merged but issue remains open; 60..86400. |
 ## build_order
 
 | Key | Type | Default | Controls |

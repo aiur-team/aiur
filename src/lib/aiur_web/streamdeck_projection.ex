@@ -1,7 +1,6 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
-
-  alias Aiur.{CodingAgent, Config, DecisionMetrics, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Commands, Config, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
@@ -30,6 +29,7 @@ defmodule AiurWeb.StreamdeckProjection do
   it is off without a round trip. Only the *presence* of a credential is ever
   reported — never the credential, nor any part of it.
   """
+
   @spec voice() :: map()
   def voice do
     if configured_elevenlabs_key?() do
@@ -206,7 +206,7 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp decisions_fun do
-    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: DecisionMetrics.snapshots() |> map_size()} end
+    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: Commands.metrics_snapshots() |> map_size()} end
   end
 
   defp provider_meter(snapshot) do

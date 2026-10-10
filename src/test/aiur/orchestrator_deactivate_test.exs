@@ -6923,8 +6923,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "branch-push topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid ticket.<id>.branch.push topic" do
-      assert {:ok, "99"} =
-               EventTopics.parse_branch_push_topic("ticket.99.branch.push")
+      assert {:ok, "99"} = EventTopics.parse_branch_push_topic("ticket.99.branch.push")
+      assert {:ok, "99"} = EventTopics.parse_branch_push_topic("ticket.99.branch.force-push")
     end
 
     test "rejects system-branch pushes (not ticket-scoped)" do
@@ -6934,7 +6934,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
     test "rejects nearby topics" do
       for unrelated <- [
-            "ticket.99.branch.force-push",
+            "ticket.99.branch.force-delete",
             "ticket.99.pr.opened",
             "ticket.99.agent.pause.request"
           ] do
