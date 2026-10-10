@@ -65,19 +65,19 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       {:ok, [maybe_authorize(issue, Application.get_env(:aiur, :tracker_io_test_authorization))]}
     end
 
-    # The GitHub client authorizes every revalidated issue with a timeline read
-    # (`Aiur.GitHub.Issues` -> `DispatchAuthorization.authorize/5`). This stands
-    # in for that read so a case can hold it and see which process runs it.
+    # Stands in for the timeline read the GitHub client authorizes every revalidated issue with
+    # (`DispatchAuthorization.authorize/5`). It verifies: a denial emits a real alert from the reader (#4009).
     defp maybe_authorize(issue, nil), do: issue
 
     defp maybe_authorize(issue, {owner, token}) do
+      event = %{"id" => 1, "event" => "labeled", "created_at" => "2026-01-01T00:00:00Z", "label" => %{"name" => "agent:todo"}, "actor" => %{"login" => "operator"}}
+
       request_fun = fn _request ->
         send(owner, {:timeline_read_started, token, self()})
-        receive do: ({:release_timeline, ^token} -> {:ok, %{status: 200, body: [], headers: []}})
+        receive do: ({:release_timeline, ^token} -> {:ok, %{status: 200, body: [event], headers: []}})
       end
 
-      _verdict = DispatchAuthorization.authorize(issue, "owner", "repo", "agent", request_fun: request_fun, token: "test-token")
-      issue
+      DispatchAuthorization.authorize(issue, "owner", "repo", "agent", request_fun: request_fun, token: "test-token", allowed_users: ["operator"])
     end
 
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
@@ -449,7 +449,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     :sys.replace_state(server, fn state ->
       Dispatcher.dispatch_issue(%{state | effective_concurrent_agents: 4}, candidate, nil, nil,
         dispatch_result_fun: fn current ->
-          send(owner, :dispatch_complete)
+          send(owner, {:dispatch_complete, current.dispatch_declines})
           current
         end,
         runner: fn _dispatched, _, _ ->
@@ -465,7 +465,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     # The owner still answers a control while the timeline read is held.
     assert is_list(Orchestrator.status(server, @control_budget_ms))
     send(reader, {:release_timeline, token})
-    receive_barrier(:dispatch_complete)
+    assert receive_barrier({:dispatch_complete, _declines}) == {:dispatch_complete, %{}}
     receive_barrier({:auth_runner_started, runner})
     on_exit(fn -> send(runner, :stop) end)
     assert_no_handler_io(server, patterns)

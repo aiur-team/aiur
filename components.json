@@ -19,7 +19,7 @@
     },
     {
       "id": "event-bus", "name": "Event exchange and subscriptions (MP-R2)", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/agent_events.ex", "src/lib/aiur/agent_pubsub.ex", "src/lib/aiur/events/**", "src/lib/aiur/ticket_observation.ex"],
+      "paths": ["src/lib/aiur/agent_events.ex", "src/lib/aiur/agent_pubsub.ex", "src/lib/aiur/agent_pubsub/**", "src/lib/aiur/events/**", "src/lib/aiur/ticket_observation.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config"], "optional": [],
       "owns": {"config": ["events"], "env": [], "state": [], "capabilities": []},
