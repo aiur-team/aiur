@@ -13,6 +13,7 @@ const surfacePages = {
   'units': 'docs-app/concepts/units.md',
   'commands': 'docs-app/concepts/commands.md',
   'build-orders': 'docs-app/concepts/build-orders.md',
+  'build-order-waves-lanes': 'docs-app/concepts/build-orders.md',
   'streamdeck': 'docs-app/guide/stream-deck.md'
 } as const
 
