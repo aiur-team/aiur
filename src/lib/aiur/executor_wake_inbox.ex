@@ -8,6 +8,7 @@ defmodule Aiur.ExecutorWakeInbox do
   alias Aiur.Alerts
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
+  alias Aiur.ExecutorWakeInbox.Recovery
   alias Aiur.Fs
   alias Aiur.Journal
   alias Aiur.JsonStore
@@ -27,17 +28,6 @@ defmodule Aiur.ExecutorWakeInbox do
   def wait(timeout_ms, server \\ __MODULE__) when is_integer(timeout_ms) and timeout_ms >= 0 do
     GenServer.call(server, {:wait, timeout_ms}, timeout_ms + 5_000)
   end
-
-  @doc """
-  Advances the shared cursor past `records`, with **no ownership check**.
-
-  Internal and test use only. Every consumer path must go through
-  `acknowledge_as/3`, which is the only form that respects the lease; calling
-  this directly bypasses the lease entirely and lets two consumers split the
-  stream between them.
-  """
-  @spec acknowledge([map()], GenServer.server()) :: :ok
-  def acknowledge(records, server \\ __MODULE__) when is_list(records), do: GenServer.call(server, {:acknowledge, records})
 
   @doc """
   Advances the shared cursor on behalf of the leased owner.
@@ -105,11 +95,13 @@ defmodule Aiur.ExecutorWakeInbox do
     pending_path = Keyword.get(opts, :pending_path, pending_path())
     max_records = Keyword.get(opts, :max_records, Application.get_env(:aiur, :executor_wake_max_records, @default_max_records))
 
+    alert_fun = Keyword.get(opts, :alert_fun, &safe_alert/3)
+
     StatePaths.ensure()
 
     with :ok <- Journal.prepare(Path.dirname(path), path),
          {:ok, pending} <- read_pending(pending_path),
-         {:ok, summary} <- journal_summary(path, pending, cursor_path) do
+         {:ok, summary} <- journal_summary(path, pending, cursor_path, alert_fun) do
       state = %{
         path: path,
         cursor_path: cursor_path,
@@ -121,7 +113,10 @@ defmodule Aiur.ExecutorWakeInbox do
         cursor: summary.cursor,
         pending_count: summary.pending_count,
         timer: nil,
-        waiters: %{}
+        waiters: %{},
+        alert_fun: alert_fun,
+        flush_failures: 0,
+        trim_alerted?: false
       }
 
       if map_size(state.pending) > 0, do: send(self(), :flush)
@@ -164,11 +159,6 @@ defmodule Aiur.ExecutorWakeInbox do
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
-  end
-
-  def handle_call({:acknowledge, records}, _from, state) do
-    state = state |> advance_cursor(records) |> trim_consumed()
-    {:reply, :ok, state}
   end
 
   def handle_call({:acknowledge_as, consumer_id, records}, _from, state) do
@@ -280,10 +270,10 @@ defmodule Aiur.ExecutorWakeInbox do
     case append_new_records(state.path, records) do
       :ok ->
         :ok = persist_pending(state.pending_path, %{})
-        state |> Map.put(:pending, %{}) |> trim_consumed() |> serve_waiters()
+        state |> Map.merge(%{pending: %{}, flush_failures: 0}) |> trim_consumed() |> serve_waiters()
 
-      {:error, _reason} ->
-        ensure_flush_timer(state)
+      {:error, reason} ->
+        state |> Recovery.flush_failed(reason) |> ensure_flush_timer()
     end
   end
 
@@ -426,25 +416,21 @@ defmodule Aiur.ExecutorWakeInbox do
     end
   end
 
-  defp journal_summary(path, pending, cursor_path) do
-    case Journal.replay(path, &validate_record/1) do
-      {:ok, records, nil} ->
-        cursor = read_cursor(cursor_path)
-        durable_ids = Enum.map(records, & &1["wake_id"])
-        pending_ids = pending |> Map.values() |> Enum.map(& &1["wake_id"])
+  # A corrupt line stops the replay at the good prefix. Rather than refuse to
+  # start forever (and loop the supervisor), keep the bad file as evidence and
+  # restart on the prefix; any other replay error still stops the inbox.
+  defp journal_summary(path, pending, cursor_path, alert_fun) do
+    with {:ok, records, quarantined_max} <- Recovery.replay_or_quarantine(path, &validate_record/1, alert_fun) do
+      cursor = read_cursor(cursor_path)
+      durable_ids = Enum.map(records, & &1["wake_id"])
+      pending_ids = pending |> Map.values() |> Enum.map(& &1["wake_id"])
 
-        {:ok,
-         %{
-           next_wake_id: Enum.max([cursor | durable_ids ++ pending_ids]) + 1,
-           cursor: cursor,
-           pending_count: Enum.count(records, &(&1["wake_id"] > cursor))
-         }}
-
-      {:ok, _records, corruption} ->
-        {:error, corruption}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok,
+       %{
+         next_wake_id: Enum.max([cursor, quarantined_max | durable_ids ++ pending_ids]) + 1,
+         cursor: cursor,
+         pending_count: Enum.count(records, &(&1["wake_id"] > cursor))
+       }}
     end
   end
 
@@ -558,7 +544,8 @@ defmodule Aiur.ExecutorWakeInbox do
   defp trim_consumed(state) do
     case Journal.replay(state.path, &validate_record/1) do
       {:ok, records, nil} -> trim_records(state, records)
-      _error -> state
+      {:ok, _records, corruption} -> Recovery.trim_failed(state, corruption)
+      {:error, reason} -> Recovery.trim_failed(state, reason)
     end
   end
 
@@ -569,10 +556,17 @@ defmodule Aiur.ExecutorWakeInbox do
     consumed_limit = max(state.max_records - length(retained_unread), 0)
     retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
 
-    if length(retained) < length(records) do
-      contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
-      _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
-    end
+    state =
+      if length(retained) < length(records) do
+        contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
+
+        case Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600) do
+          :ok -> state
+          {:error, reason} -> Recovery.trim_failed(state, reason)
+        end
+      else
+        state
+      end
 
     cursor = report_dropped_unread(state, unread -- retained_unread)
     %{state | cursor: cursor, pending_count: length(retained_unread)}
@@ -603,9 +597,14 @@ defmodule Aiur.ExecutorWakeInbox do
   # content, only counts and ids, so the identifier-only boundary holds.
   defp safe_overflow_alert(message) do
     if Application.get_env(:aiur, :executor_wake_overflow_alerts?, true) do
-      _ = Alerts.emit_custom("executor.wakes.overflow", message, needs_attention: false, severity: "warning")
+      safe_alert("executor.wakes.overflow", message, needs_attention: false, severity: "warning")
     end
 
+    :ok
+  end
+
+  defp safe_alert(name, message, opts) do
+    _ = Alerts.emit_custom(name, message, opts)
     :ok
   rescue
     _error -> :ok

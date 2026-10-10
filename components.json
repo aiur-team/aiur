@@ -165,7 +165,7 @@
     },
     {
       "id": "executor-attention", "name": "Wake inbox, claims, roster, principal, alerts ledger, progress check-in", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/alert_*.ex", "src/lib/aiur/alert_feed/**", "src/lib/aiur/alert_ledger/**", "src/lib/aiur/alerts.ex", "src/lib/aiur/executor/**", "src/lib/aiur/executor_*.ex", "src/lib/aiur/operator_wait_log.ex", "src/lib/aiur/progress_checkin/**"],
+      "paths": ["src/lib/aiur/alert_*.ex", "src/lib/aiur/alert_feed/**", "src/lib/aiur/alert_ledger/**", "src/lib/aiur/alerts.ex", "src/lib/aiur/executor/**", "src/lib/aiur/executor_*.ex", "src/lib/aiur/executor_wake_inbox/**", "src/lib/aiur/operator_wait_log.ex", "src/lib/aiur/progress_checkin/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["event-bus", "signal", "kernel", "config", "identity", "commands"], "optional": ["conversations"],
       "owns": {"config": ["alerts", "executor_takeover_continuous_alert_hours", "executor_takeover_first_alert_hours"], "env": [], "state": ["takeover_alert_state_dir"], "capabilities": []},

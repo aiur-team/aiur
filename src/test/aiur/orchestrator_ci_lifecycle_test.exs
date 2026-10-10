@@ -1,7 +1,7 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, ExecutorListener, ExecutorWakeInbox, Orchestrator, PollCadence, TrackerIdentity}
+  alias Aiur.{AgentQueueStore, CIApprovalStore, ExecutorListener, ExecutorWakeInbox, Orchestrator, PollCadence, TestSupport.WakeInboxAck, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.ResourceStore
@@ -224,7 +224,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
       assert_received :ci_issue_fetch
       _ = :sys.get_state(Aiur.ExecutorListener.CIHandoffTest)
-      :ok = ExecutorWakeInbox.acknowledge([wake])
+      :ok = WakeInboxAck.ack_as_owner([wake])
       assert :timeout = ExecutorWakeInbox.wait(0)
     end
 

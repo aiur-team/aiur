@@ -4,6 +4,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
+  import Aiur.TestSupport.WakeInboxAck
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-wake-inbox")
@@ -73,7 +74,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
 
     assert {:ok, [%{"ticket" => "42"}]} = Task.await(first)
     assert {:ok, [%{"ticket" => "42"}] = records} = Task.await(second)
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
   end
 
   test "a wake stream faster than the debounce still reaches a blocked waiter (#2600)", %{opts: opts} do
@@ -101,7 +102,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert length(records) < 20, "the waiter was served only after the whole stream had been enqueued"
     assert served_at - started_at < 700, "the waiter was starved until the wake stream went quiet"
     Task.await(stream, 5_000)
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
   end
 
   test "a wake enqueued during a wait is returned at expiry, not left unread (#2600)", %{opts: opts} do
@@ -116,7 +117,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :ok = ExecutorWakeInbox.enqueue(record(7, "2600"), __MODULE__)
 
     assert {:ok, [%{"event_id" => 7, "ticket" => "2600"}] = records} = Task.await(waiter, 5_000)
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
     assert {:ok, %{"last_seen_wake_id" => 1}} = Aiur.JsonStore.read(opts[:cursor_path])
     assert ExecutorWakeInbox.pending(__MODULE__) == []
     # Returned *once*: a second wait must not rediscover the same record.
@@ -159,7 +160,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :ok = ExecutorWakeInbox.enqueue(record(11, "43"), __MODULE__)
     Process.sleep(30)
     assert {:ok, [%{"event_id" => 11}] = records} = ExecutorWakeInbox.wait(100, __MODULE__)
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
   end
 
   test "acknowledging a high source event does not skip a later lower source event", %{opts: opts} do
@@ -174,13 +175,13 @@ defmodule Aiur.ExecutorWakeInboxTest do
 
     :ok = ExecutorWakeInbox.enqueue(record(10, "43"), __MODULE__)
     Process.sleep(30)
-    assert :ok = ExecutorWakeInbox.acknowledge(first, __MODULE__)
+    assert :ok = ack_as_owner(first, __MODULE__)
 
     assert {:ok, [%{"wake_id" => 2, "event_id" => 10}] = second} =
              ExecutorWakeInbox.wait(100, __MODULE__)
 
-    assert :ok = ExecutorWakeInbox.acknowledge(second, __MODULE__)
-    assert :ok = ExecutorWakeInbox.acknowledge(first, __MODULE__)
+    assert :ok = ack_as_owner(second, __MODULE__)
+    assert :ok = ack_as_owner(first, __MODULE__)
     assert {:ok, %{"last_seen_wake_id" => 2}} = Aiur.JsonStore.read(opts[:cursor_path])
     assert ExecutorWakeInbox.pending(__MODULE__) == []
   end
@@ -315,7 +316,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
 
     start_supervised!({ExecutorWakeInbox, opts}, id: :restarted_wake_inbox)
     assert {:ok, [%{"event_id" => 12}] = records} = ExecutorWakeInbox.wait(100, __MODULE__)
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
   end
 
   test "a crash mid-window recovers the durable pending map without duplicates", %{opts: opts} do
@@ -334,7 +335,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert {:ok, [%{"wake_id" => 1, "event_id" => 13}] = records} =
              ExecutorWakeInbox.wait(500, __MODULE__)
 
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
     assert ExecutorWakeInbox.pending(__MODULE__) == []
     assert opts[:path] |> File.read!() |> String.split("\n", trim: true) |> length() == 1
   end
@@ -384,7 +385,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [1, 2, 3]
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
 
     # Three unread records fit inside the bound, and none of them is dropped to
     # make room for the already-consumed ones.
@@ -399,7 +400,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [6, 7, 8]
-    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert :ok = ack_as_owner(records, __MODULE__)
 
     assert journal_ids(opts) == [6, 7, 8]
   end
