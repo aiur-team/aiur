@@ -164,7 +164,7 @@ Once the root exists, create one uniquely marked
 record its URL, parsed pending marker, and canonical body SHA-256. After all
 relationships requery successfully, commit and push that receipt, then append
 one distinct canonical `successful` comment with the exact immutable receipt
-commit and link. Run the read-only `scripts/publication_comment.py`
+commit and link. Run the read-only skill-owned `publication_comment.py`
 verifier once against the pending-only evidence immediately before creation and
 again against the pending-plus-successful evidence immediately afterward; the
 successful comment creation is the only finalization mutation. The verifier does not trust a caller-authored
@@ -214,14 +214,16 @@ Verify the receipt-bound live comment directly:
 
 ```bash
 # Immediately before the only finalization mutation (pending only):
-python3 docs/build-order/scripts/publication_comment.py --state pending \
+PYTHONPATH=.claude/skills/aiur-build/scripts python3 \
+  .claude/skills/aiur-build/scripts/publication/publication_comment.py --state pending \
   aiur-team/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
   https://github.com/aiur-team/aiur/issues/<ROOT_NUMBER> \
   aiur-team/aiur
 
 # Immediately after the successful receipt is appended (pending + successful):
-python3 docs/build-order/scripts/publication_comment.py \
+PYTHONPATH=.claude/skills/aiur-build/scripts python3 \
+  .claude/skills/aiur-build/scripts/publication/publication_comment.py \
   aiur-team/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
   https://github.com/aiur-team/aiur/issues/<ROOT_NUMBER> \
