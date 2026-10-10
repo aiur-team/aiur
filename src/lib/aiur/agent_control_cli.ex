@@ -2204,8 +2204,8 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
 
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
-
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, %{} = detail}), do: Aiur.Orchestrator.EnvelopeResume.label(detail)
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
 

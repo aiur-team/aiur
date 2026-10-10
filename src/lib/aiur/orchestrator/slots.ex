@@ -242,6 +242,7 @@ defmodule Aiur.Orchestrator.Slots do
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
+    |> Map.merge(Aiur.Orchestrator.EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max))
   end
 
   @spec dispatch_hold_status(State.t(), integer()) :: map()
