@@ -844,8 +844,8 @@ defmodule AiurWeb.DashboardLiveTest do
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
     :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
 
-    refute_receive {:observability_updated, _event_id}, 20
-    assert_receive {:observability_updated, _event_id}, 1_000
+    # The refresh topic is VM-global, so wait for a refresh after which this orchestrator's projection is readable instead of refuting strays (#3861).
+    assert eventually(fn -> assert_receive({:observability_updated, _event_id}, 1_000) && match?({:current, _, _}, SnapshotStore.read(orchestrator_name, 1_000)) end)
     assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
   end
 
