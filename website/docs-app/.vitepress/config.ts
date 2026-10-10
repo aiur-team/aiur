@@ -159,6 +159,7 @@ export default withMermaid(defineConfig({
           text: 'APIs',
           items: [
             { text: 'GitHub', link: '/apis/github' },
+            { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
         },
