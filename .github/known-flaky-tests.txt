@@ -111,4 +111,4 @@ AiurWeb.StreamdeckChannelTest :: a joined channel closes when its socket token e
 # and it failed as {"", 1} -- exit 1 with EMPTY output, i.e. the command never
 # produced anything, which is a saturated-runner signature rather than a lease
 # defect. Cannot be reached by this PR's diff.
-Aiur.BuildGateTest :: real mise command strings acquire one lease for the whole Mix build
+Aiur.BuildGate.AdmissionTest :: real mise command strings acquire one lease for the whole Mix build
