@@ -94,7 +94,7 @@ grep -Fq "No matching failed job was returned" <<<"$fallback"
 grep -Fq "https://github.example.test/aiur-team/aiur/actions/runs/123" <<<"$fallback"
 
 workflow="$root/.github/workflows/ci.yml"
-test_job="$(sed -n '/^  test:$/,/^  analytics:$/p' "$workflow")"
+test_job="$(sed -n '/^  test:$/,/^  quarantine:$/p' "$workflow")"
 
 # Structural, not literal (#docs-only CI).
 #
