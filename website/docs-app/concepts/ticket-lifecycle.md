@@ -181,7 +181,7 @@ If a promoted item becomes unready, Aiur holds dispatch and checks claims. It wi
 
 Manual `todo` sets an override. List adds record pre-existing `todo`; fresh unmet prerequisites
 withdraw it only after dispatch is held and unclaimed status is confirmed. A later manual `todo`
-still overrides. Removing queue-owned `todo` creates a hold; `aiur queue release` clears holds
+overrides. Removing queue-owned `todo` creates a hold; `aiur queue release` clears holds
 and overrides. Removing `agent:queued` dequeues; writes re-observe races.
 
 Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains `promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable claim probe preserves a recorded decline.
