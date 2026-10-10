@@ -199,6 +199,13 @@ defmodule Aiur.ApplicationTest do
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
     end
 
+    test "API-without-pages run passes dashboard_pages?: false to HttpServer" do
+      shape = [interactive_cli?: false, headless?: true, dashboard?: true]
+
+      assert {Aiur.HttpServer, [dashboard_pages?: false]} in AiurApp.child_specs(shape ++ [dashboard_pages?: false])
+      assert {Aiur.HttpServer, [dashboard_pages?: true]} in AiurApp.child_specs(shape)
+    end
+
     test "headless boots measurably fewer children than interactive" do
       interactive = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
       headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)

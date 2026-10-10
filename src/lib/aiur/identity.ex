@@ -41,7 +41,7 @@ defmodule Aiur.Identity do
       aiur_version: to_string(Application.spec(:aiur, :vsn) || "unknown"),
       run_shape: %{
         http_listener: http_listener,
-        dashboard_pages: http_listener,
+        dashboard_pages: http_listener and Application.get_env(:aiur, AiurWeb.Endpoint, [])[:dashboard_pages] != false,
         dashboard: http_listener,
         headless: Application.get_env(:aiur, :headless, false),
         interactive_cli: Application.get_env(:aiur, :interactive_cli, false),
