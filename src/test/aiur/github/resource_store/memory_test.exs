@@ -115,17 +115,8 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
       first = ResourceStore.key(:issue_blocked_by, "owner", "repo", 1)
       second = ResourceStore.key(:issue_blocked_by, "owner", "repo", 2)
 
-      :ok =
-        ResourceStore.put_resource(first, [%{"number" => 9, "body" => String.duplicate("x", @body_bytes)}],
-          source: :fetch,
-          etag: "etag-1"
-        )
-
-      :ok =
-        ResourceStore.put_resource(second, [%{"number" => 8, "body" => String.duplicate("y", @body_bytes)}],
-          source: :fetch,
-          etag: "etag-2"
-        )
+      :ok = ResourceStore.put_resource(first, [body(9)], source: :fetch, etag: "etag-1")
+      :ok = ResourceStore.put_resource(second, [body(8)], source: :fetch, etag: "etag-2")
 
       store = Process.whereis(ResourceStore)
       send(store, :sweep)
