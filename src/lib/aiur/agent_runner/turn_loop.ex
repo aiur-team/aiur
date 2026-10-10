@@ -183,34 +183,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
         end
 
       {:paused, pause_payload} ->
-        Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
-
         Logger.info("Paused agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
-        TurnAlerts.maybe_emit_usage_limit_alert(
-          issue,
-          workspace,
-          worker_host,
-          Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
-        )
-
-        if pause_payload[:native_terminal] == :completed do
-          best_effort_queue_bookkeeping(
-            Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
-            :consume,
-            issue
-          )
-        else
-          best_effort_queue_bookkeeping(
-            Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-            :restore,
-            issue
-          )
+        with :ok <- settle_paused_turn(turn_context, app_session, pause_payload, message_handler) do
+          continue_after_resume(turn_context, app_session)
         end
-
-        Aiur.AgentRunner.write_pause_log(workspace, worker_host)
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, handoff_pause_payload(app_session, workspace, pause_payload))
-        wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} = error ->
         settle_turn_error(turn_context, backend, reason, error)
@@ -551,25 +528,27 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def return_completed(turn_context, %Issue{} = issue) when is_map(turn_context),
     do: {:completed, issue}
 
-  defp wait_for_resume(turn_context, app_session, message_handler) do
-    %{
-      issue: issue,
-      orchestrator: orchestrator,
-      codex_update_recipient: codex_update_recipient,
-      opts: opts
-    } = turn_context
+  @doc false
+  @spec confirm_pause_containment(map()) :: :ok
+  def confirm_pause_containment(app_session), do: Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
 
-    with :ok <-
-           QueueDrain.wait_for_operator_message(
-             app_session,
-             issue,
-             message_handler,
-             orchestrator,
-             codex_update_recipient,
-             opts
-           ) do
-      continue_after_resume(turn_context, app_session)
+  @doc false
+  @spec settle_paused_turn(map(), map(), map(), fun()) :: :ok | {:error, term()}
+  @spec settle_paused_turn(map(), map(), map(), fun(), (-> term()) | nil) :: :ok | {:error, term()}
+  def settle_paused_turn(context, app_session, pause_payload, message_handler, completed \\ nil) do
+    %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, codex_update_recipient: recipient, opts: opts} = context
+    confirm_pause_containment(app_session)
+    TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, worker_host, Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session)))
+
+    if pause_payload[:native_terminal] == :completed do
+      if completed, do: completed.(), else: best_effort_queue_bookkeeping(Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier), :consume, issue)
+    else
+      best_effort_queue_bookkeeping(Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier), :restore, issue)
     end
+
+    Aiur.AgentRunner.write_pause_log(workspace, worker_host)
+    MessageHandler.send_control_state(recipient, issue, :paused, handoff_pause_payload(app_session, workspace, pause_payload))
+    QueueDrain.wait_for_operator_message(app_session, issue, message_handler, orchestrator, recipient, opts)
   end
 
   @doc false
