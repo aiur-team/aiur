@@ -3,7 +3,7 @@ Code.require_file("../../support/tracker_io_poll_barrier.exs", __DIR__)
 defmodule Aiur.Regression.TrackerIoPollBarrierTest do
   use Aiur.TestSupport
 
-  import Aiur.TrackerIoPollBarrier, only: [await_poll_finished: 1]
+  import Aiur.TrackerIoPollBarrier, only: [await_poll_finished: 1, await_poll_finished: 2]
 
   alias Aiur.Orchestrator
 
@@ -19,5 +19,14 @@ defmodule Aiur.Regression.TrackerIoPollBarrierTest do
     Process.send_after(server, :run_poll_cycle, 50)
 
     assert await_poll_finished(server).poll_cycles_completed == 1
+  end
+
+  test "a poll that never completes fails naming the wait and the server's state" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+    server = start_supervised!({Orchestrator, initial_poll?: false})
+
+    error = assert_raise ExUnit.AssertionError, fn -> await_poll_finished(server, 50) end
+    assert error.message =~ "waited 50 ms for #{inspect(server)} to complete a poll cycle"
+    assert error.message =~ "poll_cycles_completed=0, tracker tasks []"
   end
 end
