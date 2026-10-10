@@ -26,6 +26,8 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     assert Slots.max_concurrent_agent_status(initial).resume_level == 7
     first = dispatch(initial, 1, 2.0)
     assert first.effective_concurrent_agents == 1
+    assert Slots.max_concurrent_agent_status(first).resume_level == 7
+    assert Slots.max_concurrent_agent_status(first).resume_recorded_ago_seconds in 720..730
     reused = dispatch(first, 1, 2.0)
     assert reused.effective_concurrent_agents == 1
     boundary = dispatch(reused, 2, 8.0)
