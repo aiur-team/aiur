@@ -4,6 +4,34 @@ defmodule AiurWeb.Build.SeamTest do
   @root Path.expand("../../..", __DIR__)
   # C3-T02 uses Endpoint only for dashboard_writable; C3-T03 adds legacy Units decoding.
   @allowed ~w(AiurWeb.BuildLive AiurWeb.Endpoint Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL)
+  @usage_facades [
+    # Authorized usage reads configured Claude account labels.
+    "Aiur.Accounts",
+    # Account windows come from the existing in-memory observation store.
+    "Aiur.Accounts.UsageReadings",
+    # Provider families and credential metadata come from the registry.
+    "Aiur.CodingAgent",
+    # ElevenLabs reads its supervised quota snapshot; it does not issue requests.
+    "Aiur.ElevenLabs.Quota",
+    # GitHub reads its supervised quota snapshot and existing resource holds.
+    "Aiur.GitHub.Quota",
+    # Durable previous-boot readings come from the existing local ledger file.
+    "Aiur.ModelAvailability",
+    # Watch events register the socket pid with the existing focused polling service.
+    "Aiur.ProviderMeterRefresh",
+    # The payload-free financial facade update identifies the coalesced reload.
+    "AiurWeb.FinancialData",
+    # Provider visibility reuses the registry credential filter without exporting keys.
+    "AiurWeb.OperatorControlCenter.ModelProviders",
+    # Credit balances reuse the existing amount formatter.
+    "AiurWeb.OperatorControlCenter.Money",
+    # Protected meter reads and subscriptions remain behind the financial facade.
+    "AiurWeb.OperatorControlCenter.ProviderMeterSource",
+    # Meter states and windows reuse the existing redacted presenter.
+    "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+    # Build and Stream Deck share the same pure window classification.
+    "AiurWeb.ProviderMeterWindows"
+  ]
   @shell ~w(UnitsRow UnitsControlPolicy DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
 
   test "web side references only the seam (future regression guard)" do
@@ -61,7 +89,7 @@ defmodule AiurWeb.Build.SeamTest do
   end
 
   defp allowed?(module) do
-    module in @allowed or module == "AiurWeb.Build" or String.starts_with?(module, "AiurWeb.Build.") or
+    module in @allowed or module in @usage_facades or module == "AiurWeb.Build" or String.starts_with?(module, "AiurWeb.Build.") or
       String.starts_with?(module, "Aiur.BuildOrder.") or
       Enum.any?(@shell, fn name ->
         base = "AiurWeb.OperatorControlCenter." <> name
