@@ -86,6 +86,7 @@ agent:
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
   # max_load_average: 1.5                # minus CPU niced above the daemon, CPU-corroborated; null disables
   # target_load_average: 1.0             # per-scheduler target on the same signal; null disables
+  # load_resume_max_age_seconds: 21600  # safe occupancy record lifetime; 0 disables resume
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
