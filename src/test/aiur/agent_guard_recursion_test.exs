@@ -64,7 +64,7 @@ defmodule Aiur.AgentGuardRecursionTest do
     refute File.exists?(spawned)
   end
 
-  test "a different git call nested inside the wrapper still runs", context do
+  test "future regression guard: a different git call nested inside the wrapper still runs", context do
     assert {"git version" <> _, 0} =
              System.cmd(context.git, ["--version"],
                env: [{"AIUR_REAL_GIT", real_git()}, {"AIUR_GIT_GUARD_DEPTH", "1"}, {"AIUR_GIT_GUARD_CALL", "another call"}],
