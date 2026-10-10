@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{PausedCandidatePoll, ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -89,10 +89,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Lifecycle.schedule_tick(schedule.delay_ms)
       |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
-      # Counted AFTER the schedule is computed so the first cycle after a
-      # restart schedules at the base interval: a freshly started daemon has
-      # observed no idleness, so the idle backoff may only apply from the
-      # second scheduling decision onward (#2138).
+      # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
       # The GitHub poll floor is measured from here, so an event that pulls
       # the next tick forward cannot land it closer than the floor allows.
@@ -127,17 +124,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
     |> CommentPolling.start_async()
     |> CiLifecycle.start_poll(fn current ->
-      current |> refresh_blocked_ticket_ids() |> start_candidate_poll()
+      current |> refresh_blocked_ticket_ids() |> start_candidate_poll(&default_candidate_fetch/1)
     end)
   end
 
-  defp start_candidate_poll(%State{globally_paused: true} = state),
-    do: state |> dispatch_candidate_poll() |> finish_poll_cycle()
+  @doc false
+  @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
+  def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
+    do: PausedCandidatePoll.start(state, fetch_fun, &note_candidate_fetch_success/2, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
 
-  defp start_candidate_poll(state) do
+  def start_candidate_poll(%State{} = state, fetch_fun) do
     cache = candidate_list_cache(state)
 
-    TrackerTasks.start(state, :dispatch_poll, fn -> default_candidate_fetch(cache) end, fn current, result ->
+    TrackerTasks.start(state, :dispatch_poll, fn -> fetch_fun.(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &apply_candidate_result(&1, result))
       |> finish_poll_cycle()
@@ -546,8 +545,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   @doc false
-  @spec fetch_candidate_issues(State.t(), keyword()) ::
-          {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
+  @spec fetch_candidate_issues(State.t(), keyword()) :: {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
   def fetch_candidate_issues(state, opts \\ [])
 
   def fetch_candidate_issues(%State{globally_paused: true} = state, _opts), do: {:paused, state}
@@ -567,7 +565,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp apply_candidate_result(state, result) do
     case result do
       {:ok, issues, updated_cache} ->
-        state = state |> put_candidate_list_cache(updated_cache) |> note_candidate_fetch_success()
+        state = note_candidate_fetch_success(state, updated_cache)
         {:ok, issues, state}
 
       {:error, reason} ->
@@ -575,8 +573,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp note_candidate_fetch_success(%State{} = state) do
-    state = %{state | candidate_snapshot_fresh?: true}
+  defp note_candidate_fetch_success(%State{} = state, cache) do
+    state = %{put_candidate_list_cache(state, cache) | candidate_snapshot_fresh?: true}
 
     if Config.tracker_kind() == "github" do
       TrackerHealth.note_github_connectivity_success(state, :candidates)

@@ -1,12 +1,23 @@
 defmodule Aiur.BuildQueue.ServerTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.BuildQueue.{Hints, Model, Server}
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.{Issues, OpenIssueSnapshot}
+  alias Aiur.Orchestrator.{Dispatcher, State, TrackerTasks}
+  alias Aiur.Workflow
 
   defmodule Boundary do
-    def open_issue_labels(_age), do: Agent.get(__MODULE__, & &1.snapshot)
+    alias Aiur.GitHub.Tracker
+
+    def open_issue_labels(age) do
+      case Agent.get(__MODULE__, & &1.snapshot) do
+        :github -> Tracker.open_issue_labels(age)
+        snapshot -> snapshot
+      end
+    end
+
     def load, do: Agent.get(__MODULE__, & &1.document)
     def status(_ids), do: :unavailable
     def blocked_by(_id), do: {:ok, []}
@@ -67,6 +78,64 @@ defmodule Aiur.BuildQueue.ServerTest do
     send(pid, message)
     assert {:ok, %{reconciles: 2}} = GenServer.call(pid, :show)
     assert_received {:build_queue_changed, :running}
+  end
+
+  test "paused open listing lets AC12 add ordered queue items before resume" do
+    update(:document, {:ok, %{queues: [], items: [], edges: [], intents: [], latches: []}})
+
+    Aiur.TestSupport.write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+      tracker_label_prefix: "agent"
+    )
+
+    OpenIssueSnapshot.reset()
+    on_exit(fn -> OpenIssueSnapshot.reset() end)
+    previous_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+    on_exit(fn -> Aiur.TestSupport.restore_env("GITHUB_TOKEN", previous_token) end)
+
+    request_fun = fn request ->
+      body =
+        if String.contains?(request.url, "state=open") do
+          [github_issue(2897), github_issue(2898)]
+        else
+          number = request.url |> String.split("/") |> List.last() |> String.to_integer()
+          github_issue(number)
+        end
+
+      {:ok, %{status: 200, headers: [{"etag", "paused-list"}], body: body}}
+    end
+
+    pending = Dispatcher.start_candidate_poll(%State{globally_paused: true, poll_interval_ms: 1_000}, &Issues.fetch_candidate_issues_conditional(&1, request_fun: request_fun))
+    [{ref, %{task: task}}] = Enum.to_list(pending.tracker_tasks)
+    result = Task.await(task, 5_000)
+    assert {:handled, observed} = TrackerTasks.result(pending, ref, result)
+    assert observed.globally_paused
+    assert observed.running == %{}
+    assert {:ok, labels, _} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+    assert Map.keys(labels) |> Enum.sort() == ["2897", "2898"]
+    update(:snapshot, :github)
+    assert {:ok, ^labels, _} = Boundary.open_issue_labels(60_000)
+
+    pid = server(name: Server, clock: fn -> System.system_time(:millisecond) end)
+    boot(pid)
+    assert :sys.get_state(pid).phase == :ready
+
+    assert :ok = Aiur.BuildQueue.add(["2897"], "e2e")
+    assert :ok = Aiur.BuildQueue.add(["2898"], "e2e", after: "2897")
+    assert {:ok, labels, _observed_at} = Boundary.open_issue_labels(60_000)
+    assert Map.keys(labels) |> Enum.sort() == ["2897", "2898"]
+
+    stored = Agent.get(Boundary, & &1.document) |> elem(1)
+    assert Enum.map(stored.items, & &1.issue_id) == ["2897", "2898"]
+    assert stored.edges == [%Model.Edge{prerequisite: "2897", dependent: "2898", source: :list}]
+    refute Enum.any?(Agent.get(Boundary, & &1.calls), &match?({{:promote, _}, _}, &1))
+  end
+
+  defp github_issue(number) do
+    %{"number" => number, "title" => "Queue test issue", "labels" => [], "updated_at" => "2026-10-09T00:00:00Z"}
   end
 
   test "Exchange bindings schedule every required topic" do
