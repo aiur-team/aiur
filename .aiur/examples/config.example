@@ -56,7 +56,8 @@ agent:
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
-  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
+  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress`/busy-loop load generators; null = cores/4, 0 = disabled
+  # synthetic_load_kill_detected: false  # true also kills busy loops found by behaviour and orphaned generators; false only reports them
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
   prior_work_continuation: true           # cold redispatch/backend switch continues from shared workspace context, never a cross-provider transcript
   # backend_configs:                      # optional overrides keyed by registry instance

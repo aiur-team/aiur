@@ -77,8 +77,11 @@ or `scripts/`-specific.
 
 ## Synthetic load repros
 
-Prefer deterministic flake reproduction over brute CPU load: seeded ordering,
-repeat-until-failure loops, and fault injection are better shared-run neighbors
-than load generators. If a repro truly needs synthetic load, cap generator workers
-to `max(1, cores / 4)`, stop them promptly, and never spawn a fixed high count
-such as `yes ... x16` on the shared host.
+Never generate real CPU load to test or reproduce load-sensitive code: no `yes`,
+`stress`, or shell busy loops such as `while :; do :; done`, in the foreground or
+the background. Inject the pressure through the code's test seam instead (the
+injectable load reader, clock, or sampler the code under test already takes),
+and reproduce flakes deterministically with seeded ordering, repeat-until-failure
+loops, and fault injection. Backgrounded generators outlive the command that
+started them and starve every other agent on the shared host; Aiur reports
+them to the Executor with your workspace named, and kills them where configured.
