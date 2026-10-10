@@ -71,6 +71,8 @@ try {
     for (const entry of fs.readdirSync(packages, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory()) continue;
       const directory = path.join(packages, entry.name);
+      // A non-JS package folder (e.g. packages/elixir) has no manifest and no sources to scan.
+      if (!fs.existsSync(path.join(directory, 'package.json')) && [...sources(directory)].length === 0) continue;
       JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'));
       // Tests outside src are subject to the same boundary as shipped source.
       for (const file of sources(directory)) {
