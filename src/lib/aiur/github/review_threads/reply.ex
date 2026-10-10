@@ -53,6 +53,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
         ) ::
           {:ok, map()} | {:error, term()}
   def do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
+    started_at = DateTime.utc_now()
+
     case add_review_thread_reply(request_fun, token, thread_id, body) do
       {:ok, mutation_body} ->
         Logger.info("GitHub review thread reply mutation response: #{inspect(mutation_body)}")
@@ -77,21 +79,62 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
       {:error, reason} ->
         Logger.warning("GitHub review thread reply mutation failed: #{inspect(reason)}")
 
-        if Errors.retryable_github_error?(reason) and attempt < max_attempts do
-          sleep_review_thread_retry(opts, attempt)
-
-          do_reply_to_review_thread(
-            request_fun,
-            token,
-            thread_id,
-            body,
-            max_attempts,
-            opts,
-            attempt + 1
-          )
-        else
-          {:error, reason}
+        case reconcile_unknown_reply(reason, request_fun, token, thread_id, body, opts, started_at) do
+          :retry -> retry_review_thread_reply_mutation(reason, request_fun, token, thread_id, body, max_attempts, opts, attempt)
+          other -> other
         end
+    end
+  end
+
+  defp retry_review_thread_reply_mutation(reason, request_fun, token, thread_id, body, max_attempts, opts, attempt) do
+    if Errors.retryable_github_error?(reason) and attempt < max_attempts do
+      sleep_review_thread_retry(opts, attempt)
+      do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt + 1)
+    else
+      {:error, reason}
+    end
+  end
+
+  # A post whose outcome is unknown (deadline, timeout after send) may have been
+  # applied. Read the thread before retrying; never post blindly (github-b-03).
+  defp reconcile_unknown_reply(reason, request_fun, token, thread_id, body, opts, started_at) do
+    with :unknown <- Errors.outcome({:error, reason}),
+         {:ok, daemon_account} <- BotIdentity.daemon_account(opts, request_fun, token),
+         {:ok, thread_body} <- ReviewThreads.fetch_review_thread(request_fun, token, thread_id) do
+      applied =
+        thread_body
+        |> ReviewThreads.review_thread_from_body()
+        |> ReviewThreads.thread_comments()
+        |> Enum.find(&applied_reply?(&1, daemon_account, body, started_at))
+
+      if applied do
+        {:ok,
+         %{
+           verified: true,
+           reconciled: true,
+           review_thread_id: thread_id,
+           verification: %{
+             "review_thread_id" => thread_id,
+             "latest_comment" => ReviewThreads.normalize_verified_thread_comment(applied)
+           }
+         }}
+      else
+        :retry
+      end
+    else
+      # Definite failure or held: today's retry behaviour.
+      outcome when outcome in [:held, :failed] -> :retry
+      {:error, _read_failure} -> {:error, reason}
+    end
+  end
+
+  defp applied_reply?(comment, daemon_account, body, started_at) do
+    with true <- get_in(comment, ["author", "login"]) == daemon_account,
+         true <- comment["body"] == body,
+         {:ok, created_at, _offset} <- DateTime.from_iso8601(to_string(comment["createdAt"])) do
+      DateTime.compare(created_at, started_at) != :lt
+    else
+      _ -> false
     end
   end
 

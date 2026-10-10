@@ -341,8 +341,10 @@ separate daemons never get separate quota ledgers for a shared credential.
 
 A broker deadline is a **local hold**, before a request reaches GitHub.
 Aiur backs off, keeps the ticket claim, and preserves worker attempt counters,
-even when the bounded in-call retries run out. Broker holds do not report lost
-GitHub connectivity.
+even when the bounded in-call retries run out. `Errors.outcome/1` sorts any
+result into `:complete`, `:held` (never sent), `:unknown` (`{:aiur, :unknown, _}`:
+request deadline, owner timeout; it may still apply) or `:failed`. A review-thread
+reply with an unknown outcome reads the thread before retrying and never reposts.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.

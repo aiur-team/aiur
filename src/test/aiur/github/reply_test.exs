@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.ReviewThreads.Reply
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -170,6 +171,99 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
                  attempts: 1,
                  retry_delay_ms: 0
                )
+    end
+
+    test "deadline after GitHub applied the reply does not post twice" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+      now = DateTime.utc_now() |> DateTime.add(5, :second) |> DateTime.to_iso8601()
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(posts, &(&1 + 1))
+            {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_applied", [
+              review_thread_comment(1, "owner", "please fix"),
+              %{review_thread_comment(2, "aiur-bot", "Done.") | "createdAt" => now}
+            ])
+        end
+      end
+
+      assert {:ok, %{reconciled: true}} =
+               Reply.reply_to_review_thread("PRRT_applied", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(posts, & &1) == 1
+    end
+
+    test "deadline with no applied reply retries once" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            if Agent.get_and_update(posts, &{&1, &1 + 1}) == 0 do
+              {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+            else
+              {:ok,
+               %{
+                 status: 200,
+                 body: %{
+                   "data" => %{
+                     "addPullRequestReviewThreadReply" => %{
+                       "comment" => review_thread_comment(2, "aiur-bot", "Done.")
+                     }
+                   }
+                 }
+               }}
+            end
+
+          body["query"] =~ "query AiurReviewThread" ->
+            # An identical older reply must not count as the applied attempt.
+            review_thread_node_response("PRRT_none", [
+              %{review_thread_comment(1, "aiur-bot", "Done.") | "createdAt" => "2000-01-01T00:00:00Z"}
+            ])
+        end
+      end
+
+      assert {:ok, %{verified: true}} =
+               Reply.reply_to_review_thread("PRRT_none", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(posts, & &1) == 2
+    end
+
+    test "reconcile read failure returns unknown without a second post" do
+      {:ok, posts} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn %{method: :post, body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(posts, &(&1 + 1))
+            {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            {:error, %Req.TransportError{reason: :timeout}}
+        end
+      end
+
+      assert {:error, reason} =
+               Reply.reply_to_review_thread("PRRT_readfail", "Done.",
+                 request_fun: request_fun,
+                 daemon_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert Errors.outcome({:error, reason}) == :unknown
+      assert Agent.get(posts, & &1) == 1
     end
 
     test "sleep_fun is injectable and called with linear backoff" do
