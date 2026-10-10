@@ -22,6 +22,9 @@ defmodule Aiur.BuildQueue.Hints do
   @spec trigger_for(String.t()) :: Aiur.StartTrigger.trigger()
   def trigger_for(issue_id), do: elem(lookup(issue_id), 2) || Settings.start_trigger(Aiur.Config.settings!())
 
+  @spec observation_max_age_ms() :: pos_integer()
+  def observation_max_age_ms, do: Settings.observation_max_age_ms(Aiur.Config.settings!())
+
   defp lookup(issue_id) do
     case :ets.lookup(@table, issue_id) do
       [{^issue_id, sort_key, held?, trigger}] -> {sort_key, held?, trigger}

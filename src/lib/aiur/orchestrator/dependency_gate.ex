@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.DependencyGate do
   @moduledoc "Dispatch prerequisite verdicts from hydrated states and recorded PR progress, without tracker I/O."
 
-  alias Aiur.BuildQueue.{Hints, Settings}
-  alias Aiur.{Config, Issue, StartTrigger}
+  alias Aiur.BuildQueue.Hints
+  alias Aiur.{Issue, StartTrigger}
   alias Aiur.StartTrigger.{Evidence, ProgressStore}
 
   @spec verdicts(Issue.t(), MapSet.t()) :: [{map(), StartTrigger.verdict()}]
@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.DependencyGate do
     trigger = Hints.trigger_for(id)
     if trigger == :pr_approved, do: ProgressStore.watch(for(%{id: id} <- blockers, is_binary(id), do: id), trigger)
     now = System.system_time(:millisecond)
-    opts = [now_ms: now, max_age_ms: Settings.observation_max_age_ms(Config.settings!()), not_planned: :satisfy]
+    opts = [now_ms: now, max_age_ms: Hints.observation_max_age_ms(), not_planned: :satisfy]
     Enum.map(blockers, &{&1, StartTrigger.edge_verdict(trigger, evidence(&1, terminal_states, now), opts)})
   end
 
