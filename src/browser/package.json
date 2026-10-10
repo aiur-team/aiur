@@ -10,7 +10,7 @@
     "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
     "fixture:server": "node scripts/start-fixture.mjs",
     "test:admission": "node --test scripts/browser-admission.test.mjs",
-    "test": "npm run test:admission && npm run check:elk && npm run check:build-home-fixtures && npm run test:build-home-protocol && npm run test:build-home-now-state && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:build-home-assets && npm run test:shell && npm run test:shell-chrome && npm run test:shell-width && npm run test:command-history && npm run test:build-order && npm run test:build-queue && npm run test:interaction && npm run test:time-brush && npm run test:performance && npm run test:responsive && npm run test:layout && npm run test:ticket-context && npm run test:units && npm run test:provider-meters && npm run test:meter-row && npm run test:models-panel && npm run test:quota-panel && npm run test:parity && npm run test:streamdeck && npm run test:streamdeck-flow && npm run test:design-parity && npm run test:palette && npm run test:tokens && npm run test:shell-parity && npm run test:build-home",
+    "test": "npm run test:admission && npm run check:elk && npm run check:build-home-fixtures && npm run test:build-home-protocol && npm run test:build-home-now-state && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:build-home-assets && npm run test:shell && npm run test:shell-chrome && npm run test:shell-width && npm run test:command-history && npm run test:build-order && npm run test:build-queue && npm run test:interaction && npm run test:time-brush && npm run test:performance && npm run test:responsive && npm run test:layout && npm run test:ticket-context && npm run test:units && npm run test:provider-meters && npm run test:meter-row && npm run test:models-panel && npm run test:quota-panel && npm run test:parity && npm run test:streamdeck && npm run test:streamdeck-flow && npm run test:design-parity && npm run test:palette && npm run test:tokens && npm run test:shell-parity && npm run test:build-home && npm run test:build-home-motion",
     "test:build-home-assets": "node scripts/run-browser-tests.mjs tests/build-home-assets.browser.spec.mjs",
     "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
     "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs tests/shell-history-contrast.browser.spec.mjs",
@@ -47,7 +47,9 @@
     "test:palette": "node scripts/run-browser-tests.mjs tests/palette-probe.browser.spec.mjs",
     "test:tokens": "node scripts/run-browser-tests.mjs tests/build-home-tokens.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:shell-chrome": "node scripts/run-browser-tests.mjs tests/shell-chrome.browser.spec.mjs",
-    "test:shell-parity": "node scripts/run-browser-tests.mjs tests/shell-design-parity.browser.spec.mjs --config playwright.design-parity.config.mjs"
+    "test:shell-parity": "node scripts/run-browser-tests.mjs tests/shell-design-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
+    "test:build-home-motion": "node --test scripts/build-home-motion-selection.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --config playwright.build-home-motion.config.mjs",
+    "test:build-home-motion:full": "AIUR_PARITY_FULL=1 npm run test:build-home-motion"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.3",
