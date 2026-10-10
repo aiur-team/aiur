@@ -866,28 +866,26 @@ defmodule Aiur.Config do
 
   def default_synthetic_load_process_cap(_schedulers), do: 1
 
-  # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
-  # load is corroborated with short-window reclaimable CPU before holding. The
-  # default is 1.5; explicit YAML null disables the gate. The threshold is
-  # multiplied by System.schedulers_online/0 (BEAM online schedulers, ~= cores
-  # unless +S-limited).
-  @spec max_load_average() :: float() | nil
-  def max_load_average do
-    settings!().agent.max_load_average
-  end
+  @doc "Linux CPU PSI some avg60 ceiling, in percent; null disables it."
+  @spec max_cpu_pressure() :: float() | nil
+  def max_cpu_pressure, do: settings!().agent.max_cpu_pressure
 
-  @doc """
-  Per-scheduler 1-minute load target for adaptive dispatch capacity. Defaults
-  to 1.0; explicit YAML `null` disables the adaptive envelope while preserving
-  the independent `max_load_average` hard gate.
-  """
+  @doc "Linux CPU PSI some avg60 AIMD target, in percent; null disables it."
+  @spec target_cpu_pressure() :: float() | nil
+  def target_cpu_pressure, do: settings!().agent.target_cpu_pressure
+
+  @doc "Per-scheduler load ceiling used only when CPU PSI is unavailable."
+  @spec max_load_average() :: float() | nil
+  def max_load_average, do: settings!().agent.max_load_average
+
+  @doc "Per-scheduler AIMD load target used only when CPU PSI is unavailable."
   @spec target_load_average() :: float() | nil
   def target_load_average do
     settings!().agent.target_load_average
   end
 
   @doc """
-  Number of dispatch slots added by each below-target envelope sample.
+  Slots added below 80% of the PSI target, or at/below the load fallback target.
   """
   @spec load_ramp_step() :: pos_integer()
   def load_ramp_step, do: settings!().agent.load_ramp_step
@@ -896,7 +894,7 @@ defmodule Aiur.Config do
   def load_resume_max_age_seconds, do: settings!().agent.load_resume_max_age_seconds
 
   @doc """
-  Minimum number of seconds between high-load envelope decreases.
+  Minimum number of seconds between above-target envelope decreases.
   """
   @spec load_cooldown_seconds() :: non_neg_integer()
   def load_cooldown_seconds, do: settings!().agent.load_cooldown_seconds
