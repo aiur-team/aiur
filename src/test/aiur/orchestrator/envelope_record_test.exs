@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.EnvelopeRecordTest do
   use Aiur.TestSupport
   import ExUnit.CaptureIO
-  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, EnvelopeResume, EnvelopeStore, Slots, State}
   alias Aiur.{AgentControlCLI, Workflow}
+  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, EnvelopeResume, EnvelopeStore, Slots, State}
 
   setup do
     path = Path.join(System.tmp_dir!(), "record-#{System.unique_integer([:positive])}.json")
