@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.Component do
 
   alias Aiur.BuildOrder.{AdHocSource, EpicOverrides, Features, GraphProjection, History, PackStatus, ProgressObserver}
 
-  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final
+  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection
 
   @spec child_specs(phase(), keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
   def child_specs(phase, opts)
@@ -27,4 +27,6 @@ defmodule Aiur.BuildOrder.Component do
   def child_specs(:final, _opts) do
     [EpicOverrides, {Features.RootImport, enabled?: Application.get_env(:aiur, :build_order_root_import_enabled?, true)}]
   end
+
+  def child_specs(:label_projection, opts), do: if(Keyword.get(opts, :recording?, true), do: [Features.LabelProjection], else: [])
 end
