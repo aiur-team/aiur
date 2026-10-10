@@ -20,17 +20,16 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.HostObservations
 
-  setup do
+  setup context do
     parent = self()
     write_fun = fn iodata -> send(parent, {:rendered, IO.iodata_to_binary(iodata)}) end
 
-    # subscribe?: true is required so the App subscribes to the
-    # DebugLog topic; the test relies on that path firing.
+    # Direct-send tests must not receive unrelated global DebugLog broadcasts.
     {:ok, pid} =
       App.start_link(
         write_fun: write_fun,
         name: nil,
-        subscribe?: true,
+        subscribe?: Map.get(context, :subscribe?, false),
         debug?: true
       )
 
@@ -102,6 +101,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       assert pos_1 < pos_2 and pos_2 < pos_3
     end
 
+    @tag subscribe?: true
     test "event arrives via DebugLog broadcast and renders persistently", %{pid: pid} do
       drain_renders()
 
