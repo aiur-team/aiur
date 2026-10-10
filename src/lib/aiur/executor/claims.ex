@@ -323,7 +323,7 @@ defmodule Aiur.Executor.Claims do
   defp touch(consumers, id, role, now, opts) do
     existing = Map.get(consumers, id, %{})
 
-    %{
+    base = %{
       "id" => id,
       "role" => role || "observer",
       "host" => Keyword.get(opts, :host) || existing["host"] || hostname(),
@@ -336,7 +336,15 @@ defmodule Aiur.Executor.Claims do
       "cursor_at_last_ack" => existing["cursor_at_last_ack"],
       "observation" => existing["observation"]
     }
+
+    put_session(base, Keyword.get(opts, :session) || existing["session"], now)
   end
+
+  # Additive: only an owner claim with a detected session writes it; renewals keep it.
+  defp put_session(%{"role" => "owner"} = entry, %{} = session, now),
+    do: Map.put(entry, "session", Map.put_new(session, "recorded_at", iso(now)))
+
+  defp put_session(entry, _session, _now), do: entry
 
   defp claimed_at(existing, role, now) do
     if existing["role"] == role and is_binary(existing["claimed_at"]), do: existing["claimed_at"], else: iso(now)

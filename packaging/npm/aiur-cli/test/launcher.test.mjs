@@ -362,6 +362,7 @@ function setupRealLauncher() {
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-queue.sh"), path.join(root, "libexec", "aiur-queue.sh"));
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-epic.sh"), path.join(root, "libexec", "aiur-epic.sh"));
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-capabilities.sh"), path.join(root, "libexec", "aiur-capabilities.sh"));
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-executor-session.sh"), path.join(root, "libexec", "aiur-executor-session.sh"));
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";
   const vsnDir = path.join(releaseDir, "releases", vsn);

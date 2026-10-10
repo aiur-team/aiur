@@ -32,7 +32,7 @@ defmodule Aiur.AgentControlCLI do
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.Executor.{Claims, Roster}
+  alias Aiur.Executor.{Claims, HarnessSession, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
@@ -479,7 +479,7 @@ defmodule Aiur.AgentControlCLI do
     json? = Keyword.get(opts, :json, false)
     consumer_id = Claims.resolve_consumer_id(opts)
 
-    case executor_wait_role(consumer_id) do
+    case executor_wait_role(consumer_id, opts) do
       {:ok, role, holder} -> executor_wait_as(consumer_id, role, holder, timeout_ms, json?)
       {:error, reason} -> executor_wait_failure(:claim, executor_wait_detail(reason), reason, :unknown, json?)
     end
@@ -505,8 +505,8 @@ defmodule Aiur.AgentControlCLI do
   # Anything else means the claim store could not be arbitrated at all, and
   # waiting under it would print records nobody can acknowledge — the silent
   # no-progress loop #2600 reported. Fail with the stage instead.
-  defp executor_wait_role(consumer_id) do
-    case Claims.claim(consumer_id) do
+  defp executor_wait_role(consumer_id, opts) do
+    case Claims.claim(consumer_id, session: HarnessSession.resolve(opts)) do
       {:ok, _entry} ->
         {:ok, :owner, nil}
 
