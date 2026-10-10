@@ -60,16 +60,26 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
     assert prefix =~ "export GIT_COMMITTER_EMAIL='bot@example.com'\n"
   end
 
-  test "no configured identity exports nothing, leaving git's own identity in place" do
-    assert GitIdentity.env(git_identity: {nil, nil}) == []
-    refute AgentEnvironment.workspace_env_export_prefix("/work/aiur/4068", base_branch: "main", git_identity: nil) =~ "GIT_AUTHOR"
+  test "no configured identity commits as the neutral agent, never the operator", %{workspace: workspace, home: home} do
+    env = GitIdentity.env(git_identity: nil)
+    assert GitIdentity.resolve(%{name: nil, email: nil}, nil) == {"Aiur Agent", "aiur-agent@users.noreply.github.com"}
+
+    assert {_out, 0} = git(workspace, home, env, ["commit", "--allow-empty", "-m", "Fix the thing"])
+    neutral = "Aiur Agent <aiur-agent@users.noreply.github.com>"
+    assert {"#{neutral}|#{neutral}\n", 0} == git(workspace, home, env, ["log", "-1", "--format=%an <%ae>|%cn <%ce>"])
+  end
+
+  test "an opencode serve launches with the identity" do
+    launch_env = Aiur.Opencode.Server.launch_env("/workspace", git_identity: @identity)
+
+    for name <- ~w(GIT_AUTHOR_NAME GIT_COMMITTER_NAME), do: assert({String.to_charlist(name), ~c"Apple Kid"} in launch_env)
+    for name <- ~w(GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL), do: assert({String.to_charlist(name), ~c"its.applekid@gmail.com"} in launch_env)
   end
 
   test "unset fields fall back to the bot account login" do
     assert GitIdentity.resolve(%{name: nil, email: " "}, "its-applekid") == {"its-applekid", "its-applekid@users.noreply.github.com"}
     assert GitIdentity.resolve(%{name: "Apple Kid", email: nil}, "its-applekid") == {"Apple Kid", "its-applekid@users.noreply.github.com"}
     assert GitIdentity.resolve(%{name: "Apple Kid", email: "kid@example.com"}, nil) == {"Apple Kid", "kid@example.com"}
-    assert GitIdentity.resolve(%{name: nil, email: nil}, nil) == {nil, nil}
   end
 
   test "install leaves a repository-owned commit-msg hook and tracked settings alone", %{workspace: workspace, home: home} do

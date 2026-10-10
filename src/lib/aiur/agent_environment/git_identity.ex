@@ -9,30 +9,30 @@ defmodule Aiur.AgentEnvironment.GitIdentity do
 
   The identity is `agent.git_identity`, each unset field falling back to the
   `tracker.github.bot_account` login (`<login>@users.noreply.github.com`).
-  With neither configured nothing is exported and git behaves as before.
+  With neither configured the neutral `Aiur Agent` identity is exported and a
+  warning is logged once: the operator's identity is never the fallback.
   """
+
+  require Logger
 
   alias Aiur.Config
   alias Aiur.GitHub.Config, as: GitHubConfig
 
-  @spec identity(keyword()) :: {String.t(), String.t()} | nil
+  @neutral {"Aiur Agent", "aiur-agent@users.noreply.github.com"}
+
+  @spec identity(keyword()) :: {String.t(), String.t()}
   def identity(opts \\ []) do
     case Keyword.get_lazy(opts, :git_identity, &configured/0) do
       {name, email} when is_binary(name) and is_binary(email) -> {name, email}
-      _unset -> nil
+      _unset -> @neutral
     end
   end
 
-  @doc "`GIT_AUTHOR_*` / `GIT_COMMITTER_*` pairs, or `[]` when no identity is configured."
+  @doc "`GIT_AUTHOR_*` / `GIT_COMMITTER_*` pairs for the agent identity."
   @spec env(keyword()) :: [{String.t(), String.t()}]
   def env(opts \\ []) do
-    case identity(opts) do
-      {name, email} ->
-        [{"GIT_AUTHOR_NAME", name}, {"GIT_AUTHOR_EMAIL", email}, {"GIT_COMMITTER_NAME", name}, {"GIT_COMMITTER_EMAIL", email}]
-
-      nil ->
-        []
-    end
+    {name, email} = identity(opts)
+    [{"GIT_AUTHOR_NAME", name}, {"GIT_AUTHOR_EMAIL", email}, {"GIT_COMMITTER_NAME", name}, {"GIT_COMMITTER_EMAIL", email}]
   end
 
   @doc "`env/1` as `Port.open` charlist tuples."
@@ -48,17 +48,32 @@ defmodule Aiur.AgentEnvironment.GitIdentity do
   end
 
   @doc false
-  @spec resolve(map() | nil, String.t() | nil) :: {String.t() | nil, String.t() | nil}
+  @spec resolve(map() | nil, String.t() | nil) :: {String.t(), String.t()}
   def resolve(configured, login) do
-    {field(configured, :name) || login, field(configured, :email) || (login && "#{login}@users.noreply.github.com")}
+    {neutral_name, neutral_email} = @neutral
+
+    {field(configured, :name) || login || neutral_name, field(configured, :email) || (login && "#{login}@users.noreply.github.com") || neutral_email}
   end
 
   defp configured do
-    resolve(Config.settings!().agent.git_identity, GitHubConfig.bot_account())
+    identity = resolve(Config.settings!().agent.git_identity, GitHubConfig.bot_account())
+    if identity == @neutral, do: warn_neutral_once()
+    identity
   rescue
     _config_unavailable -> nil
   catch
     :exit, _reason -> nil
+  end
+
+  defp warn_neutral_once do
+    if :persistent_term.get({__MODULE__, :warned}, false) == false do
+      :persistent_term.put({__MODULE__, :warned}, true)
+
+      Logger.warning(
+        "agent_git_identity=neutral reason=unconfigured agent commits are authored as Aiur Agent; " <>
+          "set agent.git_identity or tracker.github.bot_account"
+      )
+    end
   end
 
   defp field(configured, key) do
