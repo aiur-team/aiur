@@ -62,7 +62,6 @@ fi
 required_checks='[
   "browser harness",
   "build",
-  "coverage",
   "coverage (1/4)",
   "coverage (2/4)",
   "coverage (3/4)",
