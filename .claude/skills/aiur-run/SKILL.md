@@ -1219,6 +1219,11 @@ merge refusal, read the failed rule suite with the operator-only credential and
 emit GitHub's exact active-rule detail as a `merge.rule-violation` alert. Do not
 use `--admin` as a diagnostic probe.
 
+Before every merge, run `scripts/check-stack-order.sh <pr> <owner/repo>
+--repo-dir <clone>` (see `references/executor.md`, "Merge order gate"). Any exit
+other than 0 means do not merge; the only escape is removing the `blocked_by`
+edge.
+
 The declaration requires every blocking CI job as required status checks,
 including `build`, `test`, and `workflow security`, with strict status checks
 enabled, and the gate is enforced once that declaration is applied to the live

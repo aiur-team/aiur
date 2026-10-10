@@ -159,6 +159,8 @@ jobs:
         run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
+      - name: Test merge order gate
+        run: bash .claude/skills/aiur-run/scripts/tests/check-stack-order_test.sh
 
       - name: Test file size gate
         run: bash scripts/test-check-file-size.sh
