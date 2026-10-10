@@ -786,7 +786,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
                )
 
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
+      assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"}, 1_000)
       assert_push("commands", _payload)
 
       ref =
