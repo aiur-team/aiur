@@ -35,8 +35,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's
 **convergence age** crosses a configurable threshold, raises an advisory
 `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
-watch actionable section. The alerts are advisory takeover prompts — they never
-perform a takeover automatically.
+watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
 - `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
   first raises the advisory once its convergence age reaches this value.
@@ -45,8 +44,7 @@ perform a takeover automatically.
   A value of `0` disables repeats (first alert only); `0` on the first threshold
   disables the feature. Negative or non-integer values are rejected.
 
-**Convergence age** is `now − min(first_observed_active_work_at,
-open_pr_created_at)`:
+**Convergence age** is `now − min(first_observed_active_work_at, open_pr_created_at)`:
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon
   state, set once the first time the monitor observes the ticket as nonterminal
@@ -258,6 +256,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.budget_broker_rate_window_seconds` | integer | 300 | The sliding window over which budget-broker-timeout retries are counted for the retry-rate signal. The individual retry is uninteresting; the rate is the signal. |
 | `agent.budget_broker_degraded_retry_threshold` | integer | 5 | The retry count within the window above which the budget broker counts as degraded. Set from a measured quiet-period baseline — if the normal rate is zero, almost any sustained rate is worth surfacing — and kept above an isolated timeout, which must page nobody. |
 | `agent.budget_broker_degraded_alert_after_seconds` | integer | 600 | How long the degraded budget-broker retry rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained degradation raises exactly once. |
+| `agent.dispatch_hold_attention_threshold` | integer | 3 | How many times in a row one ticket's dispatch may be declined by a local GitHub budget hold before `attention.dispatch-declined` raises. Below it the decline is recorded as `github_budget_hold` at info and retried on the next poll. The run is counted, not timed, so a hold that never clears escalates at any `polling.intervals.dispatch`; it ends when every dispatch-time read gets through or one fails for another reason. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.rate_limit_primary` | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |

@@ -374,11 +374,11 @@ defmodule Aiur.Application do
       # a miss is the full price. Reads never call this process.
       Aiur.GitHub.ReadCache,
       Aiur.GitHub.Quota,
-      # Turns the budget-broker-timeout retry rate into a signal (#2464): a
-      # queryable retry event per backoff plus one dwelled degraded alert. The
-      # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
-      # owns the sliding-window rate and alert latch.
+      # Turns the budget-broker-timeout retry rate into a signal (#2464): a retry
+      # event per backoff plus one dwelled degraded alert, over a sliding window.
+      # `HoldPressure` keeps the same kind of window for local holds (#4067).
       Aiur.GitHub.BrokerTimeout,
+      Aiur.GitHub.HoldPressure,
       Aiur.GitHub.BudgetBroker,
       # The ElevenLabs account credit quota, read on its own schedule. Absent an
       # API key it observes nothing at all, so an unconfigured account costs a

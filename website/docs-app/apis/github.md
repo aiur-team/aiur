@@ -349,9 +349,9 @@ broker. Requests retain independent deadlines while sharing a transaction.
 Expired work is rolled back before commit, with 50 ms reserved for commit and
 reply delivery. A longer OS or disk stall can exceed this finite margin.
 
-Sustained broker retry pressure still appears as
-`system.github.budget_broker_degraded`; reduce host load or SQLite contention.
+A `shared_budget` hold is the per-minute request pacer every daemon and agent on a credential shares (`tracker.github.requests_per_minute`), not a quota reserve, so it appears with quota unspent. `aiur status` prints its rate as `GITHUB HOLDS`; a dispatch it declines is retried and raises attention after `agent.dispatch_hold_attention_threshold` in a row.
 
+Sustained broker retry pressure still appears as `system.github.budget_broker_degraded`; reduce host load or SQLite contention.
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |

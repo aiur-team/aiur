@@ -33,7 +33,7 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.Executor.{Claims, Roster}
-  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, HoldPressure, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
@@ -208,8 +208,7 @@ defmodule Aiur.AgentControlCLI do
 
     released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))
 
-    automatic_reclaims =
-      Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
+    automatic_reclaims = Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     print_status_table(visible_statuses)
 
@@ -639,8 +638,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp executor_wait_detail({:executor_claims_lock_timeout, lock}) do
-    %{timeout_ms: timeout_ms, retry_interval_ms: interval_ms, stale_after_seconds: stale_after_seconds} =
-      Claims.lock_retry_budget()
+    %{timeout_ms: timeout_ms, retry_interval_ms: interval_ms, stale_after_seconds: stale_after_seconds} = Claims.lock_retry_budget()
 
     "wake-stream lock contention: #{lock} was still held after retrying every #{interval_ms}ms for #{timeout_ms}ms " <>
       "(a lock older than #{stale_after_seconds}s is broken as stale). Nothing was consumed, so this is safe to retry"
@@ -2682,6 +2680,8 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_ci_readiness do
     if Config.tracker_kind() == "github" do
+      IO.puts(HoldPressure.status_line())
+
       case CiReadiness.cached_result() do
         :unavailable -> IO.puts("CI readiness: unavailable (no completed dispatcher assessment)")
         readiness -> IO.puts(CiReadiness.format(readiness))
