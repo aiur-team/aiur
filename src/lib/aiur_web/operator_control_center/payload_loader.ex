@@ -119,6 +119,18 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> Map.put(:retained_counts, unavailable_retained_counts())
   end
 
+  # A failed load re-serves the previous payload. Its Units catalog must say so
+  # rather than pass old rows and runtimes off as the live fleet (#3937).
+  defp cache_payload(%{stale: true, stale_age_ms: age_ms, units: %{} = units} = payload) when is_integer(age_ms) do
+    units =
+      units
+      |> Map.put(:status, :stale)
+      |> Map.put(:message, "Dashboard refresh failed; showing the last loaded units.")
+      |> Map.put(:retained_age_seconds, div(max(age_ms, 0), 1_000))
+
+    Map.put(payload, :units, units)
+  end
+
   defp cache_payload(payload), do: payload
 
   defp initial_reload_mode({:event, event_key}), do: {:event, MapSet.new([event_key])}

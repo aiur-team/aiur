@@ -72,10 +72,10 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  # Also the payload refresh interval: reloads are otherwise event-driven only (#3937).
   @github_quota_tick_ms 15_000
-  # The ElevenLabs credit quota is a whole-account figure that moves far more
-  # slowly than a per-request GitHub budget, so it refreshes on its own, longer
-  # tick rather than riding GitHub's.
+  # ElevenLabs credit is a whole-account figure that moves far more slowly than a
+  # per-request GitHub budget, so it refreshes on its own, longer tick.
   @elevenlabs_quota_tick_ms 60_000
   @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
@@ -244,7 +244,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:github_quota_tick, socket) do
     schedule_github_quota_tick()
-    {:noreply, assign(socket, :github_quota, github_quota_snapshot())}
+    {:noreply, socket |> assign(:github_quota, github_quota_snapshot()) |> PayloadLoader.schedule()}
   end
 
   def handle_info(:elevenlabs_quota_tick, socket) do

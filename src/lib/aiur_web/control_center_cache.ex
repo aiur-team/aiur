@@ -4,10 +4,13 @@ defmodule AiurWeb.ControlCenterCache do
   monitored tasks; ordinary reads and identical provider events share loads.
   Forced reads and distinct events read anew without blocking other keys.
   Provider events also refresh the ordinary TTL entry. Retained entries
-  are bounded because keys may include provider incarnations.
+  are bounded because keys may include provider incarnations. A failed load
+  re-serves the last payload marked `stale: true` with its `stale_age_ms`.
   """
 
   use GenServer
+
+  require Logger
 
   @max_entries 8
   @event_coalesce_ms 1_000
@@ -112,8 +115,12 @@ defmodule AiurWeb.ControlCenterCache do
   defp load_result({:error, reason}, load, entries) do
     payload =
       case Map.get(entries, load.key) do
-        %{payload: payload} -> Map.put(payload, :stale, true)
-        nil -> unavailable(reason)
+        %{payload: payload, loaded_at_ms: loaded_at_ms} ->
+          Logger.warning("control center payload load failed (#{inspect(reason)}); serving the last loaded payload")
+          payload |> Map.put(:stale, true) |> Map.put(:stale_age_ms, System.monotonic_time(:millisecond) - loaded_at_ms)
+
+        nil ->
+          unavailable(reason)
       end
 
     {payload, entries}
