@@ -246,6 +246,10 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   end
 
   defp git_identity_env do
+    with [] <- AgentEnvironment.GitIdentity.env(), do: ambient_git_identity_env()
+  end
+
+  defp ambient_git_identity_env do
     name = System.get_env("GIT_AUTHOR_NAME") || global_git_config("user.name") || "Aiur Agent"
     email = System.get_env("GIT_AUTHOR_EMAIL") || global_git_config("user.email") || "aiur-agent@users.noreply.github.com"
 
