@@ -19,6 +19,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   }
 
   @doc false
+  @spec units_path(Phoenix.LiveView.Socket.t(), map()) :: String.t()
   def units_path(socket, selection) do
     params = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort])
     "/?" <> URI.encode_query(params)
@@ -26,6 +27,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
 
   # Emit only positive known counts; this producer cannot distinguish zero from unknown.
   @doc false
+  @spec nav_counts(map(), map() | nil) :: map()
   def nav_counts(units_view, retained_counts) do
     %{}
     |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
@@ -38,6 +40,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   defp put_nav_count(counts, _key, _value), do: counts
 
   @doc false
+  @spec assign_units_selection(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
   def assign_units_selection(socket, params) do
     selection = UnitsURL.decode(params)
 
@@ -47,6 +50,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   end
 
   @doc false
+  @spec maybe_canonicalize_units_url(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
   def maybe_canonicalize_units_url(socket, params) do
     selection = socket.assigns.units_selection
     expected = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort]) |> Map.new()
@@ -63,6 +67,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   defp maybe_put_table_sort(params, sort), do: params ++ [{"sort", sort}]
 
   @doc false
+  @spec normalize_table_sort(term()) :: String.t() | nil
   def normalize_table_sort(sort) when is_binary(sort) do
     with [table, column, direction] <- String.split(sort, ":"),
          true <- direction in ["asc", "desc"],
@@ -77,6 +82,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   def normalize_table_sort(_sort), do: nil
 
   @doc false
+  @spec assign_units_view(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def assign_units_view(socket) do
     catalog = socket.assigns.payload |> Map.get(:units, %{})
     view = UnitsPresenter.project(catalog, socket.assigns.units_selection)
@@ -95,6 +101,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   # then keep resolving a row the current query happens to hide, so a ticket
   # already open on screen does not go dead the moment the operator types.
   @doc false
+  @spec assign_tickets_panel_view(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def assign_tickets_panel_view(socket) do
     # Reached during mount before the query default is assigned, so the query is
     # read defensively: no search yet means the unfiltered projection.
@@ -120,6 +127,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   # `normalize_selection/1` clamps whichever value wins to the backend's seedable
   # vocabulary (registry plus what its CLI reported), so an unlisted model falls back to the backend default.
   @doc false
+  @spec add_agent_modal(map()) :: map()
   def add_agent_modal(row) do
     routing = row.routing
 
@@ -134,6 +142,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   end
 
   @doc false
+  @spec change_add_agent(map(), map()) :: map()
   def change_add_agent(modal, params) do
     backend = blank_to_nil(params["backend"]) || modal.selection.backend
 
@@ -173,6 +182,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   end
 
   @doc false
+  @spec finish_add_agent(Phoenix.LiveView.Socket.t(), map()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def finish_add_agent(socket, result) do
     modal = socket.assigns.add_agent_pending
     socket = socket |> assign(:add_agent_pending, nil) |> refresh_open_tickets({:ok, []})
@@ -235,6 +245,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   # never claims a fleet size the table below it does not contain. A partial
   # catalog is qualified rather than rounded down to a confident number.
   @doc false
+  @spec units_count_label(map()) :: String.t()
   def units_count_label(view) do
     case Map.get(view, :count_status, :unavailable) do
       :unavailable -> "units unavailable"

@@ -14,6 +14,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   # render, or when the projection process is unreachable, fall back to the
   # loading view rather than crashing the LiveView.
   @doc false
+  @spec assign_initial_run_summary(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
   def assign_initial_run_summary(socket, connected) do
     snapshot = if connected, do: read_run_summary_snapshot(), else: nil
 
@@ -36,6 +37,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   # and flush once per debounce window so high-frequency renders and
   # screen-reader announcements stay bounded.
   @doc false
+  @spec stash_run_summary(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
   def stash_run_summary(socket, snapshot) do
     socket = assign(socket, :run_summary_pending, snapshot)
 
@@ -48,6 +50,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   end
 
   @doc false
+  @spec flush_run_summary(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def flush_run_summary(socket) do
     socket = assign(socket, :run_summary_flush_scheduled?, false)
 
@@ -79,6 +82,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   end
 
   @doc false
+  @spec assign_initial_current_run_outcomes(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
   def assign_initial_current_run_outcomes(socket, connected) do
     snapshot = if connected, do: read_current_run_outcomes_snapshot(), else: nil
 
@@ -101,6 +105,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   # flush once per debounce window so high-frequency renders and screen-reader
   # announcements stay bounded.
   @doc false
+  @spec stash_current_run_outcomes(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
   def stash_current_run_outcomes(socket, snapshot) do
     socket = assign(socket, :current_run_outcomes_pending, snapshot)
 
@@ -113,6 +118,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   end
 
   @doc false
+  @spec flush_current_run_outcomes(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def flush_current_run_outcomes(socket) do
     socket = assign(socket, :current_run_outcomes_flush_scheduled?, false)
 

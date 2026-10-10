@@ -4,8 +4,6 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias AiurWeb.DashboardLive.{Controls, Summaries, UnitsPanel}
-
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
@@ -24,6 +22,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
+  alias AiurWeb.DashboardLive.{Controls, Summaries, UnitsPanel}
   alias AiurWeb.Endpoint
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -46,8 +45,8 @@ defmodule AiurWeb.DashboardLive do
     ProviderMeterSource,
     ProviderMetersPresenter,
     RouteRegistry,
-    RunSummaryStrip,
     RunSummaryPresenter,
+    RunSummaryStrip,
     TicketContext,
     TicketDetailModal,
     TicketsPanel,
@@ -940,6 +939,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   @doc false
+  @spec reload_after_action(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def reload_after_action(socket) do
     socket
     |> reload_payload(:fresh)

@@ -10,6 +10,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
 
   @doc false
+  @spec toggle_global_pause(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def toggle_global_pause(socket) do
     target = not global_paused?(socket.assigns.payload)
 
@@ -32,6 +33,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   @doc false
+  @spec global_pause_state(map()) :: boolean() | nil
   def global_pause_state(%{fleet: %{error: _error}}), do: nil
   def global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
   def global_pause_state(_payload), do: nil
@@ -43,12 +45,14 @@ defmodule AiurWeb.DashboardLive.Controls do
   defp global_paused?(_payload), do: false
 
   @doc false
+  @spec adjust_capacity(Phoenix.LiveView.Socket.t(), integer()) :: Phoenix.LiveView.Socket.t()
   def adjust_capacity(socket, delta) do
     prior = capacity_max(socket.assigns.payload)
     reconcile_capacity(socket, capacity_adjust(delta), prior)
   end
 
   @doc false
+  @spec set_capacity(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
   def set_capacity(socket, value) do
     case parse_capacity(value) do
       {:ok, next} ->
@@ -90,6 +94,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   @doc false
+  @spec capacity_facts(map()) :: map() | nil
   def capacity_facts(payload), do: get_in(payload, [:fleet, :capacity])
 
   defp capacity_max(payload) do
@@ -114,9 +119,11 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   @doc false
+  @spec capacity_orchestrator() :: GenServer.server()
   def capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
 
   @doc false
+  @spec pause_agent(Aiur.TrackerIdentity.t() | String.t()) :: term()
   def pause_agent(target) do
     case Endpoint.config(:agent_chat_pause_fun) do
       fun when is_function(fun, 1) -> fun.(target)
@@ -130,6 +137,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   # invoke DASH-004. Applied state is mirrored only from lifecycle evidence, so
   # this only records the request; it never mutates the row's lifecycle.
   @doc false
+  @spec request_unit_control(Phoenix.LiveView.Socket.t(), String.t(), :pause | :resume) :: Phoenix.LiveView.Socket.t()
   def request_unit_control(socket, token, action) do
     control = Map.get(socket.assigns.unit_controls, token)
 
@@ -233,6 +241,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   @doc false
+  @spec apply_control_lifecycle(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
   def apply_control_lifecycle(socket, payload) do
     identifier = get_in(payload, [:tracker_identity, :identifier])
 
@@ -252,6 +261,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   defp find_control_token(_controls, _identifier), do: nil
 
   @doc false
+  @spec sync_unit_control_subscriptions(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
   def sync_unit_control_subscriptions(socket, false), do: socket
 
   def sync_unit_control_subscriptions(socket, true) do
@@ -291,6 +301,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   # A changed or terminal row cancels stale in-flight UI intent rather than
   # targeting a replacement unit; settled states are left untouched.
   @doc false
+  @spec reconcile_unit_controls(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def reconcile_unit_controls(%{assigns: %{unit_controls: controls}} = socket) when controls == %{},
     do: socket
 
