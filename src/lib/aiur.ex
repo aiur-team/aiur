@@ -25,7 +25,7 @@ defmodule Aiur.Application do
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{BlockerProgress, Config}
   alias Aiur.Identity.Machine
 
   @impl true
@@ -440,7 +440,7 @@ defmodule Aiur.Application do
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
-      # Webhook deduplication state must be replayed before any receiver can admit a delivery.
+      {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},

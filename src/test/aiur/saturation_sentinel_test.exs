@@ -67,6 +67,20 @@ defmodule Aiur.SaturationSentinelTest do
   end
 
   describe "record/2" do
+    test "writes a real snapshot as one JSON line without record_failed warnings" do
+      dir = Aiur.TestSupport.tmp_root!("aiur-sat-real")
+      path = Path.join(dir, "saturation.log")
+      snap = SaturationSentinel.snapshot()
+
+      log = ExUnit.CaptureLog.capture_log(fn -> assert :ok = SaturationSentinel.record(path, snap) end)
+
+      refute log =~ "saturation_sentinel record_failed"
+      assert [line, ""] = path |> File.read!() |> String.split("\n")
+      record = Jason.decode!(line)
+      assert record["memory"]["total"] == snap.memory.total
+      assert record["ts"] == snap.ts
+    end
+
     test "appends one JSON line per sample to the target file" do
       dir = Aiur.TestSupport.tmp_root!("aiur-sat")
       path = Path.join(dir, "saturation.log")
