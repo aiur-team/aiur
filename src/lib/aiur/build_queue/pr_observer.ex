@@ -1,6 +1,7 @@
 defmodule Aiur.BuildQueue.PRObserver do
   @moduledoc false
   alias Aiur.Events.Publisher
+  alias Aiur.StartTrigger.ProgressStore
   require Logger
 
   @doc "Adds delivered PR evidence to open prerequisites; returns the PR versions already published per ticket."
@@ -17,7 +18,23 @@ defmodule Aiur.BuildQueue.PRObserver do
         {observations, state}
       end
 
-    {merged_observations(observations, state), state.published_pr_versions}
+    {observations |> progress_observations() |> merged_observations(state), state.published_pr_versions}
+  end
+
+  defp progress_observations(observations) do
+    Map.new(observations, fn {id, observation} ->
+      row = ProgressStore.lookup(id)
+      stage = if row && row.pr_number, do: row.stage
+
+      pr =
+        cond do
+          row && row.closed_unmerged? -> :closed_unmerged
+          stage == :pr_merged -> :merged
+          true -> observation.pr
+        end
+
+      {id, %{observation | stage_reached: stage, pr: pr}}
+    end)
   end
 
   defp merged_observations(observations, state) do

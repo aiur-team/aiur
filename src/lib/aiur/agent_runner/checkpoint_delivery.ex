@@ -11,6 +11,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
 
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.Codex.SessionRecovery
+  alias Aiur.Commands
   alias Aiur.Issue
 
   # Mid-turn delivery for the persistent-REPL backend: when an Executor
@@ -22,7 +23,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   # the normal turn-boundary drain re-attempts.
   @doc false
   @spec operator_immediate_handler(Issue.t(), GenServer.server(), GenServer.server(), keyword()) :: fun()
-  def operator_immediate_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore, live_opts \\ []) do
+  def operator_immediate_handler(issue, orchestrator, decision_store \\ Commands.default_store(), live_opts \\ []) do
     fn ->
       case QueueDrain.claim_next_operator_item(orchestrator, issue.identifier) do
         {:ok, item} ->
@@ -38,7 +39,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   def operator_response_handler(issue, orchestrator, live_opts) do
     fn command ->
       case Aiur.Orchestrator.claim_operator_response(orchestrator, issue.identifier, command) do
-        {:ok, item} -> immediate_operator_delivery(issue, orchestrator, item, Aiur.DecisionStore, live_opts)
+        {:ok, item} -> immediate_operator_delivery(issue, orchestrator, item, Commands.default_store(), live_opts)
         _ -> :noop
       end
     end
@@ -65,7 +66,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
 
   @doc false
   @spec safe_checkpoint_handler(Issue.t(), GenServer.server(), String.t(), GenServer.server(), keyword()) :: fun()
-  def safe_checkpoint_handler(issue, orchestrator, backend, decision_store \\ Aiur.DecisionStore, live_opts \\ []) do
+  def safe_checkpoint_handler(issue, orchestrator, backend, decision_store \\ Commands.default_store(), live_opts \\ []) do
     fn checkpoint ->
       case claim_blocker_critical_events_digest(orchestrator, issue.identifier) do
         {:ok, item} ->

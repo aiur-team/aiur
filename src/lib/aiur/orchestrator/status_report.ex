@@ -9,8 +9,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AlertFeed
   alias Aiur.Alerts
   alias Aiur.CodingAgent
+  alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.DecisionStore
+
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CapacityBinding
@@ -728,7 +729,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp open_decision_count(identifier) when is_binary(identifier) do
-    case DecisionStore.open_blocking_decision_ids([identifier], DecisionStore, 100) do
+    case Commands.open_blocking_decision_ids([identifier], Commands.default_store(), 100) do
       {:ok, ids} -> {length(ids), :available}
       {:error, :store_unavailable} -> {0, :unavailable}
     end

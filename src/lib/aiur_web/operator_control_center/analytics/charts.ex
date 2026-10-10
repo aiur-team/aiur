@@ -9,7 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   @w 760
   @minimum_domain_ms 1_000
 
-  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
+  alias AiurWeb.OperatorControlCenter.Analytics.{LifecycleLane, Presenter}
 
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
@@ -258,31 +258,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y = mt + i * rowh
         color = status_color(r.status)
         start_ms = clamp(r.start_ms, t0, t1)
-        work_ms = clamp(r.work_ms, t0, t1)
-        end_ms = clamp(r.end_ms, t0, t1)
         wx = r2(xf.(start_ms))
-        ww = r2(max(xf.(work_ms) - xf.(start_ms), 0))
-
-        work_bar =
-          if r.work_ms < t1 do
-            bx = r2(xf.(work_ms))
-            bw = r2(max(xf.(end_ms) - xf.(work_ms), 2))
-            ~s|<rect x="#{bx}" y="#{r2(y + 3)}" width="#{bw}" height="#{rowh - 8}" rx="3" fill="#{color}" fill-opacity="0.85"/>|
-          else
-            ""
-          end
-
-        end_marker =
-          if r.end_ms >= t0 and r.end_ms <= t1 do
-            ~s|<circle cx="#{r2(xf.(end_ms))}" cy="#{r2(y + rowh / 2)}" r="3" fill="#{color}" stroke="var(--surface)" stroke-width="1"/>|
-          else
-            ""
-          end
+        ww = r2(max(xf.(r.work_ms) - xf.(start_ms), 0))
 
         text(ml - 6, y + rowh / 2 + 3, "##{r.id}", anchor: "end", fill: "var(--muted)") <>
           ~s|<rect x="#{wx}" y="#{r2(y + rowh / 2 - 1.5)}" width="#{ww}" height="3" rx="1.5" fill="var(--faint)" opacity="0.5"/>| <>
-          work_bar <>
-          end_marker
+          LifecycleLane.render(r, {t0, t1}, xf, y, color)
       end)
 
     inner =
@@ -631,6 +612,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   defp status_color(:merged), do: "var(--good)"
   defp status_color(:rework), do: "var(--blocking)"
+  defp status_color(:in_review), do: "var(--attention)"
   defp status_color(:paused), do: "var(--faint)"
   defp status_color(_active), do: "var(--accent)"
 

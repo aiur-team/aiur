@@ -47,7 +47,8 @@ the merge/fetch — committing avoids the stash path that often triggers the
 index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 `/tmp`.**
 
-**Integrating an upstream blocker's branch**: when
+**Integrating an upstream blocker's branch**: an **Optimistic start** prompt
+block routes to [the canonical loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker). For paused dependents, when
 `ticket.<blocker-id>.agent.unblocked` arrives, use the latest
 `ticket.<blocker-id>.branch.push` payload to fetch the actual validated ref (or
 discover it with `scripts/resolve-ticket-branch <blocker-id>`)
@@ -56,6 +57,10 @@ continue. Never infer readiness from the branch push alone. Do NOT run
 `git -C "$workspace" stash`
 before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
+
+### After the blocker merges: restack
+
+On `ticket.<B>.pr.merged`, follow [the restack recipe](restack.md) before merging the integration branch. A plain merge after a squash can duplicate blocker code and conflict on dependent edits.
 
 Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 `aiur/<id>` branches still supported. `scripts/resolve-ticket-branch <id>` is the
@@ -332,7 +337,8 @@ focused test runner, test-tree paths and CI gate at each step.
    and tell the Executor what you deleted and why.
 8. **Open the PR as a draft** with that branch as `--head` and the authoritative
    integration branch as `--base`: `gh pr create --draft --head "$branch"
-   --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
+   --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet), unless your prompt
+   has an **Optimistic start** block: follow [the canonical PR rules](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker). If a PR already
    exists, read its `baseRefName` before CI handoff. Leave a matching base
    unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
    request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the

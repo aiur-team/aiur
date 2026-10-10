@@ -43,7 +43,7 @@ defmodule Aiur.BuildQueueCLITest do
     assert first.number == 1
     assert first.downstream_open == 1
     assert second.number == 2
-    assert second.prerequisites == [%{number: 1, source: :list, verdict: :pending}]
+    assert second.prerequisites == [%{number: 1, source: :list, verdict: :pending, trigger: :pr_merged, stage: nil}]
     assert model.sources["tracker_observation"].age_ms == 1_000
     output = capture_io(fn -> assert BuildQueueCLI.run(server: pid, json: true, queue: "paseo") == 0 end)
     json = Jason.decode!(output)

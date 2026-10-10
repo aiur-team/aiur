@@ -4,8 +4,7 @@ defmodule Aiur.Tracker.IssueTracker do
   @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
 
-  @type ticket_pull_request_result ::
-          {:ok, nil | %{required(:state) => :open | :closed, required(:merged?) => boolean(), optional(:number) => pos_integer(), optional(:version) => String.t() | nil}} | {:error, term()}
+  @type ticket_pull_request_result :: Aiur.Tracker.ticket_pull_request_result()
 
   @callback ticket_pull_request(String.t()) :: ticket_pull_request_result()
 
@@ -29,7 +28,12 @@ defmodule Aiur.Tracker.IssueTracker do
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks ticket_pull_request: 1,
+  @callback config_module() :: module()
+  @callback code_host() :: module() | nil
+
+  @optional_callbacks config_module: 0,
+                      code_host: 0,
+                      ticket_pull_request: 1,
                       blocked_by: 1,
                       issue_closure: 2,
                       ensure_labels: 1,

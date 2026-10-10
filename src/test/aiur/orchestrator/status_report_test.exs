@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CapacityBinding, SnapshotStore, State, StatusReason, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
+  alias Aiur.Projections.UnitsRow
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
-  alias AiurWeb.OperatorControlCenter.UnitsRow
 
   test "snapshot projection retains last dispatch poll age and never-polled state" do
     now_ms = System.monotonic_time(:millisecond)

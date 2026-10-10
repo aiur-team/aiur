@@ -638,7 +638,7 @@ defmodule Aiur.Regression.EngineControlTest do
     end
 
     test "the marker and readiness literals are pinned across both languages" do
-      cli = File.read!(Path.expand("../../../lib/aiur/agent_control_cli.ex", __DIR__))
+      cli = File.read!(Path.expand("../../../lib/aiur/control_cli/protocol.ex", __DIR__))
       engine = File.read!(@engine)
 
       assert cli =~ ~s|@exit_marker "__AIUR_CONTROL_EXIT__:"|

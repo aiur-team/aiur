@@ -1,0 +1,75 @@
+{
+  "manifest_version": 1,
+  "components": [
+    {
+      "id": "commands",
+      "name": "commands",
+      "layer": 3,
+      "kind": "required",
+      "paths": [
+        "src/lib/a.ex"
+      ],
+      "facades": [
+        "AiurWeb.Routes.Decisions"
+      ],
+      "facade_pending": null,
+      "requires": [
+        "web-kit"
+      ],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    },
+    {
+      "id": "web-shell",
+      "name": "web-shell",
+      "layer": 4,
+      "kind": "optional",
+      "paths": [
+        "src/lib/router.ex"
+      ],
+      "facades": [
+        "AiurWeb.Router"
+      ],
+      "facade_pending": null,
+      "requires": [
+        "web-kit"
+      ],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    },
+    {
+      "id": "web-kit",
+      "name": "web-kit",
+      "layer": 1,
+      "kind": "required",
+      "paths": [
+        "src/lib/kit.ex"
+      ],
+      "facades": [
+        "AiurWeb.Kit"
+      ],
+      "facade_pending": null,
+      "requires": [],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    }
+  ]
+}

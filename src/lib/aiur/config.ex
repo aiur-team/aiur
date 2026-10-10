@@ -3,14 +3,11 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.AgentEnvironment
-  alias Aiur.BuildGate
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.{Schema, SemanticChecks}
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.Codex, as: CodexSchema
   alias Aiur.Config.Schema.EnvResolver
-  alias Aiur.GitHub.Budget
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
 
@@ -896,17 +893,16 @@ defmodule Aiur.Config do
   Number of dispatch slots added by each below-target envelope sample.
   """
   @spec load_ramp_step() :: pos_integer()
-  def load_ramp_step do
-    settings!().agent.load_ramp_step
-  end
+  def load_ramp_step, do: settings!().agent.load_ramp_step
+
+  @spec load_resume_max_age_seconds() :: non_neg_integer()
+  def load_resume_max_age_seconds, do: settings!().agent.load_resume_max_age_seconds
 
   @doc """
   Minimum number of seconds between high-load envelope decreases.
   """
   @spec load_cooldown_seconds() :: non_neg_integer()
-  def load_cooldown_seconds do
-    settings!().agent.load_cooldown_seconds
-  end
+  def load_cooldown_seconds, do: settings!().agent.load_cooldown_seconds
 
   @doc """
   Minimum seconds a ready-work capacity-starvation condition must persist before
@@ -1157,80 +1153,15 @@ defmodule Aiur.Config do
   end
 
   defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
-    with {:ok, turn_sandbox_policy} <-
-           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts),
-         {:ok, turn_sandbox_policy} <-
-           maybe_add_package_manager_roots(turn_sandbox_policy, opts),
-         {:ok, turn_sandbox_policy} <- maybe_add_github_budget_root(turn_sandbox_policy, opts) do
-      maybe_add_build_gate_root(turn_sandbox_policy, settings, opts)
+    with {:ok, policy} <- Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      Enum.reduce_while(Application.get_env(:aiur, :turn_sandbox_root_contributors, []), {:ok, policy}, &contribute_sandbox_roots(&1, &2, settings, opts))
     end
   end
 
-  defp maybe_add_package_manager_roots(turn_sandbox_policy, opts) do
-    cond do
-      Keyword.get(opts, :remote, false) ->
-        {:ok, turn_sandbox_policy}
-
-      not workspace_write_policy?(turn_sandbox_policy) ->
-        {:ok, turn_sandbox_policy}
-
-      true ->
-        Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, AgentEnvironment.package_cache_paths(opts))
-    end
-  end
-
-  defp maybe_add_github_budget_root(turn_sandbox_policy, opts) do
-    cond do
-      Keyword.get(opts, :remote, false) ->
-        {:ok, turn_sandbox_policy}
-
-      not workspace_write_policy?(turn_sandbox_policy) ->
-        {:ok, turn_sandbox_policy}
-
-      not Budget.enabled?() ->
-        {:ok, turn_sandbox_policy}
-
-      true ->
-        with :ok <- Budget.ensure_state_dir() do
-          Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, [Budget.state_dir()])
-        end
-    end
-  end
-
-  defp maybe_add_build_gate_root(turn_sandbox_policy, settings, opts) do
-    gate_opts = [
-      slots: settings.agent.max_concurrent_builds,
-      stagger_seconds: settings.agent.build_start_stagger_seconds,
-      min_free_memory_mb: settings.agent.min_free_memory_mb
-    ]
-
-    cond do
-      Keyword.get(opts, :remote, false) ->
-        {:ok, turn_sandbox_policy}
-
-      not BuildGate.enabled?(gate_opts) ->
-        {:ok, turn_sandbox_policy}
-
-      not workspace_write_policy?(turn_sandbox_policy) ->
-        {:ok, turn_sandbox_policy}
-
-      true ->
-        with {:ok, effective_roots} <- policy_writable_roots(turn_sandbox_policy),
-             {:ok, gate_dir} <-
-               BuildGate.prepare_writable_root(Keyword.put(gate_opts, :writable_roots, effective_roots)) do
-          Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, [gate_dir])
-        end
-    end
-  end
-
-  defp workspace_write_policy?(policy) do
-    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
-  end
-
-  defp policy_writable_roots(policy) do
-    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
-      roots when is_list(roots) -> {:ok, roots}
-      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+  defp contribute_sandbox_roots(contributor, {:ok, policy}, settings, opts) do
+    case contributor.contribute(policy, settings, opts) do
+      {:ok, policy} -> {:cont, {:ok, policy}}
+      {:error, _reason} = error -> {:halt, error}
     end
   end
 

@@ -16,13 +16,13 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
       {:error, reason} ->
         Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1)).("aiur: queue #{message({:error, reason})}")
-        if reason in [:agent_workspace, :invalid_arguments], do: 64, else: 1
+        if reason in [:agent_workspace, :invalid_arguments, :invalid_start_trigger], do: 64, else: 1
     end
   end
 
   @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:error, term()}}]} | {:error, term()}
   def execute(opts) do
-    with :ok <- guard_workspace(opts), :ok <- validate(opts), :ok <- confirm(opts) do
+    with :ok <- guard_workspace(opts), :ok <- validate(opts), {:ok, opts} <- trigger(opts), :ok <- confirm(opts) do
       if opts[:build_order], do: adopt(opts), else: dispatch(Keyword.fetch!(opts, :verb), opts)
     end
   end
@@ -42,7 +42,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp valid_options?(opts) do
     allowed =
       case opts[:verb] do
-        :add -> [:ids, :queue, :after, :at, :build_order]
+        :add -> [:ids, :queue, :after, :at, :build_order, :start_on]
+        :set -> [:queue, :start_on]
         :recover -> [:force]
         :clear -> [:remove_markers, :yes]
         :remove -> [:ids]
@@ -62,6 +63,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
+  defp valid_command?(:set, [], opts), do: is_binary(opts[:queue]) and Keyword.has_key?(opts, :start_on)
   defp valid_command?(:recover, [], opts), do: Keyword.get(opts, :force, false) in [true, false]
   defp valid_command?(:clear, [], opts), do: opts[:remove_markers] == true and Keyword.get(opts, :yes, false) in [true, false]
   defp valid_command?(:remove, ids, opts), do: ids != [] and is_nil(opts[:queue])
@@ -75,9 +77,23 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp position?(n), do: is_integer(n) and n >= 0
   defp positive?(n), do: is_integer(n) and n > 0
 
+  defp trigger(opts) do
+    cond do
+      not Keyword.has_key?(opts, :start_on) ->
+        {:ok, opts}
+
+      opts[:verb] == :set and opts[:start_on] == "default" ->
+        {:ok, Keyword.put(opts, :start_on, nil)}
+
+      true ->
+        with {:ok, value} <- Aiur.StartTrigger.parse(opts[:start_on]), do: {:ok, Keyword.put(opts, :start_on, value)}
+    end
+  end
+
   defp adopt(opts) do
     root = opts[:build_order]
-    result = call({:mutate, {:adopt, root, opts[:queue]}}, opts)
+    command = if Keyword.has_key?(opts, :start_on), do: {:adopt, root, opts[:queue], opts[:start_on]}, else: {:adopt, root, opts[:queue]}
+    result = call({:mutate, command}, opts)
 
     results =
       case result do
@@ -92,6 +108,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
   end
 
+  defp dispatch(:set, opts), do: {:ok, [{opts[:queue], call({:mutate, {:set_trigger, opts[:queue], opts[:start_on]}}, opts)}]}
   defp dispatch(:recover, opts), do: {:ok, [{"recover", call({:recover, Keyword.get(opts, :force, false)}, opts)}]}
   defp dispatch(:clear, opts), do: {:ok, [{"clear", call({:mutate, {:clear, Keyword.take(opts, [:remove_markers, :yes])}}, opts)}]}
 
@@ -99,6 +116,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     {results, _} =
       Enum.map_reduce(opts[:ids], opts[:at], fn id, at ->
         options = Keyword.take(opts, [:after]) |> Keyword.put(:queue, opts[:queue] || "default")
+        options = if Keyword.has_key?(opts, :start_on), do: Keyword.put(options, :start_trigger, opts[:start_on]), else: options
         options = if is_nil(at), do: options, else: Keyword.put(options, :at, at)
         result = call({:mutate, {:add, [id], options}}, opts)
         {{"##{id}", result}, if(inserted?(result) and is_integer(at), do: at + 1, else: at)}
@@ -155,6 +173,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp message({:error, :confirmation_required}), do: "clear requires --yes; removes all queue membership and markers, keeping todo"
+  defp message({:error, :invalid_start_trigger}), do: "--start-on must be one of: #{Enum.join(Aiur.StartTrigger.triggers(), ", ")} (set also accepts default)"
+  defp message({:error, :trigger_mismatch}), do: "queue has a different start trigger; use queue set NAME --start-on TRIGGER"
   defp message(:ok), do: "ok"
   defp message({:error, {:already_queued, name}}), do: "already in queue #{name}"
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"

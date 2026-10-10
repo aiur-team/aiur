@@ -14,7 +14,7 @@ export async function loadAllowlist(source = new URL('./design-parity-allowlist.
       && !Object.hasOwn(entry, 'approved') && a && nonempty(a.ref)
       && (a.status === 'pending-sign-off' || (a.status === 'approved' && a.by === 'Kevin' && /^\d{4}-\d{2}-\d{2}$/.test(a.date) && !Number.isNaN(Date.parse(a.date)) && new Date(a.date).toISOString().slice(0, 10) === a.date))
       && Object.entries({ css: 'design-style', property: 'property', rule: 'axe', path: 'motion' }).every(([field, kind]) => entry.kind === kind ? nonempty(entry[field]) : entry[field] == null)
-      && (entry.kind !== 'motion' || !entry.path.includes('*') || entry.path === '*')
+      && (entry.kind !== 'motion' || !/[?{}]/.test(entry.path))
       && Object.entries(entry.cells ?? {}).every(([key, value]) => ['viewport', 'theme', 'palette', 'dataset'].includes(key) && nonempty(value))
     if (!valid) throw new Error(`invalid allowlist entry ${entry.id ?? '(unnamed)'}`)
     ids.add(entry.id)
@@ -36,8 +36,9 @@ export async function applyAllowlist(pair, cell, entries) {
   entries ??= pair.allowlist ?? await loadAllowlist()
   const masks = { designMask: [], productMask: [] }
   for (const entry of entries) {
+    if (entry.kind === 'motion') continue
     if (!Object.entries(entry.cells ?? {}).every(([key, value]) => (key === 'viewport' ? `${cell.viewport.width}x${cell.viewport.height}` : cell[key]) === value)) continue
-    // All seven kinds participate in stale-selector validation.
+    // Motion paths have their own stale-difference check.
     const pages = entry.kind === 'pixel-mask' ? [pair.design, pair.product] : [pair.design]
     if (entry.kind === 'design-removal' && removals.get(pair.design)?.has(entry.id)) continue
     for (const page of pages) {
