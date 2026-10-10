@@ -84,7 +84,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
         {"TMPDIR", "/tmp"},
         {"MISE_DATA_DIR", "/opt/aiur-mise"},
         {"PATH", guarded_path(workspace)}
-      ] ++ git_identity_env() ++ agent_environment(workspace, real_gh)
+      ] ++ agent_environment(workspace, real_gh)
 
     inherited =
       @inherited_env_names
@@ -243,27 +243,6 @@ defmodule Aiur.OpenAICompat.CommandRunner do
 
   defp mise_data_dir do
     System.get_env("MISE_DATA_DIR") || Path.join(System.user_home!(), ".local/share/mise")
-  end
-
-  defp git_identity_env do
-    name = System.get_env("GIT_AUTHOR_NAME") || global_git_config("user.name") || "Aiur Agent"
-    email = System.get_env("GIT_AUTHOR_EMAIL") || global_git_config("user.email") || "aiur-agent@users.noreply.github.com"
-
-    [
-      {"GIT_AUTHOR_NAME", name},
-      {"GIT_AUTHOR_EMAIL", email},
-      {"GIT_COMMITTER_NAME", name},
-      {"GIT_COMMITTER_EMAIL", email}
-    ]
-  end
-
-  defp global_git_config(key) do
-    case System.cmd("git", ["config", "--global", "--get", key], stderr_to_stdout: true) do
-      {value, 0} -> String.trim(value)
-      _ -> nil
-    end
-  rescue
-    _error -> nil
   end
 
   defp existing(paths), do: Enum.filter(paths, &File.exists?/1)

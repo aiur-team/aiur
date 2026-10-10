@@ -63,9 +63,10 @@ defmodule Aiur.Opencode.Server do
   end
 
   @doc false
-  @spec launch_env(Path.t()) :: [{charlist(), charlist() | false}]
-  def launch_env(workspace) do
+  @spec launch_env(Path.t(), keyword()) :: [{charlist(), charlist() | false}]
+  def launch_env(workspace, opts \\ []) do
     AgentEnvironment.port_shell_startup_env() ++
+      AgentEnvironment.GitIdentity.port_env(opts) ++
       [
         {~c"OPENCODE_CONFIG", false},
         {~c"OPENCODE_CONFIG_CONTENT", false},

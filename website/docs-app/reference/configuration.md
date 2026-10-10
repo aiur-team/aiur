@@ -220,6 +220,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
 | `agent.headroom_reading_max_age_seconds` | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
 | `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
+| `agent.git_identity.name`, `agent.git_identity.email` | string or nil | nil | Author and committer of agent commits on every backend. Aiur exports them as `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, which override the operator's git config. An unset field uses the `tracker.github.bot_account` login, or `<login>@users.noreply.github.com`; with neither set, commits use `Aiur Agent <aiur-agent@users.noreply.github.com>` and the daemon logs one warning. Local workspaces also get a `commit-msg` hook that rejects AI co-author trailers and generated-with footers, and Claude settings that stop the CLI adding them. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -308,8 +309,7 @@ order.** Duplicate *routes* are rejected; duplicate backends are not.
 | Alias claimed by multiple vendors | Rejected during config load. |
 | Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
-**OpenRouter needs an explicit model.** It fronts a catalog rather than a
-product, so a bare `openrouter` entry is a config error.
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a product, so a bare `openrouter` entry is a config error.
 
 **An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
 means direct-only, always. Routing through OpenRouter is something you write.
