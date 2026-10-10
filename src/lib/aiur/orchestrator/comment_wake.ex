@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.GitHub.{Config, LocalHold}
@@ -239,14 +239,14 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   defp emit_merge_alert(name, opts) do
     {message, alert_opts} = Keyword.pop!(opts, :message)
-    Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+    Signal.agent_alert(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
   # A merged PR that names a ticket but fails to transition it to `done` leaves
   # the ticket stranded on an active-state label; surface it to the Executor
   # rather than only logging it (#2420).
   defp emit_merge_terminal_write_failed_alert(identifier, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
       "Merged PR could not transition ticket #{identifier} to done (#{inspect(reason)}); the ticket was not closed.",
       issue: identifier,
@@ -787,7 +787,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     emit_alert_fun =
       case Map.get(event, :emit_alert_fun) do
         fun when is_function(fun, 2) -> fun
-        _ -> &Alerts.emit_system/2
+        _ -> &Signal.alert/2
       end
 
     identifier = to_string(issue_number)
@@ -818,7 +818,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
       "Comment on idle issue #{issue_number} was not acted on (#{inspect(reason)})",
       issue: to_string(issue_number),
@@ -832,7 +832,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   defp emit_idle_comment_refusal(_issue_number, _reason), do: :ok
 
   defp emit_comment_rework_refusal(issue_number, suffix, message, reason, remedy) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue_number}.agent.attention.#{suffix}",
       message,
       issue: to_string(issue_number),
@@ -1100,7 +1100,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           _ -> "dispatch policy does not permit this state"
         end
 
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
         "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
         issue: issue.identifier,
@@ -1363,7 +1363,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   # The rework-attempt attention's emitter is injectable for tests; production
-  # routes through `Aiur.Alerts.emit_system/2`.
+  # routes through `Signal.alert/2`.
   defp rework_attempt_alert_opts(event) do
     case Map.get(event, :emit_alert_fun) do
       fun when is_function(fun, 2) -> [emit_alert_fun: fun]
@@ -1445,7 +1445,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue_reactivation",
           "Reactivation for inactive issue #{issue_number} was ignored (#{inspect(reason)})",
           issue: to_string(issue_number),
@@ -1460,7 +1460,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         state
 
       {:error, reason} ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_refresh_failed",
           "Reactivation for issue #{issue_number} failed - could not refresh state (#{inspect(reason)})",
           issue: to_string(issue_number),
@@ -1542,7 +1542,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-    Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
+    Signal.alert("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
       issue: identifier,
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -1687,7 +1687,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
           |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
-          Alerts.emit_custom(
+          Signal.agent_alert(
             "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue",
             "Comment on inactive issue #{issue_number} was ignored (#{inspect(reason)})",
             issue: to_string(issue_number),
@@ -1707,7 +1707,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_state_failed",
           "Reactivation for issue #{issue_number} failed (#{inspect(reason)})",
           issue: to_string(issue_number),

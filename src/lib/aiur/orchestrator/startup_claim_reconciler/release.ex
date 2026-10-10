@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   @moduledoc false
 
-  alias Aiur.{Alerts, Config, Issue, Tracker}
+  alias Aiur.{Signal, Config, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReviewFindings, ReworkGate, TicketTransition}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation
@@ -119,7 +119,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp comment_failed(issue, reason, opts) do
-    emit = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit.("ticket.#{issue.identifier}.agent.attention.orphan_release_comment_failed",
       issue: issue,

@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.GithubBudgetPause do
   @moduledoc false
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{ControlLifecycle, State}
   alias Aiur.Protocol.MapAccess
@@ -135,7 +135,7 @@ defmodule Aiur.Orchestrator.GithubBudgetPause do
   @spec emit_escalation_if_needed(map(), pos_integer()) :: :ok
   def emit_escalation_if_needed(entry, generation) when is_map(entry) and is_integer(generation) do
     if escalating_generation?(generation) do
-      Alerts.emit_system("ticket.#{Map.get(entry, :identifier)}.github-budget.escalation",
+      Signal.alert("ticket.#{Map.get(entry, :identifier)}.github-budget.escalation",
         issue: Map.get(entry, :identifier),
         workspace: Map.get(entry, :workspace_path),
         worker_host: Map.get(entry, :worker_host),

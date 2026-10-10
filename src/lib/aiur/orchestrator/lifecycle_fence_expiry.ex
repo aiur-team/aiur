@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiry do
 
   require Logger
 
-  alias Aiur.{AgentQueueItem, AgentQueueStore, Alerts}
+  alias Aiur.{AgentQueueItem, AgentQueueStore, Signal}
   alias Aiur.Orchestrator.{LifecycleFence, State}
 
   @timeout_seconds 120
@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiry do
     reason = "Provider delivery fence expired after #{@timeout_seconds}s; pending_item_ids=#{inspect(ids)}. Lifecycle reconciliation may proceed; delivery is unconfirmed."
     Logger.warning("#{State.issue_context(entry.issue)} #{reason}")
 
-    Alerts.emit_system("ticket.#{identifier}.agent.lifecycle_fence_expired",
+    Signal.alert("ticket.#{identifier}.agent.lifecycle_fence_expired",
       issue: identifier,
       message: reason,
       reason: reason,

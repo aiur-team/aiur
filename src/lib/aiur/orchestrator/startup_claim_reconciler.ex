@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   require Logger
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Signal, Issue}
   alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
 
@@ -212,7 +212,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     )
 
     if attempts >= @max_release_attempts or not Map.has_key?(state.startup_claim_reconciliation_failures, issue.identifier) do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
       emit_alert_fun.(
         failure_topic(issue),
@@ -240,7 +240,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   end
 
   defp emit_released_alert(%Issue{} = issue, target, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
       "ticket.#{issue.identifier}.agent.attention.startup_orphan_claim_released",
@@ -262,7 +262,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         state
 
       {_entry, failures} ->
-        emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+        emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
         emit_alert_fun.(
           failure_topic(issue) <> ".resolved",

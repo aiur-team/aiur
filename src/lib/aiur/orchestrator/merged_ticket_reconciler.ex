@@ -28,7 +28,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   block `done`: an abandoned draft must not pin its ticket out of its terminal
   state. A failed open-PR lookup never closes the ticket.
   """
-  alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore}
+  alias Aiur.{Signal, Issue, RecentMerge, RecentMergeStore}
   alias Aiur.Orchestrator.{CommentWake, Lifecycle, PushRouting, Reconciler, ReworkGate, State, TicketTransition, TrackerTasks}
 
   require Logger
@@ -441,7 +441,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   # with no dependents: this force-transitions a live ticket to `done`, and a
   # state change that consequential must never be invisible.
   defp emit_reconciled_alert(issue, merge, resumed, blocked_before, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
       "ticket.#{issue.identifier}.dependency.merged_blocker_reconciled",
@@ -469,7 +469,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   # dispatchable. Announced like the done path: a state write this consequential
   # must never be invisible.
   defp emit_remaining_open_alert(issue, merge, target, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
       "ticket.#{issue.identifier}.dependency.merged_pr_remaining_open",
@@ -497,7 +497,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     if MapSet.member?(state.merged_ticket_reconciliation_failures, signature) do
       state
     else
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
       emit_alert_fun.(
         "ticket.#{issue.identifier}.agent.attention.merged_pr_reconciliation_failed",

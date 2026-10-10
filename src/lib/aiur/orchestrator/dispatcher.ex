@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, BuildOrder.History, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Signal, BuildOrder.History, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -366,7 +366,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
 
       result ->
-        accept_cached_ci_readiness_result(state, result, &Alerts.emit_system/2)
+        accept_cached_ci_readiness_result(state, result, &Signal.alert/2)
     end
   end
 
@@ -389,7 +389,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token, ci_readiness_retry_at_ms: nil}
 
       {:error, reason} ->
-        record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2)
+        record_ci_readiness_result(state, {:error, reason}, &Signal.alert/2)
     end
   end
 
@@ -400,7 +400,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def handle_ci_readiness_result(%State{ci_readiness_check_token: token} = state, token, result) do
     state
     |> clear_ci_readiness_check()
-    |> record_ci_readiness_result(result, &Alerts.emit_system/2)
+    |> record_ci_readiness_result(result, &Signal.alert/2)
   end
 
   def handle_ci_readiness_result(state, _token, _result), do: state
@@ -412,7 +412,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     state
     |> clear_ci_readiness_check()
-    |> record_ci_readiness_result({:error, :timeout}, &Alerts.emit_system/2)
+    |> record_ci_readiness_result({:error, :timeout}, &Signal.alert/2)
   end
 
   def handle_ci_readiness_timeout(state, _token), do: state
@@ -738,7 +738,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     state = record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
-    case Alerts.emit_system("system.dispatch.prewarm_blocked",
+    case Signal.alert("system.dispatch.prewarm_blocked",
            reason: reason,
            needs_attention: true,
            severity: "warning"
@@ -765,7 +765,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.prewarm_blocked.resolved",
+      case Signal.alert("system.dispatch.prewarm_blocked.resolved",
              reason: prewarm_resolution_reason(phase),
              needs_attention: false,
              severity: "info"
@@ -832,7 +832,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         "GitHub tracker authentication preflight failed; fleet dispatch is paused. Cause: " <>
           "#{formatted_reason} This condition is expected to clear automatically once tracker authentication succeeds."
 
-      case Alerts.emit_system("system.tracker.auth_preflight_failed",
+      case Signal.alert("system.tracker.auth_preflight_failed",
              reason: message,
              needs_attention: true,
              severity: "warning"
@@ -857,7 +857,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         AlertFeed.active_system_attention?("system.tracker.auth_preflight_failed")
 
     if active? do
-      case Alerts.emit_system("system.tracker.auth_preflight_failed.resolved",
+      case Signal.alert("system.tracker.auth_preflight_failed.resolved",
              reason: "GitHub tracker authentication preflight recovered; fleet dispatch may resume.",
              needs_attention: false,
              severity: "info"
@@ -1452,7 +1452,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     else
       state = maybe_resolve_dispatch_decline(state, issue)
 
-      Alerts.emit_custom(
+      Signal.agent_alert(
         dispatch_decline_topic(issue, attention?),
         "Dispatch declined for #{issue.identifier}: #{inspect(reason)}.",
         issue: issue.identifier,
@@ -1474,7 +1474,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
       reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :dependency_hydration_failed] ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",
           issue: issue.identifier,
@@ -1509,7 +1509,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           state
         else
-          Alerts.emit_system("ticket.#{issue.identifier}.agent.model_fallback_waiting",
+          Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
             reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
             needs_attention: true,
@@ -2142,7 +2142,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp default_capacity_alert(name, reason) do
-    Alerts.emit_system(name,
+    Signal.alert(name,
       reason:
         "Fleet admission is being limited by #{capacity_signal_label(reason)} " <>
           "(measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}).",
@@ -2530,7 +2530,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           "Codex dispatch circuit opened (#{reason}); window restarts=#{count}, lifetime dispatches=#{lifetime}/#{lifetime_max}."
         end
 
-      Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
+      Signal.alert("ticket.#{issue.identifier}.agent.thrash_circuit_open",
         issue: issue.identifier,
         reason: alert_body,
         needs_attention: true,
@@ -2595,7 +2595,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     lifetime = Map.get(entry, :lifetime, 0)
     maximum = Config.agent_max_dispatches_per_ticket()
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
       "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
       issue: issue.identifier,
@@ -2628,7 +2628,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if entry[:latch_alert_emitted] do
       state
     else
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
         "Lifetime dispatch latch could not be persisted as error (#{inspect(reason)}); the ticket keeps its active-state label.",
         issue: issue.identifier,

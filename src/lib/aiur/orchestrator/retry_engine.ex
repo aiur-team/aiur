@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Signal, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
@@ -231,7 +231,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           identifier = Map.get(running_entry, :identifier)
 
           _ =
-            Alerts.emit_custom(
+            Signal.agent_alert(
               "ticket.#{identifier}.agent.orphan_reaped",
               "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
               issue: Map.get(running_entry, :issue),
@@ -520,7 +520,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       alert_message = retry_exhausted_alert_message(error)
 
-      Alerts.emit_custom("ticket.#{identifier}.agent.retry_exhausted", alert_message,
+      Signal.agent_alert("ticket.#{identifier}.agent.retry_exhausted", alert_message,
         issue: identifier,
         reason: alert_message,
         needs_attention: true,
@@ -945,7 +945,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
             "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
               retry_exhausted_error_suffix(exhaustion_reason)
 
-          Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
+          Signal.agent_alert("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
             issue: identifier,
             reason: message,
             needs_attention: true,
@@ -964,7 +964,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           # instead of a false `:ok`, and alert rather than only logging (#2420):
           # a swallowed write here would leave the ticket with its active-state
           # label and no signal to the Executor that exhaustion never parked it.
-          Alerts.emit_custom(
+          Signal.agent_alert(
             "ticket.#{identifier}.agent.attention.error-state-write-failed",
             "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
             issue: identifier,
@@ -994,7 +994,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp emit_rework_handoff_attention(identifier, state_name) do
     message = "Agent exhausted retries without handing off after pushing rework for #{identifier}; moved the ticket to agent:#{state_name}."
 
-    Alerts.emit_custom("ticket.#{identifier}.agent.rework_handoff", message,
+    Signal.agent_alert("ticket.#{identifier}.agent.rework_handoff", message,
       issue: identifier,
       reason: message,
       needs_attention: true,
@@ -1216,7 +1216,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         "max_retry_poll_failures=#{@max_retry_poll_failures} reason=#{reason_code} tracker_error=#{inspect(reason)}"
     )
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "orchestrator.claim_released",
       message,
       issue: identifier,

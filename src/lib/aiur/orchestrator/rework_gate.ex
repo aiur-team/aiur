@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   one.
   """
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
   alias Aiur.Orchestrator.State
@@ -330,7 +330,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   defp raise_rework_attempt_attention(%State{} = state, issue_id, head_sha, opts) do
     if is_binary(head_sha) and not State.rework_attempt_alerted?(state, issue_id, head_sha) do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
       limit = State.rework_attempt_limit()
 
       emit_alert_fun.(
