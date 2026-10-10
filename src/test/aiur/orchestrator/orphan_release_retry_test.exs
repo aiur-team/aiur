@@ -26,7 +26,29 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
     assert_received {:write, "rework"}
     assert_received {:comment, body}
     assert body =~ "to rework"
+    assert body =~ "Integrate the base"
     refute_received {:comment, _}
+  end
+
+  # #3971: a never-reviewed PR is the reviewer's, however sticky an old verdict on another head is.
+  test "an open pull request with no review on its head is released to human-review" do
+    stale = %{"state" => "CHANGES_REQUESTED", "commit_id" => "older", "user" => %{"login" => "reviewer"}, authoritative: true}
+
+    for reviews <- [[], [stale]] do
+      opts =
+        Keyword.merge(opts(),
+          open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+          pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+          unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+          reviews_fetcher: fn _ -> {:ok, reviews} end
+        )
+
+      {_released, [result]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+      assert result.state == "human-review"
+      assert_received {:comment, body}
+      assert body =~ "to human-review"
+      refute body =~ "Integrate the base"
+    end
   end
 
   for reason <- [
