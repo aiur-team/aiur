@@ -162,13 +162,11 @@ defmodule Aiur.Config.Schema.Agent do
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
     field(:ci_wait_rewake_minutes, :integer, default: 5)
-    # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
-    # load is corroborated with short-window reclaimable CPU before holding.
-    # Explicit YAML null disables it.
+    # Linux CPU PSI some avg60 percentages; explicit null disables each.
+    field(:max_cpu_pressure, :float, default: 20.0)
+    field(:target_cpu_pressure, :float, default: 10.0)
+    # Per-scheduler load settings apply only when CPU PSI is unavailable.
     field(:max_load_average, :float, default: 1.5)
-    # Per-scheduler 1-min load target for the adaptive concurrency envelope.
-    # It ramps capacity while below target and backs off before the separate
-    # max_load_average hard gate is reached.
     field(:target_load_average, :float, default: 1.0)
     field(:load_resume_max_age_seconds, :integer, default: 21_600)
     field(:load_ramp_step, :integer, default: 1)
@@ -255,6 +253,8 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :ci_wait_rewake_minutes,
+        :max_cpu_pressure,
+        :target_cpu_pressure,
         :max_load_average,
         :target_load_average,
         :load_resume_max_age_seconds,
@@ -291,6 +291,8 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
+    |> validate_number(:max_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)
+    |> validate_number(:target_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:max_load_average, greater_than: 0)
     |> validate_number(:target_load_average, greater_than: 0)
     |> validate_number(:load_resume_max_age_seconds, greater_than_or_equal_to: 0)

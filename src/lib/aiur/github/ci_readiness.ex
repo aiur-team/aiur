@@ -1102,8 +1102,8 @@ defmodule Aiur.GitHub.CiReadiness do
       |> String.replace_suffix("}}", "")
       |> String.trim()
 
-    ready_gate = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
-    ready_conditions = [ready_gate, "always() && (#{ready_gate})", "!cancelled() && (#{ready_gate})"]
+    ready_gates = ["github.event_name != 'pull_request' || !github.event.pull_request.draft", "needs.changes.outputs.draft != 'true'"]
+    ready_conditions = for g <- ready_gates, c <- [g, "always() && (#{g})", "!cancelled() && (#{g})"], do: c
 
     condition in ["always()", "!cancelled()" | ready_conditions] or
       Regex.match?(~r/^github\.event_name\s*==\s*['\"]pull_request['\"]$/, condition)
