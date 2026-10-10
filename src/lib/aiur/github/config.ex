@@ -169,20 +169,20 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
-  defp resolve_origin_repo do
-    case Aiur.Git.origin_repo() do
-      value when is_binary(value) ->
-        # The one operator-facing surface that names which repository an
-        # unconfigured install actually resolved to. Without it, a daemon
-        # launched from the wrong directory auto-detects that directory's
-        # repository and reports nothing.
-        Logger.info("aiur_config phase=repo_auto_detected repo=#{value} cwd=#{origin_cwd()} reason=tracker_github_repo_unset")
-
-        :persistent_term.put(@origin_cache_key, value)
-        value
-
-      _other ->
-        nil
+  @doc false
+  @spec resolve_origin_repo((-> String.t() | nil)) :: String.t() | nil
+  def resolve_origin_repo(origin_fun \\ &Aiur.Git.origin_repo/0) do
+    # `git` ran unlocked: a value cached meanwhile wins over this late result (#4071).
+    with value when is_binary(value) <- origin_fun.(),
+         :unset <- :persistent_term.get(@origin_cache_key, :unset) do
+      # The one operator-facing surface that names which repository an unconfigured
+      # install actually resolved to. Without it, a daemon launched from the wrong
+      # directory auto-detects that directory's repository and reports nothing.
+      Logger.info("aiur_config phase=repo_auto_detected repo=#{value} cwd=#{origin_cwd()} reason=tracker_github_repo_unset")
+      :persistent_term.put(@origin_cache_key, value)
+      value
+    else
+      cached_or_nil -> cached_or_nil
     end
   end
 
