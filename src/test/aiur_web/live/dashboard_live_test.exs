@@ -31,6 +31,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
+  alias Aiur.TestSupport.RefreshTrace
   alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
@@ -842,9 +843,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
-    :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
+    assert RefreshTrace.count(fn -> :ok = StatusReport.notify_dashboard(:sys.get_state(pid)) end) == 0
 
-    # The refresh topic is VM-global, so wait for a refresh after which this orchestrator's projection is readable instead of refuting strays (#3861).
     assert eventually(fn -> assert_receive({:observability_updated, _event_id}, 1_000) && match?({:current, _, _}, SnapshotStore.read(orchestrator_name, 1_000)) end)
     assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
   end
