@@ -27,6 +27,8 @@ defmodule Aiur.Regression.TrackerIoPollBarrierTest do
 
     error = assert_raise ExUnit.AssertionError, fn -> await_poll_finished(server, 50) end
     assert error.message =~ "waited 50 ms for #{inspect(server)} to complete a poll cycle"
-    assert error.message =~ "poll_cycles_completed=0, tracker tasks []"
+    # Boot starts a :startup_workspace_cleanup tracker task that may still be
+    # listed at 50 ms on a loaded host, so the task list is not asserted.
+    assert error.message =~ "saw poll_cycles_completed=0, tracker tasks ["
   end
 end
