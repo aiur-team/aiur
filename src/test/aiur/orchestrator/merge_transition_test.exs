@@ -39,8 +39,8 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     refute log =~ "ticket was not closed"
   end
 
-  test "future regression guard: only closed issues with exclusively terminal state labels satisfy the merge" do
-    for {state, labels} <- [{"open", ["agent:done"]}, {"closed", []}, {"closed", ["agent:done", "agent:rework"]}, {"closed", ["other:done"]}] do
+  test "future regression guard: only closed issues with only the done state label satisfy the merge" do
+    for {state, labels} <- [{"open", ["agent:done"]}, {"closed", []}, {"closed", ["agent:cancelled"]}, {"closed", ["agent:done", "agent:rework"]}, {"closed", ["other:done"]}] do
       outcome = {"rework", {:error, {:no_state_label_written, %{"state" => state, "labels" => Enum.map(labels, &%{"name" => &1})}}}}
       assert MergeTransition.normalize(outcome) == outcome
     end
