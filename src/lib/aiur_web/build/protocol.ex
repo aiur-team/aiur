@@ -36,18 +36,18 @@ defmodule AiurWeb.Build.Protocol do
   @spec resync(Phoenix.LiveView.Socket.t(), keyword()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
   def resync(socket, opts) do
     a = socket.assigns
-    now = System.monotonic_time(:millisecond)
+    now = clock()
     cached? = a.build_state == :ready and a.build_generation == 0 and not a.build_resynced
-    throttled? = is_integer(a.build_read_at) and now - a.build_read_at < @resync_interval_ms and is_map(a.build_snapshot)
+    throttled? = is_integer(a.build_read_at) and now - a.build_read_at < @resync_interval_ms
 
     cond do
       cached? ->
         snapshot_reply({:ok, a.build_snapshot}, socket, opts)
 
       throttled? ->
-        # Coalesce: serve the last stored snapshot instead of another full read.
+        # build_snapshot is not folded with later diffs, so serving it would stamp stale rows as current.
         :telemetry.execute([:aiur, :build, :resync_throttled], %{count: 1}, %{})
-        snapshot_reply({:ok, a.build_snapshot}, socket, opts)
+        {:reply, Payload.error(:throttled), socket}
 
       true ->
         result = Read.safe_read(fn -> DataSource.call(a.build_source, :snapshot, [opts]) end)
@@ -157,5 +157,6 @@ defmodule AiurWeb.Build.Protocol do
 
   defp stale?(%{"index_generation" => generation}, current) when is_integer(generation) and is_integer(current), do: generation <= current
   defp stale?(_changes, _current), do: false
+  defp clock, do: AiurWeb.Endpoint.config(:build_resync_clock, &System.monotonic_time/1).(:millisecond)
   defp writable?, do: AiurWeb.Endpoint.config(:dashboard_writable) == true
 end

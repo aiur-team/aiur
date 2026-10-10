@@ -28,18 +28,24 @@ defmodule AiurWeb.BuildLiveReadTest do
     {:ok, view, _} = live(build_conn(), "/build")
     render_async(view)
     flush_reads()
+    {:ok, clock} = Agent.start_link(fn -> 10_000 end)
+    Phoenix.Config.put(AiurWeb.Endpoint, :build_resync_clock, fn _ -> Agent.get(clock, & &1) end)
+    on_exit(fn -> :ets.whereis(AiurWeb.Endpoint) != :undefined && Phoenix.Config.put(AiurWeb.Endpoint, :build_resync_clock, &System.monotonic_time/1) end)
     ref = make_ref()
     pid = self()
     :telemetry.attach(ref, [:aiur, :build, :resync_throttled], fn _, m, _, _ -> send(pid, {:throttled, m.count}) end, nil)
     on_exit(fn -> :telemetry.detach(ref) end)
 
-    start = System.monotonic_time(:millisecond)
     for _ <- 1..100, do: render_hook(view, "build-resync", %{})
-    elapsed = System.monotonic_time(:millisecond) - start
+    assert length(flush_reads()) == 1
+    # first resync is served from the mount-time cache, second reads
+    assert length(flush_throttled()) == 98
+    assert_reply(view, %{"kind" => "error", "reason" => "throttled"})
 
-    reads = length(flush_reads())
-    assert reads >= 1 and reads <= 1 + div(elapsed, 2_000)
-    assert reads + length(flush_throttled()) == 99
+    Agent.update(clock, &(&1 + 2_001))
+    render_hook(view, "build-resync", %{})
+    assert length(flush_reads()) == 1
+    assert flush_throttled() == []
   end
 
   defp flush_reads(acc \\ []), do: receive(do: ({:read, _} = m -> flush_reads([m | acc])), after: (0 -> acc))
