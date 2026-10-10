@@ -7,6 +7,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   """
 
   alias Aiur.Events.SubscriptionStore
+  require Logger
 
   defmodule HermeticReworkGitHubClient do
     def update_issue_state(issue_id, state_name) do
@@ -331,10 +332,6 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert MapSet.member?(retried.claimed, identifier)
     end
 
-    # #1747: the retry chain runs on the long-lived orchestrator for ~60s at the
-    # default delays. A missing token cannot clear by being asked five more
-    # times, so retrying it only sprays warnings across every test that happens
-    # to be running a global `capture_log` assertion at the time.
     test "permanent tracker auth failure fails fast instead of scheduling a retry" do
       identifier = "7417"
       isolated_subscription_store(identifier)
@@ -375,6 +372,8 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       log =
         capture_log(fn ->
+          # #3805: another process's retry log must not count against this ticket.
+          Task.async(fn -> Logger.info("PR review comment rework transition retry scheduled: issue_identifier=29189 attempt=5/5 delay_ms=0") end) |> Task.await()
           assert {:noreply, next} = Orchestrator.handle_info({:event, event}, base_state())
           assert_receive {:hermetic_rework_update, ^identifier, "rework"}, 2000
           send(self(), {:permanent_failure_state, next})
@@ -384,8 +383,9 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       refute_receive {:retry_comment_rework, ^identifier, "issue comment", ^event, _attempt}, 200
       assert next.comment_rework_retries == %{}
-      assert log =~ "rework transition failed permanently"
-      refute log =~ "rework transition retry scheduled"
+      assert log =~ "rework transition retry scheduled: issue_identifier=29189"
+      assert log =~ "rework transition failed permanently: issue_identifier=#{identifier} "
+      refute log =~ "rework transition retry scheduled: issue_identifier=#{identifier} "
     end
 
     test "pr.merged terminalizes the ticket to done and tears down the running entry" do
