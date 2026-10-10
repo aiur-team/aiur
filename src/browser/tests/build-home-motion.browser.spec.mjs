@@ -167,9 +167,9 @@ async function sequenceOptions(name, selectedCell) {
   const opts = { motion: true, phase: name === 'loading.spin' ? 'loading' : 'board', query: name.startsWith('columns.') || name === 'snap.scroll-curve' ? '?trees=1&span=30' : '?trees=1' }
   if (name === 'modal.url') {
     const fixture = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${selectedCell.dataset}.json`, import.meta.url), 'utf8'))
-    const ticket = fixture.data.now.find(t => t.agent?.state !== 'active') ?? fixture.data.hist[0]
+    const ticket = fixture.sections.now.find(t => t.agent?.state !== 'active') ?? fixture.sections.hist[0]
     if (!ticket) throw new Error('unreachable URL modal fixture ticket')
-    Object.assign(opts, { ticket: ticket.id, pauseAtSelector: '#tk-modal' })
+    Object.assign(opts, { ticket: `AIUR-${ticket.num}`, pauseAtSelector: '#tk-modal' })
   }
   return opts
 }

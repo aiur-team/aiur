@@ -320,8 +320,9 @@ async function filter(page, ctx, kind) {
   if (!await page.locator('.bd-opt').count()) throw new Error('unreachable filter options')
   const animation = await cssMotion(page, '#build-root', ctx, '.bd-opt')
   const samples = [await state(page, ctx)]
-  if (kind === 'compact') { await click(page, '[data-m="compact"]'); await page.clock.runFor(32); samples.push(await state(page, ctx)) }
-  if (kind !== 'dim') { await click(page, '#bd-fx'); await page.clock.runFor(32); samples.push(await state(page, ctx)) }
+  // Relayout can clamp scrollTop; consume its native event before sampling frames.
+  if (kind === 'compact') { await click(page, '[data-m="compact"]', true); await page.clock.runFor(32); samples.push(await state(page, ctx)) }
+  if (kind !== 'dim') { await click(page, '#bd-fx', true); await page.clock.runFor(32); samples.push(await state(page, ctx)) }
   return { samples, animation }
 }
 
