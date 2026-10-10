@@ -169,8 +169,8 @@ defmodule AiurWeb.Build.PlannedRowsTest do
   test "design plan cues round-trip with explicit computed-wave exceptions" do
     {input, fixture, active} = live()
     rows = PlannedRows.build(input, @history, active: active).rows
-    assert length(rows) == length(fixture["data"]["plan"])
-    pairs = Enum.zip(rows, fixture["data"]["plan"])
+    assert length(rows) == length(fixture["sections"]["plan"])
+    pairs = Enum.zip(rows, fixture["sections"]["plan"])
 
     for {row, design} <- pairs do
       assert row.num == design["num"] and row.qpos == design["qpos"]
@@ -178,7 +178,7 @@ defmodule AiurWeb.Build.PlannedRowsTest do
       assert row.cue.held == design["cue"]["held"]
       assert row.cue.wait == design["cue"]["wait"]
       assert row.cue.waitAny == design["cue"]["waitAny"]
-      assert row.cue.promoted == if(design["cue"]["promoted"], do: fixture["meta"]["now"] - 360_000, else: nil)
+      assert row.cue.promoted == design["cue"]["promoted"]
     end
 
     exceptions = for {row, design} <- pairs, row.wave != design["wave"], do: {design["num"], design["title"]}

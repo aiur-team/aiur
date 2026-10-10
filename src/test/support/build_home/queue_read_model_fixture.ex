@@ -13,13 +13,13 @@ defmodule Aiur.Test.BuildHome.QueueReadModelFixture do
   @spec live() :: {map(), map(), MapSet.t()}
   def live do
     fixture = "test/fixtures/build_home/live.json" |> File.read!() |> Jason.decode!()
-    data = fixture["data"]
+    data = fixture["sections"]
     done = MapSet.new(for row <- data["hist"], row["status"] == "done", do: row["num"])
-    items = Enum.map(data["plan"], &design_item(&1, done, fixture["meta"]["now"]))
+    items = Enum.map(data["plan"], &design_item(&1, done))
     {show(items), fixture, MapSet.new(data["now"], & &1["num"])}
   end
 
-  defp design_item(row, done, now) do
+  defp design_item(row, done) do
     deps =
       Enum.map(row["deps"], fn id ->
         n = id |> String.replace_prefix("AIUR-", "") |> String.to_integer()
@@ -28,7 +28,7 @@ defmodule Aiur.Test.BuildHome.QueueReadModelFixture do
 
     cond do
       row["cue"]["held"] -> item(row["num"], prerequisites: deps, state: :held, hold_by: "Maya", hold_reason: "release freeze until Thu")
-      row["cue"]["promoted"] -> item(row["num"], prerequisites: deps, state: :promoted, promoted_at: DateTime.from_unix!(now - 360_000, :millisecond))
+      row["cue"]["promoted"] -> item(row["num"], prerequisites: deps, state: :promoted, promoted_at: DateTime.from_unix!(row["cue"]["promoted"], :millisecond))
       true -> item(row["num"], prerequisites: deps)
     end
   end
