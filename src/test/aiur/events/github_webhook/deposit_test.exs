@@ -315,7 +315,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # every construction site outside the writers. Scanning the source is the only
   # way to assert the absence of a reader: a runtime check can only see the
   # readers that happen to run.
-  @writer_files ~w(deposit.ex write_through.ex normalizer.ex resource_store.ex resource_events.ex)
+  @writer_files ~w(deposit.ex store_write.ex triples.ex write_through.ex normalizer.ex resource_store.ex resource_events.ex)
   @lib_root Path.expand("../../../../lib", __DIR__)
 
   defp reader_sites(type) do
