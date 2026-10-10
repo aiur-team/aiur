@@ -424,9 +424,7 @@ and never advances the durable cursor.
 already covered. The 10,000-record bound remains an emergency disk bound, not
 evidence of consumption.
 
-`AIUR_EXECUTOR_ID` names this consumer when `--as` is omitted. Nothing infers
-consumer identity from the terminal, parent process, or any other environment
-signal.
+`AIUR_EXECUTOR_ID` names this consumer when `--as` is omitted. Nothing infers consumer identity from the terminal, parent process, or any other environment signal.
 
 Executor subscriptions are the Executor's half of the event system; see [Message Bus](/concepts/message-bus). Agents do not need these commands: every agent is auto-subscribed to its own comment, review, and CI topics, and to both directions of every blocker edge.
 
