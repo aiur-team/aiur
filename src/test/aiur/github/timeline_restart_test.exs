@@ -46,6 +46,7 @@ defmodule Aiur.GitHub.TimelineRestartTest do
            end).dispatch_authorized?
   end
 
+  # Future regression guard: non-list stored evidence must remain unusable.
   test "corrupt persisted evidence falls back to an unconditional fetch" do
     key = ResourceStore.key(:issue_timeline, "owner", "repo", 42)
     :ok = ResourceStore.put_resource(key, %{"events" => "corrupt", "single_page" => true, "per_page" => 50}, etag: "bad")
@@ -87,6 +88,7 @@ defmodule Aiur.GitHub.TimelineRestartTest do
              if request.url =~ "page=2", do: response("trusted"), else: {:ok, %{status: 200, body: [], headers: [{"etag", "timeline-v1"}, {"link", next}]}}
            end).dispatch_authorized?
 
+    assert {:ok, %{data: %{"single_page" => false}}} = ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 42))
     reboot()
 
     refute authorize(fn request ->
