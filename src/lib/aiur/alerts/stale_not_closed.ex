@@ -6,6 +6,7 @@ defmodule Aiur.Alerts.StaleNotClosed do
   """
 
   alias Aiur.{AlertFeed, Alerts}
+  alias Aiur.GitHub.Issues, as: GitHubIssues
 
   # "ticket was not closed" and "merge attribution could not be determined"
   @suffixes [".agent.attention.merge_terminal_write_failed", ".merge.attribution_check_failed"]
@@ -22,6 +23,15 @@ defmodule Aiur.Alerts.StaleNotClosed do
 
     :ok
   end
+
+  @doc "Pipe helper for a `done` state write: resolves on `:ok`, returns the write result unchanged."
+  @spec resolve_on_ok(term(), String.t() | integer()) :: term()
+  def resolve_on_ok(:ok = result, identifier) do
+    resolve(identifier)
+    result
+  end
+
+  def resolve_on_ok(result, _identifier), do: result
 
   @doc """
   Resolves every open alert whose ticket `done?` reports closed. `done?` takes
@@ -43,7 +53,7 @@ defmodule Aiur.Alerts.StaleNotClosed do
   @doc "Returns the subset of `ids` whose GitHub issue is labelled done."
   @spec done_ids([String.t()]) :: [String.t()]
   def done_ids(ids) do
-    case Aiur.GitHub.Issues.fetch_issue_states_by_ids(ids) do
+    case GitHubIssues.fetch_issue_states_by_ids(ids) do
       {:ok, issues} -> for issue <- issues, done?(issue.state), do: issue.identifier
       _error -> []
     end
