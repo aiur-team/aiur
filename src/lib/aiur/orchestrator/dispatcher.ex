@@ -92,6 +92,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       # Counted AFTER the schedule is computed so the first cycle after a
       # restart schedules at the base interval: a freshly started daemon has
       # observed no idleness, so the idle backoff may only apply from the
+      # second scheduling decision onward (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
       # The GitHub poll floor is measured from here, so an event that pulls
       # the next tick forward cannot land it closer than the floor allows.

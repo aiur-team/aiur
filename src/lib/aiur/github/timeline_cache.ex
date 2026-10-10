@@ -4,11 +4,13 @@ defmodule Aiur.GitHub.TimelineCache do
   alias Aiur.GitHub.ResourceStore
 
   @table :aiur_github_dispatch_authorization_timelines
+  @index :aiur_github_dispatch_authorization_timeline_index
   @max_entries 1_000
 
   @spec clear() :: :ok
   def clear do
     if :ets.whereis(@table) != :undefined, do: :ets.delete_all_objects(@table)
+    if :ets.whereis(@index) != :undefined, do: :ets.delete_all_objects(@index)
     :ok
   end
 
@@ -41,9 +43,10 @@ defmodule Aiur.GitHub.TimelineCache do
     :ets.insert(table(), {id, held})
     if :ets.info(@table, :size) > @max_entries, do: clear()
 
-    data = %{"events" => events, "single_page" => single_page?, "per_page" => per_page, "stored_at_ms" => System.system_time(:millisecond)}
+    now = System.system_time(:millisecond)
+    data = %{"events" => events, "single_page" => single_page?, "per_page" => per_page, "stored_at_ms" => now}
     ResourceStore.put_resource(key(owner, repo, id), data, etag: etag, source: :fetch)
-    bound_persisted(owner, repo)
+    bound_persisted(owner, repo, id, now)
     :ok
   end
 
@@ -65,13 +68,39 @@ defmodule Aiur.GitHub.TimelineCache do
 
   defp valid_event?(_event), do: false
 
-  defp bound_persisted(owner, repo) do
-    entries = ResourceStore.list_type(:issue_timeline, owner <> "/" <> repo)
+  # A {key, stored_at} index keeps put from copying persisted bodies; the store
+  # is listed once per repository to seed it after a restart.
+  defp bound_persisted(owner, repo, id, now) do
+    index = index_table()
+    repo_id = {owner, repo}
+    if :ets.insert_new(index, {{:seeded, repo_id}, true}), do: seed_index(index, owner, repo)
+    :ets.insert(index, {{repo_id, id}, now})
 
-    entries
-    |> Enum.sort_by(fn {_key, entry} -> stored_at(entry) end)
-    |> Enum.take(max(length(entries) - @max_entries, 0))
-    |> Enum.each(fn {key, _entry} -> ResourceStore.drop_data(key) end)
+    excess = :ets.select_count(index, [{{{repo_id, :_}, :_}, [], [true]}]) - @max_entries
+
+    if excess > 0 do
+      index
+      |> :ets.select([{{{repo_id, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}])
+      |> Enum.sort_by(&elem(&1, 1))
+      |> Enum.take(excess)
+      |> Enum.each(fn {old_id, _at} ->
+        :ets.delete(index, {repo_id, old_id})
+        ResourceStore.drop_data(key(owner, repo, old_id))
+      end)
+    end
+  end
+
+  defp seed_index(index, owner, repo) do
+    for {{_type, _owner, _repo, id}, entry} <- ResourceStore.list_type(:issue_timeline, owner <> "/" <> repo) do
+      :ets.insert_new(index, {{{owner, repo}, id}, stored_at(entry)})
+    end
+  end
+
+  defp index_table do
+    case :ets.whereis(@index) do
+      :undefined -> :ets.new(@index, [:named_table, :public, :set])
+      _other -> @index
+    end
   end
 
   defp stored_at(entry) when is_map(entry), do: Map.get(entry, "stored_at_ms", 0)

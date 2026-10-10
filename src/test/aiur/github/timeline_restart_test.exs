@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.TimelineRestartTest do
     Application.put_env(:aiur, :github_resource_store_path, Path.join(dir, "resources.json"))
     restart_store()
     DispatchAuthorization.clear_cache()
+    TimelineCache.clear()
 
     on_exit(fn ->
       Application.delete_env(:aiur, :github_resource_store_path)
@@ -137,6 +138,23 @@ defmodule Aiur.GitHub.TimelineRestartTest do
     assert ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 1)) == :miss
     assert {:ok, %{etag: "old"}} = ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 2))
     assert length(ResourceStore.list_type(:issue_timeline, "owner/repo")) == 1_000
+  end
+
+  test "a put after the first does not re-list the persisted store" do
+    for id <- 1..1_000 do
+      data = %{"events" => [], "single_page" => true, "per_page" => 50, "stored_at_ms" => id}
+      :ok = ResourceStore.put_resource(ResourceStore.key(:issue_timeline, "owner", "repo", id), data, etag: "old")
+    end
+
+    :ok = TimelineCache.put("owner", "repo", "1001", "new", [], true, 50)
+
+    # Written behind the cache's back: only a per-put full listing would see (and evict) it.
+    hidden = ResourceStore.key(:issue_timeline, "owner", "repo", 5_000)
+    :ok = ResourceStore.put_resource(hidden, %{"events" => [], "single_page" => true, "per_page" => 50, "stored_at_ms" => 0}, etag: "hidden")
+    :ok = TimelineCache.put("owner", "repo", "1002", "new", [], true, 50)
+
+    assert {:ok, %{etag: "hidden"}} = ResourceStore.fetch(hidden)
+    assert ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 2)) == :miss
   end
 
   defp authorize(request_fun, allowed_users \\ ["trusted"]) do
