@@ -93,7 +93,7 @@ defmodule Aiur.Init.Resume do
   @spec agents_from_config(map()) :: [String.t()]
   def agents_from_config(config) do
     agent = config["agent"] || %{}
-    routing_backends = (agent["routing"] || %{}) |> Map.values() |> Enum.map(&routing_backend/1)
+    routing_backends = (agent["routing"] || %{}) |> Map.values() |> Enum.flat_map(&List.wrap/1) |> Enum.map(&routing_backend/1)
 
     # `priority` members are routes, so strip the model segment the same way
     # routing values are stripped — otherwise `openrouter:anthropic/claude-sonnet-5`
