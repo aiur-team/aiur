@@ -5,8 +5,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
   alias Aiur.BuildQueue.Hints
+  alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{Slots, State}
 

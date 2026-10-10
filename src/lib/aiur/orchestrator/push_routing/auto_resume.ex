@@ -7,9 +7,9 @@ defmodule Aiur.Orchestrator.PushRouting.AutoResume do
 
   require Logger
 
-  alias Aiur.Issue
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{GithubBudgetPause, IssueSync, State}
 

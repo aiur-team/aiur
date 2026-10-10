@@ -13,8 +13,8 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.PushRouting.{AutoResume, ClearedDependency}
   alias Aiur.Orchestrator.{Dispatcher, GithubBudgetPause, PauseResume, State}
+  alias Aiur.Orchestrator.PushRouting.{AutoResume, ClearedDependency}
 
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()

@@ -6,8 +6,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
   import Aiur.TestSupport.DispatchPolicyFixture
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.Workflow
   alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Workflow
 
   describe "blocked-on-decision dispatch gate (#1965)" do
     test "a held issue is declined with :build_queue_hold before other state gates" do
