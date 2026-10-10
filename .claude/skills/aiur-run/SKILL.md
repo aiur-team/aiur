@@ -811,7 +811,7 @@ them log anything. Work this ladder before any per-agent triage:
    base build holds every dispatch tick (issue #1404); the repository node
    carries the clone, cache sidecars, and record across an org rename;
 4. account for the adaptive dispatch envelope: it starts at **1 slot on every
-   daemon start** (`dispatch_policy.ex:48`) and widens by `load_ramp_step` per
+   daemon start** (`dispatch_policy.ex:120`) and widens by `load_ramp_step` per
    below-target sample. With defaults (target 1.0, step 1, cooldown 60s) a
    restarted fleet needs ~30 minutes to reach 32, which reads as idle rather
    than ramping. Do not measure capacity within minutes of a restart.
