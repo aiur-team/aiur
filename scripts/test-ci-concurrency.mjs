@@ -76,8 +76,8 @@ for (const [job, upstream] of [['coverage', 'coverage-partition'], ['test', 'cov
   assert.ok(condition, `${job} must declare a condition`);
   function runs(result, cancelled = false, draft = false, event = 'pull_request') {
     return runInNewContext(condition, {
-      github: { event_name: event, event: { pull_request: { draft } } },
-      needs: { [upstream]: { result } }, cancelled: () => cancelled, always: () => true,
+      github: { event_name: event },
+      needs: { [upstream]: { result }, changes: { outputs: { draft: String(draft) } } }, cancelled: () => cancelled, always: () => true,
     });
   }
   assert.equal(runs('cancelled', true), false, `${job} must skip a cancelled run's inputs`);
