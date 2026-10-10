@@ -177,8 +177,8 @@ defmodule Aiur.GitHub.Config do
         # launched from the wrong directory auto-detects that directory's
         # repository and reports nothing.
         Logger.info("aiur_config phase=repo_auto_detected repo=#{value} cwd=#{origin_cwd()} reason=tracker_github_repo_unset")
-
-        :persistent_term.put(@origin_cache_key, value)
+        # git is slow: a value cached while it ran is newer than this lookup, so keep it (#4016).
+        if :persistent_term.get(@origin_cache_key, :unset) == :unset, do: :persistent_term.put(@origin_cache_key, value)
         value
 
       _other ->
