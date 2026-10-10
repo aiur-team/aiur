@@ -3,6 +3,7 @@ defmodule Aiur.Alerts.StaleNotClosedTest do
 
   alias Aiur.{AlertFeed, AlertLedger}
   alias Aiur.Alerts.StaleNotClosed
+  alias Aiur.GitHub.Issues, as: GitHubIssues
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-stale-not-closed")
@@ -73,5 +74,25 @@ defmodule Aiur.Alerts.StaleNotClosedTest do
     :ok = StaleNotClosed.resolve("10", opts)
 
     assert [%{"topic" => "ticket.11" <> _}] = AlertFeed.list([needs_attention: true] ++ opts)
+  end
+
+  test "done_ids resolves closed agent:done issues and keeps open ones" do
+    issue = fn number, state, label ->
+      GitHubIssues.normalize_issue(
+        %{"number" => number, "state" => state, "labels" => [%{"name" => label}]},
+        "o",
+        "r",
+        "agent"
+      )
+    end
+
+    issues = [
+      issue.(1, "closed", "agent:done"),
+      issue.(2, "open", "agent:done"),
+      issue.(3, "closed", "agent:todo")
+    ]
+
+    assert ["1"] = StaleNotClosed.done_ids(["1", "2", "3"], fetch_fun: fn _ -> {:ok, issues} end)
+    assert [] = StaleNotClosed.done_ids(["1"], fetch_fun: fn _ -> {:error, :boom} end)
   end
 end

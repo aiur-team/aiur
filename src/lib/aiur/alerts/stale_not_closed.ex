@@ -50,16 +50,22 @@ defmodule Aiur.Alerts.StaleNotClosed do
     :ok
   end
 
-  @doc "Returns the subset of `ids` whose GitHub issue is labelled done."
-  @spec done_ids([String.t()]) :: [String.t()]
-  def done_ids(ids) do
-    case GitHubIssues.fetch_issue_states_by_ids(ids) do
-      {:ok, issues} -> for issue <- issues, done?(issue.state), do: issue.identifier
+  @doc """
+  Returns the subset of `ids` whose GitHub issue is closed and labelled
+  `agent:done`. An open `agent:done` ticket is not closed, so its alert is true.
+  """
+  @spec done_ids([String.t()], keyword()) :: [String.t()]
+  def done_ids(ids, opts \\ []) do
+    fetch_fun = Keyword.get(opts, :fetch_fun, &GitHubIssues.fetch_issue_states_by_ids/1)
+
+    case fetch_fun.(ids) do
+      {:ok, issues} -> for issue <- issues, closed_done?(issue), do: issue.identifier
       _error -> []
     end
   end
 
-  defp done?(state), do: String.downcase(to_string(state)) == "done"
+  # `Issue.state` is "Closed" for any closed issue, hiding the label, so read `state_labels`.
+  defp closed_done?(issue), do: issue.state == "Closed" and "done" in issue.state_labels
 
   defp open_topics(opts) do
     [{:needs_attention, true} | opts]
