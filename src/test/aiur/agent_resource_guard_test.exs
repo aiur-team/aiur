@@ -95,7 +95,9 @@ defmodule Aiur.AgentResourceGuardTest do
       "/usr/bin/bash\0-c\0exec 8<>\"$1\"; flock 8; while [[ ! -e $3 ]]; do sleep 0.05; done\0build-gate-holder\0#{lock_root}/live.locks/slot-1.lock\0"
     )
 
-    assert AgentResourceGuard.orphaned_build_gate_holders(proc_dir, lock_root) == [123]
+    assert [{123, {:known, :identity}}] =
+             AgentResourceGuard.orphaned_build_gate_holders(proc_dir, lock_root, fn _pid -> {:ok, {:known, :identity}} end)
+
     File.rm_rf!(proc_dir)
   end
 
@@ -106,11 +108,11 @@ defmodule Aiur.AgentResourceGuardTest do
              AgentResourceGuard.enforce_once(
                cap: 0,
                entries_fun: fn -> [] end,
-               orphan_holders_fun: fn -> [777] end,
-               kill_fun: fn pid -> send(test_pid, {:killed, pid}) end
+               orphan_holders_fun: fn -> [{777, {:known, :identity}}] end,
+               kill_fun: fn pid, identity -> send(test_pid, {:killed, pid, identity}) end
              )
 
-    assert_received {:killed, 777}
+    assert_received {:killed, 777, {:known, :identity}}
   end
 
   test "collect_descendants walks recursively" do

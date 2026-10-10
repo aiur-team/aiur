@@ -38,13 +38,14 @@ defmodule Aiur.AgentResourceGuard do
   end
 
   @doc false
-  @spec orphaned_build_gate_holders(Path.t(), Path.t()) :: [pos_integer()]
-  def orphaned_build_gate_holders(proc_dir \\ "/proc", lock_root \\ nil) do
+  @spec orphaned_build_gate_holders(Path.t(), Path.t()) :: [{pos_integer(), term()}]
+  def orphaned_build_gate_holders(proc_dir \\ "/proc", lock_root \\ nil, identity_fun \\ &ProcessTree.process_identity/1) do
     lock_root = lock_root || Aiur.BuildGate.lock_dir()
 
     with {:ok, entries} <- File.ls(proc_dir) do
       for entry <- entries,
           {pid, ""} <- [Integer.parse(entry)],
+          {:ok, identity} <- [identity_fun.(pid)],
           info = proc_info_at(proc_dir, pid),
           is_map(info),
           info.comm == "bash",
@@ -53,7 +54,7 @@ defmodule Aiur.AgentResourceGuard do
           is_binary(lock_path),
           String.starts_with?(Path.expand(lock_path), Path.expand(lock_root) <> "/"),
           not File.exists?(lock_path) do
-        pid
+        {pid, identity}
       end
     else
       _ -> []
@@ -145,12 +146,12 @@ defmodule Aiur.AgentResourceGuard do
 
   defp reap_orphaned_build_gate_holders(roots, opts) do
     find_fun = Keyword.get(opts, :orphan_holders_fun, &orphaned_build_gate_holders/0)
-    kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.graceful_kill/1)
+    kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.reap_process/2)
 
     find_fun.()
-    |> Enum.reject(&(&1 in roots))
-    |> Enum.map(fn pid ->
-      _ = kill_fun.(pid)
+    |> Enum.reject(fn {pid, _identity} -> pid in roots end)
+    |> Enum.map(fn {pid, identity} ->
+      _ = kill_fun.(pid, identity)
       Logger.warning("agent_resource_guard reaped_orphaned_build_gate_holder pid=#{pid}")
       %{root_pid: nil, cap: 0, killed: [pid]}
     end)
