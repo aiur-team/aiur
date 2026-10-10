@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from analytics import reduce as reducer
-from analytics import render
+from analytics import render, render_build
 from analytics import sources
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -285,7 +285,7 @@ class RunSummaryKpisTest(unittest.TestCase):
 class BuildReportTest(unittest.TestCase):
     def test_member_rows(self):
         rollup = build_rollup()
-        rows = render.build_report_rows(rollup)
+        rows = render_build.build_report_rows(rollup)
         by_ticket = {row["ticket"]: row for row in rows}
 
         self.assertEqual(len(rows), 3)
@@ -313,14 +313,14 @@ class BuildReportTest(unittest.TestCase):
 
     def test_backends_collected(self):
         rollup = build_rollup()
-        rows = render.build_report_rows(rollup)
+        rows = render_build.build_report_rows(rollup)
         by_ticket = {row["ticket"]: row for row in rows}
         backends = {entry["backend"] for entry in by_ticket["930"]["backends"]}
         self.assertEqual(backends, {"codex", "claude"})
 
     def test_render_build_report(self):
         rollup = build_rollup()
-        text = render.render_build_report(rollup, "test-build")
+        text = render_build.render_build_report(rollup, "test-build")
         self.assertIn("Test build", text)
         self.assertIn("#930", text)
         self.assertIn("Merged: 1/3", text)
