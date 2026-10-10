@@ -42,10 +42,22 @@ defmodule Aiur.Orchestrator.HoldDecline do
     end
   end
 
-  @doc "Passes a blocker read result through, ending the ticket's run of holds when the read got through."
+  @doc """
+  Passes a settled validation through, ending the ticket's run of holds.
+
+  Call it only where every read of the validation got through: on the issue
+  held by a dependency before any refresh, or on the hydration that follows a
+  successful refresh. Clearing on the earlier blocker read alone would let a
+  refresh that is held every poll restart the run each time and never escalate.
+  """
   @spec observe(result) :: result when result: term()
-  def observe({:ok, %Issue{id: id}} = result) do
+  def observe(%Issue{id: id} = issue) do
     HoldPressure.dispatch_cleared(id)
+    issue
+  end
+
+  def observe({:ok, %Issue{} = issue} = result) do
+    observe(issue)
     result
   end
 
