@@ -61,7 +61,7 @@ defmodule Aiur.Init.Labels do
   end
 
   defp required_labels(prefix, primary, fallback) do
-    Labels.state_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix, primary, fallback)
+    ["flake"] ++ Labels.state_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix, primary, fallback)
   end
 
   # Stage 2 — optional complexity labels.
