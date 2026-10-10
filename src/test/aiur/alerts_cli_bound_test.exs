@@ -12,6 +12,15 @@ defmodule Aiur.AlertsCLIBoundTest do
     %{ledger: Path.join(root, "alerts.ndjson")}
   end
 
+  test "parse maps argv to opts and rejects bad input" do
+    assert {:ok, opts} = Aiur.AlertsCLI.parse(["--needs-attention", "--limit", "7"])
+    assert Enum.sort(opts) == [limit: 7, needs_attention: true]
+    assert {:ok, [limit: :all]} = Aiur.AlertsCLI.parse(["--all"])
+    assert {:error, "aiur: alerts --limit needs a positive integer"} = Aiur.AlertsCLI.parse(["--limit", "0"])
+    assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--limit"])
+    assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--bogus"])
+  end
+
   test "default view keeps every open attention item and caps only other rows", %{ledger: ledger} do
     open = Enum.map(1..150, &alert(&1, true))
     history = Enum.map(1001..1200, &alert(&1, false))

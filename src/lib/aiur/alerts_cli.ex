@@ -5,6 +5,24 @@ defmodule Aiur.AlertsCLI do
 
   @default_limit 100
 
+  @usage "aiur: alerts accepts --needs-attention, --limit <n>, --all"
+
+  @spec parse([String.t()]) :: {:ok, keyword()} | {:error, String.t()}
+  def parse(argv), do: parse(argv, [])
+
+  defp parse([], acc), do: {:ok, acc}
+  defp parse(["--needs-attention" | rest], acc), do: parse(rest, [{:needs_attention, true} | acc])
+  defp parse(["--all" | rest], acc), do: parse(rest, [{:limit, :all} | acc])
+
+  defp parse(["--limit", n | rest], acc) do
+    case Integer.parse(n) do
+      {i, ""} when i > 0 -> parse(rest, [{:limit, i} | acc])
+      _ -> {:error, "aiur: alerts --limit needs a positive integer"}
+    end
+  end
+
+  defp parse(_, _), do: {:error, @usage}
+
   # Open attention items are never cut: only the other history rows are capped.
   @spec run(keyword()) :: :ok
   def run(opts) do
