@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
   def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
-    do: PausedCandidatePoll.start(state, fetch_fun, &note_candidate_fetch_success/1, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
+    do: PausedCandidatePoll.start(state, fetch_fun, &note_candidate_fetch_success/2, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
 
   def start_candidate_poll(%State{} = state, fetch_fun) do
     cache = candidate_list_cache(state)
@@ -565,7 +565,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp apply_candidate_result(state, result) do
     case result do
       {:ok, issues, updated_cache} ->
-        state = state |> put_candidate_list_cache(updated_cache) |> note_candidate_fetch_success()
+        state = note_candidate_fetch_success(state, updated_cache)
         {:ok, issues, state}
 
       {:error, reason} ->
@@ -573,8 +573,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp note_candidate_fetch_success(%State{} = state) do
-    state = %{state | candidate_snapshot_fresh?: true}
+  defp note_candidate_fetch_success(%State{} = state, cache) do
+    state = %{put_candidate_list_cache(state, cache) | candidate_snapshot_fresh?: true}
 
     if Config.tracker_kind() == "github" do
       TrackerHealth.note_github_connectivity_success(state, :candidates)

@@ -65,8 +65,6 @@
   {Aiur.Orchestrator.PauseResume, :last_polled_issues, "Baseline core write in Aiur.Orchestrator.PauseResume; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.PauseResume, :retry_attempts, "Baseline lifecycle write in Aiur.Orchestrator.PauseResume; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.PauseResume, :running, "Baseline lifecycle write in Aiur.Orchestrator.PauseResume; retain until this responsibility moves to its field owner."},
-  {Aiur.Orchestrator.PausedCandidatePoll, :ci_lifecycle,
-   "PausedCandidatePoll updates only the shared candidate-list cache during a global pause; retain this narrow poll-result write under the existing ci_lifecycle owner."},
   {Aiur.Orchestrator.PriorityControl, :last_polled_issues, "Baseline core write in Aiur.Orchestrator.PriorityControl; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.PriorityControl, :retry_attempts, "Baseline lifecycle write in Aiur.Orchestrator.PriorityControl; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.PriorityControl, :running, "Baseline lifecycle write in Aiur.Orchestrator.PriorityControl; retain until this responsibility moves to its field owner."},
