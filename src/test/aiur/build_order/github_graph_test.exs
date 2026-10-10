@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GitHubGraphTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{BuildOrder.Catalog, BuildOrder.ProviderResult, BuildOrder.SelectedRoot, GitHub.Client, TrackerIdentity}
+  alias Aiur.{BuildOrder.Catalog, BuildOrder.ProviderResult, BuildOrder.SelectedRoot, TrackerIdentity}
   alias Aiur.BuildOrder.GitHubGraph, as: ProductionGraph
   alias Aiur.BuildOrder.GitHubGraph.Queries
   alias Aiur.BuildOrder.GitHubGraph.TestAdapter, as: GitHubGraph
@@ -1458,7 +1458,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       end
 
       assert {:ok, %{candidate: %{root: %{identity: selected_identity}}}} =
-               Client.fetch_build_order_selected_root(identity(root, configured_repository), public_opts(request_fun))
+               ProductionGraph.fetch_selected_root(identity(root, configured_repository), public_opts(request_fun))
 
       assert selected_identity == identity(root, configured_repository)
 
@@ -1477,7 +1477,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       end
 
       assert {:ok, %{candidate: %{entries: []}}} =
-               Client.fetch_build_order_catalog(public_opts(catalog_request_fun))
+               ProductionGraph.fetch_catalog(public_opts(catalog_request_fun))
     end
 
     test "public graph reads derive their authority from validated configuration" do

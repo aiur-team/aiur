@@ -55,12 +55,15 @@ defmodule Aiur.BuildQueue do
   end
 
   @doc "Rebuilds a missing or corrupt store as an operator-held list from queued markers."
-  @spec recover() :: :ok | {:error, term()}
-  def recover do
-    GenServer.call(Server, :recover)
+  @spec recover(keyword()) :: :ok | {:error, term()}
+  def recover(opts \\ []) do
+    GenServer.call(Server, {:recover, Keyword.get(opts, :force, false)}, 30_000)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end
+
+  @spec clear(keyword()) :: :ok | {:error, term()}
+  def clear(opts), do: mutate({:clear, opts})
 
   @doc "Clears item holds and overrides, or releases all items and the hold in a queue by ID."
   @spec release(String.t(), GenServer.server()) :: :ok | {:error, term()}

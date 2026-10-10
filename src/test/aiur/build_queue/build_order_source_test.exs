@@ -2,7 +2,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   alias Aiur.BuildOrder.{Dependency, GraphProjection, GraphProjection.Snapshot, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
-  alias Aiur.BuildQueue.{Hints, ListMutations, Model, Server}
+  alias Aiur.BuildQueue.{Hints, ListMutations, Model, MutationCLI, Server}
   alias Aiur.BuildQueue.Sources.BuildOrder
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
@@ -105,6 +105,46 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert {:ok, items, edges, :current} = BuildOrder.members(queue, %{items: [], source_snapshots: %{99 => {:ok, snapshot}}})
     assert Enum.map(items, &{&1.issue_id, &1.position}) == [{"2", nil}]
     assert Enum.map(edges, &{&1.prerequisite, &1.dependent, &1.source}) == [{"1", "2", :build_order}]
+  end
+
+  test "mutation CLI adopts a named root and reports the owner of refused members" do
+    projection = start_supervised!({Projection, snapshot([member(1), member(2)])})
+    pid = server(projection)
+    assert :ok = Aiur.BuildQueue.add(["1"], "paseo")
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert Aiur.BuildQueueCLI.run(verb: :add, build_order: 99, queue: "roadmap", server: pid) == 1
+      end)
+
+    assert output =~ "Build Order #99: ok"
+    assert output =~ "#1: already in queue paseo"
+    assert Enum.find(get(:document).queues, &(&1.root == 99)).name == "roadmap"
+    assert Enum.find(get(:document).items, &(&1.issue_id == "2")).queue_id == Enum.find(get(:document).queues, &(&1.name == "roadmap")).id
+    assert {:ok, [{"Build Order #99", {:error, :already_adopted}}]} = MutationCLI.execute(verb: :add, build_order: 99, server: pid)
+  end
+
+  test "start-on adoption persists through codec and queue set follows config" do
+    projection = start_supervised!({Projection, snapshot([member(1)])})
+    pid = server(projection)
+    assert {:ok, [{"Build Order #99", :ok}]} = MutationCLI.execute(verb: :add, build_order: 99, queue: "optimistic", start_on: "pr_opened", server: pid)
+    assert hd(get(:document).queues).start_trigger == :pr_opened
+    assert {:error, :invalid_start_trigger} = GenServer.call(pid, {:mutate, {:adopt, 100, nil, :soon}})
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_opened
+    assert {:ok, [{"optimistic", :ok}]} = MutationCLI.execute(verb: :set, queue: "optimistic", start_on: "default", server: pid)
+    assert hd(get(:document).queues).start_trigger == nil
+    generation = hd(get(:document).queues).generation
+    reconcile(pid)
+    assert hd(get(:document).queues).generation == generation
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_merged
+  end
+
+  test "generated Build Order queue names cannot collide with an existing list" do
+    projection = start_supervised!({Projection, snapshot([member(2)])})
+    pid = server(projection)
+    assert :ok = Aiur.BuildQueue.add(["1"], "Build Order #99")
+    assert {:ok, [{"Build Order #99", {:error, :queue_exists}}]} = MutationCLI.execute(verb: :add, build_order: 99, server: pid)
+    assert [%{name: "Build Order #99", kind: :list}] = get(:document).queues
   end
 
   test "stale real ProviderHealth yields unavailable, unknown items and zero tracker writes" do

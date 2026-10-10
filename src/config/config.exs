@@ -2,7 +2,41 @@ import Config
 
 config :aiur, env: config_env()
 
-config :aiur, :capability_providers, [Aiur.Capabilities.IdentityProvider, Aiur.BuildQueue.CapabilityProvider]
+config :aiur, :signal, alert_sink: Aiur.Alerts
+
+config :aiur, :turn_sandbox_root_contributors, [
+  Aiur.AgentEnvironment.SandboxRoots,
+  Aiur.GitHub.Budget.SandboxRoots,
+  Aiur.BuildGate.SandboxRoots
+]
+
+config :aiur, :tracker_adapters, %{
+  "github" => Aiur.GitHub.Tracker,
+  "linear" => Aiur.Linear.Tracker,
+  "memory" => Aiur.Memory.Tracker
+}
+
+config :aiur, :tracker_fallback_kind, "linear"
+
+config :aiur, :env_startup_checks, [Aiur.Commands]
+config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
+
+config :aiur, :capability_providers, [
+  Aiur.Capabilities.IdentityProvider,
+  Aiur.BuildQueue.CapabilityProvider,
+  Aiur.HttpServer.CapabilityProvider,
+  Aiur.Orchestrator.CapabilityProvider,
+  Aiur.Commands,
+  Aiur.Tracker.CapabilityProvider,
+  Aiur.Executor.CapabilityProvider,
+  Aiur.BuildOrder.CapabilityProvider,
+  Aiur.ElevenLabs.CapabilityProvider,
+  AiurWeb.StreamdeckCapabilityProvider,
+  Aiur.Webhooks.CapabilityProvider,
+  Aiur.Claude.RemoteControl.CapabilityProvider,
+  Aiur.ProviderMeterProjection.CapabilityProvider,
+  Aiur.LiveConversation.CapabilityProvider
+]
 
 config :aiur, :project_identity_source, Aiur.Tracker
 
@@ -14,9 +48,7 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.MissingKind,
     Aiur.Tracker.SemanticCheck.UnsupportedKind,
     Aiur.CodingAgent.SemanticCheck.Dispatchable,
-    Aiur.Tracker.SemanticCheck.LinearToken,
-    Aiur.Tracker.SemanticCheck.LinearSlug,
-    Aiur.GitHub.Config.SemanticCheck,
+    Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
   always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
@@ -88,6 +120,7 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  config :aiur, :build_order_root_import_enabled?, false
   config :aiur, :build_history_backfill_enabled?, false
 
   # The shared app must not replace the singleton BranchRefStore with real

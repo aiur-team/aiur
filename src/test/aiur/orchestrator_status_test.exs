@@ -611,9 +611,9 @@ defmodule Aiur.OrchestratorStatusTest do
       queue_store: queue_store
     }
 
-    snapshot_input = StatusReport.snapshot_input(state)
+    assert %{status_observed_at: %DateTime{}} = snapshot_input = StatusReport.snapshot_input(state)
 
-    assert snapshot_input == %State{}
+    assert %{snapshot_input | status_observed_at: nil} == %State{}
   end
 
   test "dashboard projection retains queue facts for rendered issues" do

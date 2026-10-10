@@ -9,9 +9,11 @@ defmodule Aiur.BuildQueue.Server do
     Bookkeeping,
     BuildOrderCommands,
     ClaimProbe,
+    Clear,
     Events,
     Hints,
     ListCommands,
+    Measurement,
     Progress,
     ReadModel,
     Reconcile,
@@ -94,6 +96,10 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:write, _, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
 
+  def handle_call({:recover, _force}, _from, %{status: status} = state) when status in [:disabled, :unsupported_tracker], do: {:reply, {:error, status}, state}
+  def handle_call({:recover, true}, from, state), do: rebuild(from, state, true)
+  def handle_call({:recover, false}, from, state), do: handle_call(:recover, from, state)
+
   def handle_call(:recover, _from, %{status: status} = state) when status in [:disabled, :unsupported_tracker], do: {:reply, {:error, status}, state}
 
   def handle_call(:recover, from, %{status: :store_unavailable} = state) do
@@ -113,9 +119,25 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
 
+  def handle_call({:mutate, {:clear, opts}}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
+    case Clear.prepare(state, opts) do
+      {:ok, document, actions, observations} ->
+        state = %{state | sources: %{}, source_verdicts: %{}, holds: MapSet.new()}
+        {reply, state} = commit_mutation(state, document, actions, observations)
+        reply = if state.status == :writes_paused, do: {:error, :writes_paused}, else: reply
+        {:reply, reply, request(state)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
   def handle_call({:mutate, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
 
-  def handle_call({:mutate, {verb, root} = command}, _from, %{status: :running} = state) when verb in [:adopt, :unadopt] do
+  def handle_call({:mutate, command}, _from, %{status: :running} = state) when elem(command, 0) in [:adopt, :unadopt] do
+    verb = elem(command, 0)
+    root = elem(command, 1)
+
     case BuildOrderCommands.prepare(state, command) do
       {:ok, document, actions, observations, updates} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
@@ -143,6 +165,20 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, _}, _from, state), do: {:reply, {:error, state.status}, state}
   def handle_call(:reconcile_now, _from, state), do: {:reply, :ok, request(state)}
+
+  def handle_call({:hold, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
+    with {:ok, document} <- Bookkeeping.hold(state.document, target),
+         :ok <- state.store.save(document) do
+      Events.saved(state.document, document)
+      Reconcile.write_hints(state.projections, state.holds, document)
+      {:reply, :ok, request(%{state | document: document})}
+    else
+      {:error, :not_found} = error -> {:reply, error, state}
+      {:error, reason} -> {:reply, {:error, reason}, AttentionHealth.store(%{state | status: :store_unavailable})}
+    end
+  end
+
+  def handle_call({:hold, _target}, _from, state), do: {:reply, {:error, state.status}, state}
 
   def handle_call({:release, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     observations = Reconcile.observations(state)
@@ -193,15 +229,15 @@ defmodule Aiur.BuildQueue.Server do
   def handle_info({:DOWN, _ref, :process, pid, _reason}, %{exchange_pid: pid} = state), do: {:noreply, %{state | exchange_pid: nil}}
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp rebuild(_from, state) do
-    case Recovery.rebuild(state) do
+  defp rebuild(_from, state, force \\ false) do
+    case Recovery.rebuild(state, force) do
       {:ok, document} ->
         if state.status == :store_unavailable do
           Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
           schedule_tick(state)
         end
 
-        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new()}
+        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new(), sources: %{}, source_verdicts: %{}}
         {projections, _, _, _, _, published, _edges} = Reconcile.plan(state)
         state = %{state | published_pr_versions: published}
         Reconcile.write_hints(projections, state.holds, document)
@@ -229,6 +265,7 @@ defmodule Aiur.BuildQueue.Server do
           |> Enum.reverse()
 
         reply = if failures == [], do: :ok, else: {:error, {:marker_write_failed, failures}}
+        reply = if state.status == :store_unavailable and failures == [], do: {:error, :store_unavailable}, else: reply
         {reply, state}
 
       {:error, _} ->
@@ -308,6 +345,7 @@ defmodule Aiur.BuildQueue.Server do
 
   defp plan(state, observations) do
     {projections, actions, observations, cache, holds, published, edges} = Reconcile.plan(state, observations)
+    Measurement.record(state, projections)
     {state, health_actions} = AttentionHealth.plan(state, projections)
     actions = health_actions ++ actions
     state = %{state | planned_edges: edges}
@@ -347,7 +385,7 @@ defmodule Aiur.BuildQueue.Server do
         observation_max_age_ms: Settings.observation_max_age_ms(state.settings)
       })
 
-    result = Writer.run(context, actions, state.writer)
+    result = context |> Writer.run(actions, state.writer) |> Clear.finish()
     status = if result.status == :paced, do: :running, else: result.status
     ages = Map.new(result.document.intents, &{&1.id, Map.get(state.intent_reconciles, &1.id, state.reconciles)})
 

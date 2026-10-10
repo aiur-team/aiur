@@ -1,10 +1,12 @@
+Code.require_file("../support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
-
+Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
+Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
+Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
-
   alias AiurWeb.OperatorControlCenter.{DashboardShell, History, NavState, RouteRegistry}
 
   @impl true
@@ -1456,36 +1458,6 @@ defmodule Aiur.BrowserHarness.VoiceSTT do
   def handle_cast(:stop, channel), do: {:stop, :normal, channel}
 end
 
-defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
-  @moduledoc """
-  Lets one browser spec opt its own fixture server into a writable dashboard.
-
-  Stream Deck key presses only reach the agent control facade when the
-  dashboard is writable, so the operator-flow spec needs that gate open to
-  prove a pause actually pauses. Every `run-browser-tests.mjs` invocation gets
-  its own fixture server, so flipping it here cannot leak into another spec.
-  """
-
-  use Phoenix.Controller, formats: []
-
-  import Plug.Conn
-
-  alias Aiur.BrowserHarness.FixtureServer
-
-  @modes %{"writable" => true, "read_only" => false}
-
-  def configure(conn, %{"mode" => mode}) when is_map_key(@modes, mode) do
-    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Map.fetch!(@modes, mode))
-    FixtureServer.reset_streamdeck_pauses()
-
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(200, "streamdeck fixture control: #{mode}")
-  end
-
-  def configure(conn, _params), do: send_resp(conn, 404, "unknown streamdeck fixture control mode")
-end
-
 defmodule Aiur.BrowserHarness.FixtureAssets do
   use Phoenix.Controller, formats: []
 
@@ -1900,9 +1872,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
   @reset ~U[2026-07-18 12:00:00Z]
 
   @impl true
-  def mount(params, _session, socket) do
-    {:ok, socket |> assign(:now, @now) |> assign(:extra_provider?, Map.get(params, "extra") == "true")}
-  end
+  def mount(params, _session, socket), do: {:ok, socket |> assign(:now, @now) |> assign(:extra_provider?, Map.get(params, "extra") == "true")}
 
   @impl true
   def render(assigns) do
@@ -2149,7 +2119,10 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
+    get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
+    get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
   end
 
   scope "/" do
@@ -2164,6 +2137,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
+    live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
     live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
@@ -2177,8 +2151,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/aiur-logo.png", AiurWeb.StaticAssetController, :aiur_logo)
   end
 
-  # Route vendor assets through the production router so browser tests exercise
-  # the same authenticated controller and content-addressed paths as a release.
+  # Route vendor assets through production to exercise release authentication and content-addressed paths.
   scope "/" do
     forward("/", AiurWeb.Router)
   end
@@ -2249,6 +2222,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
+    Application.put_env(:aiur, :build_data_source, Aiur.TestSupport.BuildHome.FixtureSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     configure_forwarded_dashboard()
 
@@ -2291,7 +2265,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   @doc """
   Fixture stand-in for `AgentChat.pause/1` and `AgentChat.resume/1`.
-
   The emulator's key press is only meaningful if the fleet it renders actually
   moves, so the fixture records the operator pause and republishes the fleet.
   The next projection buckets the agent as `:paused`, exactly as the real

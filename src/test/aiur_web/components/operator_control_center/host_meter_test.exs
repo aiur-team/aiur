@@ -43,10 +43,10 @@ defmodule AiurWeb.OperatorControlCenter.HostMeterTest do
     assert card.health.age_label == nil
     html = render_component(&ProviderMeters.provider_meters/1, view: view)
     strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: DateTime.utc_now())
-    assert strip =~ "Not observed"
-    muse_row = strip |> Floki.parse_fragment!() |> Floki.find("[data-provider=muse]") |> Floki.raw_html()
-    assert muse_row =~ "Not observed"
-    refute muse_row =~ "width:0%"
+    # An unrouted, unobserved host is a placeholder: the MODELS pane omits it (#3751).
+    refute strip =~ "Not observed"
+    assert strip |> Floki.parse_fragment!() |> Floki.find("[data-provider=muse]") == []
+    refute strip =~ "/provider-assets/muse.svg"
     refute html =~ "0 seconds old"
     assert html =~ "Current host · account unverified"
   end

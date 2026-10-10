@@ -1,3 +1,3 @@
 # rule	target_module	reason
-R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.JsonStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-private	Aiur.BuildOrder.SelectedRoot	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/build_queue/sources/build_order.ex:11 (Aiur.BuildQueue.Sources.ProjectionRead); facade tightening preserves current callers
+R-private	Aiur.BuildProgress	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/build_queue/progress.ex:7 (Aiur.BuildQueue.Progress); facade tightening preserves current callers

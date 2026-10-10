@@ -22,13 +22,14 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
   """
 
   use Aiur.TestSupport
+  use Aiur.TestSupport.EventTicket
+  import Aiur.TestSupport.MutationFixture
 
   alias Aiur.Events.{Exchange, GithubWebhook}
   alias Aiur.GitHub.{Comments, DependenciesApi, IssueState, PollSnapshots, PullRequests, ResourceStore, WriteThrough}
   alias Aiur.GitHub.ReviewThreads.{Reply, Resolution}
 
   @repo "owner/repo"
-  @topic "ticket.42.issue.commented"
   @author "its-everdred"
 
   # Comment ids live in a band no other suite uses. `Aiur.Events.Publisher`'s
@@ -102,29 +103,33 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     # the version suppression itself rather than the pre-existing self-loop
     # filter that would otherwise be doing the work.
     test "beats its own webhook, which then causes no second publish" do
-      :ok = Exchange.subscribe(@topic)
+      ticket = ticket_id()
+      topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(topic)
 
       {_calls, :ok} = post_comment(640_003, "written through first")
 
       # `:deduped` and not `:filtered` is the assertion that matters: the
       # delivery reached the resource gate and was recognised there, rather than
       # being dropped earlier by the actor or contamination filters.
-      assert %{status: :published, published: [], results: [{@topic, :deduped}]} =
+      assert %{status: :published, published: [], results: [{^topic, :deduped}]} =
                GithubWebhook.handle_delivery("issue_comment", delivery(640_003, "written through first"), repo: @repo)
 
-      refute_event(@topic)
+      refute_event(topic)
     end
 
     # The control for the case above. Without a write-through in front of it the
     # identical delivery publishes, so suppression is a property of the deposit
     # and not of anything else in this fixture.
     test "a comment Aiur did not post is still published by its delivery" do
-      :ok = Exchange.subscribe(@topic)
+      ticket = ticket_id()
+      topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(topic)
 
-      assert %{status: :published, published: [@topic]} =
+      assert %{status: :published, published: [^topic]} =
                GithubWebhook.handle_delivery("issue_comment", delivery(640_004, "a human wrote this"), repo: @repo)
 
-      assert %{comment: %{"id" => 640_004}} = await_event(@topic)
+      assert %{comment: %{"id" => 640_004}} = await_event(topic)
     end
 
     # The other half of the contract. Suppression is keyed on identity *plus*
@@ -132,7 +137,9 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     # agent — still wakes it. Identity alone would swallow the correction for
     # the store's whole 72-hour retention.
     test "an edit of that same comment is still published" do
-      :ok = Exchange.subscribe(@topic)
+      ticket = ticket_id()
+      topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(topic)
 
       {_calls, :ok} = post_comment(640_005, "the original instruction")
 
@@ -142,18 +149,20 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
         |> Map.put("action", "edited")
         |> put_in(["comment", "updated_at"], "2026-08-17T14:00:00Z")
 
-      assert %{status: :published, published: [@topic]} =
+      assert %{status: :published, published: [^topic]} =
                GithubWebhook.handle_delivery("issue_comment", edited, repo: @repo)
 
-      assert %{comment: %{"body" => "the corrected instruction"}} = await_event(@topic)
+      assert %{comment: %{"body" => "the corrected instruction"}} = await_event(topic)
     end
 
     # Criterion 4. A cache that records writes that did not happen is worse than
     # no cache: it would suppress the delivery for a comment that never existed.
     test "a failed mutation deposits nothing" do
+      ticket = ticket_id()
+
       {_calls, result} =
         record(fn _request -> {:ok, %{status: 422, body: %{"message" => "Validation Failed"}}} end, fn request_fun ->
-          Comments.create_comment("42", "never posted", request_fun: request_fun)
+          Comments.create_comment(ticket, "never posted", request_fun: request_fun)
         end)
 
       assert {:error, _reason} = result
@@ -161,9 +170,11 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     end
 
     test "a transport failure deposits nothing" do
+      ticket = ticket_id()
+
       {_calls, result} =
         record(fn _request -> {:error, :timeout} end, fn request_fun ->
-          Comments.create_comment("42", "never posted", request_fun: request_fun)
+          Comments.create_comment(ticket, "never posted", request_fun: request_fun)
         end)
 
       assert {:error, _reason} = result
@@ -177,13 +188,15 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     # the view re-renders off that — no fetch, and no waiting for the `issues`
     # delivery.
     test "updates a subscribed view of the issue with no additional call" do
-      seed_issue(42, ["agent:todo"])
-      key = issue_key(42)
+      ticket = ticket_id()
+      number = ticket_number()
+      seed_issue(number, ["agent:todo"])
+      key = issue_key(number)
       view = start_view(key)
 
       {calls, result} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "agent:in-progress"])}} end, fn fun ->
-          IssueState.add_label("42", "agent:in-progress", request_fun: fun)
+          IssueState.add_label(ticket, "agent:in-progress", request_fun: fun)
         end)
 
       assert result == :ok
@@ -195,59 +208,68 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     end
 
     # Both label deposits must leave a marker behind.
-    # `GithubWebhook.Deposit.regression?/2` decides staleness by comparing an
+    # `ResourceStore.regression?/2` decides staleness by comparing an
     # incoming version against the held `data_version`, and its guard clause
     # needs *both* sides to be binaries — so a deposit that writes `nil` there
     # does not merely omit a marker, it makes every later stale delivery for
     # that key compare as "no judgement" and land. This asserts the marker
     # survives on both keys, which is what keeps that guard switched on.
     test "leaves a version behind so the stale-delivery guard keeps working" do
-      seed_issue(42, ["agent:todo"])
+      ticket = ticket_id()
+      number = ticket_number()
+      seed_issue(number, ["agent:todo"])
 
       {_calls, :ok} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "agent:watch"])}} end, fn fun ->
-          IssueState.add_label("42", "agent:watch", request_fun: fun)
+          IssueState.add_label(ticket, "agent:watch", request_fun: fun)
         end)
 
-      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} = ResourceStore.fetch(issue_key(42))
+      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} = ResourceStore.fetch(issue_key(number))
 
       assert {:ok, %{version: "2026-08-17T12:00:00Z"}} =
-               ResourceStore.fetch(ResourceStore.key(:issue_labels, "owner", "repo", 42))
+               ResourceStore.fetch(ResourceStore.key(:issue_labels, "owner", "repo", number))
     end
 
     test "deposits the whole label set the endpoint returns" do
+      ticket = ticket_id()
+      number = ticket_number()
+
       {_calls, :ok} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "priority:1"])}} end, fn fun ->
-          IssueState.add_label("42", "priority:1", request_fun: fun)
+          IssueState.add_label(ticket, "priority:1", request_fun: fun)
         end)
 
-      assert {:ok, %{data: deposited}} = ResourceStore.fetch(ResourceStore.key(:issue_labels, "owner", "repo", 42))
+      assert {:ok, %{data: deposited}} = ResourceStore.fetch(ResourceStore.key(:issue_labels, "owner", "repo", number))
       assert Enum.map(deposited, & &1["name"]) == ["agent:todo", "priority:1"]
     end
 
     # A removal answers with the labels that survived it, which is the state
     # worth holding — a delta would leave the store unable to answer at all.
     test "removing a label deposits the surviving set" do
-      seed_issue(42, ["agent:todo", "agent:paused"])
+      ticket = ticket_id()
+      number = ticket_number()
+      seed_issue(number, ["agent:todo", "agent:paused"])
 
       {_calls, :ok} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo"])}} end, fn fun ->
-          IssueState.remove_label("42", "agent:paused", request_fun: fun)
+          IssueState.remove_label(ticket, "agent:paused", request_fun: fun)
         end)
 
-      assert %{"labels" => [%{"name" => "agent:todo"}]} = ResourceStore.data(issue_key(42))
+      assert %{"labels" => [%{"name" => "agent:todo"}]} = ResourceStore.data(issue_key(number))
     end
 
     test "a failed label write deposits nothing" do
-      seed_issue(42, ["agent:todo"])
+      ticket = ticket_id()
+      number = ticket_number()
+      seed_issue(number, ["agent:todo"])
 
       {_calls, result} =
         record(fn _request -> {:ok, %{status: 403, body: %{"message" => "Resource not accessible"}}} end, fn fun ->
-          IssueState.add_label("42", "agent:in-progress", request_fun: fun)
+          IssueState.add_label(ticket, "agent:in-progress", request_fun: fun)
         end)
 
       assert {:error, _reason} = result
-      assert %{"labels" => [%{"name" => "agent:todo"}]} = ResourceStore.data(issue_key(42))
+      assert %{"labels" => [%{"name" => "agent:todo"}]} = ResourceStore.data(issue_key(number))
     end
 
     # A4b for the label path, which reaches it a different way than the comment
@@ -259,20 +281,24 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     # deliveries through `Publisher` — recreating the self-loop for every label
     # the orchestrator writes — fails in this file instead of in production.
     test "its own issues delivery is a reconcile hint and wakes nobody" do
-      :ok = Exchange.subscribe(@topic)
-      :ok = Exchange.subscribe("ticket.42.issue.label.added.agent.in-progress")
-      seed_issue(42, ["agent:todo"])
+      ticket = ticket_id()
+      number = ticket_number()
+      fixture_topic0 = "ticket.#{ticket}.issue.label.added.agent.in-progress"
+      topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(topic)
+      :ok = Exchange.subscribe(fixture_topic0)
+      seed_issue(number, ["agent:todo"])
 
       {_calls, :ok} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "agent:in-progress"])}} end, fn fun ->
-          IssueState.add_label("42", "agent:in-progress", request_fun: fun)
+          IssueState.add_label(ticket, "agent:in-progress", request_fun: fun)
         end)
 
       assert %{status: :reconciled, hint: %{kind: :issue_state, action: "labeled"}} =
                GithubWebhook.handle_delivery("issues", labelled_delivery("agent:in-progress"), repo: @repo)
 
-      refute_event(@topic)
-      refute_event("ticket.42.issue.label.added.agent.in-progress")
+      refute_event(topic)
+      refute_event(fixture_topic0)
     end
 
     # The lost update, pinned. `Aiur.Events.GithubWebhook.Deposit` writes the
@@ -338,7 +364,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert Enum.map(held["labels"], & &1["name"]) == ["agent:todo", "merge:#{generations}"]
 
       # The marker moved with the body. A version-less merge would leave this
-      # `nil`, which is precisely the field `GithubWebhook.Deposit.regression?/2`
+      # `nil`, which is precisely the field `ResourceStore.regression?/2`
       # consults — so losing it switches off the stale-delivery guard.
       assert {:ok, %{version: version}} = ResourceStore.fetch(key)
       assert version == version_at(generations)
@@ -351,18 +377,20 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     # confused with marking the resource *processed*, which needs a version the
     # writer genuinely vouches for and is still refused here.
     test "claims the snapshot's version and never marks it processed" do
-      seed_issue(42, ["agent:todo"])
+      ticket = ticket_id()
+      number = ticket_number()
+      seed_issue(number, ["agent:todo"])
 
       {_calls, :ok} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "agent:watch"])}} end, fn fun ->
-          IssueState.add_label("42", "agent:watch", request_fun: fun)
+          IssueState.add_label(ticket, "agent:watch", request_fun: fun)
         end)
 
-      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} = ResourceStore.fetch(issue_key(42))
+      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} = ResourceStore.fetch(issue_key(number))
 
       # A label write is not a wake-suppressing event for the issue.
-      refute ResourceStore.processed?(issue_key(42), "2026-08-17T12:00:00Z")
-      refute ResourceStore.processed?(issue_key(42), nil)
+      refute ResourceStore.processed?(issue_key(number), "2026-08-17T12:00:00Z")
+      refute ResourceStore.processed?(issue_key(number), nil)
     end
   end
 
@@ -371,26 +399,34 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     # `updated_at`, so closing a ticket both deposits the closed state and marks
     # that version handled.
     test "closing a ticket deposits the closed issue at its new version" do
+      ticket = ticket_id()
+      number = ticket_number()
+      fixture_value0 = "https://api.github.com/repos/owner/repo/issues/#{ticket}"
+
       {_calls, :ok} =
         record(&close_issue_response/1, fn fun ->
-          IssueState.maybe_close_issue(fun, "token", "https://api.github.com/repos/owner/repo/issues/42", "done")
+          IssueState.maybe_close_issue(fun, "token", fixture_value0, "done")
         end)
 
       assert {:ok, %{data: %{"state" => "closed"}, version: "2026-08-17T15:00:00Z"}} =
-               ResourceStore.fetch(issue_key(42))
+               ResourceStore.fetch(issue_key(number))
 
-      assert ResourceStore.processed?(issue_key(42), "2026-08-17T15:00:00Z")
-      refute ResourceStore.processed?(issue_key(42), "2026-08-17T16:00:00Z")
+      assert ResourceStore.processed?(issue_key(number), "2026-08-17T15:00:00Z")
+      refute ResourceStore.processed?(issue_key(number), "2026-08-17T16:00:00Z")
     end
 
     test "a refused close deposits nothing" do
+      ticket = ticket_id()
+      number = ticket_number()
+      fixture_value0 = "https://api.github.com/repos/owner/repo/issues/#{ticket}"
+
       {_calls, result} =
         record(fn _request -> {:ok, %{status: 410, body: %{"message" => "Gone"}}} end, fn fun ->
-          IssueState.maybe_close_issue(fun, "token", "https://api.github.com/repos/owner/repo/issues/42", "done")
+          IssueState.maybe_close_issue(fun, "token", fixture_value0, "done")
         end)
 
       assert {:error, _reason} = result
-      assert ResourceStore.fetch(issue_key(42)) == :miss
+      assert ResourceStore.fetch(issue_key(number)) == :miss
     end
 
     test "a repaired pull request base deposits the pull request" do
@@ -416,11 +452,12 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     end
 
     test "a declared dependency deposits the blocking issue" do
+      number = ticket_number()
       blocker = %{"number" => 41, "title" => "the blocker", "updated_at" => "2026-08-17T15:45:00Z"}
 
       {_calls, result} =
         record(fn _request -> {:ok, %{status: 200, body: blocker}} end, fn fun ->
-          DependenciesApi.add_dependency(42, 900_041, request_fun: fun)
+          DependenciesApi.add_dependency(number, 900_041, request_fun: fun)
         end)
 
       assert {:ok, ^blocker} = result
@@ -580,228 +617,4 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
   end
 
   # -- helpers ---------------------------------------------------------------
-
-  defp post_comment(id, body) do
-    record(
-      fn _request -> {:ok, %{status: 201, body: comment(id, body)}} end,
-      fn request_fun -> Comments.create_comment("42", body, request_fun: request_fun) end
-    )
-  end
-
-  # Runs `fun` against a recording stub and answers `{count_fun, result}`. The
-  # count is a function rather than a number so a case can ask again *after* a
-  # view has re-rendered and prove the render cost nothing.
-  defp record(responder, fun) do
-    {:ok, recorder} = Agent.start_link(fn -> [] end)
-
-    request_fun = fn request ->
-      Agent.update(recorder, &[request | &1])
-      responder.(request)
-    end
-
-    result = fun.(request_fun)
-
-    # `Aiur.TestSupport.safe_stop/1`, not a `Process.alive?/1` guard around
-    # `Agent.stop/1`. The recorder is `start_link`ed from the test process, so
-    # ExUnit's `exit(:shutdown)` at the end of the test already kills it over the
-    # link; the `on_exit/1` callback runs afterwards in a *different* process, so
-    # the guard is a TOCTOU race — it observes the recorder alive, the link then
-    # kills it, and `Agent.stop/1` exits with that `:shutdown` instead of the
-    # `:normal` it asked for, failing the case in teardown. The window is closed
-    # on an idle machine (measured: 3000 of 3000 samples found the recorder
-    # already dead) and widens under coverage instrumentation, which is why this
-    # only ever showed up in the coverage partitions. `safe_stop/1` catches the
-    # exit rather than guarding against it; its own docs name this exact race.
-    on_exit(fn -> Aiur.TestSupport.safe_stop(recorder) end)
-
-    {fn -> Agent.get(recorder, &Enum.reverse/1) end, result}
-  end
-
-  # A view: it subscribes, and when the store changes it re-renders by reading
-  # the store. It never fetches. That is the whole contract this unit buys.
-  defp start_view(key) do
-    test = self()
-
-    {:ok, pid} =
-      Task.start(fn ->
-        ResourceStore.subscribe(key)
-        send(test, :view_subscribed)
-
-        receive do
-          {:github_resource_changed, %{key: ^key}} -> send(test, {:rendered, ResourceStore.data(key)})
-        after
-          5_000 -> send(test, :view_timed_out)
-        end
-      end)
-
-    assert_receive :view_subscribed, 2_000
-    pid
-  end
-
-  # GitHub's own issue object, which is the shape
-  # `Aiur.Events.GithubWebhook.Deposit` deposits under `:issue` and therefore the
-  # shape anything reading that key is entitled to assume. `updated_at` is part
-  # of it: every writer in the system derives its version from that field, so a
-  # fixture without one would be testing a body no writer can produce.
-  defp seed_issue(number, label_names) do
-    ResourceStore.put_resource(
-      issue_key(number),
-      %{
-        "number" => number,
-        "state" => "open",
-        "updated_at" => "2026-08-17T12:00:00Z",
-        "labels" => labels(label_names)
-      },
-      source: :fetch,
-      version: "2026-08-17T12:00:00Z"
-    )
-  end
-
-  defp labels(names), do: Enum.map(names, &%{"name" => &1})
-
-  defp comment_key(id), do: ResourceStore.key(:issue_comment, "owner", "repo", id)
-  defp issue_key(number), do: ResourceStore.key(:issue, "owner", "repo", number)
-
-  defp close_issue_response(_request) do
-    {:ok,
-     %{
-       status: 200,
-       body: %{"number" => 42, "state" => "closed", "updated_at" => "2026-08-17T15:00:00Z"}
-     }}
-  end
-
-  defp review_reply_response(%{body: %{"query" => query}}) do
-    if String.contains?(query, "addPullRequestReviewThreadReply") do
-      {:ok,
-       %{
-         status: 200,
-         body: %{
-           "data" => %{
-             "addPullRequestReviewThreadReply" => %{
-               "comment" => %{
-                 "id" => "PRRC_node",
-                 "databaseId" => 880_001,
-                 "body" => "addressed",
-                 "createdAt" => "2026-08-17T16:00:00Z",
-                 "updatedAt" => "2026-08-17T16:00:00Z",
-                 "url" => "https://github.com/owner/repo/pull/7#discussion_r880001",
-                 "author" => %{"login" => @author}
-               }
-             }
-           }
-         }
-       }}
-    else
-      {:ok, %{status: 200, body: %{"data" => %{"node" => nil}}}}
-    end
-  end
-
-  defp resolve_thread_response(_request) do
-    {:ok,
-     %{
-       status: 200,
-       body: %{
-         "data" => %{
-           "resolveReviewThread" => %{
-             "thread" => %{"id" => "PRRT_thread", "isResolved" => true, "pullRequest" => %{"number" => 7}}
-           }
-         }
-       }
-     }}
-  end
-
-  defp resolved_thread_delivery do
-    %{
-      "action" => "resolved",
-      "repository" => %{"full_name" => @repo},
-      "pull_request" => %{
-        "number" => 7,
-        "head" => %{"ref" => "aiur/42-slug", "repo" => %{"full_name" => @repo}}
-      },
-      "thread" => %{"node_id" => "PRRT_thread", "is_resolved" => true, "updated_at" => "2026-08-17T16:00:00Z"}
-    }
-  end
-
-  # A whole GitHub issue object at generation `n`, in the shape
-  # `Aiur.Events.GithubWebhook.Deposit` deposits: GitHub's own REST object, with
-  # `"labels"` as the raw label array.
-  defp issue_at(n) do
-    %{
-      "number" => 77,
-      "state" => if(n < 100, do: "open", else: "closed"),
-      "generation" => n,
-      "updated_at" => version_at(n),
-      "labels" => labels(["agent:todo"])
-    }
-  end
-
-  # Zero-padded so the store's lexical version comparison orders these the same
-  # way the integer generation does.
-  defp version_at(n), do: "2026-08-17T12:00:#{String.pad_leading(to_string(n), 3, "0")}Z"
-
-  defp labelled_delivery(label) do
-    %{
-      "action" => "labeled",
-      "repository" => %{"full_name" => @repo},
-      "label" => %{"name" => label},
-      "issue" => %{"number" => 42, "updated_at" => "2026-08-17T13:00:00Z"},
-      "sender" => %{"login" => @author}
-    }
-  end
-
-  defp delivery(id, body) do
-    %{
-      "action" => "created",
-      "repository" => %{"full_name" => @repo},
-      "issue" => %{"number" => 42},
-      "comment" => comment(id, body),
-      "sender" => %{"login" => @author}
-    }
-  end
-
-  defp comment(id, body, updated_at \\ "2026-08-17T12:00:00Z") do
-    %{
-      "id" => id,
-      "body" => body,
-      "created_at" => updated_at,
-      "updated_at" => updated_at,
-      "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-#{id}",
-      "user" => %{"login" => @author}
-    }
-  end
-
-  defp stop_store! do
-    pid = Process.whereis(ResourceStore)
-    ref = Process.monitor(pid)
-    Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
-
-    receive do
-      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-    after
-      5_000 -> flunk("ResourceStore did not stop")
-    end
-  end
-
-  defp restart_store!(path) do
-    stop_store!()
-    Application.put_env(:aiur, :github_resource_store_path, path)
-    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
-    :ok
-  end
-
-  defp await_event(topic) do
-    receive do
-      {:event, %{topic: ^topic} = event} -> event
-    after
-      1_000 -> flunk("no event published on #{topic}")
-    end
-  end
-
-  defp refute_event(topic) do
-    receive do
-      {:event, %{topic: ^topic} = event} -> flunk("unexpected publish on #{topic}: #{inspect(event)}")
-    after
-      200 -> :ok
-    end
-  end
 end

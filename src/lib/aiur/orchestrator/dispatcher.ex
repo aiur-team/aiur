@@ -6,31 +6,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{
-    AgentRunner,
-    AlertFeed,
-    Alerts,
-    CodingAgent,
-    Config,
-    DecisionStore,
-    DispatchBudgetStore,
-    Issue,
-    ModelAvailability,
-    RepoBase,
-    SystemCpu,
-    Tracker
-  }
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Commands, Config, DispatchBudgetStore, Issue, ModelAvailability, RepoBase, SystemCpu, Tracker}
 
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
+  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
     CiLifecycle,
     CommandScan,
     CommentPolling,
+    DispatchBatch,
+    DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
     IssueSync,
@@ -42,12 +31,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Slots,
     StartupClaimReconciler,
     State,
+    StatusObservation,
     StatusReport,
     TrackedSet,
     TrackerHealth
   }
-
-  alias Aiur.Orchestrator.ReworkGate
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
@@ -550,8 +538,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # Reconciler reads the same value but fails OPEN (it never stops healthy
   # running agents on a store outage).
   @spec refresh_blocked_ticket_ids(State.t(), GenServer.server()) :: State.t()
-  def refresh_blocked_ticket_ids(%State{} = state, store \\ DecisionStore) do
-    case DecisionStore.blocked_ticket_ids(store) do
+  def refresh_blocked_ticket_ids(%State{} = state, store \\ Commands.default_store()) do
+    case Commands.blocked_ticket_ids(store) do
       {:ok, %MapSet{} = ids} -> %{state | blocked_ticket_ids: ids}
       {:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}
     end
@@ -646,7 +634,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_or_hold(%State{} = state, issues, trigger_fun, opts)
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # An answer may arrive during the tracker fetch; admission must read the current local hold.
-    state = refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, DecisionStore))
+    state = refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, Commands.default_store()))
 
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
@@ -657,24 +645,29 @@ defmodule Aiur.Orchestrator.Dispatcher do
     log_fun = Keyword.get(opts, :log_fun, &Logger.info/1)
     admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
 
-    next =
-      case DispatchPolicy.prewarm_gate(enabled?, phase) do
-        :dispatch ->
-          maybe_log_base_error(phase)
+    case DispatchPolicy.prewarm_gate(enabled?, phase) do
+      :dispatch ->
+        maybe_log_base_error(phase)
 
-          state
-          |> clear_prewarm_blocked_alert(phase)
-          |> Map.put(:prewarm_hold_ticks, 0)
-          |> maybe_choose_under_load(issues, fn sampled, candidates -> maybe_choose(sampled, candidates, opts) end, admission_probes_fun: admission_probes_fun)
+        # The candidate chain is asynchronous: judge its outcome when it ends
+        # (#3683). An admission hold never starts it; `capacity_hold` names that.
+        chain_done = fn current, stop_reason -> DispatchOutcome.record(state, current, issues, log_fun, stop_reason) end
+        choose_opts = Keyword.put(opts, :dispatch_chain_done_fun, chain_done)
 
-        :hold ->
+        state
+        |> clear_prewarm_blocked_alert(phase)
+        |> Map.put(:prewarm_hold_ticks, 0)
+        |> maybe_choose_under_load(issues, fn sampled, candidates -> maybe_choose(sampled, candidates, choose_opts) end, admission_probes_fun: admission_probes_fun)
+
+      :hold ->
+        next =
           state
           |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun, opts)
           |> log_prewarm_hold(phase, log_fun)
           |> maybe_emit_prewarm_blocked_alert(phase)
-      end
 
-    DispatchOutcome.record(state, next, issues, log_fun)
+        DispatchOutcome.record(state, next, issues, log_fun)
+    end
   end
 
   # Raises `system.dispatch.prewarm_blocked` only once a prewarm hold has
@@ -705,11 +698,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  # Sample host pressure even though prewarm already decided the hold.
-  # Otherwise a prewarm phase that flickers ready/:building across ticks drops
+  # Sample under a prewarm hold: flickering ready/:building across ticks drops
   # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
-  # of a gate that never actually cleared — suppressing the starvation alert for
-  # as long as prewarm keeps oscillating. Only probe when ready work exists,
+  # of a persistent gate. Probe only when ready work exists,
   # since that is the sole condition the starvation alert reports on.
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun, _opts), do: state
 
@@ -975,7 +966,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         probes.cpu_snapshot,
         queued_demand?
       )
-      |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
+      |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
 
     # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
@@ -999,7 +990,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, probes.load, probes.target, probes.schedulers, queued_demand?),
+            envelope_hold(state, Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers, queued_demand?),
             now_ms,
             opts
           )
@@ -1097,20 +1088,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchPolicy.sort_issues_for_dispatch(issues), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
-  defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, _opts, _active, _terminal, _initial, _index), do: state
-  defp choose_issues_in_order(state, [], _opts, _active, _terminal, _initial, _index), do: state
+  defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
+    do: DispatchBatch.finish(state, opts, nil)
 
-  defp choose_issues_in_order(state, [issue | rest], opts, active, terminal, initial, index) do
-    # Stop the batch when the owner falls behind or its load sample goes stale;
-    # the next poll resumes from a fresh sample.
-    if dispatch_batch_ready?(state) do
-      choose_ready_issue(state, issue, rest, opts, active, terminal, initial, index)
-    else
-      state
-    end
+  defp choose_issues_in_order(state, [], opts, _active, _terminal, _initial, _index), do: DispatchBatch.finish(state, opts, nil)
+
+  defp choose_issues_in_order(state, [issue | rest] = remaining, opts, active, terminal, initial, index) do
+    DispatchBatch.advance(state, remaining, opts, fn -> choose_ready_issue(state, issue, rest, opts, active, terminal, initial, index) end, fn current, resume_opts ->
+      choose_issues_in_order(current, remaining, resume_opts, active, terminal, initial, index)
+    end)
   end
 
   defp choose_ready_issue(state, issue, rest, opts, active, terminal, initial, index) do
@@ -1136,17 +1125,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     is_integer(sampled_at_ms) and now_ms >= sampled_at_ms and
       now_ms - sampled_at_ms <= (state.poll_interval_ms || Aiur.PollCadence.base_interval_ms(class: :dispatch)) and
       sample_id != Map.get(state.load_envelope_state, :sample_id)
-  end
-
-  defp dispatch_batch_ready?(state) do
-    {:message_queue_len, depth} = Process.info(self(), :message_queue_len)
-    sampled_at_ms = Map.get(state.load_envelope_state, :sampled_at_ms)
-
-    sample_current? =
-      not Map.has_key?(state.load_envelope_state, :sampled_at_ms) or is_nil(Config.target_load_average()) or
-        (is_integer(sampled_at_ms) and System.monotonic_time(:millisecond) - sampled_at_ms <= (state.poll_interval_ms || Aiur.PollCadence.base_interval_ms(class: :dispatch)))
-
-    depth < 100 and sample_current?
   end
 
   defp recover_orphaned_claim(state, issue, active_states, terminal_states) do
@@ -2188,10 +2166,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     ])
   end
 
-  # `measured_at` moves with the measurements it describes: an extended hold
-  # carries this tick's probe, not the probe that first opened it. Without the
-  # re-stamp the age would report how long the hold has lasted rather than how
-  # fresh the number beside it is (#2527).
   defp merge_capacity_reason(hold, reason, measured_at) do
     hold
     |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
@@ -2307,9 +2281,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
       | dispatch_capacity_sample: %{
           load: probes.load,
+          load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
+          load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
+          gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
+          load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
           load_threshold: probes.load_threshold,
           target: probes.target,
-          schedulers: probes.schedulers
+          schedulers: probes.schedulers,
+          observed_at: StatusObservation.sample_observed_at(probes)
         }
     }
   end
@@ -2396,7 +2375,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_choose(state, issues), do: maybe_choose(state, issues, [])
 
   defp maybe_choose(state, issues, opts) do
-    if Slots.available_slots(state) > 0, do: choose_issues(state, issues, opts), else: state
+    if Slots.available_slots(state) > 0, do: choose_issues(state, issues, opts), else: DispatchBatch.finish(state, opts, nil)
   end
 
   # Records the load envelope as a capacity constraint only when it is a genuine
@@ -2529,7 +2508,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    state = persist_lifetime_trip(state, issue, fn identifier, target -> Tracker.update_issue_state(identifier, target, expected_state: issue.state) end)
+    state = persist_lifetime_trip(state, issue, fn identifier, target -> TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state) end)
     entry = Map.get(thrash_budget(state), issue.id, %{})
 
     if Map.get(entry, :alert_emitted, false) do
@@ -2783,7 +2762,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp capture_rework_head(_issue, initial_head, _opts) when initial_head != :pending, do: initial_head
 
   defp capture_rework_head(issue, :pending, opts) do
-    fetcher = Keyword.get(opts, :rework_head_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+    fetcher = Keyword.get(opts, :rework_head_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetcher.(issue.identifier) do
       {:ok, %{} = pr} -> ReworkGate.head_sha(pr) || :lookup_failed
@@ -2807,7 +2786,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow poll. The request is therefore posted to this process and sent to the
   # store only after the handler returns (`handle_pending_answer_delivery/1`).
   defp deliver_pending_answers(%Issue{identifier: identifier}, opts) when is_binary(identifier) do
-    send(self(), {:deliver_pending_answers, identifier, Keyword.get(opts, :decision_store, DecisionStore)})
+    send(self(), {:deliver_pending_answers, identifier, Keyword.get(opts, :decision_store, Commands.default_store())})
     :ok
   end
 
@@ -2821,7 +2800,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   """
   @spec handle_pending_answer_delivery({:deliver_pending_answers, String.t(), GenServer.server()}) :: :ok
   def handle_pending_answer_delivery({:deliver_pending_answers, identifier, store}) when is_binary(identifier),
-    do: DecisionStore.deliver_pending_answers(identifier, store)
+    do: Commands.deliver_pending_answers(identifier, store)
 
   defp dispatch_attempt_ticket(%Issue{} = issue) do
     case dispatch_attempt_identity(issue) do

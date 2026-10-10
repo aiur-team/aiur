@@ -4,14 +4,22 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
   alias Aiur.BuildQueue.{ListCommands, Model.Queue, Reconcile}
   alias Aiur.BuildQueue.Sources.BuildOrder
 
-  @spec prepare(map(), {:adopt | :unadopt, term()}) :: {:ok, map(), list(), map(), map()} | {:error, term()}
-  def prepare(state, {:adopt, root}) when is_integer(root) and root > 0 do
+  @spec prepare(map(), {:adopt | :unadopt, term()} | {:adopt, term(), String.t() | nil} | {:adopt, term(), String.t() | nil, Aiur.StartTrigger.trigger() | nil}) ::
+          {:ok, map(), list(), map(), map()} | {:error, term()}
+  def prepare(state, {:adopt, root}), do: prepare(state, {:adopt, root, nil})
+
+  def prepare(state, {:adopt, root, name}), do: prepare(state, {:adopt, root, name, nil})
+
+  def prepare(state, {:adopt, root, name, trigger}) when is_integer(root) and root > 0 do
+    name = if is_nil(name), do: "Build Order ##{root}", else: name
     queues = Enum.filter(state.document.queues, &(&1.kind == :build_order))
 
     cond do
       Enum.any?(queues, &(&1.root == root)) -> {:error, :already_adopted}
       length(queues) >= 32 -> {:error, :too_many_roots}
-      true -> adopt(state, root)
+      not is_binary(name) or String.trim(name) == "" -> {:error, :invalid_queue}
+      Enum.any?(state.document.queues, &(&1.name == name)) -> {:error, :queue_exists}
+      true -> adopt(state, root, name, trigger)
     end
   end
 
@@ -24,10 +32,11 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
 
   def prepare(_, _), do: {:error, :invalid_root}
 
-  defp adopt(state, root) do
-    with {:ok, snapshot} <- BuildOrder.watch(root, state.build_order_projection),
+  defp adopt(state, root, name, trigger) do
+    with :ok <- valid_trigger(trigger),
+         {:ok, snapshot} <- BuildOrder.watch(root, state.build_order_projection),
          {:ok, id} <- ListCommands.queue_id(state.document) do
-      queue = %Queue{id: id, name: "Build Order ##{root}", kind: :build_order, root: root, held: false, generation: 0, created_at: DateTime.from_unix!(state.clock.(), :millisecond)}
+      queue = %Queue{id: id, name: name, kind: :build_order, root: root, start_trigger: trigger, held: false, generation: 0, created_at: DateTime.from_unix!(state.clock.(), :millisecond)}
       document = %{state.document | queues: state.document.queues ++ [queue]}
       {document, actions, sources, verdicts, refusals} = import(document, queue, {:ok, snapshot})
       observations = Reconcile.observations(state)
@@ -39,6 +48,9 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
       error -> error
     end
   end
+
+  defp valid_trigger(nil), do: :ok
+  defp valid_trigger(trigger), do: if(trigger in Aiur.StartTrigger.triggers(), do: :ok, else: {:error, :invalid_start_trigger})
 
   defp unadopt(state, queue) do
     ids = for item <- state.document.items, item.queue_id == queue.id, do: item.issue_id
@@ -125,7 +137,7 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
     actions = actions ++ for id <- MapSet.difference(old_ids, ids), do: {:unmark, id}
     edges = Enum.filter(edges, &MapSet.member?(ids, &1.dependent))
     retained = Enum.reject(document.edges, &(&1.source == :build_order and MapSet.member?(old_ids, &1.dependent)))
-    queues = Enum.map(document.queues, &if(&1.id == queue.id, do: %{&1 | generation: snapshot.generation}, else: &1))
+    queues = Enum.map(document.queues, &if(&1.id == queue.id, do: %{&1 | generation: max(&1.generation, snapshot.generation)}, else: &1))
     document = %{document | queues: queues, items: others ++ accepted, edges: Enum.uniq(retained ++ edges)}
     refusals = Enum.map(refused, &{&1.issue_id, :already_queued})
     {document, actions, %{key(queue) => :current}, Map.take(BuildOrder.unknowns(snapshot), MapSet.to_list(ids)), refusals}

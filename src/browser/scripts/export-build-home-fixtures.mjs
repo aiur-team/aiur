@@ -90,13 +90,20 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
     }, { featureStats }));
   }
   files['feature-stats.json'] = encode(oracle);
+  const hostile = JSON.parse(files['live.json']);
+  hostile.sections.now[0].title = `<img src=x onerror="window.__xss=1">'"&`;
+  Object.values(hostile.epics)[0].label = '<b>x</b>';
+  Object.values(hostile.features)[0].label = '<b>x</b>';
+  hostile.sections.plan[0].cue.held = '" onmouseover="window.__xss=1';
+  hostile.sections.plan[0].override = { hours: 1, reason: '" onmouseover="window.__xss=1', by: 'fixture', at: NOW };
+  files['hostile.json'] = encode({ snapshot: hostile, invalid_title_base64: Buffer.from([65, 255, 66]).toString('base64') });
   files['usage-sets.json'] = encode(PSETS);
   const offsets = new Set();
   for (const text of Object.values(files)) walk(decode(text), v => {
     if (Number.isFinite(v) && v >= 1.7e12 && v <= 1.9e12) offsets.add(-new Date(v).getTimezoneOffset());
   });
   files['manifest.json'] = encode({
-    schema: 'build-home-raw/1', now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
+    schema: 'build-home-payload/1', ids: Object.fromEntries(DATASETS.flatMap(k => Object.values(JSON.parse(files[`${k}.json`]).sections).flat().map(r => [`AIUR-${r.num}`, r.id]))), now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
     design_etag: ETAG, datasets: DATASETS,
     design_sha256: Object.fromEntries(designFiles(designDir).map(f => [f, sha256(readFileSync(join(designDir, f)))])),
     fixture_sha256: Object.fromEntries(Object.entries(files).map(([f, text]) => [f, sha256(text)])),
