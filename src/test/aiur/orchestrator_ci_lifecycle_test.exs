@@ -6,7 +6,6 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{CiLifecycle, IssueSync, State, TrackerTasks}
-  alias Aiur.TestSupport.WakeInboxAck
 
   defmodule RecordingGitHubClient do
     alias Aiur.GitHub.IssueState
@@ -225,7 +224,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
       assert_received :ci_issue_fetch
       _ = :sys.get_state(Aiur.ExecutorListener.CIHandoffTest)
-      :ok = WakeInboxAck.ack_as_owner([wake])
+      :ok = Aiur.TestSupport.WakeInboxAck.ack_as_owner([wake])
       assert :timeout = ExecutorWakeInbox.wait(0)
     end
 
