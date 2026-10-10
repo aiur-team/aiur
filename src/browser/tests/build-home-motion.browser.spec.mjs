@@ -50,7 +50,7 @@ test('clock probe: design scroll advances one frame', async ({ browser }) => {
 })
 
 // Independent checks remain runnable while #3116 supplies the product fixture route.
-import { motionPathMatches, compareRecords, domState, pausedAnimations, scrollFrames } from '../support/build-home-motion.mjs'
+import { motionPathMatches, compareRecords, domState, pausedAnimations, scrollFrames, waitMinimapScroll } from '../support/build-home-motion.mjs'
 
 const record = value => ({ name: 'probe', samples: [{ scrollTop: value }], dom: { nodes: [] } })
 const motionEntry = { id: 'probe-motion', kind: 'motion', path: 'probe.samples[*].scrollTop', approval: { status: 'pending-sign-off' } }
@@ -397,4 +397,23 @@ test('harness self-check: scroll curve requests three visual frames', async ({ b
   const record = await designRecord(browser, 'snap.scroll-curve', { onFrame: (fraction, region) => frames.push([fraction, region]) })
   expect(record.samples.length, record.reason).toBeGreaterThan(0)
   expect(frames).toEqual([[0, '#bd-vp'], [.5, '#bd-vp'], [1, '#bd-vp']])
+})
+
+
+test('harness self-check: minimap waits for its stable target despite unrelated scrollend', async ({ page }) => {
+  await page.setContent('<div id="cv-log" style="height:100px;overflow:auto"><div style="height:1000px"></div></div>')
+  await page.evaluate(() => { window.nativeTimeout = setTimeout.bind(window); window.nativeFrame = requestAnimationFrame.bind(window) })
+  await page.clock.install({ time: FIXTURE_META.now })
+  await page.clock.pauseAt(FIXTURE_META.now)
+  await waitMinimapScroll(page)
+  await page.evaluate(() => {
+    const log = document.querySelector('#cv-log')
+    window.nativeTimeout(() => log.dispatchEvent(new Event('scrollend')), 20)
+    window.nativeTimeout(() => { log.scrollTop = 120; window.nativeFrame(() => { log.scrollTop = 60 }) }, 100)
+    window.nativeTimeout(() => { log.scrollTop = 120; window.finalTarget = true }, 500)
+  })
+  await waitMinimapScroll(page, 120)
+  expect(await page.locator('#cv-log').evaluate(el => el.scrollTop)).toBe(120)
+  expect(await page.evaluate(() => window.finalTarget)).toBe(true)
+  expect(await page.evaluate(() => Date.now())).toBe(FIXTURE_META.now)
 })

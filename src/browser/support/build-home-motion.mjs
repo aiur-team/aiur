@@ -361,21 +361,36 @@ async function tree(page, ctx) {
   return { samples, animation }
 }
 
+export async function waitMinimapScroll(page, target = null) {
+  await page.evaluate(() => { window.motionScrollWait = { previous: null, stable: 0 } })
+  try {
+    await page.waitForFunction(target => {
+      const top = document.querySelector('#cv-log').scrollTop, wait = window.motionScrollWait
+      wait.stable = top === wait.previous && (target === null || Math.abs(top - target) <= 1) ? wait.stable + 1 : 0
+      wait.previous = top
+      return wait.stable >= 2
+    }, target, { polling: 'raf', timeout: 5000 })
+  } catch (error) {
+    if (target !== null && error.name === 'TimeoutError') throw new Error('minimap jump missed its row', { cause: error })
+    throw error
+  } finally { await page.evaluate(() => { delete window.motionScrollWait }) }
+}
+
 async function minimap(page, ctx, jump) {
   await modal(page, { ...ctx, onFrame: undefined })
   await page.clock.runFor(32)
   const initialCount = await page.locator('#cv-log > *').count(), samples = []
   let animation = {}
   if (jump) {
-    // Native smooth scrolling uses browser time; wait for the actual scrollend event.
-    await page.evaluate(() => {
+    // Playwright's rAF poller uses native frames even while page.clock is paused.
+    await waitMinimapScroll(page)
+    const target = await page.evaluate(() => {
       const log = document.querySelector('#cv-log')
       const entry = document.querySelector('.mm-e'); if (!entry) throw new Error('unreachable minimap entry')
-      const target = Math.min(log.scrollHeight - log.clientHeight, Math.max(0, log.children[+entry.dataset.i].offsetTop - 16))
-      window.motionScrollEnd = target === log.scrollTop ? Promise.resolve() : new Promise(resolve => log.addEventListener('scrollend', resolve, { once: true }))
+      return Math.min(log.scrollHeight - log.clientHeight, Math.max(0, log.children[+entry.dataset.i].offsetTop - 16))
     })
     animation = await cssMotion(page, '#cv-log', { ...ctx, triggerEvent: 'pointerdown' }, '.mm-e')
-    if (!ctx.reduce) await page.evaluate(() => window.motionScrollEnd)
+    await waitMinimapScroll(page, target)
     samples.push(await page.evaluate(() => {
       const log = document.querySelector('#cv-log'), entry = document.querySelector('.mm-e'), row = log.children[+entry.dataset.i]
       const error = log.scrollTop - Math.min(log.scrollHeight - log.clientHeight, Math.max(0, row.offsetTop - 16))
