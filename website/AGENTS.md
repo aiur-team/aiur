@@ -40,7 +40,7 @@ unguarded and rests on review.
 
 ## Manual browser testing
 
-The terminal sim (`src/dashboard.ts` + `src/styles.css`) is responsive: it
+The terminal sim (`src/dashboard.ts` + `src/sim/` + `src/styles.css`, which imports `src/styles/`) is responsive: it
 measures `#termScreen` at runtime and lays the opencode pane out by aspect
 ratio (taller-than-wide → stacked below; wider-than-tall → split to the
 right). Verifying that requires a **real browser at real device sizes**.
