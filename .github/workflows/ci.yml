@@ -111,7 +111,7 @@ jobs:
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test config documentation and design extract guards
