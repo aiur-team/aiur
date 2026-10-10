@@ -11,6 +11,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.Cohort
 
   @events ~w(
     dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
@@ -18,35 +19,14 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     agent_pause agent_resume
   )
   @boundaries ~w(start end point)
-  @metadata_fields [
-    :outcome,
-    :cause,
-    :operation_id,
-    :command_class,
-    :duration_status,
-    :source,
-    :source_id,
-    :actor,
-    :pr_number,
-    :comment_id,
-    :review_thread_id,
-    :author_trusted,
-    :source_timestamp,
-    :worker_host,
-    :backend,
-    :prewarm_outcome,
-    :reason_class,
-    :exit_status,
-    :turn_number,
-    :remote,
-    :retry_attempt,
-    :workspace_owner,
-    :workspace_generation,
-    :workspace_phase,
-    :complexity,
-    # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
-    :dispatch_selection
-  ]
+  # Headroom dispatch summary (#3960): dispatch_selection holds the chosen backend/account and every alternative's score.
+  @metadata_fields ~w(
+    outcome cause operation_id command_class duration_status source source_id actor
+    pr_number comment_id review_thread_id author_trusted source_timestamp worker_host backend
+    prewarm_outcome reason_class exit_status turn_number remote retry_attempt
+    workspace_owner workspace_generation workspace_phase complexity dispatch_selection
+    model effort feature epic tags blockers start_mode
+  )a
 
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
@@ -205,8 +185,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> Enum.flat_map(fn {key, value} ->
       atom_key = metadata_key(key)
 
-      if atom_key in @metadata_fields and not is_nil(value) do
-        [{atom_key, normalize_metadata_value(value)}]
+      if atom_key in @metadata_fields and (not is_nil(value) or atom_key in [:model, :effort, :feature, :epic]) do
+        [{atom_key, Cohort.normalize_metadata_value(atom_key, value)}]
       else
         []
       end
@@ -221,12 +201,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp metadata_key(_key), do: nil
-
-  defp normalize_metadata_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp normalize_metadata_value(value) when is_boolean(value), do: value
-  defp normalize_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_metadata_value(value) when is_binary(value) or is_number(value), do: value
-  defp normalize_metadata_value(_value), do: "unknown"
 
   defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(value) when is_binary(value), do: value

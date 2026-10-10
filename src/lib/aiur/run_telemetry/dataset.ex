@@ -9,10 +9,10 @@ defmodule Aiur.RunTelemetry.Dataset do
   """
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.RunTelemetry.{Cohort, Lifecycle}
 
   @telemetry_filename "telemetry.ndjson"
-  @supported_kinds ~w(restart lifecycle resource warning)
+  @supported_kinds ~w(restart run_context lifecycle resource warning)
   @resource_metrics ~w(
     cpu_percent rss_bytes fd_count read_bytes write_bytes
     read_bytes_per_second write_bytes_per_second
@@ -68,6 +68,7 @@ defmodule Aiur.RunTelemetry.Dataset do
        %{
          records: records,
          restarts: Enum.filter(records, &daemon_restart?/1),
+         run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
          actors: actors,
          tickets: tickets,
          findings: findings,
@@ -110,6 +111,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     Map.merge(dataset, %{
       records: records,
       restarts: Enum.filter(records, &daemon_restart?/1),
+      run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
       actors: actors,
       tickets: scoped_tickets,
       findings: dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
@@ -156,6 +158,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     %{
       records: records,
       restarts: Enum.filter(records, &daemon_restart?/1),
+      run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
       actors: actors,
       tickets: tickets,
       findings: findings,
@@ -861,8 +864,6 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp reduce_tickets(records, opts) do
-    # Caller timestamps describe when an event occurred, but lifecycle pairing
-    # must follow append order when a segment boundary is interleaved.
     events =
       records
       |> Enum.filter(&(&1.kind == "lifecycle"))
@@ -918,6 +919,7 @@ defmodule Aiur.RunTelemetry.Dataset do
           source_path: record.source_path,
           source_line: record.source_line
         }
+        |> Map.merge(Cohort.event_fields(attributes))
       ]
     else
       _other -> []
@@ -1190,8 +1192,6 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp maybe_missing(missing, true, event), do: missing ++ [event]
   defp maybe_missing(missing, false, _event), do: missing
 
-  # Union of per-dataset provenance for `merge/1`: sources and schema versions
-  # deduplicate, record counts sum, and the time range spans every boot.
   defp merge_provenance(datasets) do
     provenances = Enum.map(datasets, & &1.provenance)
 

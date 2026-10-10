@@ -32,13 +32,13 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle", "restart", "resource"]
     assert Enum.map(records, & &1["boot_id"]) == ["boot-1", "boot-1", "boot-2", "boot-2"]
-    assert Enum.map(records, & &1["sequence"]) == [1, 2, 1, 2]
+    assert Enum.map(records, & &1["sequence"]) == [1, 3, 1, 3]
 
     assert Enum.map(records, & &1["record_id"]) == [
              "boot-1:1",
-             "boot-1:2",
+             "boot-1:3",
              "boot-2:1",
-             "boot-2:2"
+             "boot-2:3"
            ]
 
     assert Enum.at(records, 1)["timestamp"] == "2026-07-11T12:00:00Z"
@@ -63,7 +63,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     records = read_records(path)
 
     assert length(records) == 21
-    assert Enum.map(records, & &1["sequence"]) == Enum.to_list(1..21)
+    assert Enum.map(records, & &1["sequence"]) == [1 | Enum.to_list(3..22)]
     assert records |> Enum.map(& &1["record_id"]) |> Enum.uniq() |> length() == 21
   end
 
@@ -81,7 +81,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     records = read_records(path)
 
     assert Enum.map(records, & &1["kind"]) == ["restart", "resource", "warning"]
-    assert Enum.map(records, & &1["sequence"]) == [1, 2, 3]
+    assert Enum.map(records, & &1["sequence"]) == [1, 3, 4]
 
     assert Enum.map(Enum.drop(records, 1), & &1["timestamp"]) == [
              "2026-07-11T12:00:00Z",
@@ -190,7 +190,6 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     write_count = :atomics.get(writes, 1)
     assert write_count > 2
-    # restart + admitted records + one admission_overflow marker on drain
     assert write_count <= 258
     assert length(read_records(path)) == write_count
 
@@ -644,6 +643,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
           ~U[2026-07-11 12:00:00Z],
           ~U[2026-07-11 12:00:00Z],
           ~U[2026-07-11 12:00:00Z],
+          ~U[2026-07-11 12:00:00Z],
+          ~U[2026-07-11 12:00:00Z],
           ~U[2020-01-01 00:00:00Z]
         ]
       end)
@@ -927,9 +928,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Map.has_key?(current.tickets, "930")
   end
 
+  # Boot/config context is covered separately in CohortContextTest.
   defp read_records(path) do
-    path
-    |> File.stream!([], :line)
-    |> Enum.map(&Jason.decode!/1)
+    path |> File.stream!([], :line) |> Enum.map(&Jason.decode!/1) |> Enum.reject(&(&1["kind"] == "run_context"))
   end
 end
