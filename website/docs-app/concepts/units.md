@@ -17,6 +17,8 @@ The Units page is dashboard `/` and CLI `aiur units`.
 | CI and review | Current PR facts with safe links to the ticket, Command, or conversation. |
 | CLI scope | `--scope live|unfinished|all|none`; repeat `--condition` for any selected condition. |
 
+The page re-reads the fleet on every daemon change and at least every 15 seconds. When a read fails, the page keeps the last list, shows a **Stale list** banner with the age of that list, and replaces each elapsed time with `Stale`.
+
 The Summary progress bar uses the daemon's weighted current-run aggregate across Units with current inputs. When that aggregate cannot be computed, the bar keeps its shape but renders as flat grey rather than as zero or a hatched track.
 
 ## API meters
