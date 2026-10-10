@@ -92,4 +92,26 @@ defmodule Aiur.Orchestrator.TrackerTasksTest do
     assert TrackerTasks.result(next, ref, :ok) == :unhandled
     assert TrackerTasks.timeout(next, ref) == next
   end
+
+  test "stop reaps a held tracker task" do
+    owner = self()
+
+    pending =
+      TrackerTasks.start(
+        %State{},
+        :held,
+        fn ->
+          send(owner, {:started, self()})
+          receive do: (:never -> :ok)
+        end,
+        fn state, _ -> state end
+      )
+
+    receive_barrier({:started, worker})
+    monitor = Process.monitor(worker)
+
+    assert :ok = TrackerTasks.stop(pending)
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
+    refute Process.alive?(worker)
+  end
 end
