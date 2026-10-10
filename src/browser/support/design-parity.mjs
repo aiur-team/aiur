@@ -135,6 +135,7 @@ export async function captureStable(target, opts) {
     catch (error) {
       if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
       // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
+      console.warn(`captureStable: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
       await delay(100)
       png = await target.screenshot(opts)
     }
