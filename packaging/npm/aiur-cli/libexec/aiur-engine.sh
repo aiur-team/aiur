@@ -952,7 +952,7 @@ run_session() {
   # and (b) the post-start boot capture is not lost to /tmp when the launcher
   # removes its startup tempfile. Minting it here and exporting it makes the
   # shell and the BEAM (Aiur.LogFile honors AIUR_LOGS_ROOT) agree on one dir.
-  if [ "$mode" = "background" ] && [ -z "${AIUR_LOGS_ROOT:-}" ]; then
+  if [ -z "${AIUR_LOGS_ROOT:-}" ]; then
     AIUR_LOGS_ROOT="$(printf '%s/%s-%s' "$HOME/.aiur/logs" "$(date -u +%Y%m%dT%H%M%SZ)" "$$")"
     export AIUR_LOGS_ROOT
   fi
@@ -992,6 +992,9 @@ run_session() {
     startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.XXXXXX")"
   fi
 
+  local supervisor_file="${session_root}/aiur-${$}-supervisor"
+  : >"$supervisor_file"
+
   # Inner pane script: tmux's server may pre-exist and not inherit our env, so
   # re-export every var the BEAM needs. tee preserves a startup capture.
   local launcher
@@ -1013,10 +1016,11 @@ run_session() {
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
+    printf 'source %q\n' "$engine_dir/aiur-engine.sh"
+    printf 'supervise_daemon %q %q %q ' "$supervisor_file" "$startup_capture" "$crash_dump_baseline_file"
     printf '%q' "${release_cmd[0]}"
     for arg in "${release_cmd[@]:1}"; do printf ' %q' "$arg"; done
-    printf ' 2>&1 | tee -a "$capture"\n'
-    printf 'exit ${PIPESTATUS[0]}\n'
+    printf '\n'
   } >"$launcher"
 
   local inner_cmd
@@ -1024,7 +1028,7 @@ run_session() {
 
   local launch_tempfiles=(
     "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE"
-    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE"
+    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" "$supervisor_file"
   )
   [ -n "$AIUR_ALERT_LEDGER_PATH_FILE" ] && launch_tempfiles+=("$AIUR_ALERT_LEDGER_PATH_FILE")
   [ -n "$crash_dump_baseline_file" ] && launch_tempfiles+=("$crash_dump_baseline_file")
@@ -1118,6 +1122,7 @@ run_session() {
     exit 1
   fi
 
+  printf 'ready\n' >>"$supervisor_file"
   write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
   release_aiur_launch_lock "$launch_lock"
   _session_launch_lock=""
@@ -1144,12 +1149,10 @@ run_session() {
       "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1 \
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE" \
-      "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file")"
+      "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file" "$supervisor_file")"
     disown "$background_watchdog_pid" 2>/dev/null || true
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
-    # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
-    # transient argv file is no longer needed.
-    rm -f "$argv_file" 2>/dev/null || true
+    # The supervisor retains argv for recovery; stop/watchdog cleanup owns it.
     return 0
   fi
 
@@ -1162,7 +1165,7 @@ run_session() {
   _session_watchdog_pid="$(start_beam_death_watchdog \
     "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 0 \
     "$AIUR_RELEASE_NODE" "" "" "" "$AIUR_WORKSPACE_ROOT_FILE" \
-    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file")"
+    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file" "$supervisor_file")"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   # Avoid process substitution here: some sandboxed non-TTY launchers reject
@@ -1901,27 +1904,11 @@ agent_pidfile_from_instance_record() {
   printf '%s/aiur-%s-agents\n' "$session_root" "$pid"
 }
 
-# Background watchdog that survives the BEAM. Polls for the release BEAM by
-# command pattern and, once it has SEEN the BEAM and then the BEAM disappears
-# (orderly halt OR :emfile-style crash), reaps every agent. Polling the pattern
-# rather than a captured pid avoids two failure modes: a recycled BEAM pid the
-# watchdog would poll forever, and an empty pid at arm time that would silently
-# disarm the only crash reaper. The `seen` latch prevents a startup race from
-# reaping before the BEAM has come up. kill-server collapses the orphaned tmux
-# session, which returns the foreground `tmux attach` so the EXIT trap
-# (session_cleanup) runs its idempotent reap too.
-#
-#   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
-#   $6 node  $7 run_log_dir  $8 stop_sentinel  $9 crash_marker
-#   $10 workspace_root_file  $11 alert_ledger_path_file  $12 dump_baseline_file
-# Any of args 6-9 or 11 arm crash recording. Foreground supplies only the node
-# and alert-ledger handoff, so it can alert on a new dump without writing the
-# background-only run marker.
-# Prints the watchdog's own pid so the caller can kill it on a clean teardown.
+# Reap after VM death unless the pane supervisor is recovering it.
 start_beam_death_watchdog() {
   local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
   local node="${6:-}" run_log_dir="${7:-}" stop_sentinel="${8:-}" crash_marker="${9:-}" workspace_root_file="${10:-}"
-  local alert_ledger_path_file="${11:-}" dump_baseline_file="${12:-}"
+  local alert_ledger_path_file="${11:-}" dump_baseline_file="${12:-}" supervisor_file="${13:-}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
@@ -1930,6 +1917,8 @@ start_beam_death_watchdog() {
     while :; do
       if pgrep -f -- "$beam_pattern" >/dev/null 2>&1; then
         seen=1
+      elif supervisor_is_alive "$supervisor_file"; then
+        : # The pane supervisor owns the recovery gap.
       elif [ "$seen" = 1 ]; then
         break
       fi
@@ -1945,7 +1934,7 @@ start_beam_death_watchdog() {
     fi
     reap_aiur_agents "$socket" "$pidfile"
     reap_workspace_cwd_from_file "$workspace_root_file"
-    rm -f "$alert_ledger_path_file" "$dump_baseline_file" 2>/dev/null || true
+    rm -f "$alert_ledger_path_file" "$dump_baseline_file" "$supervisor_file" "${AIUR_ARGV_FILE:-}" 2>/dev/null || true
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
 }
@@ -4400,6 +4389,7 @@ aiur_engine_main() {
       ;;
   esac
 }
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
