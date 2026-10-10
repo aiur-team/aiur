@@ -20,6 +20,10 @@ defmodule Aiur.Issue do
     :pr_head_ref,
     :selected_backend,
     :selected_model,
+    # The account a headroom dispatch chose for `selected_backend` (#3960), and
+    # the scores behind that choice. Both stay nil under other policies.
+    :selected_account,
+    :dispatch_selection,
     :creator_login,
     # Numeric GitHub id and account type of the issue creator, from the
     # authenticated API response. Identity for allowed-contributor intake is
@@ -78,6 +82,8 @@ defmodule Aiur.Issue do
           # dispatch that picked a route would have shown as bare `openrouter`
           # and re-resolved some other model at session start.
           selected_model: String.t() | nil,
+          selected_account: String.t() | nil,
+          dispatch_selection: map() | nil,
           creator_login: String.t() | nil,
           creator_id: pos_integer() | nil,
           creator_type: String.t() | nil,

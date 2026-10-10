@@ -57,6 +57,7 @@ defmodule Aiur.AlertsTest do
 
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
@@ -65,8 +66,6 @@ defmodule Aiur.AlertsTest do
       else
         Application.delete_env(:aiur, :log_file)
       end
-
-      File.rm_rf!(root)
     end)
 
     assert :ok =
@@ -197,6 +196,7 @@ defmodule Aiur.AlertsTest do
 
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
     Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
@@ -205,8 +205,6 @@ defmodule Aiur.AlertsTest do
       else
         Application.delete_env(:aiur, :log_file)
       end
-
-      File.rm_rf!(log_root)
     end)
 
     assert :ok =
@@ -232,6 +230,7 @@ defmodule Aiur.AlertsTest do
     original_log_file = Application.get_env(:aiur, :log_file)
     File.mkdir_p!(workspace)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
     Aiur.TestSupport.put_runtime_state_dir!(log_root)
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -241,8 +240,6 @@ defmodule Aiur.AlertsTest do
       else
         Application.delete_env(:aiur, :log_file)
       end
-
-      File.rm_rf!(workspace_root)
     end)
 
     topic = "ticket.MT-CENTRAL-WORKSPACE.agent.attention.state_divergence"
@@ -270,6 +267,7 @@ defmodule Aiur.AlertsTest do
 
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
     Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
@@ -278,8 +276,6 @@ defmodule Aiur.AlertsTest do
       else
         Application.delete_env(:aiur, :log_file)
       end
-
-      File.rm_rf!(log_root)
     end)
 
     alerts = [
@@ -307,6 +303,7 @@ defmodule Aiur.AlertsTest do
     log_root = Aiur.TestSupport.tmp_root!("aiur-takeover-alert")
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
     Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
@@ -315,8 +312,6 @@ defmodule Aiur.AlertsTest do
       else
         Application.delete_env(:aiur, :log_file)
       end
-
-      File.rm_rf!(log_root)
     end)
 
     topic = "system.executor_takeover.999"
@@ -362,6 +357,7 @@ defmodule Aiur.AlertsTest do
       log_root = Aiur.TestSupport.tmp_root!("aiur-alert-resolution")
       original_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
       Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
@@ -370,8 +366,6 @@ defmodule Aiur.AlertsTest do
         else
           Application.delete_env(:aiur, :log_file)
         end
-
-        File.rm_rf!(log_root)
       end)
 
       {:ok, log_root: log_root}
