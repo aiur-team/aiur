@@ -26,6 +26,8 @@ defmodule Aiur.Config.RepoStatePathsTest do
       assert Paths.repo_state_relative_path(input) == ".aiur/repo/owner/name"
     end
 
+    # A single-segment identity must not pick up the host as its owner.
+    assert Paths.repo_state_path("https://github.com/solo") == Path.join(root, "solo")
     assert Paths.repo_state_root() == root
 
     assert Paths.repo_cache_sidecar_paths(expected) ==
