@@ -120,7 +120,6 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  # Fleet queries render the pause banner, observation age and shared rows.
   defp with_fleet_view(query, opts, timeout_ms, render) do
     case fleet_view(opts, timeout_ms, fleet_rows?: true) do
       {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
@@ -2813,6 +2812,7 @@ defmodule Aiur.AgentControlCLI do
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
         agents_activity(agent),
+        if(agent[:repl_attach_command], do: " | " <> agent.repl_attach_command, else: ""),
         WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent)
       ])
     end)

@@ -11,7 +11,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.CodingAgent
   alias Aiur.Commands
   alias Aiur.Config
-
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CapacityBinding
@@ -31,9 +30,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.ProgressRetention
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
+  alias Aiur.Tmux.Socket
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Ownership.HoldStatus
-
   # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
   # node, so the work itself is microseconds; the only thing this budget has to
   # cover is queueing. 100 ms did not: behind a burst of ticket events, or any
@@ -500,6 +499,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(metadata, :worker_host),
       workspace_path: Map.get(metadata, :workspace_path),
       session_id: Map.get(metadata, :session_id),
+      repl_attach_command: Socket.attach_command(metadata),
       live_conversation: Map.get(metadata, :live_conversation),
       codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
       agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),

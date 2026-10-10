@@ -46,10 +46,11 @@ defmodule Aiur.ProcessReaper do
 
   use GenServer, shutdown: 30_000
 
+  alias Aiur.Tmux.Socket
   require Logger
 
   @type kind :: :agent | :serve
-  @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()}
+  @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()} | {:pane, String.t(), String.t()}
 
   # ------------------------------------------------------------------ API
 
@@ -164,6 +165,7 @@ defmodule Aiur.ProcessReaper do
   end
 
   defp normalize_ref({:pane, pane_id}) when is_binary(pane_id) and pane_id != "", do: {:pane, pane_id}
+  defp normalize_ref({:pane, pane_id, socket}) when is_binary(pane_id) and pane_id != "" and is_binary(socket) and socket != "", do: {:pane, pane_id, socket}
   defp normalize_ref(_other), do: nil
 
   # ------------------------------------------------------------- callbacks
@@ -269,6 +271,7 @@ defmodule Aiur.ProcessReaper do
   defp pidfile_line({:os_pid, pid}, _meta), do: "pid #{pid}"
   # Pane lines are recorded for diagnostics/symmetry; the launcher reaps panes via
   # `tmux kill-server`, not this pidfile, so it reads only `pid` lines.
+  defp pidfile_line({:pane, pane_id, socket}, _meta), do: "pane #{pane_id} #{socket}"
   defp pidfile_line({:pane, pane_id}, _meta), do: "pane #{pane_id}"
 
   defp append_pidfile_line(path, line) do
@@ -285,7 +288,7 @@ defmodule Aiur.ProcessReaper do
   defp default_killers do
     %{
       kill_tree: &Aiur.ProcessTree.graceful_kill_tree/1,
-      kill_pane: &Aiur.Tmux.kill_pane/1,
+      kill_pane: &Socket.kill_pane/1,
       cmdline_reader: &read_cmdline/1
     }
   end
@@ -306,6 +309,15 @@ defmodule Aiur.ProcessReaper do
   catch
     outcome, reason ->
       Logger.warning("process_reaper kill_failed pid=#{pid} caught=#{inspect({outcome, reason})}")
+      :ok
+  end
+
+  defp kill_entry({{:pane, pane_id, socket}, _kind, _meta}, killers) do
+    killers.kill_pane.({pane_id, socket})
+    :ok
+  catch
+    outcome, reason ->
+      Logger.warning("process_reaper kill_failed pane=#{pane_id} socket=#{socket} caught=#{inspect({outcome, reason})}")
       :ok
   end
 

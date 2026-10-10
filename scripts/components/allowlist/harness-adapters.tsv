@@ -1,6 +1,5 @@
 # rule	target_module	reason
 R-declared	Aiur.AgentEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.AgentRunner.ToolExecutor	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.EventHumanizer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.EventHumanizerHelpers	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -11,7 +10,6 @@ R-declared	Aiur.Init	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.Dotenv	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Linear.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation.Source	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Perf	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Lifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -55,3 +53,6 @@ R-optional	Aiur.Usage.PriceTable.Data	baseline 22b2fa407c5d4218d25d63b1aa17472ae
 R-optional	Aiur.Usage.PriceTable.Window	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageEnvelope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageEnvelope.RelationshipRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-declared	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
+R-down	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
+R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation

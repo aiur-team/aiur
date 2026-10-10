@@ -1,7 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc """
-  Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`.
-  """
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
@@ -432,6 +430,7 @@ defmodule Aiur.Orchestrator.State do
         updated_running_entry =
           running_entry
           |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
+          |> maybe_put_runtime_value(:repl_tmux_socket, info[:tmux_socket])
           |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
           |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
           |> maybe_put_runtime_value(:headless_process_group_id, info[:headless_process_group_id])

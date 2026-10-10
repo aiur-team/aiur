@@ -284,8 +284,7 @@ defmodule AiurWeb.Presenter do
   defp issue_capabilities(nil), do: nil
   defp issue_capabilities(running), do: Map.get(running, :control)
 
-  defp issue_queue_depth(running, _idle) when is_map(running),
-    do: Map.get(running, :queue_depth, 0)
+  defp issue_queue_depth(running, _idle) when is_map(running), do: Map.get(running, :queue_depth, 0)
 
   defp issue_queue_depth(nil, idle) when is_map(idle), do: Map.get(idle, :queue_depth, 0)
   defp issue_queue_depth(nil, nil), do: 0
@@ -310,6 +309,7 @@ defmodule AiurWeb.Presenter do
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: entry.session_id,
+      repl_attach_command: Map.get(entry, :repl_attach_command),
       live_conversation: Map.get(entry, :live_conversation),
       turn_count: Map.get(entry, :turn_count, 0),
       runtime_seconds: Map.get(entry, :runtime_seconds, 0),

@@ -89,3 +89,16 @@ instructions through the ordinary chat input.
 | `aiur --debug` | Records attached panes at `log/record/chat.<issue>.ansi`. |
 
 Session lookup is per repository, so concurrent runs in different directories attach independently. Attaching to a default headless `--bg` session reconnects to its tmux lifetime holder, but it cannot add the TUI processes that were intentionally omitted at launch; use `--bg --interactive` when later TUI attachment is required.
+
+Claude REPL agents use a separate tmux server named `<daemon-socket>-agents`;
+chat panes stay on the daemon server. `aiur agents` and the dashboard show the
+REPL attach command. Normal `aiur stop` and unexpected daemon death clean up
+both servers. Pane isolation alone does not enable reconnecting after restart.
+
+Lifecycle hooks spool locally before posting to the dashboard and replay when the
+turn consumer reconnects. Each spool is capped at 16 MiB; reaching the cap rotates
+out older events.
+
+Only lifecycle and display fields are stored; tool inputs and
+responses are omitted. Proven session teardown deletes the spool. If the spool
+cannot be written, hooks still post directly to the dashboard.

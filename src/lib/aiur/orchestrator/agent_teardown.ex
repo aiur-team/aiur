@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, WorkspaceCleanup}
   alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   # Broadcast `aiur_turn_done` for every currently-active aiur turn on
   # `identifier`. The opencode bridge's chat-completion SSE handlers
@@ -198,7 +199,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     pane_id = Map.get(running_entry, :repl_pane_id)
     os_pid = Map.get(running_entry, :repl_os_pid)
 
-    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
+    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(Socket.agents(), pane_id)
 
     # The REPL pane's `exec claude` can spawn tool/MCP children that would
     # orphan and keep working on a single-pid kill, so reap the subtree.

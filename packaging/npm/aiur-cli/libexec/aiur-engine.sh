@@ -917,25 +917,20 @@ run_session() {
   export AIUR_ARGV_FILE="$argv_file"
 
   build_release_cmd
-
   # Force +fnu when no locale is set so the BEAM does not mangle non-ASCII paths.
   if [ -z "${LANG:-}" ] && [ -z "${LC_ALL:-}" ] && [ -z "${LC_CTYPE:-}" ]; then
     export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-} +fnu"
   fi
-
   preflight_stale_manual_smoke
-
   mkdir -p "$AIUR_BG_STATE_DIR"
   printf '%s\n' "$session" >"$AIUR_BG_STATE_DIR/state"
   export AIUR_TMUX_SESSION="$session"
-  export AIUR_TMUX_SOCKET="$socket"
+  export AIUR_TMUX_SOCKET="$socket" AIUR_AGENT_TMUX_SOCKET="${socket}-agents"
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="${BASH_SOURCE[0]}"
-
   local session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
   export AIUR_SESSION_TMPFILE="${session_root}/aiur-${$}-sessions"
   : >"$AIUR_SESSION_TMPFILE"
-
   # Agent pidfile: the BEAM appends one line per spawned agent (pane or headless
   # os_pid) via Aiur.ProcessReaper. The BEAM-death watchdog and session_cleanup
   # reap from it after the BEAM is gone — a crashed BEAM can kill nothing itself.
@@ -1005,7 +1000,7 @@ run_session() {
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
-      AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
+      AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_AGENT_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS \
       AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
@@ -1511,6 +1506,7 @@ reap_aiur_agents() {
 
   if [ -n "$tmux_bin" ] && [ -n "$socket" ]; then
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+    "$tmux_bin" -L "${socket}-agents" kill-server 2>/dev/null || true
   fi
 
   [ -n "$pidfile" ] && [ -r "$pidfile" ] || return 0
@@ -1635,6 +1631,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_AGENT_SOCKET=%q\n' "${AIUR_AGENT_TMUX_SOCKET:-${socket}-agents}"
     printf 'AIUR_RECORD_AGENT_TMPFILE=%q\n' "${AIUR_AGENT_TMPFILE:-}"
     printf 'AIUR_RECORD_SURFACE_MODE=%q\n' "$surface_mode"
     printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"
@@ -2216,7 +2213,7 @@ load_aiur_instance_record() {
   AIUR_RECORD_NODE=""
   AIUR_RECORD_INSTANCE_KEY=""
   AIUR_RECORD_SESSION=""
-  AIUR_RECORD_SOCKET=""
+  AIUR_RECORD_SOCKET="" AIUR_RECORD_AGENT_SOCKET=""
   AIUR_RECORD_AGENT_TMPFILE=""
   AIUR_RECORD_WORKSPACE_ROOT_FILE=""
   AIUR_RECORD_PROJECT_ROOT=""
@@ -3677,9 +3674,11 @@ cmd_stop() {
   tmux_bin="$(command -v tmux || true)"
   local session="${AIUR_ADOPTED_TMUX_SESSION:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default}"
   local socket="${AIUR_ADOPTED_TMUX_SOCKET:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}}"
+  load_aiur_instance_record "$(aiur_instance_record_path)" >/dev/null 2>&1 || true
+  local AIUR_AGENT_TMUX_SOCKET="${AIUR_RECORD_AGENT_SOCKET:-${socket}-agents}"
 
   local has_session=0
-  if [ -n "$tmux_bin" ] && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null; then
+  if [ -n "$tmux_bin" ] && { "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null || "$tmux_bin" -L "$AIUR_AGENT_TMUX_SOCKET" has-session 2>/dev/null; }; then
     has_session=1
   fi
 
@@ -3728,6 +3727,7 @@ cmd_stop() {
   # windows dies and no live aiur tmux server is left behind.
   if [ -n "$tmux_bin" ]; then
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+    "$tmux_bin" -L "${AIUR_AGENT_TMUX_SOCKET:-${socket}-agents}" kill-server 2>/dev/null || true
   fi
 
   # Belt-and-suspenders for this run's headless agents after the BEAM exits.

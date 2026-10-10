@@ -5,7 +5,7 @@ defmodule Aiur.Tmux.Layout do
   """
 
   require Logger
-  alias Aiur.Tmux.Exec
+  alias Aiur.Tmux.{Exec, Socket}
 
   @spec split_pane(
           map(),
@@ -78,7 +78,7 @@ defmodule Aiur.Tmux.Layout do
 
     case run_window_command(state, args, env) do
       {:ok, [pane_id | _]} ->
-        {:ok, String.trim(pane_id)}
+        configure_window(state, String.trim(pane_id))
 
       {:ok, []} ->
         {:error, :no_pane_id}
@@ -159,7 +159,7 @@ defmodule Aiur.Tmux.Layout do
   defp no_server?(reason) do
     reason
     |> List.wrap()
-    |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "no server running")))
+    |> Enum.any?(&(is_binary(&1) and (String.contains?(&1, "no server running") or String.contains?(&1, "No such file or directory"))))
   end
 
   # Create the holder session detached, running the REPL command as its first
@@ -184,9 +184,20 @@ defmodule Aiur.Tmux.Layout do
         ]
 
     case run_window_command(state, args, env) do
-      {:ok, [pane_id | _]} -> {:ok, String.trim(pane_id)}
+      {:ok, [pane_id | _]} -> configure_window(state, String.trim(pane_id))
       {:ok, []} -> {:error, :no_pane_id}
       {:error, _} = err -> err
+    end
+  end
+
+  defp configure_window(state, pane_id) do
+    case Socket.configure(state) do
+      :ok ->
+        {:ok, pane_id}
+
+      {:error, _} = error ->
+        kill_pane(state, pane_id)
+        error
     end
   end
 

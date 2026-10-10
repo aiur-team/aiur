@@ -24,6 +24,7 @@ defmodule Aiur.Claude.HookEvents do
 
   require Logger
 
+  alias Aiur.Claude.HookSpool
   alias Aiur.Orchestrator
 
   @pubsub Aiur.PubSub
@@ -61,6 +62,27 @@ defmodule Aiur.Claude.HookEvents do
   """
   @spec dispatch(String.t(), map()) :: :ok
   def dispatch(identifier, raw) when is_binary(identifier) and is_map(raw) do
+    if is_binary(raw["aiur_hook_id"]) do
+      # Only the turn consumer advances the cursor. A POST during daemon boot
+      # must leave its event pending until that consumer has reattached.
+      do_broadcast(topic(identifier), {:claude_hook_available, identifier})
+    else
+      publish(identifier, raw)
+    end
+  end
+
+  def dispatch(_identifier, _raw), do: :ok
+
+  @doc "Replay spooled hook events through the live hook topic, returning the processed byte offset."
+  @spec replay(String.t(), non_neg_integer()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def replay(identifier, from_offset) when is_binary(identifier) and is_integer(from_offset) and from_offset >= 0 do
+    HookSpool.replay(identifier, from_offset, &publish(identifier, &1))
+  end
+
+  @spec clear_spool(String.t()) :: :ok | {:error, term()}
+  def clear_spool(identifier), do: HookSpool.clear(identifier)
+
+  defp publish(identifier, raw) do
     event = normalize(raw)
 
     Logger.info(
@@ -76,8 +98,6 @@ defmodule Aiur.Claude.HookEvents do
 
     do_broadcast(topic(identifier), {:claude_hook, identifier, event})
   end
-
-  def dispatch(_identifier, _raw), do: :ok
 
   @doc "Map a raw claude hook payload to the normalized `event/0` shape."
   @spec normalize(map()) :: event()

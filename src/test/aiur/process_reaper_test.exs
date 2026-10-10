@@ -223,9 +223,10 @@ defmodule Aiur.ProcessReaperTest do
     end
 
     test "appends an agent os_pid with no comm as a bare line", %{reaper: reaper, pidfile: path} do
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 99}, [])
+      # Teardown uses real killers, so a synthetic fixture must not name a live PID.
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, [])
 
-      assert wait_for_lines(path) == ["pid 99"]
+      assert wait_for_lines(path) == ["pid 2147480000"]
     end
 
     test "appends an agent pane ref", %{reaper: reaper, pidfile: path} do
@@ -244,7 +245,7 @@ defmodule Aiur.ProcessReaperTest do
 
     test "no-ops cleanly when the env var is unset", %{reaper: reaper, pidfile: path} do
       System.delete_env("AIUR_AGENT_TMPFILE")
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 1}, comm: "claude")
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, comm: "claude")
 
       # Give the GenServer a beat; the file must stay empty.
       :ok = ProcessReaper.reap(reaper, [], [])
