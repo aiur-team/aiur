@@ -343,9 +343,7 @@ defmodule Aiur.AgentControlCLI do
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
     guarded("alerts", fn ->
-      opts
-      |> AlertFeed.list()
-      |> Enum.each(&IO.puts(Jason.encode!(&1)))
+      Aiur.AlertsCLI.run(opts)
 
       exit_marker(0)
     end)
