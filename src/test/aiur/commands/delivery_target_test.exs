@@ -9,7 +9,7 @@ defmodule Aiur.Commands.DeliveryTargetTest do
     @behaviour DeliveryTarget
 
     @impl true
-    def send_correlated(ticket_identifier, payload) do
+    def send_correlated(_server, ticket_identifier, payload) do
       send(self(), {:target_sent, ticket_identifier, payload})
       {:ok, %{status: :accepted, item: %{id: 7}}}
     end
@@ -106,7 +106,7 @@ defmodule Aiur.Commands.DeliveryTargetTest do
   test "unbound target names its own cause on every failing callback" do
     unbound = DeliveryTarget.Unbound
 
-    assert unbound.send_correlated("3313", %{}) == {:error, :delivery_target_unbound}
+    assert unbound.send_correlated(nil, "3313", %{}) == {:error, :delivery_target_unbound}
     assert unbound.active_identifiers() == {:error, :delivery_target_unbound}
     assert unbound.revalidate_issue(%Aiur.Issue{id: "1"}, fn _ids -> {:ok, []} end, MapSet.new()) == {:error, :delivery_target_unbound}
     # An unbound target must never read as "everything terminal".

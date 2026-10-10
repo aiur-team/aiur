@@ -9,7 +9,7 @@ defmodule Aiur.Commands.DeliveryTarget.Unbound do
   @behaviour Aiur.Commands.DeliveryTarget
 
   @impl true
-  def send_correlated(_ticket_identifier, _payload), do: {:error, :delivery_target_unbound}
+  def send_correlated(_server, _ticket_identifier, _payload), do: {:error, :delivery_target_unbound}
 
   @impl true
   def revalidate_issue(_issue, _issue_fetcher, _terminal_states), do: {:error, :delivery_target_unbound}

@@ -7,7 +7,8 @@ defmodule Aiur.Commands.DeliveryTarget do
   composition root and resolved per call.
   """
 
-  @callback send_correlated(ticket_identifier :: String.t(), payload :: map()) ::
+  # `server` is the caller's `:operator_messages` override; nil means the target's default.
+  @callback send_correlated(server :: GenServer.server() | nil, ticket_identifier :: String.t(), payload :: map()) ::
               {:ok, map()} | {:error, term()}
   @callback revalidate_issue(Aiur.Issue.t(), issue_fetcher :: function(), MapSet.t()) ::
               {:ok, Aiur.Issue.t()} | {:skip, :missing | Aiur.Issue.t()} | {:error, term()}

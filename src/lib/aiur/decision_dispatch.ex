@@ -67,8 +67,8 @@ defmodule Aiur.DecisionDispatch do
 
   def dispatch(%Decision{}, _opts), do: {:error, :answer_missing}
 
-  defp send_through_target(_server, ticket_identifier, payload),
-    do: DeliveryTarget.impl().send_correlated(ticket_identifier, payload)
+  defp send_through_target(server, ticket_identifier, payload),
+    do: DeliveryTarget.impl().send_correlated(server, ticket_identifier, payload)
 
   @doc "Render a concise, product-focused answer envelope for the agent."
   @spec render(Decision.t()) :: String.t()

@@ -14,8 +14,8 @@ defmodule Aiur.Orchestrator.CommandDeliveryTarget do
   @active_identifiers_timeout 1_000
 
   @impl true
-  def send_correlated(ticket_identifier, payload),
-    do: OperatorMessages.send_correlated_operator_message(Aiur.Orchestrator, ticket_identifier, payload)
+  def send_correlated(server, ticket_identifier, payload),
+    do: OperatorMessages.send_correlated_operator_message(server || Aiur.Orchestrator, ticket_identifier, payload)
 
   @impl true
   def revalidate_issue(issue, issue_fetcher, terminal_states),

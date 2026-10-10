@@ -233,8 +233,8 @@ defmodule Aiur.DecisionRevisionDispatch do
     end
   end
 
-  defp send_through_target(_server, ticket_identifier, payload),
-    do: DeliveryTarget.impl().send_correlated(ticket_identifier, payload)
+  defp send_through_target(server, ticket_identifier, payload),
+    do: DeliveryTarget.impl().send_correlated(server, ticket_identifier, payload)
 
   defp revalidate_through_target(issue, issue_fetcher, terminal_states),
     do: DeliveryTarget.impl().revalidate_issue(issue, issue_fetcher, terminal_states)
