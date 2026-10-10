@@ -45,6 +45,8 @@ more than 20 members. These are current links, not deduplicated tickets or
 historical sizes. Empty closed roots stay in the denominator. Neither root size
 nor a successful-promotion count establishes the peak newly ready per reconcile.
 
+This runbook keeps the AC12 acceptance procedure beside the measurement steps it validates.
+
 ## Executor collection
 
 Read [GitHub accounting guidance](../../website/docs-app/apis/github.md#reading-these-numbers-without-fooling-yourself)
@@ -94,6 +96,10 @@ env -u TMUX scripts/aiurdev queue add 2898 --after 2897 --queue e2e
 env -u TMUX scripts/aiurdev queue show --queue e2e --json > "$window/queue-added.json"
 env -u TMUX scripts/aiurdev resume
 ```
+
+T2 starts marker-only: queue reconciliation withdraws its pre-existing `agent:todo`
+while T1 is still an unmet prerequisite. Confirm T2 becomes waiting after
+reconciliation, then observe it start only after T1 completes.
 
 Drive the actual TUI as #3082 describes and record T1 completion and T2 starting
 without manual promotion. For the ordinary window, use a real Build Order root
