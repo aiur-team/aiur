@@ -172,11 +172,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
     test "observes human-review handoffs outside active states and records one Executor wake" do
       Publisher.set_tracked_fn(fn _ -> true end)
-      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffTest})
       on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
       previous = issue(unique_identifier("human-review-handoff"), "rework")
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
       current = %{previous | state: "human-review"}
       sha = String.duplicate("e", 40)
       key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
@@ -230,11 +230,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
     test "seeds existing human-review issues on the first CI poll without waking" do
       Publisher.set_tracked_fn(fn _ -> true end)
-      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffBootTest})
       on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
       current = issue(unique_identifier("human-review-at-boot"), "human-review")
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffBootTest, patterns: ["ticket.#{current.identifier}.agent.handoff.human_review"]})
 
       opts = [
         ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [current]} end,
