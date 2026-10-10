@@ -181,7 +181,6 @@ defmodule Aiur.Env.Schema do
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
     {"AIUR_TMUX_SESSION", type: :string, group: :runtime, purpose: "tmux session name the launcher uses."},
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
-    {"AIUR_REAL_GIT", type: :path, validate: false, example: false, group: :runtime, purpose: "Git executable selected by the agent command guard."},
     {"AIUR_AGENT_TMUX_SOCKET", type: :string, validate: false, example: false, group: :runtime, purpose: "Dedicated agent tmux socket; set by the launcher."},
     {"AIUR_TMUX_CONF", type: :path, validate: false, example: false, group: :runtime, purpose: "Shared tmux configuration file; set by the launcher."},
     {"AIUR_ERLANG_COOKIE", type: :secret, group: :runtime, purpose: "BEAM distribution cookie; launcher generates one if unset.", fetch: "openssl rand -hex 32"},
@@ -203,6 +202,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_AGENT_IR_SANDBOX", type: :boolean, validate: false, example: false, group: :runtime, purpose: "Test-reset guard inside an agent IR sandbox."},
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},
+    {"AIUR_REAL_GIT", type: :path, validate: false, example: false, group: :runtime, purpose: "Real git binary behind the agent git shim; idle dependent restacks run it directly."},
 
     # --- Development and debugging ---
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},

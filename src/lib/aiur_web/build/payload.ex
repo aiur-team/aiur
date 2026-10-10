@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.Payload do
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
-  Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, end,
+  Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
   created, status, pct, agent, est, override, added, deps, wave, qpos, cue, pr.
   Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
@@ -26,6 +26,7 @@ defmodule AiurWeb.Build.Payload do
   | cx / pts / ord | 1..5 or nil / nonnegative integer or nil / integer |
   | sec | hist, now, plan, nq |
   | start / end / created | integer milliseconds or nil; hist end must be known |
+  | start_src | label, dispatch, unknown; null start always has unknown source |
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
@@ -42,7 +43,10 @@ defmodule AiurWeb.Build.Payload do
   Epics require key/label strings, numeric hue and icon from
   bug/pen/server/docs/layers/unsorted; optional general/temp/unsorted are booleans,
   optional feature is a string. Features require key/label, numeric hue, epic keys
-  and nullable from/to milliseconds. Order and every row membership reference
+  and nullable from/to milliseconds. Required stats is an object or nil when unavailable.
+  Stats carries total/done/done_min, pct/pct_min, orig/added, baseline, spark, also
+  and reasons (complexity/no_weight/progress/status). Unknown done and percentages
+  stay nil; percentage bounds are integers in 0..100. Order and every row membership reference
   must resolve. Counts cover every ordered epic or the whole block is nil.
 
   History requires nullable from/total/undated, boolean more and string tz.
