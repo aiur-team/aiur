@@ -353,12 +353,12 @@ test("failed pin install remains non-fatal with an accurate pinned manual hint",
   expect(result.stderr).not.toContain("opencode was not found");
 });
 
-// Builds a fake OTP release recording argv to exercise the real launcher routing.
 function setupRealLauncher() {
   const launcherSrc = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
+  copyFileSync(path.join(path.dirname(launcherSrc), "aiur-daemon-supervisor.sh"), path.join(root, "libexec", "aiur-daemon-supervisor.sh"));
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-queue.sh"), path.join(root, "libexec", "aiur-queue.sh"));
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-epic.sh"), path.join(root, "libexec", "aiur-epic.sh"));
   copyFileSync(path.join(path.dirname(launcherSrc), "aiur-capabilities.sh"), path.join(root, "libexec", "aiur-capabilities.sh"));
