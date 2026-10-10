@@ -13,7 +13,7 @@ defmodule AiurWeb.Build.PlannedGraph do
 
     failed = failures(planned, dependents)
     blocked = failed |> Map.keys() |> Enum.flat_map(&DependencyChain.reachable(&1, dependents)) |> MapSet.new()
-    waves = Enum.reduce(planned, %{}, fn {item, _queue}, memo -> elem(wave(item.number, items, memo, MapSet.new()), 1) end)
+    waves = Enum.reduce(planned, %{}, fn {item, _queue}, memo -> elem(wave(item.number, items, memo, %{}), 1) end)
     %{waves: waves, failed: failed, blocked: blocked}
   end
 
@@ -36,11 +36,11 @@ defmodule AiurWeb.Build.PlannedGraph do
       Map.has_key?(memo, number) ->
         {memo[number], memo}
 
-      MapSet.member?(path, number) ->
+      Map.has_key?(path, number) ->
         {1, memo}
 
       true ->
-        path = MapSet.put(path, number)
+        path = Map.put(path, number, true)
 
         {level, memo} =
           Enum.reduce(items[number].prerequisites, {0, memo}, fn edge, {level, acc} ->
