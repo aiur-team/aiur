@@ -497,27 +497,3 @@ Mutations print each ticket's outcome; partial success exits 1 and names refusal
 Clear persists unmark intents before paced writes; crashes resume on restart. A budget hold reports `writes_paused`; rerun after it lifts. Wait for successful clear before downgrading; `agent:todo` remains dispatchable. The build queue uses the `agent:queued` membership marker; `aiur units --condition queued` still means tickets carrying `agent:todo`.
 
 `queue show` exit codes: 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, or a refused selection; 64 for invalid launcher arguments; 124 for an RPC timeout. Refusal statuses still print their read model.
-
-## Refresh research plans after refactors
-
-From a source checkout, `python3 -I scripts/plan_refresh.py` writes a Markdown
-report of file moves, component paths, migration-plan rows, stale citations,
-and oversized-file ownership. It reads inputs without editing tickets or contracts.
-
-```sh
-python3 -I scripts/plan_refresh.py --repo /path/to/aiur \
-  --from OLD_MAIN_SHA --to NEW_MAIN_SHA \
-  --pack docs/research/aiur-mobile-and-platform --pack-ref RESEARCH_SHA \
-  --u8-ledger /path/to/assignments.csv --out /path/to/report.md
-```
-
-All six arguments are required. Omit `--pack-ref` to read `--pack` as a local
-directory; with `--pack-ref`, the pack path is relative to the repository tree
-at that commit. The ledger and output paths are local filesystem paths.
-The ledger must carry the U8 columns `path,release_lines,package,frozen_owner,frozen_disposition,confidence`.
-Missing component manifests leave file-level reporting available. Unresolvable
-citations and migration rows remain explicit in the report; potential splits
-need human inspection. Contract rows show `status`, `base_main_sha`, and `date`
-without judging compatibility. Exit 0 means the report was written, including
-when drift exists; exit 2 means invalid input, a Git failure, or an I/O failure.
-This source tool is not included in the installed `aiur` command.
