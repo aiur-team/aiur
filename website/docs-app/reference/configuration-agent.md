@@ -209,7 +209,7 @@ relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
 
-Fleet admission uses CPU PSI and configured reserves. Load is the PSI-unavailable fallback; missing reserve measurements fail open.
+Fleet admission uses CPU PSI and configured reserves, falling back to load when PSI is unavailable, and fails open on missing reserve measurements.
 
 | Signal | Admission behavior |
 | --- | --- |
