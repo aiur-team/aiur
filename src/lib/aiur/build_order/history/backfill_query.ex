@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.History.BackfillQuery do
   @moduledoc "One repository walk, with timeline facts and explicit connection completeness."
-  alias Aiur.BuildOrder.History.{IssueNode, Row}
+  alias Aiur.BuildOrder.History.{IssueNode, Row, Timing}
 
   @spec query() :: String.t()
   def query do
@@ -102,7 +102,7 @@ defmodule Aiur.BuildOrder.History.BackfillQuery do
   defp timeline(fields, %{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => next}}, prefix) when is_list(nodes) and is_boolean(next) do
     with {:ok, facts} <- timeline_facts(nodes, prefix) do
       fields = Map.merge(fields, %{label_events: facts.labels, sub_issues_added: facts.children, timeline_complete: not next})
-      fields = put_signals(fields, facts.labels, prefix)
+      fields = Timing.merge(fields, facts.labels, prefix)
       {:ok, put_merge(fields, facts, not next)}
     end
   end
@@ -151,11 +151,6 @@ defmodule Aiur.BuildOrder.History.BackfillQuery do
   end
 
   defp timeline_item(_type, _node, _at, _prefix, _facts), do: {:error, :invalid_timeline_item}
-
-  defp put_signals(fields, labels, prefix) do
-    dates = for %{label: label, action: :labeled, at: at} <- labels, label == prefix <> ":in-progress", do: at
-    if dates == [], do: fields, else: Map.put(fields, :in_progress_at, Enum.min_by(dates, &DateTime.to_unix(&1, :microsecond)))
-  end
 
   defp put_merge(%{lifecycle: %{state: :closed}} = fields, facts, true) do
     case facts.closed ++ if(facts.closed == [], do: facts.connected, else: []) do
