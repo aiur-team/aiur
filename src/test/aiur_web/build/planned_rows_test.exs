@@ -64,14 +64,16 @@ defmodule AiurWeb.Build.PlannedRowsTest do
       item(4, prerequisites: [edge(20)]),
       item(5, prerequisites: [edge(30, :satisfied)]),
       item(6, state: :unknown, verdict: :unknown, prerequisites: [edge(40, :unknown)]),
-      item(7, state: :unknown)
+      item(7, state: :unknown),
+      item(8, state: :ready, verdict: :unknown)
     ]
 
     rows = PlannedRows.build(show(items), @history, active: MapSet.new([20])).rows
-    assert Enum.map(rows, & &1.wave) == [1, 2, 3, 2, 1, 2, 1]
+    assert Enum.map(rows, & &1.wave) == [1, 2, 3, 2, 1, 2, 1, 1]
     assert Enum.at(rows, 3).cue.wait == 20
     assert Enum.at(rows, 5).cue.unknown and Enum.at(rows, 5).cue.waitAny
     assert Enum.at(rows, 6).cue.unknown and not Enum.at(rows, 6).cue.waitAny
+    assert Enum.at(rows, 7).cue.unknown and not Enum.at(rows, 7).cue.waitAny
     assert Enum.at(rows, 4).deps == ["30"]
   end
 
