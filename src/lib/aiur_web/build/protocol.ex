@@ -4,6 +4,8 @@ defmodule AiurWeb.Build.Protocol do
   alias AiurWeb.Build.{DataSource, Payload, Read}
   require Logger
 
+  @resync_interval_ms 2_000
+
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def init(socket) do
     zone =
@@ -16,6 +18,7 @@ defmodule AiurWeb.Build.Protocol do
       build_epoch: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false),
       build_generation: 0,
       build_resynced: false,
+      build_read_at: nil,
       build_time_zone: zone,
       build_index_generation: nil,
       build_history: nil,
@@ -32,12 +35,24 @@ defmodule AiurWeb.Build.Protocol do
 
   @spec resync(Phoenix.LiveView.Socket.t(), keyword()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
   def resync(socket, opts) do
-    result =
-      if socket.assigns.build_state == :ready and socket.assigns.build_generation == 0 and not socket.assigns.build_resynced,
-        do: {:ok, socket.assigns.build_snapshot},
-        else: Read.safe_read(fn -> DataSource.call(socket.assigns.build_source, :snapshot, [opts]) end)
+    a = socket.assigns
+    now = clock()
+    cached? = a.build_state == :ready and a.build_generation == 0 and not a.build_resynced
+    throttled? = is_integer(a.build_read_at) and now - a.build_read_at < @resync_interval_ms
 
-    snapshot_reply(result, socket, opts)
+    cond do
+      cached? ->
+        snapshot_reply({:ok, a.build_snapshot}, socket, opts)
+
+      throttled? ->
+        # build_snapshot is not folded with later diffs, so serving it would stamp stale rows as current.
+        :telemetry.execute([:aiur, :build, :resync_throttled], %{count: 1}, %{})
+        {:reply, Payload.error(:throttled), socket}
+
+      true ->
+        result = Read.safe_read(fn -> DataSource.call(a.build_source, :snapshot, [opts]) end)
+        snapshot_reply(result, assign(socket, build_read_at: now), opts)
+    end
   end
 
   @spec earlier(Phoenix.LiveView.Socket.t(), map(), keyword()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
@@ -142,5 +157,6 @@ defmodule AiurWeb.Build.Protocol do
 
   defp stale?(%{"index_generation" => generation}, current) when is_integer(generation) and is_integer(current), do: generation <= current
   defp stale?(_changes, _current), do: false
+  defp clock, do: AiurWeb.Endpoint.config(:build_resync_clock, &System.monotonic_time/1).(:millisecond)
   defp writable?, do: AiurWeb.Endpoint.config(:dashboard_writable) == true
 end
