@@ -1,6 +1,7 @@
 defmodule Aiur.IssueLog.Paths do
   @moduledoc false
 
+  alias Aiur.AgentEvents
   alias Aiur.Config.Paths, as: ConfigPaths
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.TrackerIdentity
