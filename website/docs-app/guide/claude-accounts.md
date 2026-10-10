@@ -69,6 +69,11 @@ agent:
 five-hour utilization to break ties. `priority` uses the first configured
 account. Usage-aware selection currently applies to Claude and Codex.
 
+`headroom` looks across backends as well as accounts: each new ticket goes to
+the backend and account with the most usage left, within the routes its
+complexity level allows. See
+[Headroom dispatch](/concepts/headroom-dispatch).
+
 ## Continue a session after a usage limit
 
 When a resumable Claude REPL session reaches its account's usage limit, Aiur
