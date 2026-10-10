@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchCandidates,
     DispatchOutcome,
     DispatchPolicy,
+    EnvelopeResume,
     IssueSync,
     Lifecycle,
     MergedTicketReconciler,
@@ -39,7 +40,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
-
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
 
@@ -968,12 +968,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
       |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
 
-    # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
     state = record_capacity_sample(state, probes)
+    state = EnvelopeResume.persist(state, fresh?, probes.schedulers, now_ms)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
