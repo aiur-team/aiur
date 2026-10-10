@@ -27,16 +27,7 @@ defmodule Aiur.Orchestrator.MergeOrderAudit do
     compare = Keyword.get(opts, :compare, &GitHub.Client.fetch_compare_status/2)
     emit = Keyword.get(opts, :emit, &Alerts.emit_system/2)
 
-    contained = fn sha ->
-      with true <- is_binary(head) and head != "",
-           {:ok, status} <- compare.(sha, head) do
-        if status in ["ahead", "identical"], do: :contained, else: :not_contained
-      else
-        _ -> :unknown
-      end
-    end
-
-    case MergeOrder.verdict(blockers, contained) do
+    case MergeOrder.verdict(blockers, &contained(compare, &1, head)) do
       :ok ->
         :ok
 
@@ -55,6 +46,16 @@ defmodule Aiur.Orchestrator.MergeOrderAudit do
         )
     end
   end
+
+  defp contained(compare, sha, head) when is_binary(head) and head != "" do
+    case compare.(sha, head) do
+      {:ok, status} when status in ["ahead", "identical"] -> :contained
+      {:ok, _status} -> :not_contained
+      _ -> :unknown
+    end
+  end
+
+  defp contained(_compare, _sha, _head), do: :unknown
 
   defp format(ids), do: Enum.map_join(ids, ", ", &"##{&1}")
 end
