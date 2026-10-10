@@ -731,7 +731,7 @@ Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by
 
 - Requirements (ce-brainstorm): [talk/requirements.md](talk/requirements.md) — R1–R24, AE1–AE5, settled decisions SD1–SD6.
 - Research (2026-10-10, sources dated): [talk/research.md](talk/research.md).
-- MP-E6 now ships **with** /talk. Kevin approved publishing MP-E6 and /talk into the build on 2026-10-10 (relayed by the Executor), which answers E6-OQ22: promote everything, not only C12-T01.
+- MP-E6 now ships **with** /talk. GitHub: epic #4083 with 64 sub-issues (between #4084 and #4149); numbers in [tickets/README.md](tickets/README.md). Kevin approved publishing MP-E6 and /talk into the build on 2026-10-10 (relayed by the Executor), which answers E6-OQ22: promote everything, not only C12-T01.
 
 ### 19.1 Package boundaries (decision)
 

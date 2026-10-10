@@ -83,7 +83,7 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | [MP-E6-C11-T08](MP-E6-C11-T08.md) | Core Briefing render, diff and staleness (moved out of C10-T02 so the standalone path does not wait for aiur) | blocked (predecessors only) | C11-T01 | 4 (/talk) |
 | [MP-E6-C5-T06](MP-E6-C5-T06.md) | aiur delivery of confirmed drafts and consults through MP-E7 listener mode (split from C5-T03) | blocked (predecessors only) | C5-T03, C11-T04, MP-E7-C3-T03, MP-E7-C3-T04, DESIGN-E6 | 4 (/talk) |
 
-Totals (2026-10-10): 66 ticket files — 18 new (C13 ×9, C14 ×7, C11-T08, C5-T06), 1 superseded (C11-T06), 65 published to GitHub. Plan §19–§20; the dependency re-cut of §19.10 is applied in each ticket's frontmatter. Earlier totals: 43 tickets — 22 ready, 21 blocked (C11 added 2026-10-09, plan §17: independent package and read-only fork per harness). Before that: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
+Totals (2026-10-10): 65 ticket files — 18 new (C13 ×9, C14 ×7, C11-T08, C5-T06), 1 superseded (C11-T06), 64 published to GitHub. Plan §19–§20; the dependency re-cut of §19.10 is applied in each ticket's frontmatter. Earlier totals: 43 tickets — 22 ready, 21 blocked (C11 added 2026-10-09, plan §17: independent package and read-only fork per harness). Before that: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
 [../realtime-convo-research.md](../realtime-convo-research.md); several older tickets carry a
 2026-10-08 amendment section).
 
@@ -124,3 +124,26 @@ voice-session §3.6; RQ-E6-8 (E4 tail/since read) is resolved by the conversatio
 context reads use `:internal`, device-rendered text uses `{:device, device_id}`).
 
 Contract requests: [CONTRACT-REQUESTS.md](CONTRACT-REQUESTS.md).
+
+## GitHub (published 2026-10-10)
+
+Epic #4083 (container, label `feature:mp-e6`). 64 sub-issues with labels `feature:mp-e6`, `build-lane:voice`, `phase:5`, `priority:2`, `complexity:N`; `agent:todo` on C10-T03, C11-T01, C12-T01; `agent:parked` on the rest (reason in each body). 140 native `blocked_by` links (MP-E6 graph plus #3450, #3454, #3468). C11-T06 is superseded and not published.
+
+| Ticket | Issue | Ticket | Issue | Ticket | Issue | Ticket | Issue |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| C1-T01 | #4084 | C2-T01 | #4117 | C2-T02 | #4118 | C2-T03 | #4119 |
+| C2-T04 | #4120 | C3-T01 | #4121 | C3-T02 | #4122 | C3-T03 | #4123 |
+| C4-T01 | #4124 | C4-T02 | #4125 | C4-T03 | #4126 | C4-T04 | #4128 |
+| C4-T05 | #4130 | C4-T06 | #4131 | C5-T01 | #4132 | C5-T02 | #4133 |
+| C5-T03 | #4134 | C5-T04 | #4135 | C5-T05 | #4136 | C5-T06 | #4137 |
+| C6-T01 | #4138 | C6-T02 | #4139 | C6-T03 | #4140 | C6-T04 | #4141 |
+| C7-T01 | #4142 | C7-T02 | #4143 | C7-T03 | #4144 | C7-T04 | #4145 |
+| C8-T01 | #4146 | C8-T02 | #4147 | C8-T03 | #4148 | C9-T01 | #4149 |
+| C10-T01 | #4085 | C10-T02 | #4086 | C10-T03 | #4087 | C10-T04 | #4088 |
+| C10-T05 | #4089 | C11-T01 | #4090 | C11-T02 | #4091 | C11-T03 | #4092 |
+| C11-T04 | #4093 | C11-T05 | #4094 | C11-T07 | #4095 | C11-T08 | #4096 |
+| C12-T01 | #4097 | C12-T02 | #4098 | C12-T03 | #4099 | C12-T04 | #4100 |
+| C13-T01 | #4101 | C13-T02 | #4102 | C13-T03 | #4103 | C13-T04 | #4104 |
+| C13-T05 | #4105 | C13-T06 | #4106 | C13-T07 | #4107 | C13-T08 | #4108 |
+| C13-T09 | #4109 | C14-T01 | #4110 | C14-T02 | #4111 | C14-T03 | #4112 |
+| C14-T04 | #4113 | C14-T05 | #4114 | C14-T06 | #4115 | C14-T07 | #4116 |
