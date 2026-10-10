@@ -3,7 +3,7 @@ Code.require_file("../../support/tracker_io_poll_barrier.exs", __DIR__)
 defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   use Aiur.TestSupport
 
-  import Aiur.TrackerIoPollBarrier, only: [await_poll_finished: 1]
+  import Aiur.TrackerIoPollBarrier, only: [await_owned_poll: 2, await_poll_finished: 1]
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
@@ -472,11 +472,11 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   test "orchestrator shutdown reaps a held tracker task", %{server: server, token: token} do
+    stray = spawn(fn -> SlowTracker.fetch_candidate_issues() end)
     send(server, :run_poll_cycle)
-    receive_barrier({:poll_started, ^token, tracker})
-    refute tracker == server
+    tracker = await_owned_poll(server, token)
     monitor = Process.monitor(tracker)
-    on_exit(fn -> if Process.alive?(tracker), do: Process.exit(tracker, :kill) end)
+    on_exit(fn -> Enum.each([stray, tracker], &Process.exit(&1, :kill)) end)
     assert GenServer.stop(server) == :ok
     receive_barrier({:DOWN, ^monitor, :process, ^tracker, :killed})
     refute Process.alive?(tracker)
