@@ -42,6 +42,11 @@ defmodule Aiur.Executor.HarnessSession do
     end
   end
 
+  @doc "Adds `session` to an owner's claim `entry` (additive field); any other role gets nothing."
+  @spec record(map(), map() | nil, String.t()) :: map()
+  def record(%{"role" => "owner"} = entry, %{} = session, recorded_at), do: Map.put(entry, "session", Map.put_new(session, "recorded_at", recorded_at))
+  def record(entry, _session, _recorded_at), do: entry
+
   @doc "Whether `value` is an acceptable session id."
   @spec valid_session_id?(term()) :: boolean()
   def valid_session_id?(value), do: is_binary(value) and Regex.match?(@uuid, value)
