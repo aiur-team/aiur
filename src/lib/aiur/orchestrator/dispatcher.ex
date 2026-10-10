@@ -11,8 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
-
+  alias Aiur.Orchestrator.{PollTiming, ReworkGate, TrackerTasks}
   alias Aiur.Orchestrator.{
     AutoResume,
     CiLifecycle,
@@ -140,6 +139,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerTasks.start(state, :dispatch_poll, fn -> default_candidate_fetch(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &apply_candidate_result(&1, result))
+      |> PollTiming.complete(result)
       |> finish_poll_cycle()
     end)
   end
