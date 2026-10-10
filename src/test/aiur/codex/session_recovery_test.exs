@@ -11,6 +11,7 @@ defmodule Aiur.Codex.SessionRecoveryTest do
   test "classifies direct and wrapped Codex transport losses as recoverable" do
     assert SessionRecovery.recoverable?(:port_closed)
     assert SessionRecovery.recoverable?({:port_exit, 9})
+    assert SessionRecovery.recoverable?({:turn_start_failed, {:port_exit, :epipe}})
     assert SessionRecovery.recoverable?({:turn_start_failed, :port_closed})
     assert SessionRecovery.recoverable?({:turn_interrupt_failed, {:port_exit, 9}})
     assert SessionRecovery.recoverable?({:turn_start_failed, {:turn_interrupt_failed, :port_closed}})
