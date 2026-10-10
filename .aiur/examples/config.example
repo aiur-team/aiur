@@ -39,7 +39,8 @@ agent:
   # next one in the list, returning to an earlier one once it recovers.
   priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
   # accounts: {claude: [default, max]}     # machine-local Claude profiles; omit for legacy single-account behavior
-  # account_selection: balance            # balance = lowest weekly usage; priority = first eligible account
+  # account_selection: balance            # balance = lowest weekly usage; priority = first eligible account;
+  #                                       # headroom = backend+account with most usage left (routing values may be lists)
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly

@@ -121,6 +121,7 @@ defmodule Aiur.CodexProber do
   defp flush_probe_exit(port) do
     receive do
       {:EXIT, ^port, _reason} -> :ok
+      {:DOWN, _ref, :port, ^port, _reason} -> :ok
     after
       0 -> :ok
     end
