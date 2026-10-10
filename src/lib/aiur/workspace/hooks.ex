@@ -338,7 +338,7 @@ defmodule Aiur.Workspace.Hooks do
   defp run_workspace_github_preflight(workspace, worker_host) do
     fun =
       Application.get_env(:aiur, :workspace_github_preflight_fun, fn _workspace, _worker_host ->
-        GitHubTracker.auth_preflight()
+        GitHubTracker.ensure_auth_preflight()
       end)
 
     cond do
