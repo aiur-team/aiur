@@ -42,7 +42,7 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     four = Enum.reduce(1..4, initial, &dispatch(&2, &1, 2.0))
     refute File.exists?(path)
     reused = dispatch(four, 4, 2.0)
-    assert reused.load_envelope_state.safe_streak == 4
+    assert Map.get(reused.load_envelope_state, :safe_streak) == 4
     five = dispatch(reused, 5, 2.0)
     assert EnvelopeStore.load(21_600, System.schedulers_online()).safe_level == 6
     overloaded = Enum.reduce(6..8, %{five | effective_concurrent_agents: 8}, &dispatch(&2, &1, 11.0))
