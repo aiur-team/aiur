@@ -137,6 +137,7 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'TUI', link: '/guide/tui' },
             { text: 'CLI', link: '/reference/cli' },
+            { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
             { text: 'Stream Deck', link: '/guide/stream-deck' }
           ]
