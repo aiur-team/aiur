@@ -11,9 +11,10 @@ defmodule Aiur.AgentPubSub do
 
   require Logger
 
-  alias Aiur.AgentEvents
+  alias Aiur.{AgentEvents, AgentPubSub.FleetRefresh}
 
   @pubsub Aiur.PubSub
+  @fleet_refresh_topic "agents:fleet_refresh"
 
   @spec subscribe_agent(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
   def subscribe_agent(identifier) when is_binary(identifier) do
@@ -40,6 +41,22 @@ defmodule Aiur.AgentPubSub do
 
   @spec subscribe_running() :: :ok | {:error, term()}
   def subscribe_running, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
+
+  @doc "Payload-free fleet invalidations for consumers that read the published snapshot."
+  @spec subscribe_fleet_refresh(:atomics.atomics_ref()) :: :ok | {:error, term()}
+  def subscribe_fleet_refresh(latch) do
+    :ok = FleetRefresh.register(self())
+    opts = [metadata: {:fleet_refresh, latch}]
+    :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic(), opts)
+    :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic(), opts)
+    Phoenix.PubSub.subscribe(@pubsub, @fleet_refresh_topic, opts)
+  end
+
+  @spec latest_fleet_summaries() :: [AgentEvents.agent_summary()] | nil
+  def latest_fleet_summaries, do: FleetRefresh.latest(self())
+
+  @spec broadcast_fleet_refresh() :: :ok
+  def broadcast_fleet_refresh, do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
 
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
@@ -120,12 +137,12 @@ defmodule Aiur.AgentPubSub do
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
   def broadcast_running_change(summaries) when is_list(summaries) do
-    do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries})
+    do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries}, FleetRefresh)
   end
 
   @spec broadcast_status_change(AgentEvents.agent_identifier(), atom()) :: :ok
   def broadcast_status_change(identifier, status) when is_binary(identifier) and is_atom(status) do
-    do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}})
+    do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}}, FleetRefresh)
   end
 
   @spec broadcast_turn_event(AgentEvents.agent_identifier(), atom(), map()) :: :ok
@@ -154,11 +171,11 @@ defmodule Aiur.AgentPubSub do
     )
   end
 
-  defp do_broadcast(topic, message) do
+  defp do_broadcast(topic, message, dispatcher \\ Phoenix.PubSub) do
     case Process.whereis(@pubsub) do
       pid when is_pid(pid) ->
         Logger.debug("AgentPubSub.broadcast topic=#{topic} tag=#{inspect(message_tag(message))}")
-        Phoenix.PubSub.broadcast(@pubsub, topic, message)
+        Phoenix.PubSub.broadcast(@pubsub, topic, message, dispatcher)
 
       _ ->
         # No PubSub registry — expected in CLI contexts (e.g. `aiur init`) that
@@ -167,6 +184,8 @@ defmodule Aiur.AgentPubSub do
         :ok
     end
   end
+
+  defp message_tag(message) when is_atom(message), do: message
 
   defp message_tag(message) when is_tuple(message) and tuple_size(message) > 0,
     do: elem(message, 0)
