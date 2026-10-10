@@ -32,15 +32,29 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 
 ## executor takeover alerts
 
-Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
+Aiur watches nonterminal tickets in the run scope and, once a ticket's
+**convergence age** crosses a configurable threshold, raises an advisory
+`needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
+watch actionable section. The alerts are advisory takeover prompts — they never
+perform a takeover automatically.
 
-- `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket first raises the advisory once its convergence age reaches this value.
-- `executor_takeover_continuous_alert_hours` (default `1`) — while the ticket stays nonterminal and unresolved, the advisory is repeated at most this often. A value of `0` disables repeats (first alert only); `0` on the first threshold disables the feature. Negative or non-integer values are rejected.
+- `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
+  first raises the advisory once its convergence age reaches this value.
+- `executor_takeover_continuous_alert_hours` (default `1`) — while the ticket
+  stays nonterminal and unresolved, the advisory is repeated at most this often.
+  A value of `0` disables repeats (first alert only); `0` on the first threshold
+  disables the feature. Negative or non-integer values are rejected.
 
-**Convergence age** is `now − min(first_observed_active_work_at, open_pr_created_at)`:
+**Convergence age** is `now − min(first_observed_active_work_at,
+open_pr_created_at)`:
 
-- `first_observed_active_work_at` is persisted durably per ticket in daemon state, set once the first time the monitor observes the ticket as nonterminal and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon restart never resets it.
-- `open_pr_created_at` is the creation time of the ticket's open PR (a floor, so an already-open PR is never hidden by a freshly installed or restarted monitor).
+- `first_observed_active_work_at` is persisted durably per ticket in daemon
+  state, set once the first time the monitor observes the ticket as nonterminal
+  and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon
+  restart never resets it.
+- `open_pr_created_at` is the creation time of the ticket's open PR (a floor,
+  so an already-open PR is never hidden by a freshly installed or restarted
+  monitor).
 
 The alert carries actionable evidence.
 
@@ -270,7 +284,8 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 
 ### Routes in `agent.priority`
 
-Each entry is a **route**, not just a backend name. A route uses the same grammar `agent.routing` has always used:
+Each entry is a **route**, not just a backend name. A route uses the same
+grammar `agent.routing` has always used:
 
 ```
 <backend>[:<model>[:<effort>]][+remote]
@@ -279,7 +294,8 @@ Each entry is a **route**, not just a backend name. A route uses the same gramma
 - `claude`: the backend's own direct connection, exactly as before.
 - `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
-A colon-free entry means what it has always meant, so **existing configs need no change**.
+A colon-free entry means what it has always meant, so **existing configs need
+no change**.
 
 ```yaml
 agent:
@@ -301,7 +317,8 @@ agent:
     avoid_peak_pricing: true
 ```
 
-**A model reachable two ways may appear twice, and the order is the fallback order.** Duplicate *routes* are rejected; duplicate backends are not.
+**A model reachable two ways may appear twice, and the order is the fallback
+order.** Duplicate *routes* are rejected; duplicate backends are not.
 
 | Model name | Behavior |
 | --- | --- |
@@ -310,9 +327,11 @@ agent:
 | Alias claimed by multiple vendors | Rejected during config load. |
 | Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
-**OpenRouter needs an explicit model.** It fronts a catalog rather than a product, so a bare `openrouter` entry is a config error.
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a
+product, so a bare `openrouter` entry is a config error.
 
-**An untagged model never falls back to OpenRouter implicitly.** Bare `claude` means direct-only, always. Routing through OpenRouter is something you write.
+**An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
+means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
@@ -372,7 +391,10 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 
 Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
 
-Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures to preserve conversation continuity.
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur
+starts a fresh session only when Muse explicitly reports that the stored session
+was not found. Other resume errors, including a busy session, timeout, or
+mismatched session identity, remain failures to preserve conversation continuity.
 
 Remote workers and Claude Remote Control are unsupported for Muse.
 
