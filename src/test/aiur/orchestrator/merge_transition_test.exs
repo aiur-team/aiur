@@ -79,7 +79,8 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
 
     CommentWake.mark_pr_merged_issue_done(state, "3778",
       pr_body: "Closes #3778",
-      target_state: "rework",
+      open_pull_requests_fun: fn _identifier -> {:ok, [%{"number" => 3779, "review_decision" => "CHANGES_REQUESTED"}]} end,
+      unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "remaining-thread"}]} end,
       update_issue_state_fun: fn "3778", target -> IssueState.apply_issue_state_update(context, issue, target, "agent:#{target}") end,
       merger_allowed_fun: fn _login -> true end,
       clear_session_handle_fun: fn "3778" -> :ok end,
