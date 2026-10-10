@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Signal, Issue}
   alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, Transport}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -710,7 +710,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_deferral_cache(deferrals), do: deferrals
 
   defp alert_persistent_deferral(issue, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       deferral_topic(issue.id),
       "Dispatch remains deferred for issue #{issue.identifier || issue.id} after #{@deferral_alert_threshold} consecutive checks (#{inspect(reason)}).",
       issue: issue,
@@ -721,7 +721,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp alert_deferral_resolved(%Issue{id: id} = issue) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       deferral_topic(id) <> ".resolved",
       "Dispatch authorization checks have recovered for issue #{issue.identifier || id}.",
       issue: issue,
@@ -737,7 +737,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_alert_cache(alerted), do: alerted
 
   defp alert_ambiguity(issue, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "github.dispatch_authorization.ambiguous",
       "Dispatch denied for issue #{issue.identifier || issue.id}: label provenance could not be verified (#{inspect(reason)}).",
       issue: issue.identifier || issue.id,
@@ -752,7 +752,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # response cap even at the smallest page size, which is an Aiur limit to raise,
   # not a ticket to re-triage.
   defp alert_transport_limit(issue, {:transport_limit, reason}) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "github.dispatch_authorization.timeline_unreadable",
       "Dispatch deferred for issue #{issue.identifier || issue.id}: its GitHub timeline could not be " <>
         "read within Aiur's #{@max_timeline_response_bytes}-byte response cap (#{inspect(reason)}). " <>

@@ -11,7 +11,7 @@ defmodule Aiur.DecisionAttention do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, DecisionStore, Issue}
+  alias Aiur.{AlertFeed, Signal, DecisionStore, Issue}
   alias Aiur.Events.SubscriptionStore
 
   @default_reask_interval_ms :timer.minutes(15)
@@ -498,7 +498,7 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp emit_alert(attention) do
-    Alerts.emit_system(attention_topic(attention),
+    Signal.alert(attention_topic(attention),
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
@@ -509,7 +509,7 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp emit_resolution_alert(attention) do
-    Alerts.emit_custom(resolution_topic(attention), "Executor decision updated",
+    Signal.agent_alert(resolution_topic(attention), "Executor decision updated",
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,

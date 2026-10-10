@@ -30,7 +30,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Signal, Config}
   alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
   alias Aiur.Webhooks.{DeliveryMode, DeliveryModeEvents, ModeTable}
 
@@ -190,7 +190,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       repos: initial_repos(opts, settings),
       silence_threshold_ms: Keyword.get(opts, :silence_threshold_ms) || settings.silence_threshold_seconds * 1_000,
       sweep_interval_ms: Keyword.get(opts, :sweep_interval_ms) || settings.sweep_interval_seconds * 1_000,
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.agent_alert/3),
       observed: %{},
       sweep_timer: nil
     }

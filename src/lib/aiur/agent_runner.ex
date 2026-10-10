@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, Alerts, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
+  alias Aiur.{AgentEventLog, Signal, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -294,7 +294,7 @@ defmodule Aiur.AgentRunner do
   defp emit_live_session_alert(issue, description) do
     identifier = issue.identifier
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.workspace.live_session",
       "Refused to dispatch #{identifier}: its workspace already has a live session held by #{description}.",
       issue: identifier,
@@ -311,7 +311,7 @@ defmodule Aiur.AgentRunner do
       %{generation: generation, proof: proof} when proof != :tracked_provider ->
         detail = StatusReason.render({:workspace_ownership_waiting, issue.identifier, generation, proof})
 
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue.identifier}.workspace.ownership_hold",
           "Refused to dispatch #{issue.identifier}: #{detail}.",
           issue: issue.identifier,

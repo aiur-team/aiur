@@ -11,7 +11,7 @@ defmodule Aiur.ExecutorListener do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Events.{Exchange, Topic}
   alias Aiur.Executor.StatePaths
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
@@ -200,7 +200,7 @@ defmodule Aiur.ExecutorListener do
       "Executor Command #{decision_id} awaits you (ticket ##{issue})" <>
         if(is_binary(title) and title != "", do: ": #{truncate(title, 80)}", else: "")
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "executor.command.#{kind}",
       message,
       issue: issue,
@@ -248,7 +248,7 @@ defmodule Aiur.ExecutorListener do
 
   defp safe_health_alert(name, message, needs_attention?) do
     if alerting_enabled?() do
-      alert_fun = Application.get_env(:aiur, :executor_listener_health_alert_fun, &Alerts.emit_custom/3)
+      alert_fun = Application.get_env(:aiur, :executor_listener_health_alert_fun, &Signal.agent_alert/3)
 
       alert_fun.(name, message,
         reason: "executor wake binding health changed",

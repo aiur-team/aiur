@@ -62,7 +62,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Fs, Journal}
+  alias Aiur.{Signal, Config, Fs, Journal}
 
   @filename "webhook_deliveries.ndjson"
   @retention_ms 72 * 60 * 60 * 1000
@@ -187,7 +187,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
       append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
       compact_fun: Keyword.get(opts, :compact_fun, &compact_log/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.agent_alert/3),
       clock_fun: Keyword.get(opts, :clock_fun, fn -> System.system_time(:millisecond) end),
       retention_ms: positive(opts, :retention_ms, @retention_ms),
       sweep_interval_ms: positive(opts, :sweep_interval_ms, @sweep_interval_ms),

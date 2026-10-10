@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Hooks do
   @moduledoc "Workspace lifecycle hooks: run_hook/5 with env-scrub and Task-timeout envelope, after-create / after-run / before-remove dispatch, and GitHub connectivity preflight."
 
   require Logger
-  alias Aiur.{AgentBuildGuard, Alerts, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, Signal, BuildGate, Config, RepoBase}
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -352,7 +352,7 @@ defmodule Aiur.Workspace.Hooks do
   defp emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason) do
     message = github_workspace_preflight_message(workspace, issue_context, reason)
 
-    Alerts.emit_custom("system.github.connectivity_lost", message,
+    Signal.agent_alert("system.github.connectivity_lost", message,
       reason: message,
       needs_attention: true,
       severity: "warning",

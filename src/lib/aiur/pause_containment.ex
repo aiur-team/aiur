@@ -5,7 +5,7 @@ defmodule Aiur.PauseContainment do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.ProcessTree
 
   @default_grace_ms 5_000
@@ -339,7 +339,7 @@ defmodule Aiur.PauseContainment do
   end
 
   defp emit_event(stage, %{identifier: identifier, workspace: workspace, reason: reason}) do
-    Alerts.emit_system("ticket.#{identifier}.agent.pause.#{stage}",
+    Signal.alert("ticket.#{identifier}.agent.pause.#{stage}",
       issue: identifier,
       workspace: workspace,
       reason: reason,

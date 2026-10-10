@@ -499,7 +499,7 @@ defmodule Aiur.Events.SubscriptionStore do
     )
 
     _ =
-      Aiur.Alerts.emit_system(
+      Aiur.Signal.alert(
         "system.subscription_store.event_dead_lettered",
         reason: "enqueue failed after #{attempts} attempt(s) for event #{inspect(event_id)} on #{topic}: #{inspect(reason)}",
         needs_attention: true,

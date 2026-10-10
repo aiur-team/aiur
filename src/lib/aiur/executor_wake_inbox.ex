@@ -5,7 +5,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.Fs
@@ -603,7 +603,7 @@ defmodule Aiur.ExecutorWakeInbox do
   # content, only counts and ids, so the identifier-only boundary holds.
   defp safe_overflow_alert(message) do
     if Application.get_env(:aiur, :executor_wake_overflow_alerts?, true) do
-      _ = Alerts.emit_custom("executor.wakes.overflow", message, needs_attention: false, severity: "warning")
+      _ = Signal.agent_alert("executor.wakes.overflow", message, needs_attention: false, severity: "warning")
     end
 
     :ok

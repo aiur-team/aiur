@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionAttentionSignals do
   @moduledoc false
 
-  alias Aiur.{AlertFeed, Alerts, Decision}
+  alias Aiur.{AlertFeed, Signal, Decision}
 
   @open_statuses [:open, :deferred]
 
@@ -152,7 +152,7 @@ defmodule Aiur.DecisionAttentionSignals do
   end
 
   defp emit(topic, message, decision, reason, needs_attention, severity, opts) do
-    Keyword.get(opts, :alert_fun, &Alerts.emit_system/2).(
+    Keyword.get(opts, :alert_fun, &Signal.alert/2).(
       topic,
       issue: decision.ticket.identifier,
       message: message,

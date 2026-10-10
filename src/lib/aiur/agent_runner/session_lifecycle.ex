@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Tracker}
+  alias Aiur.{AgentPubSub, Signal, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, Telemetry}
   alias Aiur.LiveConversation.Source
@@ -1210,7 +1210,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       reason = unsupported_model_reason(backend, model)
       Logger.warning("Unknown model #{inspect(model)} for backend #{backend}: #{reason}")
 
-      Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.unsupported_model",
+      Signal.alert("ticket.#{issue.identifier}.agent.attention.unsupported_model",
         issue: issue,
         workspace: workspace,
         worker_host: worker_host,

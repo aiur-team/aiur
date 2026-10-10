@@ -8,7 +8,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
 
   require Logger
 
-  alias Aiur.{Alerts, CodingAgent, Issue}
+  alias Aiur.{Signal, CodingAgent, Issue}
   alias Aiur.CodingAgent.RouteFailure
 
   @doc "Emits the quota alert, forwarding ledger options such as `:now` for clock-consistent incident replay."
@@ -37,7 +37,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       "Agent paused: the #{backend} account usage quota is exhausted; retrying cannot help " <>
         "until it resets#{reset_suffix}. Resume the agent after the quota resets.#{backend_suffix}"
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.usage_limit_exhausted",
       issue: issue,
       workspace: workspace,
@@ -75,7 +75,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   @spec maybe_emit_more_tokens_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
-      Alerts.emit_system(
+      Signal.alert(
         "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
         issue: issue,
         workspace: workspace,
@@ -112,7 +112,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
         "No new PR head was detected. Current state: agent:#{issue.state}. " <>
         "Review the agent's result before redispatching."
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.noop_turns_bounded",
       issue: issue,
       workspace: workspace,
@@ -132,7 +132,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     message =
       "Agent stopped after pushing work for #{issue.identifier}; moved the ticket to agent:#{state}."
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.rework_handoff",
       issue: issue,
       workspace: workspace,

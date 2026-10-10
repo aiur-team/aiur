@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.DirtyGuard do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Signal, Config}
   alias Aiur.Workspace.Remote
 
   @timeout_ms 5_000
@@ -67,7 +67,7 @@ defmodule Aiur.Workspace.DirtyGuard do
     ticket = Path.basename(workspace)
 
     if Keyword.get(opts, :alert?, true) do
-      Alerts.emit_system("ticket.#{ticket}.workspace.dirty_kept",
+      Signal.alert("ticket.#{ticket}.workspace.dirty_kept",
         message: "Aiur kept #{workspace} because its work could not be safely deleted (#{inspect(reason)}). Commit, stash, or copy the work before retrying the ticket.",
         needs_attention: true,
         workspace: workspace

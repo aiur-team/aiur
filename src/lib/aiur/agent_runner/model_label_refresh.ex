@@ -20,7 +20,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefresh do
 
   require Logger
 
-  alias Aiur.{Alerts, CodingAgent, Config, Issue, ModelDiscovery}
+  alias Aiur.{Signal, CodingAgent, Config, Issue, ModelDiscovery}
 
   # One overall budget for refreshing every catalogue concurrently; each probe
   # is itself bounded by `ModelDiscovery.refresh_now/2`.
@@ -103,7 +103,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefresh do
       reason ->
         Logger.warning("Model label not applied for #{issue.identifier}: #{reason}")
 
-        Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.model_label_unresolved",
+        Signal.alert("ticket.#{issue.identifier}.agent.attention.model_label_unresolved",
           issue: issue,
           workspace: workspace,
           worker_host: worker_host,

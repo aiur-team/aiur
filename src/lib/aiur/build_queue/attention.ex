@@ -6,7 +6,7 @@ defmodule Aiur.BuildQueue.Attention do
   Pass nil as the subject of a system attention. Store-unavailable attentions
   need the caller's in-memory latch because this API cannot write a broken store.
   """
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.BuildQueue.Model.Latch
   alias Aiur.BuildQueue.Store
 
@@ -83,7 +83,7 @@ defmodule Aiur.BuildQueue.Attention do
     topic = "#{prefix}.queue.attention.#{cause}" <> if(resolved?, do: ".resolved", else: "")
     message = if resolved?, do: "Queue attention #{cause} cleared#{if subject, do: " for ##{subject}", else: ""}.", else: message(cause, subject, payload)
 
-    Alerts.emit_system(topic,
+    Signal.alert(topic,
       message: message,
       issue: subject,
       needs_attention: not resolved?,

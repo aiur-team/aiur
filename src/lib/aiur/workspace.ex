@@ -4,7 +4,7 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workspace.{Checkout, Context, GitMetadata, Hooks, Layout, Provisioner, Reconstruction, Refresh, Remove}
 
   @type worker_host :: String.t() | nil
@@ -208,7 +208,7 @@ defmodule Aiur.Workspace do
     issue_context = Context.build(issue_or_identifier)
     identifier = issue_context.issue_identifier
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.workspace.#{kind}",
       message,
       issue: identifier,

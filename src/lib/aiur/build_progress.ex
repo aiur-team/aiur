@@ -14,7 +14,7 @@ defmodule Aiur.BuildProgress do
 
   require Logger
 
-  alias Aiur.{Alerts, BuildOrder.ProgressGeneration, Config.Paths, JsonStore}
+  alias Aiur.{Signal, BuildOrder.ProgressGeneration, Config.Paths, JsonStore}
 
   @topic "build_progress"
   @changed_fields [:percent, :resolution, :freshness, :generation]
@@ -150,7 +150,7 @@ defmodule Aiur.BuildProgress do
         {kind, id} = fact.scope
 
         result =
-          Alerts.emit_system("system.#{kind}.#{id}.progress",
+          Signal.alert("system.#{kind}.#{id}.progress",
             message: "#{kind} #{id} reached #{milestone}% progress",
             severity: "info",
             needs_attention: false,

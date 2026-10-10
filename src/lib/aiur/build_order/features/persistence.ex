@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   @moduledoc false
   require Logger
 
-  alias Aiur.{Alerts, Config, Fs}
+  alias Aiur.{Signal, Config, Fs}
   alias Aiur.BuildOrder.Features.Journal
   alias Aiur.BuildOrder.ProviderHealth
   alias Aiur.Journal, as: AppendJournal
@@ -30,7 +30,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       append_fun: Keyword.get(opts, :append_fun, &AppendJournal.append/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.agent_alert/3),
       general_epics: epic_reader(Keyword.get(opts, :general_epics, &configured_epics/0)),
       max_record_bytes: Keyword.get(opts, :max_record_bytes, 1_048_576),
       max_file_bytes: Keyword.get(opts, :max_file_bytes, 16_777_216)

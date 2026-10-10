@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorCommandAttention do
   @moduledoc false
 
-  alias Aiur.{Alerts, JsonStore}
+  alias Aiur.{Signal, JsonStore}
   alias Aiur.Config.Paths
 
   @spec topic(String.t(), String.t()) :: String.t()
@@ -99,7 +99,7 @@ defmodule Aiur.ExecutorCommandAttention do
   defp maybe_resolve(_marker, _decision_id, _ticket_id, _path, _opts), do: :ok
 
   defp emit_resolution(decision_id, ticket_id, topic, opts) do
-    alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_system/2)
+    alert_fun = Keyword.get(opts, :alert_fun, &Signal.alert/2)
 
     alert_fun.(topic <> ".resolved",
       issue: ticket_id,
@@ -110,7 +110,7 @@ defmodule Aiur.ExecutorCommandAttention do
     )
   end
 
-  defp emit_alert(topic, message, opts), do: Alerts.emit_system(topic, Keyword.put(opts, :message, message))
+  defp emit_alert(topic, message, opts), do: Signal.alert(topic, Keyword.put(opts, :message, message))
 
   defp identity(decision) do
     with decision_id when is_binary(decision_id) <- present(field(decision, :decision_id)),

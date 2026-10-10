@@ -57,7 +57,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   use Aiur.PeriodicWorker
 
   require Logger
-  alias Aiur.{Alerts, Issue, Tracker}
+  alias Aiur.{Signal, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
@@ -84,7 +84,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
       diff_fetcher: Keyword.get(opts, :diff_fetcher, &default_diff/1),
       state_writer: Keyword.get(opts, :state_writer, &TicketTransition.write_state(&1, &2, writer: :rework_requeue)),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       # Per-ticket throttle: id => %{head_sha: String.t(), classification: atom()}.
       # A ticket whose head has not changed since we classified it is not
