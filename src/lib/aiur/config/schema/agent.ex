@@ -162,6 +162,7 @@ defmodule Aiur.Config.Schema.Agent do
     # It ramps capacity while below target and backs off before the separate
     # max_load_average hard gate is reached.
     field(:target_load_average, :float, default: 1.0)
+    field(:load_resume_max_age_seconds, :integer, default: 21_600)
     field(:load_ramp_step, :integer, default: 1)
     field(:load_cooldown_seconds, :integer, default: 60)
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
@@ -246,6 +247,7 @@ defmodule Aiur.Config.Schema.Agent do
         :ci_wait_rewake_minutes,
         :max_load_average,
         :target_load_average,
+        :load_resume_max_age_seconds,
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
@@ -279,6 +281,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
     |> validate_number(:max_load_average, greater_than: 0)
     |> validate_number(:target_load_average, greater_than: 0)
+    |> validate_number(:load_resume_max_age_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:load_ramp_step, greater_than: 0)
     |> validate_number(:load_cooldown_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:synthetic_load_process_cap, greater_than_or_equal_to: 0)
