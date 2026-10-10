@@ -47,7 +47,8 @@
     "test:tokens": "node scripts/run-browser-tests.mjs tests/build-home-tokens.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:shell-chrome": "node scripts/run-browser-tests.mjs tests/shell-chrome.browser.spec.mjs",
     "test:shell-parity": "node scripts/run-browser-tests.mjs tests/shell-design-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
-    "test:build-home-motion": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --config playwright.design-parity.config.mjs"
+    "test:build-home-motion": "node --test scripts/build-home-motion-selection.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --config playwright.build-home-motion.config.mjs",
+    "test:build-home-motion:full": "AIUR_PARITY_FULL=1 npm run test:build-home-motion"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.3",
