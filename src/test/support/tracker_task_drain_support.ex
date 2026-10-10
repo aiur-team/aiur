@@ -1,43 +1,29 @@
 defmodule Aiur.TrackerTaskDrainSupport do
   @moduledoc false
 
-  @doc """
-  Kills an Orchestrator's tracker tasks until none are left.
+  alias Aiur.Orchestrator.TrackerTasks
 
-  Killing a task makes the owner apply its error result, and that result can
-  start another tracker task. One kill pass then leaves the new task running
-  (#3957), so this kills every pass until the owner holds no task. A timeout
-  names the keys still held.
+  @doc """
+  Shuts down an Orchestrator's tracker tasks and drops them from its state.
+
+  The shutdown runs inside the owner, so the owner never applies a result for
+  a stopped task. Killing a task from outside made the owner apply its error
+  result, and a poll cycle continues from that result by starting the next
+  `:dispatch_poll` task, so a kill loop could chase the chain past its bound
+  (#3957, #4070). An owner that does not answer within the timeout exits the
+  caller.
   """
   @spec drain_tracker_tasks(pid(), non_neg_integer()) :: :ok
   def drain_tracker_tasks(pid, timeout_ms \\ 15_000) do
-    drain(pid, System.monotonic_time(:millisecond) + timeout_ms)
-  end
+    :sys.replace_state(
+      pid,
+      fn state ->
+        :ok = TrackerTasks.stop(state)
+        %{state | tracker_tasks: %{}}
+      end,
+      timeout_ms
+    )
 
-  defp drain(pid, deadline) do
-    jobs = pid |> :sys.get_state() |> Map.fetch!(:tracker_tasks) |> Map.values()
-
-    cond do
-      jobs == [] ->
-        :ok
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        raise "Timed out draining orchestrator tracker tasks; still held: #{inspect(Enum.map(jobs, & &1.key))}"
-
-      true ->
-        Enum.each(jobs, &kill_and_await(&1.task.pid, deadline))
-        drain(pid, deadline)
-    end
-  end
-
-  defp kill_and_await(task_pid, deadline) do
-    ref = Process.monitor(task_pid)
-    Process.exit(task_pid, :kill)
-
-    receive do
-      {:DOWN, ^ref, :process, _pid, _reason} -> :ok
-    after
-      max(deadline - System.monotonic_time(:millisecond), 0) -> Process.demonitor(ref, [:flush])
-    end
+    :ok
   end
 end
