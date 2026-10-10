@@ -7,8 +7,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   require Logger
 
-  alias Aiur.AgentRunner.EpicSetter
-  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.{DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
 
   alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
 
@@ -660,8 +659,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
              |> Map.take([:decision_id, :version, :answered_version, :action_id, :status, :decision_status])
              |> Map.new(fn {key, value} -> {Atom.to_string(key), stringify_lifecycle_value(value)} end)}
 
-          {:error, reason} ->
-            {:error, {:decision_lifecycle_rejected, reason}}
+          {:error, reason} -> DecisionLifecycleFailureAlert.recording_failed(issue, payload, name, reason)
         end
     end
   end

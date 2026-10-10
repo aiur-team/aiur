@@ -72,25 +72,36 @@ defmodule Aiur.DecisionDispatch do
   def render(%Decision{answer: %DecisionAnswer{} = answer} = decision) do
     response = response_text(decision, answer)
     rationale = if answer.rationale, do: "Rationale: #{answer.rationale}", else: nil
-    lifecycle = lifecycle_instruction()
 
-    [response, rationale, lifecycle]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n\n")
-    |> bound(@max_message_chars)
+    lifecycle =
+      Enum.join([lifecycle_correlation(decision, answer), lifecycle_instruction()], "\n\n")
+
+    prefix =
+      [response, rationale]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n\n")
+
+    bound(prefix, @max_message_chars - byte_size(lifecycle) - 2) <> "\n\n" <> lifecycle
   end
 
-  # The agent is told only what to do next, in product terms. Correlations,
-  # versions and the ticket identity live in the queue payload, not the prose,
-  # so the operator's answer reads the way it was written.
+  defp lifecycle_correlation(decision, answer) do
+    "Decision lifecycle correlation: " <>
+      Jason.encode!(%{
+        decision_id: decision.decision_id,
+        action_id: answer.action_id,
+        expected_version: answer.decision_version
+      })
+  end
+
   defp lifecycle_instruction do
-    "After applying this, emit `decision.acknowledged` and, when the work is done, `decision.resolved`."
+    "After applying this, emit `decision.acknowledged` and, when the work is done, `decision.resolved`, including the correlation fields above."
   end
 
   defp bound(body, limit) when byte_size(body) <= limit, do: body
   defp bound(body, limit), do: String.slice(body, 0, limit)
 
-  defp response_text(decision, %DecisionAnswer{selected_option_id: option_id}) when is_binary(option_id) do
+  defp response_text(decision, %DecisionAnswer{selected_option_id: option_id})
+       when is_binary(option_id) do
     label =
       decision.options
       |> Enum.find(&(&1.id == option_id))
