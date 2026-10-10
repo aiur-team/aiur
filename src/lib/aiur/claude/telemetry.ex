@@ -11,8 +11,8 @@ defmodule Aiur.Claude.Telemetry do
 
   import Aiur.Claude.Telemetry.LaunchRegistry
 
-  alias Aiur.Issue
   alias Aiur.Claude.Telemetry.{Contract, Ingest, Receiver}
+  alias Aiur.Issue
 
   @topic "claude_telemetry:events"
   @usage_topic "claude_telemetry:usage"
