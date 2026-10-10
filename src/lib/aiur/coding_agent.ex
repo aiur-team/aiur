@@ -13,6 +13,7 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.CodingAgent.ModelLabel
   alias Aiur.CodingAgent.Models
   alias Aiur.CodingAgent.Registry
@@ -513,9 +514,13 @@ defmodule Aiur.CodingAgent do
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
   def select_for_dispatch(%Issue{} = issue, opts \\ []) do
     cond do
+      # `account_selection: headroom` scores every allowed backend and account
+      # by remaining usage (#3960). A pin still pins; headroom picks its account.
+      HeadroomDispatch.enabled?(opts) ->
+        HeadroomDispatch.select(issue, &eligible_routes(Keyword.put(opts, :backends, &1)), opts)
+
       # A pin is intent: an operator's `model:` label, or the backend a
-      # rate-limit fallback has already moved this claim onto. It dispatches
-      # whatever the ledger says.
+      # rate-limit fallback has already moved this claim onto.
       is_binary(issue.selected_backend) or override_backend(issue) ->
         {:ok, issue}
 
@@ -523,10 +528,6 @@ defmodule Aiur.CodingAgent do
       # default, and a default onto an exhausted account is a dispatch that can
       # only refuse. Park the claim the way an exhausted priority chain does:
       # `model_fallback_waiting` releases it as soon as the backend recovers.
-      #
-      # Before this, a routed backend short-circuited with no availability
-      # check at all, so a fleet whose routing names one backend kept
-      # dispatching into its own account limit.
       backend = Keyword.get_lazy(opts, :routing_backend, fn -> routing_backend(issue) end) ->
         if ModelAvailability.available?(backend, opts),
           do: {:ok, issue},
@@ -558,16 +559,11 @@ defmodule Aiur.CodingAgent do
 
   # The candidate routes for one claim. `agent.priority` is read **fresh per
   # claim and reduced through an ordered chain**, never treated as a fixed
-  # literal resolved once at config load: that is what lets a later policy drop
-  # or reorder entries per dispatch.
-  #
-  # Two policies ship here — the backend must be dispatchable, and the route
-  # must have its credential — and `:route_policies` is the seam for the rest.
-  # The peak-pricing policy (#1456) is the next occupant: it compares entries
-  # by cost at the moment of selection, which it can, because a route already
-  # resolves to a price identity via `route_price_identity/1`.
-  # A policy that returns [] falls through to `{:ok, issue}` (dispatch with no
-  # pinned route) rather than stranding the claim.
+  # literal resolved once at config load, so a policy can drop or reorder
+  # entries per dispatch: the backend must be dispatchable, the route must have
+  # its credential, `:route_policies` is the seam for the rest, and the
+  # peak-pricing policy (#1456) compares entries by price identity. A policy
+  # that returns [] falls through to `{:ok, issue}` rather than stranding it.
   defp eligible_routes(opts) do
     Keyword.get(opts, :backends, Config.switch_model_on_ratelimit())
     |> Enum.filter(&(RoutingValue.routing_backend(&1) in configured_backends(opts) and RouteCredentials.usable?(&1, opts)))
@@ -684,7 +680,7 @@ defmodule Aiur.CodingAgent do
   defp configured_backends(opts) do
     Keyword.get_lazy(opts, :configured_backends, fn ->
       (Config.agent_priority_backends() ++
-         [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)])
+         [Config.agent_kind() | Enum.flat_map(HeadroomDispatch.routing_candidates(), fn {_level, routes} -> Enum.map(routes, &RoutingValue.routing_backend/1) end)])
       |> Enum.filter(&(&1 in known_backends()))
       |> Enum.uniq()
     end)
@@ -912,6 +908,10 @@ defmodule Aiur.CodingAgent do
       value -> RoutingValue.routing_remote_flag?(value)
     end
   end
+
+  # A headroom choice (#3960) is the issue's route: its model, effort and
+  # `+remote` flag apply, not those of the level's first routing entry.
+  defp routing_value(%Issue{dispatch_selection: %{route: route}}) when is_binary(route), do: route
 
   defp routing_value(%Issue{} = issue) do
     case complexity_level(issue) do

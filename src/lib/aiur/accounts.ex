@@ -95,10 +95,10 @@ defmodule Aiur.Accounts do
   end
 
   @spec select(String.t(), [String.t()], String.t(), map()) :: {:ok, String.t()} | {:error, term()}
-  def select(_harness, candidates, mode, usage) when mode in ["balance", "priority"] do
+  def select(_harness, candidates, mode, usage) when mode in ["balance", "priority", "headroom"] do
     case mode do
       "priority" -> select_priority(candidates, usage)
-      "balance" -> select_balance(candidates, usage)
+      _balance_or_headroom -> select_balance(candidates, usage)
     end
   end
 

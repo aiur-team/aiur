@@ -3,6 +3,7 @@ defmodule Aiur.AccountsCLI do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.{Claude, Codex}
+  alias Aiur.CodingAgent.HeadroomDispatch
 
   @spec accounts(boolean(), String.t() | nil) :: :ok | {:error, term()}
   def accounts(json, harness \\ nil)
@@ -21,7 +22,13 @@ defmodule Aiur.AccountsCLI do
     render_accounts(json, harness, snapshot_fun, true)
   end
 
-  defp render_accounts(json, harness, snapshot_fun, daemon_available?) do
+  @doc false
+  @spec accounts(boolean(), String.t() | nil, ([String.t()] -> map()), (String.t() -> map() | nil)) :: :ok
+  def accounts(json, harness, snapshot_fun, ledger_fun) when is_function(snapshot_fun, 1) and is_function(ledger_fun, 1) do
+    render_accounts(json, harness, snapshot_fun, true, ledger_fun)
+  end
+
+  defp render_accounts(json, harness, snapshot_fun, daemon_available?, ledger_fun \\ &ledger_reading/1) do
     accounts = Accounts.list(harness)
     claude_names = accounts |> Enum.filter(&(&1.harness == "claude")) |> Enum.map(& &1.name)
 
@@ -32,7 +39,13 @@ defmodule Aiur.AccountsCLI do
         snapshot_fun
       end
 
-    rows = Enum.map(accounts, &account_row(&1, snapshots, daemon_available?))
+    per_harness = Enum.frequencies_by(accounts, & &1.harness)
+
+    rows =
+      Enum.map(accounts, fn account ->
+        ledger? = daemon_available? and Aiur.CodingAgent.family_for(account.harness) != "claude" and Map.get(per_harness, account.harness) == 1
+        account |> account_row(snapshots, daemon_available?) |> with_ledger(ledger? && ledger_fun.(account.harness))
+      end)
 
     if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
     :ok
@@ -118,7 +131,7 @@ defmodule Aiur.AccountsCLI do
   end
 
   defp account_row(%{name: name, harness: harness, api_key_env: _env_name}, _snapshots, _daemon_available?) do
-    %{name: name, harness: harness, identity: nil, usage: "usage unavailable", observed_at: nil, age_ms: nil}
+    %{name: name, harness: harness, identity: nil, usage: "usage unavailable", remaining_percent: nil, observed_at: nil, age_ms: nil}
   end
 
   defp account_row(%{name: name, harness: harness, profile_dir: dir}, snapshots, daemon_available?) do
@@ -135,6 +148,7 @@ defmodule Aiur.AccountsCLI do
           identity: identity,
           weekly_percent: percent(reading.windows, "seven_day"),
           five_hour_percent: percent(reading.windows, "five_hour"),
+          remaining_percent: HeadroomDispatch.remaining_percent(%{windows: %{"seven_day" => percent(reading.windows, "seven_day"), "five_hour" => percent(reading.windows, "five_hour")}}),
           freshness: Atom.to_string(freshness),
           observed_at: DateTime.to_iso8601(observed_at),
           age_ms: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
@@ -175,10 +189,34 @@ defmodule Aiur.AccountsCLI do
       identity: identity,
       weekly_percent: nil,
       five_hour_percent: nil,
+      remaining_percent: nil,
       freshness: freshness,
       observed_at: nil,
       age_ms: nil
     }
+  end
+
+  # Backends without a per-account meter (Codex today) read the usage ledger
+  # that their sessions and the background probe write (#3960). The ledger is
+  # per backend, so it only describes a backend with a single account.
+  defp with_ledger(row, %{windows: windows} = reading) do
+    Map.merge(row, %{
+      weekly_percent: round_percent(windows["weekly"]),
+      five_hour_percent: round_percent(windows["short"]),
+      remaining_percent: HeadroomDispatch.remaining_percent(reading),
+      freshness: "ledger"
+    })
+  end
+
+  defp with_ledger(row, _no_reading), do: row
+
+  defp round_percent(value) when is_number(value), do: round(value)
+  defp round_percent(_value), do: nil
+
+  defp ledger_reading(harness) do
+    HeadroomDispatch.backend_reading(harness)
+  rescue
+    _ -> nil
   end
 
   defp freshness(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -192,7 +230,11 @@ defmodule Aiur.AccountsCLI do
   end
 
   defp print_row(row) do
-    fields = if Map.get(row, :identity) == nil, do: [:name, :harness, :usage], else: [:name, :harness, :email, :org, :seat_tier, :weekly_percent, :five_hour_percent, :freshness]
+    fields =
+      if Map.get(row, :identity) == nil,
+        do: [:name, :harness, :usage, :remaining_percent],
+        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness]
+
     IO.puts(Enum.map_join(fields, "  ", fn key -> "#{key}=#{inspect(Map.get(row, key))}" end))
   end
 end
