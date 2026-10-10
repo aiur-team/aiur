@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   @moduledoc false
 
   alias Aiur.{Config, SystemPressure}
-  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State, SustainedLoad}
+  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Slots, State, SustainedLoad}
 
   @spec sample() :: map()
   def sample do
@@ -68,16 +68,23 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   def update(state, %{cpu_pressure: %{avg60: pressure}} = probes, now_ms, _demand?, fresh?) do
     target = probes.pressure_target
     state = reset_signal(state, :cpu_pressure)
-    previous = state.load_envelope_state
+    previous = EnvelopeResume.validate(state.load_envelope_state, target, probes.schedulers)
     count = if fresh?, do: SustainedLoad.count(pressure, target, 1, previous), else: Map.get(previous, :overload_samples, 0)
     effective = state.effective_concurrent_agents || Slots.max_concurrent_agent_limit(state)
-    {next, decreased_at} = adjust(effective, previous.last_decrease_ms, pressure, target, count, now_ms, fresh?, Slots.max_concurrent_agent_limit(state))
+    bootstrap? = Map.get(previous, :bootstrap_complete?, false)
+
+    {next, decreased_at} =
+      if fresh? and is_number(target) and effective == 1 and is_nil(previous.last_decrease_ms) and not bootstrap?,
+        do: {1, nil},
+        else: adjust(effective, previous, pressure, target, count, now_ms, fresh?, Slots.max_concurrent_agent_limit(state))
+
+    previous = if fresh?, do: EnvelopeResume.observe(previous, Slots.used_slots(state), next, effective, pressure, target, count), else: previous
     snapshot = if is_map(probes.cpu_snapshot), do: probes.cpu_snapshot, else: nil
 
     %{
       state
       | effective_concurrent_agents: next,
-        load_envelope_state: Map.merge(previous, %{last_decrease_ms: decreased_at, overload_samples: count, bootstrap_complete?: true, signal: :cpu_pressure, cpu_snapshot: snapshot})
+        load_envelope_state: Map.merge(previous, %{last_decrease_ms: decreased_at, overload_samples: count, bootstrap_complete?: bootstrap? or fresh?, signal: :cpu_pressure, cpu_snapshot: snapshot})
     }
   end
 
@@ -93,15 +100,25 @@ defmodule Aiur.Orchestrator.PressureAdmission do
       else: put_in(state.load_envelope_state[:overload_samples], 0)
   end
 
-  defp adjust(_effective, _last, _pressure, nil, _count, _now, _fresh?, limit), do: {limit, nil}
-  defp adjust(effective, last, _pressure, _target, _count, _now, false, limit), do: {min(effective, limit), last}
+  defp adjust(_effective, _previous, _pressure, nil, _count, _now, _fresh?, limit), do: {limit, nil}
+  defp adjust(effective, previous, _pressure, _target, _count, _now, false, limit), do: {min(effective, limit), previous.last_decrease_ms}
 
-  defp adjust(effective, last, pressure, target, count, now, true, limit) do
+  defp adjust(effective, previous, pressure, target, count, now, true, limit) do
+    last = previous.last_decrease_ms
+
     cond do
       pressure > target -> SustainedLoad.decrease(min(effective, limit), last, %{overload_samples: count, now_ms: now, cooldown_ms: Config.load_cooldown_seconds() * 1_000})
-      pressure < target * 0.8 -> {min(effective + Config.load_ramp_step(), limit), last}
+      pressure < target * 0.8 -> ramp(effective, previous, pressure, target, limit)
       true -> {min(effective, limit), last}
     end
+  end
+
+  defp ramp(effective, previous, pressure, target, limit) do
+    resume = EnvelopeResume.level(previous, target)
+    fast? = is_integer(resume) and (effective < resume or (not Map.get(previous, :sustained_decrease?, false) and is_nil(previous.last_decrease_ms) and pressure < target / 2))
+    ceiling = if is_integer(resume) and effective < resume, do: min(resume, limit), else: limit
+    next = if fast?, do: min(min(effective * 2, effective + 3), ceiling), else: min(effective + Config.load_ramp_step(), limit)
+    {next, if(next == limit, do: nil, else: previous.last_decrease_ms)}
   end
 
   @spec envelope_signal(map()) :: {number() | :unavailable, number() | nil, pos_integer()}

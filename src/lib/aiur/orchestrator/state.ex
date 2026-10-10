@@ -26,15 +26,7 @@ defmodule Aiur.Orchestrator.State do
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
-          load_envelope_state: %{
-            optional(:sample_id) => reference() | integer() | nil,
-            optional(:sampled_at_ms) => integer() | nil,
-            optional(:overload_samples) => non_neg_integer(),
-            optional(:signal) => :load | :cpu_pressure,
-            last_decrease_ms: integer() | nil,
-            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
-            bootstrap_complete?: boolean()
-          },
+          load_envelope_state: map(),
           capacity_hold:
             %{
               optional(:reclaimable_cpu_percent) => float(),

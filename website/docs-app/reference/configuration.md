@@ -20,7 +20,6 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
 ## Top-level
-
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
@@ -250,7 +249,8 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
 | `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
 | `agent.run_queue_threshold` | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
-| `agent.load_ramp_step` | integer | 1 | Capacity increase per fresh sample below 80% of the CPU pressure target (at or below the load target in fallback). |
+| `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
+| `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples without sustained overload demonstrate a level; reductions lower it. Same scheduler count required. Boot stays at one; the first fresh sample does not widen. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.budget_broker_rate_window_seconds` | integer | 300 | The sliding window over which budget-broker-timeout retries are counted for the retry-rate signal. The individual retry is uninteresting; the rate is the signal. |

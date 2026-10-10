@@ -691,20 +691,20 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
   marker and `model:claude` labels used by the automatic switch. Headless Claude
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
-- `agent.max_cpu_pressure` caps new dispatch on Linux CPU PSI `some avg60`
-  (default `20.0` percent), independent of scheduler count. High load from
-  I/O waits does not hold dispatch when CPU pressure stays below the ceiling.
-  Set it to `null` to disable the pressure ceiling.
-- `agent.target_cpu_pressure` sets the adaptive dispatch target (default `10.0`
-  percent). Capacity halves after three fresh above-target samples, no more
-  often than `agent.load_cooldown_seconds`, and grows by `agent.load_ramp_step`
-  only below 80% of target. Unavailable samples reset the overload streak;
-  they never count as zero pressure. Set the target to `null` to disable AIMD.
-- Where PSI is unavailable, `agent.max_load_average` (default `1.5`) and
-  `agent.target_load_average` (default `1.0`) remain per-scheduler fallbacks.
-  Status names this fallback and the binding measurement and threshold.
-  Build occupancy and queued builds do not hold fleet dispatch: concurrent
-  builds, start stagger, and nice throttle compile/test bursts independently.
+- `agent.max_cpu_pressure` caps dispatch on Linux CPU PSI `some avg60`
+  (default `20.0` percent). High I/O load does not hold low-pressure dispatch.
+  Set it to `null` to disable the hard ceiling.
+- `agent.target_cpu_pressure` sets the AIMD target (default `10.0` percent).
+  Three fresh above-target samples halve capacity, bounded by the decrease
+  cooldown. Ramps require pressure below 80% of target; unavailable samples
+  reset the streak. Set the target to `null` to disable PSI AIMD.
+- `agent.load_resume_max_age_seconds` retains safe capacity for 21600 seconds;
+  0 disables resume. Five fresh occupied samples demonstrate a level. Boot
+  starts at one and the first fresh sample holds. Recovery below 80% of the
+  PSI target doubles, at most +3, toward that level.
+- When PSI is unavailable, `max_load_average` (default `1.5`) and
+  `target_load_average` (default `1.0`) are per-scheduler fallbacks. Status
+  names the binding signal. Build cap, stagger and nice throttle bursts.
 - `agent.min_free_memory_mb` optionally sets a Linux `MemAvailable` floor for
   normal new-work dispatch and local agent `mix compile` / `mix test` commands.
   Omit it to disable memory admission. Values are whole MB derived from

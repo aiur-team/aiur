@@ -84,7 +84,7 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
   test "AIMD ramps to 20 under low PSI despite high load and occupied builds" do
     state = %State{max_concurrent_agents: 20, effective_concurrent_agents: 1}
     states = Enum.scan(1..20, state, fn id, current -> update(current, 2.65, id * 60_000) end)
-    assert Enum.map(states, & &1.effective_concurrent_agents) == Enum.to_list(2..20) ++ [20]
+    assert Enum.map(states, & &1.effective_concurrent_agents) == [1] ++ Enum.to_list(2..20)
   end
 
   test "AIMD rejects short bursts, decreases sustained pressure with cooldown, and uses a recovery band" do

@@ -88,6 +88,7 @@ agent:
   # target_cpu_pressure: 10.0           # PSI AIMD target percent; null disables
   # max_load_average: 1.5                # per-scheduler ceiling only when PSI unavailable; null disables
   # target_load_average: 1.0             # per-scheduler AIMD fallback only; null disables
+  # load_resume_max_age_seconds: 21600   # safe occupancy record lifetime; 0 disables resume
   # load_ramp_step: 1                    # slots added below 80% PSI target, or at/below load target
   # load_cooldown_seconds: 60            # minimum seconds between sustained above-target decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
