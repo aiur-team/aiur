@@ -12,7 +12,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{PollTiming, ReworkGate, TrackerTasks}
-
   alias Aiur.Orchestrator.{
     AutoResume,
     CiLifecycle,
