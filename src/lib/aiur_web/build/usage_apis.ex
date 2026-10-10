@@ -1,6 +1,7 @@
 defmodule AiurWeb.Build.UsageAPIs do
   @moduledoc false
   alias AiurWeb.Build.Usage
+  @labels %{"core" => {"core", "Requests left"}, "graphql" => {"gql", "Points left"}}
 
   @spec rows(term(), map(), integer()) :: [map()]
   def rows(github, elevenlabs, now), do: [github_row(github, now) | elevenlabs_rows(elevenlabs, now)]
@@ -18,9 +19,9 @@ defmodule AiurWeb.Build.UsageAPIs do
   end
 
   defp github_line(snapshot, resource, now) do
-    label = if resource == "core", do: "Requests left", else: "Points left"
+    {tag, label} = Map.fetch!(@labels, resource)
     window = if snapshot.state != :unknown, do: Map.get(snapshot.windows, resource)
-    base = %{tag: if(resource == "core", do: "core", else: "gql"), acc: [nil], reset_at: nil, win: "1h", tip: [[label, "not observed yet"]], hold_until: nil}
+    base = %{tag: tag, acc: [nil], reset_at: nil, win: "1h", tip: [[label, "not observed yet"]], hold_until: nil}
 
     case window do
       %{used_percent: percent, limit: limit, remaining: remaining} when is_number(percent) and is_number(limit) and limit > 0 and is_number(remaining) ->

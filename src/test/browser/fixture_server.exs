@@ -2224,7 +2224,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, Aiur.TestSupport.BuildHome.FixtureSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
-    configure_forwarded_dashboard()
+    configure_forwarded_dashboard() |> Aiur.TestSupport.BuildHome.FixtureSource.configure_usage()
 
     {:ok, _} =
       Supervisor.start_link(
