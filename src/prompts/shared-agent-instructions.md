@@ -81,6 +81,15 @@ that the only failure is the known flake, link the flake ticket and CI run,
 then hand back to the Executor without declaring a dependency or pausing
 for the flake fix. Keep the full required-check gate for human review.
 
+### Rework ends in a handoff, even on red CI
+
+When every blocking review finding is addressed and pushed, move the ticket to
+`agent:human-review` — do not stay in `agent:rework` because checks are red.
+First post one PR comment naming the head SHA, the findings addressed, and any
+failing check you believe is inherited from the base, with evidence (for
+example the same check failing on the base head). Inherited red CI is the
+reviewer's call. Fix a failure your own change caused before handing off.
+
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
 Change your ticket's `agent:*` state **only** with
