@@ -28,6 +28,10 @@ export const PARITY_VIEWPORTS = [
 export const PARITY_MATRIX = FIXTURE_META.datasets.flatMap(dataset => PARITY_VIEWPORTS.flatMap(viewport => ['dark', 'light'].flatMap(theme => ['gruvbox', 'aiur'].map(palette => ({ ...viewport, theme, palette, dataset })))))
 PARITY_MATRIX.push({ ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox', dataset: 'live', reducedMotion: 'reduce' })
 
+// C9-T08 consumes these registered cells after the Now-band renderer lands.
+export const NOW_BAND_PARITY_MATRIX = PARITY_MATRIX.filter(cell => cell.dataset === 'live' && !cell.reducedMotion)
+  .map(cell => ({ ...cell, name: 'now-band-from-units', region: '#bd-now' }))
+
 export function parityContextOptions(cell) {
   const { viewport, deviceScaleFactor = 1, isMobile = false, hasTouch = false } = cell
   return { viewport, deviceScaleFactor, isMobile, hasTouch, timezoneId: FIXTURE_META.tz, locale: 'en-US', colorScheme: cell.theme, reducedMotion: cell.reducedMotion ?? 'no-preference', serviceWorkers: 'block' }

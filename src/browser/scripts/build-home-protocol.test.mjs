@@ -44,7 +44,7 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
     for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
     assert.deepEqual(actual.epics, raw.epics);
-    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to) }]));
+    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), stats: snapshot.features[key].stats }]));
     assert.deepEqual(actual.features, features);
     assert.deepEqual(actual.order, raw.order);
     for (const [key, count] of Object.entries(raw.counts)) assert.equal(actual.counts[key], count);
@@ -55,9 +55,10 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
       for (const [i, row] of raw[sec].entries()) {
         const mapped = actual[sec][i];
         for (const [key, value] of Object.entries(row)) {
-          if (['id', 'deps', 'cue', 'start', 'end', 'created', 'override'].includes(key)) continue;
+          if (['id', 'deps', 'cue', 'start', 'end', 'created', 'override', 'agent'].includes(key)) continue;
           assert.deepEqual(mapped[key], value, `${kind} ${row.id}.${key}`);
         }
+        for (const [key, value] of Object.entries(row.agent ?? {})) assert.deepEqual(mapped.agent[key], value);
         for (const [key, value] of Object.entries(row.override ?? {})) assert.deepEqual(mapped.override[key], value);
         assert.equal(mapped.id, String(row.num));
         assert.deepEqual(mapped.deps, row.deps.map(d => d.replace('AIUR-', '')));
