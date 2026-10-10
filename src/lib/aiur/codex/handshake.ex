@@ -17,7 +17,7 @@ defmodule Aiur.Codex.Handshake do
     "chatgpt" => "chatgpt"
   }
 
-  @spec establish(port(), Path.t(), map(), String.t() | nil, keyword()) ::
+  @spec establish(port() | pid(), Path.t(), map(), String.t() | nil, keyword()) ::
           {:ok, String.t(), boolean()} | {:error, term()}
   def establish(port, workspace, session_policies, resume_thread_id, opts \\ []) do
     case send_initialize(port, opts) do
@@ -27,7 +27,7 @@ defmodule Aiur.Codex.Handshake do
   end
 
   @spec establish_with_rate_limits(
-          port(),
+          port() | pid(),
           Path.t(),
           map(),
           String.t() | nil,
@@ -42,7 +42,7 @@ defmodule Aiur.Codex.Handshake do
     end
   end
 
-  @spec start_or_resume_thread(port(), Path.t(), map(), nil | String.t(), keyword()) ::
+  @spec start_or_resume_thread(port() | pid(), Path.t(), map(), nil | String.t(), keyword()) ::
           {:ok, String.t(), boolean()} | {:error, term()}
   def start_or_resume_thread(port, workspace, session_policies, resume_thread_id, opts \\ [])
 
@@ -84,17 +84,17 @@ defmodule Aiur.Codex.Handshake do
   def resume_outcome({:ok, other_thread_id}, _resume_thread_id), do: {:fresh, other_thread_id}
   def resume_outcome({:error, reason}, _resume_thread_id), do: {:fallback, reason}
 
-  @spec start_thread(port(), Path.t(), map(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec start_thread(port() | pid(), Path.t(), map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_thread(port, workspace, session_policies, opts \\ []) do
     send_thread_init(port, Frames.thread_init_frame(nil, workspace, session_policies), opts)
   end
 
-  @spec resume_thread(port(), Path.t(), map(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec resume_thread(port() | pid(), Path.t(), map(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def resume_thread(port, workspace, session_policies, resume_thread_id, opts \\ []) do
     send_thread_init(port, Frames.thread_init_frame(resume_thread_id, workspace, session_policies), opts)
   end
 
-  @spec send_thread_init(port(), map(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec send_thread_init(port() | pid(), map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def send_thread_init(port, frame, opts \\ []) do
     Rpc.send_message(port, frame)
     parse_thread_response(Rpc.await_startup_response(port, Frames.thread_start_id(), opts))
@@ -107,7 +107,7 @@ defmodule Aiur.Codex.Handshake do
   def parse_thread_response({:ok, %{"thread" => thread_payload}}), do: {:error, {:invalid_thread_payload, thread_payload}}
   def parse_thread_response(other), do: other
 
-  @spec send_initialize(port(), keyword()) :: :ok | {:error, term()}
+  @spec send_initialize(port() | pid(), keyword()) :: :ok | {:error, term()}
   def send_initialize(port, opts \\ []) do
     case initialize(port, opts) do
       {:ok, _response} -> :ok
@@ -137,7 +137,7 @@ defmodule Aiur.Codex.Handshake do
   defp supports_rate_limits?(_response), do: false
 
   @doc "Read the authenticated Codex account's current rate-limit windows."
-  @spec read_rate_limits(port(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec read_rate_limits(port() | pid(), keyword()) :: {:ok, map()} | {:error, term()}
   def read_rate_limits(port, opts \\ []) do
     Rpc.send_message(port, Frames.rate_limits_read_frame())
 
@@ -156,7 +156,7 @@ defmodule Aiur.Codex.Handshake do
   end
 
   @doc "Read a privacy-reduced account binding seed from the trusted app-server."
-  @spec read_account(port(), keyword()) ::
+  @spec read_account(port() | pid(), keyword()) ::
           {:ok, %{auth_mode: String.t() | nil}} | {:error, :account_read_failed | :port_closed}
   def read_account(port, opts \\ []) do
     Rpc.send_message(port, Frames.account_read_frame())

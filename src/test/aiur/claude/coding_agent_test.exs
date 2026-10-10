@@ -2,11 +2,11 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts}
+  alias Aiur.AppServer.Transport
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
-  alias Aiur.Issue
-  alias Aiur.ModelAvailability
+  alias Aiur.{Issue, ModelAvailability}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{RateLimitFallback, State}
   alias Aiur.Workflow
@@ -393,7 +393,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     # Close the agent's stdio out from under the caller, mirroring the aiur peer
     # closing the agent's stdout read-end mid-session.
-    Port.close(session.port)
+    Transport.close(session.port)
 
     assert {:error, :port_closed} =
              ClaudeAgent.send_operator_message(session, %{kind: :text, body: "queued operator message"})
