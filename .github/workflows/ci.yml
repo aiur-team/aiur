@@ -29,7 +29,8 @@ concurrency:
 # extra headroom for cold Chromium installs and release assembly.
 
 jobs:
-  # Drafts run only changes, lint and build. Job-level skips on drafts are
+  # Drafts run only changes, lint and build, gated on the live draft state that
+  # `changes` reads (never the event payload, #4002). Job-level skips on drafts are
   # not full-suite evidence; the CI poller requires successful required checks.
   # Ready PRs retain the existing docs-only step shortcuts and check names.
   # Path classifier (docs-only CI, #website). A pull request that touches only
@@ -52,6 +53,7 @@ jobs:
       pull-requests: read
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
+      draft: ${{ steps.classify.outputs.draft }}
     steps:
       # `changes` is a blocking job, so it follows the same convention as every
       # other blocking job: check out, then disclose the rerun attempt before
@@ -68,44 +70,11 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        # Only `pull_request` has a diff to classify. `push`, `merge_group` and
-        # `workflow_dispatch` always get the full suite: the merge queue builds
-        # a candidate whose required checks must be the real ones, and `main`
-        # must never be validated by an empty run.
-        #
-        # Anything that is not provably docs-only classifies as `false`, so a
-        # failure to read the file list degrades to running the whole suite.
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" != "pull_request" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            echo "event $EVENT_NAME: running the full suite" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          files="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')"
-          if [ -z "$files" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            echo "no changed files reported: running the full suite" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          if printf '%s\n' "$files" | grep -qv '^website/\|^packages/aiur-style/'; then
-            docs_only=false
-          else
-            docs_only=true
-          fi
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
-          {
-            echo "### changed paths"
-            echo
-            echo "docs_only=$docs_only"
-            echo
-            echo '```'
-            printf '%s\n' "$files"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/classify-ci-changes.sh
 
   workflow-security:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: changes
+    if: ${{ needs.changes.outputs.draft != 'true' }}
     name: workflow security
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -139,6 +108,8 @@ jobs:
         run: python3 scripts/test-record-coverage-flakes.py
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
+      - name: Test CI change classifier
+        run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
         run: node scripts/test-ci-concurrency.mjs
       - name: Test rename preflight
@@ -184,7 +155,8 @@ jobs:
           python3 scripts/check-file-size.py --base "$base"
 
   merge-ruleset-drift:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: changes
+    if: ${{ needs.changes.outputs.draft != 'true' }}
     name: merge ruleset drift
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -289,7 +261,7 @@ jobs:
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     # Last-resort backstop only (#2461's measured value). The effective bound is
     # the `timeout` wrapper on the test step below: a job-level timeout CANCELS
@@ -444,7 +416,7 @@ jobs:
 
   coverage:
     needs: [coverage-partition, changes]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -490,7 +462,7 @@ jobs:
   quarantine:
     name: quarantined tests (non-blocking)
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -547,7 +519,7 @@ jobs:
 
   test:
     needs: [coverage, changes]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -581,7 +553,8 @@ jobs:
         run: make regression
 
   analytics:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: changes
+    if: ${{ needs.changes.outputs.draft != 'true' }}
     name: analytics
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -600,7 +573,7 @@ jobs:
 
   dialyzer:
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -633,7 +606,7 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -696,7 +669,7 @@ jobs:
   streamdeck:
     name: streamdeck
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -733,7 +706,7 @@ jobs:
   layout-release:
     name: layout release smoke
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

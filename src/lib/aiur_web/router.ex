@@ -25,6 +25,11 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.GithubWebhook.Auth)
   end
 
+  # Auth runs first, so a pages-off run answers a page exactly like an unknown path.
+  pipeline :dashboard_pages do
+    plug(AiurWeb.DashboardPagesGate)
+  end
+
   pipeline :browser do
     plug(:fetch_session)
     plug(AiurWeb.FinancialDataAccess, :persist_session)
