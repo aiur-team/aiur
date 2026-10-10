@@ -183,11 +183,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp handoff_candidate?(entry, session) do
-    # Headless Claude's aiur-claude app-server is not resumable: its thread map
-    # is in-memory and thread/start cannot seed a moved session transcript.
-    # Keep those sessions on the existing wait-for-reset path.
     State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :usage_limit_exhausted and
-      Map.get(entry, :account_handoff_attempted) != true and Map.get(session, :backend) == "claude-repl" and
+      Map.get(entry, :account_handoff_attempted) != true and Map.get(session, :backend) in ["claude-repl", "claude"] and
       is_binary(session[:account_name]) and is_binary(session[:session_id]) and is_binary(session[:cwd])
   end
 
@@ -436,7 +433,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp emit_account_handoff(issue, source, destination, session_id) do
     Aiur.Alerts.emit_system("ticket.#{issue.identifier}.agent.account_handoff",
       issue: issue,
-      reason: "Claude session #{session_id} moved from account #{source} to #{destination} and resumed.",
+      reason: "Claude session #{session_id} moved from account #{source} to #{destination} and redispatched.",
       needs_attention: false,
       severity: "info"
     )

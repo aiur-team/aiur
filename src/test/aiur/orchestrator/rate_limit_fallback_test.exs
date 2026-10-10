@@ -28,31 +28,23 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       assert RateLimitFallback.decide(entry, issue, options) == :handoff
     end
 
-    test "future regression: headless Claude stays on the reset wait because its app-server cannot resume moved transcripts" do
+    test "hands off a headless Claude session and preserves its session id for resume" do
       entry = %{
         control: %{status: :paused},
         paused_reason: :usage_limit_exhausted,
-        # Aiur.CodingAgent.Providers.Claude.headless/0 declares resumable: false:
-        # its app-server keeps thread state in memory and thread/start cannot
-        # seed a prior session id.
         usage_limit_session: %{backend: "claude", account_name: "default", session_id: "session-1", cwd: "/repo"}
       }
 
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
       config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
-      test_pid = self()
 
       options = [
         account_config: config,
         account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
-        account_usage_fetcher: fn name ->
-          send(test_pid, {:account_usage_fetched, name})
-          %{"seven_day" => 35, "five_hour" => 40}
-        end
+        account_usage_fetcher: fn "work" -> %{"seven_day" => 35, "five_hour" => 40} end
       ]
 
-      assert RateLimitFallback.decide(entry, issue, options) == :noop
-      refute_received {:account_usage_fetched, _name}
+      assert RateLimitFallback.decide(entry, issue, options) == :handoff
     end
 
     # This guards the existing reset-wait behavior against future handoff changes.

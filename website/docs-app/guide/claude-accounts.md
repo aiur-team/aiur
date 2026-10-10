@@ -79,10 +79,12 @@ complexity level allows. See
 When a resumable Claude REPL session reaches its account's usage limit, Aiur
 selects another configured Claude account using the same `account_selection` rule.
 
-Only these resumable `claude-repl` sessions can hand off. Headless `claude`
-sessions use the aiur-claude app-server, whose in-memory thread map cannot be
-recreated from a moved transcript: `thread/start` cannot seed a prior session.
-Those sessions keep waiting for the current account to reset.
+Both headless `claude` and resumable `claude-repl` sessions can hand off. The
+headless app-server requires aiur-claude 1.2.0 or newer to resume a session
+after its transcript moves to another account. Aiur checks for that transcript
+under the selected account before requesting resume. If it is missing or the
+adapter cannot resume it, Aiur starts a clean thread and raises an attention
+alert because the previous transcript may be orphaned.
 
 If one is available, Aiur moves the inactive session transcript and related
 session artifacts to that profile. It then resumes from the original working

@@ -71,6 +71,29 @@ defmodule Aiur.ModelAvailabilityTest do
     assert ModelAvailability.recovery_confirmed?("claude", path: path)
   end
 
+  test "a refusal after a positive availability observation starts a new streak", %{path: path} do
+    now = ~U[2026-09-18 09:20:37Z]
+    reset = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+
+    assert :ok = ModelAvailability.mark_limited("codex", reset, path: path, now: now)
+
+    assert :ok =
+             ModelAvailability.observe("codex", %{hourly: %{used: 40, limit: 100}},
+               path: path,
+               now: DateTime.add(now, 60, :second)
+             )
+
+    assert :ok =
+             ModelAvailability.mark_limited("codex", reset,
+               path: path,
+               now: DateTime.add(now, 120, :second)
+             )
+
+    entry = get_in(ModelAvailability.load(path), ["backends", "codex"])
+    assert entry["limit_streak"] == 1
+    refute Map.has_key?(entry, "backoff_until")
+  end
+
   test "chooses the first available backend in configured priority", %{path: path} do
     future = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
     assert :ok = ModelAvailability.mark_limited("claude", future, path: path)

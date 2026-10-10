@@ -39,6 +39,8 @@ defmodule Aiur.Claude.CodingAgent do
     identifier = Keyword.get(opts, :identifier)
     on_provider_started = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
     account_generation_server = Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
+    requested_resume_thread_id = Keyword.get(opts, :resume_thread_id)
+    resume_thread_id = resumable_thread_id(workspace, opts)
 
     with :ok <- validate_workspace_cwd(workspace),
          {:ok, port} <-
@@ -75,11 +77,15 @@ defmodule Aiur.Claude.CodingAgent do
         provider_meter_failure_recorder: Keyword.get(opts, :provider_meter_failure_recorder, &Aiur.ProviderMeters.record_failure/1)
       }
 
-      case do_start_session(port, expanded_workspace) do
+      case do_start_session(port, expanded_workspace, resume_thread_id) do
         {:ok, thread_id} ->
+          resumed = is_binary(resume_thread_id) and thread_id == resume_thread_id
+          maybe_alert_resume_degraded(opts, requested_resume_thread_id, thread_id, resumed)
+
           {:ok,
            Map.merge(lifecycle_session, %{
              thread_id: thread_id,
+             resumed: resumed,
              workspace: expanded_workspace,
              model: model,
              clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
@@ -147,6 +153,55 @@ defmodule Aiur.Claude.CodingAgent do
   end
 
   def send_operator_message(_session, _payload), do: {:error, :invalid_session}
+
+  defp resumable_thread_id(workspace, opts) do
+    case Keyword.get(opts, :resume_thread_id) do
+      thread_id when is_binary(thread_id) and thread_id != "" ->
+        projects_dir = claude_projects_dir(Keyword.get(opts, :env, []))
+
+        transcript =
+          RemoteControl.session_transcript_path(Path.expand(workspace), thread_id, projects_dir: projects_dir)
+
+        if File.exists?(transcript), do: thread_id, else: nil
+
+      _ ->
+        nil
+    end
+  end
+
+  defp claude_projects_dir(env) do
+    config_dir =
+      case List.keyfind(env, "CLAUDE_CONFIG_DIR", 0) do
+        {_, value} -> value
+        nil -> System.get_env("CLAUDE_CONFIG_DIR")
+      end
+
+    if is_binary(config_dir) and config_dir != "", do: Path.join(config_dir, "projects"), else: nil
+  end
+
+  defp maybe_alert_resume_degraded(opts, requested_thread_id, started_thread_id, false)
+       when is_binary(requested_thread_id) do
+    case Keyword.get(opts, :identifier) do
+      identifier when is_binary(identifier) ->
+        account_name = Keyword.get(opts, :account_name, "selected")
+
+        message =
+          "Claude could not resume session #{requested_thread_id} under account #{account_name}; " <>
+            "it started a clean thread #{started_thread_id}. The previous transcript may be orphaned."
+
+        Aiur.Alerts.emit_system("ticket.#{identifier}.agent.attention.claude-resume-degraded",
+          message: message,
+          reason: message,
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_alert_resume_degraded(_opts, _requested_thread_id, _started_thread_id, _resumed), do: :ok
 
   defp validate_workspace_cwd(workspace) when is_binary(workspace) do
     workspace_path = Path.expand(workspace)
@@ -226,10 +281,45 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp do_start_session(port, workspace) do
+  defp do_start_session(port, workspace, resume_thread_id) do
     case send_initialize(port) do
-      :ok -> start_thread(port, workspace)
+      :ok -> start_or_resume_thread(port, workspace, resume_thread_id)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp start_or_resume_thread(port, workspace, resume_thread_id) when is_binary(resume_thread_id) do
+    case resume_thread(port, workspace, resume_thread_id) do
+      {:ok, ^resume_thread_id} ->
+        {:ok, resume_thread_id}
+
+      {:ok, other_thread_id} ->
+        Logger.warning("Claude thread/resume returned a different thread id (requested=#{resume_thread_id} got=#{other_thread_id}); treating as a clean start")
+        start_thread(port, workspace)
+
+      {:error, reason} ->
+        Logger.warning("Claude thread/resume failed for thread_id=#{resume_thread_id} (#{inspect(reason)}); falling back to a clean thread/start")
+        start_thread(port, workspace)
+    end
+  end
+
+  defp start_or_resume_thread(port, workspace, _resume_thread_id), do: start_thread(port, workspace)
+
+  defp resume_thread(port, workspace, resume_thread_id) do
+    send_frame(port, %{
+      "method" => "thread/resume",
+      "id" => @thread_start_id,
+      "params" => %{
+        "threadId" => resume_thread_id,
+        "cwd" => Path.expand(workspace),
+        "permissionMode" => Aiur.Claude.Config.permission_mode(),
+        "dynamicTools" => DynamicTool.tool_specs()
+      }
+    })
+
+    case await_response(port, @thread_start_id) do
+      {:ok, %{"thread" => %{"id" => thread_id}}} -> {:ok, thread_id}
+      other -> other
     end
   end
 

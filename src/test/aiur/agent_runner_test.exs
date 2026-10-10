@@ -364,15 +364,16 @@ defmodule Aiur.AgentRunnerTest do
       assert AgentRunner.resume_thread_id("codex", nil, {:ok, %{thread_id: "thr_1"}}) == "thr_1"
       # claude-repl is resumable too: the id is the prior claude session id.
       assert AgentRunner.resume_thread_id("claude-repl", nil, {:ok, %{thread_id: "sess_1"}}) == "sess_1"
+      assert AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "sess_1"}}) == "sess_1"
     end
 
     test "is nil when there is no persisted handle (clean start)" do
       assert AgentRunner.resume_thread_id("codex", nil, :none) == nil
     end
 
-    test "is nil for a non-resumable backend even with a handle" do
-      # Headless claude can't resume (its app-server thread map is in-memory only).
-      assert AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "thr_1"}}) == nil
+    test "is nil for an unknown backend even with a handle" do
+      # Unknown backends have no declared durable resume protocol.
+      assert AgentRunner.resume_thread_id("no-such-backend", nil, {:ok, %{thread_id: "thr_1"}}) == nil
     end
 
     test "is nil for a remote worker (codex rollouts are host-local)" do
@@ -404,8 +405,9 @@ defmodule Aiur.AgentRunnerTest do
                AgentRunner.session_handle_to_save(session, nil)
     end
 
-    test "skips a non-resumable backend (claude headless fallback)" do
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "x"}, nil)
+    test "persists a resumable local headless Claude session" do
+      assert {:ok, %{backend: "claude", thread_id: "x"}} =
+               AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "x"}, nil)
     end
 
     test "skips a remote-worker session (rollout is not on this host)" do
