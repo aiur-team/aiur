@@ -3,11 +3,10 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, Shell}
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Config.Paths
-  alias Aiur.Shell
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent

@@ -77,8 +77,8 @@ defmodule Aiur.AgentProcessLog do
 
   require Logger
 
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @default_interval_ms 2_000
   # Sized separately from the request logs on purpose: agent builds spawn far
