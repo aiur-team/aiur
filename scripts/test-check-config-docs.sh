@@ -25,6 +25,7 @@ scaffold() {
   rm -rf "$root"
   mkdir -p "$root/scripts" "$root/src/lib/aiur/config/schema" "$root/website/docs-app/reference"
   cp "$checker" "$root/scripts/check-config-docs.py"
+  for page in configuration-agent configuration-build-order; do : >"$root/website/docs-app/reference/$page.md"; done
 
   cat >"$root/src/lib/aiur/config/schema.ex" <<'EOF'
 defmodule Aiur.Config.Schema do
@@ -99,6 +100,24 @@ if output="$(run_check "$root")"; then
 fi
 grep -q "tracker.github.p95_latency_ms" <<<"$output" ||
   fail "the failure must name the missing key, got: $output"
+
+# --- Case 2b: a key documented only on a second page is found --------------
+root="$work/second-page"
+scaffold "$root"
+reference "$root" <<'EOF2'
+| `debug` | boolean | false | Debug. |
+| `tracker.kind` | string | required | Kind. |
+| `tracker.command` | string | nil | Tracker command. |
+| `tracker.github.command` | string | nil | GitHub command. |
+EOF2
+if run_check "$root" >/dev/null; then
+  fail "a key absent from every page must fail the check"
+fi
+echo '| `tracker.github.p95_latency_ms` | integer | 0 | Latency budget. |' \
+  >"$root/website/docs-app/reference/configuration-agent.md"
+if ! output="$(run_check "$root")"; then
+  fail "a key documented on configuration-agent.md must be found, got: $output"
+fi
 
 # --- Case 3: a digit in the name is not truncated ---------------------------
 # `field\(:[a-z_]+` matched `p` here and passed for free against any prose
