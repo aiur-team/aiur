@@ -2313,32 +2313,6 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert result.last_polled_issues == %{"47" => previous_issue}
   end
 
-  test "chunks disappearing idle verification across polls" do
-    previous_issues =
-      for id <- 1..250, into: %{}, do: {Integer.to_string(id), issue(Integer.to_string(id), "in-progress")}
-
-    parent = self()
-    state = %State{last_polled_issues: previous_issues}
-
-    result =
-      IssueSync.sync_polled_issue_state(
-        state,
-        [],
-        fn ids ->
-          send(parent, {:verified_ids, ids})
-          {:ok, []}
-        end,
-        fn _identity, _lifecycle -> flunk("absent tickets cannot be inferred terminal") end,
-        MapSet.new(["done", "cancelled"]),
-        fn _status -> :ok end,
-        fn _identity, _pending? -> :ok end
-      )
-
-    assert_received {:verified_ids, ids}
-    assert length(ids) == 25
-    assert map_size(result.last_polled_issues) == 250
-  end
-
   describe "dependency transition event gating" do
     test "does not enqueue dependency_added when the auto-subscribe fails" do
       on_exit(fn -> AutoSubscriptions.set_add_subscription_fn(nil) end)

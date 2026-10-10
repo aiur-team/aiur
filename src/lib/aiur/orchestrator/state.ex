@@ -61,6 +61,7 @@ defmodule Aiur.Orchestrator.State do
           contradictory_state_label_alert_active: boolean(),
           queue_store: term(),
           last_polled_issues: map(),
+          terminal_verification_attempts: %{String.t() => non_neg_integer()},
           tracker_observations: %{optional(String.t()) => DateTime.t()},
           status_observed_at: DateTime.t() | nil,
           human_review_observed_ids: MapSet.t(String.t()) | nil,
@@ -233,6 +234,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
+    terminal_verification_attempts: %{},
     tracker_observations: %{},
     status_observed_at: nil,
     human_review_observed_ids: nil,
@@ -513,22 +515,7 @@ defmodule Aiur.Orchestrator.State do
   end
 
   @spec alive?(term()) :: boolean()
-  def alive?(pid) when is_pid(pid), do: Process.alive?(pid)
-  def alive?(name) when is_atom(name), do: Process.whereis(name) != nil
-  def alive?({:via, _, _} = name), do: registered_process_alive?(name)
-  def alive?({:global, _} = name), do: registered_process_alive?(name)
-  def alive?(_), do: false
-
-  defp registered_process_alive?(name) do
-    case GenServer.whereis(name) do
-      pid when is_pid(pid) -> Process.alive?(pid)
-      _ -> false
-    end
-  rescue
-    _ -> false
-  catch
-    :exit, _ -> false
-  end
+  defdelegate alive?(name), to: Aiur.Orchestrator.State.ProcessLiveness
 
   @spec maybe_put_runtime_value(term(), term(), term()) :: term()
   def maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
