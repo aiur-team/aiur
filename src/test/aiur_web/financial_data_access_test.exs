@@ -125,7 +125,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
            ]
 
     for route <- live_routes do
-      {_view, _action, _route_opts, %{name: :dashboard, extra: %{on_mount: [%{id: {FinancialDataAccess, :default}}]}}} =
+      {_view, _action, _route_opts, %{name: :dashboard, extra: %{on_mount: [%{id: {AiurWeb.DashboardPagesGate, :default}}, %{id: {FinancialDataAccess, :default}}]}}} =
         route.metadata.phoenix_live_view
     end
   end
