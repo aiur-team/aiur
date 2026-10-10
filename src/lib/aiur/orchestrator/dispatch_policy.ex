@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
 
-  @cpu_headroom_ramp_max 3
   @reclaimable_cpu_threshold 60.0
   @fd_headroom_percent 10
 
@@ -132,8 +131,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def initial_load_envelope_limit(_agent), do: 1
 
   @doc false
-  # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
-  # unit-tested without the orchestrator GenServer.
+  # Pure eager pre-warm decision.
   @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
   def prewarm_gate(false, _phase), do: :dispatch
   def prewarm_gate(true, :ready), do: :dispatch
@@ -141,11 +139,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def prewarm_gate(true, _warming), do: :hold
 
   @doc false
-  # Pure load-threshold check (#465), kept separate for compatibility and unit
-  # testing. The authoritative admission reason additionally corroborates an
+  # The authoritative admission reason additionally corroborates an
   # exceeded threshold with short-window CPU headroom so low-priority runnable
-  # processes — and a load average that no longer reflects current CPU
-  # contention — cannot hold the fleet by themselves.
+  # processes cannot hold the fleet by themselves.
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   def load_gate(_load, nil, _schedulers), do: :dispatch
   def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
@@ -165,6 +161,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         ) :: :dispatch | {:hold, admission_reason()}
   def load_admission_reason(load, threshold, schedulers, cpu_headroom) do
     load
+    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
     |> load_gate(threshold, schedulers)
     |> corroborated_admission_reason(:load, load, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
@@ -204,10 +201,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def fd_headroom_percent, do: @fd_headroom_percent
 
   @doc false
-  # Pure instantaneous run-queue threshold check. The authoritative admission
-  # reason corroborates it with the same CPU headroom used by the load gate, so
-  # niced runnable processes do not masquerade as normal-priority contention.
-  @spec run_queue_gate(integer() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
+  # Instantaneous run-queue check; admission corroborates it with CPU headroom.
+  @spec run_queue_gate(number() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
   def run_queue_gate(_runnable, _schedulers, nil), do: :dispatch
   def run_queue_gate(_runnable, _schedulers, threshold) when not is_number(threshold) or threshold <= 0, do: :dispatch
   def run_queue_gate(:unavailable, _schedulers, _threshold), do: :dispatch
@@ -223,6 +218,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         ) :: :dispatch | {:hold, admission_reason()}
   def run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom) do
     runnable
+    |> SystemLoad.gate_signal(cpu_headroom, schedulers)
     |> run_queue_gate(schedulers, threshold)
     |> corroborated_admission_reason(:run_queue, runnable, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
@@ -371,176 +367,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  @type envelope_options :: %{
-          optional(:bootstrap_complete?) => boolean(),
-          target: number() | nil,
-          schedulers: pos_integer(),
-          static_limit: pos_integer(),
-          ramp_step: pos_integer(),
-          cooldown_ms: non_neg_integer(),
-          now_ms: integer(),
-          cpu_headroom: SystemCpu.headroom() | :unavailable,
-          queued_work?: boolean(),
-          used_slots: non_neg_integer()
-        }
+  @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, Aiur.Orchestrator.LoadEnvelope.envelope_options()) :: {pos_integer(), integer() | nil}
+  defdelegate load_envelope(effective, last_decrease_ms, load, options), to: Aiur.Orchestrator.LoadEnvelope
 
-  @spec load_envelope(
-          integer() | nil,
-          integer() | nil,
-          number() | :unavailable,
-          envelope_options()
-        ) ::
-          {pos_integer(), integer() | nil}
-  def load_envelope(effective, last_decrease_ms, load, options) do
-    {next, next_decrease_ms, _bootstrap_complete?} =
-      load_envelope_state(
-        effective,
-        last_decrease_ms,
-        load,
-        Map.put_new(options, :bootstrap_complete?, true)
-      )
-
-    {next, next_decrease_ms}
-  end
-
-  defp load_envelope_state(_effective, _last_decrease_ms, _load, %{
-         target: nil,
-         static_limit: static_limit,
-         bootstrap_complete?: bootstrap_complete?
-       }),
-       do: {static_limit, nil, bootstrap_complete?}
-
-  defp load_envelope_state(effective, last_decrease_ms, :unavailable, options) do
-    next = normalize_load_envelope_limit(effective, options.static_limit)
-    {next, last_decrease_ms, options.bootstrap_complete?}
-  end
-
-  defp load_envelope_state(1, nil, load, %{bootstrap_complete?: false}) when is_number(load),
-    do: {1, nil, true}
-
-  defp load_envelope_state(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
-       when is_number(load) do
-    effective = normalize_load_envelope_limit(effective, static_limit)
-    adjust_load_envelope(effective, last_decrease_ms, load, options)
-  end
-
-  @spec update_load_envelope(
-          State.t(),
-          number() | :unavailable,
-          number() | nil,
-          pos_integer(),
-          integer(),
-          SystemCpu.snapshot() | :unavailable,
-          boolean()
-        ) :: State.t()
-  def update_load_envelope(
-        %State{} = state,
-        load,
-        target,
-        schedulers,
-        now_ms,
-        cpu_snapshot,
-        queued_work?
-      ) do
-    envelope_state = state.load_envelope_state
-    cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
-
-    {effective, last_decrease_ms, bootstrap_complete?} =
-      load_envelope_state(
-        state.effective_concurrent_agents,
-        envelope_state.last_decrease_ms,
-        load,
-        %{
-          target: target,
-          schedulers: schedulers,
-          static_limit: Slots.max_concurrent_agent_limit(state),
-          ramp_step: Config.load_ramp_step(),
-          cooldown_ms: Config.load_cooldown_seconds() * 1_000,
-          now_ms: now_ms,
-          cpu_headroom: cpu_headroom,
-          queued_work?: queued_work?,
-          used_slots: Slots.used_slots(state),
-          bootstrap_complete?: Map.get(envelope_state, :bootstrap_complete?, false)
-        }
-      )
-
-    %{
-      state
-      | effective_concurrent_agents: effective,
-        load_envelope_state: %{
-          last_decrease_ms: last_decrease_ms,
-          cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot),
-          bootstrap_complete?: bootstrap_complete?
-        }
-    }
-  end
-
-  defp adjust_load_envelope(
-         effective,
-         last_decrease_ms,
-         load,
-         %{schedulers: schedulers} = options
-       ) do
-    if load <= options.target * schedulers and fast_recovery?(last_decrease_ms, options) do
-      {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
-      {next, next_decrease_ms, options.bootstrap_complete?}
-    else
-      {next, next_decrease_ms} =
-        adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
-
-      {next, next_decrease_ms, true}
-    end
-  end
-
-  defp fast_recovery?(last_decrease_ms, options) do
-    is_integer(last_decrease_ms) and options.queued_work? and
-      clear_cpu_headroom?(options.cpu_headroom)
-  end
-
-  defp adjust_load_envelope_without_headroom(
-         effective,
-         last_decrease_ms,
-         load,
-         %{target: target, schedulers: schedulers} = options
-       )
-       when load <= target * schedulers do
-    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
-  end
-
-  defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do
-    decrease_load_envelope(effective, last_decrease_ms, options)
-  end
-
-  defp decrease_load_envelope(effective, last_decrease_ms, %{
-         cooldown_ms: cooldown_ms,
-         now_ms: now_ms
-       }) do
-    if cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) do
-      reduced = max(div(effective + 1, 2), 1)
-      {reduced, next_decrease_time(effective, reduced, last_decrease_ms, now_ms)}
-    else
-      {effective, last_decrease_ms}
-    end
-  end
-
-  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective,
-    do: now_ms
-
-  defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
-
-  defp clear_cpu_headroom?(headroom) when is_map(headroom) do
-    case reclaimable_cpu_percent(headroom) do
-      reclaimable when is_number(reclaimable) -> reclaimable >= @reclaimable_cpu_threshold
-      :unavailable -> false
-    end
-  end
-
-  defp clear_cpu_headroom?(_headroom), do: false
-
-  defp fast_ramp(effective, last_decrease_ms, static_limit) do
-    next = min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
-    {next, if(next == static_limit, do: nil, else: last_decrease_ms)}
-  end
+  @spec update_load_envelope(State.t(), number() | :unavailable, number() | nil, pos_integer(), integer(), SystemCpu.snapshot() | :unavailable, boolean()) :: State.t()
+  defdelegate update_load_envelope(state, load, target, schedulers, now_ms, cpu_snapshot, queued_work?), to: Aiur.Orchestrator.LoadEnvelope
 
   defp reclaimable_cpu_percent(%{reclaimable_percent: percent}) when is_number(percent), do: percent
   defp reclaimable_cpu_percent(%{idle_percent: percent}) when is_number(percent), do: percent
@@ -586,23 +417,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     do: threshold * schedulers
 
   defp scaled_threshold(_threshold, _schedulers), do: nil
-
-  defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current),
-    do: current
-
-  defp next_cpu_snapshot(_previous, _current), do: nil
-
-  defp normalize_load_envelope_limit(effective, static_limit)
-       when is_integer(effective) and effective > 0 and is_integer(static_limit) and
-              static_limit > 0,
-       do: min(effective, static_limit)
-
-  defp normalize_load_envelope_limit(_effective, static_limit), do: static_limit
-
-  defp cooldown_elapsed?(nil, _cooldown_ms, _now_ms), do: true
-
-  defp cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms),
-    do: now_ms - last_decrease_ms >= cooldown_ms
 
   @spec sort_issues_for_dispatch([term()]) :: [term()]
   def sort_issues_for_dispatch(issues) when is_list(issues) do

@@ -1,13 +1,3 @@
-/* Bungee — the display face used by the aiur home-page wordmark, bundled so
-   the dashboard renders it offline (no web-font fetch). */
-@font-face {
-  font-family: "Bungee";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/bungee.woff2") format("woff2");
-}
-
 :root {
   color-scheme: dark;
   --bg: #16171a;
@@ -17,11 +7,10 @@
   --surface-3: #292d34;
   --fg: #edeef0;
   --muted: #969aa4;
-  /* Keep faint text >= WCAG AA 4.5:1 on the dark surfaces (>= 5:1 on --surface);
-     stay dimmer than --muted. Do not darken below this without rechecking axe. */
+  /* AA hold: design #676b74, pending Kevin (S-19) */
   --faint: #8b8f99;
   --line: rgba(221, 226, 235, 0.12);
-  --line-strong: rgba(221, 226, 235, 0.2);
+  --line-strong: rgba(221, 226, 235, 0.20);
   --hairline: rgba(221, 226, 235, 0.08);
   --pill-bg: rgba(221, 226, 235, 0.04);
   --accent: #2f86ff;
@@ -70,79 +59,70 @@
   --shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
   --radius: 16px;
   --radius-lg: 24px;
-  /* The page's reading width — what the content column is capped at once the
-     shell itself runs the full width of the window. */
-  --shell-measure: 75rem;
   /* One height for every progress bar on the dashboard — the meter strip, the
      run-summary and units-table tracks, the provider-meter tracks, and the
      Stream Deck bars — so no two bars read as different gauges. */
   --progress-bar-height: 0.5rem;
+  --pill-bd: rgba(221, 226, 235, 0.14);
+  --ack-soft: rgba(79, 214, 196, 0.14);
+  --attn: var(--attention);
+  --attn-ink: var(--attention-ink);
+  --attn-soft: var(--attention-soft);
+  --attn-line: var(--attention-line);
+  --block: var(--blocking);
+  --block-ink: var(--blocking-ink);
+  --block-soft: var(--blocking-soft);
+  --block-line: var(--blocking-line);
 }
 
 html[data-theme="light"] {
   color-scheme: light;
-  --bg: #e7d6b2;
-  --bg-2: #e2cfa6;
-  --surface: #f4ecd9;
-  --surface-2: #efe5cd;
-  --surface-3: #e9dcbf;
-  --fg: #2a2520;
-  /* Darkened from #756a55 and #9a8e73, which were tuned for the sepia surface
-     by eye and never measured: --faint reached only 2.75:1 on --surface (2.26:1
-     on --bg) and --muted fell to 4.20:1 behind --pill-bg, which is what put the
-     Units filter pills below AA. Both are now set to mirror their dark-theme
-     counterparts' contrast profile rather than to a bare 4.5:1 pass, so the
-     muted/faint step stays the same size it is in dark mode:
-       --muted 5.78:1 on --surface (dark: 5.79:1), 4.75:1 on --bg
-       --faint 4.97:1 on --surface (dark: 5.03:1), 4.62:1 behind --pill-bg
-     --faint clears AA on --surface and --surface-2 only. It is under it on
-     --surface-3 (4.31:1, as dark --faint is at 4.27:1) and on the page itself
-     (4.08:1 on --bg, 3.82:1 on --bg-2) — text on those steps up to --muted
-     rather than dragging the whole token darker, because --faint cannot go
-     much below this without collapsing into --muted and losing the third rung
-     of the hierarchy. Do not lighten either without rechecking axe. */
-  --muted: #635a48;
-  --faint: #6d6450;
-  --line: rgba(42, 37, 26, 0.16);
-  --line-strong: rgba(42, 37, 26, 0.28);
-  --hairline: rgba(42, 37, 26, 0.1);
-  --pill-bg: rgba(42, 37, 26, 0.04);
-  --accent: #1f57c4;
-  --accent-ink: #1a4aa8;
-  /* The light accent is already dark enough to carry white text (6.52:1), so
-     the fill and the accent are the same colour here. */
+  --bg: #f3f1ec;
+  --bg-2: #f8f7f3;
+  --surface: #ffffff;
+  --surface-2: #f4f2ed;
+  --surface-3: #ebe8e1;
+  --fg: #1e1c19;
+  --muted: #67625a;
+  /* AA hold: design #9a958c, pending Kevin (S-19) */
+  --faint: #777269;
+  --line: rgba(40, 32, 20, 0.10);
+  --line-strong: rgba(40, 32, 20, 0.18);
+  --hairline: rgba(40, 32, 20, 0.07);
+  --pill-bg: rgba(40, 32, 20, 0.03);
+  --accent: #2563d9;
+  --accent-ink: #1d4fb3;
+  /* Preserve the product's text-bearing button fill in both palettes. */
   --accent-strong: #1f57c4;
   --on-accent: #ffffff;
-  --accent-soft: rgba(31, 87, 196, 0.11);
-  --accent-line: rgba(31, 87, 196, 0.3);
-  --attention: #b8821a;
-  /* Darkened from #8a6210, which reached only 4.11:1 against its own soft
-     background in the light theme — an "Expired" chip is a state the operator
-     has to be able to read. Darkened again from #7d590e, which cleared its own
-     soft background (4.78:1) but not when that sits on a tinted panel: the
-     revision caution inside `.decision-revision` measured 4.16:1 over the
-     --super-soft wash. Now 4.59:1 there and 5.27:1 on the plain surface. */
-  --attention-ink: #75530d;
+  --accent-soft: rgba(37, 99, 217, 0.09);
+  --accent-line: rgba(37, 99, 217, 0.28);
+  --attention: #e3a321;
+  /* AA hold: design #94650a, pending Kevin (S-19) */
+  --attention-ink: #855b09;
   --attention-soft: rgba(184, 130, 26, 0.13);
   --attention-line: rgba(184, 130, 26, 0.32);
   --blocking: #d23b32;
   --blocking-ink: #a52a23;
   --on-blocking: #ffffff;
   --blocking-soft: rgba(210, 59, 50, 0.11);
-  --blocking-line: rgba(210, 59, 50, 0.3);
-  --good: #1f9d4d;
-  --good-ink: #167038;
+  --blocking-line: rgba(210, 59, 50, 0.30);
+  --good: #22b85a;
+  --good-ink: #15803d;
   --good-soft: rgba(31, 157, 77, 0.13);
-  --good-line: rgba(31, 157, 77, 0.3);
+  --good-line: rgba(31, 157, 77, 0.30);
   --super: #8a4fd0;
   --super-ink: #6d3aa8;
   --super-soft: rgba(138, 79, 208, 0.12);
-  --super-line: rgba(138, 79, 208, 0.3);
+  --super-line: rgba(138, 79, 208, 0.30);
   --ack: #0e9e8e;
-  --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.1);
+  --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.10);
   --shadow-md: 0 4px 12px -2px rgba(58, 44, 18, 0.22);
-  --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.3);
+  --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.30);
+  --pill-bd: rgba(40, 32, 20, 0.12);
+  --ack-soft: rgba(14, 158, 142, 0.13);
 }
+
 
 * {
   box-sizing: border-box;
@@ -157,15 +137,14 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  overflow-x: hidden;
   background:
     radial-gradient(1200px 520px at 78% -8%, var(--accent-soft) 0%, transparent 60%),
     var(--bg);
   color: var(--fg);
-  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.35s ease, color 0.35s ease;
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
 
 a {
@@ -222,248 +201,6 @@ textarea:focus-visible,
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-.app-shell {
-  max-width: 1440px;
-  margin-inline: auto;
-  /* Mobile/tablet gutter: the sidebar is hidden and the fixed bottom nav
-     reserves its own space, so content needs this to stay off the edges. On
-     desktop (>=960px) it is dropped so the sidebar and topbar run edge-to-edge;
-     .shell-content re-adds the inline gutter there. */
-  padding: 16px 1.15rem;
-}
-
-.dashboard-shell {
-  display: grid;
-  min-width: 0;
-  gap: 1.25rem;
-}
-
-.shell-body {
-  display: grid;
-  min-width: 0;
-  /* Named so the wide-screen centring can derive the sidebar rail from the
-     real layout rather than restating the same number. */
-  --shell-gap: 1.25rem;
-  gap: var(--shell-gap);
-}
-
-/* Positioning context for the collapse toggle, which is laid over the first
-   route rather than taking a row of its own. */
-.shell-sidebar {
-  position: relative;
-  display: grid;
-  align-self: start;
-  align-content: start;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.shell-main,
-.shell-content {
-  display: grid;
-  min-width: 0;
-  gap: 1rem;
-}
-
-.shell-nav {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.shell-nav-sidebar {
-  gap: 0.15rem;
-}
-
-.shell-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  min-width: 0;
-  min-height: 2.6rem;
-  padding: 0.62rem 0.72rem;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-  text-decoration: none;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.shell-nav-item:hover {
-  color: var(--fg);
-  background: var(--surface-2);
-}
-
-.shell-nav-item.is-active {
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-}
-
-/* --muted, not --faint: the nav has no surface of its own, so this text sits
-   straight on the page background, where light --faint is only 4.08:1. The
-   "unavailable" state still reads as recessed against the --fg siblings. */
-.shell-nav-item.is-unavailable {
-  cursor: not-allowed;
-  color: var(--muted);
-}
-
-/* The sidebar sits hard against the browser's left edge, so its hover and
-   selected states are square on that side and rounded only on the right: a
-   rounded left corner reads as a gap between the state and the window edge.
-   The mobile nav pill is a floating island, so it keeps rounding all round. */
-.shell-nav-sidebar .shell-nav-item {
-  border-start-start-radius: 0;
-  border-end-start-radius: 0;
-}
-
-/* The collapse toggle is laid over the right end of the first route, so that
-   route reserves the overhang: Units is also the route that carries a live
-   count, and the badge is right-aligned straight into the button otherwise. */
-.shell-nav-sidebar .shell-nav-item:first-child {
-  padding-inline-end: 1.8rem;
-}
-
-.shell-nav-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  color: inherit;
-}
-
-.shell-nav-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.shell-nav-label {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* Also on the bare page background, and at 0.6rem it gets no large-text
-   relief, so it takes --muted for the same reason as .is-unavailable above. */
-.shell-nav-state {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 0.6rem;
-  font-weight: 600;
-}
-
-/* Live attention badge: active-unit count on Units, open-Command count on
-   Commands (the latter tinted as an alert). */
-.shell-nav-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 1.35rem;
-  height: 1.35rem;
-  margin-left: auto;
-  padding-inline: 0.4rem;
-  border-radius: 999px;
-  background: var(--surface-3);
-  color: var(--fg);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.shell-nav-item.is-active .shell-nav-count {
-  background: color-mix(in srgb, var(--accent-ink) 22%, transparent);
-  color: var(--accent-ink);
-}
-
-/* Was a hardcoded light salmon ink, which is only legible against the dark
-   theme — in light mode it landed at 1.19:1 and the count was invisible. The
-   themed `--blocking-*` family is the right semantic home anyway (this badge
-   counts blocking decisions) and carries a per-theme ink: 5.2:1 in light,
-   7.7:1 in dark. */
-.shell-nav-count.is-attention {
-  background: var(--blocking-soft);
-  color: var(--blocking-ink);
-}
-
-.shell-nav-mobile {
-  display: none;
-}
-
-/* Leads the content column, above the banner and the page's own panes. */
-.route-context {
-  min-width: 0;
-}
-
-.route-eyebrow {
-  margin: 0;
-  color: var(--muted);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-/* Bungee, the wordmark's face, so a route heading reads as part of the brand
-   rather than as body copy. Bungee is caps-only — its lowercase codepoints map
-   to the same glyphs, measured identical for "Units" and "UNITS" — so no
-   `text-transform` is applied: it would change nothing on screen while making
-   the accessible name and any copied text shout. The face is wide, so the
-   negative tracking the old sans used would crowd it. */
-.route-context h1 {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin: 0.25rem 0 0;
-  font-family: "Bungee", "Space Grotesk", "Avenir Next", sans-serif;
-  font-size: clamp(1.15rem, 2.2vw, 1.6rem);
-  font-weight: 400;
-  letter-spacing: 0.02em;
-}
-
-/* Mirrors the nav item's icon tile so the heading and the nav entry read as
-   the same thing. Sized from the heading so it tracks the clamp above. */
-.route-title-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 1.5em;
-  height: 1.5em;
-  border-radius: 0.42em;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  color: var(--accent-ink);
-}
-
-.route-title-icon svg {
-  display: block;
-  width: 0.82em;
-  height: 0.82em;
-}
-
-.route-title-back {
-  text-decoration: none;
-}
-
-.route-title-back:hover {
-  background: var(--surface-3);
-  border-color: var(--line-strong);
-}
-
-.route-title-back:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.route-context > p:last-child {
-  max-width: 52rem;
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
 }
 
 .bo-page,
@@ -1126,7 +863,7 @@ th[data-sort-key]:focus-visible {
   font-size: 0.6rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .bo-breakdown-row-stat .num {
@@ -1862,117 +1599,6 @@ th[data-sort-key]:focus-visible {
   }
 }
 
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.5rem 1.15rem;
-  /* Translucent so the blurred page reads through, not a solid slab. */
-  background: color-mix(in srgb, var(--surface) 72%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--hairline);
-}
-
-.brand-mini {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  color: var(--muted);
-}
-
-.brand-mini:hover {
-  color: var(--fg);
-}
-
-.brand-mini-logo {
-  width: 2.15rem;
-  height: 1.9rem;
-  object-fit: contain;
-  filter: drop-shadow(0 0 10px var(--accent-soft));
-}
-
-.brand-wordmark {
-  font-family: "Bungee", "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.98rem;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.brand-wordmark b {
-  color: var(--fg);
-  font-weight: 400;
-}
-
-/* The sidebar column is capped at 15rem, and this row is not allowed to spill
-   past it — an unwrapped row overflowed into `.shell-main` and printed the
-   brand over the route title. Wrapping plus a shrinkable status badge keeps
-   every control inside the column at any content width. */
-.brand-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  min-width: 0;
-  flex: none;
-  padding: 0;
-}
-
-.brand-row .brand-live {
-  margin-left: 0.1rem;
-  min-height: 2.05rem;
-  padding: 0 0.7rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  min-width: 0;
-  overflow: hidden;
-}
-
-/* Laid on top of the sidebar's first route, overhanging its right edge, with a
-   drop shadow so it reads as a separate control rather than another nav row.
-   The fill is opaque and qualified by `.tool-btn`: the shared pill background
-   is a 4%-alpha wash declared later in this file, so at equal specificity the
-   nav item underneath would show through the overhang. */
-.tool-btn.shell-nav-toggle {
-  position: absolute;
-  top: 0.28rem;
-  right: -1rem;
-  z-index: 5;
-  background: var(--surface);
-  box-shadow: var(--shadow-md);
-}
-
-.tool-btn.shell-nav-toggle:hover {
-  background: var(--surface-2);
-}
-
-/* Collapsed, the sidebar is a bare rail, so the overhang would push the button
-   into the content; it sits in the rail instead, where the nav will reappear. */
-.dashboard-shell[data-nav-collapsed="true"] .shell-nav-toggle {
-  right: auto;
-  left: 0.28rem;
-}
-
-/* The global pause switch reads OFF (muted, like its sibling toggles) and flips
-   to a filled warning accent when the whole daemon is halted, so a paused fleet
-   is unmistakable from the nav. Disabled when the dashboard is read-only. */
-.global-pause-toggle.is-paused {
-  border-color: var(--warning, #d08a2a);
-  color: var(--warning, #d08a2a);
-  background: color-mix(in srgb, var(--warning, #d08a2a) 16%, transparent);
-}
-
-.global-pause-toggle[disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .tool-btn.icon-only {
   gap: 0;
   padding: 0;
@@ -1984,98 +1610,9 @@ th[data-sort-key]:focus-visible {
   flex: none;
 }
 
-.toggle-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toggle-icon svg {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-/* Sized like its sibling toggles. Inline SVGs carry no intrinsic dimensions, so
-   without these the pause glyph collapses and the button renders empty. */
-.global-pause-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.global-pause-icon svg {
-  display: block;
-  width: 15px;
-  height: 15px;
-}
-
-.nav-toggle-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.nav-toggle-icon svg {
-  width: 17px;
-  height: 17px;
-}
-
-.nav-show-icon {
-  display: none;
-}
-
-.toggle-icon .moon {
-  display: none;
-}
-
-.toggle-icon .sun {
-  display: inline-flex;
-}
-
-html[data-theme="light"] .toggle-icon .sun {
-  display: none;
-}
-
-html[data-theme="light"] .toggle-icon .moon {
-  display: inline-flex;
-}
-
 .tool-btn-icon {
   padding: 0.3rem 0.45rem;
   line-height: 1;
-}
-
-/* Collapsed navigation: hide the route list and let the sidebar column shrink
-   to nothing, reclaiming the space for content. The `<aside>` itself stays in
-   flow at zero width so the collapse toggle it hosts is still on screen to
-   reopen the nav. */
-.dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
-  display: none;
-}
-
-@media (min-width: 960px) {
-  /* A rail just wide enough for the toggle, so the reopen control keeps its own
-     gutter instead of overlapping the content column. */
-  .dashboard-shell[data-nav-collapsed="true"] .shell-body {
-    grid-template-columns: var(--shell-nav-w) minmax(0, 1fr);
-  }
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  margin-left: auto;
-}
-
-/* The run-wide controls — pause and theme — at every resolution. */
-.topbar-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
 }
 
 .status-badge,
@@ -2684,7 +2221,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .chip.good {
   border-color: var(--good-line);
   background: var(--good-soft);
-  color: var(--good-ink);
+  color: color-mix(in srgb, var(--good-ink) 80%, var(--fg));
 }
 
 .chip.accent {
@@ -3512,6 +3049,11 @@ html[data-theme="light"] .toggle-icon .moon {
   background: rgba(226, 155, 99, 0.12);
 }
 
+/* The legacy medium-priority ink needs a small lift on Gruvbox surfaces to clear AA. */
+html[data-palette="gruvbox"] .u-prio.is-med {
+  color: color-mix(in srgb, var(--fg) 5%, #e29b63);
+}
+
 .u-prio.is-low {
   color: #6bd6a6;
   border-color: rgba(107, 214, 166, 0.4);
@@ -3785,7 +3327,6 @@ html[data-theme="light"] .toggle-icon .moon {
   grid-column: span 2;
 }
 
-.rs-models-rows,
 .rs-apis-rows {
   --rs-provider-row-height: 1.2rem;
   display: grid;
@@ -3820,17 +3361,6 @@ html[data-theme="light"] .toggle-icon .moon {
   align-items: start;
   gap: 0.55rem;
   min-width: 0;
-}
-
-/* Account scope and observation age must not consume the meter's column. */
-.rs-models-rows {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-}
-
-.rs-model > .rs-head {
-  flex-wrap: wrap;
-  height: auto;
-  min-height: var(--rs-provider-row-height);
 }
 
 /* Top-aligned, not centred: the stat block on a provider card is taller than
@@ -3932,7 +3462,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-width: 0;
 }
 
-.rs-model .rs-limit,
 .rs-api .rs-limit {
   grid-template:
     "label meta" minmax(0, 1fr)
@@ -4047,15 +3576,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: var(--caution, #d0a92a);
 }
 
-.github-quota-attribution,
-.github-quota-coverage {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.5rem;
-}
-
 /* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
    the same warning colour the meters use as they approach their ceiling. */
 .github-quota-backoff .rs-limit-label,
@@ -4063,30 +3583,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--warning, #d08a2a);
 }
 
-/* ---- compressed meter row (more than four panes) ----
-   Past four panes the strip stops reading as one thing, so it collapses into a
-   single pane holding two named groups. It deliberately reuses the pane
-   vocabulary above — same logo size, same monospace label scale, same meter
-   bar — so the compressed form reads as the same strip rather than a second
-   visual language. */
-.run-summary.is-compressed {
-  display: block;
-}
-
-.rs-compressed {
-  gap: 1rem;
-}
-
-.rs-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-/* The group name is the whole point of the compressed form: an operator must
-   see that a row is an agent API rather than infer it from where it sorted.
-   The hairline carries the eye across to the count without a heavy divider. */
 .rs-group-head {
   display: flex;
   align-items: baseline;
@@ -4118,108 +3614,125 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   white-space: nowrap;
 }
 
-.rs-group-rows {
-  display: flex;
-  flex-direction: column;
-}
-
-/* One provider per row, three columns: identity, meters, state. The identity
-   column is a fixed track so the logos and the meter lines align down the
-   group — that alignment is what makes it read as a table without needing
-   rules or zebra striping. `minmax(0, 1fr)` on the meter track keeps a long
-   meta string inside the pane instead of widening the row. */
-.rs-row {
-  display: grid;
-  grid-template-columns: 10.5rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.6rem 1rem;
-  padding: 0.5rem 0;
-  min-width: 0;
-}
-
-.rs-row + .rs-row {
-  border-top: 1px solid var(--line);
-}
-
-.rs-row-id {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.rs-row-name {
-  font-weight: 700;
-  font-size: 0.85rem;
-  letter-spacing: -0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rs-row-meters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-/* The meter line runs label, bar, meta on one line so a row stays one line
-   tall. The bar is the flexible middle: the label and the meta are read, the
-   bar is glanced at. */
-/* The meta track is a fixed width rather than `auto` so every bar in the pane
-   ends at the same x. That shared edge is what makes the group scan as a
-   column of comparable quotas instead of a ragged list. */
-.rs-row-meter {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(3rem, 1fr) 17rem;
-  align-items: center;
-  gap: 0.6rem;
-  min-width: 0;
-}
-
-.rs-row-meter .rs-limit-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rs-row-meter .rs-limit-meta {
-  text-align: right;
-  white-space: nowrap;
-}
-
 /* Unknown values remain visibly inert without resembling a measured 0%. */
-.rs-meter-none {
-  display: block;
-  height: var(--progress-bar-height);
-  border-radius: 999px;
-  background: var(--line-strong);
-}
-
 .rs-meter.is-unknown {
   background: var(--line-strong);
 }
 
-/* Narrow widths: the identity column stops being a fixed track, so the row
-   wraps rather than scrolling. */
-@media (max-width: 720px) {
-  .rs-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.4rem 0.6rem;
-  }
-
-  .rs-row-meters {
-    grid-column: 1 / -1;
-  }
-
-  .rs-row-meter {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .rs-row-meter .rs-meter {
-    grid-column: 1 / -1;
-  }
+/* ---- MODELS pane: the Claude design's usage lines (ax-r2 / ax-ln) ----
+   One row per provider: a logo column, then one line per meter reading
+   [tag] percent · bar · reset↻. Every cell owns a grid track and clips its own
+   text, so a label and a value can never overlap at any width (#3751). */
+.rs-models-rows {
+  display: grid;
+  gap: 0.8rem 1.2rem;
+  align-content: start;
 }
+
+.rs-model {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.rs-model > .rs-head {
+  position: relative;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.rs-model .rs-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.rs-model[data-provider="deepseek"] .rs-logo,
+.rs-model[data-provider="kimi"] .rs-logo {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* The logo names the provider; the name stays for assistive technology. */
+.rs-model .rs-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.rs-x {
+  flex: none;
+  padding: 0 0.25rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 700 0.56rem/1.4 "JetBrains Mono", "SFMono-Regular", monospace;
+  cursor: help;
+}
+
+.rs-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.rs-ln {
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr) 12.5ch;
+  align-items: center;
+  gap: 0.5rem;
+  height: 11px;
+  min-width: 0;
+  font: 600 0.68rem/1 "JetBrains Mono", "SFMono-Regular", monospace;
+  cursor: default;
+}
+
+.rs-ln.has-tag { grid-template-columns: var(--rs-tag-width, 3.4em) 4ch minmax(0, 1fr) 12.5ch; }
+
+.rs-ln > span { min-width: 0; overflow: hidden; white-space: nowrap; }
+
+.rs-tg { font-weight: 500; color: var(--muted); text-overflow: ellipsis; }
+
+.rs-ln.is-stale .rs-tg { color: var(--faint); }
+
+.rs-pc { text-align: right; color: var(--fg); }
+
+.rs-pc.is-caution,
+.rs-pc.is-warning {
+  color: var(--attn-ink);
+}
+
+.rs-pc.is-critical { color: var(--block-ink); }
+
+.rs-ln .rs-meter { height: 5px; }
+
+.rs-ln .rs-meter > i { min-width: 4px; }
+
+.rs-ln:hover .rs-meter { filter: brightness(1.3); }
+
+
+.rs-rs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.rs-rs > span { overflow: hidden; text-overflow: clip; }
+
+.rs-rs svg { width: 9px; height: 9px; flex: none; color: var(--faint); }
+
+.rs-rs em { margin-left: -0.15rem; font-style: normal; color: var(--faint); }
+
+.rs-usd { font-weight: 600; color: var(--good-ink); }
+
+.rs-no { font-weight: 400; font-size: 0.62rem; color: var(--faint); }
 
 .rs-progress {
   margin-top: auto;
@@ -4262,17 +3775,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
     font-size: 0.82rem;
   }
 
-  .rs-models-rows,
   .rs-apis-rows {
     gap: 0.55rem 0.55rem;
-  }
-
-  .rs-models-rows {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .rs-model:not(:first-child) > .rs-head {
-    margin-top: 0.4rem;
   }
 
   .rs-provider-row > .rs-provider-body {
@@ -4284,7 +3788,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
     gap: 0.15rem;
   }
 
-  .rs-model .rs-limit,
   .rs-api .rs-limit {
     grid-template-columns: minmax(0, 1fr) 6.5rem;
   }
@@ -5216,7 +4719,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 100;
   display: grid;
   place-items: center;
   padding: 1rem;
@@ -6073,204 +5576,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   }
 }
 
-@media (min-width: 960px) {
-  .shell-body {
-    grid-template-columns: minmax(12rem, var(--shell-nav-w)) minmax(0, 1fr);
-    /* The chrome the content column is offset by: the sidebar track plus the
-       body's gap. Derived rather than written out, so changing the track or the
-       gap cannot silently desync the centring below from the actual layout. */
-    --shell-nav-w: 15rem;
-    --shell-rail: calc(var(--shell-nav-w) + var(--shell-gap));
-  }
-
-  /* Collapsed, the track is the bare toggle rail. */
-  .dashboard-shell[data-nav-collapsed="true"] .shell-body {
-    --shell-nav-w: 2.6rem;
-  }
-
-  /* The nav bar and sidebar are browser chrome, not page content: they run the
-     full width of the window, pinned to the top and the far left, so the shell
-     drops its centred 1440px cap and its outer gutter here. The page itself
-     stays centred and capped inside the content column below. */
-  .app-shell {
-    max-width: none;
-    padding: 0;
-  }
-
-  /* Centred in the window, not merely in the space left over beside the
-     sidebar: mirroring the rail as a trailing margin puts the content column's
-     midpoint back on the window's. There is only room for the full mirror once
-     the window is wider than rail + measure + rail, so the margin grows into it
-     and the page slides back to true centre instead of jumping there.
-     `100vw` counts a classic scrollbar the content cannot use, which biases the
-     result a scrollbar-width to the left; the error is a few pixels and always
-     in the safe direction (a smaller margin, never overflow). */
-  .shell-main {
-    margin-inline-end: clamp(0px, calc(100vw - var(--shell-rail, 0px) - var(--shell-measure)), var(--shell-rail, 0px));
-  }
-
-  .shell-content {
-    /* Roughly the reading width the old 1440px shell gave the content column,
-       so a page does not stretch to the full width of an ultrawide display. */
-    max-width: var(--shell-measure);
-    /* `margin-inline: auto` opts a grid item out of the default `stretch`
-       alignment, which left the column sized to each page's own max-content —
-       so Commands, Build Order, Analytics and Streamdeck each measured a
-       different width at the same viewport and the layout jumped when you
-       navigated. Claiming the whole column (capped above) makes the measure a
-       property of the shell rather than of whatever the page happens to
-       contain, so every route lines up. */
-    width: 100%;
-    margin-inline: auto;
-    padding-inline: 1.15rem;
-    padding-block-end: 1rem;
-  }
-
-  .shell-sidebar {
-    align-self: start;
-  }
-}
-
-@media (max-width: 959px) {
-  .app-shell {
-    padding-block-end: calc(7rem + env(safe-area-inset-bottom));
-  }
-
-  .shell-sidebar {
-    display: none;
-  }
-
-  .shell-nav-mobile {
-    position: fixed;
-    z-index: 20;
-    right: max(0.65rem, env(safe-area-inset-right));
-    bottom: max(0.65rem, env(safe-area-inset-bottom));
-    left: max(0.65rem, env(safe-area-inset-left));
-    /* Cap the pill width and center it so it no longer spans the full row and
-       overlaps content on wider (tablet) breakpoints; on a phone it stays
-       full-width via the left/right insets. */
-    max-width: 26rem;
-    margin-inline: auto;
-    display: grid;
-    /* One row, however many routes there are. Equal route cells plus the
-       control cluster at its natural icon width, so the pause toggle rides
-       along in the nav instead of vanishing with the hidden sidebar.
-
-       This was `repeat(5, minmax(0, 1fr)) auto`, which silently broke the
-       moment a sixth route was added: the extra cell wrapped onto an implicit
-       second row, the bar grew past the `7rem` the shell reserves for it, and
-       the nav covered page content at 320px and 390px. Deriving the track
-       count from the items makes adding a route a layout no-op rather than a
-       tripwire nobody remembers. `.shell-nav-controls` opts itself back out to
-       `auto` below. */
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    gap: 0.2rem;
-    padding: 0.3rem;
-    border: 1px solid var(--line-strong);
-    border-radius: 16px;
-    background: color-mix(in srgb, var(--surface) 94%, transparent);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .shell-nav-mobile .shell-nav-item {
-    position: relative;
-    flex-direction: column;
-    justify-content: center;
-    gap: 0.2rem;
-    min-height: 2.75rem;
-    padding: 0.35rem 0.2rem;
-    text-align: center;
-  }
-
-  /* Count sits in the top-right corner, out of flow, so it never adds a third
-     row and stretches the nav item taller. */
-  .shell-nav-mobile .shell-nav-count {
-    position: absolute;
-    top: 0.2rem;
-    right: 0.3rem;
-    margin: 0;
-    min-width: 1.05rem;
-    height: 1.05rem;
-    padding-inline: 0.28rem;
-    font-size: 0.58rem;
-  }
-
-  .shell-nav-mobile .shell-nav-icon {
-    width: auto;
-  }
-
-  /* Truncated, never wrapped. A label long enough to take two lines would grow
-     the whole bar past the space the shell reserves for it, which is the same
-     failure as an extra row — and it would be caused by naming a route rather
-     than by adding one. */
-  .shell-nav-mobile .shell-nav-label {
-    font-size: clamp(0.55rem, 2vw, 0.68rem);
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .shell-nav-mobile .shell-nav-state {
-    margin-left: 0;
-    font-size: clamp(0.43rem, 1.7vw, 0.55rem);
-    line-height: 1;
-  }
-
-  .shell-nav-mobile .shell-nav-item.is-active {
-    box-shadow: inset 0 -3px var(--accent-line);
-  }
-
-  .shell-nav-controls {
-    /* Natural icon width rather than an equal share, so the controls never
-       steal space from the route labels. */
-    grid-column: auto / auto;
-    width: max-content;
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding-inline: 0.15rem 0.05rem;
-    margin-inline-start: 0.15rem;
-    border-inline-start: 1px solid var(--line);
-  }
-
-  /* Slightly tighter than the sidebar's 2.05rem so the control plus four route
-     cells still fit a 360px phone without squeezing the labels. */
-  .shell-nav-controls .tool-btn.icon-only {
-    width: 1.9rem;
-    height: 1.9rem;
-  }
-
-  /* Brand and controls share one line, never two: the brand takes the slack so
-     the controls stay pinned to the right. */
-  .topbar {
-    flex-wrap: nowrap;
-    align-items: center;
-  }
-
-  .topbar .toolbar {
-    flex: none;
-  }
-}
-
 @media (max-width: 760px) {
-  .app-shell {
-    padding-inline: 0.8rem;
-  }
-
-  .topbar {
-    gap: 0.6rem;
-  }
-
-  /* Was `width: 100%` to give the clock its own line. The clock is gone and
-     what is left is the pause and theme pair, which belongs beside the brand
-     rather than on a row of its own. */
-  .toolbar {
-    width: auto;
-    justify-content: flex-end;
-  }
-
   .bo-catalog-entry {
     align-items: stretch;
     flex-direction: column;
@@ -6372,10 +5678,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 @media (max-width: 500px) {
-  .app-shell {
-    padding-inline: 0.65rem;
-  }
-
   .fleet-table tr.fleet-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -6384,11 +5686,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
       "waiting decisions"
       "latest latest"
       "elapsed elapsed";
-  }
-
-  .brand-wordmark {
-    font-size: 0.84rem;
-    letter-spacing: 0.02em;
   }
 
   .status-badge {
@@ -7386,21 +6683,19 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .provider-meter-account-bar {
-  display: flex;
-  width: 100%;
-  height: var(--progress-bar-height);
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) 1fr;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 0.4rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--surface-3);
 }
 
 .provider-meter-account-segment {
   display: block;
-  flex: 0 0 auto;
-  height: 100%;
-  border-right: 1px solid var(--surface-1);
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface-3));
+  height: var(--progress-bar-height);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
 }
 
 .provider-meter-account-fill {
@@ -7408,12 +6703,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   height: 100%;
   background: var(--accent);
 }
-
-.provider-meter-account-segment.account-color-1 .provider-meter-account-fill { background: var(--good); }
-.provider-meter-account-segment.account-color-2 .provider-meter-account-fill { background: var(--attention); }
-.provider-meter-account-segment.account-color-3 .provider-meter-account-fill { background: #b08cff; }
-.provider-meter-account-segment.account-color-4 .provider-meter-account-fill { background: #f28b62; }
-.provider-meter-account-segment.account-color-5 .provider-meter-account-fill { background: #55c4c8; }
 
 .provider-meter-account-labels {
   display: flex;
@@ -8202,6 +7491,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .bo-epic-label {
+  background: transparent;
   font-weight: 600;
   font-size: 0.86rem;
   color: var(--fg);
@@ -8476,7 +7766,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 /* Complexity moved into the card body as a plain detail. */
 .bo-node-cx {
   font-variant-numeric: tabular-nums;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .bo-node-title {
@@ -10415,3 +9705,164 @@ html[data-theme="light"] .sd-device {
   justify-content: flex-end;
   gap: 0.5rem;
 }
+
+/* Shell (ported from design build.css v10) */
+::selection { background: var(--accent-soft); }
+
+html { overflow-x: hidden; }
+html { scrollbar-gutter: stable; }
+.app-shell { max-width: 1320px; margin: 0 auto; padding: 1.1rem 1.15rem 4rem; min-width: 0; }
+.dashboard-shell { display: grid; gap: 1rem; min-width: 0; }
+
+.dashboard-shell > * { min-width: 0; }
+
+.app-layout { display: grid; grid-template-columns: 224px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.sidenav { position: sticky; top: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.sidenav-nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.snav { position: relative; display: flex; align-items: center; gap: 0.7rem; width: 100%; padding: 0.62rem 0.72rem; border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: 0.9rem; font-weight: 600; text-align: left; transition: background 0.15s ease, color 0.15s ease; }
+.snav:hover { background: var(--surface-2); color: var(--fg); }
+.snav.is-active { background: var(--accent-soft); color: var(--accent-ink); }
+.snav-ic { display: inline-flex; flex: 0 0 auto; }
+.snav-ic svg { width: 18px; height: 18px; }
+.snav-label { flex: 1 1 auto; }
+.snav-c { font-family: "JetBrains Mono", monospace; font-size: 0.7rem; font-weight: 700; min-width: 1.4rem; text-align: center; padding: 0.08rem 0.42rem; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
+.snav.is-active .snav-c { background: var(--surface); color: var(--accent-ink); }
+.snav-c.attn { background: var(--attn-soft); color: var(--attn-ink); }
+.snav-soon { font-family: "JetBrains Mono", monospace; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.12rem 0.42rem; border-radius: 999px; border: 1px solid var(--line); color: var(--faint); }
+.snav.is-soon { color: var(--faint); }
+.snav.is-soon .snav-ic { opacity: 0.7; }
+.sidenav-foot { margin-top: 0.4rem; padding: 0.35rem 0.4rem 0; border-top: 1px solid var(--line); display: flex; }
+
+@media (max-width: 960px) {
+  .app-layout { grid-template-columns: 1fr; gap: 1rem; }
+  .app-shell { padding-bottom: 5.5rem; }
+  .sidenav { position: fixed; bottom: 0; left: 0; right: 0; top: auto; z-index: 60; flex-direction: row; gap: 0.15rem; padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,0.16); }
+  .sidenav-nav { flex-direction: row; flex: 1 1 auto; gap: 0.15rem; }
+  .snav { flex-direction: column; gap: 0.2rem; padding: 0.45rem 0.3rem; font-size: 0.66rem; font-weight: 600; justify-content: center; text-align: center; }
+  .snav-label { flex: 0 0 auto; }
+  .snav-c:not(.attn) { display: none; }
+  .snav-c.attn { position: absolute; top: 2px; left: 50%; margin-left: 3px; min-width: 0; padding: 0 0.32rem; font-size: 0.58rem; background: var(--attn); color: #fff; }
+  .snav-soon { position: absolute; top: 2px; left: 50%; margin-left: 3px; padding: 0 0.3rem; font-size: 0.5rem; }
+}
+
+
+.toggle-icon { display: inline-flex; align-items: center; justify-content: center; }
+.toggle-icon svg { display: block; }
+.toggle-icon .moon { display: none; }
+html[data-theme="light"] .toggle-icon .sun { display: none; }
+html[data-theme="light"] .toggle-icon .moon { display: inline; }
+
+/* ---------- shell ---------- */
+.app-shell { max-width: none; padding: 0; }
+.ax-top { position: sticky; top: 0; z-index: 70; height: 56px; display: flex; align-items: center; gap: .7rem; padding: 0 1rem; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
+.ax-top .brand-logo { height: 30px; width: auto; display: block; }
+.ax-top .wm { font-family: "Bungee", sans-serif; font-size: 1.05rem; line-height: 1; color: var(--fg); text-transform: uppercase; letter-spacing: .01em; }
+.ax-ib { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); cursor: pointer; padding: 0; transition: color .15s, border-color .15s, background .15s; }
+.ax-ib:hover { color: var(--fg); border-color: var(--faint); }
+.ax-ib svg { width: 15px; height: 15px; }
+.ax-ib.on { color: var(--attn-ink); border-color: var(--attn-line); background: var(--attn-soft); }
+.ax-paused { display: none; font: 700 .64rem "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--attn-ink); padding: .2rem .5rem; border-radius: 999px; border: 1px solid var(--attn-line); background: var(--attn-soft); }
+.ax-paused.show { display: inline-flex; }
+
+.app-layout { grid-template-columns: 230px minmax(0, 1fr); gap: 0; transition: grid-template-columns .22s ease; }
+.sidenav { top: 56px; height: calc(100vh - 56px); box-sizing: border-box; padding: .9rem .8rem 1rem 0; gap: .2rem; }
+.sidenav .snav { border-radius: 0 10px 10px 0; padding: .66rem .8rem .66rem 1rem; }
+.ax-collapse { position: absolute; top: 1.05rem; right: -.6rem; z-index: 3; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line-strong); background: var(--bg-2); color: var(--muted); cursor: pointer; padding: 0; }
+.ax-collapse:hover { color: var(--fg); }
+.ax-collapse svg { width: 15px; height: 15px; }
+.dashboard-shell { padding: 1.3rem 1.6rem 4rem; max-width: 1560px; box-sizing: border-box; width: 100%; }
+.page-head h1 { font-family: "Bungee", sans-serif; font-weight: 400; text-transform: uppercase; font-size: 1.55rem; letter-spacing: .01em; }
+.page-head-run { display: none !important; }
+.dashboard-shell > .page-head { order: -1; }
+
+html.nav-collapsed .app-layout { grid-template-columns: 68px minmax(0, 1fr); }
+html.nav-collapsed .snav-label, html.nav-collapsed .snav-soon { display: none; }
+html.nav-collapsed .sidenav .snav { justify-content: center; padding-left: .8rem; }
+html.nav-collapsed .snav-c { position: absolute; top: 3px; right: 6px; min-width: 0; padding: 0 .3rem; font-size: .56rem; }
+html.nav-collapsed .ax-collapse svg { transform: scaleX(-1); }
+
+@media (max-width: 960px) {
+  .app-layout, html.nav-collapsed .app-layout { grid-template-columns: 1fr; }
+  .sidenav { top: auto; height: auto; padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px)); }
+  .sidenav .snav { border-radius: 10px; padding: .45rem .3rem; }
+  .ax-collapse { display: none; }
+  .dashboard-shell { padding: 1rem .9rem 5.5rem; }
+  html.nav-collapsed .snav-label { display: inline; }
+}
+
+/* ---------- v10: shell — brand column, page title in top bar, settings menu ---------- */
+#decisions-banner { display: none !important; }
+.dashboard-shell > .page-head { display: none !important; }
+.sidenav { border-right: 1px solid var(--line); }
+.ax-top { padding: 0 1rem 0 0; gap: 0; }
+.ax-brand { flex: none; width: 230px; box-sizing: border-box; height: 100%; display: flex; align-items: center; gap: .6rem; padding: 0 .7rem 0 1rem; border-right: 1px solid var(--line); transition: width .22s ease; }
+html.nav-collapsed .ax-brand { width: 68px; padding: 0 .5rem; justify-content: center; }
+html.nav-collapsed .ax-brand .wm, html.nav-collapsed .ax-set { display: none; }
+.ax-set { position: relative; margin-left: auto; }
+.ax-cog { width: 32px; height: 32px; }
+.ax-set.open .ax-cog { color: var(--fg); }
+.ax-menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 80; min-width: 210px; padding: .3rem; border-radius: 12px; background: var(--surface-2); box-shadow: 0 14px 34px rgba(0,0,0,.4), inset 0 1px 0 color-mix(in srgb, var(--fg) 8%, transparent);
+  display: flex; flex-direction: column; gap: 2px; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .12s, transform .14s; }
+.ax-set.open .ax-menu { opacity: 1; transform: none; pointer-events: auto; }
+.ax-mi { display: flex; align-items: center; gap: .6rem; width: 100%; height: 34px; padding: 0 .6rem; border: 0; border-radius: 8px; background: none; color: var(--fg); font: 500 .82rem "Space Grotesk", system-ui, sans-serif; text-align: left; cursor: pointer; }
+.ax-mi:hover { background: var(--surface-3); }
+.ax-mi > svg, .ax-mi .toggle-icon svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.ax-mi .toggle-icon { display: inline-grid; width: 15px; height: 15px; }
+.ax-mi span:not(.toggle-icon) { flex: 1; }
+.ax-sw { width: 26px; height: 15px; border-radius: 999px; background: var(--surface-3); position: relative; flex: none; transition: background .15s; }
+.ax-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+/* Menu checkboxes use aria-checked to preserve their accessible state. */
+.ax-mi[aria-checked="true"] .ax-sw { background: var(--attn-soft); } .ax-mi[aria-checked="true"] .ax-sw::after { transform: translateX(11px); background: var(--attn); }
+.ax-title { display: flex; align-items: center; gap: .6rem; padding-left: 1.4rem; min-width: 0; }
+.ax-title b { font-family: "Bungee", sans-serif; font-weight: 400; font-size: 1.1rem; line-height: 1; letter-spacing: .01em; text-transform: uppercase; color: var(--fg); white-space: nowrap; }
+.ax-top .ax-paused { margin-left: auto; }
+/* commands: red dot instead of a count */
+.snav-c.attn { font-size: 0; min-width: 0; width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: var(--block); box-shadow: 0 0 0 3px var(--block-soft), 0 0 8px color-mix(in srgb, var(--block) 60%, transparent); }
+.snav-c.attn[hidden] { display: none; }
+html.nav-collapsed .snav-c.attn { top: 8px; right: 12px; width: 7px; height: 7px; padding: 0; }
+@media (max-width: 960px) { .ax-brand { width: auto; border-right: 0; } .sidenav { border-right: 0; } }
+
+html[data-theme="light"] .ax-menu { background: var(--surface); box-shadow: 0 12px 30px rgba(40, 32, 20, .16), 0 0 0 1px var(--line); }
+
+/* ---------- draggable nav (icons ↔ icon + label), tighter spacing, centred content ---------- */
+html { --navw: 188px; }
+html.nav-collapsed { --navw: 60px; }
+@media (min-width: 961px) {
+.app-layout, html.nav-collapsed .app-layout { grid-template-columns: var(--navw) minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.22,1,.36,1); }
+.ax-brand, html.nav-collapsed .ax-brand { width: var(--navw); transition: width .26s cubic-bezier(.22,1,.36,1); }
+html.nav-drag .app-layout, html.nav-drag .ax-brand { transition: none; }
+html.nav-drag, html.nav-drag * { cursor: col-resize !important; user-select: none; }
+.ax-collapse { display: none !important; }
+.sidenav { position: sticky; padding: .6rem .45rem .8rem 0; gap: 1px; overflow: visible; }
+.sidenav .snav { padding: .5rem .6rem .5rem .8rem; gap: .6rem; border-radius: 0 9px 9px 0; }
+html.nav-collapsed .sidenav .snav { padding: .55rem 0; justify-content: center; border-radius: 9px; margin: 0 .35rem 0 .35rem; }
+}
+.snav-label { white-space: nowrap; overflow: hidden; transition: opacity .18s; }
+.ax-drag { position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; z-index: 5; cursor: col-resize; }
+.ax-drag::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: var(--accent); opacity: 0; transition: opacity .15s; }
+.ax-drag:hover::after, html.nav-drag .ax-drag::after { opacity: .6; }
+@media (max-width: 960px) { .ax-drag { display: none; } }
+.dashboard-shell { margin-left: auto; margin-right: auto; max-width: 1720px; padding: 1.1rem 1.2rem 3rem; }
+
+.ax-top { background: color-mix(in srgb, var(--bg) 70%, transparent) !important; backdrop-filter: blur(8px); }
+
+html[data-palette="gruvbox"][data-theme="light"] .ax-top { background: color-mix(in srgb, var(--bg) 85%, transparent) !important; }
+
+/* Preserve the product's read-only pause treatment. */
+.ax-mi[disabled] { opacity: 0.5; cursor: not-allowed; }
+/* Product routes are links rather than design buttons. */
+a.snav { text-decoration: none; }
+/* Keep the existing detail-page back control in the top-bar title. */
+.ax-back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.5em; height: 1.5em; border-radius: 0.42em; background: var(--surface-2); border: 1px solid var(--line); color: var(--accent-ink); text-decoration: none; }
+.ax-back svg { display: block; width: 0.82em; height: 0.82em; }
+.ax-back:hover { background: var(--surface-3); border-color: var(--line-strong); }
+.ax-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Product detail titles can exceed the design's short tab names. */
+.ax-title b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Collapsed routes retain their names for assistive technology. */
+@media (min-width: 961px) { html.nav-collapsed .snav-label { display: block; position: absolute; width: 1px; height: 1px; clip-path: inset(50%); } }
+
+/* Reserve phone navigation space when operators enlarge the text. */
+@media (max-width: 960px) { .dashboard-shell { padding-bottom: 6.5rem; } }
+@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .sidenav-nav, .snav { min-width: 0; } .snav-label { max-width: 100%; text-overflow: ellipsis; } .bo-breakdown-row-top { flex-wrap: wrap; } }

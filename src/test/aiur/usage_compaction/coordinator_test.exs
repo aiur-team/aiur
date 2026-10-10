@@ -174,6 +174,7 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
         name: agg,
         state_dir: agg_root,
         ledger_scan_fun: fn opts -> GenServer.call(context.ledger, {:scan, opts}) end,
+        ledger_server: context.ledger,
         ledger_subscribe_fun: fn pid -> GenServer.call(context.ledger, {:subscribe, pid}) end,
         ledger_generation_fun: fn -> GenServer.call(context.ledger, :generation) end,
         ledger_coverage_fun: fn -> GenServer.call(context.ledger, :coverage) end,

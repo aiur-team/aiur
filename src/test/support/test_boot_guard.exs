@@ -38,6 +38,7 @@ defmodule Aiur.TestBootGuard do
             :current_run_membership_state_dir,
             :progress_retention_state_dir,
             :build_history_state_dir,
+            :build_features_state_dir,
             :usage_ledger_state_dir,
             :usage_aggregate_state_dir,
             :usage_compaction_state_dir,

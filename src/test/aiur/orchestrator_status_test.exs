@@ -363,10 +363,10 @@ defmodule Aiur.OrchestratorStatusTest do
     :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
 
     # The symmetric failure to a backlogged orchestrator: this one wedges with
-    # an empty mailbox, so there is no backlog to corroborate the stall. A
-    # depth-gated rule would keep serving this snapshot as `:current` forever,
-    # which is the "stale renders as current" defect the Units page exists to
-    # prevent. Age alone must be enough.
+    # an empty mailbox, so no backlog corroborates the stall; a depth-gated rule
+    # would serve it as `:current` forever. Age alone must be enough. Drain the
+    # init startup-cleanup task first, or its reply and :DOWN fill the mailbox.
+    assert eventually?(fn -> :sys.get_state(pid).tracker_tasks == %{} end)
     :sys.suspend(pid)
     Process.sleep(90)
 
@@ -611,9 +611,9 @@ defmodule Aiur.OrchestratorStatusTest do
       queue_store: queue_store
     }
 
-    snapshot_input = StatusReport.snapshot_input(state)
+    assert %{status_observed_at: %DateTime{}} = snapshot_input = StatusReport.snapshot_input(state)
 
-    assert snapshot_input == %State{}
+    assert %{snapshot_input | status_observed_at: nil} == %State{}
   end
 
   test "dashboard projection retains queue facts for rendered issues" do
@@ -3882,6 +3882,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     on_exit(fn ->
       File.touch(release_file)
+      SubscriptionStore.stop(issue.identifier)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
     end)
@@ -3906,8 +3907,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     state = :sys.get_state(pid)
     replacement = Map.fetch!(state.running, "issue-completed-resume")
-    assert is_pid(replacement.pid)
-    assert Process.alive?(replacement.pid)
+    assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert replacement.pid != old_worker
     assert is_reference(replacement.ref)
     assert replacement.ref != old_ref
@@ -4351,20 +4351,15 @@ defmodule Aiur.OrchestratorStatusTest do
         {issue_id, item_id}
       end
 
+    # Revalidation runs in an async tracker task (#3998): the replaced worker's
+    # exit is the rearm, and it precedes the state the orchestrator then commits.
+    receive_barrier({:DOWN, rearmed_ref, :process, _worker, _reason})
+    assert rearmed_ref in Enum.map(completed, fn {_issue_id, {_identifier, _worker, ref, _entry}} -> ref end)
+
     state = :sys.get_state(pid)
+    statuses = Enum.frequencies_by(state.running, fn {_issue_id, entry} -> entry.control.status end)
 
-    working_entries =
-      Enum.filter(state.running, fn {_issue_id, entry} ->
-        get_in(entry, [:control, :status]) == :working
-      end)
-
-    completed_entries =
-      Enum.filter(state.running, fn {_issue_id, entry} ->
-        get_in(entry, [:control, :status]) == :completed
-      end)
-
-    assert length(working_entries) == 1
-    assert length(completed_entries) == 2
+    assert statuses == %{working: 1, completed: 2}
     refute Map.keys(state.retry_attempts) |> Enum.any?(&Map.has_key?(completed, &1))
 
     Enum.each(completed, fn {issue_id, {_identifier, worker, old_ref, old_entry}} ->

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Presenter do
   @moduledoc "Shared projections for the observability API and dashboard."
 
-  alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
+  alias Aiur.{Commands, Config, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
   alias Aiur.Orchestrator.WaitingReason
   @recent_merge_limit 50
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
@@ -49,10 +49,12 @@ defmodule AiurWeb.Presenter do
       capacity_hold: capacity_hold_payload(Map.get(snapshot, :capacity_hold)),
       dispatch_hold: dispatch_hold_payload(Map.get(snapshot, :dispatch_hold)),
       polling: polling_payload(Map.get(snapshot, :polling)),
-      globally_paused: globally_paused
+      globally_paused: globally_paused,
+      observations: Map.get(snapshot, :observations),
+      daemon_started_at: Map.get(snapshot, :daemon_started_at)
     }
 
-    if freshness.status == :stale, do: Map.put(payload, :snapshot_freshness, freshness), else: payload
+    Map.put(payload, :snapshot_freshness, freshness)
   end
 
   defp polling_payload(%{} = polling) do
@@ -77,7 +79,7 @@ defmodule AiurWeb.Presenter do
   end
 
   defp decision_history_payload(opts) do
-    provider = Keyword.get(opts, :decision_history_fun, fn -> DecisionHistory.list() end)
+    provider = Keyword.get(opts, :decision_history_fun, fn -> Commands.history() end)
 
     case safe_call(provider) do
       {:ok, entries} when is_list(entries) ->
@@ -392,7 +394,10 @@ defmodule AiurWeb.Presenter do
       :effort,
       :complexity,
       :build_lane,
-      :labels
+      :labels,
+      :observed_at,
+      :age_ms,
+      :retry_scope
     ])
   end
 
@@ -411,12 +416,7 @@ defmodule AiurWeb.Presenter do
     end
   end
 
-  # CI/PR data comes from the existing GithubCIPoller poll cadence in
-  # `Aiur.Orchestrator.CiLifecycle`, cached by ticket identifier — this never
-  # triggers a GitHub call of its own and is available for idle rows too
-  # (a ticket can keep cycling through ci-wait polls after its agent's turn
-  # ends). `nil` until a ticket has actually entered CI polling (ci-wait /
-  # human-review).
+  # CI evidence comes from the poll cache; presentation never triggers a read.
   defp ci_payload(nil), do: nil
 
   defp ci_payload(%{} = result) do
@@ -469,25 +469,23 @@ defmodule AiurWeb.Presenter do
 
   defp public_agent_totals(_totals), do: %{seconds_running: 0}
 
-  # The authoritative runtime max-agent capacity as returned by
-  # `Aiur.Orchestrator.Slots.max_concurrent_agent_status/1`. Only positive
-  # integer facts are surfaced; anything else is treated as absent so the
-  # dashboard labels it unknown rather than deriving capacity from rows.
+  # Preserve authoritative capacity; invalid counts stay unknown.
   defp capacity_payload(%{} = capacity) do
     %{
       active: non_negative_integer(Map.get(capacity, :active)),
       max: positive_integer(Map.get(capacity, :max)),
       configured: positive_integer(Map.get(capacity, :configured)),
       session_override?: Map.get(capacity, :session_override?) == true,
-      draining?: Map.get(capacity, :draining?) == true
+      draining?: Map.get(capacity, :draining?) == true,
+      observed_at: Map.get(capacity, :observed_at),
+      age_ms: Map.get(capacity, :age_ms)
     }
+    |> Map.merge(Map.take(capacity, [:occupied, :effective, :available, :load, :load_threshold, :schedulers, :queued_demand?, :dispatch_observation]))
   end
 
   defp capacity_payload(_capacity), do: nil
 
-  # The active host-pressure admission hold from `State.capacity_hold`, surfaced
-  # so an Executor can distinguish capacity backoff from an idle or broken
-  # fleet. The signal names the measured limiting resource and its threshold.
+  # Preserve admission signals so capacity holds remain distinguishable from idle fleets.
   defp capacity_hold_payload(%{held?: true} = hold) do
     %{
       held?: true,

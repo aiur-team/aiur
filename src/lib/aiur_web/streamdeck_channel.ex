@@ -1,9 +1,8 @@
 defmodule AiurWeb.StreamdeckChannel do
   @moduledoc false
-
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentControlCLI, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentControlCLI, AgentPubSub, Commands, ProviderMeterSnapshot}
   alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
@@ -30,7 +29,7 @@ defmodule AiurWeb.StreamdeckChannel do
     :ok = AgentPubSub.subscribe_running()
     :ok = AgentPubSub.subscribe_status()
     :ok = ProviderMeterEvents.subscribe_observed()
-    :ok = DecisionPubSub.subscribe()
+    :ok = Commands.subscribe()
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)
@@ -75,6 +74,7 @@ defmodule AiurWeb.StreamdeckChannel do
   live agent offers Pause. See `handle_in("control", %{"action" => "implement"})`
   below for why it goes through the CLI's own queue path.
   """
+
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
     result =
@@ -570,7 +570,7 @@ defmodule AiurWeb.StreamdeckChannel do
     # go through `Aiur.DecisionStore.answer/5` with the server passed as the
     # fourth argument, exactly as the dashboard's decision commands do. Calling
     # `store.answer/4` would `apply/3` a pid as a module and fail.
-    case Aiur.DecisionStore.answer(decision_id, answer, [actor: actor], store) do
+    case Commands.answer(decision_id, answer, [actor: actor], store) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
     end
@@ -605,5 +605,5 @@ defmodule AiurWeb.StreamdeckChannel do
   defp build_answer_payload(_payload), do: {:error, :invalid_answer}
 
   defp command_store(_socket), do: command_store()
-  defp command_store, do: Endpoint.config(:decision_store) || Aiur.DecisionStore
+  defp command_store, do: Endpoint.config(:decision_store) || Commands.default_store()
 end

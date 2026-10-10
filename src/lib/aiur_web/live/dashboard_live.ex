@@ -2,7 +2,6 @@ defmodule AiurWeb.DashboardLive do
   @moduledoc """
   Phoenix LiveView shell for the Aiur Operator Control Center.
   """
-
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.Accounts
@@ -15,18 +14,15 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
-  alias Aiur.CurrentRunMembership
+  alias Aiur.Conversation.History, as: ConversationHistory
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
-  alias Aiur.DecisionPubSub
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
-  alias Aiur.LiveConversation
   alias Aiur.OpenTicketSource
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.ProviderMeterRefresh
-  alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
@@ -35,7 +31,6 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.Endpoint
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
-  alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
     AddAgentModal,
@@ -73,10 +68,10 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  # Also the payload refresh interval: reloads are otherwise event-driven only (#3937).
   @github_quota_tick_ms 15_000
-  # The ElevenLabs credit quota is a whole-account figure that moves far more
-  # slowly than a per-request GitHub budget, so it refreshes on its own, longer
-  # tick rather than riding GitHub's.
+  # ElevenLabs credit is a whole-account figure that moves far more slowly than a
+  # per-request GitHub budget, so it refreshes on its own, longer tick.
   @elevenlabs_quota_tick_ms 60_000
   @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
@@ -84,8 +79,6 @@ defmodule AiurWeb.DashboardLive do
   @usage_drill_limit 25
   @usage_drill_dimensions ~w(by_provider by_ticket by_agent_family by_model by_account_generation)a
 
-  # Matches the Tickets panel's own `maxlength`, so the control and the filter
-  # agree on where a query stops.
   @max_ticket_query_length 128
   @provider_meters_flush_ms 250
   @current_run_outcomes_flush_ms 250
@@ -109,16 +102,8 @@ defmodule AiurWeb.DashboardLive do
     socket = NavState.assign_nav(socket)
     connected = connected?(socket)
 
-    if connected do
-      :ok = ObservabilityPubSub.subscribe()
-      :ok = DecisionPubSub.subscribe()
-      :ok = CurrentRunMembership.subscribe()
-      :ok = CurrentRunSummary.subscribe()
-      :ok = CurrentRunOutcomeSnapshot.subscribe()
-      :ok = TicketActivity.subscribe()
-      :ok = OpenTicketSource.subscribe()
-      :ok = subscribe_ticket_context_resets()
-    end
+    socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
+    if connected, do: subscribe_ticket_context_resets()
 
     payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
 
@@ -247,7 +232,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:github_quota_tick, socket) do
     schedule_github_quota_tick()
-    {:noreply, assign(socket, :github_quota, github_quota_snapshot())}
+    {:noreply, socket |> assign(:github_quota, github_quota_snapshot()) |> PayloadLoader.schedule()}
   end
 
   def handle_info(:elevenlabs_quota_tick, socket) do
@@ -731,8 +716,6 @@ defmodule AiurWeb.DashboardLive do
 
     case GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard") do
       {:ok, _status} ->
-        # The orchestrator broadcasts an observability update on success; reload
-        # so the nav toggle reflects the new state even if the broadcast is missed.
         socket
         |> assign(:global_pause_error, nil)
         |> reload_after_action()
@@ -748,6 +731,10 @@ defmodule AiurWeb.DashboardLive do
         assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
     end
   end
+
+  defp global_pause_state(%{fleet: %{error: _error}}), do: nil
+  defp global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
+  defp global_pause_state(_payload), do: nil
 
   defp global_paused?(payload) when is_map(payload) do
     payload |> Map.get(:fleet, %{}) |> Map.get(:globally_paused, false) == true
@@ -918,7 +905,7 @@ defmodule AiurWeb.DashboardLive do
       agent_kind={agent_kind()}
       nav_counts={nav_counts(@units_view, @retained_counts)}
       nav_collapsed={@nav_collapsed}
-      globally_paused={global_paused?(@payload)}
+      globally_paused={global_pause_state(@payload)}
       writable={@writable}
     >
       <:banner>
@@ -926,6 +913,7 @@ defmodule AiurWeb.DashboardLive do
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
         </div>
+        <AiurWeb.OperatorControlCenter.CodeownersTrust.banner now={@now} />
         <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       </:banner>
 
@@ -1170,9 +1158,7 @@ defmodule AiurWeb.DashboardLive do
     "/?" <> URI.encode_query(params)
   end
 
-  # Nav badges surface live attention counts: active units and open Commands.
-  # Only real, positive integers are emitted; anything unknown is omitted so the
-  # nav never fabricates a count.
+  # Emit only positive known counts; this producer cannot distinguish zero from unknown.
   defp nav_counts(units_view, retained_counts) do
     %{}
     |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
@@ -2308,20 +2294,20 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp subscribe_conversation(socket, handle) do
-    _result = call_conversation(:live_conversation_subscribe_fun, &LiveConversation.subscribe_handle/1, handle)
+    _result = call_conversation(:live_conversation_subscribe_fun, &ConversationHistory.live_subscribe/1, handle)
     socket
   end
 
   defp unsubscribe_conversation(%{assigns: %{conversation_handle: handle}} = socket)
        when is_binary(handle) do
-    _result = call_conversation(:live_conversation_unsubscribe_fun, &LiveConversation.unsubscribe_handle/1, handle)
+    _result = call_conversation(:live_conversation_unsubscribe_fun, &ConversationHistory.live_unsubscribe/1, handle)
     socket
   end
 
   defp unsubscribe_conversation(socket), do: socket
 
   defp resolve_conversation(handle) do
-    call_conversation(:live_conversation_resolve_fun, &LiveConversation.resolve/1, handle)
+    call_conversation(:live_conversation_resolve_fun, &ConversationHistory.live_resolve/1, handle)
   end
 
   defp call_conversation(config_key, default, handle) do

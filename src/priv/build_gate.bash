@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Sourced through BASH_ENV for local Aiur coding-agent shells and by the
-# shell-independent Mix/mise command wrappers. It intentionally gates only Mix
-# compile/test work; editing, Git, and other shell commands stay free to run
-# while a verification command holds a lease.
+# shell-independent command wrappers. It gates Mix
+# compile/test/static analysis and browser work; other commands stay free to run.
 
 if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   AIUR_BUILD_GATE_HOOK_LOADED=1
 
+  source "$(dirname "${BASH_SOURCE[0]}")/browser_build_gate.bash"
+  source "$(dirname "${BASH_SOURCE[0]}")/build_priority.bash"
   aiur_build_gate_log() {
     printf 'aiur_build_gate %s\n' "$*" >&2
   }
@@ -39,7 +40,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
   aiur_build_gate_needs_slot() {
     case ${1:-} in
-      compile | test) return 0 ;;
+      compile | test | lint | credo | dialyzer) return 0 ;;
       *) return 1 ;;
     esac
   }
@@ -463,7 +464,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
     AIUR_BUILD_GATE_LEASE_PATH=$lease_path \
       AIUR_BUILD_GATE_LEASE_TOKEN=$lease_token \
-      "$@"
+      aiur_build_gate_execute_with_priority "$@"
   }
 
   aiur_build_gate_execute_with_ephemeral_lease() {
@@ -501,7 +502,6 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   aiur_build_gate_run_or_reuse() {
     local phase=$1 executable=$2 lease_result
     shift 2
-
     if aiur_build_gate_live_lease; then
       "$executable" "$@"
     else
@@ -509,7 +509,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       if ((lease_result == 1)); then
         unset AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN
-        aiur_build_gate_run "$phase" "$executable" "$@"
+        aiur_build_gate_run_with_priority "$phase" "$executable" "$@"
       else
         return "$lease_result"
       fi
@@ -800,14 +800,13 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local holder_script
     shift 14
 
-    # A Linux subreaper becomes the parent of daemonized Mix descendants. It
-    # owns the slot descriptor, reports the direct command status promptly,
-    # then keeps the lease until every adopted descendant has exited.
+    # The subreaper owns the lease until every adopted descendant has exited.
+    aiur_build_gate_priority_args "$@" || return $?
     holder_script="$(dirname "${BASH_SOURCE[0]}")/build_gate_holder.py"
 
     exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
       "$command_ready_path" "$status_path" "$status_ack_path" "$owner_path" "$token" \
-      "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "$@"
+      "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "${aiur_build_gate_prioritized_command[@]}"
   }
 
   aiur_build_gate_wait_for_holder_value() {
@@ -1710,8 +1709,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       [[ -n $path_entry ]] || path_entry=.
 
-      if [[ ! $path_entry/elixir -ef ${AIUR_BUILD_GATE_BIN:-}/elixir ]] &&
-        ! aiur_build_gate_is_wrapper_file "$path_entry/elixir"; then
+      if [[ ! $path_entry/${1:-elixir} -ef ${AIUR_BUILD_GATE_BIN:-}/${1:-elixir} ]] &&
+        ! aiur_build_gate_is_wrapper_file "$path_entry/${1:-elixir}"; then
         filtered_path+="$separator$path_entry"
         separator=:
       fi
@@ -1886,17 +1885,17 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   mise() {
-    local mise_binary phase classification
+    local mise_binary phase classification PATH=$PATH MISE_BIN __MISE_BIN __MISE_EXE
     mise_binary=$(aiur_build_gate_real_command mise)
 
     if [[ -z $mise_binary ]]; then
       aiur_build_gate_command_unavailable mise
       return $?
     fi
-
+    PATH=$(aiur_build_gate_path_without_wrapper mise)
+    export PATH MISE_BIN="$mise_binary" __MISE_BIN="$mise_binary" __MISE_EXE="$mise_binary"
     aiur_build_gate_normalize_mise_args "$@"
     set -- "${aiur_build_gate_normalized_args[@]}"
-
     if phase=$(aiur_build_gate_mise_phase "$@"); then
       classification=0
     else

@@ -2,6 +2,7 @@ defmodule Aiur.DecisionQuery.StoreReader do
   @moduledoc false
 
   alias Aiur.{Decision, DecisionStore}
+  alias Aiur.DecisionStore.ProjectionRecovery
 
   @type health :: %{
           status: :available | :partial | :unavailable,
@@ -83,6 +84,10 @@ defmodule Aiur.DecisionQuery.StoreReader do
 
   defp missing_decision(%{status: :partial} = health), do: {:error, {:indeterminate, health}}
   defp missing_decision(_health), do: {:error, :not_found}
+
+  defp health({:projection_stale, _since} = health) do
+    Map.merge(available_health(), %{stale: true, label: ProjectionRecovery.label(health)})
+  end
 
   defp health(:writable), do: available_health()
   defp health({:corrupt, _line, _reason}), do: partial_health()

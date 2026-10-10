@@ -14,7 +14,9 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp derive(f) do
     cond do
+      Map.has_key?(Keyword.get(f.context.opts, :source_verdicts, %{}), f.item.issue_id) -> result(:unknown, elem(f.verdict, 1))
       is_nil(f.observation) -> result(:unknown, :observation_unavailable)
+      awaiting_marker?(f) -> result(:unknown, :marker_pending)
       "#{f.prefix}:queued" not in f.labels -> result(:removed, nil, {:dequeue, f.item.issue_id})
       f.observation.open? == false -> closed(f.observation)
       f.observation.open? == :unknown -> result(:unknown, :observation_unavailable)
@@ -23,14 +25,47 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     end
   end
 
+  defp awaiting_marker?(f) do
+    marker = Enum.find(Enum.reverse(f.context.input.intents), &(&1.issue_id == f.item.issue_id and &1.action in [:mark, :unmark]))
+    "#{f.prefix}:queued" not in f.labels and marker != nil and marker.action == :mark and marker.outcome != :ok
+  end
+
   defp managed(f) do
     cond do
       f.item.override != nil -> result(:overridden, f.item.override)
-      f.todo and not own_promotion?(f) -> result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+      f.todo and not own_promotion?(f) -> manual_promotion(f)
+      awaiting_promotion?(f) -> result(:unknown, :awaiting_promotion_observation)
       external_removal?(f) -> external_hold(f)
       held?(f) -> result(:held, f.item.hold || :queue_hold)
       true -> managed_labels(f)
     end
+  end
+
+  defp manual_promotion(f) do
+    if adoption_withdrawal?(f), do: withdrawal(f), else: result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+  end
+
+  defp adoption_withdrawal?(f) do
+    f.todo and f.item.override == nil and not own_promotion?(f) and f.verdict != :ready and
+      (Map.fetch!(f.context.queues, f.item.queue_id).kind == :build_order or prequeued_todo?(f))
+  end
+
+  defp prequeued_todo?(f) do
+    prequeued_mark?(f) and not withdrawn_todo?(f)
+  end
+
+  defp prequeued_mark?(f) do
+    Enum.any?(f.context.input.intents, fn intent ->
+      intent.issue_id == f.item.issue_id and intent.action == :mark and intent.outcome in [nil, :ok] and
+        "#{f.prefix}:todo" in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+    end)
+  end
+
+  defp withdrawn_todo?(f) do
+    Enum.any?(f.context.input.intents, fn intent ->
+      intent.issue_id == f.item.issue_id and intent.action == :withdraw and intent.outcome == :ok and
+        "#{f.prefix}:todo" not in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+    end)
   end
 
   defp managed_labels(f) do
@@ -59,6 +94,11 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     if withdrawing?(f), do: result(:claimed, nil, {:hold_release, f.item.issue_id}), else: result(:claimed, nil)
   end
 
+  defp awaiting_promotion?(%{todo: false, item: %{promoted_at: %DateTime{} = promoted_at}, observation: observation}),
+    do: observation.observed_at_ms <= DateTime.to_unix(promoted_at, :millisecond)
+
+  defp awaiting_promotion?(_facts), do: false
+
   defp external_removal?(f), do: not f.todo and f.item.promoted_at != nil and not intent?(f, :withdraw)
   defp own_promotion?(f), do: f.item.promoted_at != nil or intent?(f, :promote)
 
@@ -79,12 +119,22 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp promoted(f) do
     cond do
+      unavailable_unauthorized?(f) -> result(:promoted_unauthorized, :unauthorized)
       f.verdict == :ready and not held?(f) -> promoted_ready(f)
+      true -> withdrawal(f)
+    end
+  end
+
+  defp withdrawal(f) do
+    cond do
       not withdrawing?(f) -> result(:promoted, :withdrawal_pending, {:begin_withdraw, f.item.issue_id})
+      f.claim == :unavailable -> result(:held, :claim_check_unavailable)
       f.claim == :unclaimed and fresh?(f) and not match?({:unknown, _}, f.verdict) -> result(:promoted, :withdrawal_pending, {:withdraw, f.item.issue_id})
       true -> result(:promoted, :withdrawal_pending)
     end
   end
+
+  defp unavailable_unauthorized?(f), do: f.claim == :unavailable and Enum.any?(f.context.input.latches, &(&1.key == {:promoted_unauthorized, f.item.issue_id}))
 
   defp promoted_ready(f) do
     if withdrawing?(f), do: result(:promoted, nil, {:hold_release, f.item.issue_id}), else: result(:promoted, nil)

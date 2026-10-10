@@ -32,8 +32,20 @@ defmodule Aiur.BuildQueue.PlannerTest do
     end
   end
 
+  test "queue add withdraws pre-existing todo only when known prerequisites are unmet" do
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    input = F.intent(input, :mark, target_labels: ~w(agent:queued agent:todo), outcome: :ok)
+    assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
+
+    manual = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    assert {[%{state: :overridden}], [{:mark_override, "1"}]} = Planner.plan(manual)
+
+    ready = F.input() |> F.update_observation(labels: ~w(agent:queued agent:todo)) |> F.intent(:mark, target_labels: ~w(agent:queued agent:todo), outcome: :ok)
+    assert {[%{state: :overridden, verdict: :ready}], [{:mark_override, "1"}]} = Planner.plan(ready)
+  end
+
   test "external removal holds once and matching withdrawal intent permits management" do
-    input = F.input() |> F.update_item(promoted_at: ~U[2026-10-08 00:00:00Z])
+    input = F.input() |> F.update_item(promoted_at: DateTime.from_unix!(9_000, :millisecond))
     assert {[%{state: :held, reason: :external}], [{:mark_external_hold, "1"}]} = Planner.plan(input)
     assert {[%{state: :held}], []} = input |> F.update_item(hold: :external) |> Planner.plan()
     assert {[%{state: :ready}], [{:promote, "1"}]} = input |> F.intent(:withdraw) |> Planner.plan()
@@ -44,9 +56,11 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
     input = F.apply_actions(input, [{:begin_withdraw, "1"}])
 
-    for claims <- [:unavailable, %{}, %{"1" => :unavailable}, %{"1" => {:declined, :capacity}}] do
-      assert {[%{state: :promoted}], []} = Planner.plan(%{input | claims: claims})
+    for claims <- [:unavailable, %{}, %{"1" => :unavailable}] do
+      assert {[%{state: :held, reason: :claim_check_unavailable}], []} = Planner.plan(%{input | claims: claims})
     end
+
+    assert {[%{state: :promoted}], []} = Planner.plan(%{input | claims: %{"1" => {:declined, :capacity}}})
 
     input = %{input | claims: %{"1" => :unclaimed}}
     assert {[%{state: :promoted}], [{:withdraw, "1"}]} = Planner.plan(input)
@@ -83,7 +97,7 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted_unauthorized}], ^actions} = Planner.plan(input)
     input = F.apply_actions(input, actions)
     assert {[%{state: :promoted_unauthorized}], []} = Planner.plan(input)
-    assert {[%{state: :promoted}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(%{input | claims: %{}})
+    assert {[%{state: :promoted}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(%{input | claims: %{"1" => :unclaimed}})
   end
 
   test "marker removal, closure, claims and saved overrides take precedence" do

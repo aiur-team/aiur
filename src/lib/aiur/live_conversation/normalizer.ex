@@ -1,7 +1,7 @@
 defmodule Aiur.LiveConversation.Normalizer do
   @moduledoc false
 
-  alias Aiur.BuildOrder.TicketDetail.Sanitizer
+  alias Aiur.DisplaySanitizer
   alias Aiur.LiveConversation.Source
 
   @body_limit 1_600
@@ -68,7 +68,7 @@ defmodule Aiur.LiveConversation.Normalizer do
       |> Enum.sort_by(& &1.order)
       |> Enum.map_join(& &1.body)
 
-    case Sanitizer.sanitize_projection(joined, @body_limit,
+    case DisplaySanitizer.sanitize_projection(joined, @body_limit,
            input_byte_limit: @fragment_join_byte_limit,
            redact_urls: true,
            redact_environment: true,
@@ -116,7 +116,7 @@ defmodule Aiur.LiveConversation.Normalizer do
   end
 
   defp sanitize_body(body, delivery) do
-    Sanitizer.sanitize_projection(body, @body_limit,
+    DisplaySanitizer.sanitize_projection(body, @body_limit,
       redact_urls: true,
       redact_environment: true,
       trim: delivery == :completed
@@ -154,7 +154,7 @@ defmodule Aiur.LiveConversation.Normalizer do
   end
 
   defp sanitized_title(title, role) do
-    case Sanitizer.sanitize_projection(title, @title_limit,
+    case DisplaySanitizer.sanitize_projection(title, @title_limit,
            redact_urls: true,
            redact_environment: true,
            trim: true

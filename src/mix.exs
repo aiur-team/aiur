@@ -7,6 +7,8 @@ defmodule Aiur.MixProject do
       version: "0.0.9",
       elixir: "~> 1.19",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      # Test builds are copied from the prewarm base into each workspace.
+      elixirc_options: if(Mix.env() == :test, do: [check_cwd: false], else: []),
       start_permanent: Mix.env() == :prod,
       test_coverage: [
         summary: [

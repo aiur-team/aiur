@@ -7,6 +7,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   """
 
   alias Aiur.Events.SubscriptionStore
+  require Logger
 
   defmodule HermeticReworkGitHubClient do
     def update_issue_state(issue_id, state_name) do
@@ -331,10 +332,6 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert MapSet.member?(retried.claimed, identifier)
     end
 
-    # #1747: the retry chain runs on the long-lived orchestrator for ~60s at the
-    # default delays. A missing token cannot clear by being asked five more
-    # times, so retrying it only sprays warnings across every test that happens
-    # to be running a global `capture_log` assertion at the time.
     test "permanent tracker auth failure fails fast instead of scheduling a retry" do
       identifier = "7417"
       isolated_subscription_store(identifier)
@@ -375,6 +372,8 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       log =
         capture_log(fn ->
+          # #3805: another process's retry log must not count against this ticket.
+          Task.async(fn -> Logger.info("PR review comment rework transition retry scheduled: issue_identifier=29189 attempt=5/5 delay_ms=0") end) |> Task.await()
           assert {:noreply, next} = Orchestrator.handle_info({:event, event}, base_state())
           assert_receive {:hermetic_rework_update, ^identifier, "rework"}, 2000
           send(self(), {:permanent_failure_state, next})
@@ -384,8 +383,9 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       refute_receive {:retry_comment_rework, ^identifier, "issue comment", ^event, _attempt}, 200
       assert next.comment_rework_retries == %{}
-      assert log =~ "rework transition failed permanently"
-      refute log =~ "rework transition retry scheduled"
+      assert log =~ "rework transition retry scheduled: issue_identifier=29189"
+      assert log =~ "rework transition failed permanently: issue_identifier=#{identifier} "
+      refute log =~ "rework transition retry scheduled: issue_identifier=#{identifier} "
     end
 
     test "pr.merged terminalizes the ticket to done and tears down the running entry" do
@@ -608,7 +608,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   describe "poll recovery" do
-    test "a stranded in-progress ticket is released to todo and dispatched with tracker truth" do
+    test "a booted in-progress orphan retains tracker truth during recovery grace" do
       previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
       on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
@@ -635,18 +635,15 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       pid = start_orchestrator(name)
 
       send(pid, :run_poll_cycle)
-      state = await_orchestrator_state(pid, &Map.has_key?(&1.running, issue.id))
+      state = await_orchestrator_state(pid, &Map.has_key?(&1.orphaned_claim_since, issue.identifier))
 
-      # #2076: a restart orphans an in-progress claim (no live runtime owns it),
-      # so the first successful poll's startup reconciliation releases it to
-      # the dispatchable tracker state before dispatch. The entry then reports
-      # truth ("todo"), never the stale claim it was recovered from.
-      assert MapSet.member?(state.claimed, issue.id)
-      assert state.last_polled_issues[issue.id].state == "todo"
-      assert_receive {:memory_tracker_state_update, "L11-ORPHAN", "todo"}, 2000
-
-      assert %{running: [%{identifier: "L11-ORPHAN", state: "todo"}]} =
-               Orchestrator.snapshot(name, 15_000)
+      # Periodic recovery waits for the grace period; the poll must not dispatch
+      # the original claim before its PR state has been checked.
+      refute Map.has_key?(state.running, issue.id)
+      assert state.last_polled_issues[issue.id].state == "in-progress"
+      refute_received {:memory_tracker_state_update, "L11-ORPHAN", _target}
+      assert %{idle: idle} = Orchestrator.snapshot(name, 15_000)
+      assert Enum.any?(idle, &(&1.identifier == "L11-ORPHAN" and &1.waiting_reason == :orphaned_claim))
     end
   end
 

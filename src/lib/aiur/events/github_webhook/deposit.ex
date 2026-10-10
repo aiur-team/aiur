@@ -130,7 +130,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
-  alias Aiur.TicketBranch
+  alias Aiur.{StartTrigger.ProgressStore, TicketBranch}
 
   @typedoc """
   One unit of work this module produces from a delivery: either a body to
@@ -212,7 +212,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   end
 
   def deposit(_event_type, _payload, _repo, _opts), do: []
-
   # ---------------------------------------------------------------------------
   # What each delivery type carries
   # ---------------------------------------------------------------------------
@@ -643,7 +642,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   end
 
   # -- Build Order graph edges (#2313) --------------------------------------
-  #
   # `sub_issues` and `issue_dependencies` deliveries carry no `updated_at` on
   # either issue — the payload is pure edge facts — so the deposit versions each
   # edge with the delivery's arrival time (threaded as `:at`, falling back to
@@ -742,10 +740,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Writing
-  # ---------------------------------------------------------------------------
-
   defp merge_review_thread(repo, pr_number, thread) do
     key = PollSnapshots.review_threads_key(repo, pr_number)
 
@@ -811,11 +805,18 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
       key ->
         case deposit_unless_older(key, body, version) do
-          :unchanged -> []
-          :ok -> confirm(key)
+          :unchanged ->
+            []
+
+          :ok ->
+            record_progress(type, id, body, repo)
+            confirm(key)
         end
     end
   end
+
+  defp record_progress(:branch_pull_request, id, body, repo), do: ProgressStore.delivery(id, body, repo)
+  defp record_progress(_type, _id, _body, _repo), do: :ok
 
   defp store_thread_transition(repo, id, action, thread, generation, version) do
     case ResourceStore.key_for_repo(:pr_review_thread, repo, id) do
@@ -878,7 +879,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # by the store inside its swap, so `held` is the marker the entry carries at
   # that instant rather than one read a round trip earlier.
   defp accept(_held_body, %{version: held}, body, version) do
-    if regression?(held, version), do: :unchanged, else: body
+    if ResourceStore.regression?(held, version), do: :unchanged, else: body
   end
 
   # The transition carries its own ordering clock. The marker stores the
@@ -894,7 +895,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     held_transition_at = transition_at(held)
 
     cond do
-      regression?(held_transition_at, version) ->
+      ResourceStore.regression?(held_transition_at, version) ->
         :unchanged
 
       same_thread_transition?(held, action, held_transition_at, version) ->
@@ -930,27 +931,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp same_thread_transition?(_held, _action, _held_transition_at, _version), do: false
 
-  # GitHub does not order deliveries, and a single delivery carries more than the
-  # object it is about: an `issue_comment` also carries the whole issue and its
-  # label set. So a delayed comment delivery can arrive holding a *pre-change*
-  # snapshot of an issue a later delivery already deposited correctly.
-  #
-  # `put_resource/3` is an unconditional overwrite that stamps `fetched_at_ms`
-  # with now, so accepting that write would not merely hold an older body — it
-  # would describe it as freshly fetched, and a consumer asking for a body no
-  # older than some window would be handed a body from before the change.
-  #
-  # Both markers are GitHub's own ISO-8601 timestamps, which sort lexically, so
-  # a strictly older version is refused. Equal versions still write: the body may
-  # legitimately differ under an unchanged marker (a dismissed review), and the
-  # newer arrival is the better answer. A missing marker on either side is not a
-  # judgement that anything went backwards, so it writes.
-  #
-  # A pure comparison of two markers, deliberately, so it can be evaluated inside
-  # the store's swap instead of in a separate read.
-  defp regression?(held, version) when is_binary(held) and is_binary(version), do: version < held
-  defp regression?(_held, _version), do: false
-
   # The store refuses a body it cannot encode or one past its size cap, and a
   # refusal is silent by design — `fetch/1` simply misses and the reader pays
   # for a read, exactly as it did before the store existed. Said out loud here
@@ -979,9 +959,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  # The resource's own mutation marker. `updated_at` for issues, pull requests
-  # and comments; `submitted_at` for a review, which has no `updated_at` and
-  # whose submission time is the marker the poller's cutoff already keys on.
+  # Reviews use submitted_at; issues, PRs and comments use updated_at as their mutation marker.
   defp version(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
 
   defp version(%{"submitted_at" => submitted_at}) when is_binary(submitted_at) and submitted_at != "",

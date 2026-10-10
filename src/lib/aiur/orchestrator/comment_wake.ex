@@ -14,8 +14,9 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.Issue
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, ReviewFindings}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
@@ -54,7 +55,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
     update_issue_state_fun =
-      Keyword.get(opts, :update_issue_state_fun, &Tracker.update_issue_state/2)
+      Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     clear_session_handle_fun =
       Keyword.get(opts, :clear_session_handle_fun, &Orchestrator.clear_session_handle/1)
@@ -241,15 +242,14 @@ defmodule Aiur.Orchestrator.CommentWake do
     Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
-  # A merged PR that names a ticket but fails to transition it to `done` leaves
-  # the ticket stranded on an active-state label; surface it to the Executor
-  # rather than only logging it (#2420).
   defp emit_merge_terminal_write_failed_alert(identifier, reason) do
+    reason = MergeTransition.reason_name(reason)
+
     Alerts.emit_custom(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
-      "Merged PR could not transition ticket #{identifier} to done (#{inspect(reason)}); the ticket was not closed.",
+      "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
       issue: identifier,
-      reason: "The merge-to-done terminal write failed (#{inspect(reason)}) and the ticket keeps its active-state label; it is not stranded invisibly but needs attention.",
+      reason: "The merge transition failed (#{reason}); check the ticket's current state and labels.",
       needs_attention: true,
       severity: "warning",
       central: true
@@ -1325,24 +1325,12 @@ defmodule Aiur.Orchestrator.CommentWake do
     case {comment_review_state(event), comment_body(event)} do
       {state, body} when is_binary(state) ->
         String.upcase(state) == "CHANGES_REQUESTED" or
-          (String.upcase(state) == "COMMENTED" and blocking_review_body?(body))
+          (String.upcase(state) == "COMMENTED" and ReviewFindings.blocking_body?(body))
 
       _other ->
         false
     end
   end
-
-  # A body-only comment needs an explicit change signal; clean review summaries
-  # must not bypass the unresolved-thread gate merely because they have prose.
-  defp blocking_review_body?(body) when is_binary(body) do
-    body = String.trim(body)
-
-    not String.match?(body, ~r/\b(?:no (?:blockers|blocking (?:findings|issues))|all blockers (?:addressed|resolved))\b/i) and
-      (String.match?(body, ~r/^(?:\s*\#{1,6})?\s*(?:blocking(?: findings| issues)?|blockers?|must fix|changes required)\s*:/im) or
-         String.match?(body, ~r/\b(?:update|rebase|merge|fix)\b[^\n.!?]*\bbefore merge\b/i))
-  end
-
-  defp blocking_review_body?(_body), do: false
 
   defp changes_requested_review?(event) do
     case comment_review_state(event) do
@@ -1383,7 +1371,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
-    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &Tracker.update_issue_state/2)
+    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
@@ -1771,7 +1759,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           error
       end
 
-    audit_merge_attribution(identifier, merged_by_login, merger_allowed_fun, emit_alert_fun)
+    audit_merge_attribution(identifier, MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)
     {target, result}
   end
@@ -1781,7 +1769,7 @@ defmodule Aiur.Orchestrator.CommentWake do
          outcome,
          {clear_session_handle_fun, entry, identifier, mark_reconciled_fun, observe_membership_fun, resume_blockees_fun, set_terminal_verification_pending_fun, terminate_running_issue_fun}
        ) do
-    case outcome do
+    case MergeTransition.normalize(outcome) do
       {"done", :ok} ->
         if TrackerTasks.same_runner?(
              State.find_running_by_identifier(current.running, identifier),
@@ -1805,7 +1793,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         current
 
       {_, {:error, reason}} ->
-        Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{MergeTransition.reason_name(reason)}")
 
         emit_merge_terminal_write_failed_alert(identifier, reason)
         current

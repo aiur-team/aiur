@@ -22,12 +22,27 @@ export function proseParagraphs(markdown) {
     .filter((block) => !/^(#|\||```|:::|<|[-*+] |\d+\. )/.test(block))
 }
 
+export function proseBeforeTables(markdown) {
+  const blocks = markdown.split(/\n\s*\n/).map((block) => block.replace(/\n/g, ' ').trim())
+  return blocks.filter((block, index) => proseParagraphs(block).length === 1 && blocks[index + 1]?.startsWith('|'))
+}
+
+export function sentenceCount(paragraph) {
+  return paragraph.match(/[.!?](?=\s|$)/g)?.length ?? 0
+}
+
 export async function checkDocsProse(root) {
   const failures = []
   for (const file of await markdownFiles(root)) {
-    for (const paragraph of proseParagraphs(await readFile(file, 'utf8'))) {
+    const markdown = await readFile(file, 'utf8')
+    for (const paragraph of proseParagraphs(markdown)) {
       if (paragraph.length > 360) {
         failures.push(`${path.relative(root, file)}: ${paragraph.length} characters (max 360): ${paragraph}`)
+      }
+    }
+    for (const paragraph of proseBeforeTables(markdown)) {
+      if (sentenceCount(paragraph) > 1) {
+        failures.push(`${path.relative(root, file)}: more than one sentence above a table: ${paragraph}`)
       }
     }
   }
@@ -41,6 +56,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error(failures.join('\n'))
     process.exitCode = 1
   } else {
-    console.log('Docs prose check passed (max 360 characters per paragraph).')
+    console.log('Docs prose check passed (max 360 characters per paragraph; one sentence above tables).')
   }
 }
