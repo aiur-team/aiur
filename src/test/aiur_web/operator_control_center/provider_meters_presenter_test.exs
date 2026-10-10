@@ -131,6 +131,13 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).state == :partial
     end
 
+    # Guards the unknown freshness branch (already true on main, not new coverage):
+    # an unrecognised status is named Unknown, never a placeholder.
+    test "unknown snapshot freshness is named Unknown" do
+      snapshot = healthy(:codex) |> Map.put(:freshness, :unknown)
+      assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).freshness == %{status: :unknown, label: "Unknown"}
+    end
+
     test "stale last-known-good retains windows after a refresh failure" do
       snapshot = healthy(:codex) |> Map.put(:health, health(:stale, :transport))
       codex = card(Presenter.present(authorized(), %{codex: snapshot}), :codex)
