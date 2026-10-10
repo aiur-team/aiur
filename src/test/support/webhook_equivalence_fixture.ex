@@ -1,11 +1,64 @@
 defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
   @moduledoc false
   import ExUnit.Assertions
+  import ExUnit.Callbacks, only: [on_exit: 1]
+  import Aiur.TestSupport, only: [write_workflow_file!: 2, restore_env: 2]
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{CommentPolling, ReadyForReviewTransitions, State}
   @repo "owner/repo"
   @dedup_table Aiur.Events.Publisher.Dedup
+
+  defmacro __using__(_opts) do
+    quote do
+      use Aiur.TestSupport
+      use Aiur.TestSupport.EventTicket
+      import Aiur.TestSupport.WebhookEquivalenceFixture
+
+      setup :equivalence_setup
+    end
+  end
+
+  def equivalence_setup(_context) do
+    prev_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: @repo,
+      tracker_label_prefix: "aiur"
+    )
+
+    Publisher.set_tracked_fn(fn _ -> true end)
+    clear_dedup()
+
+    on_exit(fn ->
+      restore_env("GITHUB_TOKEN", prev_token)
+      Publisher.set_tracked_fn(fn _ -> true end)
+      clear_dedup()
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end)
+
+    :ok
+  end
+
+  def thread_resolver(thread_id) do
+    fn _request ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "node" => %{"pullRequestReviewThread" => %{"id" => thread_id}}
+           }
+         }
+       }}
+    end
+  end
 
   def assert_indistinguishable(polled, pushed) do
     volatile = [:id, :ticket_observation]

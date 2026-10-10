@@ -7,6 +7,42 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
   alias Aiur.GitHub.ResourceStore
   @repo "owner/repo"
 
+  defmacro __using__(_opts) do
+    quote do
+      use Aiur.TestSupport
+      use Aiur.TestSupport.EventTicket
+      import Aiur.TestSupport.WebhookPollFixture
+
+      setup :reconciliation_setup
+    end
+  end
+
+  def reconciliation_setup(_context) do
+    previous_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: @repo)
+
+    dir = Aiur.TestSupport.tmp_root!("aiur-reconciliation")
+    File.mkdir_p!(dir)
+    store_path = Path.join(dir, "github_resources.json")
+
+    ExUnit.Callbacks.on_exit(fn ->
+      Aiur.TestSupport.restore_env("GITHUB_TOKEN", previous_token)
+      Application.delete_env(:aiur, :github_resource_store_path)
+
+      if Process.whereis(ResourceStore) == nil do
+        Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+      end
+
+      ResourceStore.reset()
+      clear_replay_window()
+      File.rm_rf(dir)
+    end)
+
+    {:ok, store_path: store_path}
+  end
+
   def sweep(response, opts \\ []) do
     ticket = ticket_id()
     {:ok, recorder} = Agent.start_link(fn -> [] end)
