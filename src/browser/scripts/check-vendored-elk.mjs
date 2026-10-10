@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readWorkerSource } from './layout-worker-source.mjs'
 import { promisify } from 'node:util'
 
 const ELK_VERSION = '0.11.1'
@@ -16,7 +17,10 @@ const layoutSourceRoot = path.join(browserRoot, 'layout')
 const repositoryRoot = path.resolve(sourceRoot, '..')
 const execFileAsync = promisify(execFile)
 const lineEndingPaths = [
-  'src/browser/layout/aiur-layout-worker.js',
+  'src/browser/layout/worker/00-limits-and-messages.js',
+  'src/browser/layout/worker/10-validate.js',
+  'src/browser/layout/worker/20-engine.js',
+  'src/browser/layout/worker/30-elk-graph.js',
   'src/browser/layout/aiur-layout-client.js',
   'src/priv/static/vendor/elk/0.11.1/elk-worker.min.js',
   'src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js',
@@ -52,7 +56,7 @@ async function main() {
   const [sourceEngine, sourceLicense, sourceWorker, sourceClient] = await Promise.all([
     readFile(path.join(packageRoot, 'lib', 'elk-worker.min.js')),
     readFile(path.join(packageRoot, 'LICENSE.md')),
-    readFile(path.join(layoutSourceRoot, 'aiur-layout-worker.js')),
+    readWorkerSource(layoutSourceRoot),
     readFile(path.join(layoutSourceRoot, 'aiur-layout-client.js'))
   ])
   const [engine, license, worker, client] = await Promise.all([
@@ -87,7 +91,7 @@ async function main() {
 async function verifyLineEndingContract(javascriptAssets) {
   const attributes = await readFile(path.join(repositoryRoot, '.gitattributes'), 'utf8')
   const requiredRules = [
-    'src/browser/layout/aiur-layout-worker.js text eol=lf',
+    'src/browser/layout/worker/*.js text eol=lf',
     'src/browser/layout/aiur-layout-client.js text eol=lf',
     'src/priv/static/vendor/elk/0.11.1/elk-worker.min.js -text',
     'src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js text eol=lf',
