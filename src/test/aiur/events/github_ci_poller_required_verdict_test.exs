@@ -64,6 +64,9 @@ defmodule Aiur.Events.GithubCIPollerRequiredVerdictTest do
     assert_receive {:rerun, url}, 1000
     assert url =~ "/repos/owner/repo/actions/runs/2/rerun"
     refute_received {:rerun, _other}
+
+    # One attempt per head: a refused or re-cancelled re-run must not spend calls on every poll.
+    assert %{decision: :pending, pending_reason: :ci_cancelled} = poll(checks, request_fun: no_requests())
   end
 
   test "a cancelled run beside a failed required check is not re-run" do

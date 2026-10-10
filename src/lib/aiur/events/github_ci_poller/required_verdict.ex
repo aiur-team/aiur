@@ -6,6 +6,9 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
   merge, so it must not send the ticket to rework. A cancelled run with no
   newer run is missing CI, not failed CI: the workflow is re-run through the
   API rather than handed to a worker, whose only tool is a push.
+
+  The re-run needs Actions read and write on the daemon credential. Without it
+  GitHub refuses the call, the refusal is logged, and the head stays pending.
   """
 
   require Logger
@@ -56,12 +59,15 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
       Enum.any?(runs, &(Map.get(&1, "conclusion") == "cancelled"))
   end
 
-  # ponytail: no per-head memory. A successful re-run leaves the run queued, so
-  # the next poll no longer sees it cancelled; a refused re-run is retried (two
-  # calls) every poll until the ci-wait re-wake. Remember the head if that costs.
+  # One attempt per head: a re-run cancelled again, or refused because the
+  # credential lacks Actions access, must not spend calls on every poll.
+  # ponytail: remembered in :persistent_term for the daemon's lifetime, one
+  # small term per head and never erased. Move to a bounded table if that grows.
   defp rerun_cancelled(head_sha, opts) do
-    with {:ok, {owner, repo}} <- repo(Keyword.get(opts, :repo)),
+    with false <- :persistent_term.get({__MODULE__, head_sha}, false),
+         {:ok, {owner, repo}} <- repo(Keyword.get(opts, :repo)),
          {:ok, token} <- Transport.require_token(opts) do
+      :persistent_term.put({__MODULE__, head_sha}, true)
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       base = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs"
 

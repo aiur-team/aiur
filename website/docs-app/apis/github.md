@@ -36,7 +36,7 @@ Each CI poll reads the base branch's active rules and classic branch protection 
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-A head whose check runs all finished with at least one cancelled is missing CI, not failed CI. The poll lists that head's workflow runs and re-runs the latest cancelled run per workflow (caller `ci_cancelled_rerun`, pending reason `ci_cancelled`) instead of waking a worker. A refused re-run is logged and retried on the next poll.
+A head whose check runs all finished with at least one cancelled is missing CI, not failed CI. The poll re-runs the latest cancelled run per workflow once per head (caller `ci_cancelled_rerun`, pending reason `ci_cancelled`) instead of waking a worker. Without `Actions: Read and write` GitHub refuses the call; Aiur logs it and the head stays pending.
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
@@ -113,7 +113,8 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Contents | Read and write |
 | Issues | Read and write |
 | Pull requests | Read and write |
-| Administration, Actions, Secrets, Workflows | Never |
+| Actions | Read and write, only to let the daemon re-run cancelled CI; otherwise never |
+| Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
 
