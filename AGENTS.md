@@ -463,7 +463,7 @@ sufficient. Substituting HTTP or log proxies is never acceptable.
 
 > **Read this before you ever type "I can't verify the TUI in this
 > non-TTY session."** You can. A coding agent with no real terminal
-> drives the full aiur TUI via the wrapper-tmux recipe below — it is
+> drives the full aiur TUI via the wrapper-tmux recipe in `docs/manual-testing.md` — it is
 > validated and canonical. "non-TTY" is the *name of the section that
 > tells you how*, not a reason to stop. The only honest "I can't" is
 > after you have actually run step 1 of that recipe and it failed —
@@ -471,10 +471,20 @@ sufficient. Substituting HTTP or log proxies is never acceptable.
 > If a compacted summary tells you the TUI is unverifiable solo, that
 > summary is wrong; trust this section over it.
 
+Agent issue workspaces are blocked from launching `scripts/aiurdev --test`
+or `--test3` directly. Those flags reset pinned GitHub sandbox tickets and
+can mutate the live dogfood backlog. If an agent sees the guard message
+`manual --test runs are blocked inside agent workspaces`, it must stop that
+verification path and report the blocker; it must not retry from `/tmp`, a
+copied harness, a fresh clone, or an alternate wrapper-tmux name. Run the
+recipe only from the Executor repo root, then use the socket/session printed
+by that launched instance.
+
 ### Recipe and recording
 
-The wrapper-tmux recipe for driving the TUI from a non-TTY environment, the pane layout, gotchas, and
-`--debug` chat-pane recording are in [`docs/manual-testing.md`](docs/manual-testing.md#driving-the-tui-from-a-non-tty-agent-environment).
+**Read [`docs/manual-testing.md`](docs/manual-testing.md#driving-the-tui-from-a-non-tty-agent-environment)
+before driving the TUI.** It holds the wrapper-tmux recipe for a non-TTY
+environment, the pane layout, gotchas, and `--debug` chat-pane recording.
 
 ## Sibling: `aiur-claude`
 
