@@ -4,8 +4,11 @@ defmodule Aiur.ConfigurationReferenceTest do
   alias Aiur.Config.Schema
 
   @repo_root Path.expand("../../..", __DIR__)
-  @doc_path Path.join(@repo_root, "website/docs-app/reference/configuration.md")
-  @configuration_reference File.read!(@doc_path)
+  @configuration_reference @repo_root
+                           |> Path.join("website/docs-app/reference/configuration*.md")
+                           |> Path.wildcard()
+                           |> Enum.sort()
+                           |> Enum.map_join("\n", &File.read!/1)
 
   @schema_sections [
     {nil, Schema},
