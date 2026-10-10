@@ -2,7 +2,9 @@ defmodule Aiur.BuildQueue.RefreshTest do
   use Aiur.TestSupport
   alias Aiur.BuildQueue.{Model, Server, Settings}
   alias Aiur.Config.Schema
-  alias Aiur.GitHub.{Issues, OpenIssueSnapshot}
+  alias Aiur.GitHub.{Issues, OpenIssueSnapshot, Tracker}
+
+  @listing_url "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
 
   defmodule Boundary do
     def open_issue_labels(_age), do: Agent.get(__MODULE__, & &1.snapshot)
@@ -15,6 +17,14 @@ defmodule Aiur.BuildQueue.RefreshTest do
 
     # Stands in for the remote listing: it renews the snapshot only when the tracker is reachable.
     def refresh_open_issue_labels do
+      if Agent.get(__MODULE__, & &1.hold) do
+        send(Agent.get(__MODULE__, & &1.test), {:refresh_started, self()})
+
+        receive do
+          :release -> :ok
+        end
+      end
+
       state = Agent.get_and_update(__MODULE__, &{&1, %{&1 | refreshes: &1.refreshes + 1, snapshot: if(&1.reachable, do: {:ok, &1.listing, &1.now}, else: &1.snapshot)}})
       if state.reachable, do: Phoenix.PubSub.broadcast(Aiur.PubSub, "tracker:open_issues", {:open_issues_recorded, state.now})
       send(state.test, :refresh_requested)
@@ -31,6 +41,7 @@ defmodule Aiur.BuildQueue.RefreshTest do
       now: 1_000,
       snapshot: :none,
       reachable: false,
+      hold: false,
       refreshes: 0,
       promoted: [],
       listing: %{"1" => %{labels: ["agent:queued"], updated_at: nil}},
@@ -84,6 +95,69 @@ defmodule Aiur.BuildQueue.RefreshTest do
   end
 
   test "the listing-only refresh records dispatchable issues without authorizing them" do
+    github_repo()
+    parent = self()
+    issue = %{"number" => 7, "title" => "Queued", "body" => nil, "html_url" => "https://github.com/owner/repo/issues/7", "labels" => [%{"name" => "sym:todo"}], "assignee" => nil}
+
+    request_fun = fn request ->
+      send(parent, {:request, request.url})
+      {:ok, %{status: 200, headers: [], body: [issue]}}
+    end
+
+    # The same listing through the candidate path spends an authorization read; the refresh must not.
+    assert {:ok, [%{id: "7"}]} = Issues.fetch_candidate_issues(request_fun: request_fun)
+    assert length(drain_requests()) > 1
+
+    OpenIssueSnapshot.reset()
+    assert {:ok, _cache} = Issues.refresh_open_issues(%{}, request_fun: request_fun)
+    assert drain_requests() == [@listing_url]
+    assert {:ok, %{"7" => %{labels: ["sym:todo"]}}, _} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+  end
+
+  test "a second tracker refresh of an unchanged repository revalidates instead of reading the page" do
+    github_repo()
+    parent = self()
+    issue = %{"number" => 7, "title" => "Queued", "body" => nil, "html_url" => "https://github.com/owner/repo/issues/7", "labels" => [%{"name" => "sym:todo"}], "assignee" => nil}
+
+    request_fun = fn request ->
+      send(parent, {:request, {request.url, request.caller, request[:etag]}})
+      if request[:etag] == "\"v1\"", do: {:ok, %{status: 304, headers: [], body: ""}}, else: {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: [issue]}}
+    end
+
+    assert Tracker.refresh_open_issue_labels(request_fun: request_fun) == :ok
+    assert drain_requests() == [{@listing_url, "build_queue_open_issue_list", nil}]
+
+    # The 304 carries no body, so the renewed snapshot can only come from the retained page.
+    OpenIssueSnapshot.put("owner", "repo", [], %{})
+    assert Tracker.refresh_open_issue_labels(request_fun: request_fun) == :ok
+    assert drain_requests() == [{@listing_url, "build_queue_open_issue_list", "\"v1\""}]
+    assert {:ok, %{"7" => %{labels: ["sym:todo"]}}, _} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+  end
+
+  test "a listing still in flight is not doubled", %{max_age: max_age} do
+    Agent.update(Boundary, &%{&1 | hold: true})
+    pid = server()
+    reconcile(pid)
+    advance(max_age)
+    reconcile(pid)
+    receive_barrier({:refresh_started, task})
+
+    advance(max_age)
+    reconcile(pid)
+    assert :sys.get_state(pid).refresh_pid == task
+
+    send(task, :release)
+    receive_barrier(:refresh_requested)
+    ref = Process.monitor(task)
+    receive_barrier({:DOWN, ^ref, :process, ^task, _})
+    reconcile(pid)
+    receive_barrier({:refresh_started, second})
+    send(second, :release)
+    receive_barrier(:refresh_requested)
+    assert Agent.get(Boundary, & &1.refreshes) == 2
+  end
+
+  defp github_repo do
     token_key = {Aiur.GitHub.Config, :resolved_token}
     previous = {System.get_env("GITHUB_TOKEN"), :persistent_term.get(token_key, :unset)}
     :persistent_term.erase(token_key)
@@ -98,22 +172,6 @@ defmodule Aiur.BuildQueue.RefreshTest do
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "sym", tracker_active_states: ["todo"])
-    parent = self()
-    issue = %{"number" => 7, "title" => "Queued", "body" => nil, "html_url" => "https://github.com/owner/repo/issues/7", "labels" => [%{"name" => "sym:todo"}], "assignee" => nil}
-
-    request_fun = fn request ->
-      send(parent, {:request, request.url})
-      {:ok, %{status: 200, headers: [], body: [issue]}}
-    end
-
-    # The same listing through the candidate path spends an authorization read; the refresh must not.
-    assert {:ok, [%{id: "7"}]} = Issues.fetch_candidate_issues(request_fun: request_fun)
-    assert length(drain_requests()) > 1
-
-    OpenIssueSnapshot.reset()
-    assert Issues.refresh_open_issues(request_fun: request_fun) == :ok
-    assert drain_requests() == ["https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"]
-    assert {:ok, %{"7" => %{labels: ["sym:todo"]}}, _} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
   end
 
   defp drain_requests do

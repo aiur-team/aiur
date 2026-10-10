@@ -216,8 +216,10 @@ During the 2026-10-09 acceptance run, after `saturation_sentinel entered
 load1=25.02`, the daemon made no `open_issue_list*` request for ten minutes and
 queue freshness stayed `unknown` for six. A non-empty queue now requests its own
 listing (`build_queue_open_issue_list`) once its snapshot is older than the
-observation age, at most once per observation age. The AC12 sequence above is
-unchanged.
+observation age, at most once per observation age and never while the previous
+one is still running. The listing is conditional on its own page cache, so an
+unchanged page answers `304`; that rate is not measured live. The AC12 sequence
+above is unchanged.
 
 `src/test/aiur/build_queue/refresh_test.exs` reproduces the stall
 deterministically: no dispatch poll ever lists, and the queue recovers a fresh

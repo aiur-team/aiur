@@ -61,6 +61,7 @@ defmodule Aiur.BuildQueue.Server do
       observations: %{},
       observed_at_ms: nil,
       refresh_not_before_ms: nil,
+      refresh_pid: nil,
       actions: [],
       holds: MapSet.new(),
       build_order_projection: Keyword.get(opts, :build_order_projection, BuildOrderSource.projection()),

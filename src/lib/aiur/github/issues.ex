@@ -352,18 +352,7 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  @doc "Lists and records every open issue without selecting or authorizing dispatch candidates."
-  @spec refresh_open_issues(keyword()) :: :ok | {:error, term()}
-  def refresh_open_issues(opts \\ []), do: with({:ok, _issues, _context} <- list_open_issues(opts), do: :ok)
-
   defp do_fetch_candidate_issues(opts) do
-    with {:ok, issues, {request_fun, token, owner, repo, prefix}} <- list_open_issues(opts) do
-      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
-      {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
-    end
-  end
-
-  defp list_open_issues(opts) do
     listed_from = DateTime.utc_now()
 
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
@@ -371,15 +360,29 @@ defmodule Aiur.GitHub.Issues do
       prefix = GitHub.Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
+      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
       with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
         record_open_issues(owner, repo, issues, listed_from)
-        {:ok, issues, {request_fun, token, owner, repo, prefix}}
+        {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
       end
     end
   end
 
+  @doc "Conditionally lists and records every open issue without selecting or authorizing dispatch candidates."
+  @spec refresh_open_issues(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def refresh_open_issues(cache, opts \\ []) when is_map(cache) do
+    with {:ok, _issues, _ctx, updated_cache} <- list_open_issues_conditional(cache, [caller: "build_queue_open_issue_list"] ++ opts), do: {:ok, updated_cache}
+  end
+
   defp do_fetch_candidate_issues_conditional(cache, opts) do
+    with {:ok, issues, ctx, updated_cache} <- list_open_issues_conditional(cache, opts) do
+      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
+      {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix), updated_cache}
+    end
+  end
+
+  defp list_open_issues_conditional(cache, opts) do
     listed_from = DateTime.utc_now()
 
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
@@ -390,20 +393,14 @@ defmodule Aiur.GitHub.Issues do
         owner: owner,
         repo: repo,
         prefix: GitHub.Config.label_prefix(),
-        caller: "open_issue_list_conditional"
+        caller: Keyword.get(opts, :caller, "open_issue_list_conditional")
       }
 
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
-      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
-      case fetch_label_issue_pages_conditional(ctx, url, cache) do
-        {:ok, issues, updated_cache} ->
-          record_open_issues(ctx.owner, ctx.repo, issues, listed_from)
-
-          {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix), updated_cache}
-
-        {:error, _reason} = error ->
-          error
+      with {:ok, issues, updated_cache} <- fetch_label_issue_pages_conditional(ctx, url, cache) do
+        record_open_issues(owner, repo, issues, listed_from)
+        {:ok, issues, ctx, updated_cache}
       end
     end
   end
