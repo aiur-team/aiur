@@ -59,7 +59,7 @@
     },
     {
       "id": "agent-runner", "name": "Turn engine for one ticket", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
+      "paths": ["src/lib/aiur/agent_command_installer.ex", "src/lib/aiur/agent_context_presentation.ex", "src/lib/aiur/agent_directory.ex", "src/lib/aiur/agent_event_log.ex", "src/lib/aiur/agent_process_log.ex", "src/lib/aiur/agent_process_log/**", "src/lib/aiur/agent_runner.ex", "src/lib/aiur/agent_runner/**", "src/lib/aiur/agent_skills.ex", "src/lib/aiur/event_publication_log.ex", "src/lib/aiur/issue_context.ex", "src/lib/aiur/issue_log.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur/logs/**", "src/lib/aiur/prompt_builder.ex", "src/lib/aiur/session_handle.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["harness-adapters", "workspace", "agent-sandbox", "event-bus", "tracker", "kernel", "identity"], "optional": ["build-orders"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -91,7 +91,7 @@
     },
     {
       "id": "harness-adapters", "name": "Harness adapter package (MP-R7)", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
+      "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_availability/**", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["identity", "agent-sandbox", "config", "kernel"], "optional": ["accounting"],
       "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": ["remote_control"]},

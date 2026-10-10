@@ -73,20 +73,17 @@ defmodule Aiur.ModelDiscovery do
   require Logger
 
   alias Aiur.{CodingAgent, Config, ModelCatalog, Workflow}
-  alias Aiur.Usage.PriceTable
+  alias Aiur.ModelDiscovery.{Cache, Fetch, PriceDrift, Report}
 
   @cache_file "model-catalog.json"
-  @cache_version 1
   @ttl_seconds 86_400
   # A refresh attempt — success or failure — holds the next one off for this
   # long, so a missing CLI or a typo'd label cannot trigger a probe per poll.
   @cooldown_seconds 600
   # Wall-clock budget for `refresh_now/2`; matches the CLI probe's own timeout.
   @refresh_now_timeout_ms 20_000
-  @request_timeout_ms 30_000
   # A fetched price within 5% of the curated one is rounding or a mid-day
   # revision, not the kind of staleness worth waking an operator for.
-  @drift_threshold Decimal.new("0.05")
 
   @type model :: %{String.t() => term()}
   @type rejection :: %{String.t() => String.t()}
@@ -113,11 +110,11 @@ defmodule Aiur.ModelDiscovery do
          {:ok, %{"backends" => %{}} = state} <- Jason.decode(body) do
       state
     else
-      _other -> empty_state()
+      _other -> Cache.empty_state()
     end
   end
 
-  def load(_path), do: empty_state()
+  def load(_path), do: Cache.empty_state()
 
   @doc """
   Whether aiur can ask this backend which models it serves: an
@@ -125,7 +122,7 @@ defmodule Aiur.ModelDiscovery do
   (`Aiur.ModelCatalog`).
   """
   @spec discoverable?(CodingAgent.backend()) :: boolean()
-  def discoverable?(backend), do: not is_nil(source_module(backend)) or cli_catalogue?(backend)
+  def discoverable?(backend), do: not is_nil(Fetch.source_module(backend)) or cli_catalogue?(backend)
 
   @doc """
   The cache key a backend's catalogue lives under. Backends that share a CLI
@@ -151,7 +148,7 @@ defmodule Aiur.ModelDiscovery do
   @spec catalogue(CodingAgent.backend(), keyword()) :: {[String.t()], :discovered | :curated_only}
   def catalogue(backend, opts \\ []) do
     curated = CodingAgent.seedable_models(backend)
-    entry = entry(backend, opts)
+    entry = Cache.entry(backend, opts)
     discovered = entry |> Map.get("models", []) |> Enum.flat_map(&List.wrap(Map.get(&1, "id")))
 
     {curated ++ (discovered -- curated), provenance(backend, entry, opts)}
@@ -178,13 +175,13 @@ defmodule Aiur.ModelDiscovery do
   @doc "Discovered model records (id plus whatever metadata the provider reported)."
   @spec cached_entries(CodingAgent.backend(), keyword()) :: [model()]
   def cached_entries(backend, opts \\ []) do
-    backend |> entry(opts) |> Map.get("models", []) |> Enum.filter(&is_map/1)
+    backend |> Cache.entry(opts) |> Map.get("models", []) |> Enum.filter(&is_map/1)
   end
 
   @doc "Identifiers refused at ingest, each with the reason it was refused."
   @spec rejected(CodingAgent.backend(), keyword()) :: [rejection()]
   def rejected(backend, opts \\ []) do
-    backend |> entry(opts) |> Map.get("rejected", []) |> Enum.filter(&is_map/1)
+    backend |> Cache.entry(opts) |> Map.get("rejected", []) |> Enum.filter(&is_map/1)
   end
 
   @doc """
@@ -218,7 +215,7 @@ defmodule Aiur.ModelDiscovery do
   def stale?(backend, opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
-    case backend |> entry(opts) |> Map.get("fetched_at") |> parse_time() do
+    case backend |> Cache.entry(opts) |> Map.get("fetched_at") |> parse_time() do
       %DateTime{} = fetched_at -> DateTime.diff(now, fetched_at, :second) >= @ttl_seconds
       nil -> true
     end
@@ -238,19 +235,19 @@ defmodule Aiur.ModelDiscovery do
     result = if cli_catalogue?(backend), do: refresh_cli(backend, opts), else: refresh_http(backend, opts)
 
     with {:error, _reason} <- result do
-      record_attempt(backend, opts)
+      Cache.record_attempt(backend, opts)
       result
     end
   end
 
   defp refresh_http(backend, opts) do
-    with {:ok, source} <- fetch_source(backend),
-         {:ok, request} <- source.request(instance(backend), api_key(backend, opts)),
-         {:ok, body} <- fetch(request, opts),
+    with {:ok, source} <- Fetch.fetch_source(backend),
+         {:ok, request} <- source.request(Fetch.instance(backend), Fetch.api_key(backend, opts)),
+         {:ok, body} <- Fetch.fetch(request, opts),
          {:ok, models} <- source.parse(body) do
-      {kept, refused} = ingest(models)
-      report(backend, kept, refused, opts)
-      write_entry(backend, kept, refused, opts)
+      {kept, refused} = Fetch.ingest(models)
+      Report.report(backend, kept, refused, opts)
+      Cache.write_entry(backend, kept, refused, opts)
     end
   end
 
@@ -261,9 +258,9 @@ defmodule Aiur.ModelDiscovery do
     discover = Keyword.get(opts, :discover, &ModelCatalog.discover/1)
 
     with {:ok, ids} <- safe_discover(discover, source_key(backend)) do
-      {kept, refused} = ingest(Enum.map(ids, &%{id: &1}))
+      {kept, refused} = Fetch.ingest(Enum.map(ids, &%{id: &1}))
       Logger.info("model discovery (#{source_key(backend)}): #{length(kept)} models, #{length(refused)} refused")
-      write_entry(backend, kept, refused, opts)
+      Cache.write_entry(backend, kept, refused, opts)
     end
   end
 
@@ -314,16 +311,16 @@ defmodule Aiur.ModelDiscovery do
     refresh(backend, opts)
   rescue
     error ->
-      record_attempt(backend, opts)
+      Cache.record_attempt(backend, opts)
       {:error, {:refresh_crashed, Exception.message(error)}}
   catch
     kind, reason ->
-      record_attempt(backend, opts)
+      Cache.record_attempt(backend, opts)
       {:error, {:refresh_crashed, {kind, reason}}}
   end
 
   defp timed_out(backend, opts) do
-    record_attempt(backend, opts)
+    Cache.record_attempt(backend, opts)
     {:error, :refresh_timeout}
   end
 
@@ -339,7 +336,7 @@ defmodule Aiur.ModelDiscovery do
   defp cooling_down?(backend, opts) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
-    case backend |> entry(opts) |> Map.get("last_attempt_at") |> parse_time() do
+    case backend |> Cache.entry(opts) |> Map.get("last_attempt_at") |> parse_time() do
       %DateTime{} = attempted -> DateTime.diff(now, attempted, :second) < @cooldown_seconds
       nil -> false
     end
@@ -361,18 +358,7 @@ defmodule Aiur.ModelDiscovery do
   these is priced as unknown, never as zero.
   """
   @spec unpriced_models(CodingAgent.backend(), keyword()) :: [String.t()]
-  def unpriced_models(backend, opts \\ []) do
-    with {:ok, catalog} <- price_catalog(opts),
-         provider when is_atom(provider) <- price_provider(backend, catalog) do
-      priced = MapSet.new(catalog.entries, & &1.resolved_model)
-
-      backend
-      |> cached_models(opts)
-      |> Enum.reject(&MapSet.member?(priced, &1))
-    else
-      _other -> cached_models(backend, opts)
-    end
-  end
+  defdelegate unpriced_models(backend, opts \\ []), to: PriceDrift
 
   @doc """
   Advisory comparison of the prices the provider quoted against the curated
@@ -384,338 +370,7 @@ defmodule Aiur.ModelDiscovery do
   billing.
   """
   @spec price_drift(CodingAgent.backend(), keyword()) :: [map()]
-  def price_drift(backend, opts \\ []) do
-    with {:ok, catalog} <- price_catalog(opts),
-         provider when is_atom(provider) <- price_provider(backend, catalog) do
-      on = Keyword.get_lazy(opts, :on, &Date.utc_today/0)
-      threshold = Keyword.get(opts, :threshold, @drift_threshold)
-
-      backend
-      |> cached_entries(opts)
-      |> Enum.flat_map(&model_drift(&1, catalog, provider, on, threshold))
-    else
-      _other -> []
-    end
-  end
-
-  defp model_drift(model, catalog, provider, on, threshold) do
-    id = Map.get(model, "id")
-
-    model
-    |> Map.get("pricing", %{})
-    |> Enum.flat_map(fn {dimension, quoted} ->
-      drift_entry(catalog, provider, id, dimension, quoted, on, threshold)
-    end)
-  end
-
-  defp drift_entry(catalog, provider, id, dimension, quoted, on, threshold) do
-    with %Decimal{} = discovered <- decimal(quoted),
-         %{price: curated} <- curated_price(catalog, provider, id, dimension, on),
-         %Decimal{} = drift <- relative_drift(curated, discovered),
-         :gt <- Decimal.compare(drift, threshold) do
-      [
-        %{
-          provider: provider,
-          resolved_model: id,
-          token_dimension: dimension,
-          curated: curated,
-          discovered: discovered,
-          relative_drift: drift
-        }
-      ]
-    else
-      _other -> []
-    end
-  end
-
-  # The exact-join `PriceTable.lookup/2` needs dimensions a catalogue feed does
-  # not report (relationship revision, cache-write duration). Drift is advisory,
-  # so it reads the series directly: newest revision in force on `on`.
-  defp curated_price(catalog, provider, model, dimension, on) do
-    catalog.entries
-    |> Enum.filter(&curated_match?(&1, provider, model, dimension, on))
-    |> Enum.sort_by(& &1.effective_date, Date)
-    |> List.last()
-  end
-
-  defp curated_match?(entry, provider, model, dimension, on) do
-    entry.provider == provider and entry.resolved_model == model and
-      Atom.to_string(entry.token_dimension) == to_string(dimension) and
-      Date.compare(entry.effective_date, on) in [:lt, :eq]
-  end
-
-  # Scaled by the larger of the two rather than by the curated one, so a curated
-  # row that says "free" and a quote that says otherwise reads as 100% drift
-  # instead of dividing by zero and going silent.
-  defp relative_drift(curated, discovered) do
-    scale = Decimal.max(Decimal.abs(curated), Decimal.abs(discovered))
-
-    if Decimal.equal?(scale, 0) do
-      Decimal.new(0)
-    else
-      curated |> Decimal.sub(discovered) |> Decimal.abs() |> Decimal.div(scale)
-    end
-  end
-
-  defp price_catalog(opts) do
-    case Keyword.get(opts, :price_table) do
-      %{entries: _entries} = catalog -> {:ok, catalog}
-      nil -> PriceTable.default()
-      _other -> {:error, :invalid_price_table}
-    end
-  end
-
-  # The price table keys on a provider atom that equals the backend family.
-  # Matching against atoms the catalog already holds means no atom is created
-  # from a backend name, and an unpriced provider simply has no match.
-  defp price_provider(backend, catalog) do
-    family = CodingAgent.family_for(backend) || backend
-
-    catalog.entries
-    |> Enum.map(& &1.provider)
-    |> Enum.find(&(Atom.to_string(&1) == family))
-  end
-
-  defp ingest(models) do
-    {kept, refused} =
-      Enum.reduce(models, {[], []}, fn model, {kept, refused} ->
-        case rejection_reason(Map.get(model, :id)) do
-          nil -> {[encode_model(model) | kept], refused}
-          reason -> {kept, [%{"id" => inspect_id(Map.get(model, :id)), "reason" => to_string(reason)} | refused]}
-        end
-      end)
-
-    {Enum.reverse(kept), Enum.reverse(refused)}
-  end
-
-  defp rejection_reason(id) when is_binary(id) do
-    cond do
-      String.trim(id) == "" -> :empty_identifier
-      String.starts_with?(id, "~") -> :unstable_identifier_prefix
-      String.contains?(id, ":") -> :reserved_routing_separator
-      true -> nil
-    end
-  end
-
-  defp rejection_reason(_id), do: :invalid_identifier
-
-  defp inspect_id(id) when is_binary(id), do: id
-  defp inspect_id(id), do: inspect(id)
-
-  defp encode_model(model) do
-    model
-    |> Map.new(fn {key, value} -> {to_string(key), encode_value(value)} end)
-    |> Map.reject(fn {_key, value} -> is_nil(value) end)
-  end
-
-  defp encode_value(%Decimal{} = value), do: Decimal.to_string(value, :normal)
-  defp encode_value(%{} = value), do: Map.new(value, fn {key, inner} -> {to_string(key), encode_value(inner)} end)
-  defp encode_value(value), do: value
-
-  defp fetch_source(backend) do
-    case source_module(backend) do
-      nil -> {:error, {:model_discovery_unsupported, backend}}
-      module -> {:ok, module}
-    end
-  end
-
-  defp source_module(backend) do
-    case get_in(CodingAgent.backends(), [backend, :openai_compat, :models_endpoint]) do
-      module when is_atom(module) and not is_nil(module) -> module
-      _other -> nil
-    end
-  end
-
-  defp instance(backend), do: get_in(CodingAgent.backends(), [backend, :openai_compat]) || %{}
-
-  defp api_key(backend, opts) do
-    fetcher = Keyword.get(opts, :api_key_fetcher, &System.get_env/1)
-
-    case backend |> instance() |> Map.get(:api_key_env) do
-      env when is_binary(env) -> fetcher.(env)
-      _other -> nil
-    end
-  end
-
-  defp fetch(request, opts) do
-    fetch_fun = Keyword.get(opts, :fetch, &default_fetch/1)
-
-    case fetch_fun.(request) do
-      {:ok, %{status: 200, body: body}} -> {:ok, body}
-      {:ok, %{status: status}} -> {:error, {:model_catalog_status, status}}
-      {:error, reason} -> {:error, {:model_catalog_request, reason}}
-      other -> {:error, {:model_catalog_request, other}}
-    end
-  end
-
-  defp default_fetch(%{url: url, headers: headers}) do
-    case Req.get(url, headers: headers, receive_timeout: @request_timeout_ms, retry: false) do
-      {:ok, response} -> {:ok, %{status: response.status, body: response.body}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp entry(backend, opts) do
-    state = Keyword.get_lazy(opts, :state, fn -> read_state(opts) end)
-
-    case get_in(state, ["backends", source_key(backend)]) do
-      %{} = entry -> entry
-      _other -> %{}
-    end
-  end
-
-  defp cache_path(opts), do: Keyword.get(opts, :path, path())
-
-  # Label resolution reads the cache on the orchestrator's hot paths, so the
-  # decoded document is memoized against the file's mtime and size: it is
-  # re-read only when a refresh rewrote it (about daily). An explicit `:path`
-  # (tests, tools) always reads fresh.
-  defp read_state(opts) do
-    case Keyword.fetch(opts, :path) do
-      {:ok, path} -> load(path)
-      :error -> memoized_load(Keyword.get_lazy(opts, :memo_path, &path/0))
-    end
-  end
-
-  # Every write lands through a tmp file and a rename, so the inode changes on
-  # each rewrite even when mtime (one-second resolution) and size do not —
-  # a rewrite that only moves a fixed-width timestamp keeps the same size.
-  defp memoized_load(path) when is_binary(path) do
-    stamp =
-      case File.stat(path) do
-        {:ok, %File.Stat{inode: inode, mtime: mtime, size: size}} -> {inode, mtime, size}
-        {:error, _reason} -> :absent
-      end
-
-    case :persistent_term.get({__MODULE__, :memo}, nil) do
-      {^path, ^stamp, state} ->
-        state
-
-      _stale ->
-        state = load(path)
-        :persistent_term.put({__MODULE__, :memo}, {path, stamp, state})
-        state
-    end
-  end
-
-  defp memoized_load(_path), do: empty_state()
-
-  defp write_entry(backend, models, refused, opts) do
-    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    result = %{models: models, rejected: refused}
-
-    case cache_path(opts) do
-      nil ->
-        {:ok, result}
-
-      path ->
-        stamp = DateTime.to_iso8601(now)
-        fields = %{"fetched_at" => stamp, "last_attempt_at" => stamp, "models" => models, "rejected" => refused}
-        :global.trans(write_lock(path), fn -> persist(path, backend, fields) end, [node()])
-        {:ok, result}
-    end
-  end
-
-  # A failed attempt only stamps `last_attempt_at`; merging (rather than
-  # replacing the entry) keeps the last good model list and its `fetched_at`.
-  defp record_attempt(backend, opts) do
-    case cache_path(opts) do
-      nil ->
-        :ok
-
-      path ->
-        now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-        :global.trans(write_lock(path), fn -> persist(path, backend, %{"last_attempt_at" => DateTime.to_iso8601(now)}) end, [node()])
-        :ok
-    end
-  end
-
-  # `persist/3` is a read-modify-write of the whole file, so writers must
-  # exclude each other. `:global` admits every holder that shares a requester
-  # id, so the requester is the calling process — never the path, which would
-  # let two refreshes of different backends in together and drop one result.
-  defp write_lock(path), do: {{__MODULE__, :write, path}, self()}
-
-  defp persist(path, backend, fields) do
-    state = load(path)
-    backends = Map.get(state, "backends", %{})
-    key = source_key(backend)
-    entry = backends |> Map.get(key, %{}) |> Map.merge(fields)
-
-    write(path, %{
-      "version" => @cache_version,
-      "backends" => Map.put(backends, key, entry)
-    })
-  end
-
-  defp write(path, state) do
-    File.mkdir_p(Path.dirname(path))
-    tmp = path <> ".#{System.unique_integer([:positive])}.tmp"
-
-    case File.write(tmp, Jason.encode!(state, pretty: true) <> "\n") do
-      :ok -> File.rename(tmp, path) |> tap(fn _ -> forget_memo() end)
-      {:error, _reason} = error -> error
-    end
-  end
-
-  # A write in this node drops the memo outright; the stat stamp only has to
-  # catch writes from other OS processes. (A freed inode can be handed straight
-  # back on ext4, so the stamp alone could repeat across two quick rewrites.)
-  defp forget_memo do
-    :persistent_term.erase({__MODULE__, :memo})
-    :ok
-  end
-
-  defp report(backend, models, refused, opts) do
-    Logger.info(
-      "model discovery (#{backend}): #{length(models)} models, #{length(refused)} refused" <>
-        rejection_summary(refused)
-    )
-
-    report_unpriced(backend, models, opts)
-    Enum.each(price_drift(backend, Keyword.put(opts, :state, provisional_state(backend, models))), &warn_drift/1)
-  end
-
-  defp report_unpriced(backend, models, opts) do
-    case unpriced_models(backend, Keyword.put(opts, :state, provisional_state(backend, models))) do
-      [] ->
-        :ok
-
-      unpriced ->
-        Logger.warning(
-          "model discovery (#{backend}): #{length(unpriced)} discovered models have no curated price row " <>
-            "(#{preview(unpriced)}). They stay usable; their usage reports unknown cost, never zero."
-        )
-    end
-  end
-
-  defp warn_drift(drift) do
-    Logger.warning(
-      "model discovery price drift (#{drift.provider} #{drift.resolved_model} #{drift.token_dimension}): " <>
-        "curated #{Decimal.to_string(drift.curated, :normal)} vs provider-quoted " <>
-        "#{Decimal.to_string(drift.discovered, :normal)} per million tokens. The curated row is still in force — " <>
-        "review it, aiur will not overwrite it."
-    )
-  end
-
-  # Report against what was just fetched rather than re-reading the file, so the
-  # numbers logged are the ones this refresh saw.
-  defp provisional_state(backend, models) do
-    %{"backends" => %{backend => %{"models" => models}}}
-  end
-
-  defp rejection_summary([]), do: ""
-
-  defp rejection_summary(refused) do
-    summary =
-      refused
-      |> Enum.frequencies_by(&Map.get(&1, "reason"))
-      |> Enum.map_join(", ", fn {reason, count} -> "#{reason}: #{count}" end)
-
-    " (#{summary})"
-  end
-
-  defp preview(ids), do: ids |> Enum.take(5) |> Enum.join(", ")
+  defdelegate price_drift(backend, opts \\ []), to: PriceDrift
 
   defp maybe_refresh_async(backend, opts) do
     if refresh_requested?(opts) and background_refresh_due?(backend, opts), do: start_refresh(backend, opts)
@@ -749,7 +404,7 @@ defmodule Aiur.ModelDiscovery do
   @spec cli_catalogue?(CodingAgent.backend()) :: boolean()
   def cli_catalogue?(backend) do
     case CodingAgent.backends()[backend] do
-      %{model_catalog: extract} when is_function(extract, 1) -> is_nil(source_module(backend))
+      %{model_catalog: extract} when is_function(extract, 1) -> is_nil(Fetch.source_module(backend))
       _entry -> false
     end
   end
@@ -801,19 +456,6 @@ defmodule Aiur.ModelDiscovery do
     _error -> true
   end
 
-  defp decimal(%Decimal{} = value), do: value
-
-  defp decimal(value) when is_binary(value) do
-    case Decimal.parse(value) do
-      {decimal, ""} -> decimal
-      _other -> nil
-    end
-  end
-
-  defp decimal(value) when is_integer(value), do: Decimal.new(value)
-  defp decimal(value) when is_float(value), do: Decimal.from_float(value)
-  defp decimal(_value), do: nil
-
   defp parse_time(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, time, _offset} -> time
@@ -822,6 +464,4 @@ defmodule Aiur.ModelDiscovery do
   end
 
   defp parse_time(_value), do: nil
-
-  defp empty_state, do: %{"version" => @cache_version, "backends" => %{}}
 end
