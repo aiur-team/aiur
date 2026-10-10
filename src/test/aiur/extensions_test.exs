@@ -1344,9 +1344,7 @@ defmodule Aiur.ExtensionsTest do
 
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
-    assert_eventually(fn ->
-      render(view) =~ "Updated unit title"
-    end)
+    assert_eventually(fn -> render(view) =~ "Updated unit title" end, 200)
 
     token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
@@ -1383,9 +1381,7 @@ defmodule Aiur.ExtensionsTest do
 
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
-    assert_eventually(fn ->
-      render(view) =~ "fresh modal update"
-    end)
+    assert_eventually(fn -> render(view) =~ "fresh modal update" end, 200)
 
     closed_html =
       view
