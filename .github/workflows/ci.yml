@@ -130,9 +130,10 @@ jobs:
         run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
-
       - name: Test file size gate
         run: bash scripts/test-check-file-size.sh
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
       - name: File size gate
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -141,8 +142,7 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           case "$EVENT_NAME" in
-            pull_request) base="$PR_BASE" ;;
-            merge_group) base="$MERGE_BASE" ;;
+            pull_request|merge_group) base="${PR_BASE:-$MERGE_BASE}" ;;
             push)
               base="$PUSH_BEFORE"
               if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
