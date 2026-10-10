@@ -33,6 +33,7 @@ const inheritedRuntimeNames = [
   // Names the evidence directory for a #1358 proof run so a re-run can be
   // written back into the same committed directory instead of a new timestamp.
   'AIUR_STREAMDECK_PROOF_RUN',
+  'AIUR_PARITY_FULL',
   'CI',
   'HEX_HOME',
   'HOME',
