@@ -1,0 +1,33 @@
+{
+  "name": "main",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/main"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "SQUASH",
+        "max_entries_to_build": 2,
+        "min_entries_to_merge": 4,
+        "max_entries_to_merge": 5,
+        "min_entries_to_merge_wait_minutes": 15,
+        "grouping_strategy": "HEADGREEN",
+        "check_response_timeout_minutes": 120
+      }
+    }
+  ]
+}
