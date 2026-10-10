@@ -64,6 +64,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.DecisionMetrics.Writer, [path: @metrics_path]},
     Aiur.DecisionMetrics,
     Aiur.RecentMergeStore,
+    {Aiur.StartTrigger.ProgressStore,
+     [seed: &Aiur.CIApprovalStore.load/0, reader: &Aiur.GitHub.BlockerProgress.approval/2, identity: &Aiur.GitHub.BlockerProgress.identity/1, repo: &Aiur.GitHub.Config.repo/0]},
     Aiur.Webhooks.DeliveryLog,
     Aiur.GitHub.CodeOwners,
     {Registry, [keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry]},
