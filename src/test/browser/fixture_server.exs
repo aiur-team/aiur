@@ -1,12 +1,12 @@
 Code.require_file("../support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
+Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
-
   alias AiurWeb.OperatorControlCenter.{DashboardShell, History, NavState, RouteRegistry}
 
   @impl true
@@ -2120,6 +2120,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
+    get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
     get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
   end
@@ -2264,7 +2265,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   @doc """
   Fixture stand-in for `AgentChat.pause/1` and `AgentChat.resume/1`.
-
   The emulator's key press is only meaningful if the fleet it renders actually
   moves, so the fixture records the operator pause and republishes the fleet.
   The next projection buckets the agent as `:paused`, exactly as the real

@@ -740,10 +740,10 @@ defmodule Aiur.Orchestrator.State do
   # A provider usage limit belongs here for the same reason: the account, not
   # this agent, is what the fleet waits on, there is no turn in flight, and
   # holding the slot turns one account limit into a fleet-wide dispatch stall.
-  # Nineteen such pauses once left four runners and twelve ready tickets waiting
-  # on capacity. `CodingAgent.select_for_dispatch/2` is what keeps a freed slot
-  # from being handed straight back to the exhausted backend.
   @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]
+
+  @spec non_reserving_pause_reason?(term()) :: boolean()
+  def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons
 
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do
