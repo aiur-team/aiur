@@ -40,6 +40,7 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook, [:dashboard_auth], :debug},
     {:get, "/sortable-table-hook.js", AiurWeb.StaticAssetController, :sortable_table_hook, [:dashboard_auth], :debug},
     {:get, "/streamdeck-emulator-hook.js", AiurWeb.StaticAssetController, :streamdeck_emulator_hook, [:dashboard_auth], :debug},
+    {:get, "/streamdeck-emulator-knob.js", AiurWeb.StaticAssetController, :streamdeck_emulator_knob, [:dashboard_auth], :debug},
     {:get, "/aiur-dom-svg-layout-adapter.js", AiurWeb.StaticAssetController, :dom_svg_layout_adapter, [:dashboard_auth], :debug},
     {:get, "/aiur-dom-svg-layout-loader.js", AiurWeb.StaticAssetController, :dom_svg_layout_loader, [:dashboard_auth], :debug},
     {:get, "/aiur-dom-svg-layout/:module", AiurWeb.StaticAssetController, :dom_svg_layout_module, [:dashboard_auth], :debug},
