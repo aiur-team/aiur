@@ -42,6 +42,8 @@ defmodule AiurWeb.StaticAssetsCssTest do
     end
   end
 
+  # Guard against a future regression: the route already served the embedded
+  # sheet before the split, so this passes without that change.
   test "the served /dashboard.css body is the embedded sheet" do
     authorization = "Basic " <> Base.encode64("operator:test-dashboard-secret")
     conn = build_conn() |> Plug.Conn.put_req_header("authorization", authorization) |> get("/dashboard.css")
