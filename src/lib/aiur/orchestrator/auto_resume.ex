@@ -22,7 +22,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   """
 
   require Logger
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Signal, Issue}
   alias Aiur.GitHub.Errors
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State, TicketTransition, TrackerTasks}
 
@@ -173,17 +173,17 @@ defmodule Aiur.Orchestrator.AutoResume do
   """
   @spec schedule(State.t(), String.t(), cause()) :: State.t()
   def schedule(%State{} = state, issue_id, cause) when is_binary(issue_id) and is_atom(cause) do
-    schedule(state, issue_id, cause, &Alerts.emit_system/2)
+    schedule(state, issue_id, cause, &Signal.alert/2)
   end
 
   @spec schedule(State.t(), String.t(), cause(), keyword()) :: State.t()
   def schedule(%State{} = state, issue_id, cause, opts) when is_binary(issue_id) and is_atom(cause) and is_list(opts) do
-    schedule_with_options(state, issue_id, cause, Keyword.put_new(opts, :emit_fun, &Alerts.emit_system/2))
+    schedule_with_options(state, issue_id, cause, Keyword.put_new(opts, :emit_fun, &Signal.alert/2))
   end
 
   @doc false
   # Testable variant with an injected alert emitter; the production path routes
-  # through `Alerts.emit_system/2`.
+  # through `Signal.alert/2`.
   @spec schedule(State.t(), String.t(), cause(), (String.t(), keyword() -> term())) :: State.t()
   def schedule(%State{} = state, issue_id, cause, emit_fun)
       when is_binary(issue_id) and is_atom(cause) and is_function(emit_fun, 2) do

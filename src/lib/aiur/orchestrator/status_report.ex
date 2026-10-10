@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.CodingAgent
   alias Aiur.Commands
   alias Aiur.Config
@@ -1327,7 +1327,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp human_wait_alert_candidate?(_status), do: false
 
   defp emit_waiting_for_human_resolution(identifier) do
-    Alerts.emit_system("ticket.#{identifier}.agent.attention.waiting_for_human.resolved",
+    Signal.alert("ticket.#{identifier}.agent.attention.waiting_for_human.resolved",
       issue: identifier,
       reason: "Agent is no longer waiting for Executor input.",
       needs_attention: false,
@@ -1341,7 +1341,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     topic = "ticket.#{identifier}.agent.attention.waiting_for_human"
 
     unless AlertFeed.active_ticket_attention?(topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: identifier,
         reason: "Agent has been waiting for Executor input for #{div(runtime_seconds, 60)}m; answer the blocking question or resume the agent.",
         needs_attention: true,

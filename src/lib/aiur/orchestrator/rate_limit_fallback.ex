@@ -434,7 +434,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp emit_account_handoff(issue, source, destination, session_id) do
-    Aiur.Alerts.emit_system("ticket.#{issue.identifier}.agent.account_handoff",
+    Aiur.Signal.alert("ticket.#{issue.identifier}.agent.account_handoff",
       issue: issue,
       reason: "Claude session #{session_id} moved from account #{source} to #{destination} and resumed.",
       needs_attention: false,

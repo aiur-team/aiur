@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   """
 
   require Logger
-  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, StartTrigger.ProgressStore, Tracker}
+  alias Aiur.{AlertFeed, Signal, CIApprovalStore, Config, Issue, PollCadence, StartTrigger.ProgressStore, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 
@@ -951,7 +951,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp parked_ready_alert_topic(target), do: "ticket.#{target}.pr.parked_ready"
 
-  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
   defp put_parked_ready_alerts(%State{} = state, alerts) do
     %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :parked_ready_alerts, alerts)}

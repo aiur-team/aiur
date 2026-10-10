@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   require Logger
 
-  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Signal, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
@@ -300,7 +300,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeued"
 
     unless active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue.identifier,
         message: "Ticket #{issue.identifier} was open with no live agent and no scheduled claim; re-queued to #{restored}.",
         reason:
@@ -560,7 +560,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
 
     unless active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue.identifier,
         message:
           "Ticket #{issue.identifier} has no agent state label and no record of prior agent workflow membership; " <>
@@ -580,7 +580,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
 
     if active_attention?(state, topic) do
-      case Alerts.emit_system("#{topic}.resolved",
+      case Signal.alert("#{topic}.resolved",
              issue: issue.identifier,
              reason: "Tracker observation confirms a lifecycle label exists again.",
              needs_attention: false,
@@ -598,7 +598,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp resolve_missing_state_label_alert(_issue, state), do: state
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
+    Signal.alert("ticket.#{issue.identifier}.agent.attention.state-label-missing",
       issue: issue.identifier,
       message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
       reason:
@@ -656,7 +656,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       "#{length(identifiers)} ticket#{if length(identifiers) == 1, do: "", else: "s"} undispatchable due to contradictory labels: " <>
         Enum.join(identifiers, ", ")
 
-    case Alerts.emit_system("system.fleet.contradictory_state_labels",
+    case Signal.alert("system.fleet.contradictory_state_labels",
            message: message,
            reason:
              message <>
@@ -676,7 +676,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp resolve_contradictory_state_label_alert(%State{} = state) do
     message = "No tickets undispatchable due to contradictory labels"
 
-    Alerts.emit_system("system.fleet.contradictory_state_labels.resolved",
+    Signal.alert("system.fleet.contradictory_state_labels.resolved",
       message: message,
       reason: message <> ". Every ticket now carries exactly one agent:* state label.",
       needs_attention: false,
@@ -1232,7 +1232,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         emit_observed_error_transition_alert(state, issue)
 
       current_state == "human-review" ->
-        Alerts.emit_system(
+        Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
           worker_host: Orchestrator.running_worker_host(state, issue.id),
@@ -1250,7 +1250,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       true ->
         # Ticket B: label-flip alerts route through the new topic shape so
         # the alerts file can glob-match per state without one entry per state.
-        Alerts.emit_system(
+        Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
           worker_host: Orchestrator.running_worker_host(state, issue.id),
@@ -1268,7 +1268,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp publish_human_review_handoff(%Issue{} = issue) do
     {pr_number, head_sha} = human_review_pr_details(issue)
 
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.handoff.human_review",
+    Signal.alert("ticket.#{issue.identifier}.agent.handoff.human_review",
       issue: issue,
       reason: "Agent handed the ticket to human review",
       needs_attention: true,
@@ -1317,7 +1317,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     else
       message = observed_error_alert_message(cause)
 
-      case Alerts.emit_system(topic,
+      case Signal.alert(topic,
              issue: issue,
              worker_host: Orchestrator.running_worker_host(state, issue.id),
              reason: message,
@@ -1344,7 +1344,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         mark_observed_error_alert(state, issue.id, cause)
 
       active? ->
-        case Alerts.emit_system("#{topic}.resolved",
+        case Signal.alert("#{topic}.resolved",
                issue: issue,
                worker_host: Orchestrator.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
@@ -1457,7 +1457,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         emit_tracker_pause_alert(state, issue)
 
       {true, false} ->
-        Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
+        Signal.alert("ticket.#{issue.identifier}.agent.unpaused",
           issue: issue,
           worker_host: Orchestrator.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
@@ -1480,7 +1480,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
     unless active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue,
         worker_host: Orchestrator.running_worker_host(state, issue.id),
         reason:
@@ -1499,7 +1499,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
     if force? or active_attention?(state, topic) do
-      Alerts.emit_system("#{topic}.resolved",
+      Signal.alert("#{topic}.resolved",
         issue: issue,
         worker_host: Orchestrator.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
@@ -1865,7 +1865,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     topic = dependency_circular_wait_topic(entry.identifier)
     message = "Circular wait: #{entry.identifier} is queued while #{entry.waiting_count} parked agent(s) wait on it."
 
-    case Alerts.emit_system(topic,
+    case Signal.alert(topic,
            message: message,
            issue: entry.identifier,
            reason: message,
@@ -1885,7 +1885,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     |> Enum.each(fn entry ->
       message = "Circular wait cleared for #{entry.identifier}."
 
-      Alerts.emit_system(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
+      Signal.alert(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
         message: message,
         issue: entry.identifier,
         reason: message,
@@ -1987,7 +1987,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     do: Config.capacity_starvation_alert_after_seconds() * 1_000
 
   defp emit_fleet_capacity_starvation(state, context, since_ms) do
-    case Alerts.emit_system("system.fleet.capacity.starved",
+    case Signal.alert("system.fleet.capacity.starved",
            reason: fleet_capacity_starvation_reason(context),
            needs_attention: true,
            severity: "warning"
@@ -2070,7 +2070,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     active? = starvation[:alert_active] or AlertFeed.active_system_attention?("system.fleet.capacity.starved")
 
     if active? do
-      case Alerts.emit_system("system.fleet.capacity.starved.resolved",
+      case Signal.alert("system.fleet.capacity.starved.resolved",
              reason: "Fleet capacity is no longer starved.",
              needs_attention: false,
              severity: "info"
@@ -2119,7 +2119,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp emit_decision_store_unavailable_alert(%State{} = state) do
-    case Alerts.emit_system("system.dispatch.decision_store_unavailable",
+    case Signal.alert("system.dispatch.decision_store_unavailable",
            reason:
              "The DecisionStore could not be read; dispatch is admitting nothing and capacity-starvation " <>
                "alerting is suppressed while this holds. Recovery restores dispatch and normal capacity alerting.",
@@ -2152,7 +2152,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         AlertFeed.active_system_attention?("system.dispatch.decision_store_unavailable")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.decision_store_unavailable.resolved",
+      case Signal.alert("system.dispatch.decision_store_unavailable.resolved",
              reason: "The DecisionStore is reachable again; dispatch and normal capacity alerting have resumed.",
              needs_attention: false,
              severity: "info"
@@ -2252,7 +2252,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities) do
     next_alerted_identities = MapSet.union(alerted_identities, MapSet.new(due_identities))
 
-    case Alerts.emit_system("system.dispatch.capacity_starved",
+    case Signal.alert("system.dispatch.capacity_starved",
            reason: capacity_starvation_reason(context),
            needs_attention: true,
            severity: "warning"
@@ -2282,7 +2282,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         AlertFeed.active_system_attention?("system.dispatch.capacity_starved")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.capacity_starved.resolved",
+      case Signal.alert("system.dispatch.capacity_starved.resolved",
              reason: "Ready-work dispatch capacity recovered; fleet dispatch may resume.",
              needs_attention: false,
              severity: "info"
@@ -2485,7 +2485,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
     case List.first(todo_issues) do
       %Issue{} = issue ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+        Signal.alert("system.dispatch.todo_capacity_exceeded",
           issue: issue,
           worker_host: Orchestrator.running_worker_host(state, issue.id),
           reason: "Todo issue count exceeds the current dispatch capacity.",
@@ -2494,7 +2494,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         )
 
       _ ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+        Signal.alert("system.dispatch.todo_capacity_exceeded",
           reason: "Todo issue count exceeds the current dispatch capacity.",
           needs_attention: true,
           severity: "warning"

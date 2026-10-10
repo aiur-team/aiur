@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   Owns the pause, resume, and reactivation state machine for running agents.
   All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Commands, Config, Issue, ModelAvailability, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Signal, CodingAgent, Commands, Config, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}
@@ -136,7 +136,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp emit_reset_success_alert(alert_issue_id, issue_identifier) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
       "Lifetime dispatch budget reset completed for #{issue_identifier}.",
       issue: alert_issue_id,
@@ -148,7 +148,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp emit_reset_failure_alert(alert_issue_id, issue_identifier, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
       "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
       issue: alert_issue_id,
@@ -454,7 +454,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp emit_control_crash_alert(action, target, summary) do
     label = control_target_label(target)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{label}.agent.attention.control-call-crashed",
       "Operator #{action} of #{label} crashed inside the orchestrator (#{summary}). The agent registry was kept, " <>
         "but side effects the call made before it crashed (tracker labels, a started worker) were not undone; check the ticket.",

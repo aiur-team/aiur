@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, Commands, OperatorWaitLog, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Signal, Commands, OperatorWaitLog, TrackerIdentity}
 
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, DigestCoalescer, LifecycleFence, PauseResume, State}
 
@@ -877,7 +877,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         _previous_pause_reason
       )
       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
+    Signal.alert("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -894,7 +894,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         _previous_pause_reason
       )
       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.github-budget.wait",
+    Signal.alert("ticket.#{Map.get(running_entry, :identifier)}.github-budget.wait",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -910,7 +910,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     pause_reason = Map.get(running_entry, :paused_reason)
     reason = StatusReason.render(StatusReason.for_pause(pause_reason))
 
-    Alerts.emit_system(pause_attention_topic(running_entry, pause_reason),
+    Signal.alert(pause_attention_topic(running_entry, pause_reason),
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -922,7 +922,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   def maybe_emit_agent_control_alert(:paused, :working, running_entry, previous_pause_reason)
       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
+    Signal.alert("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -934,7 +934,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     if is_nil(previous_pause_reason) do
       :ok
     else
-      Alerts.emit_system("#{pause_attention_topic(running_entry, previous_pause_reason)}.resolved",
+      Signal.alert("#{pause_attention_topic(running_entry, previous_pause_reason)}.resolved",
         issue: Map.get(running_entry, :identifier),
         workspace: Map.get(running_entry, :workspace_path),
         worker_host: Map.get(running_entry, :worker_host),
@@ -1066,7 +1066,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       if LifecycleFence.protected_item?(state, item) do
         identifier = item.target_issue_identifier
 
-        Alerts.emit_system("ticket.#{identifier}.agent.provider_delivery_failed",
+        Signal.alert("ticket.#{identifier}.agent.provider_delivery_failed",
           issue: identifier,
           reason: "Authoritative input request #{item.id} failed before provider acknowledgement and still fences lifecycle handoff: #{inspect(reason)}.",
           needs_attention: true,

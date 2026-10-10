@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue, TicketBranch}
+  alias Aiur.{Signal, Config, Issue, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TrackerTasks, WorkspaceCleanup}
@@ -168,7 +168,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
           {"PR comment was deferred because the agent capacity is full", "free an agent slot and retry the PR comment"}
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue.identifier}.agent.attention.pr_anchored_dispatch_#{cause}",
       "#{message} (PR ##{issue.identifier})",
       issue: to_string(issue.identifier),
@@ -241,7 +241,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
         "held it on #{signal} for all #{attempt} attempts. The unit carries no agent:* label and no " <>
         "tracker row, so nothing will retry it — comment on the PR again once the host recovers."
 
-    Alerts.emit_system("system.dispatch.pr_anchored_held",
+    Signal.alert("system.dispatch.pr_anchored_held",
       reason: reason,
       needs_attention: true,
       severity: "warning"

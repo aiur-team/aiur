@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
-  alias Aiur.{Alerts, Commands, Config, Issue}
+  alias Aiur.{Signal, Commands, Config, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
@@ -998,7 +998,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   defp emit_cleared_dependency_alert(blockee, entry, blocker, clearance) do
     blocker_identifier = blocker_identifier(blocker)
 
-    Alerts.emit_system("ticket.#{Map.get(blockee, :identifier)}.agent.dependency_cleared",
+    Signal.alert("ticket.#{Map.get(blockee, :identifier)}.agent.dependency_cleared",
       issue: Map.get(blockee, :identifier),
       workspace: Map.get(entry, :workspace_path),
       worker_host: Map.get(entry, :worker_host),
@@ -1012,7 +1012,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   defp emit_deferred_cleared_dependency_alert(blockee, entry, blocker, reason) do
     blocker_identifier = blocker_identifier(blocker)
 
-    Alerts.emit_system("ticket.#{Map.get(blockee, :identifier)}.agent.auto_resume_deferred",
+    Signal.alert("ticket.#{Map.get(blockee, :identifier)}.agent.auto_resume_deferred",
       issue: Map.get(blockee, :identifier),
       workspace: Map.get(entry, :workspace_path),
       worker_host: Map.get(entry, :worker_host),

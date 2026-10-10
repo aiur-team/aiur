@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, Config, PollCadence, RunTelemetry}
+  alias Aiur.{AlertFeed, Signal, Config, PollCadence, RunTelemetry}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
@@ -160,7 +160,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp firehose_truncation_alert_fun(opts) do
-    Keyword.get(opts, :firehose_truncation_alert_fun, &Alerts.emit_system/2)
+    Keyword.get(opts, :firehose_truncation_alert_fun, &Signal.alert/2)
   end
 
   defp note_recent_merge_persistence_failure(state, reason, cursor, opts) do
@@ -218,7 +218,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
         "#{failures} attempts (#{inspect(reason)}). " <>
         "GitHub event delivery is continuing without durable outcome records until storage recovers."
 
-    alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Alerts.emit_custom/3)
+    alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Signal.agent_alert/3)
 
     _ =
       alert_fun.("recent_merge_store.persistence_failed", message,
