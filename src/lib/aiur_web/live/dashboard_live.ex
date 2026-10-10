@@ -14,9 +14,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
-  alias Aiur.Commands
   alias Aiur.Conversation.History, as: ConversationHistory
-  alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
@@ -25,7 +23,6 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.ProviderMeterRefresh
-  alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
@@ -34,7 +31,6 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.Endpoint
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
-  alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
     AddAgentModal,
@@ -106,16 +102,8 @@ defmodule AiurWeb.DashboardLive do
     socket = NavState.assign_nav(socket)
     connected = connected?(socket)
 
-    if connected do
-      :ok = ObservabilityPubSub.subscribe()
-      :ok = Commands.subscribe()
-      :ok = CurrentRunMembership.subscribe()
-      :ok = CurrentRunSummary.subscribe()
-      :ok = CurrentRunOutcomeSnapshot.subscribe()
-      :ok = TicketActivity.subscribe()
-      :ok = OpenTicketSource.subscribe()
-      :ok = subscribe_ticket_context_resets()
-    end
+    socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
+    if connected, do: subscribe_ticket_context_resets()
 
     payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
 
