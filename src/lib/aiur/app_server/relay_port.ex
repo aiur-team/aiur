@@ -7,6 +7,7 @@ defmodule Aiur.AppServer.RelayPort do
   alias Aiur.Config.Paths
 
   @runtime_env ~w(PATH HOME USER LOGNAME SHELL TMPDIR LANG LANGUAGE LC_ALL LC_CTYPE TZ TERM
+                  MIX_ENV MIX_ARCHIVES MIX_HOME HEX_HOME
                   XDG_CONFIG_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
                   CODEX_HOME CLAUDE_CONFIG_DIR SSH_AUTH_SOCK HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
                   http_proxy https_proxy all_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR
