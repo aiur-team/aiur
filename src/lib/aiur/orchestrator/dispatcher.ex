@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{PausedCandidatePoll, ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -132,7 +132,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp start_candidate_poll(%State{globally_paused: true} = state),
-    do: state |> dispatch_candidate_poll() |> finish_poll_cycle()
+    do: PausedCandidatePoll.start(state, &default_candidate_fetch/1, &note_candidate_fetch_success/1, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
 
   defp start_candidate_poll(state) do
     cache = candidate_list_cache(state)
@@ -546,8 +546,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   @doc false
-  @spec fetch_candidate_issues(State.t(), keyword()) ::
-          {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
+  @spec fetch_candidate_issues(State.t(), keyword()) :: {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
   def fetch_candidate_issues(state, opts \\ [])
 
   def fetch_candidate_issues(%State{globally_paused: true} = state, _opts), do: {:paused, state}

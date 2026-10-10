@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
   alias Aiur.ModelAvailability
-  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth, TrackerTasks}
+  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, PausedCandidatePoll, Slots, State, StatusReport, TrackerHealth, TrackerTasks}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   test "successful validation clears a previous decline in both execution modes" do
@@ -1318,49 +1318,45 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert next.released_claims == %{"wired-strand" => %{cause: :tracker_retry_exhausted}}
   end
 
-  test "a global pause stops candidate authorization while monitoring continues" do
+  test "a global pause refreshes open issue observations without authorizing dispatch" do
     parent = self()
-    state = %State{globally_paused: true, candidate_snapshot_fresh?: true}
+    candidate = issue("paused-observation")
 
-    fetch_fun = fn _cache ->
-      send(parent, :dispatch_authorization_requested)
-      {:ok, [], %{}}
+    fetch = fn _cache ->
+      send(parent, :candidate_list_fetched)
+      {:ok, [candidate], %{etag: "observed"}}
     end
 
-    monitor = fn current_state ->
-      Dispatcher.monitor_without_candidates(current_state,
-        refresh_running_fun: fn monitored_state ->
-          send(parent, :running_states_refreshed)
-          monitored_state
-        end,
-        scan_commands_fun: fn monitored_state ->
-          send(parent, :commands_scanned)
-          monitored_state
-        end,
-        stop_closed_pr_agents_fun: fn monitored_state ->
-          send(parent, :closed_pr_agents_stopped)
-          monitored_state
-        end,
-        notify_dashboard_fun: fn _monitored_state ->
-          send(parent, :dashboard_notified)
-          :ok
-        end
+    state =
+      PausedCandidatePoll.start(
+        %State{globally_paused: true, candidate_snapshot_fresh?: false, poll_interval_ms: 1_000},
+        fetch,
+        &%{&1 | candidate_snapshot_fresh?: true},
+        & &1,
+        & &1,
+        & &1
       )
+
+    [{ref, _task}] = Enum.to_list(state.tracker_tasks)
+
+    receive do
+      :candidate_list_fetched -> :ok
+    after
+      1_000 -> flunk("paused candidate fetch did not start")
     end
 
-    assert ^state =
-             Dispatcher.dispatch_candidate_poll(state,
-               fetch_candidate_issues_fun: fn current_state ->
-                 Dispatcher.fetch_candidate_issues(current_state, fetch_fun: fetch_fun)
-               end,
-               monitor_without_candidates_fun: monitor
-             )
+    result =
+      receive do
+        {^ref, result} -> result
+      after
+        1_000 -> flunk("paused candidate fetch did not complete")
+      end
 
-    refute_received :dispatch_authorization_requested
-    assert_received :running_states_refreshed
-    assert_received :commands_scanned
-    assert_received :closed_pr_agents_stopped
-    assert_received :dashboard_notified
+    assert {:handled, next} = TrackerTasks.result(state, ref, result)
+    assert next.candidate_snapshot_fresh?
+    assert next.ci_lifecycle.poll_cache.candidate_list_cache == %{etag: "observed"}
+    assert next.last_polled_issues == %{}
+    refute Map.has_key?(next.running, candidate.id)
   end
 
   test "a failed GitHub candidate refresh hides stale idle labels but preserves recovery data" do
