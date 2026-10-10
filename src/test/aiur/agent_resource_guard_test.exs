@@ -45,11 +45,18 @@ defmodule Aiur.AgentResourceGuardTest do
         entries_fun: fn -> [{{:os_pid, 100}, :agent, %{comm: "codex"}}] end,
         children_fun: children,
         process_info_fun: process_info,
+        orphans_fun: fn -> [] end,
+        sample_fun: fn _pid -> nil end,
+        cwd_fun: fn 100 -> "/ws/aiur/42" end,
+        alert_fun: fn topic, alert -> send(test_pid, {:alert, topic, alert}) end,
         kill_fun: fn pid -> send(test_pid, {:killed, pid}) end
       )
 
     expected_killed = Enum.to_list(204..216)
-    assert result == [%{root_pid: 100, cap: 3, killed: expected_killed}]
+    assert result == [%{root_pid: 100, cap: 3, killed: expected_killed, workspace: "/ws/aiur/42"}]
+
+    assert_receive {:alert, "system.agent.synthetic_load_cap", alert}, 1000
+    assert alert[:message] =~ "Agent workspace /ws/aiur/42 exceeded the synthetic load cap of 3; killed 13 "
 
     for pid <- expected_killed do
       assert_receive {:killed, ^pid}, 1000
@@ -89,6 +96,10 @@ defmodule Aiur.AgentResourceGuardTest do
         interval_ms: 60_000,
         enforce_opts: [
           cap: 1,
+          orphans_fun: fn ->
+            send(test_pid, :orphans_scanned)
+            []
+          end,
           entries_fun: fn ->
             send(test_pid, :guard_enforced)
             []
@@ -101,5 +112,11 @@ defmodule Aiur.AgentResourceGuardTest do
     send(pid, :tick)
     assert_receive :guard_enforced, 1000
     assert Process.alive?(pid)
+
+    # The host-wide orphan scan is throttled; enforcement still runs every tick.
+    send(pid, :tick)
+    assert_receive :guard_enforced, 1000
+    assert_receive :orphans_scanned, 1000
+    refute_receive :orphans_scanned, 50
   end
 end
