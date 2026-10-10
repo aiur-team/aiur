@@ -4,6 +4,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
   alias Aiur.AgentEnvironment
   alias Aiur.AgentEnvironment.GitIdentity
   alias Aiur.Config.Schema
+  alias Aiur.Opencode.Server
   alias Aiur.Workspace.{AttributionGuard, Provisioner}
 
   @identity {"Apple Kid", "its.applekid@gmail.com"}
@@ -70,7 +71,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
   end
 
   test "an opencode serve launches with the identity" do
-    launch_env = Aiur.Opencode.Server.launch_env("/workspace", git_identity: @identity)
+    launch_env = Server.launch_env("/workspace", git_identity: @identity)
 
     for name <- ~w(GIT_AUTHOR_NAME GIT_COMMITTER_NAME), do: assert({String.to_charlist(name), ~c"Apple Kid"} in launch_env)
     for name <- ~w(GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL), do: assert({String.to_charlist(name), ~c"its.applekid@gmail.com"} in launch_env)
