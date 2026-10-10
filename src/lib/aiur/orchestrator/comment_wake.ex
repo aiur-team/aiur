@@ -1772,6 +1772,8 @@ defmodule Aiur.Orchestrator.CommentWake do
        ) do
     case outcome do
       {"done", :ok} ->
+        Aiur.Alerts.StaleNotClosed.resolve(identifier)
+
         if TrackerTasks.same_runner?(
              State.find_running_by_identifier(current.running, identifier),
              entry
@@ -1795,7 +1797,6 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       {_, {:error, reason}} ->
         Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
-
         emit_merge_terminal_write_failed_alert(identifier, reason)
         current
 
