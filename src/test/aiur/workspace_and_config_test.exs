@@ -2260,7 +2260,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Enum.count(bad_effort.errors) == 2
 
     assert Enum.any?(bad_effort.errors, fn
-             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "high" for backend "claude")
+             {:routing, {msg, []}} -> msg =~ ~s(backend "claude" accepts no effort segment; drop it and write "claude:sonnet")
              _ -> false
            end)
 

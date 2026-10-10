@@ -46,9 +46,37 @@ defmodule Aiur.Config.Schema.AgentValidation do
   def normalize_agent_routing(nil), do: %{}
 
   def normalize_agent_routing(routing) when is_map(routing) do
-    Enum.reduce(routing, %{}, fn {level, backend}, acc ->
-      Map.put(acc, normalize_routing_level(level), to_string(backend))
+    Enum.reduce(routing, %{}, fn {level, value}, acc ->
+      Map.put(acc, normalize_routing_level(level), normalize_routing_entry(value))
     end)
+  end
+
+  # A list value names every route a level allows under
+  # `account_selection: headroom` (#3960); a single string is one route.
+  defp normalize_routing_entry(values) when is_list(values), do: Enum.map(values, &to_string/1)
+  defp normalize_routing_entry(value), do: to_string(value)
+
+  @doc """
+  Splits list-valued `agent.routing` entries (#3960). `routing` keeps one
+  string per level, the list's first route, so every reader of the routing
+  table and every policy other than `headroom` behaves as before.
+  `routing_candidates` keeps every level's full route list for the headroom
+  selector (`Aiur.CodingAgent.HeadroomDispatch`).
+  """
+  @spec split_routing_candidates(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  def split_routing_candidates(changeset) do
+    case get_field(changeset, :routing) do
+      routing when is_map(routing) and map_size(routing) > 0 ->
+        candidates = Map.new(routing, fn {level, value} -> {level, List.wrap(value)} end)
+        primary = Map.new(candidates, fn {level, values} -> {level, List.first(values)} end)
+
+        changeset
+        |> Ecto.Changeset.put_change(:routing, primary)
+        |> Ecto.Changeset.put_change(:routing_candidates, candidates)
+
+      _ ->
+        changeset
+    end
   end
 
   @doc """
@@ -147,6 +175,15 @@ defmodule Aiur.Config.Schema.AgentValidation do
     end)
   end
 
+  defp routing_errors(field, _known, _level, []),
+    do: [{field, "a routing list must name at least one route, e.g. [\"claude:sonnet\", \"codex:gpt-5.5:high\"]"}]
+
+  defp routing_errors(field, known, level, values) when is_list(values) do
+    if values == Enum.uniq(values),
+      do: values |> Enum.flat_map(&routing_errors(field, known, level, &1)) |> Enum.take(1),
+      else: [{field, "routing list for complexity #{inspect(level)} must not repeat a route: #{inspect(values)}"}]
+  end
+
   defp routing_errors(field, known, level, value) do
     cond do
       not is_integer(level) or level <= 0 ->
@@ -171,24 +208,31 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   defp invalid_routing_effort_error(field, value) do
     backend = routing_effort_backend(value)
-    [{field, "invalid effort #{inspect(RoutingValue.routing_effort(value))} for backend #{inspect(backend)}; " <> effort_hint(backend)}]
-  end
 
-  # `valid efforts: []` read as a bug; say plainly that the backend takes no
-  # effort segment, and name the remote transport when that one does (#3961).
-  defp effort_hint(backend) do
     case Aiur.CodingAgent.efforts(backend) do
-      [] -> "#{inspect(backend)} takes no effort segment, so drop it (#{backend}:<model>)" <> remote_effort_hint(backend)
-      efforts -> "valid efforts: #{inspect(efforts)}"
+      # Claude takes no effort segment today (#3961). Say so plainly instead of
+      # printing an empty list of valid efforts.
+      [] ->
+        [
+          {field,
+           "invalid route #{inspect(value)}: backend #{inspect(backend)} accepts no effort segment; " <>
+             "drop it and write #{inspect(value |> RoutingValue.strip_remote_flag() |> drop_effort_segment())}"}
+        ]
+
+      efforts ->
+        [
+          {field,
+           "invalid effort #{inspect(RoutingValue.routing_effort(value))} for backend #{inspect(backend)} in #{inspect(value)}; " <>
+             "valid efforts: #{inspect(efforts)}"}
+        ]
     end
   end
 
-  defp remote_effort_hint(backend) do
-    with true <- Aiur.CodingAgent.remote_control?(backend),
-         [_ | _] = efforts <- Aiur.CodingAgent.efforts(routing_effort_backend(backend <> "+remote")) do
-      ", or append +remote (#{backend}:<model>:<effort>+remote), which accepts #{Enum.join(efforts, ", ")}"
-    else
-      _no_remote_efforts -> ""
+  defp drop_effort_segment(value) do
+    case String.split(value, ":", parts: 3) do
+      [backend, "" | _] -> backend
+      [backend, model | _] -> backend <> ":" <> model
+      [backend] -> backend
     end
   end
 

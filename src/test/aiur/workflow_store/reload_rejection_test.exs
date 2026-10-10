@@ -36,8 +36,7 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
     log =
       capture_log(fn ->
         assert {:error, {:invalid_workflow_config, message}} = WorkflowStore.force_reload()
-        assert message =~ ~s(invalid effort "medium" for backend "claude")
-        assert message =~ "takes no effort segment"
+        assert message =~ ~s(backend "claude" accepts no effort segment)
       end)
 
     assert log =~ "keeping last known good configuration"
@@ -46,7 +45,7 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
     assert Config.settings!().agent.routing == %{3 => "claude:sonnet"}
     assert %{path: ^path, message: shown} = ReloadRejection.current()
     assert capture_io(&ReloadRejection.print_status/0) =~ "CONFIG RELOAD REJECTED path=#{path}"
-    assert shown =~ ~s(invalid effort "medium")
+    assert shown =~ ~s(invalid route "claude:sonnet:medium")
     assert alert?("system.config.reload_rejected", true)
 
     write_workflow_file!(path, agent_routing: %{3 => "claude:opus"})

@@ -43,7 +43,9 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :workspace_owner,
     :workspace_generation,
     :workspace_phase,
-    :complexity
+    :complexity,
+    # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
+    :dispatch_selection
   ]
 
   @doc "Creates an opaque identity for one dispatched worker attempt."
@@ -61,14 +63,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   @doc "Records one lifecycle start, end, or point without propagating failures."
-  @spec record(
-          String.t(),
-          String.t() | nil,
-          atom() | String.t(),
-          atom() | String.t(),
-          map(),
-          keyword()
-        ) :: :ok
+  @spec record(String.t(), String.t() | nil, atom() | String.t(), atom() | String.t(), map(), keyword()) :: :ok
   def record(ticket, attempt_id, event, boundary, metadata \\ %{}, opts \\ [])
 
   def record(ticket, attempt_id, event, boundary, metadata, opts)
