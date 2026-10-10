@@ -25,6 +25,20 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
     Map.merge(base, record)
   end
 
+  @spec validate(map(), number() | nil, pos_integer()) :: map()
+  def validate(envelope, target, schedulers) do
+    max_age = Config.load_resume_max_age_seconds()
+    stamp = envelope[:recorded_at]
+    age = if match?(%DateTime{}, stamp), do: DateTime.diff(DateTime.utc_now(), stamp)
+
+    invalid? =
+      is_nil(target) or max_age == 0 or
+        (is_integer(age) and (age < 0 or age > max_age)) or
+        (is_integer(envelope[:record_schedulers]) and envelope.record_schedulers != schedulers)
+
+    if invalid?, do: Map.drop(envelope, [:safe_level, :resume_level, :recorded_at, :record_schedulers, :safe_candidate, :safe_streak, :record_dirty?, :persisted_at_ms]), else: envelope
+  end
+
   @spec level(map(), number() | nil) :: pos_integer() | nil
   def level(_envelope, nil), do: nil
   def level(envelope, _target), do: if(Config.load_resume_max_age_seconds() > 0, do: Map.get(envelope, :resume_level))
@@ -36,7 +50,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   def observe(envelope, occupied, effective, previous, _load, _target, overload) do
     cond do
       overload >= 3 and is_integer(previous) and effective < previous ->
-        lower(envelope, effective) |> reset()
+        lower(envelope, effective) |> Map.put(:sustained_decrease?, true) |> reset()
 
       overload >= 3 or occupied == 0 ->
         reset(envelope)
@@ -93,7 +107,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
 
     case EnvelopeStore.save(state.load_envelope_state.safe_level, schedulers, now) do
       :ok ->
-        envelope = Map.merge(state.load_envelope_state, %{persisted_at_ms: now_ms, recorded_at: now, record_dirty?: false})
+        envelope = Map.merge(state.load_envelope_state, %{persisted_at_ms: now_ms, recorded_at: now, record_schedulers: schedulers, record_dirty?: false})
         %{state | load_envelope_state: envelope}
 
       {:error, reason} ->
@@ -104,6 +118,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
 
   @spec status(map(), pos_integer(), pos_integer()) :: map()
   def status(envelope, effective, cap) do
+    envelope = validate(envelope, Config.target_load_average(), System.schedulers_online())
     resume = envelope[:resume_level]
     stamp = envelope[:recorded_at]
 

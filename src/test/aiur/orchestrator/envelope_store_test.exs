@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.EnvelopeStoreTest do
   test "round trip resumes only recent same-scheduler records", %{now: now} do
     assert EnvelopeStore.load(21_600, 16, now) == nil
     assert :ok = EnvelopeStore.save(7, 16, now)
-    assert EnvelopeStore.load(21_600, 16, now) == %{safe_level: 7, resume_level: 7, recorded_at: now}
+    assert EnvelopeStore.load(21_600, 16, now) == %{safe_level: 7, resume_level: 7, recorded_at: now, record_schedulers: 16}
     assert EnvelopeStore.load(21_600, 16, DateTime.add(now, 21_601)) == nil
     assert EnvelopeStore.load(21_600, 8, now) == nil
     assert EnvelopeStore.load(0, 16, now) == nil

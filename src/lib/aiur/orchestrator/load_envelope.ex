@@ -79,7 +79,7 @@ defmodule Aiur.Orchestrator.LoadEnvelope do
         cpu_snapshot,
         queued_work?
       ) do
-    envelope_state = state.load_envelope_state
+    envelope_state = EnvelopeResume.validate(state.load_envelope_state, target, schedulers)
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
     overload_samples = SustainedLoad.count(SystemLoad.gate_signal(load, cpu_headroom, schedulers), target, schedulers, envelope_state)
 
@@ -91,6 +91,7 @@ defmodule Aiur.Orchestrator.LoadEnvelope do
         %{
           target: target,
           resume_level: EnvelopeResume.level(envelope_state, target),
+          sustained_decrease?: Map.get(envelope_state, :sustained_decrease?, false),
           overload_samples: overload_samples,
           schedulers: schedulers,
           static_limit: Slots.max_concurrent_agent_limit(state),
@@ -174,7 +175,7 @@ defmodule Aiur.Orchestrator.LoadEnvelope do
         {next, _decrease_ms} = fast_ramp(effective, last_decrease_ms, min(resume, options.static_limit))
         {next, last_decrease_ms}
 
-      is_integer(resume) and is_nil(last_decrease_ms) and load < options.target * options.schedulers / 2 ->
+      is_integer(resume) and not Map.get(options, :sustained_decrease?, false) and is_nil(last_decrease_ms) and load < options.target * options.schedulers / 2 ->
         fast_ramp(effective, last_decrease_ms, options.static_limit)
 
       recovering? ->

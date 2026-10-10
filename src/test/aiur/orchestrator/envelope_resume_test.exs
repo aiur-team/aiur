@@ -53,6 +53,51 @@ defmodule Aiur.Orchestrator.EnvelopeResumeTest do
     assert DispatchPolicy.update_load_envelope(state, 0.0, nil, 64, 1, :unavailable, true).effective_concurrent_agents == 24
   end
 
+  test "expired and changed-scheduler hints revert to additive growth at runtime" do
+    for {stamp, schedulers} <- [{DateTime.add(DateTime.utc_now(), -21_601), 64}, {DateTime.utc_now(), 8}] do
+      state = %{initial(7) | effective_concurrent_agents: 2}
+      state = %{state | load_envelope_state: Map.merge(state.load_envelope_state, %{recorded_at: stamp, record_schedulers: schedulers, safe_level: 7, bootstrap_complete?: true})}
+      result = sample(state, 48.0, 1)
+      assert result.effective_concurrent_agents == 3
+      refute Map.has_key?(result.load_envelope_state, :safe_level)
+      refute Map.has_key?(result.load_envelope_state, :resume_level)
+      assert Aiur.Orchestrator.EnvelopeResume.status(state.load_envelope_state, 2, 16).resume_level == nil
+    end
+  end
+
+  test "disabling resume at runtime removes the hint and its demonstration streak" do
+    path = Workflow.workflow_file_path()
+    File.write!(path, String.replace(File.read!(path), "agent:", "agent:\n  load_resume_max_age_seconds: 0"))
+    Aiur.WorkflowStore.force_reload()
+    assert Aiur.Config.load_resume_max_age_seconds() == 0
+    state = %{initial(7) | effective_concurrent_agents: 2}
+    state = put_in(state.load_envelope_state[:safe_streak], 4)
+    result = sample(state, 48.0, 1)
+    assert result.effective_concurrent_agents == 3
+    refute Map.has_key?(result.load_envelope_state, :resume_level)
+    # Tracking restarts from the current occupancy after the old streak is removed.
+    refute Map.has_key?(result.load_envelope_state, :safe_level)
+    assert Aiur.Orchestrator.EnvelopeResume.status(state.load_envelope_state, 2, 16).resume_level == nil
+  end
+
+  test "above-record probing stays additive after recovery reaches a cap then the cap rises" do
+    state = %{initial(7) | max_concurrent_agents: 8, effective_concurrent_agents: 8}
+    backed_off = Enum.reduce(1..3, state, fn i, s -> sample(s, 80.0, i) end)
+    assert backed_off.effective_concurrent_agents == 4
+    assert backed_off.load_envelope_state.sustained_decrease?
+
+    recovered =
+      Enum.reduce(4..6, backed_off, fn i, current ->
+        cpu = %{total: i * 1000, idle: i * 800, runnable: 1}
+        DispatchPolicy.update_load_envelope(current, 25.0, 1.0, 64, i * 120_000, cpu, true)
+      end)
+
+    assert recovered.effective_concurrent_agents == 8
+    assert recovered.load_envelope_state.last_decrease_ms == nil
+    recovered = %{recovered | session_max_concurrent_agents: 16}
+    assert sample(recovered, 25.0, 6).effective_concurrent_agents == 9
+  end
+
   defp initial(resume) do
     state = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1}
     put_in(state.load_envelope_state[:resume_level], resume)

@@ -28,7 +28,7 @@ defmodule Aiur.Orchestrator.EnvelopeStore do
        when is_integer(level) and level >= 1 and is_binary(stamp) do
     with {:ok, recorded_at, _offset} <- DateTime.from_iso8601(stamp),
          age when age >= 0 and age <= max_age <- DateTime.diff(now, recorded_at) do
-      {:ok, %{safe_level: level, resume_level: level, recorded_at: recorded_at}}
+      {:ok, %{safe_level: level, resume_level: level, recorded_at: recorded_at, record_schedulers: schedulers}}
     else
       _ -> :none
     end

@@ -71,6 +71,7 @@ defmodule Aiur.Orchestrator.EnvelopeRecordTest do
     assert reached.resume_recorded_ago_seconds == nil
   end
 
+  # Future regression guard: an unproven envelope must not manufacture a saved hint.
   test "sustained overload without a demonstrated record never creates a resume seed" do
     state = %State{max_concurrent_agents: 16, effective_concurrent_agents: 8}
     result = Enum.reduce(1..3, state, fn i, s -> DispatchPolicy.update_load_envelope(s, 80.0, 1.0, 64, i * 120_000, :unavailable, true) end)
