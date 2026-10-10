@@ -5,6 +5,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   alias Aiur.AgentRunner.{DispatchSelectionEvent, SessionLifecycle}
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.Config.Schema
   alias Aiur.Issue
 
   @now ~U[2026-10-10 06:00:00Z]
@@ -199,7 +200,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   describe "config" do
     test "account_selection: headroom and list routing values parse; other readers see the first route" do
       assert {:ok, %{agent: agent}} =
-               Aiur.Config.Schema.parse(%{
+               Schema.parse(%{
                  "agent" => %{
                    "priority" => ["claude", "codex"],
                    "account_selection" => "headroom",
@@ -212,7 +213,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert agent.routing_candidates == %{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => ["claude:opus"]}
 
       assert {:error, {:invalid_workflow_config, message}} =
-               Aiur.Config.Schema.parse(%{"agent" => %{"priority" => ["claude"], "routing" => %{"3" => "claude:sonnet:medium"}}})
+               Schema.parse(%{"agent" => %{"priority" => ["claude"], "routing" => %{"3" => "claude:sonnet:medium"}}})
 
       assert message =~ "accepts no effort segment"
     end

@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, DispatchSelectionEvent, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, Telemetry}
+  alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
@@ -691,8 +692,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     # Rejoin the prior agent thread across an aiur restart instead of cold-
     # starting a fresh conversation that re-discovers the work (issue #378).
-    # Only a resumable, local backend with a persisted handle qualifies; any
-    # miss degrades silently to a clean start.
+    # Only a resumable, local backend with a persisted handle qualifies; any miss degrades silently to a clean start.
     resume_thread_id = Keyword.get(opts, :resume_thread_id) || SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
 
     session_opts =
@@ -706,8 +706,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         attempt_id: Keyword.get(opts, :telemetry_attempt_id)
       ]
       |> maybe_put_rc_name(rc?, issue)
-      |> maybe_put_account(session_backend, config_for_accounts(opts), Aiur.CodingAgent.HeadroomDispatch.account_opts(issue, session_backend, opts))
-      |> Aiur.CodingAgent.HeadroomDispatch.put_selection_reason(issue)
+      |> maybe_put_account(session_backend, config_for_accounts(opts), HeadroomDispatch.account_opts(issue, session_backend, opts))
+      |> HeadroomDispatch.put_selection_reason(issue)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     {session_backend, rc?, session_opts}

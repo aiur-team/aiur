@@ -513,21 +513,21 @@ defmodule Aiur.CodingAgent do
 
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
   def select_for_dispatch(%Issue{} = issue, opts \\ []) do
-    cond do
-      # `account_selection: headroom` scores every allowed backend and account
-      # by remaining usage (#3960). A pin still pins; headroom picks its account.
-      HeadroomDispatch.enabled?(opts) ->
-        HeadroomDispatch.select(issue, &eligible_routes(Keyword.put(opts, :backends, &1)), opts)
+    # `account_selection: headroom` scores every allowed backend and account by
+    # remaining usage (#3960). A pin still pins; headroom picks its account.
+    if HeadroomDispatch.enabled?(opts),
+      do: HeadroomDispatch.select(issue, &eligible_routes(Keyword.put(opts, :backends, &1)), opts),
+      else: select_in_priority_order(issue, opts)
+  end
 
+  defp select_in_priority_order(issue, opts) do
+    cond do
       # A pin is intent: an operator's `model:` label, or the backend a
       # rate-limit fallback has already moved this claim onto.
       is_binary(issue.selected_backend) or override_backend(issue) ->
         {:ok, issue}
 
-      # A backend the `complexity:` routing chose is not a pin, it is a
-      # default, and a default onto an exhausted account is a dispatch that can
-      # only refuse. Park the claim the way an exhausted priority chain does:
-      # `model_fallback_waiting` releases it as soon as the backend recovers.
+      # A routed backend is a default, not a pin: a default onto an exhausted account can only refuse.
       backend = Keyword.get_lazy(opts, :routing_backend, fn -> routing_backend(issue) end) ->
         if ModelAvailability.available?(backend, opts),
           do: {:ok, issue},

@@ -1,7 +1,7 @@
-defmodule Aiur.ControlCli.DispatchAccountTest do
+defmodule Aiur.ControlCLI.DispatchAccountTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.ControlCli.DispatchAccount
+  alias Aiur.ControlCLI.DispatchAccount
 
   test "names the backend account and the headroom scores" do
     row = %{backend: "claude", account: "everdred", account_selection_reason: "headroom: claude/everdred=64%; alternatives codex=5%"}

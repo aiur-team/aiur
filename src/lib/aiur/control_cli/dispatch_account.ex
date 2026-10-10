@@ -1,4 +1,4 @@
-defmodule Aiur.ControlCli.DispatchAccount do
+defmodule Aiur.ControlCLI.DispatchAccount do
   @moduledoc """
   The account suffix that `aiur status` and `aiur agents` print for a running
   row: which backend account the session runs on and, for a headroom dispatch
