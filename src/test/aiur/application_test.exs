@@ -4,6 +4,7 @@ defmodule Aiur.ApplicationTest do
   import ExUnit.CaptureLog
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Application.StartupChecks
   alias Aiur.Identity.Machine
 
   defmodule SuccessStubDistribution do
@@ -60,7 +61,7 @@ defmodule Aiur.ApplicationTest do
   end
 
   test "logs the resolved base branch exactly once at info level" do
-    log = capture_log(fn -> assert :ok = Aiur.Application.StartupChecks.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
+    log = capture_log(fn -> assert :ok = StartupChecks.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
 
     assert length(Regex.scan(~r/aiur_boot phase=config base_branch="develop"/, log)) == 1
   end
