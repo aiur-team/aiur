@@ -971,7 +971,7 @@ defmodule Aiur.GitHub.Config do
   end
 
   defp run_pgrep(pid) do
-    System.cmd("pgrep", ["-P", Integer.to_string(pid)], stderr_to_stdout: true)
+    Aiur.ProcessExhaustion.cmd("pgrep", ["-P", Integer.to_string(pid)], stderr_to_stdout: true)
   end
 
   defp parse_pids(out) when is_binary(out) do
