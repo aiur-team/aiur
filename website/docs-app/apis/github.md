@@ -716,17 +716,11 @@ Human-review state writes compare the open PR with the configured base. Stale he
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
-When the base branch lands through a merge queue, or the PR is already in it,
-a stale head is refused only for a `CONFLICTING` verdict: the queue tests the
-merge before it lands, and a queued branch rejects pushes. The file comparisons
-are skipped. A comment does not move an approved, queued PR to rework; that
-check is one GraphQL read attributed to `rework_gate_merge_queue`.
+When the base branch lands through a merge queue, or the PR is already in it, a stale head is refused only for a `CONFLICTING` verdict and the file comparisons are skipped: the queue tests the merge before it lands. A comment does not move an approved, queued PR to rework (one GraphQL read, `rework_gate_merge_queue`).
 
-Without a merge queue, a stale head passes when it has no conflicts and no changed-file overlap with
-the base since their merge base. Conflicts or overlap return `stale_review_base`.
-GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability;
-those observations permit disjoint paths. A matching head's `CONFLICTING` verdict
-blocks the write.
+Otherwise a stale head passes when it has no conflicts and no changed-file overlap with the base since their merge base.
+Conflicts or overlap return `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating
+mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
 
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
