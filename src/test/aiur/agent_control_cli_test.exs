@@ -3062,10 +3062,10 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "Orchestrator mailbox="
 
       # The current function is the load-bearing half: it names *where* the
-      # process is parked. A suspended gen_server reports `:waiting` in
-      # `:sys.suspend_loop/6`, which pinpoints the stall the same way the live
-      # capture in #1731 pinpointed `:gen.do_call/4`.
-      assert output =~ "status=waiting in :sys.suspend_loop/6"
+      # process is parked in `:sys.suspend_loop/6`, as #1731 pinpointed
+      # `:gen.do_call/4`. Status is unasserted: the query's own message can wake
+      # the process to scan its mailbox, so it may read `running` (#3891).
+      assert output =~ ~r/status=\w+ in :sys\.suspend_loop\/6/
       assert output =~ "means one process is stuck, not that the host is busy"
     after
       :sys.resume(pid)
