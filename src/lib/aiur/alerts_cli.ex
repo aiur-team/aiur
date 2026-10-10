@@ -28,7 +28,9 @@ defmodule Aiur.AlertsCLI do
   def run(argv: argv) do
     case parse(argv) do
       {:ok, opts} -> run(opts)
-      {:error, msg} -> IO.puts(:stderr, msg) && 64
+      {:error, msg} ->
+        IO.puts(:stderr, msg)
+        64
     end
   end
 

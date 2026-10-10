@@ -1002,7 +1002,7 @@ test("alerts supports needs-attention control rpc filter", () => {
   expect(result.status).toBe(0);
 
   const capture = readFileSync(captureFile, "utf8");
-  expect(capture).toContain("Aiur.AgentControlCLI.alerts(needs_attention: true)");
+  expect(capture).toContain('Aiur.AgentControlCLI.alerts(argv: ["--needs-attention"])');
 });
 
 test("set max-agents rejects invalid values before rpc", () => {
