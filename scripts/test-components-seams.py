@@ -63,7 +63,7 @@ check('lifecycle_exception_child_module_fails', 'Aiur.Orchestrator.TicketTransit
 check('ordinary_seam_cannot_override_forbid', 'Aiur.Orchestrator.TicketTransition.write_state()', 1,
       'R-forbid build-queue -> Aiur.Orchestrator.TicketTransition:', source_component='build-queue',
       path='src/lib/aiur/build_queue/write_protocol.ex',
-      change=lambda m: m['seams'][-1].pop('allow_forbidden'))
+      change=lambda m: next(s for s in m['seams'] if s['from'] == 'build-queue' and s['to_module'] == 'Aiur.Orchestrator.TicketTransition').pop('allow_forbidden'))
 check('hints_seam_passes', 'Aiur.BuildQueue.Hints.rank("1")', message='R-optional: 0')
 check('claim_probe_behaviour_seam', '@behaviour Aiur.BuildQueue.ClaimProbe', message='R-optional: 0',
       path='src/lib/aiur/orchestrator/other.ex')
