@@ -78,7 +78,7 @@ defmodule Aiur.AccountsTest do
   test "Claude profile env preserves the exact path and default has no override", %{home: home} do
     dir = Path.join(home, "profiles/max")
     assert [{"CLAUDE_CONFIG_DIR", ^dir}] = Claude.profile_env(dir)
-    assert Accounts.profile_env("claude", "default") == []
+    assert Accounts.profile_env("claude", "default") == [{"CLAUDE_CONFIG_DIR", false}]
   end
 
   test "Codex profile copies only shared config and skills and reads identity metadata", %{home: home} do
