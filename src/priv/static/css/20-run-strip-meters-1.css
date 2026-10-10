@@ -1,0 +1,285 @@
+/* ---- run summary / vendor usage strip (Units page top) ---- */
+.run-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.rs-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+/* The compact run summary lives inside the Units pane (section-card), so it
+   embeds in that pane instead of drawing its own bordered box. */
+.rs-block.rs-summary-compact {
+  padding: 0.85rem 0 0;
+  margin-bottom: 1.15rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The models pane spans two of the strip's three columns and holds every model
+   provider's progress bars in one place. GitHub keeps its own one-column card,
+   so the pair fills the row without a fourth pane wrapping below it. */
+.rs-models {
+  grid-column: span 2;
+}
+
+.rs-apis-rows {
+  --rs-provider-row-height: 1.2rem;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem 0.8rem;
+  min-width: 0;
+}
+
+/* The APIS pane holds one row per non-model API (GitHub, and ElevenLabs when an
+   account is configured), stacked with the same rhythm the models pane uses so
+   the two panes read as one strip. */
+/* Provider wrappers disappear into the parent grid so every identity shares
+   one intrinsic-width column and every meter starts at the same x-position.
+   There is intentionally no heading above the identity track: the logos and
+   names explain it, while the rest of each pane belongs to the meters. */
+.rs-provider-row {
+  display: contents;
+}
+
+.rs-provider-row > .rs-head {
+  align-items: center;
+  align-self: start;
+  flex-wrap: nowrap;
+  height: var(--rs-provider-row-height);
+  min-width: 0;
+}
+
+.rs-provider-row > .rs-provider-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+/* Top-aligned, not centred: the stat block on a provider card is taller than
+   the name, and centring pushed the logo and name down so they no longer lined
+   up with Summary's. */
+.rs-head {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.rs-logo {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
+  object-fit: contain;
+}
+
+/* The GitHub mark ships as a black glyph; the dashboard's default theme is
+   dark, so invert it to a light glyph. The light theme shows the native mark. */
+.rs-github-mark,
+.rs-elevenlabs-mark {
+  filter: invert(1);
+}
+
+html[data-theme="light"] .rs-github-mark,
+html[data-theme="light"] .rs-elevenlabs-mark {
+  filter: none;
+}
+
+.rs-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  line-height: 1.2rem;
+  white-space: nowrap;
+}
+
+.rs-head-stats {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  min-width: 0;
+}
+
+.rs-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.04rem;
+  min-width: 0;
+}
+
+.rs-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-stat-val {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  /* Last resort once wrapping is exhausted: a single long word still has to
+     break rather than push through the card border. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rs-stat-spend {
+  color: var(--good-ink);
+}
+
+.rs-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* A provider meter is a standard progress bar with its label and meta on the
+   line directly above the bar. The label line and the thin bar share the same
+   fixed row height, so restoring the label-above-bar design does not expand the
+   row: the label rides close above the bar inside the one logo-height line. */
+.rs-provider-row .rs-limit {
+  display: grid;
+  gap: 0.1rem;
+  height: var(--rs-provider-row-height);
+  min-width: 0;
+}
+
+.rs-api .rs-limit {
+  grid-template:
+    "label meta" minmax(0, 1fr)
+    "meter meter" var(--rs-meter-height, var(--progress-bar-height)) /
+    minmax(0, 1fr) 9rem;
+}
+
+.rs-provider-row .rs-meter {
+  grid-area: meter;
+  align-self: end;
+  width: 100%;
+  height: var(--rs-meter-height, var(--progress-bar-height));
+}
+
+.rs-provider-row .rs-limit-label {
+  grid-area: label;
+  align-self: start;
+}
+
+.rs-provider-row .rs-limit-meta {
+  grid-area: meta;
+  justify-self: end;
+  align-self: start;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-provider-row .rs-limit-label,
+.rs-provider-row .rs-limit-meta,
+.rs-provider-row .rs-stat-label,
+.rs-provider-row .rs-stat-val {
+  line-height: 1;
+}
+
+.rs-provider-row .rs-limit-meta {
+  white-space: nowrap;
+}
+
+.rs-limit-meta-compact {
+  display: none;
+}
+
+.rs-api .rs-limit-meta-wide {
+  display: none;
+}
+
+.rs-api .rs-limit-meta-compact {
+  display: inline;
+}
+
+.rs-limit-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.28rem;
+}
+
+.rs-limit-label,
+.rs-stat-label {
+  white-space: nowrap;
+}
+
+.rs-limit-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-limit-meta {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* This row is intentionally compressed to the same one-line density as Core
+   and GraphQL; the invoice amount lives in the provider head above it. */
+.rs-elevenlabs .rs-limit-meta.is-compact {
+  white-space: nowrap;
+}
+
+.rs-meter {
+  height: var(--progress-bar-height);
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.rs-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+/* A meter that has reached 100% used is critical: the fill turns red so an
+   exhausted window is never mistaken for a healthy one. */
+.rs-meter > i.is-critical {
+  background: var(--blocking);
+}
+
+.rs-meter > i.is-warning {
+  background: var(--warning, #d08a2a);
+}
+
+/* Meter stage colours: yellow from 80%, orange from 90%, red at 100% used. */
+.rs-meter > i.is-caution {
+  background: var(--caution, #d0a92a);
+}
+

@@ -1,0 +1,393 @@
+.bo-debug-prompt textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 6.5rem;
+  resize: vertical;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: 0.78rem/1.55 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.bo-debug-prompt textarea:focus-visible,
+.bo-debug-copy-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bo-debug-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+}
+
+.bo-debug-copy-button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.bo-debug-copy-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.bo-debug-prompt [data-copy-status] {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.bo-selected-summary {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.bo-selected-summary > p.bo-selected-lede {
+  margin: 0;
+  color: var(--fg);
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.bo-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+}
+
+.bo-summary-grid > div {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-2);
+}
+
+.bo-summary-grid dt {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bo-summary-grid dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-breakdown {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.bo-breakdown-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.bo-breakdown-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.bo-breakdown-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.bo-breakdown-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.bo-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+}
+
+.bo-kpi {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-2);
+}
+
+.bo-kpi dt {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bo-kpi dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-breakdown-tables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  align-items: start;
+}
+
+/* A single-dimension breakdown pane (Waves or Epics) rendered as its own
+   top-level pane; stacks one column so rows span the full pane width. */
+.bo-breakdown-pane {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+/* Grid/flex items default to min-width:auto and single-column grids get an
+   `auto` track — both grow to content's natural width, which let the breakdown
+   tables push the whole content column (and page) wider than the viewport.
+   Force shrinkable tracks + min-width so they never overflow. */
+.bo-selected-summary,
+.bo-breakdown,
+.bo-breakdown-body,
+.bo-breakdown-tables,
+.bo-adhoc,
+.bo-adhoc-body {
+  min-width: 0;
+}
+
+.bo-selected-summary,
+.bo-breakdown,
+.bo-breakdown-body,
+.bo-adhoc,
+.bo-adhoc-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Per-phase / per-epic block: a top stat row, a wrapping member sub-row, and a
+   full-width progress bar along the bottom. Replaces the old wide table so long
+   member lists wrap instead of overflowing. */
+.bo-breakdown-list {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.bo-breakdown-list-title {
+  margin: 0 0 0.1rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bo-breakdown-row {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-breakdown-row-top {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.bo-epic-ic.bo-breakdown-row-ic {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+}
+
+.bo-breakdown-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bo-breakdown-row-stat {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-stat-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-stat .num {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row carried by retained readings says so beside its percent: the count of
+   members whose agent has not reported since, and how old the oldest reading
+   is. Retained work stays counted, but never dressed as current. */
+.bo-breakdown-row-last-known .num {
+  color: var(--attention-ink);
+}
+
+.bo-breakdown-row-age {
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.bo-breakdown-row-members {
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-breakdown-row-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.bo-breakdown-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 0.78rem;
+}
+
+/* Long "#1130, #1093, …" member lists must wrap, not force the table (and the
+   whole content column) wider than the viewport. */
+.bo-breakdown-members {
+  word-break: break-word;
+  white-space: normal;
+}
+
+.bo-breakdown-table caption {
+  text-align: left;
+}
+
+.bo-breakdown-table th,
+.bo-breakdown-table td {
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bo-breakdown-table thead th {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--surface-2);
+}
+
+.bo-breakdown-table tbody tr:last-child th,
+.bo-breakdown-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.bo-breakdown-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-breakdown-members {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
+.bo-bar {
+  display: block;
+  width: 100%;
+  min-width: 3rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  overflow: hidden;
+}
+
+.bo-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent-ink);
+}
+
+.bo-breakdown-warnings {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--pill-bg);
+  font-size: 0.72rem;
+}
+
+.bo-breakdown-warnings h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+}
+
+.bo-breakdown-warnings ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+}
+

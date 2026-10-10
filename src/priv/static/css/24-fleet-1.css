@@ -1,0 +1,317 @@
+/* Condition pills: a coloured dot + label + count; the dot colour keys the
+   condition, and a selected pill lights up with its own hue. */
+.units-filter-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: none;
+}
+
+.units-filter.is-cond-active .units-filter-dot { background: #6bd6a6; }
+.units-filter.is-cond-alert .units-filter-dot { background: #f2836b; }
+.units-filter.is-cond-paused .units-filter-dot { background: #9aa0ac; }
+.units-filter.is-cond-stuck .units-filter-dot { background: #e3b341; }
+.units-filter.is-cond-queued .units-filter-dot { background: #8fbcff; }
+.units-filter.is-cond-finished .units-filter-dot { background: #6b7280; }
+
+.units-filter.condition.is-selected {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+
+.units-filter.condition.is-cond-active.is-selected { border-color: rgba(107, 214, 166, 0.5); }
+.units-filter.condition.is-cond-alert.is-selected { border-color: rgba(242, 131, 107, 0.5); }
+.units-filter.condition.is-cond-stuck.is-selected { border-color: rgba(227, 179, 65, 0.5); }
+.units-filter.condition.is-cond-queued.is-selected { border-color: rgba(143, 188, 255, 0.5); }
+
+.units-filter-count {
+  display: inline-grid;
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  padding-inline: 0.25rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font-size: 0.66rem;
+}
+
+.units-filter-note {
+  max-width: 58rem;
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.units-results,
+.units-table-wrap {
+  min-width: 0;
+}
+
+.units-state {
+  margin-top: 1rem;
+}
+
+.units-state.filtered-empty p {
+  margin: 0 0 0.8rem;
+}
+
+.units-reset {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+/* Full-bleed tables reach both card edges using the owning card's responsive
+   padding value.
+   The wrap carries the negative inline margin; each table keeps ownership of
+   its overflow treatment while the outer cells re-inset readable content. */
+.full-bleed-table-wrap {
+  margin-left: calc(-1 * var(--section-card-padding));
+  margin-right: calc(-1 * var(--section-card-padding));
+}
+
+.full-bleed-table-wrap > table > thead > tr > th:first-child,
+.full-bleed-table-wrap > table > tbody > tr > td:first-child:not([colspan]) {
+  padding-left: var(--section-card-padding);
+}
+
+.full-bleed-table-wrap > table > thead > tr > th:last-child,
+.full-bleed-table-wrap > table > tbody > tr > td:last-child:not([colspan]) {
+  padding-right: var(--section-card-padding);
+}
+
+.units-table-wrap {
+  margin-top: 1rem;
+  overflow: hidden;
+}
+
+.units-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.units-table th {
+  padding: 0 0.5rem 0.7rem;
+  text-align: left;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.units-table td {
+  min-width: 0;
+  padding: 0.85rem 0.5rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.78rem;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.units-row:hover td {
+  background: var(--pill-bg);
+}
+
+.units-row.is-blocked td:first-child {
+  box-shadow: inset 5px 0 var(--blocking);
+}
+
+.units-empty-row:hover td {
+  background: transparent;
+}
+
+.units-empty-cell {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.6rem 1rem;
+}
+
+.units-row.has-alert td:first-child {
+  box-shadow: inset 5px 0 var(--attention);
+}
+
+.units-row.is-blocked td {
+  background: color-mix(in srgb, var(--blocking) 12%, var(--surface));
+}
+
+.units-row.has-alert td {
+  background: color-mix(in srgb, var(--attention) 10%, var(--surface));
+}
+
+/* Paused rows: a subtle gray left edge + soft gray tint — visually distinct
+   from the aggressive red blocking treatment and the neutral active rows. */
+.units-row.is-paused td:first-child {
+  box-shadow: inset 5px 0 #9aa0ac;
+}
+
+.units-row.is-paused td {
+  background: color-mix(in srgb, #9aa0ac 9%, var(--surface));
+}
+
+/* Queued rows: muted — dimmed text over the standard surface, no tint or
+   attention edge. */
+.units-row.is-queued td {
+  color: var(--muted);
+}
+
+/* The alert/blocked row tints warm and lighten the cell background, which drops
+   faint pill text below WCAG AA 4.5:1 on those rows only. Nudge the affected
+   pill colours toward --fg (theme-safe) so contrast holds over the tint without
+   changing the palette on ordinary rows. */
+.units-row.has-alert .u-model,
+.units-row.is-blocked .u-model {
+  color: color-mix(in srgb, var(--fg) 35%, var(--muted));
+}
+
+.units-row.has-alert .u-prio.is-med,
+.units-row.is-blocked .u-prio.is-med {
+  color: color-mix(in srgb, var(--fg) 30%, #e29b63);
+}
+
+.units-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.units-identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.units-identity strong {
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.units-state-glyph {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--good-ink);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.units-lane {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+}
+
+.units-facts {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.units-facts div {
+  display: grid;
+  grid-template-columns: minmax(5.2rem, auto) minmax(0, 1fr);
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.units-facts dt {
+  color: var(--muted);
+  font-size: 0.67rem;
+}
+
+.units-facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--fg);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.units-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  margin: 0 0 0.55rem;
+  color: var(--fg);
+  font-size: 0.73rem;
+}
+
+.units-progress-track {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 3rem;
+  height: var(--progress-bar-height);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.units-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.units-progress.unavailable {
+  color: var(--muted);
+}
+
+.units-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+/* Compact icon actions in the Command column: pause/resume, open chat, remote
+   control. The row itself is the ticket-inspect trigger. */
+.ut-open {
+  cursor: pointer;
+}
+
+.units-icon-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.2rem;
+  height: 2.2rem;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Keep the visible icon compact (2.2rem) but expand the pointer/tap target to
+   the 44px accessibility minimum via a transparent centered overlay. */
+.units-icon-action::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+}
+
