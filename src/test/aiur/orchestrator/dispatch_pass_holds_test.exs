@@ -52,13 +52,15 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     assert Enum.uniq(hydrated) |> Enum.sort() == ready_ids
   end
 
-  test "a hold declined without validation is not declined while the fleet is paused" do
-    held = [candidate(1, 1)]
+  test "a paused fleet leaves a cached hold's recorded decline untouched, as the paused chain does" do
+    [%Issue{id: id}] = held = [candidate(1, 1)]
     cache_holds(held)
+    recorded = %{id => :tracker_revalidation_failed}
 
-    paused = Dispatcher.choose_issues(%State{snapshot_key: self(), globally_paused: true, max_concurrent_agents: @slots, effective_concurrent_agents: @slots}, held, [])
+    paused =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), globally_paused: true, dispatch_declines: recorded, max_concurrent_agents: @slots, effective_concurrent_agents: @slots}, held, [])
 
-    assert paused.dispatch_declines == %{}
+    assert paused.dispatch_declines == recorded
   end
 
   test "a blocker closing in the store moves its dependent from held to the chain on the next pass" do
