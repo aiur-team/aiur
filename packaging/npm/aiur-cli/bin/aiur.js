@@ -229,7 +229,7 @@ function requiresInteractiveTools(argv) {
     "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
     "executor-answer", "executor-escalate", "executor-moot", "executor-listen", "executor-wait",
     "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
-    "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
+    "executor-roster", "executor-session", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
   ]);
   if (nonLaunchCommands.has(command)) return false;
   return command.startsWith("-") || fs.existsSync(command);

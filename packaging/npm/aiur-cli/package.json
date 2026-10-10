@@ -21,6 +21,7 @@
     "libexec/aiur-queue.sh",
     "libexec/aiur-epic.sh",
     "libexec/aiur-capabilities.sh",
+    "libexec/aiur-executor-session.sh",
     "libexec/aiur-pane-ctrlc",
     "scripts/postinstall.mjs",
     "share/aiur.tmux.conf"
