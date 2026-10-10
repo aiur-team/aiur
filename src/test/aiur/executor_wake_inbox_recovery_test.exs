@@ -36,6 +36,36 @@ defmodule Aiur.ExecutorWakeInboxRecoveryTest do
     refute_received {:alert, _, _}
   end
 
+  test "mid-file corruption keeps later wakes and never reissues their ids", %{opts: opts} do
+    File.mkdir_p!(Path.dirname(opts[:path]))
+    lines = [Jason.encode!(record(1, "a")), "{\"not valid\"", Jason.encode!(record(3, "c"))]
+    File.write!(opts[:path], Enum.join(lines, "\n") <> "\n")
+    test_pid = self()
+    opts = Keyword.put(opts, :alert_fun, fn name, msg, _opts -> send(test_pid, {:alert, name, msg}) end)
+
+    start_supervised!({ExecutorWakeInbox, opts})
+
+    assert [%{"wake_id" => 1}, %{"wake_id" => 3}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 0
+    assert_received {:alert, "executor.wakes.journal_quarantined", message}
+    assert message =~ "1 unreadable lines skipped"
+
+    :ok = ExecutorWakeInbox.enqueue(record(9, "new"), __MODULE__)
+    send(__MODULE__, :flush)
+    assert %{"wake_id" => 4} = Enum.find(ExecutorWakeInbox.pending(__MODULE__), &(&1["ticket"] == "new"))
+  end
+
+  test "id floor survives a bad line whose later wake fails validation", %{opts: opts} do
+    File.mkdir_p!(Path.dirname(opts[:path]))
+    invalid = Jason.encode!(%{"wake_id" => 7})
+    File.write!(opts[:path], Enum.join([Jason.encode!(record(1, "a")), "oops", invalid], "\n") <> "\n")
+
+    start_supervised!({ExecutorWakeInbox, opts})
+    :ok = ExecutorWakeInbox.enqueue(record(9, "new"), __MODULE__)
+    send(__MODULE__, :flush)
+    assert %{"wake_id" => 8} = Enum.find(ExecutorWakeInbox.pending(__MODULE__), &(&1["ticket"] == "new"))
+  end
+
   test "unreadable journal still stops", %{opts: opts} do
     File.mkdir_p!(opts[:path])
     assert {:not_a_file, _} = start_error(opts)

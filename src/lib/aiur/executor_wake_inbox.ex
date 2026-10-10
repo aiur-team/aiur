@@ -420,14 +420,14 @@ defmodule Aiur.ExecutorWakeInbox do
   # start forever (and loop the supervisor), keep the bad file as evidence and
   # restart on the prefix; any other replay error still stops the inbox.
   defp journal_summary(path, pending, cursor_path, alert_fun) do
-    with {:ok, records} <- Recovery.replay_or_quarantine(path, &validate_record/1, alert_fun) do
+    with {:ok, records, quarantined_max} <- Recovery.replay_or_quarantine(path, &validate_record/1, alert_fun) do
       cursor = read_cursor(cursor_path)
       durable_ids = Enum.map(records, & &1["wake_id"])
       pending_ids = pending |> Map.values() |> Enum.map(& &1["wake_id"])
 
       {:ok,
        %{
-         next_wake_id: Enum.max([cursor | durable_ids ++ pending_ids]) + 1,
+         next_wake_id: Enum.max([cursor, quarantined_max | durable_ids ++ pending_ids]) + 1,
          cursor: cursor,
          pending_count: Enum.count(records, &(&1["wake_id"] > cursor))
        }}

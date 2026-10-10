@@ -14,30 +14,37 @@ defmodule Aiur.ExecutorWakeInbox.Recovery do
   # start forever (and loop the supervisor), keep the bad file as evidence and
   # restart on the prefix; any other replay error still stops the inbox.
   @spec replay_or_quarantine(Path.t(), (map() -> {:ok, map()} | {:error, term()}), function()) ::
-          {:ok, [map()]} | {:error, term()}
+          {:ok, [map()], non_neg_integer()} | {:error, term()}
   def replay_or_quarantine(path, validator, alert_fun) do
     case Journal.replay(path, validator) do
-      {:ok, records, nil} -> {:ok, records}
-      {:ok, records, {:corrupt, line, _reason} = corruption} -> quarantine(path, records, line, corruption, alert_fun)
+      {:ok, records, nil} -> {:ok, records, 0}
+      {:ok, _prefix, {:corrupt, line, _reason} = corruption} -> quarantine(path, validator, line, corruption, alert_fun)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp quarantine(path, good, line, corruption, alert_fun) do
+  # Keeps every line that still validates (not just the prefix before the bad
+  # one) and returns the highest wake id seen on any parseable line, so ids
+  # already published from the quarantined file are never reissued.
+  defp quarantine(path, validator, line, corruption, alert_fun) do
     quarantined = "#{path}.corrupt-#{System.os_time(:second)}"
     bad_bytes = file_size(path)
+    decoded = path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode/1)
+    good = for {:ok, map} <- decoded, {:ok, record} <- [validator.(map)], do: record
+    max_id = Enum.max([0 | for({:ok, %{"wake_id" => id}} <- decoded, is_integer(id), do: id)])
+    skipped = length(decoded) - length(good)
     contents = Enum.map(good, &[Jason.encode!(&1), "\n"])
 
     with :ok <- File.rename(path, quarantined),
          :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600) do
       alert_fun.(
         "executor.wakes.journal_quarantined",
-        "Executor wake journal was corrupt at line #{line}; #{length(good)} wakes kept, the rest of the #{bad_bytes}-byte file " <>
+        "Executor wake journal was corrupt at line #{line}; #{length(good)} wakes kept, #{skipped} unreadable lines skipped; the original #{bad_bytes}-byte file " <>
           "(unacknowledged wakes lost) moved to #{quarantined}. Run `aiur alerts`.",
         severity: "error"
       )
 
-      {:ok, good}
+      {:ok, good, max_id}
     else
       {:error, reason} ->
         alert_fun.(
