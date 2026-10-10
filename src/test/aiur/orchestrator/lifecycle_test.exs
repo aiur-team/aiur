@@ -22,8 +22,8 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     receive_barrier({:tracker_started, worker})
     monitor = Process.monitor(worker)
     assert :ok = Lifecycle.terminate(:shutdown, state, fn _kinds, _opts -> :ok end)
-    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
     refute Process.alive?(worker)
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
   end
 
   test "orchestrator subscribes to explicit unblock readiness" do
