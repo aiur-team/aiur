@@ -43,6 +43,16 @@ defmodule Aiur.Muse.TransportTest do
     assert {:error, {:port_exit, 23}} = Transport.request(port, frame, 5_000)
   end
 
+  @tag :tmp_dir
+  test "a write into a provider that closed stdin reports the port exit before the deadline", %{tmp_dir: dir} do
+    {:ok, port} = Transport.start(dir, "exec 0<&-; echo closed; sleep 30")
+    on_exit(fn -> Transport.stop(port) end)
+    assert_receive {^port, {:data, {:eol, "closed"}}}, 5_000
+
+    frame = %{"jsonrpc" => "2.0", "id" => 9, "method" => "turn/start", "params" => %{}}
+    assert {:error, {:port_exit, :epipe}} = Transport.request(port, frame, 3_000)
+  end
+
   test "remote workspaces are rejected before process launch" do
     assert {:error, :remote_worker_unsupported} = Transport.start("/missing", "muse serve", worker_host: "worker")
     assert {:error, :workspace_not_found} = Transport.start("/missing-aiur-muse-workspace", "muse serve")

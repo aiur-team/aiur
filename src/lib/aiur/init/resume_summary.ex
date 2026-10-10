@@ -31,7 +31,7 @@ defmodule Aiur.Init.ResumeSummary do
   def format_routing(routing) when is_map(routing) do
     routing
     |> Enum.sort_by(fn {level, _} -> to_string(level) end)
-    |> Enum.map_join(", ", fn {level, value} -> "#{level}:#{value}" end)
+    |> Enum.map_join(", ", fn {level, value} -> "#{level}:#{value |> List.wrap() |> Enum.join("|")}" end)
   end
 
   def format_routing(_routing), do: ""

@@ -612,9 +612,9 @@ normal sampling cadence: occupied agents, configured/max/effective capacity, act
 and queued builds, and the oldest live queue wait. Fleet and build observations keep
 independent state and observation timestamps, so stale or degraded sources render as
 gaps instead of false zeroes. The binding admission signal (which host-pressure gate
-is holding dispatch) and the measured load against its threshold ride along, so a
-build-queue that is growing while load sits far below its threshold reads as
-build-gate-saturated rather than host-saturated. Because reading the build gate scans
+is holding dispatch) and diagnostic load measurements ride along. Status names the
+CPU PSI threshold, or the load fallback where PSI is unavailable. A growing build
+queue alone does not hold dispatch. Because reading the build gate scans
 its lock files, that probe runs on a reduced cadence and carries the last observation
 forward, so telemetry never disturbs a real build acquisition. `/analytics`,
 `aiurdev analytics` (including `--json`), and the self-contained HTML report expose
@@ -691,20 +691,20 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
   marker and `model:claude` labels used by the automatic switch. Headless Claude
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
-- `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
-  per scheduler). Boot starts at one slot; the first fresh sample does not widen.
-  Five fresh occupied samples without sustained overload record a safe level.
-  `agent.load_resume_max_age_seconds` defaults to 21600; 0 disables resume.
-  A same-scheduler record selects steps that double, at most +3, up to that level.
-  Above it, growth is additive except below half target before a sustained decrease. Three fresh overloads
-  halve capacity, bounded by `agent.load_cooldown_seconds`. Set the target to
-  `null` to use only the static cap and hard gate.
-- `agent.max_load_average` remains the separate per-scheduler ceiling for new
-  dispatch (default `1.5`). Aiur holds only when the ceiling is exceeded and a
-  consecutive `/proc/stat` sample shows less than 60% reclaimable CPU; idle and
-  niced time are reclaimable because niced work yields to agent processes. If a
-  CPU delta is unavailable, the load-only decision remains the conservative
-  fallback. The optional run-queue gate uses the same corroboration.
+- `agent.max_cpu_pressure` caps dispatch on Linux CPU PSI `some avg60`
+  (default `20.0` percent). High I/O load does not hold low-pressure dispatch.
+  Set it to `null` to disable the hard ceiling.
+- `agent.target_cpu_pressure` sets the AIMD target (default `10.0` percent).
+  Three fresh above-target samples halve capacity, bounded by the decrease
+  cooldown. Ramps require pressure below 80% of target; unavailable samples
+  reset the streak. Set the target to `null` to disable PSI AIMD.
+- `agent.load_resume_max_age_seconds` retains safe capacity for 21600 seconds;
+  0 disables resume. Five fresh occupied samples demonstrate a level. Boot
+  starts at one and the first fresh sample holds. Recovery below 80% of the
+  PSI target doubles, at most +3, toward that level.
+- When PSI is unavailable, `max_load_average` (default `1.5`) and
+  `target_load_average` (default `1.0`) are per-scheduler fallbacks. Status
+  names the binding signal. Build cap, stagger and nice throttle bursts.
 - `agent.min_free_memory_mb` optionally sets a Linux `MemAvailable` floor for
   normal new-work dispatch and local agent `mix compile` / `mix test` commands.
   Omit it to disable memory admission. Values are whole MB derived from
@@ -724,8 +724,7 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
   limit, available, and threshold values. `Aiur.SystemFileDescriptors.sample/1`
   exposes the same raw per-process sample for controller and telemetry consumers.
 - `agent.max_concurrent_builds` caps agent-launched `mix compile` and `mix test`
-  commands across all local workspaces for the current OS user. It defaults to `2`,
-  a conservative setting for a 12-core host; agents queue only their Mix verification
+  commands across all local workspaces for the current OS user. It defaults to `4`; agents queue only their Mix verification
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.

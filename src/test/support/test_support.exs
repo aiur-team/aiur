@@ -73,7 +73,7 @@ defmodule Aiur.TestSupport do
           {:running_changed, _summaries} when map_size(refs) == 0 -> :ok
           {:poll_state_changed, _poll} when map_size(refs) == 0 -> :ok
         after
-          remaining -> raise("Timed out waiting for orchestrator tracker result")
+          remaining -> raise("Timed out waiting for orchestrator tracker result; tracker tasks held: #{inspect(Enum.map(state.tracker_tasks, fn {_ref, job} -> job.key end))}")
         end
       after
         Enum.each(refs, fn {ref, _} -> Process.demonitor(ref, [:flush]) end)
@@ -109,13 +109,7 @@ defmodule Aiur.TestSupport do
   # per-test root a case reads records written by a module that ran earlier in
   # the same partition.
   #
-  # `:loadavg_source_override` / `:proc_stat_source_override` are the host-CPU
-  # equivalent of `:build_gate_dir_override`: without them every dispatch
-  # decision a case makes reads the real `/proc/loadavg` and `/proc/stat` of a
-  # box that is also running the rest of the fleet, so a routing assertion
-  # passes or fails on ambient load rather than on the code under test (#2089).
-  # A case that deliberately exercises an admission gate overrides both keys
-  # itself; teardown puts the deterministic baseline back.
+  # Host probes use fixtures so dispatch never depends on the fleet's /proc samples (#2089).
   @isolated_app_env_keys [
     :workflow_file_path,
     :log_file,
@@ -127,6 +121,7 @@ defmodule Aiur.TestSupport do
     :runtime_state_dir,
     :executor_claims_lock_timeout_ms,
     :loadavg_source_override,
+    :cpu_pressure_source_override,
     :proc_stat_source_override,
     :workflow_store_config_reader
   ]
@@ -323,6 +318,7 @@ defmodule Aiur.TestSupport do
         # a function of the test's own state, not of what else is running on the
         # box (#2089).
         Application.put_env(:aiur, :loadavg_source_override, Aiur.TestSupport.quiet_loadavg_source())
+        Application.put_env(:aiur, :cpu_pressure_source_override, fn -> {:error, :enoent} end)
         Application.put_env(:aiur, :proc_stat_source_override, Aiur.TestSupport.quiet_proc_stat_source())
 
         Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))
