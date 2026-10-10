@@ -29,20 +29,15 @@ concurrency:
 # extra headroom for cold Chromium installs and release assembly.
 
 jobs:
-  # Drafts run only changes, lint and build. Job-level skips on drafts are
-  # not full-suite evidence; the CI poller requires successful required checks.
-  # Ready PRs retain the existing docs-only step shortcuts and check names.
-  # Path classifier (docs-only CI, #website). A pull request that touches only
-  # `website/**` (the marketing site and `website/docs-app`) has nothing the
-  # Elixir engine, the browser harness, the Stream Deck package or the release
-  # smoke can regress, so those jobs skip their work on such a PR.
+  # Drafts run only changes, lint and build; the CI poller requires successful
+  # required checks, so a job-level skip is not full-suite evidence.
   #
-  # The jobs are NOT skipped. Every engine job still runs and still publishes
-  # its check name; only its steps short-circuit. The human-only merge ruleset
+  # A pull request that touches only `website/**` (or packages/aiur-style) has
+  # nothing the engine jobs can regress, so their steps short-circuit on
+  # docs_only. The jobs themselves are NOT skipped: the human-only merge ruleset
   # requires 13 contexts by name (docs/security/human-only-merge-ruleset.json),
-  # and a required check that never reports leaves the pull request unmergeable
-  # forever. Running-but-empty jobs report `success` unambiguously, which a
-  # job-level `if:` skip does not.
+  # and a job-level `if:` skip never reports `success`, leaving the PR
+  # unmergeable.
   changes:
     name: changes
     runs-on: ubuntu-latest
@@ -53,9 +48,6 @@ jobs:
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
     steps:
-      # `changes` is a blocking job, so it follows the same convention as every
-      # other blocking job: check out, then disclose the rerun attempt before
-      # doing any work (#2461's reporter).
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
@@ -68,138 +60,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        # Only `pull_request` has a diff to classify. `push`, `merge_group` and
-        # `workflow_dispatch` always get the full suite: the merge queue builds
-        # a candidate whose required checks must be the real ones, and `main`
-        # must never be validated by an empty run.
-        #
-        # Anything that is not provably docs-only classifies as `false`, so a
-        # failure to read the file list degrades to running the whole suite.
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" != "pull_request" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            echo "event $EVENT_NAME: running the full suite" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          files="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')"
-          if [ -z "$files" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            echo "no changed files reported: running the full suite" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          if printf '%s\n' "$files" | grep -qv '^website/\|^packages/aiur-style/'; then
-            docs_only=false
-          else
-            docs_only=true
-          fi
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
-          {
-            echo "### changed paths"
-            echo
-            echo "docs_only=$docs_only"
-            echo
-            echo '```'
-            printf '%s\n' "$files"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  workflow-security:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    name: workflow security
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - name: Disclose rerun attempt
-        if: ${{ github.run_attempt > 1 }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Guard workflow triggers and action pins
-        run: bash scripts/test-workflow-security.sh
-      - name: Test legacy Stream Deck nightly cleanup
-        run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
-      - name: Test human-only merge ruleset verifier
-        run: bash scripts/test-human-only-merge-ruleset.sh
-      - name: Test human-only merge ruleset drift check
-        run: bash scripts/test-human-only-merge-ruleset-live.sh
-      - name: Test pull request merge-gate diagnostics
-        run: bash scripts/test-pr-merge-gate-diagnostic.sh
-      - name: Test CI failure diagnostics
-        run: bash scripts/test-report-ci-failures.sh
-      - name: Test quarantine _build cache invariants
-        run: bash scripts/test-quarantine-build-cache.sh
-      - name: Test known-flaky reporter
-        run: bash scripts/test-report-known-flaky-tests.sh
-      - name: Test coverage flake ledger
-        run: python3 scripts/test-record-coverage-flakes.py
-      - name: Test CI run-attempt disclosure
-        run: bash scripts/test-report-ci-run-attempt.sh
-      - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs
-      - name: Test rename preflight
-        run: make test-rename-preflight
-      - name: Test config documentation guard
-        run: bash scripts/test-check-config-docs.sh
-      - name: Test component manifest guard
-        run: bash scripts/test-check-components.sh
-      - name: Test env example drift guard
-        run: bash scripts/test-check-env-example.sh
-      - name: Test coverage-shard parity guard
-        run: bash scripts/test-check-test-shard-parity.sh
-      - name: Test bare assert_receive guard
-        run: bash scripts/test-check-bare-assert-receive.sh
-      - name: Test hourly retrospective visual check
-        run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
-      - name: Test hourly dashboard analyzer
-        run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
-      - name: Test hourly retrospective CLI check
-        run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
-
-      - name: Test file size gate
-        run: bash scripts/test-check-file-size.sh
-      - name: File size gate
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-        run: |
-          case "$EVENT_NAME" in
-            pull_request) base="$PR_BASE" ;;
-            merge_group) base="$MERGE_BASE" ;;
-            push)
-              base="$PUSH_BEFORE"
-              if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
-            workflow_dispatch)
-              upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo origin/main)"
-              base="$(git merge-base HEAD "$upstream")" ;;
-            *) echo "Unsupported file size gate event: $EVENT_NAME" >&2; exit 1 ;;
-          esac
-          test -n "$base"
-          python3 scripts/check-file-size.py --base "$base"
-
-  merge-ruleset-drift:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    name: merge ruleset drift
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ github.run_attempt > 1 }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Verify live human-only merge ruleset matches the declaration
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/verify-human-only-merge-ruleset-live.sh
+        run: bash scripts/ci/changes-classify.sh
 
   build:
     needs: changes
@@ -249,42 +110,17 @@ jobs:
       - name: Credo + specs
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
-      # Keep guards in required lint so they remain merge-blocking.
-      - name: Every config key has a documentation entry
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/check-config-docs.py
       - name: Cache component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: scripts/components/node_modules
           key: components-${{ runner.os }}-${{ hashFiles('scripts/components/package-lock.json') }}
-      - name: Install component checker toolchain
+      # Keep guards in required lint so they remain merge-blocking.
+      - name: Repository guards (config docs, components, env example, shard parity, platform drift)
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: npm ci --prefix scripts/components --ignore-scripts
-      - name: Component ownership, reference boundaries and fixtures
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: |
-          bash scripts/check-components-ci.sh
-          bash scripts/test-check-components.sh --with-elixir --with-node
-          mise exec -- python3 scripts/test-check-pr-structure.py
-      - name: .env.example matches the env-var schema
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/check-env-example.py
-      # Python preflight and Elixir CI must select the same coverage shards.
-      - name: Coverage-shard rule agrees across implementations
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/check-test-shard-parity.py
-      # Published platforms, CLI pins and PUBLISH_TARGETS must agree (#2110).
-      - name: Platform publish/pin drift check
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: node packaging/scripts/check-platform-drift.mjs
+        run: bash scripts/ci/lint-guards.sh
 
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
@@ -320,83 +156,28 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: sudo apt-get update && sudo apt-get install -y zsh
       # MIX_TEST_PARTITION still names the shard, but it is no longer read by
-      # `mix test --partitions`: that rule shards round-robin over the sorted
-      # file list, so inserting one test file renumbered the rest of the suite
-      # and a green `main` stopped predicting a green PR (#2568). The shard
-      # membership now comes from each file's own path via `Aiur.TestShard`;
-      # see the `coverage-partition` target in src/Makefile. The variable also
-      # still isolates per-shard resources inside the tests themselves.
+      # `mix test --partitions`: membership comes from each file's own path via
+      # `Aiur.TestShard` (#2568); see the `coverage-partition` target in
+      # src/Makefile. The variable also isolates per-shard resources in tests.
       - name: Test coverage partition
         id: partition-tests
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
+          PARTITION: ${{ matrix.partition }}
           # `Aiur.TestSupport.tmp_root!/1` follows `System.tmp_dir!/0`, which
           # otherwise selects quota-mounted `/tmp` on hosted runners. Keep
-          # per-test SQLite broker state under this job's private runner temp
-          # root instead; `df` free space does not reflect an EDQUOT limit.
+          # per-test SQLite broker state under this job's private runner temp.
           TMPDIR: ${{ runner.temp }}
-        # Capture the full log for the known-flaky reporter below, but write it
-        # to a file instead of piping through `tee`: tests that leave orphaned
-        # background processes (opencode/sleep CLI harnesses) hold the pipe's
-        # write end open, so `tee` never sees EOF and the step hangs until the
-        # job dies as a non-informative cancelled red (#2397). A file redirect
-        # lets those orphans inherit the file FD harmlessly while the step
-        # completes the moment `make` exits.
-        #
-        # The bound lives here, in the step, not on the job. A job-level
-        # timeout cancels the job and a cancelled job skips every remaining
-        # step, so `Print partition log` and the known-flaky report are lost
-        # exactly when a wedge makes them most valuable. `timeout` makes the
-        # step exit normally with 124, which is an ordinary step *failure*, so
-        # the `failure()` steps below still run and the red names what it is.
-        #
-        # `tail -F` mirrors the log to the live job output while the partition
-        # runs. `Print partition log` below only helps when the runner survives
-        # to reach it; a partition that takes its own runner down (#2560) ends
-        # the job mid-step, skips every remaining step, and used to report as a
-        # bare exit 143 with not one line of test output. Streaming means the
-        # log GitHub has already ingested names the test that was running. This
-        # is a `tail`, not a `tee`: nothing downstream of `make` holds a pipe
-        # open, so the orphaned-background-process hang of #2397 cannot recur.
-        run: |
-          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
-          : > "$log"
-          tail -n +1 -F "$log" &
-          tail_pid=$!
-          status=0
-          timeout --signal=TERM --kill-after=60s 20m \
-            make coverage-partition > "$log" 2>&1 || status=$?
-          sleep 2
-          kill "$tail_pid" 2>/dev/null || true
-          wait "$tail_pid" 2>/dev/null || true
-          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
-            echo "::error::coverage partition ${{ matrix.partition }} exceeded its 20m bound and was terminated; partial log follows in the next step"
-          elif [ "$status" -ne 0 ]; then
-            echo "::error::coverage partition ${{ matrix.partition }} failed with status $status; full log follows in the next step"
-          fi
-          exit "$status"
-      # Shard balance is no longer guaranteed by construction (#2568), so it has
-      # to be visible on green runs, not only in the failure log: an imbalance
-      # that is drifting toward the 20m step bound should be readable before it
-      # becomes a timeout. `make coverage-partition` prints every shard's file
-      # count as its first lines, but the step above redirects all of its output
-      # to a file, so surface just that header here.
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/coverage-partition.sh"
       - name: Report shard composition
         if: ${{ (always()) && needs.changes.outputs.docs_only != 'true' }}
         shell: bash
         working-directory: .
-        run: |
-          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
-          [ -s "$log" ] || exit 0
-          {
-            echo "### coverage (${{ matrix.partition }}/4) shard composition"
-            echo
-            echo '```'
-            grep '^coverage-partition:' "$log" || echo "(no shard header; see the partition log)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          PARTITION: ${{ matrix.partition }}
+        run: bash scripts/ci/report-shard-composition.sh
       - name: Print partition log
         if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -508,29 +289,16 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          # Dependency-only cache: `_build/test/lib` holds one directory per
-          # app, and only the dependency apps are worth restoring. The
-          # first-party `aiur` app is pruned before every run (below) so it
-          # always recompiles against the current source — a key on
-          # `mix.lock`/`mix.exs` cannot see a config-schema, struct, or module
-          # attribute change, so caching the `aiur` beams would let a run use
-          # artifacts predating that change.
-          # No prefix `restore-keys`: a stale _build from a different mix.lock
-          # restores compiled deps whose versions no longer match mix.exs, which
-          # fails with "Unchecked dependencies for environment test". Exact-key
-          # only, so a lock/dep bump recompiles fresh instead of reusing stale
-          # artifacts. The `-deps-` key prefix also retires the old whole-`_build`
-          # entries, whose tar layout no longer matches this path.
+          # Dependency-only: first-party `aiur` beams are pruned before every
+          # run so they always recompile against current source. No prefix
+          # `restore-keys`: a stale _build from a different mix.lock restores
+          # deps that no longer match mix.exs ("Unchecked dependencies").
           key: ${{ runner.os }}-quarantine-build-deps-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
           path: src/_build/test/lib
       - name: Drop first-party beams (always recompile against current source)
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        # The `aiur` app dir may have been restored from a cache saved before a
-        # compile-time-visible source change (a schema field, a struct, a module
-        # attribute). Removing it forces Mix to recompile the app fresh; the
-        # dependency beams the cache exists to save are left in place.
-        # `run` steps inherit the job's `working-directory: src`; action inputs
-        # such as the cache path remain workspace-relative.
+        # The cache may carry `aiur` beams predating a compile-time-visible source
+        # change; removing them forces a fresh compile while deps stay cached.
         run: rm -rf _build/test/lib/aiur
       - name: Run quarantined tests
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -579,24 +347,6 @@ jobs:
       - name: Agent teardown reaping regression (#423)
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make regression
-
-  analytics:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    name: analytics
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ github.run_attempt > 1 }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Analytics reducer suite (stdlib unittest)
-        env:
-          PYTHONPATH: analytics/lib
-        run: python3 -m unittest discover -s analytics/tests -t analytics -v
 
   dialyzer:
     needs: changes
@@ -662,28 +412,9 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('src/browser/package-lock.json') }}
-      - name: Install browser harness dependencies
+      - name: Browser, accessibility, performance and visual harness
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm ci
-      - name: Install Chromium
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npx playwright install --with-deps chromium
-      - name: Run browser, accessibility, and performance smoke
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm test
-      - name: Run visual regression baselines
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: |
-          npm run test:visual
-          npm run test:visual
-      - name: Verify browser failure evidence, redaction, and teardown
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm run verify:failure-artifacts
+        run: bash scripts/ci/browser-harness.sh
       - name: Upload browser failure evidence
         if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -717,18 +448,10 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: packages/streamdeck/package-lock.json
-      - name: Install dependencies
+      - name: Install, lint, test with coverage, build
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: npm ci
-      - name: Lint
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: npm run lint
-      - name: Test with coverage
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: npm test
-      - name: Build
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: npm run build
+        working-directory: .
+        run: bash scripts/ci/streamdeck.sh
 
   layout-release:
     name: layout release smoke
@@ -763,10 +486,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.0.2
         with:
           bun-version: "1.4.2"
-      - name: Test npm launcher
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: packaging/npm/aiur-cli
-        run: bun test
       - name: Cache Elixir dependencies
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -774,34 +493,6 @@ jobs:
           path: src/deps
           key: ${{ runner.os }}-layout-release-mix-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-layout-release-mix-
-      - name: Install browser dependencies
+      - name: Test launcher, build and verify packaged release
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm ci
-      - name: Install Chromium
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npx playwright install --with-deps chromium
-      - name: Build packaged production release
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        id: build
-        env:
-          MIX_ENV: prod
-        run: |
-          release_dir=$(bash packaging/scripts/build-release.sh)
-          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
-      - name: Assemble platform package
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        id: assemble
-        run: |
-          out=$(node packaging/scripts/assemble-platform-package.mjs \
-            --release "${{ steps.build.outputs.release_dir }}" \
-            --target linux-x64 \
-            --version 0.0.0-pr.${{ github.run_number }})
-          echo "out=$out" >> "$GITHUB_OUTPUT"
-      - name: Verify package integrity and offline worker
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: |
-          node packaging/scripts/check-layout-assets-release.mjs --release "${{ steps.build.outputs.release_dir }}"
-          node packaging/scripts/check-layout-assets-release.mjs --release "${{ steps.assemble.outputs.out }}/release"
-          node src/browser/scripts/check-packaged-layout-worker.mjs --release "${{ steps.assemble.outputs.out }}/release"
+        run: bash scripts/ci/layout-release.sh

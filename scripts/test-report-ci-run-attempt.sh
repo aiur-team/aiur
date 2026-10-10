@@ -26,7 +26,7 @@ fi
 bash "$reporter" 2 "$second_summary"
 grep -Fqx '> CI rerun: attempt 2 of this workflow run.' "$second_summary"
 
-workflow="$root/.github/workflows/ci.yml"
+for workflow in "$root/.github/workflows/ci.yml" "$root/.github/workflows/ci-guards.yml"; do
 
 job_block() {
   local job="$1"
@@ -103,6 +103,7 @@ for job in "${jobs[@]}"; do
     echo "blocking CI job $job must disclose reruns immediately after checkout" >&2
     exit 1
   fi
+done
 done
 
 echo "CI run-attempt reporter tests passed"

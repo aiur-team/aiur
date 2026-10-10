@@ -65,7 +65,10 @@ for (const pr of [42, 43]) {
     });
   }
 }
-const security = workflow.match(/^  workflow-security:\n([\s\S]*?)(?=^  merge-ruleset-drift:)/m)?.[1];
+const guards = readFileSync(new URL('../.github/workflows/ci-guards.yml', import.meta.url), 'utf8');
+assert.equal(guards.match(/^concurrency:\n((?:  .+\n)+)/m)?.[1], concurrency,
+  'ci-guards must share ci.yml concurrency policy');
+const security = guards.match(/^  workflow-security:\n([\s\S]*?)(?=^  merge-ruleset-drift:)/m)?.[1];
 assert.ok(security?.includes('run: node scripts/test-ci-concurrency.mjs'),
   'workflow security must execute this test');
 console.log('CI concurrency tests passed');

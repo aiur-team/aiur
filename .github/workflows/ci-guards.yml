@@ -1,0 +1,145 @@
+name: ci-guards
+
+# Guard jobs split out of ci.yml to keep both files reviewable. They have no
+# `needs`, so their check contexts (the job names) are unchanged and the
+# human-only merge ruleset still matches. Triggers and concurrency mirror ci.yml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Required for GitHub's merge queue: the queue builds each candidate on a
+  # `gh-readonly-queue/<base>/pr-<n>-<sha>` ref and waits for the required
+  # checks to report against it. Without this trigger no workflow runs there,
+  # the required checks never appear, and every queued PR is ejected when the
+  # queue's check timeout expires. See #1381.
+  merge_group:
+  push:
+    branches:
+      - main
+      - v2
+  # Manual re-run path: lets an operator (or an agent) trigger CI on a branch
+  # head directly when the pull_request synchronize path is not creating runs
+  # (#2397). Checks attach to the head commit either way.
+  workflow_dispatch:
+
+# Main pushes finish the running run; only the newest pending run is kept.
+# Initial PR runs share a group; other events and all reruns stay independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
+
+jobs:
+  workflow-security:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    name: workflow security
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Guard workflow triggers and action pins
+        run: bash scripts/test-workflow-security.sh
+      - name: Test legacy Stream Deck nightly cleanup
+        run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
+      - name: Test human-only merge ruleset verifier
+        run: bash scripts/test-human-only-merge-ruleset.sh
+      - name: Test human-only merge ruleset drift check
+        run: bash scripts/test-human-only-merge-ruleset-live.sh
+      - name: Test pull request merge-gate diagnostics
+        run: bash scripts/test-pr-merge-gate-diagnostic.sh
+      - name: Test CI failure diagnostics
+        run: bash scripts/test-report-ci-failures.sh
+      - name: Test quarantine _build cache invariants
+        run: bash scripts/test-quarantine-build-cache.sh
+      - name: Test known-flaky reporter
+        run: bash scripts/test-report-known-flaky-tests.sh
+      - name: Test coverage flake ledger
+        run: python3 scripts/test-record-coverage-flakes.py
+      - name: Test CI run-attempt disclosure
+        run: bash scripts/test-report-ci-run-attempt.sh
+      - name: Test CI concurrency
+        run: node scripts/test-ci-concurrency.mjs
+      - name: Test rename preflight
+        run: make test-rename-preflight
+      - name: Test config documentation guard
+        run: bash scripts/test-check-config-docs.sh
+      - name: Test component manifest guard
+        run: bash scripts/test-check-components.sh
+      - name: Test env example drift guard
+        run: bash scripts/test-check-env-example.sh
+      - name: Test coverage-shard parity guard
+        run: bash scripts/test-check-test-shard-parity.sh
+      - name: Test bare assert_receive guard
+        run: bash scripts/test-check-bare-assert-receive.sh
+      - name: Test hourly retrospective visual check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
+      - name: Test hourly dashboard analyzer
+        run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
+      - name: Test hourly retrospective CLI check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
+
+      - name: Test file size gate
+        run: bash scripts/test-check-file-size.sh
+      - name: File size gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) base="$PR_BASE" ;;
+            merge_group) base="$MERGE_BASE" ;;
+            push)
+              base="$PUSH_BEFORE"
+              if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
+            workflow_dispatch)
+              upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo origin/main)"
+              base="$(git merge-base HEAD "$upstream")" ;;
+            *) echo "Unsupported file size gate event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$base"
+          python3 scripts/check-file-size.py --base "$base"
+
+  merge-ruleset-drift:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    name: merge ruleset drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Verify live human-only merge ruleset matches the declaration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-human-only-merge-ruleset-live.sh
+
+  analytics:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    name: analytics
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Analytics reducer suite (stdlib unittest)
+        env:
+          PYTHONPATH: analytics/lib
+        run: python3 -m unittest discover -s analytics/tests -t analytics -v
