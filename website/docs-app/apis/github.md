@@ -748,9 +748,7 @@ Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20)
 
 Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
 
-The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
-
-Two consequences:
+The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |
