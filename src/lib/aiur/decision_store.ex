@@ -3317,8 +3317,7 @@ defmodule Aiur.DecisionStore do
   # conservative re-raise path stays in effect.
   defp default_terminal_ticket_resolver(ticket_identifiers) do
     with {:ok, issues} <- Tracker.fetch_issue_states_by_ids(ticket_identifiers) do
-      terminal_states = DeliveryTarget.impl().terminal_state_set()
-      {:ok, terminal_identities(issues, terminal_states)}
+      {:ok, terminal_identities(issues, DeliveryTarget.impl().terminal_state_set())}
     end
   end
 
@@ -4601,12 +4600,6 @@ defmodule Aiur.DecisionStore do
   defp dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   defp dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
   defp dispatch_failure_class(:delivery_target_unbound), do: "delivery_target_unbound"
-
-  # An unbound target is not a tracker fault: keep its own cause instead of the
-  # transient `target_revalidation_failed`, which would retry a missing binding.
-  defp dispatch_failure_class({:target_revalidation_failed, :delivery_target_unbound}),
-    do: "delivery_target_unbound"
-
   defp dispatch_failure_class(:decision_dispatch_overloaded), do: "decision_dispatch_overloaded"
   defp dispatch_failure_class(:decision_dispatch_unavailable), do: "decision_dispatch_unavailable"
   defp dispatch_failure_class(:decision_dispatch_timeout), do: "decision_dispatch_timeout"

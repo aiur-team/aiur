@@ -103,6 +103,13 @@ defmodule Aiur.Commands.DeliveryTargetTest do
     refute_received {:expired, _decision_id}
   end
 
+  test "an unbound revalidation keeps its own cause instead of the retryable tracker failure" do
+    bind(DeliveryTarget.Unbound)
+
+    assert Aiur.DecisionRevisionDispatch.revalidate_target(open_decision(), issue_fetcher: fn _ids -> {:ok, []} end) ==
+             {:error, :delivery_target_unbound}
+  end
+
   test "unbound target names its own cause on every failing callback" do
     unbound = DeliveryTarget.Unbound
 

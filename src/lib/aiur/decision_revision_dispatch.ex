@@ -187,6 +187,10 @@ defmodule Aiur.DecisionRevisionDispatch do
     end
   end
 
+  # An unbound target is not a tracker fault: the transient
+  # `target_revalidation_failed` would retry a missing binding.
+  defp classify_revalidation({:error, :delivery_target_unbound} = error, _terminal_states), do: error
+
   defp classify_revalidation({:error, reason}, _terminal_states) do
     {:error, {:target_revalidation_failed, reason}}
   end
