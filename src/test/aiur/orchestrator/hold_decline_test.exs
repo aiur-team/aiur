@@ -48,6 +48,23 @@ defmodule Aiur.Orchestrator.HoldDeclineTest do
     assert decline.(state, {:error, @hold}).dispatch_declines[candidate.id] == :github_budget_hold
   end
 
+  test "a refresh held every poll escalates although the blocker read gets through" do
+    candidate = %Issue{id: "hold-decline-refresh-#{System.unique_integer([:positive])}", identifier: "repo#refresh", title: "refresh", state: "todo"}
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+    attention = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+    decline = fn state ->
+      Dispatcher.dispatch_issue(state, candidate, nil, nil, issue_fetcher: fn _ids -> {:error, @hold} end, blocked_by_hydrator: fn issue -> {:ok, issue} end)
+    end
+
+    twice = %State{effective_concurrent_agents: 4} |> decline.() |> decline.()
+    assert twice.dispatch_declines[candidate.id] == :github_budget_hold
+    refute_receive {:alert, %{name: ^attention}}, 300
+
+    assert decline.(twice).dispatch_declines[candidate.id] == :tracker_revalidation_failed
+    assert_receive {:alert, %{name: ^attention, needs_attention: true}}, 2_000
+  end
+
   test "a different failure ends the run of holds" do
     candidate = %Issue{id: "hold-decline-mixed-#{System.unique_integer([:positive])}", identifier: "repo#mixed", title: "mixed", state: "todo"}
 

@@ -1180,7 +1180,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp fetch_dispatch_validation(blocked_ids, issue, opts) do
     case held_by_dependency_before_refresh(blocked_ids, issue, opts) do
-      {:held, hydrated, _terminal_states} -> {:held, hydrated}
+      {:held, hydrated, _terminal_states} -> {:held, HoldDecline.observe(hydrated)}
       :continue -> refresh_dispatch_validation(issue, opts)
     end
   end
@@ -1191,7 +1191,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
       # The hydration read waits a short local hold out like the refresh above.
-      {:ok, refreshed} -> {:validated, refreshed, LocalHold.run(fn -> hydrator.(refreshed) end, LocalHold.caller_opts(opts))}
+      {:ok, refreshed} -> {:validated, refreshed, HoldDecline.observe(LocalHold.run(fn -> hydrator.(refreshed) end, LocalHold.caller_opts(opts)))}
       other -> other
     end
   end
@@ -1258,7 +1258,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
-         {:ok, %Issue{} = hydrated} <- HoldDecline.observe(hydrator.(issue)),
+         {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
          true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
@@ -1324,7 +1324,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
-    case HoldDecline.observe(hydrator.(refreshed_issue)) do
+    case hydrator.(refreshed_issue) do
       {:ok, %Issue{} = hydrated} ->
         # Dispatch-time mirror of the per-cycle gate in `choose_issues`. The
         # main dispatch path already refused the ticket, but resume/wake paths
