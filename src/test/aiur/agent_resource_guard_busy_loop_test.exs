@@ -49,6 +49,7 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
 
     opts = [
       cap: 1,
+      kill_detected: true,
       busy_window_ms: 1_000,
       entries_fun: fn -> [{{:os_pid, 100}, :agent, %{}}] end,
       children_fun: fn
@@ -70,8 +71,8 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
     assert {results, _tracked} = AgentResourceGuard.enforce([now_ms: 1_000] ++ opts, tracked)
 
     assert results == [
-             %{root_pid: 100, cap: 1, killed: [202], workspace: "/ws/aiur/42"},
-             %{root_pid: nil, cap: 0, killed: [301], workspace: "/ws/aiur/7/src"}
+             %{root_pid: 100, cap: 1, killed: [202], reported: [], workspace: "/ws/aiur/42"},
+             %{root_pid: nil, cap: 0, killed: [301], reported: [], workspace: "/ws/aiur/7/src"}
            ]
 
     assert_receive {:killed, 202}, 1000
@@ -79,6 +80,58 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
     refute_receive {:killed, _other}, 50
     assert_receive {:alert, "Agent workspace /ws/aiur/42 exceeded the synthetic load cap of 1; killed 1 " <> _}, 1000
     assert_receive {:alert, "Agent workspace /ws/aiur/7/src left orphaned synthetic load running; killed 1 " <> _}, 1000
+  end
+
+  test "without the opt-in, detected busy loops and orphans are reported once and left running" do
+    test_pid = self()
+
+    opts = [
+      cap: 1,
+      kill_detected: false,
+      busy_window_ms: 1_000,
+      entries_fun: fn -> [{{:os_pid, 100}, :agent, %{}}] end,
+      children_fun: fn
+        100 -> [201, 202, 204]
+        _ -> []
+      end,
+      # 204 and 302 are known generators by name: one `yes` is within the cap,
+      # and an orphan is report-only whatever it is called.
+      orphans_fun: fn -> [%{pid: 301, cwd: "/ws/aiur/7/src"}, %{pid: 302, cwd: "/ws/aiur/7/src"}] end,
+      process_info_fun: fn
+        pid when pid in [204, 302] -> %{pid: pid, comm: "yes", cmdline: "yes"}
+        pid -> %{pid: pid, comm: "sh", cmdline: "sh -c spin"}
+      end,
+      cwd_fun: fn 100 -> "/ws/aiur/42" end,
+      alert_fun: fn _topic, alert -> send(test_pid, {:alert, alert[:message]}) end,
+      kill_fun: fn pid -> send(test_pid, {:killed, pid}) end
+    ]
+
+    tick = fn n, tracked ->
+      spinning = fn pid -> if pid in [201, 202, 301], do: sample(pid, cpu: n) end
+      AgentResourceGuard.enforce([now_ms: n * 1_000, sample_fun: spinning] ++ opts, tracked)
+    end
+
+    assert {[%{root_pid: nil, killed: [], reported: [302]}], tracked} = tick.(0, %{})
+    assert {results, tracked} = tick.(1, tracked)
+
+    assert results == [
+             %{root_pid: 100, cap: 1, killed: [], reported: [202, 204], workspace: "/ws/aiur/42"},
+             %{root_pid: nil, cap: 0, killed: [], reported: [301], workspace: "/ws/aiur/7/src"}
+           ]
+
+    # Still spinning, already reported: no repeat on later ticks.
+    assert {[], _tracked} = tick.(2, tracked)
+
+    assert_receive {:alert, "Agent workspace /ws/aiur/7/src left orphaned synthetic load running; killed 0 load generator process(es), left 1 running (report-only" <> _}, 1000
+    assert_receive {:alert, "Agent workspace /ws/aiur/42 exceeded the synthetic load cap of 1; killed 0 load generator process(es), left 2 running (report-only" <> _}, 1000
+    assert_receive {:alert, "Agent workspace /ws/aiur/7/src left orphaned" <> _}, 1000
+    refute_receive {:alert, _message}, 50
+    refute_receive {:killed, _pid}, 50
+  end
+
+  test "killing detected load is opt-in by config" do
+    assert {:ok, %{agent: %{synthetic_load_kill_detected: false}}} = Aiur.Config.Schema.parse(%{tracker: %{kind: "memory"}})
+    assert {:ok, %{agent: %{synthetic_load_kill_detected: true}}} = Aiur.Config.Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_kill_detected: true}})
   end
 
   test "legitimate CPU-heavy work under a workspace is never killed, in the tree or orphaned" do
@@ -99,6 +152,7 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
 
     opts = [
       cap: 1,
+      kill_detected: true,
       busy_window_ms: 1_000,
       entries_fun: fn -> [{{:os_pid, 100}, :agent, %{}}] end,
       children_fun: fn
@@ -214,6 +268,7 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
 
     opts = [
       cap: 1,
+      kill_detected: true,
       busy_window_ms: 300,
       entries_fun: fn -> [{{:os_pid, root}, :agent, %{}}] end,
       orphans_fun: fn -> AgentResourceGuard.workspace_orphans(tmp_dir) end,

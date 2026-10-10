@@ -168,6 +168,8 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     field(:synthetic_load_process_cap, :integer)
+    # false = busy-loop-detected and orphaned generators are reported, not killed.
+    field(:synthetic_load_kill_detected, :boolean, default: false)
     # Cap ERTS scheduler threads on agent-spawned Mix BEAMs via
     # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
     # four bounds every agent test shape without relying on prompt compliance.
@@ -251,6 +253,7 @@ defmodule Aiur.Config.Schema.Agent do
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
+        :synthetic_load_kill_detected,
         :mix_scheduler_cap,
         :saturation_log_enabled,
         :capacity_starvation_alert_after_seconds,

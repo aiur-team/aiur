@@ -83,5 +83,5 @@ the background. Inject the pressure through the code's test seam instead (the
 injectable load reader, clock, or sampler the code under test already takes),
 and reproduce flakes deterministically with seeded ordering, repeat-until-failure
 loops, and fault injection. Backgrounded generators outlive the command that
-started them and starve every other agent on the shared host; Aiur kills them
-and alerts the Executor with your workspace named.
+started them and starve every other agent on the shared host; Aiur reports
+them to the Executor with your workspace named, and kills them where configured.

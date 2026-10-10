@@ -42,6 +42,7 @@ defmodule Aiur.AgentResourceGuardTest do
     result =
       AgentResourceGuard.enforce_once(
         cap: 3,
+        kill_detected: false,
         entries_fun: fn -> [{{:os_pid, 100}, :agent, %{comm: "codex"}}] end,
         children_fun: children,
         process_info_fun: process_info,
@@ -53,7 +54,7 @@ defmodule Aiur.AgentResourceGuardTest do
       )
 
     expected_killed = Enum.to_list(204..216)
-    assert result == [%{root_pid: 100, cap: 3, killed: expected_killed, workspace: "/ws/aiur/42"}]
+    assert result == [%{root_pid: 100, cap: 3, killed: expected_killed, reported: [], workspace: "/ws/aiur/42"}]
 
     assert_receive {:alert, "system.agent.synthetic_load_cap", alert}, 1000
     assert alert[:message] =~ "Agent workspace /ws/aiur/42 exceeded the synthetic load cap of 3; killed 13 "

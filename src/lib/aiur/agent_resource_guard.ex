@@ -13,6 +13,11 @@ defmodule Aiur.AgentResourceGuard do
   to init and leaves the agent's tree, so it is found by its working directory
   under the workspace root instead and reaped outright: nothing is left to
   stop it, and no cap applies to load nobody is waiting on.
+
+  Only known command names above the cap are killed by default. A process
+  flagged by behaviour, and any orphan, is logged and alerted once but left
+  running unless `agent.synthetic_load_kill_detected` is set: both rest on
+  inference, and a wrong kill costs more than a late one.
   """
 
   use GenServer
@@ -28,7 +33,9 @@ defmodule Aiur.AgentResourceGuard do
   @load_generator_comms ~w(yes stress stress-ng)
 
   @type proc_info :: %{pid: pos_integer(), comm: String.t(), cmdline: String.t()}
-  @type trim_result :: %{root_pid: pos_integer() | nil, cap: non_neg_integer(), killed: [pos_integer()], workspace: Path.t() | nil}
+  @type trim_result :: %{root_pid: pos_integer() | nil, cap: non_neg_integer(), killed: [pos_integer()], reported: [pos_integer()], workspace: Path.t() | nil}
+  # Busy-loop sample history, plus the pids already reported without a kill.
+  @type tracked :: %{optional(:reported) => MapSet.t(pos_integer()), optional(BusyLoop.key()) => map()}
   @type orphan :: %{pid: pos_integer(), cwd: Path.t()}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -44,7 +51,7 @@ defmodule Aiur.AgentResourceGuard do
   @doc false
   # `tracked` is the busy-loop sample history carried between ticks; a spin is
   # only recognised once two ticks have seen the same process.
-  @spec enforce(keyword(), BusyLoop.tracked()) :: {[trim_result()], BusyLoop.tracked()}
+  @spec enforce(keyword(), tracked()) :: {[trim_result()], tracked()}
   def enforce(opts, tracked) do
     cap = Keyword.get_lazy(opts, :cap, &Aiur.Config.synthetic_load_process_cap/0)
 
@@ -68,12 +75,20 @@ defmodule Aiur.AgentResourceGuard do
         |> Enum.flat_map(&List.wrap(sample_fun.(&1)))
 
       now_ms = Keyword.get_lazy(opts, :now_ms, fn -> System.monotonic_time(:millisecond) end)
+      {already_reported, tracked} = Map.pop(tracked, :reported, MapSet.new())
       {busy, tracked} = BusyLoop.advance(tracked, samples, now_ms, Keyword.get(opts, :busy_window_ms, @busy_window_ms))
-      opts = Keyword.put(opts, :busy_pids, busy)
+      opts = opts |> Keyword.put(:busy_pids, busy) |> Keyword.put_new_lazy(:kill_detected, &configured_kill_detected/0)
 
-      results = Enum.flat_map(trees, &trim_root(&1, cap, opts)) ++ reap_orphans(orphans, opts)
-      Enum.each(results, &alert(&1, opts))
-      {results, tracked}
+      found = Enum.flat_map(trees, &trim_root(&1, cap, opts)) ++ reap_orphans(orphans, opts)
+
+      # A process left running is still flagged on the next tick; report it once.
+      results =
+        found
+        |> Enum.map(&%{&1 | reported: Enum.reject(&1.reported, fn pid -> pid in already_reported end)})
+        |> Enum.reject(&(&1.killed == [] and &1.reported == []))
+
+      Enum.each(results, &report(&1, opts))
+      {results, Map.put(tracked, :reported, found |> Enum.flat_map(& &1.reported) |> MapSet.new())}
     end
   end
 
@@ -178,19 +193,18 @@ defmodule Aiur.AgentResourceGuard do
   defp trim_root({root_pid, descendants}, cap, opts) do
     kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.graceful_kill/1)
     load_pids = descendants |> Enum.filter(&load_generator?(&1, opts)) |> Enum.sort()
-
     excess = Enum.drop(load_pids, cap)
+
+    # Without the opt-in only known command names count toward a kill.
+    killed = if opts[:kill_detected], do: excess, else: load_pids |> Enum.filter(&named_generator?(&1, opts)) |> Enum.drop(cap)
 
     case excess do
       [] ->
         []
 
-      pids ->
-        Enum.each(pids, kill_fun)
-
-        Logger.warning("agent_resource_guard trimmed_synthetic_load root_pid=#{root_pid} cap=#{cap} killed=#{inspect(pids)}")
-
-        [%{root_pid: root_pid, cap: cap, killed: pids, workspace: Keyword.get(opts, :cwd_fun, &proc_cwd/1).(root_pid)}]
+      _ ->
+        Enum.each(killed, kill_fun)
+        [%{root_pid: root_pid, cap: cap, killed: killed, reported: excess -- killed, workspace: Keyword.get(opts, :cwd_fun, &proc_cwd/1).(root_pid)}]
     end
   end
 
@@ -204,27 +218,37 @@ defmodule Aiur.AgentResourceGuard do
     |> Enum.group_by(& &1.cwd, & &1.pid)
     |> Enum.map(fn {cwd, pids} ->
       pids = Enum.sort(pids)
-      Enum.each(pids, kill_fun)
-      Logger.warning("agent_resource_guard reaped_orphaned_synthetic_load workspace=#{cwd} killed=#{inspect(pids)}")
-      %{root_pid: nil, cap: 0, killed: pids, workspace: cwd}
+      killed = if opts[:kill_detected], do: pids, else: []
+      Enum.each(killed, kill_fun)
+      %{root_pid: nil, cap: 0, killed: killed, reported: pids -- killed, workspace: cwd}
     end)
   end
 
-  defp load_generator?(pid, opts) do
+  defp load_generator?(pid, opts), do: MapSet.member?(Keyword.fetch!(opts, :busy_pids), pid) or named_generator?(pid, opts)
+
+  defp named_generator?(pid, opts) do
     info = Keyword.get(opts, :process_info_fun, &proc_info/1).(pid)
-    MapSet.member?(Keyword.fetch!(opts, :busy_pids), pid) or (info != nil and synthetic_load_generator?(info))
+    info != nil and synthetic_load_generator?(info)
   end
 
-  defp alert(%{workspace: workspace, cap: cap, killed: killed, root_pid: root_pid}, opts) do
+  defp report(%{workspace: workspace, cap: cap, killed: killed, reported: reported, root_pid: root_pid}, opts) do
     what = if root_pid, do: "exceeded the synthetic load cap of #{cap}", else: "left orphaned synthetic load running"
+    info_fun = Keyword.get(opts, :process_info_fun, &proc_info/1)
+    cmds = Map.new(killed ++ reported, &{&1, (info_fun.(&1) || %{})[:cmdline]})
+
+    Logger.warning("agent_resource_guard synthetic_load workspace=#{workspace} root_pid=#{inspect(root_pid)} cap=#{cap} killed=#{inspect(killed)} reported=#{inspect(reported)} cmds=#{inspect(cmds)}")
+
+    left = if reported == [], do: "", else: ", left #{length(reported)} running (report-only; set agent.synthetic_load_kill_detected to kill)"
 
     Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2).(@alert_topic,
-      message: "Agent workspace #{workspace || "(unknown, agent pid #{root_pid})"} #{what}; killed #{length(killed)} load generator process(es)",
-      reason: "synthetic CPU load generators (by name or busy-loop behaviour) are capped per agent and reaped once orphaned; pids=#{inspect(killed)}",
+      message: "Agent workspace #{workspace || "(unknown, agent pid #{root_pid})"} #{what}; killed #{length(killed)} load generator process(es)#{left}",
+      reason: "synthetic CPU load generators (by name or busy-loop behaviour) are capped per agent and flagged once orphaned; killed=#{inspect(killed)} reported=#{inspect(reported)}",
       needs_attention: false,
       severity: "warning"
     )
   end
+
+  defp configured_kill_detected, do: Aiur.Config.settings!().agent.synthetic_load_kill_detected == true
 
   # Unit tests must never signal host processes, so the scan shares the
   # reaper's registration switch (false in the test env).
