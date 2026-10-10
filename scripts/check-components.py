@@ -227,7 +227,8 @@ def module_violations(root, manifest, file_owners):
             continue
         component, provider = components[source], components[destination]
         graph[source].add(destination)
-        if path == 'src/lib/aiur.ex':
+        # The composition root wires every component; its boot-order modules are part of it.
+        if path == 'src/lib/aiur.ex' or path.startswith('src/lib/aiur/application/'):
             continue
         for rule in edge_rules(component, provider, target):
             if seam and rule in ('R-declared', 'R-optional'):
