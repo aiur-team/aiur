@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.FeatureStats do
   @moduledoc "Pure feature figures over the complete registry, with explicit unknowns."
   alias Aiur.BuildOrder.History.Row
   alias Aiur.BuildOrder.Metadata
+  alias Aiur.BuildOrder.ProgressRenderer
   @enforce_keys [:total, :done, :done_min, :pct, :pct_min, :orig, :added, :baseline?, :spark, :also, :reasons]
   defstruct @enforce_keys
   @type t :: %__MODULE__{}
@@ -75,10 +76,16 @@ defmodule Aiur.BuildOrder.FeatureStats do
   end
 
   defp fraction(%{status: status}) when status in [:done, :failed], do: {:known, 100}
-  defp fraction(%{status: :running, progress: {:known, x}}) when is_integer(x) and x in 0..100, do: {:known, x}
-  defp fraction(%{status: :running}), do: {:unknown, :progress}
+  defp fraction(%{status: :running} = fact), do: fact |> running_contract() |> ProgressRenderer.json() |> Map.fetch!("progress") |> running_fraction()
   defp fraction(%{status: status}) when status in [:queued, :open], do: {:known, 0}
   defp fraction(%{status: :unknown}), do: {:unknown, :status}
+
+  # A running member's reading becomes the RootSummary progress contract and is
+  # resolved by ProgressRenderer; an unknown or out-of-range reading stays unknown.
+  defp running_contract(%{progress: {:known, x}}), do: %{progress: x, progress_resolution: :resolved}
+  defp running_contract(_fact), do: %{progress: nil, progress_resolution: :unknown}
+  defp running_fraction(x) when is_integer(x), do: {:known, x}
+  defp running_fraction(nil), do: {:unknown, :progress}
 
   defp percentage(w, n, reasons) do
     cond do
