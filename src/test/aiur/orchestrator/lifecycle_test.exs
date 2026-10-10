@@ -2,8 +2,29 @@ defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, SnapshotPublisher, State, StatusReport, TrackedSet}
+  alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, SnapshotPublisher, State, StatusReport, TrackedSet, TrackerTasks}
   alias Aiur.TrackerIdentity
+
+  test "orchestrator termination reaps held tracker tasks" do
+    owner = self()
+
+    state =
+      TrackerTasks.start(
+        %State{},
+        :held,
+        fn ->
+          send(owner, {:tracker_started, self()})
+          receive do: (:never -> :ok)
+        end,
+        fn state, _ -> state end
+      )
+
+    receive_barrier({:tracker_started, worker})
+    monitor = Process.monitor(worker)
+    assert :ok = Lifecycle.terminate(:shutdown, state, fn _kinds, _opts -> :ok end)
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
+    refute Process.alive?(worker)
+  end
 
   test "orchestrator subscribes to explicit unblock readiness" do
     topics = Lifecycle.orchestrator_topics()

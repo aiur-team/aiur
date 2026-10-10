@@ -201,7 +201,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # their subtrees are collectible — reap every running entry before the
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
-  def terminate(_reason, %State{running: running} = state) when is_map(running) do
+  def terminate(reason, state), do: terminate(reason, state, &ProcessReaper.reap/2)
+
+  @doc false
+  @spec terminate(term(), State.t() | term(), ([ProcessReaper.kind()], keyword() -> term())) :: :ok
+  def terminate(_reason, %State{running: running} = state, reap) when is_map(running) do
     _ = TrackerTasks.stop(state)
     # The comment poll owns linked target tasks whose guarded request workers
     # may still hold GitHub sockets. Reap that tree before this owner exits so
@@ -217,13 +221,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # drain: false is load-bearing — terminate/2 also runs on a supervised
     # crash-restart, and latching the app-lifetime reaper into draining
     # there would kill every agent the restarted orchestrator spawns.
-    _ = ProcessReaper.reap([:agent], drain: false)
+    _ = reap.([:agent], drain: false)
     Enum.each(running, fn {_issue_id, entry} -> AgentTeardown.kill_repl_session(entry) end)
     discard_unnamed_snapshot(state)
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(_reason, _state, _reap), do: :ok
 
   defp discard_unnamed_snapshot(%State{snapshot_key: snapshot_key}) when is_pid(snapshot_key),
     do: SnapshotStore.discard(snapshot_key)
