@@ -16,11 +16,14 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
   const provider = p => ({ name: p.name, logo: optional(p, 'logo'), mono: optional(p, 'mono'), hue: optional(p, 'hue'),
     tag: optional(p, 'tag'), accounts: optional(p, 'accounts'), session: window(p.session), weekly: window(p.weekly),
     credits: optional(p, 'credits'), none: p.none ?? false });
+  const byId = Object.fromEntries(sections.flatMap(sec => data[sec]).map(t => [t.id, t]));
+  const state = t => t.status === 'done' ? 'cleared' : t.status === 'failed' ? 'terminal_unsatisfied' : 'blocking';
   const row = (t, ord) => ({ id: id(t.id), num: t.num, title: t.title, type: t.type, epic: optional(t, 'epic'), feature: optional(t, 'feature'),
     also: t.also, cx: optional(t, 'cx'), pts: optional(t, 'pts'), sec: t.sec, ord,
     start: time(t, 'start'), start_src: t.start == null ? 'unknown' : (t.start_src ?? 'label'), end: time(t, 'end'), created: time(t, 'created'), status: t.status,
     pct: optional(t, 'pct'), agent: t.agent ? { ...t.agent, name: Object.hasOwn(labels, t.agent.model) ? labels[t.agent.model] : null } : null, est: optional(t, 'est'), override: t.override ? { hours: t.override.hours, reason: t.override.reason, by: t.override.by ?? null, at: time(t.override, 'at') } : null,
-    added: t.added ?? false, deps: t.deps.map(id), wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
+    added: t.added ?? false, deps: t.deps.map(id), children: (data.children[t.id] ?? []).map(id),
+    dep_states: Object.fromEntries(t.deps.map(dep => [id(dep), state(byId[dep])])), deps_missing: 0, wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
     cue: t.cue ? { held: optional(t.cue, 'held'), promoted: t.cue.promoted ? meta.now - duration(t.cue.promoted) : null,
       wait: optional(t.cue, 'wait'), waitAny: t.cue.waitAny ?? false, failed: optional(t.cue, 'failed'), blockedChain: t.cue.blockedChain ?? false } : null,
     pr: null });

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { resolve, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
+import { oddEdges } from './build-home-odd-edges.mjs';
 import { mapRawToPayload } from './build-home-fixture-map.mjs';
 
 const TZ = 'America/Los_Angeles';
@@ -89,6 +90,9 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
         heartbeat_at: dataset === 'offline' ? NOW - 360000 : NOW, observed_at: NOW },
     }, { featureStats }));
   }
+  const odd = oddEdges(JSON.parse(files['live.json']));
+  files['odd-edges.json'] = encode(odd.snapshot);
+  files['odd-edges-history.json'] = encode(odd.history);
   files['feature-stats.json'] = encode(oracle);
   const hostile = JSON.parse(files['live.json']);
   hostile.sections.now[0].title = `<img src=x onerror="window.__xss=1">'"&`;
@@ -104,7 +108,7 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   });
   files['manifest.json'] = encode({
     schema: 'build-home-payload/1', ids: Object.fromEntries(DATASETS.flatMap(k => Object.values(JSON.parse(files[`${k}.json`]).sections).flat().map(r => [`AIUR-${r.num}`, r.id]))), now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
-    design_etag: ETAG, datasets: DATASETS,
+    design_etag: ETAG, datasets: [...DATASETS, 'odd-edges'],
     design_sha256: Object.fromEntries(designFiles(designDir).map(f => [f, sha256(readFileSync(join(designDir, f)))])),
     fixture_sha256: Object.fromEntries(Object.entries(files).map(([f, text]) => [f, sha256(text)])),
     utc_offsets_min: [...offsets].sort((a, b) => a - b), node: process.version,

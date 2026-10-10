@@ -50,6 +50,7 @@ defmodule AiurWeb.Build.PayloadValidator do
     |> rule(row["sec"] == "plan" and row["wave"] != nil and (not is_integer(row["wave"]) or row["wave"] < 1), join(path, "wave"), :section)
     |> rule(row["sec"] == "hist" and not is_integer(row["end"]), join(path, "end"), :section)
     |> rule(row["start"] == nil != (row["start_src"] == "unknown"), join(path, "start_src"), :timing)
+    |> rule(is_map(row["dep_states"]) and is_list(row["deps"]) and Enum.sort(Map.keys(row["dep_states"])) != Enum.sort(row["deps"]), join(path, "dep_states"), :dependencies)
     |> identity_rules(row, path)
   end
 
