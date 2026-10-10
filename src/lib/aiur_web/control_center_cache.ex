@@ -6,6 +6,7 @@ defmodule AiurWeb.ControlCenterCache do
   Provider events also refresh the ordinary TTL entry. Retained entries
   are bounded because keys may include provider incarnations. A failed load
   re-serves the last payload marked `stale: true` with its `stale_age_ms`.
+  `:clock` and `:load_timeout_ms` are test seams.
   """
 
   use GenServer
@@ -22,10 +23,14 @@ defmodule AiurWeb.ControlCenterCache do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
-      nil -> GenServer.start_link(__MODULE__, %{})
-      name -> GenServer.start_link(__MODULE__, %{}, name: name)
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
     end
   end
+
+  @doc "How long a load may run before it is killed; provider deadlines must fit inside it."
+  @spec load_timeout_ms() :: pos_integer()
+  def load_timeout_ms, do: @load_timeout_ms
 
   @spec fetch(GenServer.server(), term(), non_neg_integer(), loader()) :: map()
   def fetch(server, key, max_age_ms, loader)
@@ -44,7 +49,15 @@ defmodule AiurWeb.ControlCenterCache do
   end
 
   @impl true
-  def init(_state), do: {:ok, %{entries: %{}, loads: %{}}}
+  def init(opts) do
+    {:ok,
+     %{
+       entries: %{},
+       loads: %{},
+       clock: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end),
+       load_timeout_ms: Keyword.get(opts, :load_timeout_ms, @load_timeout_ms)
+     }}
+  end
 
   @impl true
   def handle_call({:fetch, key, max_age_ms, loader}, from, state),
@@ -66,7 +79,7 @@ defmodule AiurWeb.ControlCenterCache do
     do: {:noreply, finish_load(state, ref, {:error, :timeout})}
 
   defp fetch_or_load(key, entry_key, max_age_ms, loader, from, state) do
-    now_ms = System.monotonic_time(:millisecond)
+    now_ms = state.clock.()
 
     case Map.get(state.entries, entry_key) do
       %{loaded_at_ms: loaded_at_ms, payload: payload} when now_ms - loaded_at_ms < max_age_ms ->
@@ -79,7 +92,7 @@ defmodule AiurWeb.ControlCenterCache do
           case Map.get(state.loads, load_key) do
             nil ->
               task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, loader)
-              timer = Process.send_after(self(), {:load_timeout, task.ref}, @load_timeout_ms)
+              timer = Process.send_after(self(), {:load_timeout, task.ref}, state.load_timeout_ms)
               %{task: task, timer: timer, key: key, load_order: System.unique_integer([:monotonic, :positive]), waiters: [], entry_keys: []}
 
             pending ->
@@ -100,24 +113,24 @@ defmodule AiurWeb.ControlCenterCache do
         Process.cancel_timer(load.timer)
         Process.exit(load.task.pid, :kill)
         Process.demonitor(ref, [:flush])
-        {payload, entries} = load_result(result, load, state.entries)
+        {payload, entries} = load_result(result, load, state.entries, state.clock.())
         Enum.each(load.waiters, &GenServer.reply(&1, payload))
         %{state | entries: entries, loads: Map.delete(state.loads, load_key)}
     end
   end
 
-  defp load_result({:ok, payload}, load, entries) do
-    entry = cache_entry(payload, load.load_order)
+  defp load_result({:ok, payload}, load, entries, now_ms) do
+    entry = %{loaded_at_ms: now_ms, load_order: load.load_order, payload: payload}
     entries = Enum.reduce(load.entry_keys, entries, &put_newer_entry(&2, &1, entry))
     {payload, bound_entries(entries)}
   end
 
-  defp load_result({:error, reason}, load, entries) do
+  defp load_result({:error, reason}, load, entries, now_ms) do
     payload =
       case Map.get(entries, load.key) do
         %{payload: payload, loaded_at_ms: loaded_at_ms} ->
           Logger.warning("control center payload load failed (#{inspect(reason)}); serving the last loaded payload")
-          payload |> Map.put(:stale, true) |> Map.put(:stale_age_ms, System.monotonic_time(:millisecond) - loaded_at_ms)
+          payload |> Map.put(:stale, true) |> Map.put(:stale_age_ms, now_ms - loaded_at_ms)
 
         nil ->
           unavailable(reason)
@@ -134,14 +147,6 @@ defmodule AiurWeb.ControlCenterCache do
       %{load_order: order} when order > entry.load_order -> entries
       _entry -> Map.put(entries, key, entry)
     end
-  end
-
-  defp cache_entry(payload, load_order) do
-    %{
-      loaded_at_ms: System.monotonic_time(:millisecond),
-      load_order: load_order,
-      payload: payload
-    }
   end
 
   defp bound_entries(entries) when map_size(entries) <= @max_entries, do: entries
