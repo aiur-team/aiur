@@ -5,6 +5,7 @@ defmodule Aiur.BuildGate.HookPartsTest do
 
   @parts ~w(classify lease process run_linux run_pid)
 
+  # Guards future edits: a syntax error in any part breaks every agent shell.
   test "the hook and every part it sources parse as Bash" do
     priv_dir = Path.dirname(BuildGate.hook_path())
     parts = priv_dir |> Path.join("build_gate/*.bash") |> Path.wildcard() |> Enum.sort()
@@ -32,18 +33,22 @@ defmodule Aiur.BuildGate.HookPartsTest do
   end
 
   test "a relative hook path sources its parts from the hook's own directory", context do
-    hook = copy_hook!(context, "relative")
-    env = Enum.map(build_gate_env(context), &relative_bash_env/1)
+    hook_dir = Path.dirname(copy_hook!(context, "relative"))
 
-    assert {output, 0} =
-             System.cmd("bash", ["-c", "mix compile"], cd: Path.dirname(hook), env: env, stderr_to_stdout: true)
+    # A bare file name has no directory component; a nested path is relative to
+    # a working directory that does not itself hold the parts.
+    Enum.each([{hook_dir, "build_gate.bash"}, {Path.dirname(hook_dir), "relative/build_gate.bash"}], fn {cwd, bash_env} ->
+      env = Enum.map(build_gate_env(context), &relative_bash_env(&1, bash_env))
+      File.rm_rf!(context.log_path)
 
-    assert output =~ "aiur_build_gate acquired slot=1"
-    assert File.read!(context.log_path) == "compile\n"
+      assert {output, 0} = System.cmd("bash", ["-c", "mix compile"], cd: cwd, env: env, stderr_to_stdout: true)
+      assert output =~ "aiur_build_gate acquired slot=1"
+      assert File.read!(context.log_path) == "compile\n"
+    end)
   end
 
-  defp relative_bash_env({"BASH_ENV", _path}), do: {"BASH_ENV", "build_gate.bash"}
-  defp relative_bash_env(entry), do: entry
+  defp relative_bash_env({"BASH_ENV", _path}, bash_env), do: {"BASH_ENV", bash_env}
+  defp relative_bash_env(entry, _bash_env), do: entry
 
   defp copy_hook!(context, name) do
     priv_dir = Path.dirname(BuildGate.hook_path())
