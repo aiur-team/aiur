@@ -340,21 +340,9 @@ defmodule Aiur.AgentControlCLI do
     exit_marker(0)
   end
 
-  @spec alerts_argv([String.t()]) :: :ok
-  def alerts_argv(argv) do
-    case Aiur.AlertsCLI.parse(argv) do
-      {:ok, opts} -> alerts(opts)
-      {:error, msg} -> IO.puts(:stderr, msg) && exit_marker(64)
-    end
-  end
-
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    guarded("alerts", fn ->
-      Aiur.AlertsCLI.run(opts)
-
-      exit_marker(0)
-    end)
+    guarded("alerts", fn -> opts |> Aiur.AlertsCLI.run() |> exit_marker() end)
   end
 
   @spec commands(keyword()) :: :ok

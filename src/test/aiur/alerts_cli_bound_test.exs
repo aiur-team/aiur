@@ -21,6 +21,10 @@ defmodule Aiur.AlertsCLIBoundTest do
     assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--bogus"])
   end
 
+  test "argv entry point exits 64 on bad input" do
+    assert capture_io(:stderr, fn -> assert Aiur.AlertsCLI.run(argv: ["--bogus"]) == 64 end) =~ "alerts accepts"
+  end
+
   test "default view keeps every open attention item and caps only other rows", %{ledger: ledger} do
     open = Enum.map(1..150, &alert(&1, true))
     history = Enum.map(1001..1200, &alert(&1, false))

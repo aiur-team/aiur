@@ -3179,7 +3179,7 @@ cmd_alerts() {
     esac
     args="${args}\"$arg\", "
   done
-  run_control_rpc "Aiur.AgentControlCLI.alerts_argv([${args%, }])"
+  run_control_rpc "Aiur.AgentControlCLI.alerts(argv: [${args%, }])"
 }
 
 # `aiur watch` — the server-side status board. Compiles one row per active

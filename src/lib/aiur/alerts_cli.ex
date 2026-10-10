@@ -24,7 +24,14 @@ defmodule Aiur.AlertsCLI do
   defp parse(_, _), do: {:error, @usage}
 
   # Open attention items are never cut: only the other history rows are capped.
-  @spec run(keyword()) :: :ok
+  @spec run(keyword()) :: 0 | 64
+  def run(argv: argv) do
+    case parse(argv) do
+      {:ok, opts} -> run(opts)
+      {:error, msg} -> IO.puts(:stderr, msg) && 64
+    end
+  end
+
   def run(opts) do
     limit = Keyword.get(opts, :limit, @default_limit)
     alerts = opts |> Keyword.delete(:limit) |> AlertFeed.list() |> Enum.with_index()
@@ -48,5 +55,7 @@ defmodule Aiur.AlertsCLI do
     |> Enum.reject(fn {_, i} -> MapSet.member?(dropped, i) end)
     |> Enum.map(fn {a, _} -> [Jason.encode!(a), "\n"] end)
     |> IO.write()
+
+    0
   end
 end
