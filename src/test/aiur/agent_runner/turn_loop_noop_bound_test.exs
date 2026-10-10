@@ -481,6 +481,8 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
     # rebuilding the full cold-start prompt, exactly as the sibling
     # `turn_loop_agent_support_test` does.
     opts = Keyword.put(opts, :resumed, true)
+    # U4-T02: every no-op turn parks; queued wakes let the outer bound be reached.
+    for _ <- 1..10, do: send(self(), {:resume_agent, 1})
 
     TurnLoop.run_turns(
       %{backend: "claude", workspace: ctx.workspace, worker_host: nil},

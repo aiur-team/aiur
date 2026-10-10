@@ -103,6 +103,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
         opts \\ []
       ) do
     receive do
+      # Bounded no-op park (`NoopWait`) ran out of time: resume with a normal turn.
+      :noop_park_timeout ->
+        :ok
+
       {:agent_queue_updated, issue_identifier, _item_id}
       when issue_identifier == issue.identifier ->
         try_claim_after_queue_update(
@@ -471,17 +475,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           opts
         )
 
-      :empty ->
-        wait_for_operator_message(
-          app_session,
-          issue,
-          message_handler,
-          orchestrator,
-          codex_update_recipient,
-          opts
-        )
-
-      :ignored ->
+      _empty_or_ignored ->
         wait_for_operator_message(
           app_session,
           issue,
