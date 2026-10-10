@@ -1,0 +1,6 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.BuildQueue.Hints",
+  "kind": "reference",
+  "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"
+}
