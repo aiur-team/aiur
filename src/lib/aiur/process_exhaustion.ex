@@ -20,7 +20,7 @@ defmodule Aiur.ProcessExhaustion do
 
   @spec cmd(binary(), [binary()], keyword()) :: result()
   def cmd(command, args, opts \\ []) do
-    seam(:cmd_fun, &System.cmd/3).(command, args, opts)
+    Application.get_env(:aiur, :process_exhaustion_cmd_fun, &System.cmd/3).(command, args, opts)
   rescue
     error in ErlangError ->
       case error.original do
@@ -33,7 +33,14 @@ defmodule Aiur.ProcessExhaustion do
       end
   end
 
-  defp seam(key, default), do: :aiur |> Application.get_env(:process_exhaustion, []) |> Keyword.get(key, default)
+  # The kernel sits below the alert pipeline, so it reaches the configured sink
+  # the way `Aiur.Signal` does rather than naming it.
+  defp emit(topic, opts) do
+    case Application.get_env(:aiur, :signal, [])[:alert_sink] do
+      nil -> :ok
+      sink -> sink.emit_system(topic, opts)
+    end
+  end
 
   # Every probe fails at once under exhaustion; one alert a minute per calling
   # process says so without a storm.
@@ -46,7 +53,7 @@ defmodule Aiur.ProcessExhaustion do
       message = "Host could not spawn #{Path.basename(command)} (#{reason}); the probe was skipped"
       Logger.error("process_exhaustion command=#{command} reason=#{reason}")
 
-      seam(:emit_fun, &Aiur.Alerts.emit_system/2).(@alert,
+      emit(@alert,
         message: message,
         reason:
           message <>

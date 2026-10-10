@@ -4,18 +4,29 @@ defmodule Aiur.ProcessExhaustionTest do
 
   alias Aiur.{ProcessExhaustion, ProcessTree}
 
+  defmodule Sink do
+    @moduledoc false
+    def emit_system(topic, opts), do: send(Aiur.ProcessExhaustionTest, {:alert, topic, opts})
+  end
+
   setup do
     test_pid = self()
+    Process.register(test_pid, __MODULE__)
+    signal = Application.get_env(:aiur, :signal)
 
-    Application.put_env(:aiur, :process_exhaustion,
-      cmd_fun: fn command, _args, _opts ->
-        send(test_pid, {:spawn_attempt, Path.basename(command)})
-        :erlang.error(:eagain)
-      end,
-      emit_fun: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
-    )
+    # The alert must travel the configured sink, the route production uses.
+    Application.put_env(:aiur, :signal, alert_sink: Sink)
 
-    on_exit(fn -> Application.delete_env(:aiur, :process_exhaustion) end)
+    Application.put_env(:aiur, :process_exhaustion_cmd_fun, fn command, _args, _opts ->
+      send(test_pid, {:spawn_attempt, Path.basename(command)})
+      :erlang.error(:eagain)
+    end)
+
+    on_exit(fn ->
+      Application.put_env(:aiur, :signal, signal)
+      Application.delete_env(:aiur, :process_exhaustion_cmd_fun)
+    end)
+
     :ok
   end
 
@@ -42,7 +53,7 @@ defmodule Aiur.ProcessExhaustionTest do
   end
 
   test "an unrelated spawn failure still raises" do
-    Application.put_env(:aiur, :process_exhaustion, cmd_fun: fn _command, _args, _opts -> :erlang.error(:enoent) end)
+    Application.put_env(:aiur, :process_exhaustion_cmd_fun, fn _command, _args, _opts -> :erlang.error(:enoent) end)
 
     assert_raise ErlangError, fn -> ProcessExhaustion.cmd("missing", []) end
   end
