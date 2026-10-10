@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
   # `TicketActivity.snapshots/1` reads an in-memory projection in microseconds; this budget must
-  # cover is queueing. 100 ms did not: behind a burst of ticket events, or any
+  # cover queueing. 100 ms did not: behind a burst of ticket events, or any
   # ordinary VM pause, the call timed out and the whole fleet's progress
   # collapsed to a single failure value at once.
   #
