@@ -137,7 +137,7 @@ Queue label requests use the `github-cost` callers `build_queue_label_post` and 
 
 The dispatch poll normally renews the open-issue snapshot the queue plans from. When that snapshot is older than the observation age, a non-empty queue lists open issues itself with caller `build_queue_open_issue_list`: at most once per observation age, starting one observation age after boot. The listing selects and authorizes no dispatch candidates.
 
-The listing runs whenever the dispatch cadence is wider than the observation age, as under idle or webhook widening, and never while the previous one is still running. It is conditional on the queue's own page cache: an unchanged page answers `304` and renews the snapshot, and a changed page is read in full. It needs the daemon scheduled and GitHub reachable, so a saturated host or a failed listing can still leave freshness `unknown`.
+The listing is conditional on the queue's own page cache: an unchanged page answers `304` and renews the snapshot. It runs whenever the dispatch cadence is wider than the observation age, never while the previous one is still running. It needs the daemon scheduled and GitHub reachable, so a saturated host or failed listing can leave freshness `unknown`.
 
 Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready` backlog and `newly_ready`: items now ready that were not ready in the previous pass, including the initial population. Both measure demand, not successful writes.
 
