@@ -29,6 +29,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   alias Aiur.GitHub.Config
   alias Aiur.RepoBase
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.SummaryReader
 
   @reduce_tool "reduce"
   @materialize_timeout_ms 30_000
@@ -202,10 +203,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   """
   @spec load_dataset(String.t()) :: {:ok, map()} | {:error, atom()}
   def load_dataset(boot_id) when is_binary(boot_id) do
-    case File.read(run_summary_path(boot_id)) do
-      {:ok, body} -> decode_summary(body)
-      {:error, _reason} -> {:error, :missing}
-    end
+    with {:ok, decoded} <- SummaryReader.read(run_summary_path(boot_id)), do: decode_summary_map(decoded)
   end
 
   @doc "Loads every materialized prior boot (excluding the live boot) as datasets."
@@ -247,8 +245,16 @@ defmodule Aiur.RunTelemetry.Summaries do
   """
   @spec decode_summary(String.t()) :: {:ok, map()} | {:error, atom()}
   def decode_summary(body) when is_binary(body) do
-    with {:ok, decoded} <- Jason.decode(body),
-         true <- is_map(decoded),
+    case Jason.decode(body) do
+      {:ok, decoded} -> decode_summary_map(decoded)
+      {:error, _reason} -> {:error, :invalid_summary}
+    end
+  end
+
+  def decode_summary(_body), do: {:error, :invalid_summary}
+
+  defp decode_summary_map(decoded) do
+    with true <- is_map(decoded),
          {:ok, records} <- decode_records(Map.get(decoded, "records", [])),
          {:ok, restarts} <- decode_records(Map.get(decoded, "restarts", [])),
          {:ok, actors} <- decode_actors(Map.get(decoded, "actors", %{})),
@@ -268,8 +274,6 @@ defmodule Aiur.RunTelemetry.Summaries do
       _other -> {:error, :invalid_summary}
     end
   end
-
-  def decode_summary(_body), do: {:error, :invalid_summary}
 
   ## ---- decoders ----
 
@@ -341,6 +345,8 @@ defmodule Aiur.RunTelemetry.Summaries do
 
   defp decode_actor(map) when is_map(map) do
     %{
+      sampled?: Map.get(map, "sampled", false),
+      covered_until_ms: Map.get(map, "covered_until_ms"),
       actor: Map.get(map, "actor"),
       actor_type: Map.get(map, "actor_type"),
       samples: Enum.map(Map.get(map, "samples", []), &decode_sample/1),
@@ -359,6 +365,8 @@ defmodule Aiur.RunTelemetry.Summaries do
     metrics
     |> Map.merge(evidence)
     |> Map.merge(%{
+      sampled?: Map.get(map, "sampled", false),
+      covered_until_ms: Map.get(map, "covered_until_ms"),
       actor: Map.get(map, "actor"),
       actor_type: Map.get(map, "actor_type"),
       ticket: Map.get(map, "ticket"),

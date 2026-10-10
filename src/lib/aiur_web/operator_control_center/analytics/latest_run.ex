@@ -6,14 +6,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   records agent or ticket activity, the newest materialized prior run remains
   the truthful latest analyzable dataset.
 
-  Decoded prior summaries are cached in an ETS table so the Build Order pane's
-  30-second idle retry does not re-decode them. The cache key folds in each
-  summary's file metadata, so a new or regenerated summary invalidates the
-  entry without retaining one key per boot forever. ETS is deliberate:
-  `:persistent_term` would `put` on every materialization and force a global
-  literal-area GC across every process in the VM — including the daemon. The
-  table is owned by the caller (a LiveView or the CLI) and dies with it, which
-  is fine for a best-effort cache: losing it costs one re-decode.
+  Only the newest analyzable prior summary is retained in a bounded cache.
+  A persistent cache owner serializes cold loads and survives request exits.
+  File metadata invalidates regenerated summaries without retaining every boot.
 
   When retained summaries exist but none of them can be decoded — a truncated
   or corrupt `run-summary.json` — `load/4` returns `{:error, :retained_unreadable}`
@@ -23,8 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   alias Aiur.RunTelemetry.{Dataset, Summaries}
 
-  @cache_table __MODULE__
-  @cache_options [:named_table, :public, :set, read_concurrency: true]
+  alias Aiur.RunTelemetry.RetainedCache
 
   @spec load(Path.t(), String.t() | nil, (map() -> boolean())) ::
           {:ok, map()} | {:error, term()}
@@ -46,7 +40,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   # none of them decode, that is a persistence failure the page must surface,
   # not an idle fleet to paper over.
   defp latest_prior(current_boot, fallback, analyzable?, opts) do
-    {datasets, unreadable?} = prior_datasets(opts, current_boot)
+    {datasets, unreadable?} = prior_datasets(opts, current_boot, analyzable?)
 
     case newest_analyzable(datasets, analyzable?) do
       {:ok, dataset} -> {:ok, dataset}
@@ -69,80 +63,38 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   # `prior_loader/0` returns `{datasets, unreadable?}` so tests can inject both
   # halves; the default reads the real summaries through `Summaries`.
-  defp prior_datasets(opts, current_boot) do
-    identity = Keyword.get_lazy(opts, :cache_identity, fn -> cache_identity(current_boot) end)
+  defp prior_datasets(opts, current_boot, analyzable?) do
+    identity = Keyword.get_lazy(opts, :cache_identity, fn -> RetainedCache.identity(current_boot) end)
 
-    case cache_get(identity) do
-      {:ok, cached} ->
-        cached
+    identity = {identity, Keyword.get(opts, :tickets)}
 
-      :miss ->
-        value =
-          case Keyword.get(opts, :prior_loader) do
-            nil -> Summaries.load_prior_datasets_with_state(current_boot)
-            loader when is_function(loader, 0) -> loader.()
-          end
-
-        cache_put(identity, value)
-        value
-    end
-  end
-
-  defp cache_identity(current_boot) do
-    summaries =
-      Summaries.summary_boot_ids()
-      |> Enum.reject(&(&1 == current_boot))
-      |> Enum.map(fn boot_id ->
-        path = Summaries.run_summary_path(boot_id)
-
-        case File.stat(path, time: :posix) do
-          {:ok, stat} -> {boot_id, stat.size, stat.mtime}
-          {:error, reason} -> {boot_id, reason}
+    RetainedCache.fetch(
+      __MODULE__,
+      identity,
+      fn ->
+        case Keyword.get(opts, :prior_loader) do
+          nil -> load_newest(current_boot, analyzable?)
+          loader when is_function(loader, 0) -> loader.()
         end
-      end)
-
-    {Summaries.state_node(), current_boot, summaries}
+      end,
+      max_value_bytes: 24 * 1024 * 1024
+    )
   end
 
-  defp cache_get(key) do
-    if cache_table?() do
-      case :ets.lookup(@cache_table, key) do
-        [{^key, value}] -> {:ok, value}
-        [] -> :miss
-      end
-    else
-      :miss
-    end
-  rescue
-    ArgumentError -> :miss
+  defp load_newest(current_boot, analyzable?) do
+    Summaries.summary_boot_ids()
+    |> Enum.reject(&(&1 == current_boot))
+    |> Enum.reduce({[], false}, &choose_newest(&1, &2, analyzable?))
   end
 
-  defp cache_put(key, value) do
-    ensure_table()
-    :ets.insert(@cache_table, {key, value})
-    :ok
-  rescue
-    ArgumentError -> :ok
-  end
+  defp choose_newest(boot_id, {newest, unreadable?}, analyzable?) do
+    case Summaries.load_dataset(boot_id) do
+      {:ok, dataset} ->
+        candidates = if analyzable?.(dataset), do: [dataset | newest], else: newest
+        {Enum.take(Enum.sort_by(candidates, &observed_at/1, :desc), 1), unreadable?}
 
-  defp cache_table? do
-    :ets.whereis(@cache_table) != :undefined
-  end
-
-  # A public named table owned by the calling process. Concurrent callers that
-  # race to create it lose the race cleanly and reuse the winner's table; a
-  # caller whose table has died simply falls back to a re-decode.
-  defp ensure_table do
-    case :ets.whereis(@cache_table) do
-      :undefined ->
-        try do
-          :ets.new(@cache_table, @cache_options)
-        rescue
-          ArgumentError -> :ok
-        end
-
-      _table ->
-        :ok
+      {:error, _reason} ->
+        {newest, true}
     end
   end
 
