@@ -125,10 +125,8 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
   end
 
   describe "engine cleanup trap is idempotent + signal-isolated" do
-    @engine_path Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
-
     test "session_cleanup guards against re-entry" do
-      source = File.read!(@engine_path)
+      source = Aiur.EngineSource.text()
 
       assert source =~ ~r/_cleanup_ran/,
              """
@@ -144,7 +142,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
     end
 
     test "signal traps are separate from the EXIT trap" do
-      source = File.read!(@engine_path)
+      source = Aiur.EngineSource.text()
 
       refute source =~ ~r/trap 'session_cleanup' EXIT INT TERM HUP/,
              """
