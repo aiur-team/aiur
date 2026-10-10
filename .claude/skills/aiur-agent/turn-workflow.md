@@ -111,10 +111,21 @@ change as the comment actually warrants.
 A rework turn with nothing to rework must not push. GitHub never clears
 `reviewDecision` when findings are addressed, so a ticket can be routed to
 `agent:rework` with every finding already fixed. When that happens, record it in
-the workpad, reply on the threads that are already satisfied, and end the turn.
-Do **not** merge the base and push to prove liveness: a push with no substantive
-change is not progress, and under a branch ruleset that dismisses stale
-approvals it destroys the approval that would have released the ticket.
+the workpad, reply on the threads that are already satisfied, and hand the
+ticket back with `aiur_set_ticket_state({ "state": "human-review" })` before
+ending the turn. Do **not** merge the base and push to prove liveness: a push
+with no substantive change is not progress, and under a branch ruleset that
+dismisses stale approvals it destroys the approval that would have released the
+ticket.
+
+Red CI is not a reason to stay in `agent:rework`. Once every blocking finding is
+addressed and pushed, post one PR comment naming the head SHA, each finding and
+the commit that addresses it, and any failing check you believe is inherited
+from the base — with the evidence, such as the same check failing on the base
+head. Then move to `agent:human-review`. Whether inherited red CI blocks the
+merge is the reviewer's call. A failure your own change caused is still yours
+to fix first. Ending turns in `agent:rework` with nothing left to change only
+runs the ticket into the no-op bound (#3971).
 
 After pushing rework commits, the agent hands off by label: use
 `agent:ci-wait` while checks are pending, otherwise `agent:human-review`.

@@ -70,6 +70,7 @@ end)
 
 Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
+Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/agent_control_cli_todo.ex", __DIR__)
 Code.require_file("support/live_view_async.ex", __DIR__)
 Code.require_file("support/refresh_trace.ex", __DIR__)

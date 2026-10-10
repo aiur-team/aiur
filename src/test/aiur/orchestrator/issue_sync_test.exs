@@ -695,7 +695,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "Ready tickets=1"
     assert event["reason"] =~ "effective cap=4, configured cap=4"
-    assert event["reason"] =~ "load-envelope limit"
+    assert event["reason"] =~ "adaptive envelope limit"
     assert event["reason"] =~ "memory gate"
     assert event["reason"] =~ "FD gate"
     assert event["reason"] =~ "load gate"
@@ -1213,7 +1213,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
     assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
-    assert event["reason"] =~ "binding constraint=load envelope (effective cap=3)"
+    assert event["reason"] =~ "binding constraint=adaptive envelope (effective cap=3)"
   end
 
   test "reports a per-state ceiling as the binding constraint" do
