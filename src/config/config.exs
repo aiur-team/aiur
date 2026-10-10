@@ -68,6 +68,10 @@ config :aiur, AiurWeb.Endpoint,
   check_origin: false,
   server: false
 
+# Composition: orchestration implements the Commands delivery port, so the
+# commands component never references orchestration itself.
+config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
+
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time
 # with AIUR_BUILD_ORDER_DEMO=1. Remove this block + priv/build_orders to delete.
