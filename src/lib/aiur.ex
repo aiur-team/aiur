@@ -470,7 +470,6 @@ defmodule Aiur.Application do
       BuildOrders.child_specs(:view_state_sweep, opts),
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
-      Aiur.Experiments.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
@@ -511,7 +510,7 @@ defmodule Aiur.Application do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu])
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ List.wrap(Aiur.Experiments.child(recording?)))
   end
 
   defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
