@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{DataSource, Protocol, Read}
+  alias AiurWeb.Build.{DataSource, Protocol, Read, URLState}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.Presenter
@@ -25,6 +25,31 @@ defmodule AiurWeb.BuildLive do
       |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
 
     {:ok, if(connected, do: load_snapshot(socket), else: socket)}
+  end
+
+  @impl true
+  def handle_params(params, uri, socket) do
+    home = if URLState.legacy?(params), do: Map.merge(URLState.legacy_preset(params), Map.drop(params, ~w(v scope conditions))), else: params
+    state = URLState.parse(home)
+    previous = socket.assigns[:url_state]
+    location = URI.parse(uri)
+    socket = assign(socket, url_path: location.path, url_state: state)
+    socket = if previous != nil and previous != state and connected?(socket), do: push_event(socket, "build:url", %{state: state}), else: socket
+    {:noreply, patch_url(socket, location.query || "", URLState.to_query(state))}
+  end
+
+  defp patch_url(socket, current, query) do
+    if current == query do
+      socket
+    else
+      path = socket.assigns.url_path <> if(query == "", do: "", else: "?" <> query)
+      push_patch(socket, to: path, replace: true)
+    end
+  end
+
+  defp corrected_url?(params, query) do
+    sent = Map.reject(params, fn {key, value} -> key == "ticket" or not is_binary(value) or value == "" end)
+    Map.take(URI.decode_query(query), Map.keys(sent)) != sent
   end
 
   defp load_snapshot(socket) do
@@ -68,6 +93,15 @@ defmodule AiurWeb.BuildLive do
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
 
+  def handle_event("build:url", params, socket) when is_map(params) do
+    previous = socket.assigns.url_state
+    state = params |> Map.put_new("ticket", previous.ticket) |> URLState.parse()
+    query = URLState.to_query(state)
+    socket = assign(socket, :url_state, state)
+    socket = if corrected_url?(params, query), do: push_event(socket, "build:url", %{state: state}), else: socket
+    {:noreply, patch_url(socket, URLState.to_query(previous), query)}
+  end
+
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
@@ -97,7 +131,7 @@ defmodule AiurWeb.BuildLive do
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
-        data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
+        data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
         <div class="bd-toolbar"><div class="bd-bar-l" id="bd-tools-l"></div><div class="bd-filters" id="bd-filters"></div><div class="bd-bar-r" id="bd-tools"></div></div>
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
