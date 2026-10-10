@@ -28,6 +28,20 @@ defmodule Aiur.TrackerIoPollBarrier do
     :sys.get_state(server)
   end
 
+  @doc """
+  Receives the held candidate poll that `server` itself owns.
+
+  Tracker configuration is application-global, so any process that polls the
+  tracker during the test announces itself with this test's token. Only a task
+  the server tracks is one its shutdown reaps; another caller's signal is skipped.
+  """
+  @spec await_owned_poll(pid(), reference()) :: pid()
+  def await_owned_poll(server, token) do
+    receive_barrier({:poll_started, ^token, caller})
+    owned? = Enum.any?(:sys.get_state(server).tracker_tasks, fn {_ref, job} -> job.task.pid == caller end)
+    if owned?, do: caller, else: await_owned_poll(server, token)
+  end
+
   defp poll_finished?({:noreply, state}), do: state.poll_cycles_completed > 0
   defp poll_finished?({:out, _reply, _to, state}), do: state.poll_cycles_completed > 0
   defp poll_finished?(_event), do: false
