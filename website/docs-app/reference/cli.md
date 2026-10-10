@@ -416,7 +416,7 @@ A notification monitor must use that `<repo>` prefix (for example,
 itself armed, and never substitute the `aiur` prefix in a consumer repository.
 
 A `tail -F -n0` follower is a low-latency notification aid only: it has no consumer identity or lease and never advances the durable cursor.
-It must print only a `wake_id` above the last one it saw, because each trim renames a new file into place and `tail -F` re-emits that file from the top.
+It must print only a `wake_id` above the last one it saw, seeded from the file's last `wake_id` at arm time, because each trim renames a new file into place and `tail -F` re-emits that file from the top.
 The monitor command in the `aiur-run` skill carries that filter.
 
 `executor-wait` is the normal discovery and consumption path. Use
