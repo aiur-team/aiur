@@ -2178,7 +2178,6 @@ defmodule Aiur.AgentControlCLI do
   # CLI may not run on the daemon's host, and it reads its own config file
   # rather than the daemon's live config, so a locally re-derived gate can name
   # a fleet-level cause the daemon never decided (#1610).
-  #
   # `polling` is threaded in for one honest reason: the "ticket supply" binding
   # is only claimable when the daemon recently polled and found nothing. While
   # idle backoff is active (the last successful poll is a full backed-off
