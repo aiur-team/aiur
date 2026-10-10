@@ -1,4 +1,6 @@
 defmodule Aiur.TestResetSupport do
+  @moduledoc false
+
   use ExUnit.CaseTemplate
 
   using do
