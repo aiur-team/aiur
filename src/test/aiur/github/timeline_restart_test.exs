@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.TimelineRestartTest do
   use Aiur.TestSupport
-  alias Aiur.GitHub.{DispatchAuthorization, ResourceStore}
+  alias Aiur.GitHub.{DispatchAuthorization, ResourceStore, TimelineCache}
   alias Aiur.Issue
 
   setup do
@@ -131,7 +131,7 @@ defmodule Aiur.GitHub.TimelineRestartTest do
       :ok = ResourceStore.put_resource(ResourceStore.key(:issue_timeline, "owner", "repo", id), data, etag: "old")
     end
 
-    :ok = Aiur.GitHub.TimelineCache.put("owner", "repo", "1001", "new", [], true, 50)
+    :ok = TimelineCache.put("owner", "repo", "1001", "new", [], true, 50)
     assert ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 1)) == :miss
     assert {:ok, %{etag: "old"}} = ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 2))
     assert length(ResourceStore.list_type(:issue_timeline, "owner/repo")) == 1_000
