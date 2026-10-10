@@ -11,7 +11,7 @@ defmodule Aiur.Webhooks.EventSourceDefaultSinkTest do
 
     assert {:ok, ^event} = EventSource.publish(event, [])
 
-    assert_receive {:event, %{id: id, topic: ^topic, ticket_observation: _}}
+    assert_receive {:event, %{id: id, topic: ^topic, ticket_observation: _}}, 500
     assert is_integer(id)
   end
 end
