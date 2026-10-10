@@ -191,21 +191,6 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
-  describe "build_gate/1" do
-    test "holds while every build slot is busy or builds are queued" do
-      assert DispatchPolicy.build_gate(%{enabled?: true, capacity: 2, active: 2, queued: 0}) == :hold
-      assert DispatchPolicy.build_gate(%{enabled?: true, capacity: 2, active: 1, queued: 1}) == :hold
-      assert DispatchPolicy.build_gate(%{enabled?: true, capacity: 2, active: 1, queued: 0}) == :dispatch
-    end
-
-    test "fails open when the gate is disabled, capacity is zero, or status is unavailable" do
-      assert DispatchPolicy.build_gate(%{enabled?: false, capacity: 0, active: 0, queued: 0}) == :dispatch
-      assert DispatchPolicy.build_gate(%{enabled?: true, capacity: 0, active: 0, queued: 5}) == :dispatch
-      assert DispatchPolicy.build_gate(:unavailable) == :dispatch
-      assert DispatchPolicy.build_gate(%{enabled?: true, degraded?: true, capacity: 2, active: 0, queued: 0}) == :dispatch
-    end
-  end
-
   describe "provider_gate/1" do
     test "holds only when every dispatchable backend is usage-limited" do
       write_workflow_file!(Workflow.workflow_file_path())
@@ -261,15 +246,6 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.provider_gate(["codex"], path: path, now: now, probe_fun: probe) == :hold
       assert DispatchPolicy.provider_gate(["codex"], path: path, now: now, probe_fun: probe) == :dispatch
       assert ModelAvailability.available?("codex", path: path, now: now)
-    end
-  end
-
-  describe "read_build_status/0" do
-    test "delegates to the injected test seam" do
-      Application.put_env(:aiur, :build_gate_status_override, fn -> %{enabled?: true, capacity: 3, active: 3, queued: 0} end)
-      on_exit(fn -> Application.delete_env(:aiur, :build_gate_status_override) end)
-
-      assert %{active: 3} = DispatchPolicy.read_build_status()
     end
   end
 
@@ -359,11 +335,10 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                )
     end
 
-    test "reports build pressure and provider limits in priority order" do
+    test "build occupancy does not mask provider limits" do
       build = %{enabled?: true, capacity: 2, active: 2, queued: 1}
 
-      assert {:hold, %{signal: :build, threshold: 2}} =
-               DispatchPolicy.admission_gate(gate_input(%{build_status: build}))
+      assert :dispatch = DispatchPolicy.admission_gate(gate_input(%{build_status: build}))
 
       future = ~U[2099-01-01 00:00:00Z]
       :ok = ModelAvailability.mark_limited("codex", DateTime.to_iso8601(future))
