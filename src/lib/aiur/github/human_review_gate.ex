@@ -4,7 +4,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   This module blocks a transition to human review while the canonical open
   pull request has unaddressed review-thread comments, conflicts with its base,
-  or overlaps files changed upstream at the state-write boundary. Subsequent observer
+  or — where the base does not land through a merge queue — overlaps files
+  changed upstream at the state-write boundary. Subsequent observer
   checks verify review threads only, so base movement during review does not
   withdraw an accepted handoff. It composes pull request discovery, bot identity
   resolution, review-thread classification and base compatibility without mutating GitHub state.
@@ -94,16 +95,23 @@ defmodule Aiur.GitHub.HumanReviewGate do
   end
 
   defp verify_stale_base(context, pr_number, base, head, comparison) do
+    stale = {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
+
+    case current_mergeability(context, pr_number, base, head) do
+      {:ok, :conflicting} -> stale
+      # A merge queue tests the head merged with the base before it lands, so lag behind the base is harmless (#4204).
+      {:ok, :merge_queue} -> :ok
+      {:ok, :mergeable} -> verify_disjoint_paths(context, head, comparison, stale)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp verify_disjoint_paths(context, head, comparison, stale) do
     with {:ok, base_sha} <- comparison_base(comparison),
          {:ok, pr_files} <- changed_paths(comparison),
          {:ok, upstream} <- compare(context, head, base_sha),
-         {:ok, upstream_files} <- upstream_paths(upstream),
-         {:ok, mergeable?} <- current_mergeability(context, pr_number, base, head) do
-      if mergeable? and MapSet.disjoint?(pr_files, upstream_files) do
-        :ok
-      else
-        {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
-      end
+         {:ok, upstream_files} <- upstream_paths(upstream) do
+      if MapSet.disjoint?(pr_files, upstream_files), do: :ok, else: stale
     end
   end
 
@@ -131,24 +139,25 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp current_mergeability(context, pr_number, base, head) do
     query = """
-    query AiurHumanReviewMergeability($owner: String!, $name: String!, $number: Int!) {
+    query AiurHumanReviewMergeability($owner: String!, $name: String!, $number: Int!, $base: String!) {
       repository(owner: $owner, name: $name) {
-        pullRequest(number: $number) { headRefOid baseRefName mergeable }
+        mergeQueue(branch: $base) { id }
+        pullRequest(number: $number) { headRefOid baseRefName mergeable mergeQueueEntry { id } }
       }
     }
     """
 
     {:ok, {owner, name}} = Transport.parse_repo()
-    variables = %{"owner" => owner, "name" => name, "number" => pr_number}
+    variables = %{"owner" => owner, "name" => name, "number" => pr_number, "base" => base}
 
     case Transport.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
-      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status}}}}}
-      when status in ["MERGEABLE", "UNKNOWN"] ->
-        # The pinned REST comparisons establish disjoint paths; UNKNOWN supplies no conflict signal.
-        {:ok, true}
-
       {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => "CONFLICTING"}}}}} ->
-        {:ok, false}
+        {:ok, :conflicting}
+
+      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status} = pr} = repository}}}
+      when status in ["MERGEABLE", "UNKNOWN"] ->
+        # UNKNOWN supplies no conflict signal; outside a merge queue the pinned REST comparisons must still establish disjoint paths.
+        if is_map(repository["mergeQueue"]) or is_map(pr["mergeQueueEntry"]), do: {:ok, :merge_queue}, else: {:ok, :mergeable}
 
       {:ok, _body} ->
         {:error, :review_base_ancestry_unavailable}
@@ -258,6 +267,35 @@ defmodule Aiur.GitHub.HumanReviewGate do
       {:ok, reviews, _meta} when is_list(reviews) -> {:ok, approved_decision?(standing_verdicts(reviews))}
       {:error, _reason} = error -> error
       _other -> {:error, :invalid_pull_request_reviews}
+    end
+  end
+
+  @doc "Returns whether the pull request is approved and sitting in the merge queue, where its branch cannot be pushed."
+  @spec approved_and_queued?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def approved_and_queued?(pr_number, opts \\ []) do
+    query = """
+    query AiurQueuedApproval($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) { reviewDecision mergeQueueEntry { id } }
+      }
+    }
+    """
+
+    with {:ok, token} <- Transport.require_token(opts),
+         {:ok, {owner, name}} <- Transport.parse_repo() do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      variables = %{"owner" => owner, "name" => name, "number" => pr_number}
+
+      case Transport.github_graphql(request_fun, token, query, variables, caller: "rework_gate_merge_queue") do
+        {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"reviewDecision" => decision, "mergeQueueEntry" => entry}}}}} ->
+          {:ok, decision == "APPROVED" and is_map(entry)}
+
+        {:ok, _body} ->
+          {:error, :invalid_pull_request}
+
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 

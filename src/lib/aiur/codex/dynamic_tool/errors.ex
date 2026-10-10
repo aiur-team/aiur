@@ -275,7 +275,8 @@ defmodule Aiur.Codex.DynamicTool.Errors do
           "Human-review refused: PR ##{detail.pr_number} conflicts with or overlaps changes in current origin/#{detail.base_branch}. " <>
             "Integrate the configured base at most once per handoff, resolve conflicts, validate and push. " <>
             "Keep the PR ready before returning to ci-wait; wait for CI on the new head before requesting human-review. " <>
-            "If another unsafe base change appears after that integration, alert the Executor instead of repeating the merge/CI cycle.",
+            "If another unsafe base change appears after that integration, alert the Executor instead of repeating the merge/CI cycle. " <>
+            "Never dequeue a pull request from the merge queue, or ask the Executor to, in order to update its branch.",
         "reason" => "stale_review_base",
         "detail" => Response.jsonable(detail)
       }
