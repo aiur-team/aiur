@@ -422,7 +422,7 @@ The monitor command in the `aiur-run` skill carries that filter.
 `executor-wait` is the normal discovery and consumption path. Use
 `executor-fast-forward` only after independently verifying the exact prefix
 already covered. The 10,000-record bound remains an emergency disk bound, not evidence of consumption.
-Exceeding it trims the journal to the newest 8,000 records, consumed ones first, so the file is rewritten once per 2,000 wakes.
+Exceeding it trims the journal to the newest 8,000 records, consumed first: one rewrite per 2,000 wakes.
 
 `AIUR_EXECUTOR_ID` names this consumer when `--as` is omitted. Nothing infers
 consumer identity from the terminal, parent process, or any other environment
