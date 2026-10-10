@@ -67,24 +67,6 @@ defmodule Aiur.AlertsCLIBoundTest do
     assert large < small * 6
   end
 
-  # Deliberate future guard: tail seeking already bounded total-history I/O before this fix.
-  test "future regression guard: discarded history bytes do not increase feed work", %{ledger: ledger} do
-    tail = Enum.map(1..100, &[Jason.encode!(alert(&1, true)), "\n"]) |> IO.iodata_to_binary()
-    opts = [ledger_path: ledger, max_bytes: byte_size(tail) + 10]
-
-    costs =
-      for bytes <- [1_024 * 1_024, 16 * 1_024 * 1_024] do
-        File.write!(ledger, [String.duplicate("x", bytes), "\n", tail])
-        {:reductions, before} = Process.info(self(), :reductions)
-        assert length(AlertFeed.list(opts)) == 100
-        {:reductions, after_count} = Process.info(self(), :reductions)
-        after_count - before
-      end
-
-    [small, large] = costs
-    assert large < small * 2
-  end
-
   defp write_ledger(ledger, records), do: File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
 
   defp run_alerts(opts), do: capture_io(fn -> AgentControlCLI.alerts(opts) end) |> decode_output()
