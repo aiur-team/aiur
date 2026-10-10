@@ -6,7 +6,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
@@ -835,10 +835,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
   # `publish/2` stamps the current monotonic clock, so restating the observation
   # time is the only way to read a ten-minute-old snapshot without waiting.
   defp age_published_snapshot(orchestrator, age_ms) do
-    cached = :persistent_term.get({SnapshotStore, orchestrator})
+    cached = SnapshotCache.get(orchestrator)
 
-    :persistent_term.put(
-      {SnapshotStore, orchestrator},
+    SnapshotCache.put(
+      orchestrator,
       %{
         cached
         | observed_at_ms: System.monotonic_time(:millisecond) - age_ms,
