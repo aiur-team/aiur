@@ -16,10 +16,10 @@ defmodule Aiur.BuildQueue.Reconcile do
     input = struct!(Planner.Input, Map.to_list(state.document) ++ [now_ms: state.clock.(), opts: []])
     promoted = Map.new(input.items, &{&1.issue_id, if(&1.promoted_at, do: DateTime.to_unix(&1.promoted_at, :millisecond))})
 
-    latest_markers =
+    latest_label_intents =
       input.intents
       |> Enum.reverse()
-      |> Enum.filter(&(&1.action in [:mark, :unmark]))
+      |> Enum.filter(&(&1.action in [:mark, :unmark, :withdraw]))
       |> Enum.uniq_by(& &1.issue_id)
       |> MapSet.new(& &1.id)
 
@@ -27,7 +27,7 @@ defmodule Aiur.BuildQueue.Reconcile do
       Enum.filter(input.intents, fn intent ->
         recent? = state.reconciles - Map.get(state.intent_reconciles, intent.id, 0) < 2
         outstanding? = promoted[intent.issue_id] != nil and intent.recorded_at_ms >= promoted[intent.issue_id]
-        recent? or MapSet.member?(latest_markers, intent.id) or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
+        recent? or MapSet.member?(latest_label_intents, intent.id) or (intent.action == :withdraw and (outstanding? or MapSet.member?(state.holds, intent.issue_id)))
       end)
 
     opts = [

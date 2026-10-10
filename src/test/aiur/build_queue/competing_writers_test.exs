@@ -25,6 +25,12 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
       end)
     end
 
+    def add_label(id, label) do
+      Agent.update(__MODULE__, &%{&1 | labels: Map.update!(&1.labels, id, fn labels -> Enum.uniq(labels ++ [label]) end)})
+    end
+
+    def ensure_labels(_labels), do: :ok
+
     def remove_label(id, label) do
       Agent.update(__MODULE__, &%{&1 | calls: &1.calls ++ [{:remove_label, id, label}], labels: Map.update!(&1.labels, id, fn labels -> List.delete(labels, label) end)})
     end
@@ -70,6 +76,28 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     reconcile(pid)
     assert projection(pid, "2").state == :waiting
     assert item("2").override == nil
+  end
+
+  test "queue add withdraws pre-existing todo from an unclaimed list item with unmet prerequisites" do
+    change_document(fn document -> %{document | items: Enum.reject(document.items, &(&1.issue_id == "2")), edges: [], intents: []} end)
+    labels("2", ["agent:todo"])
+    pid = server()
+    reconcile(pid)
+
+    assert :ok = GenServer.call(pid, {:mutate, {:add, ["2"], [queue: "Q", after: "1"]}})
+    assert Enum.any?(document().intents, &(&1.issue_id == "2" and &1.action == :mark and "agent:todo" in &1.target_labels))
+    reconcile(pid)
+    reconcile(pid)
+
+    assert labels_for("2") == ["agent:queued"]
+    assert {:remove_label, "2", "agent:todo"} in calls()
+    assert projection(pid, "2").state == :waiting
+
+    labels("2", ~w(agent:queued agent:todo))
+    reconcile(pid)
+
+    assert labels_for("2") == ~w(agent:queued agent:todo)
+    assert projection(pid, "2").state == :overridden
   end
 
   test "marker removal dequeues item and drops edges before replanning its dependent" do
@@ -208,6 +236,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
   end
 
   defp labels(id, labels), do: Agent.update(Boundary, &%{&1 | labels: Map.put(&1.labels, id, labels)})
+  defp labels_for(id), do: Agent.get(Boundary, &Map.fetch!(&1.labels, id))
   defp change_document(fun), do: Agent.update(Boundary, &%{&1 | document: fun.(&1.document)})
   defp document, do: Agent.get(Boundary, & &1.document)
   defp item(id), do: Enum.find(document().items, &(&1.issue_id == id))

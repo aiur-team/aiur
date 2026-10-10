@@ -179,8 +179,10 @@ Item states are projections, not tracker labels:
 
 If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
 
-A manual `todo` sets an override (Build Order adoption first withdraws pre-labelled, unclaimed
-blocked members). External removal of a queue-owned `todo` creates an external hold;
+A manual `todo` sets an override. When a list queue is added to an item already carrying
+`todo`, the initial label is recorded as pre-existing; known unmet prerequisites then use
+the same hold-and-claim-check withdrawal as Build Order adoption. External removal of a
+queue-owned `todo` creates an external hold;
 `aiur queue release` clears holds and overrides. Removing `agent:queued` dequeues the item.
 Optimistic writes re-observe races instead of overwriting another writer's transition.
 

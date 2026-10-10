@@ -106,6 +106,8 @@ This detection makes no GitHub request. Missing, stale, or malformed PR deliveri
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
 
+For a list queue, if `queue add` finds `agent:todo` already present, the saved marker request records that provenance. When fresh evidence shows prerequisites are unmet, the queue holds dispatch, checks claims, then withdraws `agent:todo` only for an unclaimed item. A later manual promotion remains an override.
+
 Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.

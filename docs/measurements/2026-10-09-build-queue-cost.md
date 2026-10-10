@@ -95,6 +95,10 @@ env -u TMUX scripts/aiurdev queue show --queue e2e --json > "$window/queue-added
 env -u TMUX scripts/aiurdev resume
 ```
 
+T2 starts marker-only: queue reconciliation withdraws its pre-existing `agent:todo`
+while T1 is still an unmet prerequisite. Confirm T2 becomes waiting after
+reconciliation, then observe it start only after T1 completes.
+
 Drive the actual TUI as #3082 describes and record T1 completion and T2 starting
 without manual promotion. For the ordinary window, use a real Build Order root
 already chosen by the Executor, record that root number and its start/end state,
