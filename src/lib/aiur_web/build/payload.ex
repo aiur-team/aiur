@@ -11,7 +11,7 @@ defmodule AiurWeb.Build.Payload do
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
-  created, status, pct, agent, est, override, added, deps, wave, qpos, cue, pr.
+  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr.
   Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
   wave is positive or nil. Agent model is a safe slug or nil; name is a string up to 64 characters or nil.
@@ -33,7 +33,8 @@ defmodule AiurWeb.Build.Payload do
   | agent.state | active, error, retries, command, paused, parked, or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
-  | added / deps | boolean / identifiers |
+  | added / deps / children | boolean / blocker identifiers / dependent identifiers |
+  | dep_states / deps_missing | state per deps id / missing blocker count or nil |
   | wave / qpos | integer or nil (positive on plan) / nonnegative integer or nil |
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
   | cue flags | waitAny and blockedChain booleans |

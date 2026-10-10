@@ -4,7 +4,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   alias AiurWeb.Build.Read
 
-  @files ~w(live dense newrepo noqueue offline)
+  @files ~w(live dense newrepo noqueue offline odd-edges)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   def datasets, do: @files ++ ~w(unavailable hold)

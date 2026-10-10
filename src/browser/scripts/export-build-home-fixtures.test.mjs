@@ -179,3 +179,32 @@ test('missing design statistics map to explicit unavailable statistics', () => {
   assert.equal(mapped.features.pag.stats, null);
   assert.ok(Object.values(mapped.features).every(f => Object.hasOwn(f, 'stats') && f.stats === null));
 });
+
+test('edge fields preserve design children and classify each blocker', () => {
+  const { dataFor } = loadBuildJs({ designDir, expose: ['dataFor'] });
+  for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) {
+    const raw = structuredClone(dataFor(dataset));
+    const payload = fixture(dataset);
+    for (const row of Object.values(payload.sections).flat()) {
+      const design = raw.byId[`AIUR-${row.id}`];
+      assert.deepEqual(row.children, (raw.children[design.id] ?? []).map(id => id.replace('AIUR-', '')));
+      assert.equal(row.deps_missing, 0);
+      assert.deepEqual(row.dep_states, Object.fromEntries(design.deps.map(id => [id.replace('AIUR-', ''),
+        raw.byId[id].status === 'done' ? 'cleared' : raw.byId[id].status === 'failed' ? 'terminal_unsatisfied' : 'blocking'])));
+    }
+  }
+});
+
+test('odd edges are registered with independent history expectations', () => {
+  assert.ok(JSON.parse(files['manifest.json']).datasets.includes('odd-edges'));
+  const history = fixture('odd-edges-history');
+  const odd = fixture('odd-edges');
+  assert.equal(history.rows.length, 10);
+  for (const row of Object.values(odd.sections).flat()) {
+    assert.deepEqual({ deps: row.deps, children: row.children, dep_states: row.dep_states, deps_missing: row.deps_missing }, history.expected[row.id]);
+  }
+  assert.equal(history.expected['12'].dep_states['10'], 'terminal_unsatisfied');
+  assert.equal(history.expected['16'].dep_states['10'], 'cleared');
+  assert.equal(history.expected['14'].deps_missing, 1);
+  assert.deepEqual(history.expected['7'].deps, []);
+});
