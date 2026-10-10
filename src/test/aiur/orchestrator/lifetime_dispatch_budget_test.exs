@@ -28,13 +28,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Aiur.TestSupport.put_runtime_state_dir!(Path.join(dir, "stable-state"))
 
     on_exit(fn ->
-      File.rm_rf!(dir)
-
-      if is_nil(previous) do
-        Workflow.clear_workflow_file_path()
-      else
-        Workflow.set_workflow_file_path(previous)
-      end
+      if previous, do: Workflow.set_workflow_file_path(previous), else: Workflow.clear_workflow_file_path()
 
       if is_nil(previous_store) do
         Application.delete_env(:aiur, :dispatch_budget_store_path)
@@ -53,6 +47,9 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       else
         Application.put_env(:aiur, :log_file, previous_log_file)
       end
+
+      # Last, non-raising: a late global writer must not skip the restores (#3948).
+      File.rm_rf(dir)
     end)
 
     :ok
