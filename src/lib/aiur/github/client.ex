@@ -362,6 +362,10 @@ defmodule Aiur.GitHub.Client do
   def verify_human_review_ready(issue_number, opts \\ []),
     do: HumanReviewGate.verify_human_review_ready(issue_number, opts)
 
+  @spec pull_request_approved_and_queued?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def pull_request_approved_and_queued?(pr_number, opts \\ []),
+    do: HumanReviewGate.approved_and_queued?(pr_number, opts)
+
   @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_number, opts \\ []),

@@ -26,7 +26,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.{HumanReviewGate, ReviewThreads}
+  alias Aiur.GitHub.ReviewThreads
   alias Aiur.Orchestrator.{ReviewFindings, State}
 
   @doc """
@@ -231,7 +231,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   defp default_queued_approval_fetcher(pr) do
     with true <- available?(),
          number when is_integer(number) <- Map.get(pr, "number") do
-      HumanReviewGate.approved_and_queued?(number)
+      GitHubClient.pull_request_approved_and_queued?(number)
     else
       _unavailable -> {:ok, false}
     end
