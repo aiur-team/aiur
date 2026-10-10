@@ -3256,14 +3256,13 @@ defmodule Aiur.AgentControlCLITest do
       log_root = Aiur.TestSupport.tmp_root!("aiur-default-alert-ledger")
       previous_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "daemon.log"))
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
       Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if previous_log_file,
           do: Application.put_env(:aiur, :log_file, previous_log_file),
           else: Application.delete_env(:aiur, :log_file)
-
-        File.rm_rf!(log_root)
       end)
 
       ledger = AlertLedger.path()

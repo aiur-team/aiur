@@ -8,7 +8,7 @@ defmodule Aiur.CIApprovalStoreTest do
   alias Aiur.JsonStore
 
   setup do
-    root = Path.join(System.tmp_dir!(), "ci-approval-store-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ci-approval-store")
     keys = [:log_file, :decision_state_dir, :ci_approval_store_path]
     previous = Map.new(keys, &{&1, Application.fetch_env(:aiur, &1)})
 
@@ -21,7 +21,7 @@ defmodule Aiur.CIApprovalStoreTest do
         {key, :error} -> Application.delete_env(:aiur, key)
       end)
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{logs_parent: Path.join(root, "logs"), state_dir: Path.join(root, "state")}
