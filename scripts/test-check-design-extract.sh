@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Guards `scripts/check-design-extract.py`: it must pass on the real extract and
+# Guards `scripts/check-design-extract.py`: it must pass on the real extract (so CI runs the real check) and
 # fail on a one-byte edit, a missing part, and reordered parts.
 #
 # Usage: bash scripts/test-check-design-extract.sh

@@ -143,10 +143,8 @@ jobs:
         run: node scripts/test-ci-concurrency.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
-      - name: Test config documentation guard
-        run: bash scripts/test-check-config-docs.sh
-      - name: Test design extract guard
-        run: bash scripts/test-check-design-extract.sh
+      - name: Test config documentation and design extract guards
+        run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
       - name: Test component manifest guard
         run: bash scripts/test-check-components.sh
       - name: Test env example drift guard
@@ -256,10 +254,6 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
-      - name: Stream Deck design extract matches the mock
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/check-design-extract.py docs/design/streamdeck/streamdeck.design.manifest.json
       - name: Cache component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
