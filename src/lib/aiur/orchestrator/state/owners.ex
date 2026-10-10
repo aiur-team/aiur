@@ -30,7 +30,6 @@ defmodule Aiur.Orchestrator.State.Owners do
     github_poll_delays: :core,
     tracker_tasks: :core,
     blocker_propagations: :core,
-    restack_completed: :core,
     tracker_observations: :core,
     status_observed_at: :core,
     queued_demand_hints: :core,
@@ -124,7 +123,6 @@ defmodule Aiur.Orchestrator.State.Owners do
   @members %{
     core: [
       Aiur.Orchestrator.BlockerPropagation,
-      Aiur.Orchestrator.RestackScheduler,
       Aiur.Orchestrator,
       Aiur.Orchestrator.IssueSync,
       Aiur.Orchestrator.TrackerHealth,
