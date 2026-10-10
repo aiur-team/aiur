@@ -98,13 +98,15 @@ The build queue detects a prerequisite PR closed without merging from its latest
 
 Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
 
-This detection makes no GitHub request. Missing, stale, or malformed PR deliveries supply no PR stage; fresh lifecycle labels can still satisfy an optimistic queue trigger. A newer open PR delivery replaces the closed body and clears the failed verdict.
+This detection makes no GitHub request. Retained CI and merge facts survive label regressions; issue observations must still be fresh. A boot-seeded CI head needs local PR identity before it can release a dependent. A newer open PR delivery replaces the closed body and clears the failed verdict.
 
 ## Queueing a Build Order
 
 `aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
+
+For a list queue, if `queue add` finds `agent:todo` already present, the saved marker request records that provenance. When fresh evidence shows prerequisites are unmet, the queue holds dispatch, checks claims, then withdraws `agent:todo` only for an unclaimed item. A later manual promotion remains an override.
 
 Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
