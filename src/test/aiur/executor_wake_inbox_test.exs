@@ -377,7 +377,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
   # will ever acknowledge, and preserving every unread record made the ledger
   # unbounded in exactly that case (#1661).
   test "evicts consumed records first, then bounds unread growth", %{opts: opts} do
-    opts = Keyword.merge(opts, debounce_ms: 20, max_records: 3)
+    opts = Keyword.merge(opts, debounce_ms: 20, max_records: 5)
     start_supervised!({ExecutorWakeInbox, opts})
 
     for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
@@ -386,22 +386,22 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert Enum.map(records, & &1["event_id"]) == [1, 2, 3]
     assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
 
-    # Three unread records fit inside the bound, and none of them is dropped to
-    # make room for the already-consumed ones.
+    # Past the bound the ledger trims to its low watermark (4 of 5): consumed
+    # records go first, and no unread record is dropped to keep a consumed one.
     for id <- 4..6, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [4, 5, 6]
-    assert journal_ids(opts) == [4, 5, 6]
+    assert journal_ids(opts) == [3, 4, 5, 6]
 
-    # Two more push the unread set past the bound: the oldest unread go.
-    for id <- 7..8, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    # Four more push the unread set past the bound: the oldest unread go.
+    for id <- 7..10, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
-    assert Enum.map(records, & &1["event_id"]) == [6, 7, 8]
+    assert Enum.map(records, & &1["event_id"]) == [7, 8, 9, 10]
     assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
 
-    assert journal_ids(opts) == [6, 7, 8]
+    assert journal_ids(opts) == [7, 8, 9, 10]
   end
 
   defp journal_ids(opts) do
