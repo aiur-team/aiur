@@ -833,7 +833,7 @@ defmodule Aiur.GitHub.IssuesTest do
 
       # The configured terminal set has no "closed" entry — the gate must still
       # let the ticket through, or a closed GitHub blocker strands its blockee.
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+      refute DispatchPolicy.todo_issue_held_by_dependency?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     # Regression for #2550 / #2552, from the aiur-team/architecture-docs run:
@@ -862,7 +862,7 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint(closed))
 
       assert blocker.state == "Closed"
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+      refute DispatchPolicy.todo_issue_held_by_dependency?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "a dependency edge deleted on GitHub clears the gate without an explicit forget (#2552)" do
@@ -878,7 +878,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, %Issue{blocked_by: []} = hydrated} =
                Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint([]))
 
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+      refute DispatchPolicy.todo_issue_held_by_dependency?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "an open blocker with no agent state label hydrates as unknown (fail-closed at the gate)" do

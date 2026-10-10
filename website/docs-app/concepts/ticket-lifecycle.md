@@ -158,7 +158,7 @@ and never deletes ones a repository already has; those keep working as exact pin
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
 it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
-The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
+The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Dispatch uses the same effective start trigger (default `pr_merged`), including recorded merges of still-open blockers. Membership and promotion grant no authorization.
 
 Item states are projections, not tracker labels:
 

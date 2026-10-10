@@ -6,6 +6,8 @@ defmodule Aiur.BuildQueue.Hints do
   Without the table or a row, dispatch keeps its ordinary ordering and eligibility.
   """
 
+  alias Aiur.BuildQueue.Settings
+
   @table :aiur_build_queue_hints
 
   @spec table_name() :: atom()
@@ -18,7 +20,7 @@ defmodule Aiur.BuildQueue.Hints do
   def held?(issue_id), do: elem(lookup(issue_id), 1)
 
   @spec trigger_for(String.t()) :: Aiur.StartTrigger.trigger()
-  def trigger_for(issue_id), do: elem(lookup(issue_id), 2) || Aiur.BuildQueue.Settings.start_trigger(Aiur.Config.settings!())
+  def trigger_for(issue_id), do: elem(lookup(issue_id), 2) || Settings.start_trigger(Aiur.Config.settings!())
 
   defp lookup(issue_id) do
     case :ets.lookup(@table, issue_id) do

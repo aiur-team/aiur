@@ -43,9 +43,9 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :workspace_owner,
     :workspace_generation,
     :workspace_phase,
+    :optimistic_blockers,
     :complexity
   ]
-
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
   def new_attempt_id(ticket) when is_binary(ticket) do
@@ -226,7 +226,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp metadata_key(_key), do: nil
-
+  defp normalize_metadata_value(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
   defp normalize_metadata_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp normalize_metadata_value(value) when is_boolean(value), do: value
   defp normalize_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
