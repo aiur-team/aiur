@@ -89,10 +89,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Lifecycle.schedule_tick(schedule.delay_ms)
       |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
-      # Counted AFTER the schedule is computed so the first cycle after a
-      # restart schedules at the base interval: a freshly started daemon has
-      # observed no idleness, so the idle backoff may only apply from the
-      # second scheduling decision onward (#2138).
+      # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
       # The GitHub poll floor is measured from here, so an event that pulls
       # the next tick forward cannot land it closer than the floor allows.
@@ -127,17 +124,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
     |> CommentPolling.start_async()
     |> CiLifecycle.start_poll(fn current ->
-      current |> refresh_blocked_ticket_ids() |> start_candidate_poll()
+      current |> refresh_blocked_ticket_ids() |> start_candidate_poll(&default_candidate_fetch/1)
     end)
   end
 
-  defp start_candidate_poll(%State{globally_paused: true} = state),
-    do: PausedCandidatePoll.start(state, &default_candidate_fetch/1, &note_candidate_fetch_success/1, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
+  @doc false
+  @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
+  def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
+    do: PausedCandidatePoll.start(state, fetch_fun, &note_candidate_fetch_success/1, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
 
-  defp start_candidate_poll(state) do
+  def start_candidate_poll(%State{} = state, fetch_fun) do
     cache = candidate_list_cache(state)
 
-    TrackerTasks.start(state, :dispatch_poll, fn -> default_candidate_fetch(cache) end, fn current, result ->
+    TrackerTasks.start(state, :dispatch_poll, fn -> fetch_fun.(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &apply_candidate_result(&1, result))
       |> finish_poll_cycle()
