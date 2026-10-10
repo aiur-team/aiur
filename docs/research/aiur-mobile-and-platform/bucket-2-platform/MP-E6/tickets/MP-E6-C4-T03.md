@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: ContextBuilder — redacted, budgeted, time-stamped context blocks recorded in the transcript
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T02, MP-E6-C6-T01]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E6-C6-T01, MP-E6-C11-T08]
 prior_units: []
 prior_boundaries: [VOX]
 prior_features: [integrations-51]
@@ -129,3 +129,9 @@ and do not boot aiur.
   redacted before the provider and the store" runs in the core with a test redactor, plus one
   aiur adapter test with `SecretRedactor`.
 - The 4,000-token start budget from the 2026-10-08 amendment is `Config.limits.context_token_budget`.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- **Dependency re-cut:** ContextBuilder is core code; it is tested with `FakeBriefingSource` and does not wait for the aiur worker port (C4-T02). It uses `Briefing.render/2` from C11-T08.

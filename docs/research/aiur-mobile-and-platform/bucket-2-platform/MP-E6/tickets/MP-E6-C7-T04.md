@@ -82,3 +82,9 @@ browser; 5 trials each; record false barge-ins.
 ## Completion and handoff
 
 - [ ] Playback, barge-in, echo cancellation or fallback per spike result.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- Playback, barge-in and echo-cancelled capture are implemented once in the package client (C13-T04). This ticket wires them into the aiur panel and the `/voice` socket and keeps its browser tests. The spike gate stays only for the ElevenLabs-specific RQ-E6-5 check.

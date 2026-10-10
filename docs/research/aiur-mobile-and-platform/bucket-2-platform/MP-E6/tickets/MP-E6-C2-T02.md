@@ -146,3 +146,9 @@ and do not boot aiur.
   signed URL appears in any log line or crash reason.
 - Predecessor MP-R5-C1-T01 is replaced by MP-E6-C11-T01. The OpenAI Realtime / GPT-Live
   adapter is C11-T06. If GPT-Live wins the bake-off (C1-T01), the two tickets swap targets.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- ElevenLabs Agents is now the option `elevenlabs_agents` in the registry (C14-T01); it stays the default third-party provider. Use the WebSocket transport (not WebRTC) because only the WebSocket `audio` event carries character alignment (research §1.4); map it to `AgentTextTiming`.

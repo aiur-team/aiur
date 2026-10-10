@@ -126,3 +126,9 @@ and do not boot aiur.
 - The `voice.conversation` capability stays in aiur. It is computed from
   `VoiceConverse.availability/1` plus aiur rules, in `Aiur.VoiceConverse.Host.Capability`
   (C11-T04).
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- Preflight is per provider through the optional `preflight/1` callback: ElevenLabs `record_voice=false` and retention; OpenAI `store: false`; Gemini: no stored audio setting exists in the Live API, so the privacy table states provider retention terms instead (C14-T06 docs). The `voice.conversation` capability reason comes from `VoiceConverse.resolve/1` (which option, which were skipped and why).

@@ -107,3 +107,9 @@ and do not boot aiur.
 - Scope stays **aiur docs** (privacy table, concepts section, config/CLI references), and
   each page links to the package docs. The package's own README, guides, privacy page and
   standalone quick start are MP-E6-C11-T07.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- Docs cover every provider option (OpenAI, Gemini, ElevenLabs, cascade, text-only), the `voice.conversation.providers` keys (C14-T06) and a link to the `/talk` guide (C13-T09). E6-OQ7 (LLM choice) applies only to ElevenLabs Agents and the cascade.

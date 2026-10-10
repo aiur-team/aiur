@@ -195,3 +195,11 @@ written. The non-goal "evaluating providers other than ElevenLabs Agents" is rem
 - **Verdict:** the findings note recommends one provider for E6-OQ13 by measured RQ-E6-9 and
   RQ-E6-12, subject to RQ-E6-3/RQ-E6-11 privacy passing. If GPT-Live wins, MP-E6-C2-T02/T03 are
   re-planned for that adapter before implementation (the behaviour, C2-T01, stays neutral).
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- The spike no longer picks one provider. All providers ship behind one interface and a preference order (plan §20, E6-OQ13 superseded). The spike now **measures** three arms with the same script: ElevenLabs Agents, OpenAI (GPT-Live 1 and `gpt-realtime-2.1`), Gemini Live; plus one cascade run (Claude Haiku + ElevenLabs TTS). Output: per-arm numbers for RQ-E6-9..12, recorded fixtures for C2-T03, C14-T02, C14-T03, and a recommended default preference order.
+- Budget proposal for E6-OQ9 (amended): USD 30 and 100 conversation minutes in total, hard stop at USD 25 / 85 min.
+- Only C2-T03 (ElevenLabs Agents event mapping) keeps a hard dependency on this spike. C14-T02/T03 build from documented frames and close with a short operator run (under USD 1 each).

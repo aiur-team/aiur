@@ -5,7 +5,7 @@ chunk_id: MP-E6-C7
 bucket: 2-platform
 title: Draft cards with Confirm, Edit and Discard
 status: blocked
-blocked_by: [DESIGN-E6, E6-OQ1, MP-E6-C7-T02, MP-E6-C5-T03, MP-E6-C5-T05]
+blocked_by: [DESIGN-E6, E6-OQ1, MP-E6-C7-T02, MP-E6-C5-T03, MP-E6-C5-T06, MP-E6-C5-T05]
 prior_units: []
 prior_boundaries: [VOX, WEB]
 prior_features: []

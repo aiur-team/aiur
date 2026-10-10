@@ -165,3 +165,14 @@ and do not boot aiur.
   behaviour no longer sits beside `Aiur.Voice`, so MP-R5 does not block it.
 - Add a provider conformance suite (`VoiceConverse.Testing.ProviderConformance`), driven by
   recorded fixtures. Every adapter (C2-T02/T03, C11-T06) must pass it.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- The behaviour gains `descriptor/0` (C14-T01 registry: family, needed credentials, client parts, privacy facts) and an optional `preflight/1` callback (provider privacy check; C3-T03 calls it in aiur, the core calls it before `open/1`).
+- New event `AgentTextTiming` (C13-T05) for letter-by-letter text.
+- `capabilities/0` declares text-only support and client-side parts (`:browser_stt`, `:browser_tts`, `:text_in`) so the cascade (C14-T04) and text mode use the same session.
+- The conformance suite covers three families: speech-to-speech, hosted agent, cascade.
+- `audio_out` widens to `:pcm_16000 | :pcm_24000 | :pcm_44100` (OpenAI and Gemini Live emit 24 kHz PCM; from the C14-T02/T03 plan passes). Each `AgentAudio` event carries its format, and the client reads the rate from the event.
+- Optional callback `truncate(ref, turn_id, played_until_ms)` for providers that declare `manual_truncation: true` (C13-T05).

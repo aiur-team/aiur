@@ -9,7 +9,7 @@ blocked_by: DESIGN-E6 (owner), owner authorization of the paid validation spike 
 owns_contracts: contracts/voice-session.md (owner; §4 conversation provider, §5.3 drafts, §6, §9, §10)
 consumes_contracts: listener mode (MP-E7), command request (MP-E2), conversations/transcripts (MP-E4), identity, capabilities (MP-R1), events (MP-R2)
 research_resolved: MP-Q3 (see provider-research.md)
-amended: 2026-10-09 (§17 independent package; read-only fork per harness); 2026-10-10 (§18 Executor as a voice target)
+amended: 2026-10-09 (§17 independent package; read-only fork per harness); 2026-10-10 (§18 Executor as a voice target; §19 /talk skill; §20 native providers and preferences)
 ---
 
 # MP-E6 — Independent conversational voice component — Plan
@@ -724,3 +724,122 @@ does not depend on the provider.
 | ID | Question | Recommendation |
 | --- | --- | --- |
 | E6-OQ22 | No MP-E6 ticket is on GitHub yet (no epic issue). Promote all of MP-E6 with C12, or only C12-T01 now? | **File C12-T01 now** (no dependency; it is useful alone for handoff and the roster). Promote the rest with MP-E6 when DESIGN-E6 and the spike are cleared. |
+
+## 19. /talk — the voice package for any coding agent (2026-10-10)
+
+Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur: 1. i invoke /talk, tells agent how to set up and run locally. 2. if user needs further setup, like an eleven labs key, agent prompts them to set it in a .env. should also support if the user has api access to the model they're using, so they can just use the native end points and convo functionality of their agent if it exists without setting up new 3rd party deps. agent presents user options regardless 3. once chosen, agent runs small UI locally and sends link to user. user clicks and see UI similar to GPT convo mode, with voice to text dictation realtime, or the option of text only if they use their own language preferred vtt model. agent audio is played and shows real time text letter by letter. same forking functionality applies to let agent continue working during convo."
+
+- Requirements (ce-brainstorm): [talk/requirements.md](talk/requirements.md) — R1–R24, AE1–AE5, settled decisions SD1–SD6.
+- Research (2026-10-10, sources dated): [talk/research.md](talk/research.md).
+- MP-E6 now ships **with** /talk. Kevin approved publishing MP-E6 and /talk into the build on 2026-10-10 (relayed by the Executor), which answers E6-OQ22: promote everything, not only C12-T01.
+
+### 19.1 Package boundaries (decision)
+
+```text
+skills/talk/                      thin skill: steps only (Agent Skills format), scripts/talk-launch
+   │ runs
+   ▼
+talk (CLI, self-contained binary) = packages/elixir/voice_converse  talk host app
+   ├─ serve/status/stop/url (C13-T01)   doctor/prefer/.env (C13-T02)   brief/inbox (C13-T06)
+   ├─ page + JS client in priv/static (C13-T04)
+   └─ VoiceConverse core: session, tools, drafts, transcript, providers (C14), AgentFork (C13-T07)
+aiur ── Aiur.VoiceConverse.Host.* adapters (§17.8) ── same core, same client JS, same provider registry
+```
+
+- **Confirmed:** the skill is a thin installer and launcher over the standalone package; aiur integrates through its adapter layer (§17.8). No conversation logic lives in the skill, so a skill update cannot change behaviour.
+- **Improved:** (1) the standalone host of §17.5 (C11-T03) is no longer a demo; it is the product `talk`. (2) The native fork from a **session handle** moves into the core (`VoiceConverse.AgentFork`, C13-T07) because /talk needs it without aiur; aiur's Executor fork (C12-T02) calls it, and MP-R7 `fork_session/2` (C11-T05) may delegate its CLI cases to it. Worker forks through running app-server adapters stay in MP-R7. (3) The browser client is shared by the talk page and aiur's Converse panel (C7-T02/T04 reuse C13-T04).
+- **Rejected:** a separate Node or Python host for /talk (it would fork the core and the privacy rules); browser-direct provider connections with ephemeral tokens (keeps the daemon-relay rule of §3; on loopback the extra hop costs little, and GPT-Live has no ephemeral secrets anyway, research §1.1b).
+
+### 19.2 Flow
+
+1. User types `/talk` (Claude Code, Cursor), `$talk` (Codex) or asks for it (Gemini CLI).
+2. The skill ensures the `talk` binary (`npx`), then runs `talk doctor --json --agent <self>` and shows every option with status, cost hint and one recommendation (SD6).
+3. If the choice needs a key, the agent names the variable and the `.env` file; the user edits the file; doctor runs again. Keys never pass through the chat.
+4. `talk prefer`, then `talk serve` from the agent's shell tool (it inherits the session id and, on Claude Code, the messaging socket). The agent sends the one-time link.
+5. The agent writes the first briefing (`talk brief`) and continues its work, refreshing the briefing at checkpoints.
+6. Talk: the assistant answers from the briefing (≤ 1 s target, research §1), asks a read-only native fork for "why" questions ("let me check"), and drafts instructions. Confirm on the page delivers the draft by push (Claude Code socket, `codex queue`) or the file inbox; the agent replies applied/declined.
+
+### 19.3 Options shown to the user
+
+| Option id | Family | Needs | When recommended |
+| --- | --- | --- | --- |
+| `codex_realtime` | agent-native (experimental) | Codex with `realtime_conversation`; API key per research | Codex user, feature present, opt-in only (experimental) |
+| `openai_live` / `openai_realtime` | speech-to-speech | `OPENAI_API_KEY` | Codex/OpenAI user with a key |
+| `gemini_live` | speech-to-speech | `GEMINI_API_KEY` | Gemini user with a key |
+| `elevenlabs_agents` | hosted agent | `ELEVENLABS_API_KEY` | default third-party provider |
+| `cascade` | STT + LLM + TTS | the model key (`ANTHROPIC_API_KEY`, …) plus optional `ELEVENLABS_API_KEY`/OpenAI for speech; browser speech otherwise | Claude user (no Anthropic speech API) |
+| `text_only` | cascade, text in/out | the model key | any user; works with OS dictation tools |
+
+### 19.4 Setup and secrets
+
+`.env` loading order, variable names, `.gitignore` warning and the saved preference are in C13-T02. The voice model always uses API keys (research §3.4: subscription credentials may not drive third-party products); the fork runs the user's own unmodified agent binary with its own login.
+
+### 19.5 Page and launch safety
+
+Loopback-only bind, stable preferred port (mic permission is per origin incl. port), one-time code → HttpOnly SameSite=Strict cookie, Host and Origin allowlists, no CORS (C13-T01; research §4). Page behaviour: C13-T04; letter-by-letter timing normalized across providers: C13-T05 (only ElevenLabs gives character timing; others are paced against the audio clock, research §1.6). Play audio through a media element for echo cancellation (research §2.4).
+
+### 19.6 Distribution
+
+Per-platform `mix release` with ERTS, delivered through npm optional dependencies with checksums (C13-T03). Burrito is experimental and Bakeware is archived (research §5). Hex publish stays behind E6-OQ16's two-release check.
+
+### 19.7 Working while talking
+
+Briefing file and inbox: C13-T06. Fork from a session handle: C13-T07 (Claude Code `--resume --fork-session` with plan mode and closed tools, `--no-session-persistence`; Codex `thread/fork` ephemeral read-only; OpenCode `POST /session/:id/fork`; replay otherwise). The fork is for "let me check" answers; its first-token time is seconds (research §3.5).
+
+### 19.8 Open question changes (E6-OQ7, OQ13, OQ15–OQ22)
+
+| ID | Change |
+| --- | --- |
+| E6-OQ7 (LLM) | Applies only to ElevenLabs Agents and the cascade; default cascade model `claude-haiku-5-5` for Claude users (research §1.3), else the user's own provider's fast model. |
+| E6-OQ9 (paid spike) | Still Kevin's. Amended to three arms + one cascade run, USD 30 / 100 min (C1-T01 amendment). Only C2-T03 keeps a hard dependency on it. |
+| E6-OQ13 (pick one provider) | **Superseded** by Kevin 2026-10-10: all providers ship behind one interface, chosen by preference (§20). |
+| E6-OQ15 (fork side queries) | **Answered yes** by Kevin 2026-10-09 and 2026-10-10 ("same forking functionality applies"); the transcript shows fork cost. |
+| E6-OQ16 (distribution) | Changed: v1 ships self-contained `talk` binaries through npm (C13-T03); Hex later; package name still OQ18. |
+| E6-OQ17 (standalone host) | **Answered yes** and promoted from demo to product (`talk`). |
+| E6-OQ18 (name) | Open; the CLI verb is `talk`; npm placeholder `@aiur-team/talk`. |
+| E6-OQ20 (both adapters) | **Answered: all adapters** (OpenAI, Gemini, ElevenLabs, cascade); C11-T06 superseded by C14-T02/T03. |
+| E6-OQ21 (replay fallback) | Kept; research adds native fork for OpenCode and confirms none for Gemini CLI, Cursor CLI, Aider. |
+| E6-OQ22 (promote only C12-T01) | **Answered:** promote all of MP-E6 with /talk. |
+
+### 19.9 Tickets (chunks C13, C14 and splits)
+
+New: C13-T01..T09 (/talk), C14-T01..T07 (providers and preferences, §20), C11-T08 (core Briefing, split from C10-T02), C5-T06 (aiur E7 delivery, split from C5-T03). Superseded: C11-T06. Amended (section "Amendment 2026-10-10"): C1-T01, C2-T01..T03, C3-T01..T03, C4-T01, C4-T03, C5-T01, C5-T03, C5-T04, C7-T02, C7-T04, C9-T01, C10-T02, C10-T03, C10-T05, C11-T03, C11-T07, C12-T01..T04. Each new ticket carries a "Plan pass (2026-10-10)" section with key decisions, risks and test strategy.
+
+### 19.10 Dependency re-cut (core must not wait for aiur)
+
+Rule: a core ticket (writes only `packages/elixir/voice_converse`) depends only on core tickets. Before this change the core session waited on aiur config (C3-T01, owner-gated, MP-R5), the core ContextBuilder and tools waited on the aiur worker port (C4-T02 → MP-E4) and on the paid spike, and the core confirm rule waited on MP-E7, which is not on GitHub. Changes: C4-T01 drops C3-T01/C3-T03; C4-T03 drops C4-T02 and takes C11-T08; C5-T01 drops C4-T02/C2-T03; C5-T03 keeps only C5-T02 (E7 half → C5-T06); C5-T04 keeps only C5-T03 (E6-OQ2 becomes a setting); C10-T05 keeps C5-T04 and C10-T03; C11-T03 drops C2-T03 and C10-T02 (takes C11-T08).
+
+/talk critical path (all core, no owner gate):
+
+```text
+C11-T01 ─► C2-T01 ─► C2-T02 ─► C2-T04 ─┐
+        └► C6-T01 ─► C6-T02 ───────────┴► C4-T01 ─► C4-T03 ─► C5-T01 ─► C5-T02 ─► C5-T03 ─┐
+        └► C11-T08 ───────────────────────────────┘                                      │
+C4-T01 ─► C11-T02 ─► C11-T03 ◄───────────────────────────────────────────────────────────┘
+C11-T02 ─► C13-T05 ─► C13-T04 ; C2-T01 ─► C14-T01 ─► C14-T02, C14-T03, C14-T04 (each + C13-T05) ; C14-T04 ─► C14-T05
+C14-T01 + C13-T02 + C13-T05 + C13-T07 ─► C14-T07 (experimental)
+C11-T03 ─► C13-T01 ─► C13-T02, C13-T03, C13-T06 ; C11-T01 + C10-T03 ─► C13-T07
+C13-T01..T03 + C13-T06 + C13-T07 ─► C13-T08 ─► C13-T09 ◄── C13-T04, C14-T02, C14-T04
+```
+
+### 19.11 Decision for Kevin
+
+Only one: **authorize the amended paid spike (E6-OQ9)** — three arms + one cascade run, USD 30 / 100 min, hard stop USD 25 / 85 min. Without it, /talk still ships (the cascade, OpenAI and Gemini adapters close with short operator runs under USD 1 each), but the ElevenLabs Agents event mapping (C2-T03) and its aiur setup/preflight (C3-T02/T03) stay blocked. Recommendation: approve.
+
+## 20. Native model voice in aiur and provider preferences (2026-10-10)
+
+Kevin, 2026-10-10 (verbatim, relayed by the Executor): "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+This replaces the earlier "ElevenLabs only" scope (§18.5 last sentence, C1-T01's single-winner verdict, E6-OQ13).
+
+### 20.1 One provider interface, four families
+
+The `VoiceConverse.Provider` behaviour (C2-T01, amended) serves: speech-to-speech (`openai_live`, `openai_realtime`, `gemini_live`; C14-T02, C14-T03), hosted agent (`elevenlabs_agents`; C2-T02/T03, still the default third-party provider), cascade (`cascade`, `text_only`; C14-T04 with Anthropic/OpenAI/Gemini text models and client-side browser speech, C14-T05 with ElevenLabs and OpenAI server speech parts) and agent-native (`codex_realtime`, experimental; C14-T07). The registry, option status and preference resolution are core (C14-T01). Every adapter passes the shared conformance suite and the §17.11 privacy rules (provider-side storage off where the provider allows it, no audio stored by aiur or the host).
+
+### 20.2 aiur settings
+
+`voice.conversation.providers` in `.aiur/config` (C14-T06): `preference` (ordered option ids; default `[elevenlabs_agents, openai_live, gemini_live, cascade]`), `mode` (`voice` | `text`), `on_missing_credential` (`next` | `text_only` | `refuse`), per-provider model ids, and cascade parts (`stt`, `llm`, `tts`, each an ordered list). Keys come from the MP-R5 credential facade or the environment, never from config. The dashboard and `aiur voice setup` show the resolved option and why others were skipped.
+
+### 20.3 What changed in older sections
+
+§3 provider row: superseded by §20.1. §17.2 package tree gains `provider/gemini_live*.ex`, `provider/cascade*.ex`, `cascade/{llm,stt,tts}/*.ex`, `providers.ex`, `agent_fork*.ex`, and the `talk` host app. §17.13 E6-OQ20: answered (all adapters). §18.5 "ElevenLabs only for now": replaced.

@@ -5,7 +5,7 @@ chunk_id: MP-E6-C5
 bucket: 2-platform
 title: consult_agent — ask the real agent a framed, non-instruction question asynchronously
 status: blocked
-blocked_by: [DESIGN-E6, E6-OQ2, MP-E6-C5-T02, MP-E6-C5-T03, MP-E6-C1-T01, "MP-E7 contract request (origin option)"]
+blocked_by: [MP-E6-C5-T03]
 prior_units: []
 prior_boundaries: [VOX, MSG]
 prior_features: []
@@ -131,3 +131,9 @@ and do not boot aiur.
 - aiur's `AgentChannel.ask/4` sends through E7 with `origin: :voice_assistant` and
   `:checkpoint` delivery. Reply capture (formerly `Aiur.LiveConversation.subscribe`) is in
   the aiur adapter. It emits `{:agent_reply, ref, text}` to the core.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- **Dependency re-cut:** the core `ask_agent` routing (framing, one outstanding ask, reply capture) depends only on C5-T03. E6-OQ2 becomes a setting `ask_requires_confirm` (default `:first_in_session`, the DESIGN-E6 recommendation); aiur and `/talk` can change it. The spike gate is removed: async behaviour is covered by the conformance fakes; live checks happen in the adapter tickets.

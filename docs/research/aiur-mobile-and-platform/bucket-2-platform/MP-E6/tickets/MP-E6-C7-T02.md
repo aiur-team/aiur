@@ -105,3 +105,9 @@ second, without stopping or waiting for the coding agent.
 - Show the status card head (doing / waiting on / asks, with ages) and a "Refresh" and
   "Pause and brief me" control per MP-E6-C10-T04 and DESIGN-E6 E6-OQ12.
 - `consulting` state shows that the conversation continues while the agent is asked.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- The panel reuses the package browser client from C13-T04 (states, live dictation, letter-by-letter text, text mode) inside aiur's dashboard chrome; aiur adds target choice and auth. It shows which provider option is active and why others were skipped (C14-T06 reason).

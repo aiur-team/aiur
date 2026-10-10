@@ -127,3 +127,9 @@ and do not boot aiur.
   shortest retention) moves to the core as `VoiceConverse.Provider.ElevenLabsAgents.Provision`.
   It is exposed as `mix voice_converse.setup` for standalone hosts. `aiur voice setup
   [--repair]` is a thin CLI wrapper that builds the struct and calls the same function.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- `aiur voice setup` works per option: ElevenLabs Agents keeps provisioning; OpenAI and Gemini need no provisioning, so setup checks key presence and runs the cheap authenticated probe (shared with `talk doctor --check`, C13-T02). The command prints the same option table as `talk doctor` (from `VoiceConverse.options/1`).

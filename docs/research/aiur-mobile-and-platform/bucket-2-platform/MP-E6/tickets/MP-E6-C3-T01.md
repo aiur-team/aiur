@@ -127,3 +127,10 @@ and do not boot aiur.
 - The core has its own struct schema and validation tests (C11-T01). This ticket tests only
   the mapping: every key reaches the struct, and an invalid aiur value fails config
   validation, not session start.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- Provider choice keys move to C14-T06 (`voice.conversation.providers`). `voice.conversation.agent_id` becomes ElevenLabs-specific and is needed only when `elevenlabs_agents` is in the preference list. Capability `not_configured` means "no option resolves", not "no agent_id".
+- The core no longer waits for this ticket (plan §19.10): core limits come from `%VoiceConverse.Config{}` defaults; this ticket maps aiur's values into them.

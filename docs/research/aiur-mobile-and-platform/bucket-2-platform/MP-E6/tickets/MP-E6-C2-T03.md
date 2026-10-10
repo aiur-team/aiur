@@ -145,3 +145,9 @@ and do not boot aiur.
 - Home: `VoiceConverse.Provider.ElevenLabsAgents.Events` (or the GPT-Live module if that
   wins). Fixtures are stored in the package's `test/fixtures/` and feed the conformance suite
   (C2-T01 amendment).
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- Map Agents `audio` alignment to `AgentTextTiming` (C13-T05). Fixtures come from the three-arm spike (C1-T01 amendment).

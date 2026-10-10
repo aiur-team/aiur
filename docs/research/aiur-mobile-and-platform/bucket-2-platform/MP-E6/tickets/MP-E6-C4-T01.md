@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: Conversation session process, supervision, state machine, limits and end reasons
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C2-T01, MP-E6-C6-T01, MP-E6-C6-T02, MP-E6-C2-T04, MP-E6-C3-T01, MP-E6-C3-T03]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C2-T01, MP-E6-C6-T01, MP-E6-C6-T02, MP-E6-C2-T04]
 prior_units: []
 prior_boundaries: [VOX]
 prior_features: [integrations-51]
@@ -167,3 +167,9 @@ and do not boot aiur.
   stays transport-side (the aiur channel or the WebSock transport). The core enforces only
   `Config.limits.max_sessions`.
 - Persist-before-notify, timers, reconnect and end reasons are unchanged and now core tests.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- **Dependency re-cut (plan §19.10):** the core session no longer waits for C3-T01 (aiur config) or C3-T03 (aiur preflight). Limits come from `%VoiceConverse.Config{}`; the provider's optional `preflight/1` runs before `open/1`. This keeps `/talk` off aiur-only and owner-gated work.

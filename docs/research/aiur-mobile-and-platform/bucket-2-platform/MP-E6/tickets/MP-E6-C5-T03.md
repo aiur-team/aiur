@@ -5,7 +5,7 @@ chunk_id: MP-E6-C5
 bucket: 2-platform
 title: Confirm and discard drafts; deliver instructions through the listener-mode send with draft_id idempotency
 status: blocked
-blocked_by: [DESIGN-E6, E6-OQ1, MP-E6-C5-T02, MP-E7-C3-T03, MP-E7-C3-T04, "MP-E7 contract request (origin option)"]
+blocked_by: [E6-OQ1 (default adopted - on-screen Confirm only), MP-E6-C5-T02]
 prior_units: []
 prior_boundaries: [VOX, MSG]
 prior_features: []
@@ -123,3 +123,10 @@ and do not boot aiur.
   `harness_queued/in_context/read → :delivered`, `failed → :failed`,
   `outcome_unknown → :unknown`) move to `Aiur.VoiceConverse.Host.AgentChannel` (aiur adapter).
   The core mirrors the normalized receipts into the draft.
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- **Split:** this ticket is now the core confirm/discard rule only (`VoiceConverse.confirm_draft/3` with `origin: :client` calls `AgentChannel.instruct/4` once per `draft_id`). aiur delivery through MP-E7 moves to the new **C5-T06**, which keeps the E7 and DESIGN-E6 blockers.
+- E6-OQ1: the core implements the recommended answer (on-screen Confirm only). A spoken confirm, if Kevin ever allows it, only focuses the button; no code path changes.

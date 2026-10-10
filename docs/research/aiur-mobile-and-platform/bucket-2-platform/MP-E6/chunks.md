@@ -217,3 +217,26 @@ C11-T03 + C11-T04 ─► C11-T07
 C12-T01 + C11-T05 + C10-T03 (spike) ─► C12-T02
 C12-T02 + C4-T06 + C5-T03 + C5-T04 + C10-T05 ─► C12-T03 ─► C12-T04 ◄── C7-T02
 ```
+
+## MP-E6-C13 — /talk: the package for any coding agent (added 2026-10-10)
+
+- **Goal:** `/talk` in Claude Code, Codex, Gemini CLI and others sets up and starts the voice package locally, shows every option, sends a one-time loopback link, and lets the agent keep working while confirmed drafts reach it. Plan §19; requirements [talk/requirements.md](talk/requirements.md); research [talk/research.md](talk/research.md).
+- **Tickets:** C13-T01 `talk` CLI + secure launch; C13-T02 `talk doctor`, `.env`, preference; C13-T03 self-contained binaries via npm; C13-T04 conversation page v1; C13-T05 text timing event; C13-T06 briefing + inbox + push delivery; C13-T07 native fork from a session handle; C13-T08 the skill + install; C13-T09 docs + e2e.
+
+```text
+C11-T03 ─► C13-T01 ─► C13-T02 (+C14-T01), C13-T03
+C2-T01 + C11-T02 ─► C13-T05 ─► C13-T04 (+C11-T02)
+C13-T01 ─► C13-T06 ; C11-T01 + C10-T03 ─► C13-T07 ─► C12-T02, C14-T07
+C13-T01 + T02 + T03 + T06 + T07 ─► C13-T08 ─► C13-T09 ◄── C13-T04, C14-T04
+```
+
+## MP-E6-C14 — Native model voice and provider preferences (added 2026-10-10)
+
+- **Goal:** all providers behind one interface, chosen by preference, in aiur and in /talk. Kevin, 2026-10-10: "full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences". Plan §20.
+- **Tickets:** C14-T01 registry + resolution; C14-T02 OpenAI (GPT-Live, Realtime); C14-T03 Gemini Live; C14-T04 cascade + text-only; C14-T05 cascade speech parts; C14-T06 aiur `.aiur/config` preferences + docs; C14-T07 Codex agent-native realtime (experimental).
+- **Splits:** C11-T08 core Briefing (from C10-T02); C5-T06 aiur E7 delivery (from C5-T03). **Superseded:** C11-T06.
+
+```text
+C2-T01 ─► C14-T01 ─► C14-T02, C14-T03, C14-T04 (each + C13-T05) ; C14-T04 ─► C14-T05
+C3-T01 + C14-T01 + C11-T04 ─► C14-T06 ; C14-T01 + C13-T07 + C11-T02 ─► C14-T07
+```

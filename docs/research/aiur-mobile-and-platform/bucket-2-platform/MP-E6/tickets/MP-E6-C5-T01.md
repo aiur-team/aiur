@@ -5,7 +5,7 @@ chunk_id: MP-E6-C5
 bucket: 2-platform
 title: Read-only assistant tools — get_status, read_recent_conversation, list_open_commands, end_conversation
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend, read-only tools)", MP-E6-C4-T02, MP-E6-C2-T03]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend, read-only tools)", MP-E6-C4-T03]
 prior_units: []
 prior_boundaries: [VOX, DEC]
 prior_features: []
@@ -116,3 +116,9 @@ and do not boot aiur.
   `conversation`, `pr`, `ci` and `plan`; the example host offers `notes`.
   `list_open_commands` is offered only when `CommandSource` is configured. Without it, the
   "Command data unavailable" gap is stated (test unchanged in intent).
+
+## Amendment 2026-10-10 — /talk and native providers
+
+Source: [../plan.md](../plan.md) §19 (/talk skill) and §20 (native providers and preferences). Kevin, 2026-10-10 (verbatim): "earlier i asked about making convo mode usable by executors, i even want to usable by any agent via a skill separate from aiur" and "just to flag, i originally said i only wanted air convo to support eleven, this means full support for native model convo wrappers to use model APIs in aiur too and .config settings to choose preferences".
+
+- **Dependency re-cut:** the read tools are core and run against fake ports and the fake provider; they no longer wait for C4-T02 (aiur port) or C2-T03 (ElevenLabs mapping, spike).
