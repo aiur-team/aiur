@@ -7,6 +7,8 @@ defmodule Aiur.Codex.EventHumanizer do
 
   import Aiur.EventHumanizerHelpers
 
+  alias Aiur.Codex.EventHumanizer.WrapperEvents
+
   @impl true
   def humanize_method("thread/started", payload) do
     thread_id = map_path(payload, ["params", "thread", "id"]) || map_path(payload, [:params, :thread, :id])
@@ -175,7 +177,7 @@ defmodule Aiur.Codex.EventHumanizer do
   end
 
   def humanize_method(<<"codex/event/", suffix::binary>>, payload) do
-    Aiur.Codex.EventHumanizer.WrapperEvents.humanize_wrapper_event(suffix, payload)
+    WrapperEvents.humanize_wrapper_event(suffix, payload)
   end
 
   def humanize_method(method, payload) do
