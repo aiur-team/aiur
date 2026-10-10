@@ -1,0 +1,11 @@
+{
+  "from": "build-queue",
+  "to_module": "Aiur.BuildOrder.*",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/build_queue/sources/build_order.ex",
+    "src/lib/aiur/build_queue_cli.ex",
+    "src/lib/aiur_web/build_queue/copy.ex"
+  ],
+  "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"
+}

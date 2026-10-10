@@ -1,0 +1,10 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.Stacking.StackBaseEvidence",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/blocker_propagation.ex",
+    "src/lib/aiur/orchestrator/restack_scheduler.ex"
+  ],
+  "reason": "#3771: GitHub-only restack scheduling consumes locally held direct blocker evidence"
+}

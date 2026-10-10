@@ -91,6 +91,10 @@ def validate(value, schema, document, pointer=''):
 def load_manifest(root):
     document = json.loads((root / 'components.schema.json').read_text())
     manifest = json.loads((root / 'components.json').read_text())
+    # One file per seam: independent additions never touch the same file, so they cannot conflict.
+    files = sorted((root / 'scripts/components/seams').glob('*.json'))
+    if files:
+        manifest['seams'] = manifest.get('seams', []) + [json.loads(path.read_text()) for path in files]
     validate(manifest, document, document)
     ids = [c['id'] for c in manifest['components']]
     if len(ids) != len(set(ids)):
@@ -374,7 +378,9 @@ def main():
         manifest = load_manifest(root)
         files = source_files(root)
         if args.format:
-            (root / 'components.json').write_text(format_manifest(manifest))
+            # Re-read so seams loaded from scripts/components/seams are not inlined.
+            path = root / 'components.json'
+            path.write_text(format_manifest(json.loads(path.read_text())))
         problems, counts, file_owners = ownership(manifest, files)
         declaration_counts = {}
         if args.rules in ('all', 'ownership'):

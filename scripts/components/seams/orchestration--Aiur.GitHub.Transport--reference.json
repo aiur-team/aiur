@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.GitHub.Transport",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/merge_attribution.ex"
+  ],
+  "reason": "#3777: merge tracker task resolves missing GitHub merger attribution through the governed transport"
+}
