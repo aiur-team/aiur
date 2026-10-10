@@ -1055,15 +1055,13 @@ defmodule Aiur.GitHub.Issues do
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
-  # so the dispatch gate (`DispatchPolicy.todo_issue_blocked_by_non_terminal?`)
+  # so the dispatch gate (`DispatchPolicy.todo_issue_held_by_dependency?`)
   # and the blocker event machinery consume them unchanged. Blocker state comes
   # from the same source as the issue itself: `agent:*` labels, with a raw
   # `state: "closed"` resolving to the terminal "Closed". A blocker with no
   # derivable state keeps `state: nil`, which the gate treats as non-terminal
   # (blocking) — fail-closed on incomplete payloads.
-  defp normalize_blockers(blockers, prefix) when is_list(blockers) do
-    Enum.map(blockers, &normalize_blocker(&1, prefix))
-  end
+  defp normalize_blockers(blockers, prefix) when is_list(blockers), do: Enum.map(blockers, &normalize_blocker(&1, prefix))
 
   defp normalize_blocker(blocker, prefix) when is_map(blocker) do
     number = Map.get(blocker, "number")
@@ -1074,7 +1072,8 @@ defmodule Aiur.GitHub.Issues do
       id: to_string(number),
       identifier: to_string(number),
       state: extract_state(blocker, label_names, prefix),
-      url: Map.get(blocker, "html_url")
+      url: Map.get(blocker, "html_url"),
+      observed_at_ms: System.system_time(:millisecond)
     }
   end
 

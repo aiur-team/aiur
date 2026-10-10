@@ -114,7 +114,7 @@ defmodule Aiur.Orchestrator.State do
           dependency_circular_wait: %{
             optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
           },
-          running: map(),
+          running: %{optional(String.t()) => %{optional(:optimistic_blockers) => [String.t()], optional(atom()) => term()}},
           running_issue_cache: %{optional(String.t()) => %{etag: String.t() | nil, issue: Issue.t()}},
           completed: MapSet.t(),
           claimed: MapSet.t(),

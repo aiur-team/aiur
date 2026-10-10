@@ -1270,7 +1270,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       waiting_reason:
         WaitingReason.for_idle(
           Map.get(issue, :state),
-          DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()),
+          DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
           open_decision_count,
           latched_lifetime: latch_status != :none,
           tracker_paused: Issue.paused?(issue),

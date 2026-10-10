@@ -239,7 +239,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       Issue.parked?(issue) or
       Issue.queued?(issue) or
       parked_marker?(issue) or
-      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) or
+      DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()) or
       external_wait_state?(issue.state) or
       DispatchPolicy.normalize_issue_state(issue.state) == "todo"
   end
@@ -2318,7 +2318,7 @@ defmodule Aiur.Orchestrator.IssueSync do
           not Issue.paused?(issue) and
           not Issue.parked?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
-          !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set())
+          !DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set())
 
       _ ->
         false
@@ -2353,7 +2353,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     issues
     |> Enum.filter(fn issue ->
       DispatchPolicy.candidate_issue?(issue, active_states, terminal_states) and
-        !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+        !DispatchPolicy.todo_issue_held_by_dependency?(issue, terminal_states)
     end)
     |> Enum.reject(fn issue ->
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) or

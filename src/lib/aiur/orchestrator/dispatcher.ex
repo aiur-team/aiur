@@ -1267,22 +1267,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # A todo ticket held by an open dependency cannot dispatch whatever its
   # refreshed state says, so the dependency gate runs first and a held ticket
   # spends no `issue_by_id` refresh and no `dispatch_authorization` read. Before
-  # #2714 every held dependent paid both on every pass, which was a third of a
-  # daemon's core spend on its own.
+  # #2714 every held dependent paid both on every pass.
   #
   # Only a definite hold short-circuits. A failed or odd hydration, an issue
   # with no dependency hold, and an issue also held on a blocking Command
   # (whose decline reason takes precedence) all take the ordinary path, which
   # refreshes the issue and runs every gate again, fail-closed as before. The
-  # gate needs the candidate to be `todo`, and the candidate's state is the
-  # latest tracker poll's.
+  # candidate must be `todo` in the latest tracker poll.
   defp held_by_dependency_before_refresh(blocked_ids, %Issue{} = issue, opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
-         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+         true <- DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
@@ -1389,7 +1387,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+    if DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
       Logger.info(
         "Skipping dispatch; #{State.issue_context(hydrated)} " <>
           DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
@@ -2650,6 +2648,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
     lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    optimistic_blockers = DispatchPolicy.optimistic_blockers(issue)
 
     if TelemetryLifecycle.enabled?() do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
@@ -2657,12 +2656,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
         complexity: CodingAgent.complexity_level(issue),
         worker_host: worker_host,
         remote: is_binary(worker_host),
-        retry_attempt: RetryEngine.normalize_retry_attempt(attempt)
+        retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
+        optimistic_blockers: optimistic_blockers
       })
     end
 
-    supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
-    rework_head_sha = supplied_rework_head_sha || :pending
+    rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
 
     runner_context = %{
       attempt: attempt,
@@ -2685,6 +2684,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             ref: ref,
             identifier: issue.identifier,
             issue: issue,
+            optimistic_blockers: optimistic_blockers,
             worker_host: worker_host,
             workspace_path: nil,
             session_id: nil,

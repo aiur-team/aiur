@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.DispatchPolicy do
   @moduledoc """
-  Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.
+  Dispatch and load policy; dependency holds follow the effective start trigger.
   """
 
   require Logger
@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{DependencyGate, Slots, State}
 
   @reclaimable_cpu_threshold 60.0
   @fd_headroom_percent 10
@@ -688,7 +688,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        ) do
     cond do
       blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
-      todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
+      todo_issue_held_by_dependency?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
@@ -787,7 +787,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
-      not todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+      not todo_issue_held_by_dependency?(issue, terminal_states)
   end
 
   @spec issue_not_paused?(Issue.t()) :: boolean()
@@ -818,30 +818,23 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def issue_dispatch_authorization_deferred?(%Issue{dispatch_authorization: :deferred}), do: true
   def issue_dispatch_authorization_deferred?(_issue), do: false
 
-  @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
-  def todo_issue_blocked_by_non_terminal?(
-        %Issue{state: issue_state, blocked_by: blockers},
-        terminal_states
-      )
-      when is_binary(issue_state) and is_list(blockers) do
-    normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, &non_terminal_blocker?(&1, terminal_states))
+  @spec todo_issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
+  def todo_issue_held_by_dependency?(%Issue{state: state} = issue, terminal_states) when is_binary(state) do
+    normalize_issue_state(state) == "todo" and holding_blockers(issue, terminal_states) != []
   end
 
-  def todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+  def todo_issue_held_by_dependency?(_issue, _terminal_states), do: false
 
-  @doc """
-  The `blocked_by` entries actually holding the issue: those whose state is not
-  terminal, plus any entry carrying no readable state (fail-closed, exactly as
-  the gate treats them).
-  """
-  @spec non_terminal_blockers(term(), MapSet.t()) :: [term()]
-  def non_terminal_blockers(%Issue{blocked_by: blockers}, terminal_states)
-      when is_list(blockers) do
-    Enum.filter(blockers, &non_terminal_blocker?(&1, terminal_states))
+  @doc "The hydrated blockers whose effective start-trigger verdict still holds dispatch."
+  @spec holding_blockers(term(), MapSet.t()) :: [term()]
+  def holding_blockers(issue, terminal_states) do
+    for {blocker, verdict} <- DependencyGate.verdicts(issue, terminal_states), not match?({:satisfied, _}, verdict), do: blocker
   end
 
-  def non_terminal_blockers(_issue, _terminal_states), do: []
+  @spec optimistic_blockers(Issue.t()) :: [String.t()]
+  def optimistic_blockers(issue) do
+    for {%{id: id}, {:satisfied, :optimistic}} <- DependencyGate.verdicts(issue, terminal_state_set()), do: id
+  end
 
   @doc """
   Human-readable reason for a dependency hold, naming only the blockers that
@@ -855,17 +848,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec describe_dependency_hold(term(), MapSet.t()) :: String.t()
   def describe_dependency_hold(%Issue{blocked_by: blockers} = issue, terminal_states)
       when is_list(blockers) do
-    holding = non_terminal_blockers(issue, terminal_states)
+    holding = holding_blockers(issue, terminal_states)
     describe_hold(holding, length(blockers) - length(holding))
   end
 
   def describe_dependency_hold(_issue, _terminal_states), do: @unknown_dependency_hold
-
-  defp non_terminal_blocker?(%{state: blocker_state}, terminal_states)
-       when is_binary(blocker_state),
-       do: !terminal_issue_state?(blocker_state, terminal_states)
-
-  defp non_terminal_blocker?(_blocker, _terminal_states), do: true
 
   # Only ever reachable if a caller describes an issue that is not actually
   # held; the gate itself never produces an empty holding list here.
