@@ -475,7 +475,7 @@ ticket stays paused until you answer. The CLI even tells you so: on
   collects tickets with an open blocking Command (`decision_store.ex:938-950,
   :1570-1587`); the dispatcher refreshes it each poll and **fails closed** on
   store outage (`dispatcher.ex:453-459`, `dispatch_policy/eligibility.ex:181-185` →
-  `{:skip, :blocked_on_decision}` at `dispatch_policy.ex:397`). A ticket that opens a blocking
+  `{:skip, :blocked_on_decision}` at `dispatch_policy.ex:393`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
   deliberately fails **open** on store outage (`reconciler.ex:540-560`).
   Answering removes the ticket from that set, so the next poll dispatches it
