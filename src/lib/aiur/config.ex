@@ -170,13 +170,10 @@ defmodule Aiur.Config do
   @spec settings_uncached() :: {:ok, Schema.t()} | {:error, term()}
   def settings_uncached, do: settings_from(Workflow.load())
 
-  defp settings_from({:ok, %{config: config}}) when is_map(config) do
-    config
-    |> prepare_config()
-    |> Schema.parse()
-  end
-
-  defp settings_from({:error, reason}), do: {:error, reason}
+  @doc false
+  @spec settings_from({:ok, map()} | {:error, term()}) :: {:ok, Schema.t()} | {:error, term()}
+  def settings_from({:ok, %{config: config}}) when is_map(config), do: config |> prepare_config() |> Schema.parse()
+  def settings_from({:error, reason}), do: {:error, reason}
 
   @spec settings!() :: Schema.t()
   def settings! do
@@ -1259,7 +1256,9 @@ defmodule Aiur.Config do
     end
   end
 
-  defp format_config_error(reason) do
+  @doc false
+  @spec format_config_error(term()) :: String.t()
+  def format_config_error(reason) do
     label = config_file_label()
 
     case reason do
