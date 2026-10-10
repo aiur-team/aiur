@@ -47,6 +47,10 @@ defmodule Aiur.Orchestrator.LoadEnvelope do
        }),
        do: {static_limit, nil, bootstrap_complete?}
 
+  # Existing workers need their occupied capacity restored before fresh admission.
+  defp load_envelope_state(1, nil, _load, %{bootstrap_complete?: false, used_slots: occupied, static_limit: cap} = options) when occupied > 0,
+    do: {min(max(occupied, Map.get(options, :resume_level) || 1), cap), nil, true}
+
   defp load_envelope_state(effective, last_decrease_ms, :unavailable, options) do
     next = normalize_load_envelope_limit(effective, options.static_limit)
     {next, last_decrease_ms, options.bootstrap_complete?}

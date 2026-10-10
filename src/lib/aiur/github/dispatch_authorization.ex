@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, Transport}
+  alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, TimelineCache, Transport}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
@@ -13,7 +13,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # every dispatch attempt) is exactly the failure this table avoids: ETS is
   # reference-counted and GC-agnostic. Only the small fingerprint/decision/alert
   # caches stay in `:persistent_term` (#2298 rework B4).
-  @timeline_table :aiur_github_dispatch_authorization_timelines
   @max_cache_entries 1_000
   @deferral_alert_threshold 5
 
@@ -77,9 +76,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   def clear_cache do
     :persistent_term.erase(@cache_key)
 
-    if :ets.whereis(@timeline_table) != :undefined do
-      :ets.delete_all_objects(@timeline_table)
-    end
+    TimelineCache.clear()
 
     :ok
   end
@@ -217,9 +214,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
-      case fetch_timeline_ladder(request_fun, token, owner, repo, issue, @timeline_page_sizes) do
+      case fetch_timeline_ladder(request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)) do
         {:ok, events, new_etag, single_page?, per_page} ->
-          store_timeline(issue.id, new_etag, events, single_page?, per_page)
+          TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
           decide_fetched_timeline(issue, label, prefix, events, owner, repo)
 
         {:reused, events} ->
@@ -251,7 +248,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # as a provenance verdict.
   defp fetch_timeline_ladder(request_fun, token, owner, repo, issue, [per_page | smaller]) do
     url = timeline_url(owner, repo, issue.id, per_page)
-    held = held_timeline(issue.id, per_page)
+    held = TimelineCache.get(owner, repo, issue.id, per_page)
 
     case fetch_timeline(request_fun, token, url, held, page_budget(per_page)) do
       {:ok, events, etag, single_page?} ->
@@ -388,52 +385,11 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp next_page?(response), do: not is_nil(Transport.parse_next_page_url(Map.get(response, :headers, [])))
 
-  # The timeline cache is keyed by issue id and holds the validator for page 1,
-  # the held events, and whether those events came from a single page — the only
-  # case a page-1 `304` is allowed to answer.
-  #
-  # It also holds the `per_page` its validator was minted against: a page-1 ETag
-  # for one page size says nothing about page 1 at another, so a ladder retry must
-  # neither present it nor be answered from a snapshot taken at a different page
-  # size.
-  defp held_timeline(issue_id, per_page) when is_binary(issue_id) do
-    case :ets.lookup(timeline_table(), issue_id) do
-      [{^issue_id, %{per_page: ^per_page} = held}] -> held
-      _other -> nil
-    end
-  end
-
-  defp held_timeline(_issue_id, _per_page), do: nil
-
-  defp store_timeline(issue_id, etag, events, single_page?, per_page) when is_binary(issue_id) do
-    table = timeline_table()
-
-    :ets.insert(
-      table,
-      {issue_id, %{etag: etag, events: events, single_page?: single_page?, per_page: per_page}}
-    )
-
-    if :ets.info(table, :size) > @max_cache_entries do
-      :ets.delete_all_objects(table)
-    end
-
-    :ok
-  end
-
-  defp store_timeline(_issue_id, _etag, _events, _single_page?, _per_page), do: :ok
-
   defp reusable?(%{single_page?: true, etag: etag, events: events})
        when is_binary(etag) and etag != "" and is_list(events),
        do: true
 
   defp reusable?(_held), do: false
-
-  defp timeline_table do
-    case :ets.whereis(@timeline_table) do
-      :undefined -> :ets.new(@timeline_table, [:named_table, :public, :set, read_concurrency: true])
-      _other -> @timeline_table
-    end
-  end
 
   defp timeline_decision(issue, label, prefix, events) do
     case latest_label_event(events, label) do

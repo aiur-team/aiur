@@ -553,7 +553,7 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
-The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+Dispatch timelines persist (at most 1,000 bodies per repository). After boot, single-page evidence is ETag-revalidated before checking the current allowlist; multi-page timelines and a `304` reporting a new page require full refetch. The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
 
 Comment, CI, and review-thread pollers consult these complete snapshots before
 building their GraphQL documents. A poll-written snapshot is only a baseline;
