@@ -14,7 +14,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.{AlertFeed, Alerts, Config, PollCadence, RunTelemetry}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth, TrackerTasks}
 
@@ -55,8 +54,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
       {:ok, %{etag: etag, last_event_id: last_event_id} = result} ->
         state =
           state
-          |> Orchestrator.note_github_connectivity_success(:firehose)
-          |> Orchestrator.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
+          |> TrackerHealth.note_github_connectivity_success(:firehose)
+          |> TrackerHealth.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
           |> note_recent_merge_persistence_success(Map.get(result, :recent_merge_persistence))
           |> note_firehose_window(result, opts)
 
@@ -69,12 +68,12 @@ defmodule Aiur.Orchestrator.CommentPolling do
         # Preserve cached etag so we retry as If-None-Match next tick; the
         # classified failure feeds the escalation policy so a sustained
         # DNS/auth break surfaces a loud Executor blocker (#617).
-        Orchestrator.note_github_connectivity_failure(state, :firehose, reason)
+        TrackerHealth.note_github_connectivity_failure(state, :firehose, reason)
     end
   end
 
   defp note_recent_merge_persistence_success(state, :ok) do
-    Orchestrator.note_github_connectivity_success(state, :recent_merge_store)
+    TrackerHealth.note_github_connectivity_success(state, :recent_merge_store)
   end
 
   defp note_recent_merge_persistence_success(state, _status), do: state
@@ -172,9 +171,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
     state =
       state
-      |> Orchestrator.note_github_connectivity_success(:firehose)
-      |> Orchestrator.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
-      |> Orchestrator.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
+      |> TrackerHealth.note_github_connectivity_success(:firehose)
+      |> TrackerHealth.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
+      |> TrackerHealth.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
       |> maybe_alert_recent_merge_persistence(reason, retry_limit, opts)
 
     if advance? do
@@ -973,9 +972,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
         state =
           if all_comment_targets_failed?(targets, errors) do
-            Orchestrator.note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
+            TrackerHealth.note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
           else
-            Orchestrator.note_github_connectivity_success(state, :comments)
+            TrackerHealth.note_github_connectivity_success(state, :comments)
           end
 
         %{

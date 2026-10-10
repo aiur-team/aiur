@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
@@ -30,7 +29,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
   def note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
-    detail = Orchestrator.connectivity_detail(reason)
+    detail = connectivity_detail(reason)
 
     if classification == :unclassified do
       # F2 of #2429: a reason this classifier does not recognize is itself a
@@ -440,4 +439,15 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       _ -> "tracker"
     end
   end
+
+  @doc false
+  @spec connectivity_detail(term()) :: map()
+  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
+
+  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
+
+  def connectivity_detail({:github_api_status, status}) when is_integer(status),
+    do: %{status: status}
+
+  def connectivity_detail(_reason), do: %{}
 end

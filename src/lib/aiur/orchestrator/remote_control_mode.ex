@@ -8,8 +8,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.{CodingAgent, Config}
   alias Aiur.HttpServer
   alias Aiur.Issue
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, State, StatusReport, TrackerTasks}
+  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, RetryEngine, State, StatusReport, TicketTransition, TrackerTasks}
   require Logger
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
@@ -304,10 +303,10 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
-    Orchestrator.kill_repl_session(running_entry)
-    Orchestrator.close_active_chat_streams(identifier, reason)
+    AgentTeardown.kill_repl_session(running_entry)
+    AgentTeardown.close_active_chat_streams(identifier, reason)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
-    if is_pid(pid), do: Orchestrator.terminate_task(pid)
+    if is_pid(pid), do: AgentTeardown.terminate_task(pid)
 
     cleared =
       running_entry
