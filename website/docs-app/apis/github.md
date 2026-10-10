@@ -32,14 +32,13 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
-Each CI poll reads the configured base branch's active rules and classic branch
-protection once for the batch, then requires every required check on the current
-PR head from its configured integration. A failed required-check lookup keeps a
-green aggregate pending; missing and skipped required checks cannot pass.
-The two reads are attributed to `ci_required_checks` and bypass the shared read
-cache because they govern a CI verdict.
+Each CI poll reads the base branch's active rules and classic branch protection once per batch (caller `ci_required_checks`, uncached because they govern a CI verdict), then requires every required check on the current PR head from its configured integration. A failed lookup keeps a green aggregate pending; missing and skipped required checks cannot pass.
 
-Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework (with no required list, every failure still decides). A head whose runs all finished with at least one cancelled is missing CI, not failed CI: the poll lists that head's workflow runs and re-runs the latest cancelled run per workflow (caller `ci_cancelled_rerun`, pending reason `ci_cancelled`) instead of waking a worker; a refused re-run is logged and retried on the next poll. The agent `git` guard spends one GraphQL read per push of the current branch and refuses it when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested; a lookup that cannot answer lets the push through.
+Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
+
+A head whose check runs all finished with at least one cancelled is missing CI, not failed CI. The poll lists that head's workflow runs and re-runs the latest cancelled run per workflow (caller `ci_cancelled_rerun`, pending reason `ci_cancelled`) instead of waking a worker. A refused re-run is logged and retried on the next poll.
+
+The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
 Draft PRs remain pending even when
 their fast gate is green. Completed work must be marked ready before CI wait so
