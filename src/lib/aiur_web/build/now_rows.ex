@@ -31,6 +31,7 @@ defmodule AiurWeb.Build.NowRows do
           status: String.t(),
           ord: integer(),
           start: integer() | nil,
+          start_src: String.t(),
           pct: 0..100 | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, effort: String.t() | nil}
         }
@@ -83,13 +84,17 @@ defmodule AiurWeb.Build.NowRows do
     num = String.to_integer(row.identity.identifier)
     family = UnitsPresentation.agent_family(row)
 
+    start = timestamp(get_in(row, [:timestamps, :started_at]))
+
     %{
       id: row.identity.identifier,
       num: num,
       sec: "now",
       status: "running",
       ord: num,
-      start: timestamp(get_in(row, [:timestamps, :started_at])),
+      start: start,
+      # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
+      start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row[:progress]),
       agent: %{model: model(family), name: UnitsPresentation.agent_label(family), state: agent_state(row), effort: effort(row[:effort])}
     }

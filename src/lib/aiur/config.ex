@@ -893,17 +893,16 @@ defmodule Aiur.Config do
   Number of dispatch slots added by each below-target envelope sample.
   """
   @spec load_ramp_step() :: pos_integer()
-  def load_ramp_step do
-    settings!().agent.load_ramp_step
-  end
+  def load_ramp_step, do: settings!().agent.load_ramp_step
+
+  @spec load_resume_max_age_seconds() :: non_neg_integer()
+  def load_resume_max_age_seconds, do: settings!().agent.load_resume_max_age_seconds
 
   @doc """
   Minimum number of seconds between high-load envelope decreases.
   """
   @spec load_cooldown_seconds() :: non_neg_integer()
-  def load_cooldown_seconds do
-    settings!().agent.load_cooldown_seconds
-  end
+  def load_cooldown_seconds, do: settings!().agent.load_cooldown_seconds
 
   @doc """
   Minimum seconds a ready-work capacity-starvation condition must persist before

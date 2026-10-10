@@ -16,6 +16,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "sec" => enum(~w(hist now plan nq)),
       "ord" => :integer,
       "start" => nullable(:integer),
+      "start_src" => enum(~w(label dispatch unknown)),
       "end" => nullable(:integer),
       "created" => nullable(:integer),
       "status" => enum(~w(done failed not_planned closed running queued open)),
