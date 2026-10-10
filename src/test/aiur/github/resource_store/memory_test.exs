@@ -108,6 +108,36 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
       assert_receive {:sweep, %{entries: 12, bodies: 3, body_bytes: ^body_bytes, shed: 9}}, 1_000
     end
 
+    # Guards a future regression: this already holds, and it is what keeps a
+    # shed `:issue_blocked_by` body from being read as "no blockers".
+    test "a body shed by the sweep reads as a miss, never as empty data" do
+      Application.put_env(:aiur, :github_resource_store_max_body_bytes, 150 * 1024)
+      first = ResourceStore.key(:issue_blocked_by, "owner", "repo", 1)
+      second = ResourceStore.key(:issue_blocked_by, "owner", "repo", 2)
+
+      :ok =
+        ResourceStore.put_resource(first, [%{"number" => 9, "body" => String.duplicate("x", @body_bytes)}],
+          source: :fetch,
+          etag: "etag-1"
+        )
+
+      :ok =
+        ResourceStore.put_resource(second, [%{"number" => 8, "body" => String.duplicate("y", @body_bytes)}],
+          source: :fetch,
+          etag: "etag-2"
+        )
+
+      store = Process.whereis(ResourceStore)
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      assert ResourceStore.fetch(first) == :miss
+      assert ResourceStore.data(first) == nil
+      assert ResourceStore.etag(first) == nil
+      assert ResourceStore.change_validator(first) == "etag-1"
+      assert {:ok, %{data: [%{"number" => 8}]}} = ResourceStore.fetch(second)
+    end
+
     test "a checkpoint leaves no copy of the bodies on the store's heap" do
       dir = Aiur.TestSupport.tmp_root!("aiur-resource-store-memory")
       File.mkdir_p!(dir)

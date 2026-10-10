@@ -555,6 +555,8 @@ A deposit records what Aiur is *holding*, never what it has *handled*. The two a
 
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
 
+The held bodies are capped at 128 MiB. Every five minutes the store drops the least recently written bodies until they fit, keeping each entry's `ETag` and processed mark. A dropped body reads as a miss, so its next reader pays one unconditional GitHub read. The cap sits about three times above the busiest observed store (44.9 MiB on 2026-10-10), so it is a backstop: a store that stays over it spends API budget on every sweep. `aiur status` shows the held bytes against the cap on its `GITHUB RESOURCES` line.
+
 Comment, CI, and review-thread pollers consult these complete snapshots before
 building their GraphQL documents. A poll-written snapshot is only a baseline;
 it does not suppress the next poll. When a verified delivery advances that
