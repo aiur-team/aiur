@@ -2,7 +2,6 @@ defmodule Aiur.Accounts.SessionMoveTest do
   use Aiur.TestSupport
 
   alias Aiur.Accounts
-  alias Aiur.Accounts.Shims.Claude
   alias Aiur.Accounts.UsageReadings
   alias Aiur.Claude.RemoteControl
 

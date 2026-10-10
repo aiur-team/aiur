@@ -15,16 +15,8 @@ defmodule Aiur.Accounts.SessionMove do
          artifacts <- shim.session_artifacts(source_dir, session_id, cwd),
          :ok <- require_session_artifact(artifacts),
          {:ok, movable_artifacts} <- destination_artifact_preflight(artifacts, source_dir, destination_dir),
-         :ok <-
-           move_artifacts(
-             movable_artifacts,
-             source_dir,
-             destination_dir,
-             session_id,
-             Keyword.get(opts, :same_device, same_device?(source_dir, destination_dir)),
-             opts
-           ) do
-      :ok
+         same_device? <- Keyword.get(opts, :same_device, same_device?(source_dir, destination_dir)) do
+      move_artifacts(movable_artifacts, source_dir, destination_dir, session_id, same_device?, opts)
     end
   end
 
