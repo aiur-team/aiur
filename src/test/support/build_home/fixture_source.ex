@@ -18,7 +18,9 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   def read(:locked, _opts), do: Read.locked_usage()
 
   def read({:ok, _context}, _opts) do
-    case full([]) do
+    result = if dataset([]) in @files, do: full([]), else: {:error, :fixture_unavailable}
+
+    case result do
       {:ok, data} -> data["usage"]
       {:error, _reason} -> %{"state" => "unavailable", "observed_at" => nil, "reason" => "fixture_unavailable"}
     end

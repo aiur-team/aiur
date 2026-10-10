@@ -27,8 +27,10 @@ defmodule AiurWeb.Build.FixtureUsageTest do
       assert source.read({:ok, nil}, reload: {AiurWeb.FinancialData, :updated, :identity}) == snapshot["usage"]
     end
 
-    Application.put_env(:aiur, :build_fixture_dataset, "unavailable")
-    assert source.read(:locked) == Read.locked_usage()
-    assert source.read({:ok, nil}) == %{"state" => "unavailable", "observed_at" => nil, "reason" => "fixture_unavailable"}
+    for dataset <- ~w(unavailable hold) do
+      Application.put_env(:aiur, :build_fixture_dataset, dataset)
+      assert source.read(:locked) == Read.locked_usage()
+      assert source.read({:ok, nil}) == %{"state" => "unavailable", "observed_at" => nil, "reason" => "fixture_unavailable"}
+    end
   end
 end
