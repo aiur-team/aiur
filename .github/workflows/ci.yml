@@ -114,8 +114,8 @@ jobs:
         run: node scripts/test-ci-concurrency.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
-      - name: Test config documentation guard
-        run: bash scripts/test-check-config-docs.sh
+      - name: Test config documentation and design extract guards
+        run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
       - name: Test component manifest guard
         run: bash scripts/test-check-components.sh
       - name: Test env example drift guard
