@@ -99,6 +99,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     rework_attempt_alerted: :pr_lifecycle,
     merged_ticket_reconciliations: :pr_lifecycle,
     merged_ticket_reconciliation_failures: :pr_lifecycle,
+    restack_completed: :pr_lifecycle,
     queue_store: :messaging,
     agent_totals: :accounting,
     agent_rate_limits: :accounting,
@@ -151,7 +152,8 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.PRHealthScanner,
       Aiur.Orchestrator.ReadyForReviewTransitions,
       Aiur.Orchestrator.MergedTicketReconciler,
-      Aiur.Orchestrator.ReworkRequeue
+      Aiur.Orchestrator.ReworkRequeue,
+      Aiur.Orchestrator.RestackScheduler
     ],
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],

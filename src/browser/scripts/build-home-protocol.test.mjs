@@ -37,14 +37,20 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
     const snapshot = fixture(kind);
     // Assemble the initial active-day window followed by all earlier day pages.
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: snapshot.history.tz, year: 'numeric', month: '2-digit', day: '2-digit' });
-    const pages = Map.groupBy(snapshot.sections.hist, row => day.format(row.end));
+    // Portable grouping: Map.groupBy needs Node 21+, newer than the harness runtime.
+    const pages = new Map();
+    for (const row of snapshot.sections.hist) {
+      const key = day.format(row.end);
+      if (!pages.has(key)) pages.set(key, []);
+      pages.get(key).push(row);
+    }
     const days = [...pages.keys()].sort().reverse();
     const initialDays = kind === 'dense' ? 1 : 2;
     snapshot.sections.hist = days.slice(0, initialDays).flatMap(key => pages.get(key));
     for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
     assert.deepEqual(actual.epics, raw.epics);
-    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to) }]));
+    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), stats: snapshot.features[key].stats }]));
     assert.deepEqual(actual.features, features);
     assert.deepEqual(actual.order, raw.order);
     for (const [key, count] of Object.entries(raw.counts)) assert.equal(actual.counts[key], count);
