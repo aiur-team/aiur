@@ -377,6 +377,8 @@ The wake ledger is capped at 10,000 records. Consumed records are evicted first.
 advanced past them and an `executor.wakes.overflow` alert names the count and id
 range; those wakes are never delivered.
 
+A corrupt wake journal no longer stops the inbox: the file is kept as `<journal>.corrupt-<unix>`, the good prefix is replayed, and an `executor.wakes.journal_quarantined` alert says the unacknowledged wakes after the bad line were lost. Three consecutive flush failures raise `executor.wakes.flush_failing`; a failed journal trim raises `executor.wakes.trim_failed` once per daemon lifetime.
+
 In practice that only happens when a run records for a long time with no
 consumer, or with a stalled one. The roster's `stalled` state is the earlier
 warning.

@@ -2,6 +2,7 @@ defmodule Aiur.Events.OutOfOrderIdWitnessTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, IdGenerator, SubscriptionStore}
+  alias Aiur.Executor.Claims
   alias Aiur.{ExecutorListener, ExecutorWakeInbox}
 
   # Witness, deliberately green on main: not a fix or change coverage.
@@ -55,7 +56,7 @@ defmodule Aiur.Events.OutOfOrderIdWitnessTest do
     observe = fn id ->
       send(inbox, :flush)
       assert {:ok, [%{"event_id" => ^id, "topic" => ^topic, "ticket" => ^ticket} = record]} = ExecutorWakeInbox.wait(0, inbox)
-      :ok = ExecutorWakeInbox.acknowledge([record], inbox)
+      :ok = ack_as_owner([record], inbox)
     end
 
     interleave(fn id -> %{"id" => id, "topic" => topic} end, consumer, observe)
@@ -102,5 +103,10 @@ defmodule Aiur.Events.OutOfOrderIdWitnessTest do
     # The publisher sends both the event and barrier, preserving mailbox order.
     :sys.get_state(consumer)
     id
+  end
+
+  defp ack_as_owner(records, server) do
+    {:ok, _claim} = Claims.claim("test-owner")
+    :ok = ExecutorWakeInbox.acknowledge_as("test-owner", records, server)
   end
 end
