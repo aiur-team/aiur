@@ -31,7 +31,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias Aiur.TestSupport.RefreshTrace
+  alias Aiur.TestSupport.{LiveViewAsync, RefreshTrace}
   alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
@@ -2732,7 +2732,7 @@ defmodule AiurWeb.DashboardLiveTest do
     # @expanded_decision is visible at the call site; an `assign(:decision, ...)`
     # inside the component would hide that dependency and keep the cached
     # "Delivery failed" row — and its retry button — on screen.
-    refute render(view) =~ ~s(phx-click="retry-decision")
+    assert eventually(fn -> not (render(view) =~ ~s(phx-click="retry-decision")) end, 200)
 
     # The retry affordance must be gone from the rendered page — same reasoning
     # as the fresh mount above: read the :queued state through a new mount's
@@ -4345,7 +4345,6 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
     {:ok, subscription_attempts} = Agent.start_link(fn -> 0 end)
-
     replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
@@ -4356,7 +4355,7 @@ defmodule AiurWeb.DashboardLiveTest do
       units_activity_fun: fn -> units_activity(identity) end,
       ticket_context_reset_subscribe_fun: fn ->
         send(test_pid, :ticket_context_resets_subscribed)
-        :ok
+        Phoenix.PubSub.subscribe(Aiur.PubSub, "context-reset-3890")
       end,
       ticket_detail_subscribe_fun: fn selected ->
         attempt = Agent.get_and_update(subscription_attempts, fn current -> {current + 1, current + 1} end)
@@ -4392,7 +4391,6 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "units-ticket-context"
     refute_receive {:detail_requested, _identity}, 100
     refute_receive {:history_requested, _identity}, 100
-
     html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
 
     assert_receive {:detail_subscribed, ^identity, 1}, 1000
@@ -4406,14 +4404,15 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Chat is unavailable"
     assert html =~ "Commands"
     refute html =~ "/private/workspace"
-
     other = units_identity(provider_id: "NODE-other", identifier: "1111")
     send(view.pid, {:ticket_detail_updated, units_ticket_detail(other, "Wrong ticket")})
     refute render(view) =~ "Wrong ticket"
 
     send(view.pid, {:ticket_detail_updated, units_ticket_detail(identity, "Updated ticket context")})
     assert render(view) =~ "Updated ticket context"
-
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "context-reset-3890", {:ticket_detail_coordinator_reset, 2})
+    send(view.pid, {:ticket_detail_updated, units_ticket_detail(identity, "Post-reset ticket context")})
+    assert LiveViewAsync.render_after_refresh(view) =~ "Post-reset ticket context"
     view |> element("#units-ticket-context .ticket-context-close") |> render_click()
     refute_receive {:detail_unsubscribed, ^identity}, 100
     assert_receive {:history_unsubscribed, ^identity}, 1000
