@@ -80,7 +80,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
     File.write!(Path.join(workspace, ".claude/settings.local.json"), "{\"model\": \"x\"}\n")
     {_out, 0} = git(workspace, home, [], ["add", "-f", ".claude/settings.local.json"])
 
-    assert :ok = GitIdentity.install(workspace)
+    assert :ok = Aiur.Workspace.AttributionGuard.install(workspace)
 
     assert File.read!(hook) == "#!/bin/sh\nexit 0\n"
     assert File.read!(Path.join(workspace, ".claude/settings.local.json")) == "{\"model\": \"x\"}\n"

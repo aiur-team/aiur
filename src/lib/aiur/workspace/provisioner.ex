@@ -11,7 +11,7 @@ defmodule Aiur.Workspace.Provisioner do
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
   @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
-  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentBuildGuard, Aiur.AgentScratch, Aiur.AgentEnvironment.GitIdentity]
+  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentBuildGuard, Aiur.AgentScratch, Aiur.Workspace.AttributionGuard]
   @remote_workspace_ready_marker "__AIUR_WORKSPACE_READY__"
   @workspace_ready_marker ".claude/.aiur-workspace-ready"
 
