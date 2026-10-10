@@ -16,10 +16,10 @@ defmodule Aiur.Orchestrator.NonTransitionFacadeTest do
 
   test "running_worker_host reads the running entry and preserves nil fallbacks" do
     state = %State{running: %{"hosted" => %{worker_host: "worker-1"}, "local" => %{pid: self()}}}
-    assert State.running_worker_host(state, "hosted") == "worker-1"
-    assert State.running_worker_host(state, "local") == nil
-    assert State.running_worker_host(state, "missing") == nil
-    assert State.running_worker_host(state, 123) == nil
-    assert State.running_worker_host(nil, "hosted") == nil
+    assert State.WorkerHost.running_worker_host(state, "hosted") == "worker-1"
+    assert State.WorkerHost.running_worker_host(state, "local") == nil
+    assert State.WorkerHost.running_worker_host(state, "missing") == nil
+    assert State.WorkerHost.running_worker_host(state, 123) == nil
+    assert State.WorkerHost.running_worker_host(nil, "hosted") == nil
   end
 end

@@ -1234,7 +1234,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
-          worker_host: State.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
           severity: task_state_alert_severity(current_state)
@@ -1252,7 +1252,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
-          worker_host: State.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
           severity: task_state_alert_severity(current_state)
@@ -1318,7 +1318,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       case Alerts.emit_system(topic,
              issue: issue,
-             worker_host: State.running_worker_host(state, issue.id),
+             worker_host: State.WorkerHost.running_worker_host(state, issue.id),
              reason: message,
              needs_attention: true,
              severity: "warning",
@@ -1345,7 +1345,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       active? ->
         case Alerts.emit_system("#{topic}.resolved",
                issue: issue,
-               worker_host: State.running_worker_host(state, issue.id),
+               worker_host: State.WorkerHost.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
                needs_attention: false,
                severity: "info",
@@ -1458,7 +1458,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       {true, false} ->
         Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
           issue: issue,
-          worker_host: State.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
           needs_attention: false,
           severity: "info"
@@ -1481,7 +1481,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     unless active_attention?(state, topic) do
       Alerts.emit_system(topic,
         issue: issue,
-        worker_host: State.running_worker_host(state, issue.id),
+        worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason:
           "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
             "This clears when the operator removes agent:paused.",
@@ -1500,7 +1500,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     if force? or active_attention?(state, topic) do
       Alerts.emit_system("#{topic}.resolved",
         issue: issue,
-        worker_host: State.running_worker_host(state, issue.id),
+        worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
         needs_attention: false,
         severity: "info",
@@ -2486,7 +2486,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       %Issue{} = issue ->
         Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
           issue: issue,
-          worker_host: State.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Todo issue count exceeds the current dispatch capacity.",
           needs_attention: true,
           severity: "warning"

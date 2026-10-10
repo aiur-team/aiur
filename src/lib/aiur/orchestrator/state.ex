@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.State do
   """
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
-  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, State.WorkerHost, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
 
   @default_dispatch_recovery %{
     workspace_ownership: %{waits: %{}, ready: %{}},
@@ -1035,7 +1035,4 @@ defmodule Aiur.Orchestrator.State do
       when is_binary(issue_id) and is_binary(head_sha) do
     %{state | rework_attempt_alerted: MapSet.put(state.rework_attempt_alerted, {issue_id, head_sha})}
   end
-
-  @spec running_worker_host(t(), term()) :: binary() | nil
-  defdelegate running_worker_host(state, issue_id), to: WorkerHost
 end
