@@ -183,7 +183,7 @@ A manual `todo` sets an override. List adds record existing `todo`; fresh unmet 
 withdraw it only after dispatch is held and the item is unclaimed. Later manual promotion remains
 overridden, as with Build Order adoption. External removal of queue-owned `todo` creates an
 external hold; `aiur queue release` clears holds and overrides. Removing `agent:queued` dequeues
-items. Optimistic writes re-observe races instead of overwriting another writer's transition.
+items; optimistic writes re-observe races instead of overwriting another writer's transition.
 
 Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains `promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable claim probe preserves a recorded decline.
 
