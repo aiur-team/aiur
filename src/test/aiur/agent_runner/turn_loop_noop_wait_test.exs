@@ -84,6 +84,44 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
     stop(task)
   end
 
+  # #3971 on the park path: fixes pushed by an earlier run must hand back to
+  # review at the first no-op, not park waiting for a review event that never comes.
+  test "a rework whose head is newer than its blocking review hands off instead of parking", ctx do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", tracker_active_states: ["todo", "in-progress", "rework"])
+    Aiur.WorkflowStore.force_reload()
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+    issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+    review = %{"state" => "CHANGES_REQUESTED", "commit_id" => "reviewed-head", "user" => %{"login" => "r"}, authoritative: true}
+
+    task =
+      Task.async(fn ->
+        TurnLoop.run_turns(
+          %{backend: "claude", workspace: ctx.workspace, worker_host: nil},
+          ctx.workspace,
+          issue,
+          nil,
+          [
+            resumed: true,
+            run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-park-rework"}} end,
+            workspace_probe: fn _workspace, _worker_host -> {:ok, "unchanged-workspace"} end,
+            max_consecutive_noop_turns: 3,
+            noop_park_timeout_ms: 0,
+            rework_head_sha: "fixed-head",
+            open_pr_fetcher: fn _ -> {:ok, %{"number" => 42, "head" => %{"sha" => "fixed-head"}}} end,
+            reviews_fetcher: fn 42 -> {:ok, [review]} end,
+            commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+          ],
+          fn _ids -> {:ok, [issue]} end,
+          ctx.orchestrator,
+          nil,
+          1,
+          nil
+        )
+      end)
+
+    assert {:ok, {:completed, %{state: "human-review"}}} = Task.yield(task, 3000) || Task.shutdown(task, :brutal_kill)
+  end
+
   defp start_loop(ctx, opts \\ []) do
     turns = ctx.turns
 

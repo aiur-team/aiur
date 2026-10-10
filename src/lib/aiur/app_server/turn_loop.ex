@@ -19,6 +19,9 @@ defmodule Aiur.AppServer.TurnLoop do
       {^port, {:exit_status, status}} ->
         handle_port_exit(session, state, status)
 
+      {:DOWN, _ref, :port, ^port, reason} ->
+        port_exit_failure(session, state, reason)
+
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         continue_or_return(
           session,

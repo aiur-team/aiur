@@ -16,7 +16,7 @@ defmodule Aiur.AgentRunner.NoopWait do
   @spec park(map(), map(), fun(), Aiur.Issue.t(), TurnProgress.t()) ::
           :ok | {:completed, Aiur.Issue.t()} | {:error, term()}
   def park(turn_context, app_session, message_handler, issue, progress) do
-    handoff = TurnLoop.transition_agent_handoff(turn_context, issue)
+    handoff = TurnLoop.noop_handoff(turn_context, issue)
 
     case handoff do
       {:handoff, result} ->
