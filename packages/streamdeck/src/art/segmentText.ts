@@ -56,3 +56,33 @@ export const rightText = (context: SKRSContext2D, text: string, right: number, y
   return width;
 };
 
+/** "Resets 22m" style caption from an ISO instant, relative to `now`. */
+export const resetLabel = (resetsAt: string | null, now: number): string | null => {
+  if (resetsAt === null) return null;
+  const at = Date.parse(resetsAt);
+  if (Number.isNaN(at)) return null;
+  const minutes = Math.round((at - now) / 60_000);
+  if (minutes <= 0) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d`;
+};
+
+/**
+ * "3m" style age from a past ISO instant, relative to `now`.
+ *
+ * The key faces carry a relative age computed by the daemon, but a transcript
+ * header carries the raw timestamp, so the strip derives its own. Mirrors
+ * {@link resetLabel}, which faces the other way in time.
+ */
+export const ageLabel = (timestamp: string | null, now: number): string | null => {
+  if (timestamp === null) return null;
+  const at = Date.parse(timestamp);
+  if (Number.isNaN(at)) return null;
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86_400)}d`;
+};
+
