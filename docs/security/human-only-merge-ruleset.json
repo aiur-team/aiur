@@ -5,7 +5,8 @@
   "conditions": {
     "ref_name": {
       "include": [
-        "refs/heads/main"
+        "refs/heads/main",
+        "refs/heads/develop"
       ],
       "exclude": []
     }
@@ -16,16 +17,6 @@
     },
     {
       "type": "non_fast_forward"
-    },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_approving_review_count": 1,
-        "required_review_thread_resolution": false
-      }
     },
     {
       "type": "required_status_checks",

@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$*" == *"/rulesets/123"* ]]; then
+declarations="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../docs/security" && pwd)"
+
+if [[ -n "${GH_CALL_LOG:-}" ]]; then
+  echo "$*" >>"$GH_CALL_LOG"
+fi
+
+if [[ "$*" == *"--method"* ]]; then
+  :
+elif [[ "$*" == *"/rulesets/123"* ]]; then
   cat "$RULESET_FIXTURE"
+elif [[ "$*" == *"/rulesets/456"* ]]; then
+  cat "${MAIN_RULESET_FIXTURE:-$declarations/main-merge-queue-ruleset.json}"
 else
-  printf '[{"name":"human-only-merge-gate","id":123}]\n'
+  default_list='[{"name":"human-only-merge-gate","id":123},{"name":"main","id":456}]'
+  printf '%s\n' "${RULESET_LIST_FIXTURE:-$default_list}"
 fi
