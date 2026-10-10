@@ -150,6 +150,7 @@ export default withMermaid(defineConfig({
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
+            { text: 'Headroom dispatch', link: '/concepts/headroom-dispatch' },
             { text: 'Capabilities', link: '/concepts/capabilities' },
             { text: 'Experiments', link: '/concepts/experiments' },
             { text: 'Message Bus', link: '/concepts/message-bus' },

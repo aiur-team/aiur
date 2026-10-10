@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.ControlCLI.Reasons
+  alias Aiur.ControlCLI.{DispatchAccount, Reasons}
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -2126,7 +2126,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> StatusObservation.row_label(status)
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> StatusObservation.row_label(status) <> DispatchAccount.suffix(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2812,7 +2812,7 @@ defmodule Aiur.AgentControlCLI do
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
         agents_activity(agent),
-        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent)
+        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
       ])
     end)
   end
