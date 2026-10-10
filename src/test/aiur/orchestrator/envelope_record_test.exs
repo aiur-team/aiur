@@ -17,6 +17,31 @@ defmodule Aiur.Orchestrator.EnvelopeRecordTest do
     {:ok, path: path}
   end
 
+  test "orchestrator startup loads the record while capacity and bootstrap remain at one" do
+    assert :ok = EnvelopeStore.save(7, System.schedulers_online(), DateTime.utc_now())
+    pid = start_supervised!({Aiur.Orchestrator, name: Module.concat(__MODULE__, :Resume), initial_poll?: false})
+    state = :sys.get_state(pid)
+    assert state.effective_concurrent_agents == 1
+    assert state.load_envelope_state.bootstrap_complete? == false
+    assert state.load_envelope_state.resume_level == 7
+  end
+
+  test "failed persistence keeps a pending record for the next fresh retry", %{path: path} do
+    pending =
+      Enum.reduce(1..5, occupied(6), fn i, state ->
+        DispatchPolicy.update_load_envelope(state, 48.0, 1.0, 64, i * 120_000, :unavailable, true)
+      end)
+
+    File.mkdir_p!(path)
+    failed = EnvelopeResume.persist(pending, true, 64, 600_000)
+    assert failed.load_envelope_state.record_dirty?
+    refute Map.has_key?(failed.load_envelope_state, :recorded_at)
+    File.rmdir!(path)
+    saved = EnvelopeResume.persist(failed, true, 64, 720_000)
+    refute saved.load_envelope_state.record_dirty?
+    assert EnvelopeStore.load(21_600, 64).safe_level == 6
+  end
+
   test "five fresh occupied samples persist a demonstrated level; reuse counts once", %{path: path} do
     four = Enum.reduce(1..4, occupied(6), &dispatch(&2, &1, &1 * 120_000))
     refute File.exists?(path)
