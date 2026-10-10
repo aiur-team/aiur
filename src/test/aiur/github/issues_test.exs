@@ -798,6 +798,10 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, %Issue{blocked_by: blockers}} =
                Issues.hydrate_blocked_by(issue, request_fun: request_fun)
 
+      now = System.system_time(:millisecond)
+      assert Enum.all?(blockers, &(&1.observed_at_ms in (now - 5_000)..now))
+      blockers = Enum.map(blockers, &Map.delete(&1, :observed_at_ms))
+
       assert blockers == [
                %{
                  id: "3",

@@ -1074,7 +1074,8 @@ defmodule Aiur.GitHub.Issues do
       id: to_string(number),
       identifier: to_string(number),
       state: extract_state(blocker, label_names, prefix),
-      url: Map.get(blocker, "html_url")
+      url: Map.get(blocker, "html_url"),
+      observed_at_ms: System.system_time(:millisecond)
     }
   end
 
