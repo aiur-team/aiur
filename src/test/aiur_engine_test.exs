@@ -2781,7 +2781,7 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
 
     assert events_log =~
-             ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root \S+-alert-ledger \S+-crash-dump-baseline\n/
+             ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root \S+-alert-ledger \S+-crash-dump-baseline \S+-supervisor\n/
 
     assert events_log =~ "DISOWN:424242"
   end
