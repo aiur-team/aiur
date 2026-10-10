@@ -4,6 +4,9 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
 
+  # Keep the fixture after teardown so in-flight app writers cannot race recursive removal.
+  @moduletag tmp_dir: System.pid()
+
   @topic "ticket.1.queue.attention.promoted_unauthorized"
 
   defmodule Boundary do
@@ -14,9 +17,8 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
     end
   end
 
-  setup do
+  setup %{tmp_dir: root} do
     previous = Application.fetch_env(:aiur, :decision_state_dir)
-    root = Aiur.TestSupport.tmp_root!("queue-unauthorized")
     Application.put_env(:aiur, :decision_state_dir, root)
 
     on_exit(fn ->
@@ -24,8 +26,6 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
         {:ok, value} -> Application.put_env(:aiur, :decision_state_dir, value)
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
-
-      File.rm_rf!(root)
     end)
 
     boundary = start_supervised!({Agent, fn -> %{claims: %{"1" => {:declined, :unauthorized}}, batches: []} end})
