@@ -556,11 +556,19 @@ A deposit records what Aiur is *holding*, never what it has *handled*. The two a
 
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
 
-Comment, CI, and review-thread pollers consult these complete snapshots before building their GraphQL documents. A poll-written snapshot is only a baseline; it does not suppress the next poll. When a verified delivery advances that baseline, the matching collection is eligible for 30 seconds.
+Comment, CI, and review-thread pollers consult these complete snapshots before
+building their GraphQL documents. A poll-written snapshot is only a baseline;
+it does not suppress the next poll. When a verified delivery advances that
+baseline, the matching collection is eligible for 30 seconds.
 
-During that window Aiur omits `reviewThreads` or the delivered `CheckRun` fields. Legacy commit statuses, `reviewDecision`, `mergeable`, and other strict verdict state remain live reads.
+During that window Aiur omits `reviewThreads` or the delivered `CheckRun`
+fields. Legacy commit statuses, `reviewDecision`, `mergeable`, and other strict
+verdict state remain live reads.
 
-Successful polls write complete selections back so the next delivery and poll converge on the same state. Partial, stale, poll-only, head-mismatched, or unavailable entries fall back to GitHub. A review-comment delivery invalidates the complete thread snapshot because one comment cannot prove the collection.
+Successful polls write complete selections back so the next delivery and poll
+converge on the same state. Partial, stale, poll-only, head-mismatched, or
+unavailable entries fall back to GitHub. A review-comment delivery invalidates
+the complete thread snapshot because one comment cannot prove the collection.
 
 ## CI failure evidence
 
@@ -572,7 +580,11 @@ Signatures exclude proven flakes. ResourceStore caches completed evidence by SHA
 
 ## Shared agent reads
 
-Agents run `gh` through a wrapper that keeps the answers, so the next agent asking the same question is served the first agent's answer — the exact output the first call produced, replayed byte for byte.
+Agents run `gh` through a wrapper that keeps the answers, so the next agent
+asking the same question is served the first agent's answer — the exact output
+the first call produced, replayed byte for byte.
+
+These reads are shared:
 
 | Read | Shared |
 | --- | --- |
@@ -582,7 +594,9 @@ Agents run `gh` through a wrapper that keeps the answers, so the next agent aski
 | A CI or merge verdict — `gh pr checks`, or `--json` asking for `statusCheckRollup`, `mergeable`, `mergeStateStatus`, `state`, `reviewDecision` and their like | No; never shared, at any age |
 | Anything else — no `--json`, `gh pr diff`, `gh api graphql`, every write | No; the call goes to GitHub as before |
 
-A verdict is refused rather than kept briefly because a push and a completing check run do not pass through the wrapper, so nothing could retire the answer before an agent acted on it.
+A verdict is refused rather than kept briefly because a push and a completing
+check run do not pass through the wrapper, so nothing could retire the answer
+before an agent acted on it.
 
 The same refusal applies to direct REST paths for check runs, check suites,
 commit statuses, reviews, requested reviewers, the pull-request resource
