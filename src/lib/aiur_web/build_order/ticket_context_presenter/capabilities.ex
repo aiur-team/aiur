@@ -32,6 +32,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.Capabilities do
     end
   end
 
+  @spec normalize_capability(term(), TrackerIdentity.t() | nil) :: Capability.t() | nil
   def normalize_capability(capability, identity) when is_map(capability) do
     kind = Fields.map_value(capability, :kind, [:github, :chat, :commands, :document], nil)
     variant = Fields.map_value(capability, :variant, [:issue, :pull_request], nil)

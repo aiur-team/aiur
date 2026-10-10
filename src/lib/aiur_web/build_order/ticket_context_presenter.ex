@@ -192,6 +192,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
 
   defp log_entry(_entry), do: []
 
+  @spec normalized_log_entry(term(), term(), term(), term(), term(), term(), term()) :: [LogEntry.t()]
   def normalized_log_entry(event_id, kind, source, label, occurred_at, observed_at, details)
       when kind in [
              :agent_attention,

@@ -14,6 +14,7 @@ defmodule Aiur.BuildOrder.TicketHistoryStore do
   Returns the evicted entries with their generations so the caller can
   broadcast them after the state is updated.
   """
+  @spec put(map(), map()) :: {:unchanged, map(), map()} | {:changed, map(), map(), [{map(), pos_integer()}]}
   def put(entry, state) do
     previous = Map.get(state.entries, key(entry.identity))
     {entry, state} = touch(entry, state)
@@ -46,11 +47,13 @@ defmodule Aiur.BuildOrder.TicketHistoryStore do
     Map.drop(previous, [:last_access]) == Map.drop(entry, [:last_access])
   end
 
+  @spec touch(map(), map()) :: {map(), map()}
   def touch(entry, state) do
     sequence = state.access_sequence + 1
     {%{entry | last_access: sequence}, %{state | access_sequence: sequence}}
   end
 
+  @spec put_unchanged(map(), map()) :: map()
   def put_unchanged(entry, state) do
     %{state | entries: Map.put(state.entries, key(entry.identity), entry)}
   end
@@ -68,6 +71,7 @@ defmodule Aiur.BuildOrder.TicketHistoryStore do
     end
   end
 
+  @spec snapshot(map(), map(), DateTime.t()) :: Snapshot.t()
   def snapshot(entry, state, now) do
     observed_at = latest_observation(entry)
     activity_health = activity_source_health(entry, now, state.stale_after_ms)
@@ -89,6 +93,7 @@ defmodule Aiur.BuildOrder.TicketHistoryStore do
     }
   end
 
+  @spec missing_snapshot(TrackerIdentity.t()) :: Snapshot.t()
   def missing_snapshot(identity) do
     %Snapshot{
       identity: identity,
@@ -153,7 +158,9 @@ defmodule Aiur.BuildOrder.TicketHistoryStore do
   defp status_label(:stale), do: "Recent ticket history is stale"
   defp status_label(:unavailable), do: "Recent ticket history unavailable"
 
+  @spec key(TrackerIdentity.t()) :: term()
   def key(identity), do: TrackerIdentity.github_key(identity)
+  @spec field(term(), atom()) :: term()
   def field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   def field(_map, _key), do: nil
 end
