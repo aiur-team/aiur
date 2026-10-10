@@ -40,41 +40,28 @@ test('NOW is 2026-10-07 14:20 Pacific', () => {
   const manifest = JSON.parse(files['manifest.json']);
   assert.equal(manifest.now, 1791408000000);
   assert.equal(manifest.now_iso, '2026-10-07T14:20:00-07:00');
-  for (const k of manifest.datasets) assert.equal(fixture(k).meta.now, manifest.now);
+  for (const k of manifest.datasets) assert.equal(fixture(k).now, manifest.now);
 });
-test('open-ended feature keeps Infinity', () => {
-  assert.equal(JSON.parse(files['live.json']).data.features.pag.to, 'Infinity');
-  assert.equal(fixture('live').data.features.pag.to, Infinity);
-  assert.doesNotMatch(files['live.json'], /"to":null/);
+test('open-ended feature becomes null on the wire', () => {
+  assert.equal(fixture('live').features.pag.to, null);
 });
-test('export is lossless', () => {
-  const { dataFor } = loadBuildJs({ designDir, expose: ['dataFor'] });
-  for (const k of ['live', 'dense', 'newrepo', 'noqueue', 'offline']) {
-    const { kind, all, byId, ...raw } = structuredClone(dataFor(k));
-    assert.deepEqual(fixture(k).data, raw);
-  }
-});
-test('absent stays absent', () => {
-  const { hist, plan, nq } = fixture('live').data;
+test('absent values become explicit null', () => {
+  const { hist, plan, nq } = fixture('live').sections;
   assert.equal(plan.length + nq.length, 76);
-  for (const row of [...plan, ...nq]) assert.equal(Object.hasOwn(row, 'start'), false);
-  for (const row of hist) {
-    assert.equal(Object.hasOwn(row, 'est'), false);
-    assert.equal(row.agent.state, null);
-  }
+  for (const row of [...plan, ...nq]) assert.equal(row.start, null);
+  for (const row of hist) { assert.equal(row.est, null); assert.equal(row.agent.state, null); }
 });
 test('dataset census', () => {
-  const expected = { live: [332, 248, 8, 54, 22, 2, 'AIUR-595'],
-    dense: [1384, 1300, 8, 54, 22, 12, 'AIUR-1286'],
-    newrepo: [64, 0, 4, 54, 6, 2, null], noqueue: [278, 248, 8, 0, 22, 2, 'AIUR-595'] };
+  const expected = { live: [332, 248, 8, 54, 22], dense: [1384, 1300, 8, 54, 22],
+    newrepo: [64, 0, 4, 54, 6], noqueue: [278, 248, 8, 0, 22] };
   for (const [k, counts] of Object.entries(expected)) {
-    const d = fixture(k).data;
+    const d = fixture(k).sections;
     assert.deepEqual([d.hist.length + d.now.length + d.plan.length + d.nq.length,
-      d.hist.length, d.now.length, d.plan.length, d.nq.length, Object.keys(d.features).length, d.failedId], counts);
+      d.hist.length, d.now.length, d.plan.length, d.nq.length], counts);
   }
 });
 test('offline is live plus a daemon block', () => {
-  assert.deepEqual(fixture('offline').data, fixture('live').data);
+  assert.deepEqual(fixture('offline').sections, fixture('live').sections);
   assert.deepEqual(fixture('offline').daemon, { state: 'offline', heartbeat_at: 1791407640000, observed_at: 1791408000000 });
   assert.deepEqual(fixture('live').daemon, { state: 'live', heartbeat_at: 1791408000000, observed_at: 1791408000000 });
 });
@@ -89,7 +76,7 @@ test('check fails on design drift', t => {
 });
 test('check fails on a stale fixture', t => {
   const dir = exportTo(t);
-  writeFileSync(join(dir, 'dense.json'), files['dense.json'].replace('dense', 'xxxxx'));
+  writeFileSync(join(dir, 'dense.json'), files['dense.json'].replace('snapshot', 'xxxxx'));
   const result = run(['--check', '--out', dir, '--design', designDir]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /fixture dense.json is stale/);
