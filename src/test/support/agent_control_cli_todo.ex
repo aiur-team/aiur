@@ -1,4 +1,6 @@
 defmodule Aiur.AgentControlCLITodoSupport do
+  @moduledoc false
+
   import ExUnit.Assertions
   import ExUnit.CaptureIO
 
