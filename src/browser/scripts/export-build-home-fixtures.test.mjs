@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { mapRawToPayload } from './build-home-fixture-map.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, cpSync, readFileSync, writeFileSync, appendFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
@@ -144,4 +145,37 @@ test('export rejects symlink design assets', t => {
   const result = run(['--out', join(dir, 'export'), '--design', dir]);
   assert.equal(result.status, 2);
   assert.match(result.stderr, /design source contains a symlink/);
+});
+
+test('feature statistics oracle contains real design inputs and results', () => {
+  const oracle = decode(files['feature-stats.json']);
+  assert.deepEqual(Object.keys(oracle), ['live', 'dense', 'newrepo', 'noqueue']);
+  let count = 0;
+  for (const [dataset, value] of Object.entries(oracle)) {
+    const data = fixture(dataset).sections;
+    const rows = [...data.hist, ...data.now, ...data.plan, ...data.nq];
+    assert.equal(value.now, fixture(dataset).now);
+    for (const [key, { expected, members, also }] of Object.entries(value.features)) {
+      count++;
+      assert.equal(expected.total, members.length);
+      const mapped = fixture(dataset).features[key].stats;
+      assert.deepEqual(mapped, { ...expected, done_min: expected.done,
+        pct: expected.total ? expected.pct : null, pct_min: expected.total ? expected.pct : null,
+        baseline: true, reasons: expected.total ? [] : ['no_weight'] });
+      assert.deepEqual(members.map(t => t.num), rows.filter(t => t.feature === key).map(t => t.num));
+      assert.ok(members.every(t => Number.isInteger(t.created)));
+      assert.deepEqual(also, rows.filter(t => t.also.includes(key)).map(t => t.num));
+    }
+  }
+  assert.equal(count, 18);
+  assert.ok(JSON.parse(files['manifest.json']).fixture_sha256['feature-stats.json']);
+  assert.equal(oracle.live.features.pag.expected.pct, 61);
+});
+
+test('missing design statistics map to explicit unavailable statistics', () => {
+  const { dataFor, NOW, PSETS } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW', 'PSETS'] });
+  const mapped = mapRawToPayload({ meta: { now: NOW, tz: 'America/Los_Angeles' }, data: dataFor('live'),
+    usage: { models: PSETS[4], apis: API_ROWS }, daemon: fixture('live').daemon });
+  assert.equal(mapped.features.pag.stats, null);
+  assert.ok(Object.values(mapped.features).every(f => Object.hasOwn(f, 'stats') && f.stats === null));
 });

@@ -4,7 +4,13 @@ const duration = text => [...text.matchAll(/(\d+)([dhm])/g)].reduce((ms, [, n, u
 const time = (obj, key) => obj[key] == null ? null : Math.trunc(obj[key]);
 const optional = (obj, key) => obj[key] ?? null;
 
-export function mapRawToPayload({ meta, data, usage, daemon }) {
+const stats = value => value == null ? null : {
+  ...value, done_min: value.done, pct: value.total === 0 ? null : value.pct,
+  pct_min: value.total === 0 ? null : value.pct, baseline: true,
+  reasons: value.total === 0 ? ['no_weight'] : [],
+};
+
+export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = {} } = {}) {
   const id = value => value.replace(/^AIUR-/, '');
   const window = win => win ? { acc: win.acc, reset_at: meta.now + duration(win.reset), win: win.win } : null;
   const provider = p => ({ name: p.name, logo: optional(p, 'logo'), mono: optional(p, 'mono'), hue: optional(p, 'hue'),
@@ -20,7 +26,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }) {
     pr: null });
   return { v: 1, kind: 'snapshot', epoch: 'fixture', generation: 0, now: meta.now, writable: true,
     repo: { url: 'https://github.com/example/aiur-fixture/' }, epics: data.epics,
-    features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null }])),
+    features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, stats: stats(featureStats[k]) }])),
     order: data.order, counts: Object.fromEntries(data.order.map(k => [k, data.counts[k] ?? 0])),
     sections: Object.fromEntries(sections.map(sec => [sec, data[sec].map(row)])),
     history: { from: null, more: false, total: data.hist.length, undated: 0, tz: meta.tz },
