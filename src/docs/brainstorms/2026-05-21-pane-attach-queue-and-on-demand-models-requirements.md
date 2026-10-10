@@ -9,7 +9,7 @@ date: 2026-05-21
 
 ## Problem Frame
 
-Live use of the slot-bound opencode work (origin: `elixir/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`) surfaced three concrete bugs and one model simplification:
+Live use of the slot-bound opencode work (origin: `src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`) surfaced three concrete bugs and one model simplification:
 
 1. **Title bug.** Every chat pane chrome shows `Build · Aiur · Aiur` instead of the agent identifier (e.g. `Build · issue-13`). Cause: `elixir/lib/aiur/opencode/protocol.ex:86` hardcodes `name: "Aiur"` for every model in the slot's `opencode.json`, plus the provider's own `name` is also `"Aiur"` (line 93). opencode renders `<provider.name> · <model.name>`, so both literal strings collide on screen as `Aiur · Aiur`.
 

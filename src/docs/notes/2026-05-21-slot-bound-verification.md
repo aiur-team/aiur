@@ -1,7 +1,7 @@
 # U14 slot-bound CLI verification — 2026-05-21
 
 End-to-end results driving `scripts/aiur` through the AE list from the
-slot-bound origin doc. Plan: `elixir/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`.
+slot-bound origin doc. Plan: `src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`.
 
 Real workflow (`aiur-team/aiur`, 16 agents), driving-tmux capture.
 
