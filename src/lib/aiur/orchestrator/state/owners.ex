@@ -88,7 +88,6 @@ defmodule Aiur.Orchestrator.State.Owners do
     globally_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
-    restack_completed: :pr_lifecycle,
     ci_lifecycle: :pr_lifecycle,
     last_ci_poll_started_at_ms: :pr_lifecycle,
     pr_review_seen_at: :pr_lifecycle,
@@ -143,7 +142,6 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     control: [Aiur.Orchestrator.PauseResume, Aiur.Orchestrator.GlobalPause, Aiur.Orchestrator.ControlLifecycle],
     pr_lifecycle: [
-      Aiur.Orchestrator.RestackScheduler,
       Aiur.Orchestrator.CiLifecycle,
       Aiur.Orchestrator.CommentWake,
       Aiur.Orchestrator.ReworkGate,
