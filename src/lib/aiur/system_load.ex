@@ -3,8 +3,8 @@ defmodule Aiur.SystemLoad do
   Reads the host's 1-minute load average so the orchestrator can hold new agent
   dispatch when the box is already saturated (#465).
 
-  Linux-only via `/proc/loadavg`. Anywhere the file is absent or unreadable
-  (e.g. a macOS dev box) it returns `:unavailable` so the load gate degrades
+  Linux via `/proc/loadavg`, macOS/FreeBSD via `sysctl vm.loadavg`. Unreadable data
+  returns `:unavailable` so the load gate degrades
   open — no throttling rather than a spurious hold. The source is injectable via
   the `:loadavg_source_override` app env so tests can simulate any load without
   touching the real filesystem, following the app-env override convention used
@@ -13,7 +13,7 @@ defmodule Aiur.SystemLoad do
 
   @doc """
   The 1-minute load average as a float, or `:unavailable` when it cannot be read
-  (non-Linux host, missing `/proc/loadavg`, or unparseable contents).
+  (missing host load source or unparseable contents).
   """
   @spec avg1() :: float() | :unavailable
   def avg1 do
@@ -49,6 +49,7 @@ defmodule Aiur.SystemLoad do
   @doc false
   @spec print_dispatch_sample(map() | nil) :: :ok
   def print_dispatch_sample(%{load: load, gate_signal: signal, load_sampled_at_ms: sampled_at} = capacity) when is_number(load) and is_integer(sampled_at) do
+    :ok = Aiur.SystemPressure.print_sample(capacity)
     age_ms = max(0, System.monotonic_time(:millisecond) - sampled_at)
     nice = Map.get(capacity, :load_daemon_nice, :unavailable)
     nice_text = if is_integer(nice), do: " daemon_nice=#{nice}", else: ""
@@ -59,9 +60,10 @@ defmodule Aiur.SystemLoad do
         _ -> " (background CPU unavailable, no discount)"
       end
 
-    IO.puts("DISPATCH LOAD total=#{load} gate_signal=#{signal}#{reason}#{nice_text} sampled=#{div(age_ms, 1_000)}s ago")
+    IO.puts("DISPATCH LOAD (fallback only when PSI unavailable) total=#{load} gate_signal=#{signal}#{reason}#{nice_text} sampled=#{div(age_ms, 1_000)}s ago")
   end
 
+  def print_dispatch_sample(capacity) when is_map(capacity), do: Aiur.SystemPressure.print_sample(capacity)
   def print_dispatch_sample(_capacity), do: :ok
 
   @doc false
@@ -80,13 +82,28 @@ defmodule Aiur.SystemLoad do
   end
 
   defp parse_avg1(contents) do
-    case contents |> String.trim_leading() |> Float.parse() do
+    case contents |> String.trim_leading() |> String.trim_leading("{") |> String.trim_leading() |> Float.parse() do
       {value, _rest} -> value
       :error -> :unavailable
     end
   end
 
   defp loadavg_source do
-    Application.get_env(:aiur, :loadavg_source_override, fn -> File.read("/proc/loadavg") end)
+    Application.get_env(:aiur, :loadavg_source_override, &host_load/0)
+  end
+
+  defp host_load do
+    case :os.type() do
+      {:unix, platform} when platform in [:darwin, :freebsd] ->
+        case System.cmd("sysctl", ["-n", "vm.loadavg"], stderr_to_stdout: true) do
+          {contents, 0} -> {:ok, contents}
+          _ -> {:error, :unavailable}
+        end
+
+      _ ->
+        File.read("/proc/loadavg")
+    end
+  rescue
+    error in ErlangError -> {:error, error.original}
   end
 end

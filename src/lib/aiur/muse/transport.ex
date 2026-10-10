@@ -123,6 +123,10 @@ defmodule Aiur.Muse.Transport do
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
+
+      # The port is unlinked: a write into closed stdin kills it with no exit status.
+      {:DOWN, _ref, :port, ^port, reason} ->
+        {:error, {:port_exit, reason}}
     after
       remaining -> {:error, :response_timeout}
     end

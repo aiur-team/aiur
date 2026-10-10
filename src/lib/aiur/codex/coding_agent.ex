@@ -90,7 +90,9 @@ defmodule Aiur.Codex.CodingAgent do
         account_generation_authority: account_generation.authority,
         account_generation_context: account_generation.context,
         account_generation_topic: account_generation.topic,
-        account_generation_server: account_generation_server
+        account_generation_server: account_generation_server,
+        account_name: Keyword.get(opts, :account_name),
+        account_selection_reason: Keyword.get(opts, :account_selection_reason)
       }
 
       notification_handler = SessionLifecycle.notification_handler(lifecycle_session, on_message)

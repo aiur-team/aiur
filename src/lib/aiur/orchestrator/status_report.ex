@@ -33,8 +33,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
-  # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
-  # node, so the work itself is microseconds; the only thing this budget has to
+  # `TicketActivity.snapshots/1` reads an in-memory projection in microseconds; this budget must
   # cover is queueing. 100 ms did not: behind a burst of ticket events, or any
   # ordinary VM pause, the call timed out and the whole fleet's progress
   # collapsed to a single failure value at once.

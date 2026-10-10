@@ -27,7 +27,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{ReviewFindings, State}
 
   @doc """
   Returns the open pull request for the rework target.
@@ -270,7 +270,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
              (not is_binary(original_head) or original_head == "" or current_head != original_head) do
           {:handoff, ci_handoff_state(current_head, opts)}
         else
-          :none
+          superseded_review_handoff(pr, current_head, opts)
         end
 
       {:error, _reason} ->
@@ -279,6 +279,37 @@ defmodule Aiur.Orchestrator.ReworkGate do
       {:skip, :no_open_pr} ->
         :none
     end
+  end
+
+  # #3971: the head can equal the dispatch head and still carry the fixes — they
+  # were pushed by an earlier run. A blocking review that names an older commit
+  # has not seen this head, so it goes back to the reviewer, red CI included.
+  defp superseded_review_handoff(pr, head, opts) do
+    with true <- Keyword.get(opts, :superseded_review_handoff?, false) and is_binary(head),
+         {:ok, reviews} <- (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
+         [_ | _] = blocking <- blocking_reviews(reviews),
+         false <- Enum.any?(blocking, &(&1["commit_id"] == head)) do
+      {:handoff, ci_handoff_state(head, opts)}
+    else
+      _not_superseded -> :none
+    end
+  end
+
+  @doc "Each trusted reviewer's latest verdict that still blocks; an old `CHANGES_REQUESTED` is sticky, so callers compare `commit_id` to the head."
+  @spec blocking_reviews([map()]) :: [map()]
+  def blocking_reviews(reviews) do
+    reviews
+    |> Enum.filter(&(&1["state"] in ~w(APPROVED CHANGES_REQUESTED DISMISSED) or ReviewFindings.blocking_body?(&1["body"])))
+    |> Enum.group_by(&get_in(&1, ["user", "login"]))
+    |> Enum.map(fn {_author, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
+    |> Enum.filter(fn review ->
+      review[:authoritative] == true and
+        (review["state"] == "CHANGES_REQUESTED" or (review["state"] == "COMMENTED" and ReviewFindings.blocking_body?(review["body"])))
+    end)
+  end
+
+  defp default_reviews_fetcher(number) do
+    if available?() and is_integer(number), do: Aiur.CodeHost.fetch_classified_pr_reviews(number), else: {:error, :unavailable}
   end
 
   defp ci_handoff_state(head_sha, opts) do
