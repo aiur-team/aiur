@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   alias Aiur.TrackerIdentity
 
   import Aiur.SnapshotFenceSupport, only: [fence_snapshot_read_model: 0]
+  import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 1]
 
   defmodule SlowTrackerClient do
     def fetch_issue_states_by_ids(ids), do: await_reply(:fetch, ids)
@@ -63,7 +64,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       %{state | poll_frozen: true, tick_timer_ref: nil, tick_token: make_ref(), next_poll_due_at_ms: nil}
     end)
 
-    cancel_tracker_tasks(pid)
+    drain_tracker_tasks(pid)
 
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
@@ -92,21 +93,12 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     on_exit(fn ->
       if Process.alive?(pid) do
         snapshot_generation = fence_snapshot_read_model()
-        cancel_tracker_tasks(pid)
+        drain_tracker_tasks(pid)
         :sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation, tracker_tasks: %{}} end)
       end
     end)
 
     {:ok, orchestrator: pid}
-  end
-
-  defp cancel_tracker_tasks(pid) do
-    pid
-    |> :sys.get_state()
-    |> Map.fetch!(:tracker_tasks)
-    |> Enum.each(fn {_ref, job} -> Process.exit(job.task.pid, :kill) end)
-
-    await_orchestrator_state(pid, &(map_size(&1.tracker_tasks) == 0))
   end
 
   defp use_memory_tracker!(issues) do
