@@ -1662,13 +1662,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
       assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_receive {:parked_alert, ^ref, _topic, _opts}, 1_000
 
       armed = parked_observation(%{auto_merge_request: %{"enabledAt" => "2026-08-13T20:00:00Z"}})
       next = poll_ci(first, issue, armed, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}
+      assert_receive {:parked_alert, ^ref, ^resolved_topic, resolve_opts}, 1_000
       assert Keyword.get(resolve_opts, :needs_attention) == false
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
