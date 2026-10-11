@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.ReworkHandoffChecks do
     end
   end
 
+  @spec alert_no_op_rework(String.t(), String.t() | atom() | nil, String.t() | nil, keyword()) :: term()
   def alert_no_op_rework(issue_key, dispatch_head, current_head, opts) do
     case agent_handoff_blockers(dispatch_head, current_head, opts) do
       {:blocked, checks} -> no_op_rework_attention(issue_key, dispatch_head, checks, opts)
