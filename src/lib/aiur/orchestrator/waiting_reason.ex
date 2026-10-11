@@ -3,12 +3,14 @@ defmodule Aiur.Orchestrator.WaitingReason do
   Derives one explicit fleet-row waiting reason for OCC-5. Every branch names
   a concrete cause or `:active` — never a generic "blocked".
 
-  Classification and descriptions use supplied facts only. Status rows
-  attach existing in-memory evidence without querying stores or persisting it.
+  Classification uses supplied facts. Status rows attach held dependency
+  evidence and trigger settings without tracker I/O or persistence.
   """
 
   require Logger
 
+  alias Aiur.BuildQueue.Hints
+  alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Workspace.Ownership.Retention
 
@@ -66,8 +68,15 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def describe(reason, facts) do
     {cause, since} = evidence(reason, facts)
     owner = if reason == :backing_off and facts[:capacity_hold_active?], do: "Dispatcher", else: Map.fetch!(@owners, reason)
-    %{reason: reason, owner: owner, cause: cause || :unknown, since: since}
+    %{reason: reason, owner: owner, cause: cause || :unknown, since: since} |> dependency_details(reason, facts)
   end
+
+  defp dependency_details(waiting, :waiting_for_dependency, facts) do
+    issue = %Issue{id: facts[:issue_id], blocked_by: facts[:blocked_by]}
+    Map.merge(waiting, %{trigger: Hints.trigger_for(issue.id), description: DispatchPolicy.describe_dependency_hold(issue, DispatchPolicy.terminal_state_set())})
+  end
+
+  defp dependency_details(waiting, _reason, _facts), do: waiting
 
   defp evidence(:backing_off, %{capacity_hold_active?: true} = facts), do: {facts[:hold_cause], facts[:hold_since]}
   defp evidence(:backing_off, facts), do: {facts[:error], facts[:last_failure_at]}
@@ -169,9 +178,12 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render_wait(%{waiting: %{reason: :active, owner: "AgentRunner"}}), do: ""
 
   def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age} = waiting}),
-    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_pending_ids(waiting)
+    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_dependency(waiting) <> render_pending_ids(waiting)
 
   def render_wait(_row), do: ""
+
+  defp render_dependency(%{reason: :waiting_for_dependency, description: description}), do: " · #{description}"
+  defp render_dependency(_waiting), do: ""
 
   defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
   defp render_pending_ids(_waiting), do: ""

@@ -44,6 +44,25 @@ defmodule Aiur.StartTrigger do
     end
   end
 
+  @doc "Short prerequisite reason from the same evidence and verdict used by the gate."
+  @spec describe(trigger(), Evidence.t() | nil, verdict()) :: String.t()
+  def describe(trigger, evidence, verdict) do
+    identifier = if evidence, do: evidence.identifier
+    label = if identifier && Regex.match?(~r/\A\d+\z/, identifier), do: "##{identifier}", else: identifier || "dependency"
+    label <> " " <> describe_verdict(trigger, evidence, verdict)
+  end
+
+  defp describe_verdict(_trigger, _evidence, {:unknown, :stale}), do: "unknown: stale observation"
+  defp describe_verdict(_trigger, _evidence, {:failed, :pr_closed_unmerged}), do: "failed: PR closed unmerged"
+  defp describe_verdict(_trigger, _evidence, {kind, reason}) when kind in [:unknown, :failed], do: "#{kind}: #{reason |> Atom.to_string() |> String.replace("_", " ")}"
+  defp describe_verdict(_trigger, evidence, {:satisfied, :optimistic}), do: "optimistic (#{stage(evidence)})"
+  defp describe_verdict(_trigger, _evidence, {:satisfied, :final}), do: "satisfied"
+
+  defp describe_verdict(trigger, evidence, :pending) do
+    pr = if evidence && evidence.pr_number, do: ", PR ##{evidence.pr_number}", else: ""
+    "needs #{trigger} (now #{stage(evidence) || "no PR stage"}#{pr})"
+  end
+
   defp stale?(nil, _opts), do: true
   defp stale?(%Evidence{issue_open?: :unknown}, _opts), do: true
   defp stale?(%Evidence{observed_at_ms: nil}, _opts), do: true
