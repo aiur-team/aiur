@@ -107,28 +107,29 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp start_rerun(issue, result, opts) do
-    with {:ok, runs} <- failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
-      cond do
-        Enum.any?(runs, &(&1["conclusion"] == "cancelled")) ->
-          attention(issue, result, "rerun_skipped", "cancelled_run", opts)
+    case failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
+      {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
+      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+    end
+  end
 
-        true ->
-          case admit_reruns(runs, opts) do
-            {:ok, []} ->
-              held(result, "rerun_limit")
-
-            {:ok, admitted} ->
-              with {:ok, _} <- update(issue, result, &put_in(&1, ["heads", result.head_sha], %{"runs" => admitted, "checks" => check_ids(result), "requested_at" => now(opts)}), opts) do
-                request_reruns(issue, result, admitted, opts)
-              else
-                {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
-              end
-
-            {:error, reason} ->
-              rerun_error(issue, result, "rerun_unavailable", reason, opts)
-          end
-      end
+  defp prepare_reruns(issue, result, runs, opts) do
+    if Enum.any?(runs, &(&1["conclusion"] == "cancelled")) do
+      attention(issue, result, "rerun_skipped", "cancelled_run", opts)
     else
+      case admit_reruns(runs, opts) do
+        {:ok, []} -> held(result, "rerun_limit")
+        {:ok, admitted} -> persist_and_request(issue, result, admitted, opts)
+        {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+      end
+    end
+  end
+
+  defp persist_and_request(issue, result, runs, opts) do
+    attempt = %{"runs" => runs, "checks" => check_ids(result), "requested_at" => now(opts)}
+
+    case update(issue, result, &put_in(&1, ["heads", result.head_sha], attempt), opts) do
+      {:ok, _} -> request_reruns(issue, result, runs, opts)
       {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
     end
   end

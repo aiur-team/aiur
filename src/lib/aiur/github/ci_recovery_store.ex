@@ -65,22 +65,23 @@ defmodule Aiur.GitHub.CIRecoveryStore do
     now = Keyword.get(opts, :ci_recovery_now, System.system_time(:second))
 
     :global.trans({{__MODULE__, journal}, self()}, fn ->
-      with {:ok, entries} when is_map(entries) <- JsonStore.read(journal, %{}) do
-        limits = Map.get(entries, "_limits", %{})
-        reruns = Map.get(limits, "reruns", [])
-
-        if not is_list(reruns) or not Enum.all?(reruns, &(is_map(&1) and is_integer(&1["at"]) and is_binary(&1["poll"]))) do
-          {:error, :invalid_ci_recovery_limits}
-        else
-          reserve_recent_rerun(entries, reruns, poll_id, now, per_poll, per_hour, journal)
-        end
-      else
+      case JsonStore.read(journal, %{}) do
+        {:ok, entries} when is_map(entries) -> reserve_from_journal(entries, poll_id, now, per_poll, per_hour, journal)
         {:error, _} = error -> error
         _ -> {:error, :invalid_ci_recovery_journal}
       end
     end)
   rescue
     error -> {:error, {:ci_recovery_journal_failed, Exception.message(error)}}
+  end
+
+  defp reserve_from_journal(entries, poll_id, now, per_poll, per_hour, journal) do
+    reruns = get_in(entries, ["_limits", "reruns"]) || []
+
+    case Enum.all?(reruns, &(is_map(&1) and is_integer(&1["at"]) and is_binary(&1["poll"]))) do
+      true -> reserve_recent_rerun(entries, reruns, poll_id, now, per_poll, per_hour, journal)
+      false -> {:error, :invalid_ci_recovery_limits}
+    end
   end
 
   defp reserve_recent_rerun(entries, reruns, poll_id, now, per_poll, per_hour, journal) do
