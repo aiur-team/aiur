@@ -28,7 +28,7 @@ defmodule Aiur.RunTelemetry.SamplerBindingKindTest do
         operator_pid: nil,
         fd_headroom_fun: fn -> :unavailable end,
         system_ms_fun: fn -> 42 end,
-        fleet_snapshot_fun: fleet_snapshot_fun,
+        fleet_snapshot_fun: fn -> Aiur.Orchestrator.TelemetryEvents.binding_snapshot(fleet_snapshot_fun.()) end,
         build_status_fun: fn -> %{enabled?: false} end
       )
 

@@ -321,7 +321,7 @@ defmodule Aiur.RunTelemetry.Sampler do
     }
 
     if Enum.all?(@fleet_fields, &is_integer(Map.get(fields, &1))) do
-      admission = fleet_admission(capacity, Map.get(snapshot, :polling, %{}))
+      admission = fleet_admission(capacity, Map.get(snapshot, :fleet_binding_kind))
 
       Map.merge(fields, admission.fields)
       |> Map.merge(%{
@@ -348,12 +348,12 @@ defmodule Aiur.RunTelemetry.Sampler do
   # it. Sampling them lets an operator tell a build-gate-saturated fleet (queue
   # growing, load far below threshold) from a host-saturated one (load gate
   # holding dispatch) — the distinction a queue depth alone cannot make.
-  defp fleet_admission(capacity, polling) do
+  defp fleet_admission(capacity, binding_kind) do
     hold = Map.get(capacity, :capacity_hold, Map.get(capacity, "capacity_hold"))
     signal = DaemonEvents.admission_signal(hold)
 
     fields = %{
-      fleet_binding_kind: DaemonEvents.binding_kind(capacity, polling),
+      fleet_binding_kind: binding_kind,
       fleet_admission_signal: signal,
       fleet_load: number_value(capacity, :load),
       fleet_load_threshold: number_value(capacity, :load_threshold),

@@ -1,17 +1,18 @@
-defmodule Aiur.RunTelemetry.ObservedTransitions do
+defmodule Aiur.Orchestrator.TelemetryEvents do
   @moduledoc """
   Records the ticket transitions only the daemon's poll diff can see.
 
   `Aiur.Orchestrator.IssueSync` calls `observe/3` with the previous and current
   polled issue. State changes are recorded whichever writer made them (comment
   wake, human-review revert, Executor label edit), blocker clearance lands on
-  the dependent, and a ticket turning terminal schedules its usage capture.
+  the dependent, and terminal membership schedules usage capture.
   Every call is fail-open and returns the orchestrator state unchanged.
   """
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, IssueSync}
-  alias Aiur.RunTelemetry.{Lifecycle, UsageCapture}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, IssueSync}
+  alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.Lifecycle
 
   @spec observe(term(), Issue.t() | nil, Issue.t(), keyword()) :: term()
   def observe(state, previous_issue, issue, opts \\ [])
@@ -20,12 +21,13 @@ defmodule Aiur.RunTelemetry.ObservedTransitions do
     if Lifecycle.enabled?(opts) do
       record_state_change(state, previous, issue, opts)
       record_cleared_blockers(previous, issue, opts)
-      capture_usage(previous, issue, opts)
     end
 
     state
   rescue
     _error -> state
+  catch
+    _kind, _reason -> state
   end
 
   def observe(state, _previous, _issue, _opts), do: state
@@ -65,9 +67,18 @@ defmodule Aiur.RunTelemetry.ObservedTransitions do
 
   defp blocker_identifier(blocker, id), do: Map.get(blocker, :identifier) || Map.get(blocker, "identifier") || id
 
-  defp capture_usage(previous, issue, opts) do
-    if not terminal?(previous) and terminal?(issue) do
-      UsageCapture.capture(issue.identifier, issue.tracker_identity, opts)
-    end
+  @spec terminal(Issue.t(), atom()) :: :ok
+  def terminal(issue, lifecycle) when lifecycle in [:completed, :cancelled] do
+    RunTelemetry.capture_usage(issue.identifier, Issue.tracker_identity(issue))
   end
+
+  def terminal(_issue, _lifecycle), do: :ok
+
+  @spec binding_snapshot(term()) :: term()
+  def binding_snapshot({:current, %{capacity: capacity} = snapshot, freshness}) do
+    {kind, _detail} = CapacityBinding.binding(capacity, Map.get(snapshot, :polling, %{}))
+    {:current, Map.put(snapshot, :fleet_binding_kind, Atom.to_string(kind)), freshness}
+  end
+
+  def binding_snapshot(other), do: other
 end

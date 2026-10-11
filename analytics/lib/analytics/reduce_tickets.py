@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .event_fields import EVENT_FIELDS
 from .parse import _in_boot, _parse_timestamp
 
 BOUNDARIES = ("start", "end", "point")
@@ -49,6 +50,7 @@ def _lifecycle_event(record: dict) -> dict | None:
     if not (isinstance(ticket, str) and ticket and isinstance(event, str) and event and boundary in BOUNDARIES):
         return None
     return {
+        **{field: attributes.get(field) for field in EVENT_FIELDS},
         "ticket": ticket,
         "event": event,
         "boundary": boundary,

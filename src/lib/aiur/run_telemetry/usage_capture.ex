@@ -31,7 +31,7 @@ defmodule Aiur.RunTelemetry.UsageCapture do
   @doc false
   @spec run(String.t(), TrackerIdentity.t() | nil, keyword()) :: :ok
   def run(ticket, identity, opts \\ []) do
-    metadata = usage_metadata(identity, Keyword.get(opts, :query, &UsageAggregate.query/1))
+    metadata = usage_metadata(identity, Keyword.get(opts, :query, Application.get_env(:aiur, :run_telemetry_usage_query, &UsageAggregate.query/1)))
 
     if new_totals?(Keyword.get(opts, :name, __MODULE__), ticket, metadata) do
       Lifecycle.record(ticket, nil, :ticket_usage, :point, metadata, Keyword.take(opts, [:recorder]))

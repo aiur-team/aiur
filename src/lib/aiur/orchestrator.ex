@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotStore, TelemetryEvents}
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -706,7 +706,7 @@ defmodule Aiur.Orchestrator do
   See `SnapshotStore.read/2` for result states.
   """
   @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
-  def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout)
+  def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout) |> TelemetryEvents.binding_snapshot()
 
   @doc """
   Reads the fleet view for a control query (`status`, `agents`, `watch`) from

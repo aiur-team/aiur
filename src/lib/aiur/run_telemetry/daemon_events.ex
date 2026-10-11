@@ -1,7 +1,6 @@
 defmodule Aiur.RunTelemetry.DaemonEvents do
   @moduledoc "Sanitized daemon metric event routing and capacity binding."
 
-  alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Protocol.MapAccess
 
   @spec metadata_fields() :: [atom()]
@@ -42,12 +41,6 @@ defmodule Aiur.RunTelemetry.DaemonEvents do
 
   defp short_sha(sha) when is_binary(sha), do: String.slice(sha, 0, 12)
   defp short_sha(_sha), do: nil
-
-  @spec binding_kind(map(), map()) :: String.t()
-  def binding_kind(capacity, polling) do
-    {kind, _detail} = CapacityBinding.binding(capacity, polling)
-    Atom.to_string(kind)
-  end
 
   @spec admission_signal(term()) :: String.t() | nil
   def admission_signal(%{signal: signal}) when is_atom(signal), do: Atom.to_string(signal)

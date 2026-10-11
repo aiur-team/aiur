@@ -1,8 +1,8 @@
-defmodule Aiur.RunTelemetry.ObservedTransitionsTest do
+defmodule Aiur.Orchestrator.TelemetryEventsTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Issue
-  alias Aiur.RunTelemetry.ObservedTransitions
+  alias Aiur.Orchestrator.TelemetryEvents
 
   @state %{running: %{"7" => %{telemetry_attempt_id: "42:attempt"}}}
 
@@ -12,11 +12,11 @@ defmodule Aiur.RunTelemetry.ObservedTransitionsTest do
     states = ~w(in-progress ci-wait human-review rework ci-wait)
 
     for {from, to} <- Enum.zip(states, tl(states)) do
-      ObservedTransitions.observe(@state, issue(from), issue(to), recorder: recorder)
+      TelemetryEvents.observe(@state, issue(from), issue(to), recorder: recorder)
     end
 
-    ObservedTransitions.observe(@state, issue("ci-wait"), issue("ci-wait"), recorder: recorder)
-    ObservedTransitions.observe(@state, nil, issue("ci-wait"), recorder: recorder)
+    TelemetryEvents.observe(@state, issue("ci-wait"), issue("ci-wait"), recorder: recorder)
+    TelemetryEvents.observe(@state, nil, issue("ci-wait"), recorder: recorder)
 
     changes = drain()
 
@@ -36,9 +36,9 @@ defmodule Aiur.RunTelemetry.ObservedTransitionsTest do
     other = %{id: "b2", identifier: "12", state: "in-progress"}
     previous = %{issue("todo") | blocked_by: [open, other]}
 
-    ObservedTransitions.observe(@state, previous, %{previous | blocked_by: [%{open | state: "done"}, other]}, recorder: recorder)
-    ObservedTransitions.observe(@state, previous, %{previous | blocked_by: [open]}, recorder: recorder)
-    ObservedTransitions.observe(@state, %{previous | blocked_by: []}, previous, recorder: recorder)
+    TelemetryEvents.observe(@state, previous, %{previous | blocked_by: [%{open | state: "done"}, other]}, recorder: recorder)
+    TelemetryEvents.observe(@state, previous, %{previous | blocked_by: [open]}, recorder: recorder)
+    TelemetryEvents.observe(@state, %{previous | blocked_by: []}, previous, recorder: recorder)
 
     assert Enum.map(drain(), &{&1.event, &1.blocker, &1.cause}) == [
              {"dependency_cleared", "11", "terminal"},

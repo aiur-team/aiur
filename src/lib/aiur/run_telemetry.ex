@@ -9,13 +9,20 @@ defmodule Aiur.RunTelemetry do
 
   alias Aiur.Config
   alias Aiur.LogFile
-  alias Aiur.RunTelemetry.Writer
+  alias Aiur.RunTelemetry.{Lifecycle, UsageCapture, Writer}
 
   @filename "telemetry.ndjson"
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
   @schema_version 2
   @boot_state_key {__MODULE__, :boot_state}
   @telemetry_enabled_key {__MODULE__, :telemetry_enabled}
+
+  @doc false
+  @spec capture_usage(String.t(), Aiur.TrackerIdentity.t() | nil) :: :ok
+  def capture_usage(ticket, identity) do
+    if Lifecycle.enabled?(), do: UsageCapture.capture(ticket, identity)
+    :ok
+  end
 
   @doc "Current durable telemetry schema version."
   @spec schema_version() :: pos_integer()
