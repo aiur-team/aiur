@@ -98,7 +98,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
            %{} = target <- get_in(data, ["data", "repository", "object", "target"]) do
         resolve_target(target, request, token, variables, Map.put(seen, oid, true))
       else
-        {:error, reason, response} -> if missing_optional_object?(response), do: :skip, else: {:error, reason}
+        {:error, reason, response} -> optional_target_error(reason, response)
         _ -> :skip
       end
     end
@@ -106,6 +106,10 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
 
   defp resolve_target(%{"__typename" => "Commit"} = target, _request, _token, _variables, _seen), do: {:ok, target}
   defp resolve_target(_target, _request, _token, _variables, _seen), do: :skip
+
+  defp optional_target_error(reason, response) do
+    if missing_optional_object?(response), do: :skip, else: {:error, reason}
+  end
 
   @revert_query """
   query AnalyticsTimelineRevert($owner: String!, $name: String!, $number: Int!) {

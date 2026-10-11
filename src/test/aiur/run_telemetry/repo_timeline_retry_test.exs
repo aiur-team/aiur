@@ -59,6 +59,7 @@ defmodule Aiur.RunTelemetry.RepoTimelineRetryTest do
     end)
 
     for kind <- ["memory", "github"] do
+      :persistent_term.put(token_key, if(kind == "memory", do: "test", else: nil))
       path = Path.join(root, "#{kind}.yaml")
       File.write!(path, "tracker:\n  kind: #{kind}\n  github:\n    repo: owner/repo\nobservability:\n  capture_github_facts: true\n")
       :ok = Aiur.Workflow.set_workflow_file_path(path)
