@@ -1,0 +1,259 @@
+.control-panel {
+  display: grid;
+  gap: 1rem;
+  animation: panel-in 0.2s ease both;
+}
+
+.section-card,
+.error-card {
+  padding: var(--section-card-padding, 1.15rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.section-card {
+  --section-card-padding: 1.15rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.section-header h2 {
+  margin: 0.15rem 0 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.section-header p:not(.section-eyebrow) {
+  max-width: 72rem;
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.section-eyebrow {
+  margin: 0;
+  color: var(--faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.filter-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.95rem;
+}
+
+.decision-inbox > .filter-row {
+  margin-top: 0;
+}
+
+.command-search {
+  display: grid;
+  gap: 0.42rem;
+  margin-top: 0.9rem;
+}
+
+.command-search > label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.command-search-controls,
+.command-pagination,
+.decision-option-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.command-search-controls input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.58rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: 0;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+}
+
+.command-search-controls input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.command-pagination {
+  justify-content: space-between;
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.72rem;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.34rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.71rem;
+  font-weight: 600;
+}
+
+.filter-chip:hover,
+.filter-chip.is-active {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.filter-chip.is-active.blocking {
+  border-color: var(--blocking-line);
+  background: var(--blocking-soft);
+  color: var(--blocking-ink);
+}
+
+.decision-list {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.decision-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.decision-card:hover {
+  border-color: var(--line-strong);
+}
+
+.decision-card.blocking {
+  border-color: var(--blocking-line);
+}
+
+.decision-card.open {
+  box-shadow: 0 16px 40px -28px var(--accent);
+}
+
+.severity-rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--faint);
+}
+
+[data-severity="attention"] > .severity-rail {
+  background: var(--attention);
+}
+
+[data-severity="block"] > .severity-rail {
+  background: var(--blocking);
+}
+
+[data-severity="good"] > .severity-rail,
+.outcome-card > .severity-rail {
+  background: var(--good);
+}
+
+.decision-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.05rem 1rem 1.25rem;
+  color: var(--fg);
+}
+
+.decision-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ticket-id {
+  color: var(--fg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.decision-ticket-title {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.decision-card h3 {
+  margin: 0.48rem 0 0;
+  font-size: 1.04rem;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.decision-context {
+  max-width: 68ch;
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.decision-option-preview {
+  margin-top: 0.55rem;
+}
+
+.decision-card-foot,
+.decision-card-side,
+.actor-tag,
+.link-list,
+.fleet-actions,
+.outcome-card footer,
+.outcome-card header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.decision-card-foot {
+  margin-top: 0.72rem;
+}
+
+.decision-card-side {
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.expand-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.69rem;
+}
+

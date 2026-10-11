@@ -28,7 +28,38 @@ defmodule Aiur.TrackerIoPollBarrier do
     :sys.get_state(server)
   end
 
+  @doc """
+  Receives the held candidate poll that `server` itself owns.
+
+  Tracker configuration is application-global, so any process that polls the
+  tracker during the test announces itself with this test's token. Only a task
+  the server tracks is one its shutdown reaps; another caller's signal is skipped.
+  """
+  @spec await_owned_poll(pid(), reference()) :: pid()
+  def await_owned_poll(server, token) do
+    receive_barrier({:poll_started, ^token, caller})
+    owned? = Enum.any?(:sys.get_state(server).tracker_tasks, fn {_ref, job} -> job.task.pid == caller end)
+    if owned?, do: caller, else: await_owned_poll(server, token)
+  end
+
   defp poll_finished?({:noreply, state}), do: state.poll_cycles_completed > 0
   defp poll_finished?({:out, _reply, _to, state}), do: state.poll_cycles_completed > 0
   defp poll_finished?(_event), do: false
+
+  @doc """
+  Receives the held timeline read made by `server`'s own dispatch validation of `issue_id`.
+
+  The tracker stand-in is application-global, so any process that revalidates
+  an issue during the test announces a read with this test's token. Releasing
+  such a caller leaves the dispatch's own read held forever (#4009), so only
+  the server's dispatch task is returned; another caller's signal is skipped.
+  """
+  @spec await_dispatch_timeline_read(pid(), String.t(), reference()) :: pid()
+  def await_dispatch_timeline_read(server, issue_id, token) do
+    receive_barrier({:timeline_read_started, ^token, reader})
+    # Asking a server that is itself held in the read for its state would never return.
+    if reader == server, do: raise(ExUnit.AssertionError, message: "dispatch authorization read the timeline in the orchestrator")
+    owned? = Enum.any?(:sys.get_state(server).tracker_tasks, fn {_ref, job} -> job.key == {:dispatch, issue_id} and job.task.pid == reader end)
+    if owned?, do: reader, else: await_dispatch_timeline_read(server, issue_id, token)
+  end
 end

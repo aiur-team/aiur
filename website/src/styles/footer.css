@@ -1,0 +1,144 @@
+  /* ---------- below the terminal: summary · features · footer ---------- */
+  .below {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(8px, 1.5vh, 24px) clamp(20px, 5vw, 56px) 0;
+    transition: background-color 0.5s ease;
+  }
+  .summary {
+    max-width: 880px;
+    text-align: center;
+    text-wrap: balance;
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-weight: 500;
+    font-size: clamp(25px, 3.6vw, 42px);
+    line-height: 1.26;
+    letter-spacing: -0.015em;
+    color: var(--fg);
+    transition: color 0.5s ease;
+  }
+  .summary .hl { color: var(--accent); }
+
+  .features {
+    width: min(1000px, 100%);
+    margin-top: clamp(64px, 9vh, 116px);
+    border-top: 1px solid var(--hairline);
+    padding-top: clamp(44px, 6vh, 64px);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(46px, 6.5vh, 72px) clamp(28px, 3.4vw, 56px);
+  }
+  .feat { display: flex; flex-direction: column; gap: 13px; }
+  .feat-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1px;
+  }
+  .feat .ic { width: 26px; height: 26px; color: var(--accent); }
+  .feat .ic svg { width: 100%; height: 100%; display: block; }
+  .feat .idx {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+  }
+  .feat h3 {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: clamp(17px, 1.55vw, 21px);
+    line-height: 1.2;
+    color: var(--fg);
+  }
+  .feat p {
+    font-size: clamp(14px, 1.15vw, 15.5px);
+    line-height: 1.62;
+    color: var(--muted);
+    text-wrap: pretty;
+    max-width: 32ch;
+  }
+  .feat p a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+    transition: border-color 0.2s ease;
+  }
+  .feat p a:hover { border-bottom-color: var(--accent); }
+  @media (max-width: 640px) {
+    .features { grid-template-columns: repeat(2, 1fr); gap: 38px 28px; }
+  }
+  @media (max-width: 440px) {
+    .features { grid-template-columns: 1fr; gap: 34px; }
+    .feat p { max-width: none; }
+  }
+
+  .signoff {
+    width: min(1000px, 100%);
+    margin-top: clamp(84px, 13vh, 156px);
+    border-top: 1px solid var(--hairline);
+    padding-top: clamp(58px, 8.5vh, 100px);
+    text-align: center;
+  }
+  .signoff p {
+    margin: 0 auto;
+    max-width: 17ch;
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: clamp(27px, 4.4vw, 52px);
+    line-height: 1.16;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    text-wrap: balance;
+  }
+  .signoff .hl { color: var(--accent); }
+
+  .site-foot {
+    position: relative;
+    z-index: 5;
+    background: var(--bg);
+    margin-top: clamp(78px, 12vh, 140px);
+    border-top: 1px solid var(--hairline);
+    transition: background-color 0.5s ease;
+  }
+  .foot-inner {
+    width: min(1000px, 100%);
+    margin: 0 auto;
+    padding: clamp(26px, 4vh, 38px) clamp(20px, 5vw, 56px) clamp(34px, 6vh, 52px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px 28px;
+    flex-wrap: wrap;
+  }
+  .foot-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .foot-brand .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+  }
+  .foot-links { display: flex; align-items: center; gap: 22px; }
+  .foot-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    color: var(--muted);
+    transition: color 0.2s ease;
+  }
+  .foot-links a:hover { color: var(--fg); }
+  .foot-links a svg { width: 17px; height: 17px; display: block; }
+  .foot-links .github-link { gap: 8px; }
