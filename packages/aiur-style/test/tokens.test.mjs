@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { tokens, breakpoints, contrastPairs } from 'aiur-style/tokens';
+import { tokens, breakpoints, contrastPairs } from '../dist/tokens.js';
 
 const definitions = JSON.parse(fs.readFileSync(new URL('../src/tokens/tokens.json', import.meta.url), 'utf8'));
 const css = fs.readFileSync(new URL('../dist/tokens.css', import.meta.url), 'utf8');
