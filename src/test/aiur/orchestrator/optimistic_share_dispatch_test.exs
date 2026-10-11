@@ -46,6 +46,8 @@ defmodule Aiur.Orchestrator.OptimisticShareDispatchTest do
       Dispatcher.choose_issues(state, optimistic ++ ready,
         issue_fetcher: fn [id] -> {:ok, [Enum.find(optimistic ++ ready, &(&1.id == id))]} end,
         blocked_by_hydrator: fn issue -> {:ok, issue} end,
+        blocker_subscriber: fn _, _ -> :ok end,
+        blocker_ref_lookup: &blocker_head/1,
         runner: fn issue, _, _ ->
           send(parent, {:started, issue.id})
           :ok
@@ -114,6 +116,8 @@ defmodule Aiur.Orchestrator.OptimisticShareDispatchTest do
       Dispatcher.dispatch_issue(%{state | running: %{}}, candidate, nil, nil,
         issue_fetcher: fn _ -> {:ok, [candidate]} end,
         blocked_by_hydrator: fn issue -> {:ok, issue} end,
+        blocker_subscriber: fn _, _ -> :ok end,
+        blocker_ref_lookup: &blocker_head/1,
         runner: fn _, _, _ -> :ok end
       )
 
@@ -168,8 +172,11 @@ defmodule Aiur.Orchestrator.OptimisticShareDispatchTest do
   defp issue(id, priority \\ 2), do: %Issue{id: id, identifier: "repo##{id}", title: id, state: "todo", priority: priority, blocked_by: []}
 
   defp optimistic(id, priority \\ 2) do
-    %{issue(id, priority) | blocked_by: [%{id: "blocker-#{id}-#{System.unique_integer([:positive])}", state: "ci-wait"}]}
+    blocker = to_string(System.unique_integer([:positive]))
+    %{issue(id, priority) | blocked_by: [%{id: blocker, identifier: blocker, state: "ci-wait"}]}
   end
+
+  defp blocker_head(id), do: %{ref: "refs/heads/aiur/#{id}-work", sha: String.duplicate("a", 40)}
 
   defp dependent(id, blocker), do: %{issue(id) | blocked_by: [%{id: blocker.id, state: "todo"}]}
 

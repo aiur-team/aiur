@@ -58,6 +58,23 @@ defmodule Aiur.OptimisticStart.DispatchIntegrationTest do
     send(state.running[ctx.issue.id].pid, :stop)
   end
 
+  test "start mode retains evaluated optimism when the blocker merges during binding", ctx do
+    subscriber = fn dependent, blocker ->
+      :ok = AutoSubscriptions.subscribe_for_declared_blocker(dependent, blocker)
+      ProgressStore.record(ctx.blocker, %{stage: :pr_merged, source: :webhook})
+      :sys.get_state(ProgressStore)
+      :ok
+    end
+
+    state = dispatch(ctx, blocker_subscriber: subscriber, blocker_ref_lookup: fn _ -> %{ref: "refs/heads/aiur/#{ctx.blocker}-work", sha: @sha} end)
+    assert_receive :spawned, 1_000
+    assert state.running[ctx.issue.id].start_mode == :optimistic
+    assert [%{identifier: blocker, sha: @sha}] = state.running[ctx.issue.id].optimistic_start.blockers
+    assert blocker == ctx.blocker
+    assert_received {:lifecycle, %{event: "dispatch", start_mode: "optimistic", optimistic_blockers: [^blocker]}}
+    send(state.running[ctx.issue.id].pid, :stop)
+  end
+
   test "optimistic binder failure declines without spawning or claiming", ctx do
     state = dispatch(ctx, blocker_subscriber: fn _, _ -> {:error, :unavailable} end)
     assert state.dispatch_declines[ctx.issue.id] == :optimistic_subscription_failed
