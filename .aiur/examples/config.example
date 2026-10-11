@@ -30,6 +30,8 @@ tracker:
 
 # === Coding agents ===
 agent:
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # Ordered dispatch preference (replaces `kind` + `switch_model_on_ratelimit` +
   # `backend_configs.<b>.enabled`). Presence in the array makes a backend
   # dispatchable; the first available entry is the default backend; and when a
