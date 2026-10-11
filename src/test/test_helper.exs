@@ -99,6 +99,7 @@ Code.put_compiler_option(:no_warn_undefined, [])
 
 Code.require_file("support/engine_source.ex", __DIR__)
 Code.require_file("support/engine_case.ex", __DIR__)
+Code.require_file("support/wake_inbox_ack.ex", __DIR__)
 Code.require_file("support/dashboard_font_assertions.ex", __DIR__)
 Code.require_file("support/muse_fixture.exs", __DIR__)
 Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)

@@ -51,6 +51,7 @@
   {Aiur.Orchestrator.IssueSync, :observed_error_alerts, "Baseline dispatch write in Aiur.Orchestrator.IssueSync; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.IssueSync, :queue_store, "Baseline messaging write in Aiur.Orchestrator.IssueSync; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.IssueSync, :released_claims, "Baseline lifecycle write in Aiur.Orchestrator.IssueSync; retain until this responsibility moves to its field owner."},
+  {Aiur.Orchestrator.IssueSync, :terminal_verification_attempts, "Baseline lifecycle write in Aiur.Orchestrator.IssueSync; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.IssueSync, :todo_over_capacity_alert_active, "Baseline dispatch write in Aiur.Orchestrator.IssueSync; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.Lifecycle, :max_concurrent_agents, "Baseline dispatch write in Aiur.Orchestrator.Lifecycle; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.Lifecycle, :next_poll_due_at_ms, "Lifecycle maintains existing poll cadence and queued-demand state; note_queued_demand/1 is the sanctioned RC-19 hook."},

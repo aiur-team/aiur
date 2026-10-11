@@ -4,6 +4,10 @@ Private, unpublished wire contracts for Aiur clients. No runtime dependencies.
 The v1 schemas use JSON Schema draft 2020-12. Capability IDs are free-form;
 clients ignore unknown IDs and additive fields. A breaking change adds v2 beside v1.
 
+Capability `mode` now accepts any string so merge policy can report `ci=wait local_tests=partial`.
+The former `in_band_hold`, `defer_resume` and `none` values remain valid, but generated TypeScript
+consumers lose the closed union and must handle unknown modes when switching on this field.
+
 `src/index.ts` exports generated `CapabilitiesReport`, `CapabilityEntry`,
 `CapabilityState`, `CapabilityReason`, and `CapabilityError` types,
 `KNOWN_CAPABILITY_IDS`, `KNOWN_CAPABILITY_ID_PATTERNS`, and `CAPABILITY_REASONS`.
