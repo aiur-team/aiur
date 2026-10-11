@@ -285,9 +285,18 @@ defmodule Aiur.ProcessReaper do
   defp default_killers do
     %{
       kill_tree: &Aiur.ProcessTree.graceful_kill_tree/1,
-      kill_pane: &Aiur.Tmux.kill_pane/1,
+      kill_pane: &kill_pane/1,
       cmdline_reader: &read_cmdline/1
     }
+  end
+
+  # The pane killer belongs to the TUI above this module, so the composition
+  # root supplies it; a build without the TUI never registers a pane.
+  defp kill_pane(pane_id) do
+    case Application.get_env(:aiur, :process_reaper_pane_killer) do
+      {module, function} -> apply(module, function, [pane_id])
+      nil -> :ok
+    end
   end
 
   defp kill_entry({{:os_pid, pid}, kind, meta}, killers) do
