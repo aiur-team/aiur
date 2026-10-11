@@ -9,27 +9,25 @@ defmodule Aiur.StartTrigger.CriticalPath do
 
     {ranks, _memo} =
       Enum.map_reduce(nodes, %{}, fn node, memo ->
-        {depth, memo, _cyclic?} = depth(node, graph, open, MapSet.new(), memo)
-        downstream = reachable([node], graph, MapSet.new()) |> MapSet.delete(node) |> MapSet.intersection(open) |> MapSet.size()
+        {depth, memo, _cyclic?} = depth(node, graph, open, %{}, memo)
+        downstream = reachable([node], graph, %{}) |> Map.delete(node) |> Map.keys() |> Enum.count(&MapSet.member?(open, &1))
         {{node, {depth, downstream}}, memo}
       end)
 
     Map.new(ranks)
   end
 
-  @spec depth(String.t(), map(), MapSet.t(String.t()), MapSet.t(String.t()), map()) :: {non_neg_integer(), map(), boolean()}
   defp depth(node, graph, open, seen, memo) do
     cond do
-      MapSet.member?(seen, node) -> {0, memo, true}
+      Map.has_key?(seen, node) -> {0, memo, true}
       Map.has_key?(memo, node) -> {memo[node], memo, false}
-      true -> children_depth(node, graph, open, MapSet.put(seen, node), memo)
+      true -> children_depth(node, graph, open, Map.put(seen, node, true), memo)
     end
   end
 
-  @spec children_depth(String.t(), map(), MapSet.t(String.t()), MapSet.t(String.t()), map()) :: {non_neg_integer(), map(), boolean()}
   defp children_depth(node, graph, open, seen, memo) do
-    children = Enum.filter(Map.get(graph, node, []), &(MapSet.member?(open, &1) and not MapSet.member?(seen, &1)))
-    cycle? = Enum.any?(Map.get(graph, node, []), &(MapSet.member?(open, &1) and MapSet.member?(seen, &1)))
+    children = Enum.filter(Map.get(graph, node, []), &(MapSet.member?(open, &1) and not Map.has_key?(seen, &1)))
+    cycle? = Enum.any?(Map.get(graph, node, []), &(MapSet.member?(open, &1) and Map.has_key?(seen, &1)))
 
     {value, memo, cyclic?} =
       Enum.reduce(children, {0, memo, cycle?}, fn child, {value, memo, cyclic?} ->
@@ -40,10 +38,9 @@ defmodule Aiur.StartTrigger.CriticalPath do
     {value, if(cyclic?, do: memo, else: Map.put(memo, node, value)), cyclic?}
   end
 
-  @spec reachable([String.t()], map(), MapSet.t(String.t())) :: MapSet.t(String.t())
   defp reachable([], _graph, seen), do: seen
 
   defp reachable([node | rest], graph, seen) do
-    if MapSet.member?(seen, node), do: reachable(rest, graph, seen), else: reachable(Map.get(graph, node, []) ++ rest, graph, MapSet.put(seen, node))
+    if Map.has_key?(seen, node), do: reachable(rest, graph, seen), else: reachable(Map.get(graph, node, []) ++ rest, graph, Map.put(seen, node, true))
   end
 end
