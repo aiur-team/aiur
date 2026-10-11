@@ -212,7 +212,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     )
 
     on_exit(fn ->
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{root: root, trace: trace}
@@ -494,7 +494,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     File.rm_rf!(root)
     File.mkdir_p!(root)
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {marker, release}
   end

@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.GitMetadataTest do
   setup do
     tmp = Aiur.TestSupport.tmp_root!("aiur-git-metadata")
     File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
     {:ok, tmp: tmp}
   end
 

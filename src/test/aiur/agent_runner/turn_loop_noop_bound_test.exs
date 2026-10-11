@@ -52,7 +52,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
     {:ok, orchestrator} = FakeOrchestrator.start_link(self())
 
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     %{test_root: test_root, workspace: workspace, issue: issue, orchestrator: orchestrator}
   end

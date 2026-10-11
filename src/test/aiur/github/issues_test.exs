@@ -1124,7 +1124,7 @@ defmodule Aiur.GitHub.IssuesTest do
       on_exit(fn ->
         Workflow.set_workflow_file_path(previous_path)
         :persistent_term.erase(@origin_cache_key)
-        File.rm_rf!(dir)
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       issue = %{"number" => 20, "node_id" => "I_kwDOIssue20", "labels" => []}

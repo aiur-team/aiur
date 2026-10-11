@@ -41,7 +41,7 @@ defmodule Aiur.Claude.RemoteControlTest do
       # newest transcript and rebuilding its path from the parsed id must point
       # back at the same file (the resume existence-check relies on this).
       dir = Aiur.TestSupport.tmp_root!("rc-session-path")
-      on_exit(fn -> File.rm_rf(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
       workspace = "/ws/aiur/613"
       slug_dir = Path.join(dir, RemoteControl.workspace_slug(workspace))
@@ -152,7 +152,7 @@ defmodule Aiur.Claude.RemoteControlTest do
 
       proc = Aiur.TestSupport.tmp_root!("rwa-proc")
       File.mkdir_p!(proc)
-      on_exit(fn -> File.rm_rf(proc) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(proc) end)
       {:ok, root: root, proc: proc}
     end
 
@@ -353,7 +353,7 @@ defmodule Aiur.Claude.RemoteControlTest do
       outside = Aiur.TestSupport.tmp_root!("rwa-out")
       File.mkdir_p!(inside)
       File.mkdir_p!(outside)
-      on_exit(fn -> File.rm_rf(root) && File.rm_rf(outside) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) && Aiur.TestCleanup.rm_rf!(outside) end)
 
       inside_pid = spawn_sleeper(inside)
       outside_pid = spawn_sleeper(outside)

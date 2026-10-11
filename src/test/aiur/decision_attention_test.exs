@@ -126,7 +126,7 @@ defmodule Aiur.DecisionAttentionTest do
 
     on_exit(fn ->
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      File.rm_rf!(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     {pid, name} =
@@ -175,7 +175,7 @@ defmodule Aiur.DecisionAttentionTest do
 
     on_exit(fn ->
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      File.rm_rf!(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     {pid, name} =
@@ -233,7 +233,7 @@ defmodule Aiur.DecisionAttentionTest do
 
     on_exit(fn ->
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      File.rm_rf!(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     {pid, _name} =
@@ -266,7 +266,7 @@ defmodule Aiur.DecisionAttentionTest do
     File.mkdir_p!(workspace)
 
     on_exit(fn ->
-      File.rm_rf!(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     {_pid, name} = start_attention([])
@@ -285,7 +285,7 @@ defmodule Aiur.DecisionAttentionTest do
     issue = %Issue{identifier: identifier, title: "Remote decision"}
 
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     {_pid, name} = start_attention([])
 
@@ -558,7 +558,7 @@ defmodule Aiur.DecisionAttentionTest do
         path -> Application.put_env(:aiur, :decision_state_dir, path)
       end
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     {:ok, store} =

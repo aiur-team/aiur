@@ -29,7 +29,7 @@ defmodule Aiur.Codex.AppServerPortTest do
 
       on_exit(fn ->
         File.rm(linked)
-        File.rm_rf(outside)
+        Aiur.TestCleanup.rm_rf!(outside)
       end)
 
       assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _, _}} =

@@ -7,7 +7,7 @@ defmodule Aiur.AgentCommandInstallerTest do
     root = Aiur.TestSupport.tmp_root!("aiur-command-installer")
     workspace = Path.join(root, "workspace")
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     {:ok, root: root, workspace: workspace}
   end
 
@@ -113,7 +113,7 @@ defmodule Aiur.AgentCommandInstallerTransportTest do
 
     on_exit(fn ->
       if previous_path, do: System.put_env("PATH", previous_path), else: System.delete_env("PATH")
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     install_fake_ssh!(root, trace_file, input_file)

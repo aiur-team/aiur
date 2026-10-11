@@ -8,7 +8,7 @@ defmodule Aiur.ExecutorWakeInboxTrimTest do
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-wake-inbox-trim")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     opts = [
       name: __MODULE__,

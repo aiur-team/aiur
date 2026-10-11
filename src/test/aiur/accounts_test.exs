@@ -24,7 +24,7 @@ defmodule Aiur.AccountsTest do
     on_exit(fn ->
       UsageReadings.reset()
       if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
-      File.rm_rf!(home)
+      Aiur.TestCleanup.rm_rf!(home)
     end)
 
     %{home: home}

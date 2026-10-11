@@ -33,7 +33,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       restore_env(:github_budget_dir, previous_budget_dir)
       restore_env(:github_budget_settings_override, previous_budget_settings)
       restore_env(:github_request_deadline_ms, previous_deadline)
-      File.rm_rf(budget_dir)
+      Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     {:ok, quota: quota, budget_dir: budget_dir}

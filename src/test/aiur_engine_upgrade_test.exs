@@ -28,7 +28,7 @@ defmodule AiurEngineUpgradeTest do
     )
 
     File.chmod!(npm, 0o755)
-    on_exit(fn -> File.rm_rf!(bin) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(bin) end)
     bin
   end
 
@@ -242,7 +242,7 @@ defmodule AiurEngineUpgradeTest do
     down = Path.join(npm_bin, "npm")
     File.write!(down, "#!/usr/bin/env bash\nif [ \"${1:-}\" = \"view\" ]; then exit 1; fi\n# no install handler\n")
     File.chmod!(down, 0o755)
-    on_exit(fn -> File.rm_rf!(npm_bin) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(npm_bin) end)
 
     script = """
     resolve_release() { :; }

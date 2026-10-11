@@ -11,7 +11,7 @@ defmodule Aiur.RunTelemetryTest do
     Application.put_env(:aiur, :repo_base_root, root)
 
     on_exit(fn ->
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:repo_base_root])
 
       case prior_repo_root do
         {:ok, value} -> Application.put_env(:aiur, :repo_base_root, value)

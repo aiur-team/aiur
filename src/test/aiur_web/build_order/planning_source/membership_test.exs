@@ -148,7 +148,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.MembershipTest do
       %{generation: 0, health: :healthy, freshness: %{status: :unavailable}, members: []}
     end)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     catalog = PlanningSource.catalog()
     assert catalog.health.state == :healthy

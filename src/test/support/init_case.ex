@@ -75,7 +75,7 @@ defmodule Aiur.InitCase do
     # The wizard writes `prompt_file: prompt.md`; Workflow.load resolves it, so
     # the file must exist alongside the config for the written config to load.
     File.write!(Path.join([dir, ".aiur", "prompt.md"]), "# agent prompt\n")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     {:ok, dir: dir, target: target}
   end
 

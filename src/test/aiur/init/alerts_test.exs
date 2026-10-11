@@ -8,7 +8,7 @@ defmodule Aiur.Init.AlertsTest do
     dir = Aiur.TestSupport.tmp_root!("aiur-alerts-test")
     target = Path.join([dir, ".aiur", "config"])
     File.mkdir_p!(Path.dirname(target))
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     {:ok, dir: dir, target: target}
   end
 

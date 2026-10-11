@@ -20,7 +20,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     File.mkdir_p!(dir)
 
     on_exit(fn ->
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
       Enum.each([:issue, :issue_labels, :issue_dependency, :sub_issue], &ResourceStore.clear(&1, "acme", repo))
       Supervisor.restart_child(Aiur.Supervisor, Feeder)
     end)

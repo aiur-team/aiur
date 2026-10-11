@@ -21,7 +21,7 @@ defmodule Aiur.Commands.DeliveryTargetUnboundStoreTest do
         {key, :error} -> Application.delete_env(:aiur, key)
       end)
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir}

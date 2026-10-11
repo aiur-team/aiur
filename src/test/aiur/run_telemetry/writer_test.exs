@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
       Aiur.TestSupport.tmp_root!("aiur-telemetry-writer")
 
     path = Path.join(root, "log/telemetry.ndjson")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{path: path, root: root}
   end
 

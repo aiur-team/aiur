@@ -80,7 +80,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
 
   test "a reconciliation snapshot never removes an absent terminal store member" do
     dir = Aiur.TestSupport.tmp_root!("aiur-membership-reconciler")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     {:ok, store} = Store.start_link(name: nil, state_dir: dir, run_id: "reconciler-membership-run")
     terminal = row("I-terminal", []).tracker_identity
@@ -122,7 +122,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       GenServer.stop(pid)
       assert pid = Process.whereis(reconciler_name)
       GenServer.stop(pid)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     {:ok, first_store} = Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
@@ -172,7 +172,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       Aiur.TestSupport.safe_stop(current_store)
       Aiur.TestSupport.safe_stop(snapshot)
       Aiur.TestSupport.safe_stop(reconciler_name)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     {:ok, reconciler} =

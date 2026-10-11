@@ -13,7 +13,7 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
 
     on_exit(fn ->
       if previous_log_file, do: Application.put_env(:aiur, :log_file, previous_log_file), else: Application.delete_env(:aiur, :log_file)
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     :ok

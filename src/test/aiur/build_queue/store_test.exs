@@ -19,7 +19,7 @@ defmodule Aiur.BuildQueue.StoreTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, root: root, path: Path.join([root, "build-queue", "queue.json"])}

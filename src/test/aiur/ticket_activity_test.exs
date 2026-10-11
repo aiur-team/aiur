@@ -129,7 +129,7 @@ defmodule Aiur.TicketActivityTest do
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(retention)
-      File.rm_rf!(state_dir)
+      Aiur.TestCleanup.rm_rf!(state_dir)
     end)
 
     retain_fun = fn identity, progress -> ProgressRetention.retain(identity, progress, server: retention) end

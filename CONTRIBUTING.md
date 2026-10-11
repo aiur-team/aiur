@@ -125,7 +125,11 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
   about the whole system, so any other test publishing into that namespace can
   fail it. And never call `self()` inside `on_exit` — the callback runs in a
   different process, so the binding, monitor, or subscription you meant to clean
-  up leaks into later tests.
+  up leaks into later tests. Remove a temp directory in `on_exit` with
+  `Aiur.TestCleanup.rm_rf!/1`, never a bare `File.rm_rf!` or `File.rm_rf`: a live
+  writer makes the bang form fail with "file already exists" and the other one
+  fail silently
+  (`scripts/check-on-exit-rm-rf.py` enforces this; `--fix` rewrites call sites).
 - **Quarantine only while fixing.** Tag a confirmed flaky test with
   `@tag :quarantine`, open or link its repair issue, and leave a short reason
   beside the tag. Ordinary local and required CI runs exclude quarantined

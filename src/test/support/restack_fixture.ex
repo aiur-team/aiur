@@ -19,7 +19,7 @@ defmodule Aiur.TestSupport.RestackFixture do
     git(workspace, ["push", "origin", "main"])
     dependent = dependent(workspace)
     merge = squash(workspace)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, workspace: workspace, origin: origin, dependent: dependent, merge: merge}
   end
 

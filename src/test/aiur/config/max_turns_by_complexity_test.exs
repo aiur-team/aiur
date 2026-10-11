@@ -13,13 +13,13 @@ defmodule Aiur.Config.MaxTurnsByComplexityTest do
     Workflow.set_workflow_file_path(path)
 
     on_exit(fn ->
-      File.rm_rf!(dir)
-
       if is_nil(previous) do
         Workflow.clear_workflow_file_path()
       else
         Workflow.set_workflow_file_path(previous)
       end
+
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     :ok

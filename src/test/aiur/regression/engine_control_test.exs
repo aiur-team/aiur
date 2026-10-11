@@ -26,9 +26,9 @@ defmodule Aiur.Regression.EngineControlTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(base)
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(base)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       script = """
@@ -88,7 +88,7 @@ defmodule Aiur.Regression.EngineControlTest do
       state = tmp_state()
       on_exit(fn -> System.cmd("pkill", ["-f", marker_a], stderr_to_stdout: true) end)
       on_exit(fn -> System.cmd("pkill", ["-f", marker_b], stderr_to_stdout: true) end)
-      on_exit(fn -> File.rm_rf(state) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(state) end)
 
       script = """
       source #{engine()}
@@ -176,7 +176,7 @@ defmodule Aiur.Regression.EngineControlTest do
       on_exit(fn ->
         kill_pid(p1)
         kill_pid(p2)
-        File.rm_rf(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       {_, 0} = run_sourced_engine(~s|reap_aiur_agents "" "$PIDFILE"|, [{"PIDFILE", pidfile}])
@@ -213,9 +213,9 @@ defmodule Aiur.Regression.EngineControlTest do
         """)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
-        File.rm_rf(tmp)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       script = """
@@ -268,9 +268,9 @@ defmodule Aiur.Regression.EngineControlTest do
         """)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
-        File.rm_rf(tmp)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       script = """
@@ -319,9 +319,9 @@ defmodule Aiur.Regression.EngineControlTest do
         """)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
-        File.rm_rf(tmp)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       script = """
@@ -380,9 +380,9 @@ defmodule Aiur.Regression.EngineControlTest do
         """)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
-        File.rm_rf(tmp)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       script = """
