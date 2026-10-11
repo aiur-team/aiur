@@ -1,0 +1,185 @@
+  /* ---------- terminal section ---------- */
+  :root {
+    --term-bg: #111317;
+    --term-head: #181b20;
+    --term-bd: rgba(255,255,255,0.08);
+    --term-fg: #e7ebf2;
+    --term-dim: #7f8794;
+    --term-title: #9aa3b0;
+    --term-shadow: 0 40px 90px -30px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.04);
+    --term-accent: #59b0ff;
+    --term-ok: #3fb950;
+    --term-add: #57d369;
+    --term-del: #ff7b72;
+    --term-warn: #e3b341;
+    --term-mag: #c69bff;
+    --tui-line: rgba(255,255,255,0.16);
+  }
+  html[data-theme="light"] {
+    --term-bg: #f7f2e8;
+    --term-head: #ece4d4;
+    --term-bd: rgba(42,37,26,0.12);
+    --term-fg: #2c2822;
+    --term-dim: #8a7f6a;
+    --term-title: #6f6450;
+    --term-shadow: 0 44px 80px -34px rgba(58,44,18,0.30), 0 0 0 1px rgba(42,37,26,0.08);
+    --term-accent: #1f6fd6;
+    --term-ok: #1f9d4d;
+    --term-add: #1f9d4d;
+    --term-del: #d23b32;
+    --term-warn: #b8821a;
+    --term-mag: #8a4fd0;
+    --tui-line: rgba(42,37,26,0.16);
+  }
+
+  .term-section {
+    --peek: clamp(64px, 9vh, 104px);
+    --term-h: clamp(420px, 74vh, 660px);
+    position: relative;
+    z-index: 5;
+    /* pull the terminal up so a constant peek shows above the fold; the section
+       is only as tall as the terminal plus bottom room for its shadow to fade,
+       so the summary below sits close instead of a dead half-viewport away */
+    margin-top: calc(-1 * var(--peek));
+    display: flex;
+    justify-content: center;
+    padding: 0 clamp(18px, 4vw, 48px) clamp(72px, 10vh, 120px);
+  }
+  .terminal {
+    width: min(1000px, 100%);
+    height: var(--term-h);
+    background: var(--term-bg);
+    border: 1px solid var(--term-bd);
+    border-radius: 14px;
+    box-shadow: var(--term-shadow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: background-color 0.5s ease, box-shadow 0.5s ease;
+  }
+  .term-bar {
+    flex: 0 0 auto;
+    height: 46px;
+    background: var(--term-head);
+    border-bottom: 1px solid var(--term-bd);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 16px;
+    position: relative;
+  }
+  .term-bar .dot {
+    width: 13px; height: 13px; border-radius: 50%;
+    display: block;
+  }
+  .term-bar .r { background: #ff5f57; }
+  .term-bar .y { background: #febc2e; }
+  .term-bar .g { background: #28c840; }
+  .term-bar .term-title {
+    position: absolute;
+    left: 50%; transform: translateX(-50%);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    color: var(--term-title);
+    white-space: nowrap;
+  }
+  .term-body {
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding: clamp(8px, 1.4vw, 16px);
+    display: grid;
+    /* Pin the single column to the box width. Without this the implicit track
+       sizes to the pre's max-content (its full untruncated width), so #termScreen
+       — width:100% of that track — reports a width wider than the viewport. That
+       inflated width is what fitWidth and the aspect-ratio layout check both read,
+       so cols never shrinks (text/border clip off-screen) and a portrait phone can
+       measure wider-than-tall and wrongly pick the side-by-side split. */
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    container-type: inline-size;
+  }
+  .term-screen {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--term-fg);
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+  }
+  .tui-pre {
+    margin: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(6px, 1.7cqi, 16.5px);
+    line-height: 1.5;
+    white-space: pre;
+    color: var(--term-fg);
+    will-change: transform;
+  }
+  /* bump the terminal font a couple points on phones (raise the clamp floor) */
+  @media (max-width: 680px) {
+    .tui-pre { font-size: clamp(9px, 2.2cqi, 16.5px); }
+  }
+  .tui-pre .tb { color: var(--term-fg); font-weight: 700; }
+  .tui-pre .ag-opus { color: var(--term-mag); }
+  .tui-pre .ag-sonnet { color: var(--term-accent); }
+  .tui-pre .ag-codex { color: var(--term-ok); }
+  .tui-pre .e2 { display: inline-block; width: 2ch; text-align: center; }
+  .tui-pre .e1 { display: inline-block; width: 1ch; text-align: center; }
+  .tui-pre .bd { color: var(--tui-line); }
+  .tui-pre .bar-empty { color: var(--tui-line); }
+  .tui-pre .oc-cmd { color: var(--term-ok); }
+  .tui-pre .oc-tool { color: var(--term-dim); }
+  /* greyed elaboration under each surfaced option */
+  .tui-pre .oc-dim { color: color-mix(in srgb, var(--term-fg) 56%, var(--term-bg)); }
+  .tui-pre .oc-chip { color: var(--term-accent); font-weight: 700; }
+  .tui-pre .oc-prompt { color: var(--term-accent); }
+  .tui-pre .oc-gutter {
+    color: var(--term-accent);
+    display: inline-block;
+    width: 1ch;
+    text-align: center;
+  }
+  /* solid accent rail down the banded rows (posted block + input field) */
+  .tui-pre .oc-bar {
+    display: inline-block;
+    width: 1ch;
+    height: 1.5em;
+    vertical-align: bottom;
+    background: var(--term-accent);
+    color: transparent;
+  }
+  /* the posted user message + the input box read as full-pane-width bands
+     (content is padded to OC_PANE_W chars inside the span, so the tint spans
+     the whole pane row without bleeding across the joined dashboard column) */
+  /* fill the full line box (not just the glyph em) so consecutive banded rows
+     touch with no gap and the left bars read as one continuous rail */
+  .tui-pre .oc-userblock,
+  .tui-pre .oc-field {
+    display: inline-block;
+    height: 1.5em;
+    line-height: 1.5em;
+    vertical-align: bottom;
+  }
+  .tui-pre .oc-userblock { background-color: color-mix(in srgb, var(--term-accent) 16%, transparent); }
+  .tui-pre .oc-field { background-color: color-mix(in srgb, var(--term-fg) 8%, transparent); }
+  .term-screen .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.72em; }
+  .term-screen .pr { color: var(--term-accent); margin-right: 10px; }
+  .term-screen .ok  { color: var(--term-ok); }
+  .term-screen .add { color: var(--term-add); }
+  .term-screen .del { color: var(--term-del); }
+  .term-screen .warn{ color: var(--term-warn); }
+  .term-screen .acc { color: var(--term-accent); }
+  .term-screen .mag { color: var(--term-mag); }
+  .term-screen .dim { color: var(--term-dim); }
+  .term-screen .spin { color: var(--term-accent); display: inline-block; width: 1ch; }
+  .term-screen .cursor {
+    display: inline-block;
+    width: 1ch;
+    height: 1.05em;
+    transform: translateY(2px);
+    background: var(--term-fg);
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+

@@ -1,0 +1,352 @@
+/* The Commands key grid reuses the cmd-key face so history and option keys
+   read like the other surfaces. */
+.sd-commands-view {
+  display: contents;
+}
+
+.sd-command-keys {
+  min-height: 0;
+}
+
+.sd-log-strip-entry {
+  display: grid;
+  min-width: 0;
+  padding: 0.18rem 0.3rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Ink is set inline per badge from key-face-contract.json. */
+.sd-log-evhdr-text,
+.sd-log-message-text { overflow: hidden; flex: 1; color: var(--fg); text-overflow: ellipsis; white-space: nowrap; }
+.sd-log-evhdr-time { color: var(--muted); }
+.sd-log-diff-file { color: var(--fg); }
+.sd-log-diff-counts { margin-left: auto; color: var(--muted); }
+.sd-log-diff-counts b:first-child,
+.sd-log-diff-line.is-addition { color: #88e0a6; }
+.sd-log-diff-counts b:last-child,
+.sd-log-diff-line.is-deletion { color: #ff8b8b; }
+.sd-log-diff-line { overflow: hidden; color: var(--muted); font-size: 0.54rem; text-overflow: ellipsis; white-space: nowrap; }
+.sd-log-message { font-size: 0.62rem; }
+/* The glyph gutter carries the "this is a command/tool" signal in place of a
+   text label; the per-kind colours below are the opencode-borrowed palette
+   (#1934) that differentiate commands, agent prose and logs at a glance. */
+.sd-log-glyph { flex: none; font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.72rem; font-weight: 800; }
+.sd-log-message.is-command,
+.sd-log-message.is-command .sd-log-message-text { color: #88e0a6; }
+.sd-log-message.is-agent,
+.sd-log-message.is-agent .sd-log-message-text { color: #9fd0ff; }
+.sd-log-message.is-logs,
+.sd-log-message.is-logs .sd-log-message-text { color: #ffcf87; }
+.sd-log-message.is-user,
+.sd-log-message.is-user .sd-log-message-text { color: #c69bff; }
+.sd-log-strip-empty { align-self: center; margin: 0; color: var(--muted); font-size: 0.62rem; }
+.sd-dial-hint { display: inline-flex; justify-content: center; gap: 0.08rem; min-width: 5.2em; color: var(--muted); }
+
+/* The touch strip carries compact status information rather than glyphs. */
+.sd-screen-segment.sd-seg {
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: default;
+}
+
+.sd-screen-segment.sd-seg.is-live::after {
+  display: none;
+}
+
+.sd-screen-segment.sd-seg-info {
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.24rem;
+  padding: 0.32rem 0.5rem;
+}
+
+/* The pager is the design's dial-style segment, not an info segment: a
+   centred column on a slightly brighter ground, labelled by its own text
+   rather than by a logo header. */
+.sd-screen-segment.sd-seg-d {
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Structure, size and tracking follow the design. The ink does not: the
+   design's rgba(255,255,255,0.42) measures 4.09:1 on this ground, under the
+   4.5:1 the Stream Deck axe check enforces, so both segment headings hold at
+   0.55 — the same uplift .sd-info-hd already carries. */
+.sd-seg-dlabel {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sd-info-hd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sd-hd-logo {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.sd-info-live {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.sd-info-live b {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.sd-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sd-mini-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.5rem;
+}
+
+.sd-mini-lbl {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sd-mini-r {
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sd-mini-bar {
+  height: var(--progress-bar-height);
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sd-mini-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3f8bff, #8fbcff);
+}
+
+.sd-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.sd-pager-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 0.14s ease, transform 0.14s ease;
+}
+
+.sd-pager-dot.is-active {
+  background: #fff;
+  transform: scale(1.25);
+}
+
+.sd-pager-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.sd-mic {
+  position: absolute;
+  top: 0.34rem;
+  left: 0.34rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--super);
+  box-shadow: 0 0 0.45rem var(--super);
+  animation: sd-mic-pulse 1s ease-in-out infinite;
+}
+
+.sd-well {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 148px;
+  padding: 1.7rem 1.3rem;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #131315, #0b0b0c);
+  box-shadow: inset 0 3px 14px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.sd-knobs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  justify-items: center;
+}
+
+.sd-knob-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+}
+
+.sd-knob {
+  --a: 0deg;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 0deg, #3a3b3f 0deg 6deg, #232427 6deg 12deg),
+    radial-gradient(circle at 50% 42%, #45464a, #202124 70%);
+  background-blend-mode: soft-light, normal;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.14), inset 0 -4px 8px rgba(0, 0, 0, 0.55);
+  transform: rotate(var(--a));
+  touch-action: none;
+  cursor: grab;
+}
+
+.sd-knob:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-knob:active {
+  cursor: grabbing;
+}
+
+.sd-knob.press {
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+.sd-knob::before {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #34353a, #17181b);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  content: "";
+}
+
+@keyframes sd-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes sd-flash {
+  0% { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes sd-mic-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+@keyframes sd-live-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* The device chassis is physically dark regardless of the dashboard theme.
+   Override the ink tokens inside the device so text stays legible on the
+   dark surface when the operator switches to light mode.
+
+   Every token the chassis paints ink with must be pinned back to its dark
+   `:root` value here. A token left unpinned inherits the light-theme root
+   override and lands dark-on-near-black over the `#060708` key face — the
+   "Blocked" dependency chip (`.sd-key-footer b`) measured roughly 2:1 that
+   way. `dashboard_css_theme_test.exs` asserts this list stays complete and
+   byte-identical to `:root`. */
+html[data-theme="light"] .sd-device {
+  --fg: #edeef0;
+  --muted: #969aa4;
+  --accent: #2f86ff;
+  --accent-ink: #8fbcff;
+  --attention: #e3b341;
+  --attention-ink: #f1cf6f;
+  --blocking-ink: #ffa39c;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --good: #3fb950;
+  --good-ink: #74d47f;
+  --super: #c69bff;
+  --ack: #4fd6c4;
+}
+
+@media (max-width: 560px) {
+  .sd-device {
+    padding: 1.1rem 1.1rem 1.3rem;
+    border-radius: 24px;
+    gap: 1rem;
+  }
+
+  .sd-keys {
+    column-gap: 0.55rem;
+    row-gap: 0.55rem;
+  }
+
+  .sd-well {
+    padding: 0.9rem 0.8rem;
+  }
+
+  .sd-key-face:not(.sd-agent) {
+    padding: 0.32rem;
+  }
+
+  .sd-ag-ic {
+    width: 26px;
+    height: 26px;
+  }
+
+  .sd-ag-ic svg { width: 17px; height: 17px; }
+
+  .sd-ag-id { font-size: 1rem; }
+
+  .sd-screen {
+    height: 82px;
+  }
+
+  .sd-knob {
+    width: 52px;
+    height: 52px;
+  }
+
+  .sd-install-modal {
+    max-height: calc(100dvh - 1rem);
+    padding: 0.85rem;
+  }
+}
+

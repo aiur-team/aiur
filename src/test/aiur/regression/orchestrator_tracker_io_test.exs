@@ -65,8 +65,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       {:ok, [maybe_authorize(issue, Application.get_env(:aiur, :tracker_io_test_authorization))]}
     end
 
-    # Stands in for the timeline read the GitHub client authorizes every revalidated issue with
-    # (`DispatchAuthorization.authorize/5`). It verifies: a denial emits a real alert from the reader (#4009).
+    # Stands in for the timeline read behind `DispatchAuthorization.authorize/5`; it verifies, since a denial emits a real alert from the reader (#4009).
     defp maybe_authorize(issue, nil), do: issue
 
     defp maybe_authorize(issue, {owner, token}) do
@@ -441,6 +440,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     put_test_env(:tracker_io_test_authorization, {self(), token})
     DispatchAuthorization.clear_cache()
     owner = self()
+    {:ok, stray} = start_supervised({Task, fn -> SlowTracker.fetch_issue_states_by_ids([candidate.id]) end})
+    send(self(), receive_barrier({:timeline_read_started, ^token, ^stray}))
     patterns = [{Aiur.Tracker, :fetch_issue_states_by_ids, :_} | @dispatch_authorization_patterns]
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
@@ -460,8 +461,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       )
     end)
 
-    receive_barrier({:timeline_read_started, ^token, reader})
-    refute reader == server, "dispatch authorization read the timeline in the orchestrator"
+    reader = Aiur.TrackerIoPollBarrier.await_dispatch_timeline_read(server, candidate.id, token)
     # The owner still answers a control while the timeline read is held.
     assert is_list(Orchestrator.status(server, @control_budget_ms))
     send(reader, {:release_timeline, token})
