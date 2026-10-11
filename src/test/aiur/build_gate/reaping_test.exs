@@ -6,7 +6,7 @@ defmodule Aiur.BuildGate.ReapingTest do
     holder_path = Path.expand("../../../priv/build_gate_holder.py", __DIR__)
 
     probe = ~S"""
-    import os, runpy, subprocess, sys
+    import os, runpy, signal, subprocess, sys
     holder = runpy.run_path(sys.argv[1])
     holder["become_subreaper"]()
     command = r'''
@@ -40,6 +40,12 @@ defmodule Aiur.BuildGate.ReapingTest do
     result = holder["wait_for_command"](process, os.getpid(), None, "", "")
     assert holder["reap_exited_children"]() is False
     assert result == 37, f"command exit status lost: {result}"
+    for code, expected in [("raise SystemExit(37)", 37),
+                           ("import os, signal; os.kill(os.getpid(), signal.SIGTERM)", -signal.SIGTERM)]:
+        process = subprocess.Popen([sys.executable, "-c", code])
+        os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
+        result = holder["wait_for_command"](process, os.getpid(), None, "", "")
+        assert result == expected, f"already-exited command status lost: {result}"
     print("50 adopted children reaped; command status 37 preserved")
     """
 
