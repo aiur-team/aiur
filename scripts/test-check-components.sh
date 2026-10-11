@@ -58,6 +58,8 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             path.write_text(content)
         if git:
             subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+            for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+                subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
             subprocess.run(['git', '-C', str(root), 'add', '--', *files, *declarations], check=True)
             (root / 'src/lib/untracked.ex').touch()
         import os
@@ -339,6 +341,8 @@ else:
 
     def committed_fixture(root):
         subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+        for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+            subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
         subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
         subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
                         'commit', '-qm', 'Fixture baseline'], check=True)

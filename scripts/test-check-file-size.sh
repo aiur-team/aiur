@@ -60,6 +60,8 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     repo = root / 'repo'
     repo.mkdir()
     git(repo, 'init', '-q', '-b', 'feature')
+    for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+        git(repo, 'config', key, value)
     git(repo, 'config', 'user.email', 'fixture@example.invalid')
     git(repo, 'config', 'user.name', 'Fixture')
     cases = [
