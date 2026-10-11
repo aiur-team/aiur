@@ -4,7 +4,7 @@ defmodule Aiur.AppServer.Rpc.Await do
   alias Aiur.AppServer.Rpc
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
-  @spec response(port(), integer(), non_neg_integer(), String.t(), String.t(), Rpc.notification_handler(), boolean()) ::
+  @spec response(port() | pid(), integer(), non_neg_integer(), String.t(), String.t(), Rpc.notification_handler(), boolean()) ::
           {:ok, map()} | {:error, term()}
   def response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?) do
     receive do
@@ -33,6 +33,10 @@ defmodule Aiur.AppServer.Rpc.Await do
       {^port, {:exit_status, status}} ->
         unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
         {:error, {:port_exit, status}}
+
+      {:DOWN, _ref, :port, ^port, reason} ->
+        unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
+        {:error, {:port_exit, reason}}
 
       {:EXIT, ^port, reason} ->
         unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)

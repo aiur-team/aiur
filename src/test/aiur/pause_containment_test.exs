@@ -189,3 +189,38 @@ defmodule Aiur.PauseContainmentTest do
 
   defp assert_eventually(_assertion, 0), do: flunk("condition was not met")
 end
+
+defmodule Aiur.PauseContainmentResultTargetTest do
+  # async: false — swaps the global :pause_containment_result_target app env.
+  use ExUnit.Case, async: false
+
+  alias Aiur.PauseContainment
+
+  test "result is sent to the configured target" do
+    previous = Application.get_env(:aiur, :pause_containment_result_target)
+    # The composition root names the orchestrator; the sandbox itself does not.
+    assert previous == Aiur.Orchestrator
+
+    target = Module.concat(__MODULE__, "Target#{System.unique_integer([:positive])}")
+    Process.register(self(), target)
+    Application.put_env(:aiur, :pause_containment_result_target, target)
+    on_exit(fn -> Application.put_env(:aiur, :pause_containment_result_target, previous) end)
+
+    name = Module.concat(__MODULE__, "Containment#{System.unique_integer([:positive])}")
+
+    {:ok, _pid} =
+      PauseContainment.start_link(
+        name: name,
+        grace_ms: 60_000,
+        reap_fun: fn _group -> {:ok, :reaped} end,
+        event_fun: fn _stage, _payload -> :ok end
+      )
+
+    assert {:ok, handle} = PauseContainment.register(name, "repo#3293", 324, 324)
+    assert {:ok, ^handle} = PauseContainment.arm(name, "repo#3293")
+    send(name, {:fallback, "repo#3293", handle.generation})
+
+    generation = handle.generation
+    assert_receive {:pause_containment_result, "repo#3293", ^generation, :contained}, 1000
+  end
+end

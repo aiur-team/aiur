@@ -1033,7 +1033,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~r/class="sd-key sd-log-key sd-live-key is-live is-selected"/,
            "the LIVE key must carry sd-live-key and be selected on entering logs mode"
 
-    css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+    {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
 
     for selector <- [
           ".sd-live-key {",

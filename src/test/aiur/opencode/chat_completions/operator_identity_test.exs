@@ -50,7 +50,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
         do: Application.put_env(:aiur, :decision_state_dir, previous_dir),
         else: Application.delete_env(:aiur, :decision_state_dir)
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{token: token}

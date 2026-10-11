@@ -9,9 +9,7 @@ defmodule Aiur.BuildOrder.GraphProjectionMembershipRecoveryTest do
   @repository {"owner", "repo"}
 
   setup_all do
-    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   for mode <- [:delivering, :unproven] do

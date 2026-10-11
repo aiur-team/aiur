@@ -28,7 +28,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
         value -> Application.put_env(:aiur, :log_file, value)
       end
 
-      File.rm_rf!(tmp)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     %{identifier: identifier, tmp: tmp}

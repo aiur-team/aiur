@@ -9,11 +9,11 @@ defmodule Aiur.RunTelemetry do
 
   alias Aiur.Config
   alias Aiur.LogFile
-  alias Aiur.RunTelemetry.Writer
+  alias Aiur.RunTelemetry.{CaptureGaps, Writer}
 
   @filename "telemetry.ndjson"
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
-  @schema_version 2
+  @schema_version 3
   @boot_state_key {__MODULE__, :boot_state}
   @telemetry_enabled_key {__MODULE__, :telemetry_enabled}
 
@@ -26,7 +26,13 @@ defmodule Aiur.RunTelemetry do
   def start_boot do
     enabled? = Config.telemetry_enabled?()
     :persistent_term.put(@telemetry_enabled_key, enabled?)
-    if enabled?, do: :persistent_term.put(@boot_state_key, new_boot_state())
+
+    if enabled? do
+      :persistent_term.put(@boot_state_key, new_boot_state())
+    else
+      CaptureGaps.record()
+    end
+
     :ok
   end
 

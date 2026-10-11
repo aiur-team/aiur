@@ -79,7 +79,7 @@ defmodule Aiur.RunTelemetryTaskTest do
     root = Aiur.TestSupport.tmp_root!("aiur-dashboard-task")
     output = Path.join(root, "result.html")
     missing = Path.join(root, "missing")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     message =
       capture_io(fn ->

@@ -182,7 +182,7 @@ defmodule Aiur.Prewarm.DetectTest do
       File.write!(path, content)
     end)
 
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     root
   end
 end
