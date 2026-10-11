@@ -4,17 +4,7 @@ defmodule Aiur.Workspace.Remote do
   alias Aiur.SSH
 
   @spec remote_shell_assign(String.t(), String.t()) :: String.t()
-  def remote_shell_assign(variable_name, raw_path)
-      when is_binary(variable_name) and is_binary(raw_path) do
-    [
-      "#{variable_name}=#{Aiur.Shell.escape(raw_path)}",
-      "case \"$#{variable_name}\" in",
-      "  '~') #{variable_name}=\"$HOME\" ;;",
-      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#\\~/}\" ;;",
-      "esac"
-    ]
-    |> Enum.join("\n")
-  end
+  defdelegate remote_shell_assign(variable_name, raw_path), to: Aiur.Shell, as: :remote_assign
 
   @spec run_remote_command(String.t(), String.t(), pos_integer()) ::
           {:ok, {String.t(), non_neg_integer()}} | {:error, term()}

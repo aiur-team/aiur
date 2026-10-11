@@ -176,9 +176,9 @@ focused test runner, test-tree paths and CI gate at each step.
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
    - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
-   - After committing and after every base integration, run the structural gate before marking the PR ready:
+   - After committing, before every push and after every base integration, run the structural gate — above all after creating, moving or splitting modules:
      `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
-     `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components).
+     `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components, bare receives, format, state-writer allowlist).
 
    When a change must touch an oversized text file (over 500 lines), keep that
    file the same length or shorter. Put new code in a new small module and new
@@ -213,7 +213,8 @@ focused test runner, test-tree paths and CI gate at each step.
    The structural gate shares Website / guards' prose/table rules and runs
    `check-components.py --require-elixir`. Split paragraphs over 360 characters
    and keep at most one sentence above tables; assign every new source file
-   a component owner. Install its toolchain once with
+   a component owner and list every new foreign `State` writer in
+   `src/test/support/state_writers_allowlist.exs`. Install its toolchain once with
    `npm ci --prefix scripts/components --ignore-scripts`; use a clean worktree.
 
    Do not loop on unrelated suite flakes. Use the target repository's required

@@ -22,6 +22,17 @@ defmodule Aiur.Orchestrator.TrackerTasks do
     if owner?(state), do: start(state, key, fetch, apply_result), else: apply_result.(state, fetch.())
   end
 
+  # Like `run/4`, but a job already running for `key` is followed by this one instead of
+  # absorbing it, so same-key work keeps its submission order.
+  @spec chain(State.t(), term(), (-> term()), (State.t(), term() -> State.t())) :: State.t()
+  def chain(state, key, fetch, apply_result) do
+    if owner?(state) and running?(state, key) do
+      retain_completion(state, key, fn current, _result -> chain(current, key, fetch, apply_result) end)
+    else
+      run(state, key, fetch, apply_result)
+    end
+  end
+
   @spec running?(State.t(), term()) :: boolean()
   def running?(state, key), do: Enum.any?(state.tracker_tasks, fn {_ref, job} -> job.key == key end)
 
