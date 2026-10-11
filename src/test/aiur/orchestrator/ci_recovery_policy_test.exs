@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
 
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.GithubCIPoller.Recovery
+  alias Aiur.GitHub.CIRecoveryStore
   alias Aiur.Issue
 
   setup do
@@ -79,12 +80,32 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
   end
 
   test "hourly limit applies across separate polls", ctx do
+    digest = fn _, _ ->
+      send(self(), :digest_built)
+      {:ok, %FailureDigest{flake_only: true, checks: [%{id: 1, name: "test", url: "https://github.com/owner/repo/actions/runs/99/job/1"}]}}
+    end
+
+    opts = ctx.opts |> Keyword.put(:ci_recovery_now, 1_000) |> Keyword.put(:ci_failure_digest, digest)
+
     for number <- 1..50 do
       issue = %{ctx.issue | id: "#{number}", identifier: "#{number}"}
-      Recovery.recover(issue, ctx.result, Keyword.put(ctx.opts, :ci_recovery_poll_id, make_ref()))
+      Recovery.recover(issue, ctx.result, Keyword.put(opts, :ci_recovery_poll_id, make_ref()))
     end
 
     assert length(Agent.get(ctx.state, & &1.posts)) == 20
+    for _ <- 1..50, do: assert_received(:digest_built)
+
+    for number <- 21..50 do
+      issue = %{ctx.issue | id: "#{number}", identifier: "#{number}"}
+      assert %{recovery: "rerun_limit"} = Recovery.recover(issue, ctx.result, Keyword.put(opts, :ci_recovery_poll_id, make_ref()))
+    end
+
+    refute_received :digest_built
+  end
+
+  test "rerun reservations admit a ticket atomically", ctx do
+    assert {:error, :ticket_exceeds_rerun_limit} = CIRecoveryStore.reserve_reruns(:poll, 2, 1, 20, ctx.opts)
+    assert :ok = CIRecoveryStore.reserve_reruns(:poll, 1, 1, 20, ctx.opts)
   end
 
   test "automatic reruns can be disabled without recovery reads", ctx do

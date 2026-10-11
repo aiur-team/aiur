@@ -383,11 +383,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp do_poll_github_ci(state, opts) do
-    launch_ci_poll(state, Keyword.put(opts, :ci_recovery_poll_id, make_ref()), &Function.identity/1, &TrackerTasks.run/4)
+    launch_ci_poll(state, opts, &Function.identity/1, &TrackerTasks.run/4)
   end
 
   defp launch_ci_poll(state, opts, continue, launch) do
-    cache = issue_list_cache(state)
+    [cache, opts] = [issue_list_cache(state), Keyword.put_new(opts, :ci_recovery_poll_id, make_ref())]
     invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
     baseline = state.ci_lifecycle
@@ -1238,7 +1238,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     result = Map.put(result, :ci_recovery_opts, opts)
 
     if ci_wait_state?(effective_ci_state(issue)) and
-         (result[:decision] == :failed or (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[ci_target_for_issue(issue)]))) and
+         (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
+            (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[ci_target_for_issue(issue)]))) and
          is_integer(result[:pr_number]) and not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue) do
       recovery = Keyword.get(opts, :ci_recovery, &GithubCIPoller.recover_failure/3)
 

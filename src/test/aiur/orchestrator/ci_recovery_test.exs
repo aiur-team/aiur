@@ -277,6 +277,43 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert length(writes(ctx)) == 1
   end
 
+  test "a cancelled verdict stays pending and raises one neutral skip attention", ctx do
+    setup_lifecycle(ctx)
+    cancelled = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    state = lifecycle_poll(empty_orchestrator_state(), %{ctx | result: cancelled}, ctx.issue)
+    assert state.ci_lifecycle.poll_cache["3864"].recovery == "rerun_skipped"
+    assert_received {:attention, "ticket.3864.pr.ci_recovery.rerun_skipped", details}
+    assert details[:message] =~ "cancelled_run"
+    refute Enum.any?(requests(ctx), &(&1.method == :post))
+
+    state = lifecycle_poll(state, %{ctx | result: cancelled}, ctx.issue)
+    assert state.ci_lifecycle.poll_cache["3864"].recovery == "rerun_skipped"
+    refute_received {:attention, _, _}
+  end
+
+  test "scheduled CI polls get distinct rerun admission ids", ctx do
+    setup_lifecycle(ctx)
+    recipient = self()
+
+    opts =
+      ctx.opts ++
+        [
+          ci_issue_fetcher: fn _states -> {:ok, [ctx.issue]} end,
+          ci_poller: fn _targets, poll_opts ->
+            send(recipient, {:ci_recovery_poll_id, Keyword.fetch!(poll_opts, :ci_recovery_poll_id)})
+            {:ok, %{results: [], errors: []}}
+          end
+        ]
+
+    CiLifecycle.start_poll(empty_orchestrator_state(), &Function.identity/1, opts)
+    CiLifecycle.start_poll(empty_orchestrator_state(), &Function.identity/1, opts)
+    assert_receive {:ci_recovery_poll_id, first}, 1_000
+    assert_receive {:ci_recovery_poll_id, second}, 1_000
+    assert is_reference(first)
+    assert is_reference(second)
+    refute first == second
+  end
+
   test "pending CI observations retain recovery and suppress fallback wakes", ctx do
     setup_lifecycle(ctx)
     Agent.update(ctx.agent, &%{&1 | advance: false})
