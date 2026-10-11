@@ -35,6 +35,9 @@ defmodule Aiur.ControlCLI.Reasons do
   def format_reason({:state_concurrency_limit_reached, state}),
     do: "state concurrency limit reached for #{state}"
 
+  def format_reason({:optimistic_share, %{running: running, cap: cap}}),
+    do: "optimistic share full (#{running}/#{cap})"
+
   def format_reason({:blocked_on_decision, %{decision_ids: [_ | _] = ids}}),
     do: "ticket is held by open blocking decision #{Enum.join(ids, ", ")}; answer it (see `aiurdev commands`), then resume"
 
