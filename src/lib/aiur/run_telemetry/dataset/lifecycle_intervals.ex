@@ -26,6 +26,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
          %{
            ticket: ticket,
            complexity: dispatch_complexity(ticket_events),
+           pr_facts: pr_facts(ticket_events),
            events: ticket_events,
            intervals: lifecycle_intervals(ticket_events),
            findings: Map.get(findings_by_ticket, ticket, [])
@@ -33,6 +34,12 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
       end)
 
     {tickets, findings}
+  end
+
+  @doc false
+  @spec pr_facts([map()]) :: map() | nil
+  def pr_facts(events) do
+    events |> Enum.reverse() |> Enum.find_value(fn event -> if event.event == "pr_facts", do: event.pr_facts end)
   end
 
   defp lifecycle_event(record) do
@@ -44,6 +51,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
       [
         %{
           ticket: ticket,
+          pr_facts: if(event == "pr_facts", do: attributes),
           event: event,
           boundary: boundary,
           attempt_id: Map.get(attributes, "attempt_id"),

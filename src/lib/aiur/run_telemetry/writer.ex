@@ -26,8 +26,7 @@ defmodule Aiur.RunTelemetry.Writer do
 
   alias Aiur.Events.Exchange
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.RunTelemetry.{Retention, Summaries}
+  alias Aiur.RunTelemetry.{FactsCapture, Lifecycle, Retention, Summaries}
   alias Aiur.RunTelemetry.Writer.Encoding
   alias Aiur.RunTelemetry.Writer.Retention, as: WriterRetention
 
@@ -70,6 +69,14 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   def record(_server, _kind, _attributes, _opts), do: :ok
+
+  @doc false
+  @spec record_sync(server(), atom(), map(), keyword()) :: :ok | {:error, term()}
+  def record_sync(server, kind, attributes, opts) do
+    GenServer.call(server, {:record_sync, kind, attributes, Keyword.get(opts, :timestamp, DateTime.utc_now())})
+  catch
+    :exit, _ -> {:error, :writer_unavailable}
+  end
 
   @doc false
   @spec record_batch(server(), [{atom() | String.t(), map()}], keyword()) :: :ok
@@ -115,7 +122,8 @@ defmodule Aiur.RunTelemetry.Writer do
       bytes_since_prune: 0,
       prune_interval_bytes: WriterRetention.prune_interval(retention),
       open_lifecycles: %{},
-      carried_points: %{}
+      carried_points: %{},
+      facts_observer: Keyword.get(opts, :facts_observer, &FactsCapture.observe/1)
     }
 
     Process.put(@admission_key, :atomics.new(3, signed: false))
@@ -151,6 +159,12 @@ defmodule Aiur.RunTelemetry.Writer do
 
   @impl true
   def handle_call(:flush, _from, state), do: {:reply, :ok, state}
+
+  def handle_call({:record_sync, kind, attributes, timestamp}, _from, state) do
+    state = append(state, kind, attributes, timestamp)
+    result = if state.write_warning_emitted, do: {:error, :append_failed}, else: :ok
+    {:reply, result, state}
+  end
 
   # Best-effort shutdown materialization: write the final per-boot run summary
   # and any build rollups so the dashboard can serve prior boots without a raw
@@ -194,6 +208,11 @@ defmodule Aiur.RunTelemetry.Writer do
           carried_points: Encoding.track_carried_points(state.carried_points, encoded_records),
           write_warning_emitted: false
       }
+
+      Enum.each(encoded_records, fn
+        {kind, attributes, _} when kind in [:lifecycle, "lifecycle"] -> state.facts_observer.(attributes)
+        _ -> :ok
+      end)
 
       WriterRetention.maybe_prune(state)
     else

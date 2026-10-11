@@ -13,11 +13,31 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   @events ~w(
     dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
-    pr_opened pr_merged review_pause comment_received rework_start
+    pr_opened pr_merged pr_facts review_pause comment_received rework_start
     agent_pause agent_resume
   )
   @boundaries ~w(start end point)
   @metadata_fields [
+    :coverage,
+    :pr_created_at,
+    :pr_ready_at,
+    :first_review_at,
+    :first_review_state,
+    :first_approval_at,
+    :merged_at,
+    :review_count,
+    :commented_count,
+    :changes_requested_count,
+    :approval_count,
+    :dismissed_count,
+    :reviewers_distinct,
+    :reviewer_classes,
+    :additions,
+    :deletions,
+    :changed_files,
+    :commit_count,
+    :merge_commit_sha,
+    :epic,
     :outcome,
     :cause,
     :operation_id,
@@ -90,6 +110,17 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   def record(_ticket, _attempt_id, _event, _boundary, _metadata, _opts), do: :ok
+
+  @doc false
+  @spec terminal_capture(Aiur.TrackerIdentity.t(), atom()) :: :ok
+  defdelegate terminal_capture(identity, lifecycle), to: Aiur.RunTelemetry.FactsCapture, as: :terminal
+
+  @doc false
+  @spec facts_attributes(String.t(), map()) :: map()
+  def facts_attributes(ticket, facts) do
+    source_id = {Map.get(facts, :pr_number) || Map.get(facts, "pr_number"), Map.get(facts, :merged_at) || Map.get(facts, "merged_at"), Map.get(facts, :coverage) || Map.get(facts, "coverage")}
+    attributes(ticket, nil, "pr_facts", "point", Map.put(facts, :source_id, event_key(source_id)))
+  end
 
   @doc false
   @spec reason_class(term()) :: String.t()

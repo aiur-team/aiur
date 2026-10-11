@@ -222,7 +222,7 @@ defmodule Aiur.RunTelemetry.Dataset do
         []
 
       events ->
-        [{id, Map.merge(ticket, %{events: events, intervals: LifecycleIntervals.lifecycle_intervals(events)})}]
+        [{id, Map.merge(ticket, %{events: events, pr_facts: LifecycleIntervals.pr_facts(events), intervals: LifecycleIntervals.lifecycle_intervals(events)})}]
     end
   end
 

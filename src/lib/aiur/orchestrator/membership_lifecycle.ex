@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   alias Aiur.{Alerts, CurrentRunMembership, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.State
+  alias Aiur.RunTelemetry.Lifecycle
 
   @membership_observe_timeout 5_000
   @terminal_verification_attempt_limit 5
@@ -54,6 +55,8 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   @doc false
   @spec observe(TrackerIdentity.t(), atom()) :: :ok | {:error, :membership_observation_failed}
   def observe(identity, lifecycle) do
+    Lifecycle.terminal_capture(identity, lifecycle)
+
     case CurrentRunMembership.observe(identity, lifecycle,
            source: :tracker,
            timeout: @membership_observe_timeout
