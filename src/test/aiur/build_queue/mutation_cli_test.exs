@@ -59,7 +59,6 @@ defmodule Aiur.BuildQueue.MutationCLITest do
          claim_probe: Boundary,
          settings: {:ok, settings},
          clock: fn -> 1_000 end,
-         sleep: fn _ -> :ok end,
          schedule: fn target, message, _ ->
            send(owner, {:scheduled, target, message})
            make_ref()
@@ -133,7 +132,6 @@ defmodule Aiur.BuildQueue.MutationCLITest do
          claim_probe: Boundary,
          settings: {:ok, settings},
          clock: fn -> 1_000 end,
-         sleep: fn _ -> :ok end,
          schedule: fn _, _, _ -> make_ref() end,
          exchange: :absent_mutation_exchange}
       )

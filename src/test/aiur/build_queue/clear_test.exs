@@ -197,7 +197,6 @@ defmodule Aiur.BuildQueue.ClearTest do
          claim_probe: Boundary,
          settings: {:ok, settings},
          clock: fn -> Agent.get(Boundary, & &1.now) end,
-         sleep: fn _ -> :ok end,
          schedule: fn target, message, _ ->
            send(owner, {:scheduled, target, message})
            make_ref()
