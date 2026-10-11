@@ -1,6 +1,5 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
-
   alias Aiur.{AgentQueueStore, CIApprovalStore, ExecutorListener, ExecutorWakeInbox, Orchestrator, PollCadence, TestSupport.WakeInboxAck, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
@@ -9,14 +8,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
   defmodule RecordingGitHubClient do
     alias Aiur.GitHub.IssueState
-
     @recipient_key {__MODULE__, :recipient}
     @update_result_key {__MODULE__, :update_result}
     @issues_key {__MODULE__, :issues}
     @request_key {__MODULE__, :request}
-
     def request_with(fun), do: Process.put(@request_key, fun)
-
     def record_to(pid), do: Process.put(@recipient_key, pid)
     def return(result), do: Process.put(@update_result_key, result)
     def return_issues(issues), do: Process.put(@issues_key, issues)
@@ -286,10 +282,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       next = poll_ci(state, issue, %{delivered: true, head_sha: "head-77", pr_number: 77})
 
-      # A target the batch displaced because a webhook delivery answered it
-      # must not move state and must not cache a projection: the real verdict
-      # comes from the next non-displaced read (R10 — a CI verdict is never
-      # answered from a held body at any age).
+      # A webhook-displaced verdict cannot move state or cache a projection.
+      # Wait for a non-displaced read; held bodies never answer CI (R10).
       assert next.ci_lifecycle.poll_cache == %{}
       assert next.claimed == MapSet.new()
     end
@@ -479,12 +473,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         })
 
       sync_recorder(recorder)
-
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
       refute_received {:recorded, 2, _message}
 
-      # The OCC-5 CI/PR projection still caches even when the tracker write
-      # itself fails and the transition is left untouched.
+      # Cache the CI projection even when the tracker write fails.
       assert next.running == state.running
 
       assert next.ci_lifecycle.poll_cache == %{
@@ -493,7 +485,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                  pr_number: 941,
                  head_sha: "failed-head",
                  draft?: false,
-                 review_decision: nil
+                 review_decision: nil,
+                 recovery: nil,
+                 failures: [%{name: "lint", result: "failure", excerpt: "failed"}],
+                 tracker_state: "ci-wait"
                }
              }
 
@@ -726,8 +721,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(state, issue, result, alert_emitter: emitter)
       sync_recorder(recorder)
 
-      # Approved + green + draft is always wrong: the daemon alerts so the
-      # stall is loud instead of an indistinguishable BLOCKED.
+      # Alert on approved + green + draft so the stall cannot hide as BLOCKED.
       assert_received {:parked_alert, ^ref, ^alert_topic, alert_opts}
       assert Keyword.get(alert_opts, :needs_attention) == true
 
@@ -738,7 +732,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                  pr_number: 941,
                  head_sha: "stalled-head",
                  draft?: true,
-                 review_decision: "APPROVED"
+                 review_decision: "APPROVED",
+                 recovery: nil,
+                 failures: [],
+                 tracker_state: "human-review"
                }
              }
 
@@ -1074,7 +1071,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                  pr_number: nil,
                  head_sha: "same-head",
                  draft?: false,
-                 review_decision: nil
+                 review_decision: nil,
+                 recovery: nil,
+                 failures: [],
+                 tracker_state: "ci-wait"
                }
              }
 
@@ -1891,8 +1891,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         state,
         Keyword.merge(
           [
-            # Hermetic: parked-ready restart dedupe seeds from the durable
-            # alert ledger; tests never read the real ledger.
+            # Hermetic digest and alert ledger; recovery behavior has its own tests.
+            ci_failure_digest: fn _, _ -> {:ok, %Aiur.CI.FailureDigest{}} end,
             parked_ready_alert_loader: fn -> MapSet.new() end,
             draft_stall_alert_loader: fn -> MapSet.new() end,
             ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,

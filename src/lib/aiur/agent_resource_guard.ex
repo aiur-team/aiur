@@ -119,6 +119,45 @@ defmodule Aiur.AgentResourceGuard do
   end
 
   @doc false
+  @spec reap_orphaned_build_gate_holders(keyword()) :: [pos_integer()]
+  def reap_orphaned_build_gate_holders(opts \\ []) do
+    find_fun = Keyword.get(opts, :orphan_holders_fun, &orphaned_build_gate_holders/0)
+    kill_fun = Keyword.get(opts, :orphan_kill_fun, &ProcessTree.reap_process/2)
+
+    for {pid, identity} <- find_fun.() do
+      _ = kill_fun.(pid, identity)
+      Logger.warning("agent_resource_guard reaped_orphaned_build_gate_holder pid=#{pid}")
+      pid
+    end
+  end
+
+  # Leaked holders lock test temp dirs, never the daemon's gate root, so they are
+  # matched by script shape and a vanished lock path, not by location (#4183).
+  @doc false
+  @spec orphaned_build_gate_holders(Path.t(), (pos_integer() -> {:ok, term()} | :gone | :unknown)) ::
+          [{pos_integer(), term()}]
+  def orphaned_build_gate_holders(proc_dir \\ "/proc", identity_fun \\ &ProcessTree.process_identity/1) do
+    case File.ls(proc_dir) do
+      {:ok, entries} ->
+        for entry <- entries,
+            {pid, ""} <- [Integer.parse(entry)],
+            proc_entry = Path.join(proc_dir, entry),
+            {:ok, "bash\n"} <- [File.read(Path.join(proc_entry, "comm"))],
+            # Identity is captured before argv is read, so a recycled pid fails the reap.
+            {:ok, identity} <- [identity_fun.(pid)],
+            {:ok, cmdline} <- [File.read(Path.join(proc_entry, "cmdline"))],
+            lock_path = holder_lock_path(cmdline),
+            is_binary(lock_path),
+            not File.exists?(lock_path) do
+          {pid, identity}
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  @doc false
   @spec agent_root_pids([{term(), term(), term()}]) :: [pos_integer()]
   def agent_root_pids(entries) when is_list(entries) do
     entries
@@ -183,6 +222,7 @@ defmodule Aiur.AgentResourceGuard do
   # still sampled on every tick.
   defp refresh_orphans(%{ticks_to_scan: 0} = state) do
     orphans_fun = Keyword.get(state.enforce_opts, :orphans_fun, &configured_workspace_orphans/0)
+    reap_orphaned_build_gate_holders(state.enforce_opts)
     %{state | orphans: orphans_fun.(), ticks_to_scan: @orphan_scan_every_ticks - 1}
   end
 
@@ -293,6 +333,17 @@ defmodule Aiur.AgentResourceGuard do
     case File.read_link(Path.join(["/proc", Integer.to_string(pid), "cwd"])) do
       {:ok, cwd} -> cwd
       _ -> nil
+    end
+  end
+
+  defp holder_lock_path(cmdline) do
+    case String.split(cmdline, <<0>>, trim: true) do
+      [bash, "-c", script, "build-gate-holder", lock_path | _rest] ->
+        if Path.basename(bash) == "bash" and String.contains?(script, "flock 8") and String.contains?(script, "sleep 0.05"),
+          do: lock_path
+
+      _ ->
+        nil
     end
   end
 
