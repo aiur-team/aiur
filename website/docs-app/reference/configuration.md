@@ -46,12 +46,9 @@ watch actionable section. The alerts are advisory takeover prompts — they neve
 open_pr_created_at)`:
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon
-  state, set once the first time the monitor observes the ticket as nonterminal
-  and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon
-  restart never resets it.
+  state, set once the first time the monitor observes the ticket as nonterminal and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon restart never resets it.
 - `open_pr_created_at` is the creation time of the ticket's open PR (a floor,
-  so an already-open PR is never hidden by a freshly installed or restarted
-  monitor).
+  so an already-open PR is never hidden by a freshly installed or restarted monitor).
 
 The alert carries actionable evidence.
 

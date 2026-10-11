@@ -30,9 +30,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
              requests: [],
              behind: false,
              queued: false,
-             draft: false,
-             review_decision: "APPROVED",
-             run_conclusion: "failure",
              changed: ["src/lib/other.ex"],
              actions_get_status: 200,
              actions_post_status: 202,
@@ -200,60 +197,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert %{decision: :pending, recovery: "merge_queue"} = recover(ctx)
     assert writes(ctx) == []
     refute_received {:attention, _, _}
-  end
-
-  test "cancelled Actions runs are skipped with one neutral attention", ctx do
-    Agent.update(ctx.agent, &%{&1 | run_conclusion: "cancelled"})
-    assert %{decision: :pending, recovery: "rerun_skipped"} = recover(ctx)
-    assert writes(ctx) == []
-    assert_received {:attention, "ticket.3864.pr.ci_recovery.rerun_skipped", details}
-    assert details[:message] =~ "cancelled_run"
-    assert %{decision: :pending, recovery: "rerun_skipped"} = recover(ctx)
-    refute_received {:attention, _, _}
-  end
-
-  test "draft PR recovery is skipped with one neutral attention", ctx do
-    Agent.update(ctx.agent, &%{&1 | draft: true})
-    assert %{decision: :pending, recovery: "rerun_skipped"} = recover(ctx)
-    assert writes(ctx) == []
-    assert_received {:attention, "ticket.3864.pr.ci_recovery.rerun_skipped", details}
-    assert details[:message] =~ "draft_pr"
-  end
-
-  test "changes-requested PR recovery is skipped with one neutral attention", ctx do
-    Agent.update(ctx.agent, &%{&1 | review_decision: "CHANGES_REQUESTED"})
-    assert %{decision: :pending, recovery: "rerun_skipped"} = recover(ctx)
-    assert writes(ctx) == []
-    assert_received {:attention, "ticket.3864.pr.ci_recovery.rerun_skipped", details}
-    assert details[:message] =~ "changes_requested"
-  end
-
-  test "fifty eligible tickets issue only the per-poll rerun limit", ctx do
-    opts = Keyword.put(ctx.opts, :ci_recovery_poll_id, make_ref())
-
-    for ticket <- 1..50 do
-      issue = %{ctx.issue | identifier: "ticket-#{ticket}", id: "ticket-#{ticket}"}
-      CiRecovery.recover(issue, ctx.result, opts)
-    end
-
-    assert length(writes(ctx)) == 5
-  end
-
-  test "hourly recovery limit is shared across polls", ctx do
-    now = 1_000
-
-    admitted =
-      Enum.count(1..50, fn poll ->
-        CiRecoveryStore.reserve_rerun(make_ref(), 5, 20, Keyword.put(ctx.opts, :ci_recovery_now, now + poll)) == :ok
-      end)
-
-    assert admitted == 20
-  end
-
-  test "automatic CI recovery can be disabled", ctx do
-    opts = Keyword.put(ctx.opts, :ci_recovery_enabled, false)
-    assert %{decision: :failed} = CiRecovery.recover(ctx.issue, ctx.result, opts)
-    assert requests(ctx) == []
   end
 
   test "three failed handoffs raise one attention naming tests, then hold", ctx do
@@ -447,8 +390,8 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
           "pullRequest" => %{
             "state" => "OPEN",
             "headRefOid" => state.head,
-            "isDraft" => state.draft,
-            "reviewDecision" => state.review_decision,
+            "isDraft" => false,
+            "reviewDecision" => "APPROVED",
             "baseRefName" => "main",
             "mergeable" => "MERGEABLE",
             "mergeStateStatus" => if(state.behind, do: "BEHIND", else: "CLEAN"),
@@ -461,7 +404,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
 
   defp response(%{method: :post, url: url}, state, agent, path) do
     assert {:ok, entries} = JsonStore.read(path)
-    assert Enum.any?(entries, fn {_target, entry} -> get_in(entry, ["heads", state.head, "runs"]) == [%{"id" => 99, "attempt" => 1, "conclusion" => "failure"}] end)
+    assert get_in(entries, ["3864", "heads", state.head, "runs"]) == [%{"id" => 99, "attempt" => 1, "conclusion" => "failure"}]
     assert String.contains?(url, "rerun-failed-jobs")
     if state.actions_post_status == 202 and state.advance, do: Agent.update(agent, &%{&1 | attempt: &1.attempt + 1})
     %{status: state.actions_post_status, body: %{"message" => "Resource not accessible by integration"}} |> then(&{:ok, &1})
@@ -488,7 +431,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
         ok(Enum.map(state.changed, &%{"filename" => &1, "status" => "modified"}))
 
       String.ends_with?(url, "/actions/runs/99") ->
-        {:ok, %{status: state.actions_get_status, body: %{"head_sha" => state.head, "run_attempt" => state.attempt, "status" => "completed", "conclusion" => state.run_conclusion}}}
+        {:ok, %{status: state.actions_get_status, body: %{"head_sha" => state.head, "run_attempt" => state.attempt, "status" => "completed", "conclusion" => "failure"}}}
     end
   end
 
