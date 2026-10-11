@@ -1,6 +1,28 @@
 defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   use AiurWeb.BuildOrder.PlanningSourceCase
 
+  alias Aiur.GitHub.ResourceStore
+
+  test "root progress includes published members across every Build Order in the pack" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    tickets = for id <- ["T-1", "T-2", "T-3", "T-4"], do: %{"id" => id, "title" => id, "lane" => "core", "phase" => 1, "depends_on" => [], "ticket" => nil, "doc" => "tickets/#{id}.md"}
+    File.write!(path, Jason.encode!(%{"build_order_id" => "acme/widgets:demo", "title" => "Demo Plan", "repository" => "acme/widgets", "completed" => false, "tickets" => tickets}))
+
+    seed_order(9000, "closed", "completed", [9010, 9011])
+    seed_order(9001, "open", nil, [9012, 9013])
+    seed_member(9010, "T-1", "closed", "completed", 0)
+    seed_member(9011, "T-2", "closed", "completed", 0)
+    seed_member(9012, "T-3", "closed", "completed", 1)
+    seed_member(9013, "T-4", "open", nil, 1)
+
+    [root] = PlanningSource.catalog().data.entries
+
+    assert root.member_count == 4
+    assert root.progress == 75
+    assert root.progress_resolution == :resolved
+    assert root.progress_resolved_count == 4
+  end
+
   test "full draft IDs retain distinct identities and dependency edges including T00" do
     path = Application.fetch_env!(:aiur, :build_order_planning_pack)
     pack = Jason.decode!(@pack)
@@ -140,7 +162,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     [root] = PlanningSource.catalog().data.entries
     assert root.icon == "bolt"
     assert root.progress == 50
-    assert root.progress_resolution == :resolved
+    assert root.progress_resolution == :partial
+    assert root.progress_resolved_count == 1
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -217,5 +240,31 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert model.status == :ready
     assert [%{url: nil, state: :unknown}] = model.edges
     refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
+  end
+
+  defp seed_order(number, state, reason, members) do
+    seed_resource(:issue, number, %{
+      "number" => number,
+      "title" => "Build Order #{number}",
+      "body" => "- Build Order id: `acme/widgets:demo`",
+      "state" => state,
+      "state_reason" => reason
+    })
+
+    seed_resource(:issue_labels, number, [%{"name" => "build-order"}])
+
+    Enum.each(members, fn member ->
+      seed_resource(:sub_issue, "#{number}:#{member}", %{"present" => true, "parent_issue_number" => number, "sub_issue_number" => member})
+    end)
+  end
+
+  defp seed_member(number, ticket_id, state, reason, phase) do
+    body = "Build Order member: `#{ticket_id}` (acme/widgets:demo, wave #{phase} / phase #{phase}, lane `core`)"
+    seed_resource(:issue, number, %{"number" => number, "title" => ticket_id, "body" => body, "state" => state, "state_reason" => reason})
+  end
+
+  defp seed_resource(type, id, data) do
+    key = ResourceStore.key_for_repo(type, "acme/widgets", id)
+    ResourceStore.put_resource(key, data, source: :webhook, version: "2026-10-11T12:00:00Z")
   end
 end

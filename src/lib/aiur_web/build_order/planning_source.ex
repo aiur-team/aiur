@@ -23,10 +23,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, Metadata, PackStatus, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, CatalogStore, Dependency, Lifecycle, Member, Metadata, PackStatus, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
   alias Aiur.DisplaySanitizer
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
@@ -191,9 +192,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
 
   defp progress(%{tickets: tickets} = pack, membership) do
-    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership))
+    live_lifecycles = live_pack_lifecycles(pack)
+    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership, live_lifecycles))
     resolved_count = length(resolved)
-    completed_count = Enum.count(resolved, &completed?(&1, pack, membership))
+    completed_count = Enum.count(resolved, &completed?(&1, pack, membership, live_lifecycles))
 
     cond do
       resolved_count == 0 ->
@@ -206,6 +208,65 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %{percent: round(completed_count / length(tickets) * 100), resolution: :partial, resolved_count: resolved_count}
     end
   end
+
+  defp live_pack_lifecycles(%{repository: {owner, repo}, build_order_id: build_order_id, tickets: tickets}) do
+    issues =
+      ResourceStore.list(:issue, owner, repo)
+      |> Enum.reduce(%{}, fn {_key, entry}, acc ->
+        case Map.get(entry, :data) do
+          %{"number" => number} = issue when is_integer(number) -> Map.put(acc, number, issue)
+          _other -> acc
+        end
+      end)
+
+    root_numbers =
+      ResourceStore.list(:issue_labels, owner, repo)
+      |> Enum.flat_map(&matching_order_number(&1, issues, build_order_id))
+
+    members = CatalogStore.member_numbers({owner, repo})
+    ticket_ids = MapSet.new(tickets, & &1.id)
+
+    root_numbers
+    |> Enum.flat_map(&Map.get(members, &1, []))
+    |> Enum.uniq()
+    |> Enum.reduce(%{}, fn number, acc ->
+      case issue_member(Map.get(issues, number), build_order_id, ticket_ids) do
+        {ticket_id, %Lifecycle{} = lifecycle} -> Map.put(acc, ticket_id, lifecycle)
+        nil -> acc
+      end
+    end)
+  end
+
+  defp matching_order_number({{:issue_labels, _owner, _repo, id}, entry}, issues, build_order_id) do
+    number = parse_issue_number(id)
+    labels = issue_label_names(Map.get(entry, :data))
+
+    if is_integer(number) and "build-order" in labels and order_id?(Map.get(issues, number), build_order_id),
+      do: [number],
+      else: []
+  end
+
+  defp matching_order_number(_entry, _issues, _build_order_id), do: []
+
+  defp order_id?(%{"body" => body}, build_order_id) when is_binary(body),
+    do: String.contains?(body, "Build Order id: `#{build_order_id}`")
+
+  defp order_id?(_issue, _build_order_id), do: false
+
+  defp issue_member(%{"body" => body} = issue, build_order_id, ticket_ids) when is_binary(body) do
+    with [_, suffix] <- String.split(body, "Build Order member: `", parts: 2),
+         [ticket_id, metadata] <- String.split(suffix, "`", parts: 2),
+         true <- MapSet.member?(ticket_ids, ticket_id),
+         true <- String.starts_with?(metadata, " (#{build_order_id}, "),
+         lifecycle <- Lifecycle.from_github(Map.get(issue, "state"), Map.get(issue, "state_reason")),
+         true <- Lifecycle.valid?(lifecycle) do
+      {ticket_id, lifecycle}
+    else
+      _unmatched -> nil
+    end
+  end
+
+  defp issue_member(_issue, _build_order_id, _ticket_ids), do: nil
 
   defp members(pack, membership) do
     ids = MapSet.new(pack.tickets, & &1.id)
@@ -296,19 +357,54 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp completed?(ticket, pack, membership) do
+  defp completed?(ticket, pack, membership, live_lifecycles) do
     match?(
       {"CLOSED", "COMPLETED"},
-      lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership)
+      progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership, live_lifecycles)
     )
   end
 
-  defp completion_known?(%{number: nil}, _pack, _membership), do: true
-  defp completion_known?(_ticket, %{completed: true}, _membership), do: true
-
-  defp completion_known?(ticket, pack, membership) do
-    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
+  defp completion_known?(ticket, pack, membership, live_lifecycles) do
+    progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership, live_lifecycles) != {:unknown, :unknown}
   end
+
+  defp progress_lifecycle(%{number: nil} = ticket, _identity, _pack, _membership, live_lifecycles) do
+    case Map.get(live_lifecycles, ticket.id) do
+      %Lifecycle{} = lifecycle -> lifecycle_tuple(lifecycle)
+      nil -> {:unknown, :unknown}
+    end
+  end
+
+  defp progress_lifecycle(ticket, identity, pack, membership, live_lifecycles) do
+    case lifecycle(ticket, identity, pack, membership) do
+      {:unknown, :unknown} ->
+        case Map.get(live_lifecycles, ticket.id) do
+          %Lifecycle{} = live -> lifecycle_tuple(live)
+          nil -> {:unknown, :unknown}
+        end
+
+      known ->
+        known
+    end
+  end
+
+  defp lifecycle_tuple(%Lifecycle{state: :closed, state_reason: :completed}), do: {"CLOSED", "COMPLETED"}
+  defp lifecycle_tuple(%Lifecycle{state: :closed}), do: {"CLOSED", "NOT_PLANNED"}
+  defp lifecycle_tuple(%Lifecycle{state: :open}), do: {"OPEN", nil}
+
+  defp parse_issue_number(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_issue_number(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> number
+      _invalid -> nil
+    end
+  end
+
+  defp parse_issue_number(_value), do: nil
+
+  defp issue_label_names(labels) when is_list(labels), do: Enum.map(labels, &Map.get(&1, "name"))
+  defp issue_label_names(_labels), do: []
 
   defp membership_lifecycle(identity, %{members: members} = membership) when is_list(members) do
     if membership_current?(membership) do
