@@ -38,6 +38,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
+  alias Aiur.WorkflowStore.ReloadRejection
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -96,10 +97,9 @@ defmodule Aiur.AgentControlCLI do
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
-  # `aiur watch` remembers the last board it reported (per-row signature) in a
-  # node-local persistent term so `--changes` can print only state-level deltas
-  # across one-shot RPC invocations. Updated at Executor cadence (minutes), so
-  # the persistent_term churn is negligible.
+  # `aiur watch` remembers the last board it reported (per-row signature) in a node-local persistent term so
+  # `--changes` can print only state-level deltas across one-shot RPC invocations. Updated at Executor cadence
+  # (minutes), so the persistent_term churn is negligible.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
@@ -198,11 +198,11 @@ defmodule Aiur.AgentControlCLI do
     print_executor_wake_status()
     Commands.print_projection_status()
     print_codeowners_trust()
+    ReloadRejection.print_status()
     Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
-    # Count from the rows that are actually printed. Counting the unfiltered
-    # `statuses` included hidden rows and inflated released claims (#1475).
+    # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
     released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))

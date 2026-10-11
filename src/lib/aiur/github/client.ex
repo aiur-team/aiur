@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.Client do
   alias Aiur.GitHub.{
     AuthPreflight,
     Comments,
+    CompareStatus,
     CycleFetchCache,
     DependenciesApi,
     Errors,
@@ -324,6 +325,10 @@ defmodule Aiur.GitHub.Client do
           {:ok, [{String.t(), String.t()}]} | {:error, term()}
   def fetch_compare_files(base_sha, head_sha, opts \\ []),
     do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
+
+  @spec fetch_compare_status(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def fetch_compare_status(base_sha, head_sha, opts \\ []),
+    do: CompareStatus.fetch(base_sha, head_sha, opts)
 
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}

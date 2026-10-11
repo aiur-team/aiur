@@ -415,14 +415,14 @@ A notification monitor must use that `<repo>` prefix (for example,
 `khala.executor.wakes.ndjson`), check that the wake file exists before declaring
 itself armed, and never substitute the `aiur` prefix in a consumer repository.
 
-A `tail -F -n0` follower is a low-latency notification aid only. It skips the
-existing prefix, may filter wake classes, has no consumer identity or lease,
-and never advances the durable cursor.
+A `tail -F -n0` follower is a notification aid only: it has no consumer identity or lease and never advances the durable cursor.
+Each trim renames a new file into place and `tail -F` re-emits it from the top, so print only a `wake_id` above the last one seen, seeded from the file's last `wake_id` at arm time.
+The `aiur-run` monitor command does this.
 
 `executor-wait` is the normal discovery and consumption path. Use
 `executor-fast-forward` only after independently verifying the exact prefix
-already covered. The 10,000-record bound remains an emergency disk bound, not
-evidence of consumption.
+already covered. The 10,000-record bound remains an emergency disk bound, not evidence of consumption.
+Exceeding it trims the journal to the newest 8,000 records, consumed first: one rewrite per 2,000 wakes.
 
 `AIUR_EXECUTOR_ID` names this consumer when `--as` is omitted. Nothing infers consumer identity from the terminal, parent process, or any other environment signal.
 

@@ -347,21 +347,21 @@ if [ ! -f "$wake_path" ]; then
   printf 'aiur: wake monitor not armed: expected wake stream is absent: %s\n' "$wake_path" >&2
   exit 1
 fi
-
+last="$(tail -n1 "$wake_path" | jq -s 'last.wake_id // 0')"
 tail -F -n0 "$wake_path" \
-  | jq -rc --unbuffered 'select((.topic_class // "") | test("allowed_contributor|branch\\.push|pr\\.ready_for_review|pr\\.opened|agent\\.handoff\\.human_review|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
+  | jq -rcn --unbuffered --argjson last "${last:-0}" 'foreach inputs as $w ({last: $last}; {last: ([.last, $w.wake_id] | max), new: ($w.wake_id > .last)}; select(.new) | $w) | select((.topic_class // "") | test("allowed_contributor|branch\\.push|pr\\.ready_for_review|pr\\.opened|agent\\.handoff\\.human_review|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
 ```
 
 Each detail is a trap someone already hit: `tail -F` (follow by name), not
 `-f`, because the file is rotated; `-n0` so arming does not replay the whole
-backlog as notifications; `jq --unbuffered -rc`, because without `--unbuffered`
-events sit in jq's buffer and never arrive. The existence check makes a wrong
-repository or uninitialized state node fail visibly instead of silently
-following a nonexistent filename. The filter must cover **failure**
-signals (`ci.failed`, `agent.attention`, `retry_exhausted`,
-`tokens_exhausted`, `connectivity_lost`), not only progress — a monitor that
-matches success alone is silent through a crashloop, and silence is
-indistinguishable from "nothing happening".
+backlog as notifications; `jq --unbuffered`, or events sit in jq's buffer and
+never arrive. **Dedupe by `wake_id`**, seeded from the file's last `wake_id` at
+arm time: past its 10,000-record cap the daemon trims the journal to 8,000 by
+renaming a new file into place, and `tail -F` re-emits a renamed file from the
+top. Unseeded, a trim right after arming still replays all of it (#4166). The
+existence check makes a wrong repository or uninitialized state node fail
+visibly. The filter must cover **failure** signals (`ci.failed`,
+`agent.attention`, `retry_exhausted`, `tokens_exhausted`, `connectivity_lost`).
 
 The tail is notification-only. It does **not** advance the durable cursor and
 cannot substitute for `executor-wait`: `-n0` skips the existing prefix, the
@@ -1217,7 +1217,7 @@ If a current human approval and green checks still leave a PR `BLOCKED` and
 `REVIEW_REQUIRED`, follow `references/executor.md`: after the first ordinary
 merge refusal, read the failed rule suite with the operator-only credential and
 emit GitHub's exact active-rule detail as a `merge.rule-violation` alert. Do not
-use `--admin` as a diagnostic probe.
+use `--admin` as a diagnostic probe. Before every merge run `scripts/check-stack-order.sh <pr> <owner/repo> --repo-dir <clone>` (`references/merge-order-gate.md`); any exit other than 0 means do not merge.
 
 The declaration requires every blocking CI job as required status checks,
 including `build`, `test`, and `workflow security`, with strict status checks

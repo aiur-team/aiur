@@ -10,4 +10,4 @@ Signatures exclude proven flakes. ResourceStore caches completed evidence by SHA
 
 Failed-job recovery requires Actions read/write. It is bounded to one rerun per head and three failed handoffs per PR, without a fleet or hourly cap. A run GET returning 403/404 or a denied rerun POST raises one attention and permits normal rework.
 
-[PR #4212](https://github.com/aiur-team/aiur/pull/4212) is open and proposes a separate cancelled-run rerun. Where both policies are installed, a head can receive two reruns from distinct triggers: a failed-job rerun here and a cancelled-run rerun there.
+The [cancelled-run policy](https://github.com/aiur-team/aiur/pull/4212) handles a separate trigger. A head can receive two reruns from distinct triggers: a failed-job rerun here and a cancelled-run rerun there.

@@ -369,6 +369,14 @@ focused test runner, test-tree paths and CI gate at each step.
     No shared changed paths and no conflicts permits handoff despite staleness.
     A fetch/probe error or incomplete path list does not permit handoff.
 
+    **An approved PR is exempt from integration** (`reviewDecision` is
+    `APPROVED`): never merge or rebase the base into it unless GitHub reports
+    `mergeable: CONFLICTING`, and say why in a PR comment when it does. The
+    merge queue tests the merge; a refresh push only cancels in-flight CI and
+    risks the approval, and it cannot fix a red or cancelled check. The agent
+    `git` guard refuses a push to a PR in the merge queue unless it is
+    conflicting or has changes requested.
+
     If paths overlap or the merge conflicts, allow up to 3 integrations per
     handoff without asking, recording the pre-merge head and rescue ref first.
     Preserve feature scope and push the rescue ref before resolving nontrivial

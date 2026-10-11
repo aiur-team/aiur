@@ -43,9 +43,13 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp digest(sha, opts), do: Keyword.get(opts, :ci_failure_digest, &FailureDigest.build/2).(sha, opts)
 
   defp recover_failure(issue, result, entry, opts) do
-    case CIRecovery.observe(result.pr_number, opts) do
-      {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
-      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+    if get_in(entry, ["heads", result.head_sha]) != nil or retryable?(result.ci_failure_digest, result.pr_number, opts) do
+      case CIRecovery.observe(result.pr_number, opts) do
+        {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
+        {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+      end
+    else
+      result
     end
   end
 
@@ -60,14 +64,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       pr["mergeQueueEntry"] != nil ->
         held(result, "merge_queue")
 
-      get_in(entry, ["heads", result.head_sha]) != nil ->
-        rerun(issue, result, entry, opts)
-
-      retryable?(result.ci_failure_digest, result.pr_number, opts) ->
-        rerun(issue, result, entry, opts)
-
       true ->
-        result
+        rerun(issue, result, entry, opts)
     end
   end
 

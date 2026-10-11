@@ -83,6 +83,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     Agent.update(ctx.agent, &%{&1 | extra: [%{"annotation_level" => "failure", "message" => "coverage too low"}]})
     assert %{decision: :failed} = recover(ctx)
     assert writes(ctx) == []
+    refute Enum.any?(requests(ctx), &(&1.url == "https://api.github.com/graphql"))
   end
 
   test "a changed failing test is delivered to rework", ctx do
