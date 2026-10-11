@@ -9,8 +9,8 @@ defmodule Aiur.CI.FailureDigest do
   """
   alias Aiur.GitHub.{FailureEvidence, PullRequests, ResourceStore, Transport}
 
-  defstruct checks: [], tests: [], signature: nil, truncated: false, flake_only: false
-  @type t :: %__MODULE__{checks: [map()], tests: [map()] | :unknown, signature: String.t(), truncated: boolean(), flake_only: boolean()}
+  defstruct checks: [], tests: [], signature: nil, truncated: false, flake_only: false, test_only: false
+  @type t :: %__MODULE__{checks: [map()], tests: [map()] | :unknown, signature: String.t(), truncated: boolean(), flake_only: boolean(), test_only: boolean()}
   @failed ~w(failure timed_out cancelled action_required startup_failure stale)
 
   @spec build(String.t(), keyword()) :: {:ok, t()} | {:error, term()}
@@ -74,7 +74,8 @@ defmodule Aiur.CI.FailureDigest do
       tests: tests,
       signature: hash({signature_checks, new_tests}),
       truncated: Enum.any?(checks, & &1.truncated),
-      flake_only: checks != [] and Enum.all?(checks, & &1.flake_only)
+      flake_only: checks != [] and Enum.all?(checks, & &1.flake_only),
+      test_only: checks != [] and Enum.all?(checks, & &1.test_only)
     }
   end
 
@@ -86,6 +87,7 @@ defmodule Aiur.CI.FailureDigest do
     tests = if unknown, do: :unknown, else: tests
     proven = proven?(run, unknown, truncated, annotations)
     upstream = derived_from(annotations)
+    direct_test_proof = proven and upstream == []
 
     %{
       id: run["id"],
@@ -94,11 +96,14 @@ defmodule Aiur.CI.FailureDigest do
       tests: tests,
       truncated: truncated,
       derived_from: if(proven and tests == [], do: upstream, else: []),
-      flake_only: proven and upstream == [] and known_tests?(tests)
+      flake_only: direct_test_proof and known_tests?(tests),
+      test_only: direct_test_proof and test_list?(tests)
     }
   end
 
   defp proven?(run, unknown, truncated, annotations), do: run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations)
+
+  defp test_list?(tests), do: is_list(tests) and tests != []
 
   defp known_tests?(tests), do: tests != [] and Enum.all?(tests, &(&1.classification == :known_flake))
 
@@ -149,16 +154,17 @@ defmodule Aiur.CI.FailureDigest do
         names = Map.get(check, :derived_from, [])
         upstream = Enum.filter(current, &(&1.name in names))
         proven = names != [] and Enum.sort(Enum.map(upstream, & &1.name)) == Enum.sort(names) and Enum.all?(upstream, & &1.flake_only)
-        Map.update!(check, :flake_only, &(&1 or proven))
+        test_proven = names != [] and Enum.sort(Enum.map(upstream, & &1.name)) == Enum.sort(names) and Enum.all?(upstream, & &1.test_only)
+        check |> Map.update!(:flake_only, &(&1 or proven)) |> Map.update!(:test_only, &(&1 or test_proven))
       end)
     end)
   end
 
   defp parse(%{"title" => "aiur-test-failure", "message" => "truncated :: " <> _}), do: [:truncated]
 
-  defp parse(%{"title" => "aiur-test-failure", "message" => message}) when is_binary(message) do
+  defp parse(%{"title" => "aiur-test-failure", "message" => message} = annotation) when is_binary(message) do
     case String.split(message, " :: ", parts: 3) do
-      [class, module, name] when class in ~w(known-flake new-failure) and module != "" and name != "" -> [%{identity: module <> " :: " <> name}]
+      [class, module, name] when class in ~w(known-flake new-failure) and module != "" and name != "" -> [%{identity: module <> " :: " <> name, path: annotation["path"]}]
       _ -> [:unknown]
     end
   end
@@ -183,7 +189,7 @@ defmodule Aiur.CI.FailureDigest do
     status
     |> Map.get("statuses", [])
     |> Enum.filter(&(&1["state"] in ~w(failure error)))
-    |> Enum.map(&%{id: nil, name: &1["context"], url: &1["target_url"], tests: [], truncated: false, flake_only: false})
+    |> Enum.map(&%{id: nil, name: &1["context"], url: &1["target_url"], tests: [], truncated: false, flake_only: false, test_only: false})
   end
 
   defp new_tests(%{tests: :unknown}), do: []

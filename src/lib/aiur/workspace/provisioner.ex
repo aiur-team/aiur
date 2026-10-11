@@ -154,11 +154,7 @@ defmodule Aiur.Workspace.Provisioner do
 
   @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
-  # PR-anchored creation (`pr_head_ref` set) is only wired for the local
-  # worker today; a remote worker_host ignores it and keeps the legacy
-  # `aiur/<id>` remote path byte-for-byte (SSH PR-anchored is out of scope
-  # for this unit). The 3-arity entrypoint retains the legacy branch for
-  # compatibility; tracker issue contexts use the 4-arity generated branch.
+  # Remote workers retain their hook-owned checkout; optimistic prompts reconcile it.
   def ensure_workspace(workspace, worker_host, pr_head_ref),
     do: ensure_workspace(workspace, worker_host, pr_head_ref, legacy_branch_name(workspace))
 
@@ -170,7 +166,12 @@ defmodule Aiur.Workspace.Provisioner do
   @doc false
   @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil, String.t(), map() | nil) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
-  def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle)
+  def ensure_workspace(workspace, worker_host, pr_head_ref, branch_name, lifecycle),
+    do: ensure_workspace(workspace, worker_host, pr_head_ref, branch_name, lifecycle, nil)
+
+  @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil, String.t(), map() | nil, map() | nil) ::
+          {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
+  def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle, start_point)
       when is_binary(branch_name) do
     cond do
       Checkout.valid_workspace?(workspace) ->
@@ -192,7 +193,7 @@ defmodule Aiur.Workspace.Provisioner do
             {:ok, workspace, false}
 
           :bootstrap ->
-            ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle)
+            ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point)
 
           {:error, reason} ->
             {:error, reason}
@@ -200,7 +201,7 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle)
+  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle, _start_point)
       when is_binary(worker_host) do
     record_prewarm_point(lifecycle, :remote, :unavailable)
     ensure_workspace(workspace, worker_host)
@@ -219,7 +220,7 @@ defmodule Aiur.Workspace.Provisioner do
       true ->
         case workspace_readiness(workspace) do
           :ready -> {:ok, workspace, false}
-          :bootstrap -> ensure_bootstrap_workspace(workspace, legacy_branch_name(workspace), nil, nil)
+          :bootstrap -> ensure_bootstrap_workspace(workspace, legacy_branch_name(workspace), nil, nil, nil)
           {:error, reason} -> {:error, reason}
         end
     end
@@ -486,27 +487,27 @@ defmodule Aiur.Workspace.Provisioner do
     end)
   end
 
-  defp ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle) do
+  defp ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point) do
     Reconstruction.with_log_lock(workspace, fn ->
-      ensure_bootstrap_workspace_locked(workspace, branch_name, pr_head_ref, lifecycle)
+      ensure_bootstrap_workspace_locked(workspace, branch_name, pr_head_ref, lifecycle, start_point)
     end)
   end
 
-  defp ensure_bootstrap_workspace_locked(workspace, branch_name, pr_head_ref, lifecycle) do
+  defp ensure_bootstrap_workspace_locked(workspace, branch_name, pr_head_ref, lifecycle, start_point) do
     case workspace_readiness(workspace) do
       :ready ->
         record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
       :bootstrap ->
-        bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle)
+        bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point)
 
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle) do
+  defp bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point) do
     cond do
       File.dir?(workspace) ->
         record_prewarm_point(lifecycle, :incomplete, :rebuild)
@@ -514,10 +515,10 @@ defmodule Aiur.Workspace.Provisioner do
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
+        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle, start_point)
 
       true ->
-        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
+        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle, start_point)
     end
   end
 
@@ -668,17 +669,13 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  # When pre-warm is enabled and the shared base is ready, materialize the
-  # workspace from it (copy-on-write where the filesystem supports it, carrying
-  # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
-  # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
-  # falls through to the unchanged cold `create_workspace/1` path.
-  defp create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle \\ nil) do
+  # A ready prewarm base carries build artifacts; otherwise use the cold hook path.
+  defp create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle \\ nil, start_point \\ nil) do
     case prewarm_base() do
       {:ready, base} ->
         record_prewarm(lifecycle, :start, %{prewarm_outcome: :materialized})
 
-        case Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref) do
+        case Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref, start_point) do
           :ok ->
             record_prewarm(lifecycle, :end, %{
               prewarm_outcome: :materialized,

@@ -59,6 +59,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       name: queue.name,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,
+      start_trigger_source: if(is_nil(queue.start_trigger), do: :config, else: :queue),
       held: queue.held,
       progress: progress,
       items: items
@@ -97,14 +98,17 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     for edge <- context.document.edges, edge.dependent == id do
       cyclic = match?({:unknown, _}, context.cycles) or MapSet.member?(context.cycles, edge.prerequisite)
-      result = Readiness.edge_verdict(context.observations[edge.prerequisite], Keyword.put(opts, :cyclic, cyclic))
+      evidence = Readiness.evidence(context.observations[edge.prerequisite], opts[:label_prefix]) || %Aiur.StartTrigger.Evidence{identifier: edge.prerequisite}
+      result = Aiur.StartTrigger.edge_verdict(context.trigger, evidence, Keyword.put(opts, :cyclic, cyclic))
 
       %{
         number: String.to_integer(edge.prerequisite),
         verdict: verdict(result),
         source: edge.source,
         trigger: context.trigger,
-        stage: Aiur.StartTrigger.stage(Readiness.evidence(context.observations[edge.prerequisite], opts[:label_prefix]))
+        stage: Aiur.StartTrigger.stage(evidence),
+        optimistic: result == {:satisfied, :optimistic},
+        description: Aiur.StartTrigger.describe(context.trigger, evidence, result)
       }
     end
   end

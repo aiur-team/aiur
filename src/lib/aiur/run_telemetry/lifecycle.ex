@@ -23,10 +23,9 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     outcome cause operation_id command_class duration_status source source_id actor
     pr_number comment_id review_thread_id author_trusted source_timestamp worker_host backend
     prewarm_outcome reason_class exit_status turn_number remote retry_attempt
-    workspace_owner workspace_generation workspace_phase optimistic_blockers complexity dispatch_selection
+    workspace_owner workspace_generation workspace_phase optimistic_blockers optimistic_start complexity dispatch_selection
     model effort feature epic tags blockers start_mode
   )a
-
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
   def new_attempt_id(ticket) when is_binary(ticket) do
@@ -154,13 +153,24 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       atom_key = metadata_key(key)
 
       if atom_key in @metadata_fields and (not is_nil(value) or atom_key in [:model, :effort, :feature, :epic]) do
-        [{atom_key, Cohort.normalize_metadata_value(atom_key, value)}]
+        [{atom_key, normalize_field(atom_key, value)}]
       else
         []
       end
     end)
     |> Map.new()
   end
+
+  defp normalize_field(:optimistic_start, %{blockers: blockers, primary: primary, pr_base: base, started_at: started_at}) do
+    %{
+      blockers: Enum.map(blockers, &Map.take(&1, [:identifier, :pr_number, :ref, :sha])),
+      primary: primary,
+      pr_base: Cohort.normalize_metadata_value(:pr_base, base),
+      started_at: Cohort.normalize_metadata_value(:started_at, started_at)
+    }
+  end
+
+  defp normalize_field(key, value), do: Cohort.normalize_metadata_value(key, value)
 
   defp metadata_key(key) when is_atom(key), do: key
 
