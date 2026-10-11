@@ -166,20 +166,21 @@ test('loading phase holds the skeleton', async ({ browser }) => {
 test('settle guard survives a transient capture failure', async ({ page }) => {
   await page.setContent('<div style="width:100px;height:100px">changing</div>')
   let n = 0
+  let captures = 0
   let failed = false
   // Change between each real capture; this cannot accidentally sample the same timer phase.
   const target = { screenshot: async opts => {
-    if (n === 3 && !failed) {
+    if (++n === 4 && !failed) {
       failed = true
       throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     }
-    await page.locator('div').evaluate((e, n) => { e.style.outline = `${n % 2 + 1}px solid red` }, n)
+    await page.locator('div').evaluate((e, captures) => { e.style.outline = `${captures++ % 2 + 1}px solid red` }, captures)
+    captures++
     const png = await page.screenshot(opts)
-    n++
     return png
   } }
   await expect(captureStable(target, { scale: 'device' })).rejects.toThrow('design did not settle after 10 captures')
-  expect(n).toBe(10)
+  expect(n).toBe(11)
 })
 test('stable capture recovers from a transient capture failure', async ({ page }) => {
   await page.setContent('<div>stable</div>')
