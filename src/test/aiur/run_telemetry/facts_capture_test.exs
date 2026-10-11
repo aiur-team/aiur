@@ -199,6 +199,7 @@ defmodule Aiur.RunTelemetry.FactsCaptureTest do
   test "an unreadable pending queue is preserved without issuing requests", %{path: path} do
     parent = self()
     bytes = "{unfinished"
+    File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
     pid =
