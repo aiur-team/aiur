@@ -23,7 +23,7 @@ defmodule Aiur.IdentityTest do
         end
       end
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     System.put_env("AIUR_INSTANCE_KEY", "3f9a1c0b2e")

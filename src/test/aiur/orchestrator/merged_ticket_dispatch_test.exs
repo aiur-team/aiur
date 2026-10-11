@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
   # every later test that reads it.
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-merged-dispatch")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     store =
       start_supervised!({RecentMergeStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})

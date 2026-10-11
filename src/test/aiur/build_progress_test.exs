@@ -10,7 +10,7 @@ defmodule Aiur.BuildProgressTest do
     path = Path.join(dir, "build-progress.json")
     scope = {:queue, "progress-#{System.unique_integer([:positive])}"}
     :ok = Exchange.subscribe(topic(scope))
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{path: path, scope: scope}
   end
 

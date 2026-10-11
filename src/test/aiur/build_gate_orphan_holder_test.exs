@@ -8,7 +8,7 @@ defmodule Aiur.BuildGateOrphanHolderTest do
     root = Path.join(System.tmp_dir!(), "aiur-holder-#{System.unique_integer([:positive])}")
     lock_dir = Path.join(root, "locks")
     File.mkdir_p!(lock_dir)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{lock_dir: lock_dir, release: Path.join(root, "release"), bash: System.find_executable("bash") || flunk("bash is required")}
   end
 

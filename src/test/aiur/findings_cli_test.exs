@@ -15,7 +15,7 @@ defmodule Aiur.FindingsCLITest do
         value -> Application.put_env(:aiur, :repo_base_root, value)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, repo: "owner/repo"}

@@ -20,7 +20,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
     on_exit(fn ->
       restore_env(:decision_state_dir, original_dir)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir}

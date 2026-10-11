@@ -361,7 +361,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     log = start_supervised!({DeliveryLog, name: name, state_dir: dir}, id: name)
 
     Application.put_env(:aiur, :webhook_delivery_log, log)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     log
   end

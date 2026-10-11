@@ -1260,7 +1260,7 @@ defmodule Aiur.ExtensionsTest do
       static_snapshot(workspace_path: log_root)
       |> with_static_units()
 
-    on_exit(fn -> File.rm_rf(log_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
 
     {:ok, orchestrator_pid} =
       StaticOrchestrator.start_link(

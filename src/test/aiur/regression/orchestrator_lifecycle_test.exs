@@ -159,7 +159,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
     on_exit(fn ->
       SubscriptionStore.stop(identifier)
       if original, do: Application.put_env(:aiur, :log_file, original), else: Application.delete_env(:aiur, :log_file)
-      File.rm_rf(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
   end
 

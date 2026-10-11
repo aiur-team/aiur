@@ -42,14 +42,22 @@ defmodule Aiur.AgentResourceGuardTest do
     result =
       AgentResourceGuard.enforce_once(
         cap: 3,
+        kill_detected: false,
         entries_fun: fn -> [{{:os_pid, 100}, :agent, %{comm: "codex"}}] end,
         children_fun: children,
         process_info_fun: process_info,
+        orphans_fun: fn -> [] end,
+        sample_fun: fn _pid -> nil end,
+        cwd_fun: fn 100 -> "/ws/aiur/42" end,
+        alert_fun: fn topic, alert -> send(test_pid, {:alert, topic, alert}) end,
         kill_fun: fn pid -> send(test_pid, {:killed, pid}) end
       )
 
     expected_killed = Enum.to_list(204..216)
-    assert result == [%{root_pid: 100, cap: 3, killed: expected_killed}]
+    assert result == [%{root_pid: 100, cap: 3, killed: expected_killed, reported: [], workspace: "/ws/aiur/42"}]
+
+    assert_receive {:alert, "system.agent.synthetic_load_cap", alert}, 1000
+    assert alert[:message] =~ "Agent workspace /ws/aiur/42 exceeded the synthetic load cap of 3; killed 13 "
 
     for pid <- expected_killed do
       assert_receive {:killed, ^pid}, 1000
@@ -118,15 +126,30 @@ defmodule Aiur.AgentResourceGuardTest do
     assert_received {:killed, 777, {:known, :identity}}
   end
 
-  test "the guard reaps orphan holders on its own slow message, not on the tick" do
+  test "the guard reaps orphan holders on the throttled orphan scan" do
     test_pid = self()
-    opts = [cap: 0, orphan_holders_fun: fn -> [{777, {:known, :identity}}] end, orphan_kill_fun: fn pid, _identity -> send(test_pid, {:killed, pid}) end]
-    {:ok, guard} = AgentResourceGuard.start_link(name: nil, interval_ms: 10, enforce_opts: opts)
 
-    refute_receive {:killed, 777}, 100
-    send(guard, :reap_orphans)
+    opts = [
+      cap: 1,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [] end,
+      orphan_holders_fun: fn ->
+        send(test_pid, :holders_scanned)
+        [{777, {:known, :identity}}]
+      end,
+      orphan_kill_fun: fn pid, _identity -> send(test_pid, {:killed, pid}) end
+    ]
+
+    {:ok, guard} = AgentResourceGuard.start_link(name: nil, interval_ms: 60_000, enforce_opts: opts)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(guard) end)
+
+    send(guard, :tick)
+    assert_receive :holders_scanned, 1_000
     assert_receive {:killed, 777}, 1_000
-    GenServer.stop(guard)
+
+    send(guard, :tick)
+    refute_receive :holders_scanned, 50
+    refute_receive {:killed, 777}, 50
   end
 
   test "collect_descendants walks recursively" do
@@ -149,6 +172,10 @@ defmodule Aiur.AgentResourceGuardTest do
         interval_ms: 60_000,
         enforce_opts: [
           cap: 1,
+          orphans_fun: fn ->
+            send(test_pid, :orphans_scanned)
+            []
+          end,
           entries_fun: fn ->
             send(test_pid, :guard_enforced)
             []
@@ -161,5 +188,11 @@ defmodule Aiur.AgentResourceGuardTest do
     send(pid, :tick)
     assert_receive :guard_enforced, 1000
     assert Process.alive?(pid)
+
+    # The host-wide orphan scan is throttled; enforcement still runs every tick.
+    send(pid, :tick)
+    assert_receive :guard_enforced, 1000
+    assert_receive :orphans_scanned, 1000
+    refute_receive :orphans_scanned, 50
   end
 end

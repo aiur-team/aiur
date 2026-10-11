@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.DispatcherHistoryStartTest do
     :persistent_term.put(key, false)
     on_exit(fn -> if prior == :unset, do: :persistent_term.erase(key), else: :persistent_term.put(key, prior) end)
     dir = Aiur.TestSupport.tmp_root!("dispatch-history")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     pid = start_supervised!({History, name: __MODULE__.Store, repository: "acme/widgets", state_dir: dir, flush_ms: 60_000})
     issue = %Aiur.Issue{id: "71", identifier: "71", title: "timing", state: "todo", selected_backend: "codex"}
     original = Process.whereis(History)
@@ -42,7 +42,7 @@ defmodule Aiur.Orchestrator.DispatcherHistoryStartTest do
 
   test "future regression guard: failed spawn does not journal a dispatch start" do
     dir = Aiur.TestSupport.tmp_root!("failed-dispatch-history")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     history = start_supervised!({History, name: __MODULE__.Store, repository: "acme/widgets", state_dir: dir})
     tasks = start_supervised!({Task.Supervisor, name: __MODULE__.Tasks, max_children: 0})
     issue = %Aiur.Issue{id: "72", identifier: "72", title: "timing", state: "todo", selected_backend: "codex"}

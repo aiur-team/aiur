@@ -31,13 +31,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   @delivery_staleness_ms 300_000
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   # #2309/#2399, new model: an on-demand catalog (`planning: 0`) buys the boot

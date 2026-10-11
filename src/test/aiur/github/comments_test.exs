@@ -50,7 +50,7 @@ defmodule Aiur.GitHub.CommentsTest do
       repo_root = Aiur.TestSupport.tmp_root!("classified-comments-codeowners")
       File.mkdir_p!(Path.join(repo_root, ".github"))
       File.write!(Path.join(repo_root, ".github/CODEOWNERS"), "* @owner\n")
-      on_exit(fn -> File.rm_rf!(repo_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(repo_root) end)
       %{repo_root: repo_root}
     end
 

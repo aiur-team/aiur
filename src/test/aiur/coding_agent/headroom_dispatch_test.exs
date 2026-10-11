@@ -222,7 +222,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   describe "explanation" do
     test "the dispatch selection is written to the ticket's agent event stream" do
       workspace = Aiur.TestSupport.tmp_root!("headroom-event")
-      on_exit(fn -> File.rm_rf!(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
       {:ok, issue} = select()
 
       assert :ok = DispatchSelectionEvent.write(workspace, nil, issue)
@@ -244,7 +244,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
 
       on_exit(fn ->
         if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
-        File.rm_rf!(home)
+        Aiur.TestCleanup.rm_rf!(home)
       end)
 
       %{home: home}

@@ -24,6 +24,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     previous_store = Application.get_env(:aiur, :dispatch_budget_store_path)
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
     previous_log_file = Application.get_env(:aiur, :log_file)
+    previous_workflow = Application.get_env(:aiur, :workflow_file_path)
     dir = Aiur.TestSupport.tmp_root!("aiur-auto-resume")
     File.mkdir_p!(dir)
     path = Path.join(dir, "config.yaml")
@@ -34,13 +35,11 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     Application.put_env(:aiur, :log_file, Path.join([dir, "session-one", "aiur.log"]))
 
     on_exit(fn ->
-      File.rm_rf!(dir)
+      if previous_workflow, do: Workflow.set_workflow_file_path(previous_workflow), else: Workflow.clear_workflow_file_path()
 
-      if is_nil(previous_store) do
-        Application.delete_env(:aiur, :dispatch_budget_store_path)
-      else
-        Application.put_env(:aiur, :dispatch_budget_store_path, previous_store)
-      end
+      if previous_store,
+        do: Application.put_env(:aiur, :dispatch_budget_store_path, previous_store),
+        else: Application.delete_env(:aiur, :dispatch_budget_store_path)
 
       if is_nil(previous_state_dir) do
         Application.delete_env(:aiur, :decision_state_dir)
@@ -48,11 +47,11 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
         Application.put_env(:aiur, :decision_state_dir, previous_state_dir)
       end
 
-      if is_nil(previous_log_file) do
-        Application.delete_env(:aiur, :log_file)
-      else
-        Application.put_env(:aiur, :log_file, previous_log_file)
-      end
+      if previous_log_file,
+        do: Application.put_env(:aiur, :log_file, previous_log_file),
+        else: Application.delete_env(:aiur, :log_file)
+
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     :ok

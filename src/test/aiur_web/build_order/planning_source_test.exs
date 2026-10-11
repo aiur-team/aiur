@@ -30,7 +30,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     File.write!(path, @pack)
     File.write!(Path.join(directory, "tickets/T-2.md"), "# Draft body\n\nContext remains readable.")
     Application.put_env(:aiur, :build_order_planning_pack, path)
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     [root] = PlanningSource.catalog().data.entries
     {:ok, snapshot} = PlanningSource.demand(root.identity)
@@ -109,7 +109,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
       {:ok, identity} =

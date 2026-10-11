@@ -2,9 +2,11 @@ defmodule Aiur.BuildQueue.Hints do
   @moduledoc """
   Read-only dispatch hints from the build queue's ETS table.
 
-  The queue server owns and writes rows `{issue_id, {downstream_rank, position}, held?}`.
+  The queue server owns rows `{issue_id, {downstream_rank, position}, held?, trigger}`.
   Without the table or a row, dispatch keeps its ordinary ordering and eligibility.
   """
+
+  alias Aiur.BuildQueue.Settings
 
   @table :aiur_build_queue_hints
 
@@ -17,13 +19,20 @@ defmodule Aiur.BuildQueue.Hints do
   @spec held?(String.t()) :: boolean()
   def held?(issue_id), do: elem(lookup(issue_id), 1)
 
+  @spec trigger_for(String.t()) :: Aiur.StartTrigger.trigger()
+  def trigger_for(issue_id), do: elem(lookup(issue_id), 2) || Settings.start_trigger(Aiur.Config.settings!())
+
+  @spec observation_max_age_ms() :: pos_integer()
+  def observation_max_age_ms, do: Settings.observation_max_age_ms(Aiur.Config.settings!())
+
   defp lookup(issue_id) do
     case :ets.lookup(@table, issue_id) do
-      [{^issue_id, sort_key, held?}] -> {sort_key, held?}
-      [] -> {{0, 0}, false}
+      [{^issue_id, sort_key, held?, trigger}] -> {sort_key, held?, trigger}
+      [{^issue_id, sort_key, held?}] -> {sort_key, held?, nil}
+      [] -> {{0, 0}, false, nil}
     end
   rescue
     # The queue is disabled or its owning server has stopped.
-    ArgumentError -> {{0, 0}, false}
+    ArgumentError -> {{0, 0}, false, nil}
   end
 end
