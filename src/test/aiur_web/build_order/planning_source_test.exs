@@ -23,6 +23,38 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.progress_resolved_count == 4
   end
 
+  test "catalog loads live progress stores once per repository for several packs" do
+    directory = Aiur.TestSupport.tmp_root!("planning-source-multiple-packs")
+    File.mkdir_p!(directory)
+
+    paths =
+      for index <- 1..4 do
+        path = Path.join(directory, "pack-#{index}.json")
+        repository = Config.repo()
+
+        pack =
+          Jason.decode!(@pack)
+          |> Map.put("repository", repository)
+          |> Map.put("build_order_id", "#{repository}:demo-#{index}")
+
+        File.write!(path, Jason.encode!(pack))
+        path
+      end
+
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, paths)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      Aiur.TestCleanup.rm_rf!(directory)
+    end)
+
+    {snapshot, reads} = trace_resource_store_reads(PlanningSource, :catalog, [])
+
+    assert length(snapshot.data.entries) == 4
+    assert Enum.sort(reads) == [:issue, :issue_labels, :sub_issue]
+  end
+
   test "full draft IDs retain distinct identities and dependency edges including T00" do
     path = Application.fetch_env!(:aiur, :build_order_planning_pack)
     pack = Jason.decode!(@pack)
@@ -162,8 +194,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     [root] = PlanningSource.catalog().data.entries
     assert root.icon == "bolt"
     assert root.progress == 50
-    assert root.progress_resolution == :partial
-    assert root.progress_resolved_count == 1
+    assert root.progress_resolution == :resolved
+    assert root.progress_resolved_count == 2
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -266,5 +298,43 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   defp seed_resource(type, id, data) do
     key = ResourceStore.key_for_repo(type, "acme/widgets", id)
     ResourceStore.put_resource(key, data, source: :webhook, version: "2026-10-11T12:00:00Z")
+  end
+
+  defp trace_resource_store_reads(module, function, arguments) do
+    mfa = {ResourceStore, :list, 3}
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        receive do
+          :run ->
+            send(parent, {:catalog_result, self(), apply(module, function, arguments)})
+            receive do: (:stop -> :ok)
+        end
+      end)
+
+    :erlang.trace_pattern(mfa, true, [])
+    :erlang.trace(pid, true, [:call, {:tracer, parent}])
+
+    try do
+      send(pid, :run)
+      assert_receive {:catalog_result, ^pid, result}, 5_000
+      ref = :erlang.trace_delivered(pid)
+      assert_receive {:trace_delivered, ^pid, ^ref}, 5_000
+      {result, collect_resource_store_reads([])}
+    after
+      :erlang.trace(pid, false, [:call])
+      :erlang.trace_pattern(mfa, false, [])
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end
+  end
+
+  defp collect_resource_store_reads(reads) do
+    receive do
+      {:trace, _pid, :call, {ResourceStore, :list, [type, _owner, _repo]}} ->
+        collect_resource_store_reads([type | reads])
+    after
+      0 -> reads
+    end
   end
 end

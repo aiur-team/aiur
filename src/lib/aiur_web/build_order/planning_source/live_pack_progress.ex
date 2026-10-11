@@ -1,28 +1,29 @@
 defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{CatalogStore, Lifecycle}
+  alias Aiur.BuildOrder.Lifecycle
   alias Aiur.GitHub.ResourceStore
 
-  @spec lifecycles(map()) :: %{optional(String.t()) => Lifecycle.t()}
-  def lifecycles(%{repository: {owner, repo}, build_order_id: build_order_id, tickets: tickets}) do
-    issues =
-      ResourceStore.list(:issue, owner, repo)
-      |> Enum.reduce(%{}, fn {_key, entry}, acc ->
-        case Map.get(entry, :data) do
-          %{"number" => number} = issue when is_integer(number) -> Map.put(acc, number, issue)
-          _other -> acc
-        end
-      end)
+  @spec load([map()]) :: %{optional({String.t(), String.t()}) => map()}
+  def load(packs) do
+    packs
+    |> Enum.map(& &1.repository)
+    |> Enum.uniq()
+    |> Map.new(fn {owner, repo} = repository ->
+      issues = ResourceStore.list(:issue, owner, repo)
+      labels = ResourceStore.list(:issue_labels, owner, repo)
+      sub_issues = ResourceStore.list(:sub_issue, owner, repo)
+      {repository, %{issues: issues_by_number(issues), labels: labels, members: member_numbers(sub_issues)}}
+    end)
+  end
 
-    root_numbers =
-      ResourceStore.list(:issue_labels, owner, repo)
-      |> Enum.flat_map(&matching_order_number(&1, issues, build_order_id))
-
-    members = CatalogStore.member_numbers({owner, repo})
+  @spec lifecycles(map(), map()) :: %{optional(String.t()) => Lifecycle.t()}
+  def lifecycles(%{repository: repository, build_order_id: build_order_id, tickets: tickets}, sources) do
+    %{issues: issues, labels: labels, members: members} = Map.get(sources, repository, empty_source())
     ticket_ids = MapSet.new(tickets, & &1.id)
 
-    root_numbers
+    labels
+    |> Enum.flat_map(&matching_order_number(&1, issues, build_order_id))
     |> Enum.flat_map(&Map.get(members, &1, []))
     |> Enum.uniq()
     |> Enum.reduce(%{}, fn number, acc ->
@@ -63,6 +64,26 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   end
 
   defp issue_member(_issue, _build_order_id, _ticket_ids), do: nil
+
+  defp issues_by_number(issues) do
+    Map.new(issues, fn {_key, entry} -> {Map.get(entry.data, "number"), entry.data} end)
+    |> Map.delete(nil)
+  end
+
+  defp member_numbers(entries) do
+    Enum.reduce(entries, %{}, fn {_key, entry}, acc ->
+      case entry.data do
+        %{"present" => true, "parent_issue_number" => parent, "sub_issue_number" => sub}
+        when is_integer(parent) and is_integer(sub) ->
+          Map.update(acc, parent, [sub], &[sub | &1])
+
+        _other ->
+          acc
+      end
+    end)
+  end
+
+  defp empty_source, do: %{issues: %{}, labels: [], members: %{}}
 
   defp parse_issue_number(value) when is_integer(value) and value > 0, do: value
 
