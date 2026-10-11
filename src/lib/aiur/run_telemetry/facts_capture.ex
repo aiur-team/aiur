@@ -47,7 +47,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
     state = %{
       path: path,
       pending: stored["pending"] || %{},
-      completed: stored["completed"] || [],
+      captured_keys: stored["completed"] || [],
       enabled: Keyword.get(opts, :enabled, &ObservabilitySettings.capture_github_facts?/0),
       fetch: Keyword.get(opts, :fetch, &GitHubFacts.fetch/1),
       record: Keyword.get(opts, :record, &record_facts/2),
@@ -61,7 +61,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   @impl true
   def handle_cast({:capture, ticket}, state) do
-    if state.enabled.() and ticket not in state.completed and not Map.has_key?(state.pending, ticket) do
+    if state.enabled.() and ticket not in state.captured_keys and not Map.has_key?(state.pending, ticket) do
       state = %{state | pending: Map.put(state.pending, ticket, %{"attempts" => 0})}
       persist(state)
       send(self(), :work)
@@ -150,8 +150,8 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   defp publish(state, ticket, facts) do
     if state.record.(bare_ticket(ticket), facts) == :ok do
-      completed = completion_keys(ticket, facts) ++ state.completed
-      state = %{state | pending: Map.drop(state.pending, completion_keys(ticket, facts)), completed: Enum.uniq(completed)}
+      completed = completion_keys(ticket, facts) ++ state.captured_keys
+      state = %{state | pending: Map.drop(state.pending, completion_keys(ticket, facts)), captured_keys: Enum.uniq(completed)}
       persist(state)
       state
     else
@@ -182,7 +182,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
     temporary = state.path <> ".tmp"
 
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
-         :ok <- File.write(temporary, Jason.encode!(%{pending: state.pending, completed: state.completed}), [:sync]),
+         :ok <- File.write(temporary, Jason.encode!(%{pending: state.pending, completed: state.captured_keys}), [:sync]),
          :ok <- File.rename(temporary, state.path) do
       :ok
     else

@@ -26,6 +26,7 @@ Label read/create failures stop startup before agents start and explain the requ
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
 Rows and the resume checkpoint share the history file; restarts resume unfinished work and skip completed walks. This is a one-time read.
+
 The predicted cost is about 3 points per 100 issues; `rateLimit.cost` and `aiur github-cost` report the actual spend. Blocker overflow is paged; label and timeline overflow is marked incomplete. A page costing more than 5 reported points is saved, then the job stops with `page_cost_exceeded`, including after restart.
 
 `observability.capture_github_facts` gates analytics reads; budget holds persist the ticket queue, three failed attempts record unavailable coverage, and history/tag pagination can add requests. No saving is claimed. Polling reconciles missed deliveries.
@@ -48,8 +49,7 @@ Review submissions are polled during `agent:ci-wait` as well as `agent:human-rev
 
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
 `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
-fix requested “before merge”. Clean summaries such as “No blockers; waiting on
-CI” or “All blockers resolved” do not route to rework.
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on CI” or “All blockers resolved” do not route to rework.
 
 Failed CI in `agent:human-review` routes to rework when that head already passed
 CI or the head changed. An inherited failure on a dismissed head remains held;
