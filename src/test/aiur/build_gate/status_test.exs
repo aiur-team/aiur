@@ -3,6 +3,8 @@ Code.require_file("../../support/build_gate_case.ex", __DIR__)
 defmodule Aiur.BuildGate.StatusTest do
   use Aiur.TestSupport.BuildGateCase
 
+  alias Aiur.BuildGate.Status
+
   test "reports only live owners and queue entries", %{gate_dir: gate_dir} do
     File.mkdir_p!(Path.join(gate_dir, "slot-1"))
     File.mkdir_p!(Path.join(gate_dir, "slot-2"))
@@ -356,16 +358,17 @@ defmodule Aiur.BuildGate.StatusTest do
     self_pid = String.to_integer(System.pid())
     {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
     live_pgid = pgid |> String.trim() |> String.to_integer()
+    {:ok, pid_namespace} = File.read_link("/proc/self/ns/pid")
 
     File.write!(
       Path.join(gate_dir, "slot-1/owner"),
-      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=a\ncommand_pgid=#{live_pgid}\n" <>
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=a\ncommand_pgid=#{live_pgid}\ncommand_pid_namespace=#{pid_namespace}\n" <>
         "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
     )
 
     File.write!(
       Path.join(gate_dir, "slot-2/owner"),
-      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=b\ncommand_pgid=999999999\n" <>
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=b\ncommand_pgid=999999999\ncommand_pid_namespace=#{pid_namespace}\n" <>
         "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
     )
 
@@ -376,5 +379,111 @@ defmodule Aiur.BuildGate.StatusTest do
     slot2 = Enum.find(holders, &(&1.slot == 2))
     assert slot1.command_alive? == true
     assert slot2.command_alive? == false
+  end
+
+  @tag @linux_only
+  test "status keeps a holder active when its PID namespace cannot be read", context do
+    slot_lock = Path.join(context.lock_dir, "slot-1.lock")
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    release_path = Path.join(context.gate_dir, "holder.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        ~S"""
+        exec 8<>"$1"
+        flock 8
+        """,
+        ["build-gate-holder", slot_lock],
+        context.lock_dir,
+        release_path
+      )
+
+    File.write!(
+      owner_path,
+      "version=2\ntoken=unknown\npid=2\npgid=1\nholder_pid=2\ncommand_pgid=999999999\n" <>
+        "command_pid_namespace=unavailable\nphase=test\ncommand=mix test\n"
+    )
+
+    assert %{active: 1, holders: [%{command_alive?: nil}]} =
+             build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    File.touch!(release_path)
+    assert_receive {^holder, {:exit_status, 0}}, 2_000
+  end
+
+  @tag @linux_only
+  test "status finds a live process group in a nested PID namespace", context do
+    case System.find_executable("unshare") do
+      nil ->
+        IO.puts("SKIP nested PID namespace check: unshare is unavailable")
+
+      unshare ->
+        case System.cmd(unshare, ["--pid", "--fork", "true"], stderr_to_stdout: true) do
+          {_, 0} -> assert_nested_process_group(context)
+          {output, _status} -> IO.puts("SKIP nested PID namespace check: #{String.trim(output)}")
+        end
+    end
+  end
+
+  defp assert_nested_process_group(context) do
+    slot_lock = Path.join(context.lock_dir, "slot-1.lock")
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    ready_path = Path.join(context.gate_dir, "namespace-holder.ready")
+    release_path = Path.join(context.gate_dir, "namespace-holder.release")
+    script_path = Path.join(context.gate_dir, "namespace-holder.py")
+
+    File.write!(
+      script_path,
+      """
+      import fcntl, os, sys, time
+
+      lock_path, owner_path, ready_path, release_path = sys.argv[1:]
+      os.setsid()
+      lock_fd = os.open(lock_path, os.O_RDWR)
+      fcntl.flock(lock_fd, fcntl.LOCK_EX)
+      with open(owner_path, "w") as owner:
+          owner.write(
+              f"version=2\\ntoken=nested\\npid={os.getpid()}\\npgid=1\\n"
+              f"holder_pid=1\\ncommand_pgid={os.getpgrp()}\\n"
+              f"command_pid_namespace={os.readlink('/proc/self/ns/pid')}\\n"
+              "phase=test\\ncommand=mix test\\n"
+          )
+      open(ready_path, "w").close()
+      while not os.path.exists(release_path):
+          time.sleep(0.02)
+      """
+    )
+
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        ~S"""
+        unshare --pid --fork sh -c 'python3 "$@"' sh "$1" "$2" "$3" "$4" "$5" &
+        while [[ ! -e $4 ]]; do sleep 0.02; done
+        """,
+        ["build-gate-nested-holder", script_path, slot_lock, owner_path, ready_path, release_path],
+        context.lock_dir,
+        release_path
+      )
+
+    assert File.exists?(ready_path)
+    ["command_pgid=" <> pgid] = File.read!(owner_path) |> String.split("\n") |> Enum.filter(&String.starts_with?(&1, "command_pgid="))
+    {command_pgid, ""} = Integer.parse(pgid)
+
+    if Status.process_group_alive?(command_pgid) do
+      File.touch!(release_path)
+      assert_receive {^holder, {:exit_status, 0}}, 2_000
+      IO.puts("SKIP nested PID namespace check: local process-group ID collides with a live host group")
+    else
+      assert %{active: 1, holders: [%{command_alive?: true}]} =
+               build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+      File.touch!(release_path)
+      assert_receive {^holder, {:exit_status, 0}}, 2_000
+    end
   end
 end
