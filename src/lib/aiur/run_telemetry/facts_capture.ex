@@ -46,6 +46,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
     state = %{
       path: path,
+      storage_available: stored["unavailable"] != true,
       pending: stored["pending"] || %{},
       captured_keys: stored["completed"] || [],
       enabled: Keyword.get(opts, :enabled, &ObservabilitySettings.capture_github_facts?/0),
@@ -91,6 +92,8 @@ defmodule Aiur.RunTelemetry.FactsCapture do
     do: {:noreply, finish(%{state | task: nil}, ticket, {:error, :capture_worker_exit})}
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp work(%{storage_available: false} = state), do: state
 
   defp work(%{task: task} = state) when not is_nil(task), do: state
 
@@ -175,8 +178,38 @@ defmodule Aiur.RunTelemetry.FactsCapture do
   end
 
   defp load(path) do
-    with {:ok, bytes} <- File.read(path), {:ok, stored} when is_map(stored) <- Jason.decode(bytes), do: stored, else: (_ -> %{})
+    case File.read(path) do
+      {:error, :enoent} -> %{}
+      {:ok, bytes} -> decode_queue(bytes)
+      _ -> unavailable_queue()
+    end
   end
+
+  defp decode_queue(bytes) do
+    with {:ok, %{"pending" => pending, "completed" => completed} = stored} <- Jason.decode(bytes),
+         true <- is_map(pending) and is_list(completed),
+         true <- Enum.all?(completed, &is_binary/1),
+         true <- Enum.all?(pending, &valid_entry?/1) do
+      stored
+    else
+      _ -> unavailable_queue()
+    end
+  end
+
+  defp valid_entry?({ticket, %{"attempts" => attempts} = entry}) do
+    is_binary(ticket) and is_integer(attempts) and attempts >= 0 and
+      (is_nil(entry["next_at"]) or is_integer(entry["next_at"])) and
+      (is_nil(entry["facts"]) or is_map(entry["facts"]))
+  end
+
+  defp valid_entry?(_entry), do: false
+
+  defp unavailable_queue do
+    Logger.warning("analytics_facts queue_unavailable; preserving file and deferring reads until restart")
+    %{"unavailable" => true}
+  end
+
+  defp persist(%{storage_available: false}), do: {:error, :queue_unavailable}
 
   defp persist(state) do
     temporary = state.path <> ".tmp"

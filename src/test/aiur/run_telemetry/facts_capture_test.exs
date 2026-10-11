@@ -196,6 +196,26 @@ defmodule Aiur.RunTelemetry.FactsCaptureTest do
     assert dataset.tickets["49"].pr_facts["merged_at"] == "2026-10-09T00:05:00Z"
   end
 
+  test "an unreadable pending queue is preserved without issuing requests", %{path: path} do
+    parent = self()
+    bytes = "{unfinished"
+    File.write!(path, bytes)
+
+    pid =
+      worker(path,
+        enabled: fn -> true end,
+        fetch: fn _ ->
+          send(parent, :unexpected_read)
+          {:ok, %{}}
+        end
+      )
+
+    FactsCapture.capture("50", pid)
+    FactsCapture.drain(pid)
+    refute_receive :unexpected_read, 500
+    assert File.read!(path) == bytes
+  end
+
   defp wait_for_completed(path, ticket, remaining \\ 100) do
     if ticket in Jason.decode!(File.read!(path))["completed"] do
       :ok
