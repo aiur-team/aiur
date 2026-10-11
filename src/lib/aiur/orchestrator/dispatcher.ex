@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{OptimisticSlots, PausedCandidatePoll, ReworkGate, TelemetryCohort, TrackerTasks}
+  alias Aiur.Orchestrator.{OptimisticDispatch, OptimisticSlots, PausedCandidatePoll, ReworkGate, TelemetryCohort, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -26,7 +26,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     IssueSync,
     Lifecycle,
     MergedTicketReconciler,
-    OptimisticDispatch,
     PrAnchored,
     PressureAdmission,
     Reconciler,
@@ -1363,12 +1362,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
-      with true <- OptimisticSlots.available?(hydrated, state, terminal_states),
-           {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(hydrated, opts) do
-        do_dispatch_issue(state, prepared, attempt, preferred_worker_host, opts)
+      if OptimisticSlots.available?(hydrated, state, terminal_states) do
+        do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
       else
-        false -> maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
-        {:error, reason} -> emit_dispatch_attempt_decline(state, hydrated, reason, false)
+        maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
       end
     end
   end
@@ -1470,7 +1467,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
-    case CodingAgent.select_for_dispatch(issue) do
+    with {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+      state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
+      dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
+    else
+      {:error, reason} ->
+        emit_dispatch_attempt_decline(state, issue, reason, false)
+
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           state
@@ -1484,11 +1488,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
           %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}
         end
-
-      {:ok, selected_issue} ->
-        state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
-
-        dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
     end
   end
 
@@ -1630,7 +1629,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # spawn_issue_on_worker_host, means a tripped attempt pays no workspace
   # clone cost. The breaker resets when the window lapses, so the issue
   # gets another window on the next poll tick.
-  #
   # The window counter is the loop-frequency guard and counts every dispatch
   # attempt. The lifetime counter is the structural-stuck latch and counts
   # only dispatches that actually survived provisioning (see
@@ -2586,6 +2584,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       })
     end
 
+    OptimisticDispatch.record(issue, lifecycle_attempt_id, optimistic_blockers)
     rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
 
     runner_context = %{

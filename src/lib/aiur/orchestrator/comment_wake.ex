@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
-  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, ReviewFindings, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -25,10 +25,8 @@ defmodule Aiur.Orchestrator.CommentWake do
   @comment_rework_max_attempts 5
 
   # Where a merged PR that never claimed to close its ticket leaves that ticket:
-  # open, and back in front of a human. Never `done` — see
-  # `merged_pr_closes_ticket?/2`.
+  # open, back in front of a human. Never `done` — see `merged_pr_closes_ticket?/2`.
   @non_closing_merge_state "human-review"
-  # See `refresh_other_closed_issues/2`.
   @max_closing_refreshes 10
 
   @spec maybe_reactivate_on_comment(
@@ -53,6 +51,8 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
+    OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
+
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
