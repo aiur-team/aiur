@@ -8,9 +8,9 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
