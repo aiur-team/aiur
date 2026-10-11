@@ -1,7 +1,7 @@
 defmodule Aiur.RunTelemetry.GitHubFactsTest do
   use ExUnit.Case, async: true
   alias Aiur.RunTelemetry.GitHubFacts
-  @fixture Path.expand("../../support/fixtures/github_facts/terminal.json", __DIR__)
+  @fixture Path.expand("../../fixtures/github_facts/terminal.json", __DIR__)
   defp response, do: @fixture |> File.read!() |> Jason.decode!()
   defp normalize(body), do: GitHubFacts.normalize(body, allowed_fun: &(&1 == "owner"))
   defp update_pr(body, fun), do: update_in(body, ["data", "repository", "pullRequests", "nodes"], fn [pr] -> [fun.(pr)] end)
