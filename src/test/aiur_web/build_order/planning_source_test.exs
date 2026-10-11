@@ -32,6 +32,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     paths =
       for index <- 1..4 do
         path = Path.join(directory, "pack-#{index}.json")
+
         pack =
           Jason.decode!(@pack)
           |> Map.put("repository", repository)
