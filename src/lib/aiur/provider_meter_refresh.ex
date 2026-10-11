@@ -76,7 +76,7 @@ defmodule Aiur.ProviderMeterRefresh do
   @impl true
   def init(opts) do
     state = %{
-      observer: Keyword.get(opts, :observer, &ProviderMeterProbe.observe/1),
+      observer: Keyword.get_lazy(opts, :observer, &default_observer/0),
       agents_running?: Keyword.get(opts, :agents_running_fun, &agents_running?/0),
       interval_fun: Keyword.get(opts, :interval_fun, &configured_interval_ms/0),
       now_fun: Keyword.get(opts, :now_fun, &System.monotonic_time/0),
@@ -183,6 +183,13 @@ defmodule Aiur.ProviderMeterRefresh do
   # that cost is paid. `agents_running?` is retained: it is still the honest
   # answer to "is this fleet consuming anything", and callers inject it.
   defp refresh_target(_state), do: :all
+
+  # The test VM's supervised refresher must not probe: a Codex probe runs the
+  # active workflow's `codex.command`, which there is whichever test's fake
+  # binary is configured when the boot baseline or a dashboard mount fires (#4221).
+  defp default_observer do
+    if Application.get_env(:aiur, :env) == :test, do: fn _target -> [] end, else: &ProviderMeterProbe.observe/1
+  end
 
   # An observer failure must never take the scheduler down: a provider being
   # unreachable is an expected condition, and the retained observation keeps

@@ -112,6 +112,12 @@ defmodule Aiur.ProviderMeterRefreshTest do
     assert_receive {:observed, :all}, 1_000
   end
 
+  # #4221: the supervised refresher's boot baseline opened a Codex probe session
+  # with whichever fake `codex.command` the running test had configured.
+  test "the refresher the application supervises observes nothing in the test VM" do
+    assert :sys.get_state(ProviderMeterRefresh).observer.(:all) == []
+  end
+
   # With no injected interval the scheduler resolves one from config, falling
   # back to a real cadence rather than crashing or scheduling immediately.
   test "a missing injected interval resolves from config" do
