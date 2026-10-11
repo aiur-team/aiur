@@ -7,8 +7,9 @@ defmodule Aiur.BuildQueue.PRObserverTest do
   alias Aiur.Events.Exchange
   alias Aiur.Events.GithubWebhook.Deposit
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.StartTrigger
   alias Aiur.StartTrigger.ProgressStore
-  alias Aiur.{StartTrigger, Tracker, Workflow}
+  alias Aiur.{Tracker, Workflow}
 
   defmodule Claims do
     def status(_ids), do: :unavailable
