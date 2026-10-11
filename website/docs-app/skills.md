@@ -29,7 +29,9 @@ Muse loads workspace skills and rules only when `agent.backend_configs.muse.trus
 
 Executor skills are deliberately excluded from this set: an issue worker has no reason to run Aiur itself.
 
-For Aiur changes, workers run `mise exec -- python3 scripts/check-pr-structure.py --base <base-sha>` after committing and after every base integration, before marking a PR ready. In a clean worktree it checks file size, docs paragraph/table prose, and component ownership and reference boundaries.
+For Aiur changes, workers run `mise exec -- python3 scripts/check-pr-structure.py --base <base-sha>` after committing, before every push and after every base integration.
+
+In a clean worktree it checks file size, docs paragraph/table prose, component ownership and reference boundaries, bare receives, formatting and the `State` writer allowlist — the cheap gates CI would otherwise fail a full cycle on.
 
 The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is

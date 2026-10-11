@@ -9,8 +9,8 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PressureAdmission, PushRouting, Reconciler, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.PollCadence
 
@@ -1235,7 +1235,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
           severity: task_state_alert_severity(current_state)
@@ -1253,7 +1253,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
           severity: task_state_alert_severity(current_state)
@@ -1319,7 +1319,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       case Alerts.emit_system(topic,
              issue: issue,
-             worker_host: Orchestrator.running_worker_host(state, issue.id),
+             worker_host: State.WorkerHost.running_worker_host(state, issue.id),
              reason: message,
              needs_attention: true,
              severity: "warning",
@@ -1346,7 +1346,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       active? ->
         case Alerts.emit_system("#{topic}.resolved",
                issue: issue,
-               worker_host: Orchestrator.running_worker_host(state, issue.id),
+               worker_host: State.WorkerHost.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
                needs_attention: false,
                severity: "info",
@@ -1459,7 +1459,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       {true, false} ->
         Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
           needs_attention: false,
           severity: "info"
@@ -1482,7 +1482,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     unless active_attention?(state, topic) do
       Alerts.emit_system(topic,
         issue: issue,
-        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason:
           "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
             "This clears when the operator removes agent:paused.",
@@ -1501,7 +1501,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     if force? or active_attention?(state, topic) do
       Alerts.emit_system("#{topic}.resolved",
         issue: issue,
-        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
         needs_attention: false,
         severity: "info",
@@ -1558,39 +1558,32 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp unsubscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
-    case AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker) do
-      :ok ->
-        enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
-
-      {:error, reason} ->
-        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
-
-        Logger.warning(
-          "IssueSync: unsubscription failed for dependency_removed " <>
-            "(#{issue.identifier} unblocked by #{blocker_id}): " <>
-            "#{inspect(reason)}; event will emit on next reconcile"
-        )
-
-        state_acc
-    end
+    reconcile_dependency_subscription(state_acc, issue, blocker, :dependency_removed, &AutoSubscriptions.auto_unsubscribe_for_dependency/2)
   end
 
   defp subscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
-    case AutoSubscriptions.auto_subscribe_for_dependency(issue, blocker) do
-      :ok ->
-        enqueue_dependency_event(state_acc, issue, blocker, :dependency_added)
+    reconcile_dependency_subscription(state_acc, issue, blocker, :dependency_added, &AutoSubscriptions.auto_subscribe_for_dependency/2)
+  end
 
-      {:error, reason} ->
-        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+  defp reconcile_dependency_subscription(state, issue, blocker, event_type, mutation) do
+    apply_result = fn current, result ->
+      case result do
+        :ok ->
+          enqueue_dependency_event(current, issue, blocker, event_type)
 
-        Logger.warning(
-          "IssueSync: subscription failed for dependency_added " <>
-            "(#{issue.identifier} blocked by #{blocker_id}): " <>
-            "#{inspect(reason)}; event will emit on next reconcile"
-        )
+        {:error, reason} ->
+          blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
 
-        state_acc
+          Logger.warning(
+            "IssueSync: dependency subscription mutation failed for #{event_type} " <>
+              "(#{issue.identifier}, blocker #{blocker_id}): #{inspect(reason)}; event will emit on next reconcile"
+          )
+
+          current
+      end
     end
+
+    TrackerTasks.chain(state, {:dependency_subscription, issue.id, blocker[:id]}, fn -> mutation.(issue, blocker) end, apply_result)
   end
 
   # Public because `PushRouting` enqueues a `:blocker_became_terminal` event
@@ -2484,7 +2477,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       %Issue{} = issue ->
         Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Todo issue count exceeds the current dispatch capacity.",
           needs_attention: true,
           severity: "warning"

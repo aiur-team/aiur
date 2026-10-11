@@ -34,6 +34,17 @@ defmodule AiurWeb.Build.PayloadTest do
     end
   end
 
+  test "planned unknown readiness is a boolean in the payload" do
+    for unknown <- [true, false] do
+      data = put_in(fixture(), ["sections", "plan", Access.at(0), "cue", "unknown"], unknown)
+      assert Payload.validate(data) == :ok
+    end
+
+    data = put_in(fixture(), ["sections", "plan", Access.at(0), "cue", "unknown"], "unknown")
+    assert {:error, errors} = Payload.validate(data)
+    assert {"sections.plan.0.cue.unknown", :type} in errors
+  end
+
   test "counts must cover order" do
     data = fixture() |> update_in(["counts"], &Map.delete(&1, "bugs"))
     assert {:error, errors} = Payload.validate(data)
