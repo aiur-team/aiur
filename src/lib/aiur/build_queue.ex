@@ -1,5 +1,5 @@
 defmodule Aiur.BuildQueue do
-  @moduledoc "Supervised build queue reconciliation and local ordered-list commands."
+  @moduledoc "Supervised build queue reconciliation, paced label writes and local ordered-list commands."
 
   alias Aiur.BuildQueue.{ReadModel, Server}
 
