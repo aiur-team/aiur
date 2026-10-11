@@ -127,7 +127,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
-    Aiur.Experiments.Store
+    Aiur.Experiments.Store,
+    Aiur.Experiments.Capture
   ]
 
   setup do
