@@ -446,7 +446,7 @@ defmodule Aiur.AgentControlCLITest do
           running: %{},
           last_polled_issues: %{},
           # Freeze the live poll for the duration of each case, the same way
-          # orchestrator_status_test does. These cases inject `running` and
+          # OrchestratorStatusSupport does. These cases inject `running` and
           # `last_polled_issues` directly; a background poll against the
           # fixture's unreachable GitHub tracker would latch
           # `candidate_snapshot_fresh?: false` on the shared Orchestrator,

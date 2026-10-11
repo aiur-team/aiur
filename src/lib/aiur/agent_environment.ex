@@ -345,9 +345,8 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
         scratch_env(workspace) ++
-        Enum.map(mix_scheduler_env(), fn {name, value} ->
-          {String.to_charlist(name), String.to_charlist(value)}
-        end) ++
+        __MODULE__.GitIdentity.port_env(opts) ++
+        Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
         port_startup_env
 
@@ -450,6 +449,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_GITHUB_CREDENTIAL_FILE=\"$HOME/${AIUR_GITHUB_CREDENTIAL_FILE#\\~/}\"\nexport AIUR_GITHUB_CREDENTIAL_FILE\n" <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       publication_credential_export(opts) <>
+      __MODULE__.GitIdentity.export_prefix(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
       "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
