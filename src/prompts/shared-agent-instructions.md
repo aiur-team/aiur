@@ -97,7 +97,8 @@ A pull request in GitHub's merge queue rejects pushes, and being behind
 Never dequeue a queued PR, and never ask the Executor to, in order to update
 its branch. Do not raise a decision or attention about it either. If your
 ticket is not already waiting, move it to `agent:human-review` and end the
-turn; the hand-off gate refuses a queued PR only for a real merge conflict.
+turn; the hand-off gate refuses a PR that is approved at its current head and
+queued only for a real merge conflict.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 

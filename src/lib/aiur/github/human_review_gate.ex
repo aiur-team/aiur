@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   This module blocks a transition to human review while the canonical open
   pull request has unaddressed review-thread comments, conflicts with its base,
-  or — where the base does not land through a merge queue — overlaps files
+  or — unless its approved head is queued or armed to merge — overlaps files
   changed upstream at the state-write boundary. Subsequent observer
   checks verify review threads only, so base movement during review does not
   withdraw an accepted handoff. It composes pull request discovery, bot identity
@@ -13,6 +13,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   alias Aiur.Config
   alias Aiur.GitHub.{BotIdentity, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
+
+  @approval_fields "headRefOid reviewDecision mergeQueueEntry { id } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }"
 
   @spec verify_human_review_ready(String.t() | integer(), keyword()) :: :ok | {:error, term()}
   def verify_human_review_ready(issue_number, opts \\ []) do
@@ -99,7 +101,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
     case current_mergeability(context, pr_number, base, head) do
       {:ok, :conflicting} -> stale
-      # A merge queue tests the head merged with the base before it lands, so lag behind the base is harmless (#4204).
+      # An approved head in the merge queue, or armed to enter it, is tested merged with the base before it lands (#4204).
       {:ok, :merge_queue} -> :ok
       {:ok, :mergeable} -> verify_disjoint_paths(context, head, comparison, stale)
       {:error, _reason} = error -> error
@@ -139,25 +141,25 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp current_mergeability(context, pr_number, base, head) do
     query = """
-    query AiurHumanReviewMergeability($owner: String!, $name: String!, $number: Int!, $base: String!) {
+    query AiurHumanReviewMergeability($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
-        mergeQueue(branch: $base) { id }
-        pullRequest(number: $number) { headRefOid baseRefName mergeable mergeQueueEntry { id } }
+        pullRequest(number: $number) { baseRefName mergeable autoMergeRequest { enabledAt } #{@approval_fields} }
       }
     }
     """
 
     {:ok, {owner, name}} = Transport.parse_repo()
-    variables = %{"owner" => owner, "name" => name, "number" => pr_number, "base" => base}
+    variables = %{"owner" => owner, "name" => name, "number" => pr_number}
 
     case Transport.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
       {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => "CONFLICTING"}}}}} ->
         {:ok, :conflicting}
 
-      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status} = pr} = repository}}}
+      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status} = pr}}}}
       when status in ["MERGEABLE", "UNKNOWN"] ->
-        # UNKNOWN supplies no conflict signal; outside a merge queue the pinned REST comparisons must still establish disjoint paths.
-        if is_map(repository["mergeQueue"]) or is_map(pr["mergeQueueEntry"]), do: {:ok, :merge_queue}, else: {:ok, :mergeable}
+        # UNKNOWN supplies no conflict signal; unless the approved head is already landing, the pinned REST comparisons must still establish disjoint paths.
+        landing? = approved_at_head?(pr) and (is_map(pr["mergeQueueEntry"]) or is_map(pr["autoMergeRequest"]))
+        if landing?, do: {:ok, :merge_queue}, else: {:ok, :mergeable}
 
       {:ok, _body} ->
         {:error, :review_base_ancestry_unavailable}
@@ -276,7 +278,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
     query = """
     query AiurQueuedApproval($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
-        pullRequest(number: $number) { reviewDecision mergeQueueEntry { id } }
+        pullRequest(number: $number) { #{@approval_fields} }
       }
     }
     """
@@ -287,8 +289,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
       variables = %{"owner" => owner, "name" => name, "number" => pr_number}
 
       case Transport.github_graphql(request_fun, token, query, variables, caller: "rework_gate_merge_queue") do
-        {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"reviewDecision" => decision, "mergeQueueEntry" => entry}}}}} ->
-          {:ok, decision == "APPROVED" and is_map(entry)}
+        {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeQueueEntry" => entry} = pr}}}} ->
+          {:ok, approved_at_head?(pr) and is_map(entry)}
 
         {:ok, _body} ->
           {:error, :invalid_pull_request}
@@ -298,6 +300,10 @@ defmodule Aiur.GitHub.HumanReviewGate do
       end
     end
   end
+
+  # `reviewDecision` stays APPROVED after a later push unless the ruleset dismisses stale approvals, so the approval must name the current head.
+  defp approved_at_head?(%{"reviewDecision" => "APPROVED", "headRefOid" => head, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => head}}]}}) when is_binary(head), do: true
+  defp approved_at_head?(_pull_request), do: false
 
   # An unresolvable repository identity means no store key, which `ResourceFetch`
   # already treats as the storeless path — the read still happens, exactly as it
