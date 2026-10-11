@@ -11,6 +11,7 @@ defmodule Aiur.DeliveryEntryPointsTest do
 
   @endpoint Endpoint
   @moduletag :r7_characterization
+  # Sender fixtures stay together to serialize shared Endpoint and Orchestrator state.
   # Regression guards: these pin sender choices already present on main.
   @identifier "MT-R7"
 

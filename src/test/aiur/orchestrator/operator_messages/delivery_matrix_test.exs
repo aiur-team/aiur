@@ -21,14 +21,14 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
     {"fake", [@checkpoint, @checkpoint, {:error, :interrupt_not_supported}, %{@checkpoint | fallback: :queue_next}, @unsupported]}
   ]
   @requests [{:auto, nil}, {:checkpoint, nil}, {:interrupt, nil}, {:interrupt, :queue_next}, {:immediate, nil}]
-  @states [:working_active, :working_idle, :sleeping, :paused, :self_paused, :self_paused_pending]
+  @states [:working_active, :working_idle, :sleeping, :paused, :self_paused, :self_paused_pending, :working_pending]
   @rows (for {harness, deliveries} <- @profiles,
              {{requested, fallback}, delivery} <- Enum.zip(@requests, deliveries),
              entry_state <- @states do
            wake =
              case {entry_state, delivery} do
                {_, {:error, _}} -> nil
-               {state, _} when state in [:paused, :self_paused_pending] -> false
+               {state, _} when state in [:paused, :self_paused_pending, :working_pending] -> false
                {state, _} when state in [:working_idle, :sleeping] -> true
                {_, %{priority: :now}} -> true
                _ -> false
@@ -97,7 +97,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
   end
 
   defp state_for(row, identifier) do
-    status = if row.entry_state in [:working_active, :working_idle], do: :working, else: :paused
+    status = if row.entry_state in [:working_active, :working_idle, :working_pending], do: :working, else: :paused
     status = if row.entry_state == :sleeping, do: :sleeping, else: status
 
     control = %{
@@ -110,7 +110,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
     entry = %{identifier: identifier, issue: %Issue{id: identifier, identifier: identifier}, pid: self(), control: control, session_execution: %{backend: Map.get(row, :transport, row.harness)}}
     entry = if row.entry_state in [:self_paused, :self_paused_pending], do: Map.put(entry, :paused_reason, :agent_pause_request), else: entry
     state = %State{queue_store: AgentQueueStore.new(), running: %{identifier => entry}}
-    if row.entry_state == :self_paused_pending, do: pending_pause(state, identifier), else: state
+    if row.entry_state in [:self_paused_pending, :working_pending], do: pending_pause(state, identifier), else: state
   end
 
   defp pending_pause(state, identifier) do
