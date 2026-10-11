@@ -119,6 +119,9 @@ jobs:
         run: node scripts/cleanup-legacy-streamdeck-nightlies.mjs
 
   build:
+    # Not `build`: ci.yml's required check owns that name, and GitHub's required
+    # gate matches by name, so a cancelled run here blocked green PRs (#4184).
+    name: streamdeck package build
     needs: gate
     # `!cancelled()` keeps this job eligible when the gate job was skipped
     # (pull_request and release events never run it).

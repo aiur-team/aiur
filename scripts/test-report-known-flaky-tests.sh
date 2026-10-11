@@ -126,7 +126,7 @@ output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/not-there.log" "$
 assert_contains 'a missing log is a no-op' 'test log not found' "$output"
 
 workflow="$root/.github/workflows/ci.yml"
-coverage_partition_job="$(sed -n '/^  coverage-partition:$/,/^  coverage:$/p' "$workflow")"
+coverage_partition_job="$(sed -n '/^  coverage-partition:$/,/^  test:$/p' "$workflow")"
 
 # Scope every assertion to the reporter step itself, and assert the semantics
 # of its gate rather than the whole `if:` line (#docs-only CI).

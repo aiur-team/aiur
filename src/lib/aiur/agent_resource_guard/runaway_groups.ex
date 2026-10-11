@@ -55,7 +55,7 @@ defmodule Aiur.AgentResourceGuard.RunawayGroups do
       Process.put({__MODULE__, :scanned_at}, now)
       groups = scan(opts)
       alerted = Process.get({__MODULE__, :alerted}, MapSet.new())
-      emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Alerts.emit_system/2)
+      emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Signal.alert/2)
 
       fresh = Enum.reject(groups, &MapSet.member?(alerted, {&1.pgid, &1.comm}))
       Enum.each(fresh, &alert(&1, emit_fun))
