@@ -35,7 +35,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 The terminal states are exactly `done | cancelled | canceled`
 (`src/lib/aiur/github/state_policy.ex:23,31`). The two `@no_agent_work_states`
 — `merging` and `ci-wait` — stay active for polling and fence purposes but are
-never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy.ex:35,1001`).
+never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:27,63`).
 
 ### Markers are not states
 
@@ -179,10 +179,10 @@ Item states are projections, not tracker labels:
 
 If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
 
-A manual `todo` sets an override (Build Order adoption first withdraws pre-labelled, unclaimed
-blocked members). External removal of a queue-owned `todo` creates an external hold;
-`aiur queue release` clears holds and overrides. Removing `agent:queued` dequeues the item.
-Optimistic writes re-observe races instead of overwriting another writer's transition.
+Manual `todo` sets an override. List adds record pre-existing `todo`; fresh unmet prerequisites
+withdraw it only after dispatch is held and unclaimed status is confirmed. A later manual `todo`
+overrides. Removing queue-owned `todo` creates a hold; `aiur queue release` clears holds
+and overrides. Removing `agent:queued` dequeues; writes re-observe races.
 
 Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains `promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable claim probe preserves a recorded decline.
 
@@ -474,8 +474,8 @@ ticket stays paused until you answer. The CLI even tells you so: on
 - **The pause is a dispatch gate, not an in-process block.** `blocked_ticket_ids`
   collects tickets with an open blocking Command (`decision_store.ex:938-950,
   :1570-1587`); the dispatcher refreshes it each poll and **fails closed** on
-  store outage (`dispatcher.ex:453-459`, `dispatch_policy.ex:979-984` →
-  `{:skip, :blocked_on_decision}` at `:823`). A ticket that opens a blocking
+  store outage (`dispatcher.ex:453-459`, `dispatch_policy/eligibility.ex:181-185` →
+  `{:skip, :blocked_on_decision}` at `dispatch_policy.ex:393`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
   deliberately fails **open** on store outage (`reconciler.ex:540-560`).
   Answering removes the ticket from that set, so the next poll dispatches it
@@ -649,7 +649,7 @@ daemon is down cannot produce a transition wake.
 The agent is subscribed to its own issue comments and PR review comments and
 unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
-`pause_resume.ex`, `push_routing.ex`).
+`pause_resume.ex`, `push_routing.ex`, `push_routing/`).
 
 Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only

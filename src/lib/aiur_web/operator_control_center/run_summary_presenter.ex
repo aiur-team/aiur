@@ -57,7 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   def present(source, retained?, status_source) when is_map(source) do
     run = Map.get(source, :run, %{})
     status = status_source || source
-    progress = present_progress(Map.get(source, :progress, %{}), Map.get(source, :weights, %{}))
+    progress = present_progress(Map.get(source, :progress, %{}), Map.get(source, :weights, %{}), Map.get(status, :health, %{}))
 
     %{
       state: state(source, retained?),
@@ -190,7 +190,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
 
   # --- progress ------------------------------------------------------------
 
-  defp present_progress(progress, weights) do
+  defp present_progress(progress, weights, health) do
+    # An out-of-date denominator cannot support even a lower-bound percentage.
+    progress = if :membership_not_fresh in Map.get(health, :reasons, []), do: Map.drop(progress, [:exact, :lower_bound, :coverage, :current_facts]), else: progress
     exact = Map.get(progress, :exact)
     lower = Map.get(progress, :lower_bound)
     coverage = Map.get(progress, :coverage)

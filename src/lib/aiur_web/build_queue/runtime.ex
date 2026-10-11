@@ -10,8 +10,16 @@ defmodule AiurWeb.BuildQueue.Runtime do
     socket = socket |> assign(:queue_view, nil) |> assign(:queue_loading, false) |> assign(:queue_refresh_pending, false) |> assign(:queue_refreshed_at, 0)
 
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
-      Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
+      socket =
+        AiurWeb.RefreshRelay.mount(
+          socket,
+          fn ->
+            Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
+            Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
+          end,
+          [:build_queue_changed, :build_progress_changed]
+        )
+
       refresh(socket)
     else
       socket

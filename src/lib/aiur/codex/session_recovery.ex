@@ -12,7 +12,7 @@ defmodule Aiur.Codex.SessionRecovery do
 
   @spec recoverable?(term()) :: boolean()
   def recoverable?(:port_closed), do: true
-  def recoverable?({:port_exit, status}) when is_integer(status), do: true
+  def recoverable?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def recoverable?({:turn_start_failed, reason}), do: transport_loss?(reason)
 
   def recoverable?({:turn_interrupt_failed, reason}) do
@@ -22,7 +22,7 @@ defmodule Aiur.Codex.SessionRecovery do
   def recoverable?(_reason), do: false
 
   defp transport_loss?(:port_closed), do: true
-  defp transport_loss?({:port_exit, status}) when is_integer(status), do: true
+  defp transport_loss?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
 
   defp transport_loss?({wrapper, reason})
        when wrapper in [:turn_start_failed, :turn_interrupt_failed],

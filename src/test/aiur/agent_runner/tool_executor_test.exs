@@ -1867,7 +1867,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       refute_receive {:resolved_through_store, _}, 100
     end
 
-    test "lifecycle rejection is returned as a normal tool failure" do
+    test "lifecycle recording failure does not fail the tool" do
       issue = %Issue{identifier: "TE-decision-lifecycle-reject"}
       recorder = fn _type, _payload, _opts -> {:error, {:conflict, :wrong_action}} end
       executor = ToolExecutor.build(issue, nil, nil, %{}, decision_lifecycle_recorder: recorder)
@@ -1879,10 +1879,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           "payload" => %{"decision_id" => "dec_1", "action_id" => "act_wrong", "expected_version" => 1}
         })
 
-      assert response["success"] == false
-      error = Jason.decode!(response["output"])["error"]
-      assert error["message"] =~ "lifecycle"
-      assert error["reason"] =~ "wrong_action"
+      assert response["success"]
+      assert Jason.decode!(response["output"])["result"]["status"] == "recording_failed"
     end
   end
 

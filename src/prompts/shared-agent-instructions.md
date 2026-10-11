@@ -60,9 +60,9 @@ off to CI/review, run all required checks and fix any failures:
 
 - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
 - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
-- After committing and after every base integration, run the structural gate before marking the PR ready:
+- After committing, before every push and after every base integration, run the structural gate — above all after creating, moving or splitting modules:
   `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
-  `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components).
+  `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components, bare receives, format, state-writer allowlist).
 
 When a change must touch an oversized text file (over 500 lines), keep that
 file the same length or shorter. Put new code in a new small module and new
@@ -80,6 +80,25 @@ A flaky test blocks CI, not the ticket's implementation. State in the PR
 that the only failure is the known flake, link the flake ticket and CI run,
 then hand back to the Executor without declaring a dependency or pausing
 for the flake fix. Keep the full required-check gate for human review.
+
+### Rework ends in a handoff, even on red CI
+
+When every blocking review finding is addressed and pushed, move the ticket to
+`agent:human-review` — do not stay in `agent:rework` because checks are red.
+First post one PR comment naming the head SHA, the findings addressed, and any
+failing check you believe is inherited from the base, with evidence (for
+example the same check failing on the base head). Inherited red CI is the
+reviewer's call. Fix a failure your own change caused before handing off.
+
+### A queued PR is left alone
+
+A pull request in GitHub's merge queue rejects pushes, and being behind
+`main` there is normal: the queue tests the merge before it lands.
+Never dequeue a queued PR, and never ask the Executor to, in order to update
+its branch. Do not raise a decision or attention about it either. If your
+ticket is not already waiting, move it to `agent:human-review` and end the
+turn; the hand-off gate refuses a PR that is approved at its current head and
+queued only for a real merge conflict.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 

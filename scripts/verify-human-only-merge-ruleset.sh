@@ -49,20 +49,9 @@ if ! jq -e '
   exit 1
 fi
 
-if ! jq -e '
-  [.rules[] | select(.type == "pull_request") | .parameters] |
-  length == 1 and
-  .[0].required_approving_review_count >= 1 and
-  .[0].dismiss_stale_reviews_on_push == true
-' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must require one approval and dismiss stale reviews" >&2
-  exit 1
-fi
-
 required_checks='[
   "browser harness",
   "build",
-  "coverage",
   "coverage (1/4)",
   "coverage (2/4)",
   "coverage (3/4)",

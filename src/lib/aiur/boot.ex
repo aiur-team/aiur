@@ -3,7 +3,7 @@ defmodule Aiur.Boot do
   Records the monotonic time at which Aiur's BEAM started, so every
   subsystem can emit `elapsed_ms=<N>` in its phase logs. Also mints the
   one opaque `run_id` for this BEAM-lifetime run — every subsystem that
-  needs a run identity (audit records, debug telemetry) reads it from
+  needs a run identity (audit records, run telemetry) reads it from
   here instead of minting its own.
 
   Set once at application start via `mark/0`; readers call `elapsed_ms/0`

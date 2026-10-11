@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   """
 
   require Logger
-  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
+  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, StartTrigger.ProgressStore, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 
@@ -629,11 +629,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         if Map.get(result, :delivered) do
-          # Displaced by a webhook delivery: the read was skipped — no state
-          # transition, alert or projection: held bodies never answer CI (R10). The next
-          # non-displaced read produces the real verdict.
+          # Webhook-displaced reads have no effects; held bodies never answer CI (R10).
           state
         else
+          ProgressStore.ci_identity(ci_target_for_issue(issue), result)
+
           state
           |> reconcile_draft_stall_alert(issue, result, opts)
           |> reconcile_parked_ready_alert(issue, result, opts)
@@ -1310,8 +1310,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Held failures are never silently swallowed: the reviewed head and the failing
-  # checks stay in the log so a genuine red PR in review is still visible.
+  # Held failures retain the reviewed head and failing checks so a red PR in review stays visible.
   defp log_replayed_human_review_ci_failure(%Issue{} = issue, result) do
     checks =
       result
@@ -1333,6 +1332,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
         ci_lifecycle =
           if Map.get(result, :decision) == :passed do
+            ProgressStore.record(target, %{pr_number: Map.get(result, :pr_number), stage: :pr_ci_green, head_sha: head_sha, source: :ci})
             Map.update(ci_lifecycle, :passed_heads, %{target => head_sha}, &Map.put(&1, target, head_sha))
           else
             ci_lifecycle

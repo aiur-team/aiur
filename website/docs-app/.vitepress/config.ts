@@ -150,6 +150,7 @@ export default withMermaid(defineConfig({
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
+            { text: 'Headroom dispatch', link: '/concepts/headroom-dispatch' },
             { text: 'Capabilities', link: '/concepts/capabilities' },
             { text: 'Message Bus', link: '/concepts/message-bus' },
             { text: 'Skills', link: '/skills' }
@@ -159,6 +160,7 @@ export default withMermaid(defineConfig({
           text: 'APIs',
           items: [
             { text: 'GitHub', link: '/apis/github' },
+            { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
         },
@@ -166,6 +168,7 @@ export default withMermaid(defineConfig({
           text: 'Reference',
           items: [
             { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]
         }

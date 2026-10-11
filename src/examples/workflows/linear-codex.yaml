@@ -19,11 +19,29 @@ tracker:
 linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait
+#   local_tests: partial           # all | partial | none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+#     red_fallback_minutes: 0      # off; 60 waits for CI after main is red for one hour (MP4)
+
 observability:
   # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
   # build_order_funnel_health_check: true
   # Set to false to disable run telemetry recording (Analytics page will be empty).
   # telemetry_enabled: true
+  # capture_github_facts: true
   # Retain useful cross-session telemetry without splitting an individual boot.
   telemetry_retention_max_bytes: 67108864
   telemetry_retention_max_age_days: 30
@@ -52,6 +70,8 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   priority: [codex]
   # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude

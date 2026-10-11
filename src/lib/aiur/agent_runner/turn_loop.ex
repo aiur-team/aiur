@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentRunner.{MessageHandler, QueueDrain, SessionLifecycle, TurnCallbacks}
+  alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
@@ -23,12 +23,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # cannot spin the runner Task forever.
   @restore_confirm_attempts 5
   @restore_confirm_backoff_ms 250
-
-  # #2806: a run of consecutive turns that changed nothing observable is
-  # widened before it is stopped, so a mislabelled ticket costs tens of seconds
-  # rather than a turn every seven seconds while it is still recoverable.
-  @noop_backoff_step_ms 15_000
-  @noop_backoff_ceiling_ms 60_000
 
   @doc false
   @spec run_turns(
@@ -179,38 +173,15 @@ defmodule Aiur.AgentRunner.TurnLoop do
                  codex_update_recipient,
                  opts
                ) do
-          finalize_turn_completion(turn_context, app_session, turn_session)
+          finalize_turn_completion(turn_context, app_session, turn_session, message_handler)
         end
 
       {:paused, pause_payload} ->
-        Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
-
         Logger.info("Paused agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
-        TurnAlerts.maybe_emit_usage_limit_alert(
-          issue,
-          workspace,
-          worker_host,
-          Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
-        )
-
-        if pause_payload[:native_terminal] == :completed do
-          best_effort_queue_bookkeeping(
-            Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
-            :consume,
-            issue
-          )
-        else
-          best_effort_queue_bookkeeping(
-            Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-            :restore,
-            issue
-          )
+        with :ok <- settle_paused_turn(turn_context, app_session, pause_payload, message_handler) do
+          continue_after_resume(turn_context, app_session)
         end
-
-        Aiur.AgentRunner.write_pause_log(workspace, worker_host)
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, handoff_pause_payload(app_session, workspace, pause_payload))
-        wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} = error ->
         settle_turn_error(turn_context, backend, reason, error)
@@ -338,7 +309,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  defp finalize_turn_completion(turn_context, app_session, turn_session) do
+  defp finalize_turn_completion(turn_context, app_session, turn_session, message_handler) do
     %{
       workspace: workspace,
       issue: issue,
@@ -351,7 +322,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     case continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
-        continue_unless_noop_bound(turn_context, app_session, refreshed_issue)
+        continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
 
       {:continue, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
@@ -375,7 +346,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # and stop the loop — loudly, and without mutating the ticket — once a run of
   # turns that changed nothing reaches the cap. A productive turn zeroes the
   # counter, so a long run of real work is never bounded by this path.
-  defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue) do
+  defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler) do
     %{
       workspace: workspace,
       worker_host: worker_host,
@@ -389,35 +360,36 @@ defmodule Aiur.AgentRunner.TurnLoop do
     {verdict, progress} = TurnProgress.observe(TurnProgress.from_opts(opts), witness)
     cap = noop_turn_cap(opts)
 
-    if verdict == :noop and is_integer(cap) and progress.consecutive_noops >= cap do
-      stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap)
-    else
-      Logger.info(
-        "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
-      )
+    cond do
+      verdict == :noop and is_integer(cap) and progress.consecutive_noops >= cap ->
+        stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap)
 
-      Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
+      verdict == :noop ->
+        NoopWait.park(turn_context, app_session, message_handler, refreshed_issue, progress)
 
-      if verdict == :noop, do: apply_noop_backoff(refreshed_issue, progress, cap, opts)
+      true ->
+        Logger.info(
+          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
+        )
 
-      continue_issue_turn(
-        %{
-          turn_context
-          | issue: refreshed_issue,
-            turn_number: turn_number + 1,
-            opts: Keyword.put(opts, :turn_progress, progress)
-        },
-        app_session
-      )
+        Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
+
+        continue_issue_turn(
+          %{
+            turn_context
+            | issue: refreshed_issue,
+              turn_number: turn_number + 1,
+              opts: Keyword.put(opts, :turn_progress, progress)
+          },
+          app_session
+        )
     end
   end
 
-  # The bound must leave a durable record, not a bare `Logger.info` (#2797):
-  # the ticket-scoped needs-attention alert lands in the alert ledger and the
-  # central `alerts.ndjson`, naming the ticket, the count, and the state label
-  # that kept the loop alive. The loop then takes the SAME exit as
-  # `agent.max_turns` — control returns to the orchestrator. A rework run that
-  # pushed gets a review handoff; a run that did not push is a real failure.
+  # The bound must leave a durable record, not a bare `Logger.info` (#2797): a
+  # ticket-scoped needs-attention alert naming the ticket, the count, and the
+  # state label that kept the loop alive. A rework run whose head is newer than
+  # its blocking review gets a review handoff (#3971); one with no push fails.
   defp stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap) do
     %{turn_number: turn_number, max_turns: max_turns} = turn_context
 
@@ -425,13 +397,20 @@ defmodule Aiur.AgentRunner.TurnLoop do
       "aiur_autonomous_loop phase=noop_bound_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns_display(max_turns)} noop_turns=#{progress.consecutive_noops} cap=#{cap}"
     )
 
-    case transition_agent_handoff(turn_context, refreshed_issue) do
+    case noop_handoff(turn_context, refreshed_issue) do
       {:handoff, result} ->
         result
 
       :none ->
         complete_noop_bound_without_handoff(turn_context, refreshed_issue, progress, witness, cap)
     end
+  end
+
+  @doc "Handoff for a no-op turn; the bound and the park share these opts (#3971)."
+  @spec noop_handoff(map(), Aiur.Issue.t()) :: {:handoff, term()} | :none | {:error, term()}
+  def noop_handoff(turn_context, issue) do
+    opts = Keyword.put(turn_context.opts, :superseded_review_handoff?, noop_failure_state(issue) == "error")
+    transition_agent_handoff(%{turn_context | opts: opts}, issue)
   end
 
   defp complete_noop_bound_without_handoff(turn_context, issue, progress, witness, cap) do
@@ -471,7 +450,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  defp transition_agent_handoff(turn_context, refreshed_issue) do
+  @doc false
+  @spec transition_agent_handoff(map(), Issue.t()) :: {:handoff, term()} | :none | {:error, term()}
+  def transition_agent_handoff(turn_context, refreshed_issue) do
     %{workspace: workspace, worker_host: worker_host, opts: opts} = turn_context
 
     case stopped_agent_handoff(refreshed_issue, workspace, worker_host, opts) do
@@ -494,6 +475,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
     ReworkGate.stopped_agent_handoff(issue.identifier, Keyword.get(opts, :rework_head_sha),
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1),
       commit_ci_status_fetcher: Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1),
+      superseded_review_handoff?: Keyword.get(opts, :superseded_review_handoff?, false),
+      reviews_fetcher: Keyword.get(opts, :reviews_fetcher),
       workspace: workspace,
       worker_host: worker_host
     )
@@ -503,34 +486,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
     case DispatchPolicy.normalize_issue_state(issue.state) do
       "rework" -> "error"
       _ -> nil
-    end
-  end
-
-  # Widen the interval before each further no-op turn so an unbounded-looking
-  # spin costs tens of seconds instead of a turn every seven seconds.
-  defp apply_noop_backoff(issue, progress, cap, opts) do
-    backoff_ms = noop_backoff_ms(progress.consecutive_noops, opts)
-
-    if backoff_ms > 0 do
-      Logger.warning(
-        "Turn changed nothing observable for #{Aiur.AgentRunner.issue_context(issue)}: consecutive no-op turns=#{progress.consecutive_noops}/#{inspect(cap)}; backing off #{backoff_ms}ms before the next continuation turn"
-      )
-
-      Process.sleep(backoff_ms)
-    end
-
-    :ok
-  end
-
-  @doc false
-  @spec noop_backoff_ms(non_neg_integer(), keyword()) :: non_neg_integer()
-  def noop_backoff_ms(consecutive_noops, opts \\ []) do
-    case Keyword.fetch(opts, :noop_backoff_ms) do
-      {:ok, override} when is_integer(override) and override >= 0 ->
-        override
-
-      _absent ->
-        min(consecutive_noops * @noop_backoff_step_ms, @noop_backoff_ceiling_ms)
     end
   end
 
@@ -551,25 +506,27 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def return_completed(turn_context, %Issue{} = issue) when is_map(turn_context),
     do: {:completed, issue}
 
-  defp wait_for_resume(turn_context, app_session, message_handler) do
-    %{
-      issue: issue,
-      orchestrator: orchestrator,
-      codex_update_recipient: codex_update_recipient,
-      opts: opts
-    } = turn_context
+  @doc false
+  @spec confirm_pause_containment(map()) :: :ok
+  def confirm_pause_containment(app_session), do: Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
 
-    with :ok <-
-           QueueDrain.wait_for_operator_message(
-             app_session,
-             issue,
-             message_handler,
-             orchestrator,
-             codex_update_recipient,
-             opts
-           ) do
-      continue_after_resume(turn_context, app_session)
+  @doc false
+  @spec settle_paused_turn(map(), map(), map(), fun()) :: :ok | {:error, term()}
+  @spec settle_paused_turn(map(), map(), map(), fun(), (-> term()) | nil) :: :ok | {:error, term()}
+  def settle_paused_turn(context, app_session, pause_payload, message_handler, completed \\ nil) do
+    %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, codex_update_recipient: recipient, opts: opts} = context
+    confirm_pause_containment(app_session)
+    TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, worker_host, Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session)))
+
+    if pause_payload[:native_terminal] == :completed do
+      if completed, do: completed.(), else: best_effort_queue_bookkeeping(Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier), :consume, issue)
+    else
+      best_effort_queue_bookkeeping(Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier), :restore, issue)
     end
+
+    Aiur.AgentRunner.write_pause_log(workspace, worker_host)
+    MessageHandler.send_control_state(recipient, issue, :paused, handoff_pause_payload(app_session, workspace, pause_payload))
+    QueueDrain.wait_for_operator_message(app_session, issue, message_handler, orchestrator, recipient, opts)
   end
 
   @doc false
@@ -592,7 +549,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
             turn_context
             | issue: refreshed_issue,
               turn_number: turn_context.turn_number + 1,
-              opts: Keyword.put(turn_context.opts, :turn_progress, TurnProgress.empty())
+              opts: Keyword.put(turn_context.opts, :turn_progress, NoopWait.progress_after_resume(turn_context))
           },
           app_session
         )

@@ -156,13 +156,22 @@ export async function captureStable(target, opts, page) {
   let previous
   for (let attempt = 0; attempt < 10; attempt++) {
     // Locator screenshots scroll into view, disturbing motion under measurement.
-    let png
-    if (page) {
+    const shoot = async () => {
+      if (!page) return target.screenshot(opts)
       const box = await target.boundingBox()
       if (!box) throw new Error('unreachable screenshot region')
       const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
-      png = await page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
-    } else png = await target.screenshot(opts)
+      return page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+    }
+    let png
+    try { png = await shoot() }
+    catch (error) {
+      if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
+      // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
+      console.warn(`captureStable: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
+      await delay(100)
+      png = await shoot()
+    }
     if (previous?.equals(png)) return png
     previous = png
     await delay(100)

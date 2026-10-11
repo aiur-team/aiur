@@ -19,8 +19,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentPubSub, CodingAgent, Config, Conversation.History, Orchestrator, PollCadence}
-  alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
+  alias Aiur.{AgentChat, CodingAgent, Config, Conversation.History, Orchestrator, PollCadence}
 
   alias AiurWeb.{
     Endpoint,
@@ -123,10 +122,7 @@ defmodule AiurWeb.StreamdeckLive do
 
     socket =
       if connected?(socket) do
-        :ok = AgentPubSub.subscribe_running()
-        :ok = AgentPubSub.subscribe_status()
-        :ok = ProviderMeterEvents.subscribe_observed()
-        maybe_subscribe_fixture_fleet()
+        socket = AiurWeb.RefreshSubscriptions.fleet(socket, &maybe_subscribe_fixture_fleet/0)
 
         socket
         |> replace_transcript_relay(nil, socket.assigns.selected_identifier)

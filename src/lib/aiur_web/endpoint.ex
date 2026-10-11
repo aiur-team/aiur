@@ -72,8 +72,11 @@ defmodule AiurWeb.Endpoint do
   @doc false
   @spec authenticate_static_asset(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def authenticate_static_asset(conn, opts) do
-    if AiurWeb.StaticAssets.served_path?(conn.path_info),
-      do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts),
-      else: conn
+    if AiurWeb.StaticAssets.served_path?(conn.path_info) do
+      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+      if conn.halted, do: conn, else: AiurWeb.DashboardPagesGate.call(conn, [])
+    else
+      conn
+    end
   end
 end

@@ -133,7 +133,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
         assert :ok = Workspace.run_before_run_hook(workspace, issue)
         assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
         assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-        assert trace_count(trace_file) == 1
+        assert trace_count(trace_file, issue.identifier) == 1
       after
         File.rm_rf(test_root)
       end
@@ -199,7 +199,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
         assert :ok = Workspace.run_before_run_hook(workspace, issue)
 
         assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-        assert trace_count(trace_file) == 1
+        assert trace_count(trace_file, issue.identifier) == 1
       after
         File.rm_rf(test_root)
       end
@@ -253,7 +253,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           git checkout -b "aiur/${issue_id}" origin/main
           """,
           hook_before_run: """
-          printf 'attempt\\n' >> #{shell_quote(trace_file)}
+          basename "$PWD" >> #{shell_quote(trace_file)}
           exit 7
           """
         )
@@ -273,7 +273,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
                  Workspace.run_before_run_hook(workspace, issue)
 
         assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-        assert trace_count(trace_file) == 1
+        assert trace_count(trace_file, issue.identifier) == 1
       after
         File.rm_rf(test_root)
       end
@@ -740,11 +740,10 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
     assert File.dir?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
   end
 
-  defp trace_count(trace_file) do
-    trace_file
-    |> File.read!()
-    |> String.split("\n", trim: true)
-    |> length()
+  # A before_run still in flight from another test runs this hook too (the
+  # command is VM-global config), so count only this workspace's leaf (#4008).
+  defp trace_count(trace_file, identifier) do
+    trace_file |> File.read!() |> String.split("\n", trim: true) |> Enum.count(&(&1 == identifier))
   end
 
   defp branch(workspace) do
@@ -773,7 +772,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
   defp assert_stale_refresh_saved!(workspace, identifier, trace_file, issue) do
     assert :ok = Workspace.run_before_run_hook(workspace, issue)
     assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-    assert trace_count(trace_file) == 2
+    assert trace_count(trace_file, identifier) == 2
 
     assert [notice] = WipPreservation.pending_notices(workspace, identifier)
     assert notice["action"] == "recreate the stale workspace"
@@ -812,7 +811,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
       """,
       hook_before_run: """
       PATH="/usr/bin:/bin:$PATH"
-      printf 'attempt\\n' >> #{shell_quote(trace_file)}
+      basename "$PWD" >> #{shell_quote(trace_file)}
       if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
         git clone #{shell_quote(remote_repo)} .

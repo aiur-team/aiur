@@ -72,10 +72,12 @@ defmodule Aiur.Orchestrator.EventTopics do
   def pr_merged_opts(event) when is_map(event) do
     pr = if is_map(Map.get(event, :pr)), do: Map.get(event, :pr), else: %{}
 
-    [
+    opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
       pr_body: Map.get(pr, "body")
     ]
+
+    if Map.has_key?(pr, "number"), do: Keyword.put(opts, :pr_number, pr["number"]), else: opts
   end
 
   defp provisional_unblock?(event) do

@@ -23,7 +23,7 @@ defmodule Aiur.Codex.CodingAgent do
   alias Aiur.Config
 
   @type session :: %{
-          port: port(),
+          port: port() | pid(),
           metadata: map(),
           approval_policy: String.t() | map(),
           auto_approve_requests: boolean(),
@@ -90,7 +90,9 @@ defmodule Aiur.Codex.CodingAgent do
         account_generation_authority: account_generation.authority,
         account_generation_context: account_generation.context,
         account_generation_topic: account_generation.topic,
-        account_generation_server: account_generation_server
+        account_generation_server: account_generation_server,
+        account_name: Keyword.get(opts, :account_name),
+        account_selection_reason: Keyword.get(opts, :account_selection_reason)
       }
 
       notification_handler = SessionLifecycle.notification_handler(lifecycle_session, on_message)
@@ -166,6 +168,13 @@ defmodule Aiur.Codex.CodingAgent do
     collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "")
   end
 
+  defp recover_startup_exit(port, {:response_error, _} = reason) when is_pid(port) do
+    case collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "") do
+      :port_closed -> reason
+      exit -> exit
+    end
+  end
+
   defp recover_startup_exit(_port, reason), do: reason
 
   defp collect_startup_exit(port, deadline, pending) do
@@ -204,7 +213,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port} = session) when is_port(port) do
+  def stop_session(%{port: port} = session) when is_port(port) or is_pid(port) do
     AccountGeneration.process_stopped(session)
   after
     try do

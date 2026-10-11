@@ -46,8 +46,26 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   end
 
   defp adoption_withdrawal?(f) do
-    Map.fetch!(f.context.queues, f.item.queue_id).kind == :build_order and f.todo and
-      f.item.override == nil and not own_promotion?(f) and f.verdict != :ready
+    f.todo and f.item.override == nil and not own_promotion?(f) and f.verdict != :ready and
+      (Map.fetch!(f.context.queues, f.item.queue_id).kind == :build_order or prequeued_todo?(f))
+  end
+
+  defp prequeued_todo?(f) do
+    prequeued_mark?(f) and not withdrawn_todo?(f)
+  end
+
+  defp prequeued_mark?(f) do
+    Enum.any?(f.context.input.intents, fn intent ->
+      intent.issue_id == f.item.issue_id and intent.action == :mark and intent.outcome in [nil, :ok] and
+        "#{f.prefix}:todo" in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+    end)
+  end
+
+  defp withdrawn_todo?(f) do
+    Enum.any?(f.context.input.intents, fn intent ->
+      intent.issue_id == f.item.issue_id and intent.action == :withdraw and intent.outcome == :ok and
+        "#{f.prefix}:todo" not in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+    end)
   end
 
   defp managed_labels(f) do

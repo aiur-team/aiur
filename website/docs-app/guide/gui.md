@@ -2,6 +2,8 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
+High-rate snapshot notifications on Home, Units, Commands, Build Orders, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+
 ## Open the GUI
 
 | Launch condition | GUI result |
@@ -28,7 +30,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
 | **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
-| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. | `aiur analytics` |
+| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. A notice identifies periods with analytics capture disabled. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
@@ -117,16 +119,15 @@ Analytics records fleet and build-gate whole-host sources alongside daemon proce
 telemetry. The pressure chart shows occupied agents, configured/max/effective
 agent capacity, active and queued builds, and the oldest live build wait.
 
-Its source state strip and timestamped data table distinguish current, stale,
-degraded, partial, and empty observations. The table additionally reports the
-binding admission signal and the measured load against its threshold, so a growing
-build queue with load far below threshold reads as build-gate-saturated rather
-than host-saturated.
+Its source strip and timestamped table distinguish current, stale, degraded,
+partial and empty observations. Load stays diagnostic. Dispatch uses CPU PSI when
+available; status names its threshold or load fallback. A growing build queue
+shows verification throttling; build occupancy does not hold dispatch.
 
 A gap means the source was not current enough to support that value; it is never
 silently plotted as zero. Build-queue wait is the oldest waiter still live at the
 sample time, not a completed-build latency. These measurements expose when the
-build gate is the fleet constraint; they do not automatically change the agent cap.
+build gate limits verification; they do not automatically change the agent cap.
 
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.

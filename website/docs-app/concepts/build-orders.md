@@ -98,13 +98,15 @@ The build queue detects a prerequisite PR closed without merging from its latest
 
 Each newly observed closed-unmerged PR version publishes the live event `ticket.<id>.pr.closed_unmerged` with ticket and PR-number references; queue readiness uses stored evidence, independently of event delivery.
 
-This detection makes no GitHub request. Missing, stale, or malformed PR deliveries supply no PR stage; fresh lifecycle labels can still satisfy an optimistic queue trigger. A newer open PR delivery replaces the closed body and clears the failed verdict.
+This detection makes no GitHub request. Retained CI and merge facts survive label regressions; issue observations must still be fresh. A boot-seeded CI head needs local PR identity before it can release a dependent. A newer open PR delivery replaces the closed body and clears the failed verdict.
 
 ## Queueing a Build Order
 
 `aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
+
+For a list queue, if `queue add` finds `agent:todo` already present, the saved marker request records that provenance. When fresh evidence shows prerequisites are unmet, the queue holds dispatch, checks claims, then withdraws `agent:todo` only for an unclaimed item. A later manual promotion remains an override.
 
 Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
@@ -134,6 +136,10 @@ The task holds the workspace lock and leaves the checkout and index untouched. A
 ## Queue cost
 
 Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+
+The dispatch poll normally renews the open-issue snapshot the queue plans from. When that snapshot is older than the observation age, a non-empty queue lists open issues itself with caller `build_queue_open_issue_list`: at most once per observation age, starting one observation age after boot. The listing selects and authorizes no dispatch candidates.
+
+The listing is conditional on the queue's own page cache: an unchanged page answers `304` and renews the snapshot. It runs whenever the dispatch cadence is wider than the observation age, never while the previous one is still running. It needs the daemon scheduled and GitHub reachable, so a saturated host or failed listing can leave freshness `unknown`.
 
 Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready` backlog and `newly_ready`: items now ready that were not ready in the previous pass, including the initial population. Both measure demand, not successful writes.
 
@@ -185,7 +191,9 @@ The `/build-orders` catalog includes a read-only Build queue panel. It uses the 
 
 Every source shows its observation timestamp, age and freshness. Stale readiness is dimmed; unavailable readings show Unknown rather than zero or ready. Disabled queues, unsupported trackers, store failures and paused writes have distinct notices.
 
-Queue and progress events coalesce for 500 ms before the panel rereads local state. A local refresh every five seconds updates freshness without tracker requests. Resolved attentions remain visible for 60 seconds; connection loss uses the dashboard’s existing disconnected indicator.
+Queue and progress notifications arrive in batches spaced at least 500 ms apart, then coalesce for 500 ms before the panel rereads local state. Each subscription group can hold only one unacknowledged batch; newer notifications replace older ones by event type.
+
+A local refresh every five seconds updates freshness without tracker requests. Resolved attentions remain visible for 60 seconds; connection loss uses the dashboard’s existing disconnected indicator.
 
 Build Order roots appear as features named `bo-<number>`. Membership follows
 direct sub-issues, and build lanes become feature epics. The import writes no
