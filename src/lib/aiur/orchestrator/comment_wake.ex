@@ -13,14 +13,13 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
-  alias Aiur.Issue
+  alias Aiur.{Issue, Tracker}
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
-  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, ReviewFindings}
+  alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
+  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Tracker
-  alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
@@ -58,7 +57,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     clear_session_handle_fun =
-      Keyword.get(opts, :clear_session_handle_fun, &Orchestrator.clear_session_handle/1)
+      Keyword.get(opts, :clear_session_handle_fun, &WorkspaceCleanup.clear_session_handle/1)
 
     observe_membership_fun =
       Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
@@ -414,12 +413,12 @@ defmodule Aiur.Orchestrator.CommentWake do
          mark_reconciled_fun,
          set_terminal_verification_pending_fun
        ) do
-    case safely_set_terminal_verification_pending(
+    case CurrentRunMembership.set_terminal_verification_pending(
            set_terminal_verification_pending_fun,
            issue.tracker_identity,
            false
          ) do
-      :ok ->
+      result when result in [:ok, :skipped] ->
         clear_session_handle_fun.(identifier)
         terminate_running_issue_fun.(state, issue.id, true)
 
@@ -454,7 +453,7 @@ defmodule Aiur.Orchestrator.CommentWake do
          identity
        ) do
     _ =
-      safely_set_terminal_verification_pending(
+      CurrentRunMembership.set_terminal_verification_pending(
         set_terminal_verification_pending_fun,
         identity,
         true
@@ -466,44 +465,6 @@ defmodule Aiur.Orchestrator.CommentWake do
     _error -> :ok
   catch
     _kind, _reason -> :ok
-  end
-
-  defp safely_set_terminal_verification_pending(
-         set_terminal_verification_pending_fun,
-         %TrackerIdentity{} = identity,
-         pending?
-       ) do
-    if TrackerIdentity.joinable?(identity) do
-      invoke_terminal_verification_marker(
-        set_terminal_verification_pending_fun,
-        identity,
-        pending?
-      )
-    else
-      :ok
-    end
-  end
-
-  defp safely_set_terminal_verification_pending(
-         _set_terminal_verification_pending_fun,
-         _identity,
-         _pending?
-       ),
-       do: :ok
-
-  defp invoke_terminal_verification_marker(
-         set_terminal_verification_pending_fun,
-         identity,
-         pending?
-       ) do
-    case set_terminal_verification_pending_fun.(identity, pending?) do
-      :ok -> :ok
-      _ -> :error
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   @doc false
@@ -732,7 +693,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         identifier = to_string(issue_number)
 
         protected_state =
-          Orchestrator.enqueue_event_digest_item(state, identifier, [event], event)
+          OperatorMessages.enqueue_event_digest_item(state, identifier, [event], event)
 
         issue_key = rework_issue_key(running_entry, issue_number)
 
@@ -1043,7 +1004,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     UniversalSubscriptions.attach(identifier)
 
     state
-    |> Orchestrator.enqueue_event_digest_item(identifier, [event], event)
+    |> OperatorMessages.enqueue_event_digest_item(identifier, [event], event)
     |> dispatch_reworked_comment_issue(identifier, event)
   end
 
@@ -1061,13 +1022,13 @@ defmodule Aiur.Orchestrator.CommentWake do
       {:skip, reason} ->
         Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-        Orchestrator.schedule_poll_cycle_start()
+        OrchestratorLifecycle.schedule_poll_cycle_start()
         state
 
       {:error, reason} ->
         Logger.warning("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-        Orchestrator.schedule_poll_cycle_start()
+        OrchestratorLifecycle.schedule_poll_cycle_start()
         state
     end
   end
@@ -1109,7 +1070,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         event_source: :system
       )
 
-      Orchestrator.schedule_poll_cycle_start()
+      OrchestratorLifecycle.schedule_poll_cycle_start()
       state
     end
   end
@@ -1257,7 +1218,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     if comment_write_pending?(state, context.issue_key) do
       state
-      |> Orchestrator.enqueue_event_digest_item(to_string(context.ticket), [context.event], context.event)
+      |> OperatorMessages.enqueue_event_digest_item(to_string(context.ticket), [context.event], context.event)
       |> schedule_comment_rework_retry(context.ticket, context.source, context.event, context.attempt, :rework_write_in_progress)
     else
       start_comment_rework(state, head_sha, context)
@@ -1683,7 +1644,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
 
           state
-          |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
+          |> OperatorMessages.enqueue_event_digest_item(to_string(issue_number), [event], event)
           |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
           Alerts.emit_custom(
@@ -1748,7 +1709,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       case target do
         "done" ->
           LocalHold.run(
-            fn -> update_issue_state_fun.(to_string(identifier), "done") end,
+            fn -> update_issue_state_fun.(to_string(identifier), "done") |> Alerts.StaleNotClosed.resolve_on_ok(identifier) end,
             LocalHold.caller_opts(opts)
           )
 

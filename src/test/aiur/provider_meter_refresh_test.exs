@@ -112,6 +112,12 @@ defmodule Aiur.ProviderMeterRefreshTest do
     assert_receive {:observed, :all}, 1_000
   end
 
+  # #4221: the supervised refresher's boot baseline opened a Codex probe session
+  # with whichever fake `codex.command` the running test had configured.
+  test "the refresher the application supervises observes nothing in the test VM" do
+    assert :sys.get_state(ProviderMeterRefresh).observer.(:all) == []
+  end
+
   # With no injected interval the scheduler resolves one from config, falling
   # back to a real cadence rather than crashing or scheduling immediately.
   test "a missing injected interval resolves from config" do
@@ -254,6 +260,24 @@ defmodule Aiur.ProviderMeterRefreshTest do
     end
   end
 
+  describe "headroom dispatch (#4127)" do
+    # Dispatch ranks accounts by the meter at every claim, so the policy must
+    # keep it current with no surface open.
+    test "polls with no watcher while headroom selection is on" do
+      start_refresh(agents_running?: true, headroom?: true, baseline_delay_ms: :never, interval_ms: 20)
+
+      assert_receive {:observed, :all}, 1_000
+      assert_receive {:observed, :all}, 1_000
+    end
+
+    test "an idle fleet polls Claude only" do
+      start_refresh(agents_running?: false, headroom?: true, baseline_delay_ms: :never, interval_ms: 20)
+
+      assert_receive {:observed, :claude}, 1_000
+      refute_received {:observed, :all}
+    end
+  end
+
   defp flush do
     receive do
       {:observed, _target} -> flush()
@@ -270,6 +294,7 @@ defmodule Aiur.ProviderMeterRefreshTest do
         name: nil,
         observer: Keyword.get(opts, :observer, collector()),
         agents_running_fun: fn -> Keyword.fetch!(opts, :agents_running?) end,
+        headroom_fun: fn -> Keyword.get(opts, :headroom?, false) end,
         interval_fun: fn -> interval_ms end,
         baseline_delay_ms: Keyword.get(opts, :baseline_delay_ms, 10),
         grace_ms: Keyword.get(opts, :grace_ms, 60_000)

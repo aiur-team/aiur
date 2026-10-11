@@ -15,6 +15,7 @@ defmodule Aiur.Config.Schema.Observability do
     field(:refresh_ms, :integer, default: 1_000)
     field(:render_interval_ms, :integer, default: 16)
     field(:telemetry_enabled, :boolean, default: true)
+    field(:capture_github_facts, :boolean, default: true)
     field(:telemetry_retention_max_bytes, :integer, default: 64 * 1024 * 1024)
     field(:telemetry_retention_max_age_days, :integer, default: 30)
     field(:telemetry_retention_prune_interval_bytes, :integer)
@@ -32,6 +33,7 @@ defmodule Aiur.Config.Schema.Observability do
         :refresh_ms,
         :render_interval_ms,
         :telemetry_enabled,
+        :capture_github_facts,
         :telemetry_retention_max_bytes,
         :telemetry_retention_max_age_days,
         :telemetry_retention_prune_interval_bytes

@@ -397,10 +397,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           {:ok, pid} =
             Task.start(fn ->
               if text == "Voice reply from the agent." do
-                send(socket.channel_pid, {:elevenlabs_audio, :chunk, <<0, 0, 255, 127, 0, 0, 1, 128>>})
-                send(socket.channel_pid, {:elevenlabs_audio, :done})
+                send(socket.channel_pid, {:voice_audio, :chunk, <<0, 0, 255, 127, 0, 0, 1, 128>>})
+                send(socket.channel_pid, {:voice_audio, :done})
               else
-                send(socket.channel_pid, {:elevenlabs_audio, :error, "fixture received an incomplete reply"})
+                send(socket.channel_pid, {:voice_audio, :error, "fixture received an incomplete reply"})
               end
             end)
 

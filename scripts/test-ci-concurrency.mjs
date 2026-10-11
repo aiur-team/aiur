@@ -70,7 +70,7 @@ assert.ok(security?.includes('run: node scripts/test-ci-concurrency.mjs'),
   'workflow security must execute this test');
 console.log('CI concurrency tests passed');
 
-for (const [job, upstream] of [['coverage', 'coverage-partition'], ['test', 'coverage']]) {
+for (const [job, upstream] of [['test', 'coverage-partition']]) {
   const body = workflow.match(new RegExp(`^  ${job}:\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:)`, 'm'))?.[1];
   const condition = body?.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
   assert.ok(condition, `${job} must declare a condition`);
@@ -83,6 +83,7 @@ for (const [job, upstream] of [['coverage', 'coverage-partition'], ['test', 'cov
   assert.equal(runs('cancelled', true), false, `${job} must skip a cancelled run's inputs`);
   assert.equal(runs('success', true), false, `${job} must stop on workflow cancellation`);
   assert.equal(runs('skipped', true), false, `${job} must skip cancelled runs with skipped inputs`);
+  assert.equal(runs('skipped'), true, `${job} must diagnose a skipped shard`);
   for (const result of ['success', 'failure']) {
     assert.equal(runs(result), true, `${job} must still run on ${result}`);
     assert.equal(runs(result, false, true), false, `${job} must skip draft PRs`);
@@ -90,3 +91,11 @@ for (const [job, upstream] of [['coverage', 'coverage-partition'], ['test', 'cov
   }
   console.log(`${job} cancellation tests passed`);
 }
+
+const testJob = workflow.match(/^  test:\n([\s\S]*?)(?=^  [a-z][a-z-]*:)/m)?.[1];
+assert.ok(testJob?.includes('run: make coverage-report'), 'test must retain the coverage gate');
+assert.ok(testJob?.includes('needs: [coverage-partition, changes]'),
+  'test must wait directly for all coverage shards');
+assert.ok(/for partition in 1 2 3 4; do\n\s+test -s "cover\/\$\{partition\}\.coverdata"/.test(testJob),
+  'test must fail when any shard skips its coverage export');
+assert.ok(!/^  coverage:$/m.test(workflow), 'coverage and test must use one runner job');

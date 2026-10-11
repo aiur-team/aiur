@@ -23,6 +23,7 @@ defmodule Aiur.AgentResourceGuard do
   use GenServer
 
   alias Aiur.AgentResourceGuard.BusyLoop
+  alias Aiur.AgentResourceGuard.RunawayGroups
   alias Aiur.ProcessTree
   require Logger
 
@@ -162,6 +163,7 @@ defmodule Aiur.AgentResourceGuard do
   def handle_info(:tick, state) do
     state =
       try do
+        RunawayGroups.check(state.enforce_opts)
         state = refresh_orphans(state)
         opts = Keyword.put(state.enforce_opts, :orphans_fun, fn -> state.orphans end)
         %{state | tracked: opts |> enforce(state.tracked) |> elem(1)}
@@ -300,7 +302,7 @@ defmodule Aiur.AgentResourceGuard do
         []
 
       pgrep ->
-        case System.cmd(pgrep, ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
+        case Aiur.ProcessExhaustion.cmd(pgrep, ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
           {out, 0} -> parse_pid_list(out)
           _other -> []
         end

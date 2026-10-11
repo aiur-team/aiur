@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.ReconciliationTasksTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, RecentMerge}
-  alias Aiur.Orchestrator.{IssueSync, MergedTicketReconciler, Reconciler, StartupClaimReconciler, State, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.{AgentQueueStore, Issue, RecentMerge}
+  alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, MergedTicketReconciler, Reconciler, StartupClaimReconciler, State, TrackerTasks, WorkspaceCleanup}
 
   test "startup cleanup runs off the owner in order and never returns an old state" do
     parent = self()
@@ -80,6 +81,115 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     assert next.last_polled_issues[issue.id] == issue
     assert next.released_claims[issue.id] == %{reason: :retry}
     assert next.running[issue.id] == entry
+    assert Map.get(next.terminal_verification_attempts, issue.id, 0) == 0
+  end
+
+  test "asynchronous idle verification abandons an unresolved id after five completed reads" do
+    issue = %Issue{id: "async-abandoned", identifier: "async-#{System.unique_integer([:positive])}", state: "in-progress"}
+    topic = "ticket.#{issue.identifier}.terminal_verification_abandoned"
+    :ok = Exchange.subscribe(topic)
+
+    final =
+      Enum.reduce(1..5, owned_state(last_polled_issues: %{issue.id => issue}), fn count, state ->
+        pending = IssueSync.sync_polled_issue_state(state, [], fn [_] -> {:ok, []} end, fn _, _ -> flunk("absent ticket") end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+        assert pending.terminal_verification_attempts == %{issue.id => Map.get(state.terminal_verification_attempts, issue.id, 0)}
+        assert pending.last_polled_issues == %{issue.id => issue}
+        next = finish_task(pending)
+
+        if count < 5 do
+          assert next.last_polled_issues == %{issue.id => issue}
+          assert next.terminal_verification_attempts == %{issue.id => count}
+          refute_received {:event, %{topic: ^topic}}
+        end
+
+        next
+      end)
+
+    assert final.last_polled_issues == %{}
+    assert final.terminal_verification_attempts == %{}
+    receive_barrier({:event, %{topic: ^topic} = alert})
+    assert alert["reason"] =~ "unresolved after 5 attempts"
+    refute_received {:event, %{topic: ^topic}}
+    :ok = Exchange.unsubscribe(topic)
+  end
+
+  test "a hanging idle verifier timeout counts as one attempt and ignores duplicate timeout delivery" do
+    issue = %Issue{id: "hung-read", identifier: "hung-read", state: "in-progress"}
+    parent = self()
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        owned_state(last_polled_issues: %{issue.id => issue}),
+        [],
+        fn [_] ->
+          wait_for_release(parent)
+          {:ok, []}
+        end,
+        fn _, _ -> flunk("a hanging verifier cannot observe membership") end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _, _ -> :ok end
+      )
+
+    receive_barrier({:io_waiting, worker})
+    [ref] = Map.keys(pending.tracker_tasks)
+    assert pending.terminal_verification_attempts == %{issue.id => 0}
+    assert {:noreply, timed_out} = Aiur.Orchestrator.handle_info({:tracker_task_timeout, ref}, pending)
+    refute Process.alive?(worker)
+    assert timed_out.tracker_tasks == %{}
+    assert timed_out.last_polled_issues == %{issue.id => issue}
+    assert timed_out.terminal_verification_attempts == %{issue.id => 1}
+    assert {:noreply, ^timed_out} = Aiur.Orchestrator.handle_info({:tracker_task_timeout, ref}, timed_out)
+  end
+
+  test "overlapping polls count one completed idle verification read only once" do
+    issue = %Issue{id: "held-read", identifier: "held-read", state: "in-progress"}
+    parent = self()
+
+    fetch = fn [_] ->
+      wait_for_release(parent)
+      {:ok, []}
+    end
+
+    poll = fn state, issues ->
+      IssueSync.sync_polled_issue_state(state, issues, fetch, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+    end
+
+    pending = poll.(owned_state(last_polled_issues: %{issue.id => issue}), [])
+    receive_barrier({:io_waiting, worker})
+
+    overlapping =
+      Enum.reduce(1..5, pending, fn n, state ->
+        poll.(state, [%Issue{id: "new-#{n}", identifier: "new-#{n}", state: "todo"}])
+      end)
+
+    send(worker, :release)
+    completed = finish_task(overlapping)
+    assert completed.last_polled_issues[issue.id] == issue
+    assert completed.terminal_verification_attempts == %{issue.id => 1}
+  end
+
+  test "a returned active ticket fences an in-flight idle verification attempt" do
+    issue = %Issue{id: "returned-pending", identifier: "returned-pending", state: "in-progress"}
+    parent = self()
+
+    poll = fn state, issues, fetch ->
+      IssueSync.sync_polled_issue_state(state, issues, fetch, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+    end
+
+    pending =
+      poll.(owned_state(last_polled_issues: %{issue.id => issue}), [], fn [_] ->
+        wait_for_release(parent)
+        {:ok, []}
+      end)
+
+    receive_barrier({:io_waiting, worker})
+    returned = poll.(pending, [issue], fn _ -> flunk("active return needs no refresh") end)
+    assert returned.terminal_verification_attempts == %{}
+    send(worker, :release)
+    completed = finish_task(returned)
+    assert completed.last_polled_issues == %{issue.id => issue}
+    assert completed.terminal_verification_attempts == %{}
   end
 
   test "label repair withholds its candidate until the write succeeds and preserves current state" do
@@ -101,6 +211,119 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     receive_barrier({:written, "3213", "todo"})
     assert next.last_polled_issues[issue.id].state_labels == ["todo"]
     assert MapSet.member?(next.completed, "unrelated-completion")
+  end
+
+  test "dependency add mutates real stores off-owner and enqueues only after the writes finish" do
+    :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+    blockee_id = "its-everdred/aiur#dependency-add-#{System.unique_integer([:positive])}"
+    blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
+    blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
+    previous = %Issue{id: "dependency-add", identifier: blockee_id, state: "in-progress", blocked_by: []}
+    current = %{previous | blocked_by: [blocker]}
+    :ok = SubscriptionStore.attach(blockee_id)
+    :ok = SubscriptionStore.attach(blocker_id)
+
+    on_exit(fn ->
+      SubscriptionStore.stop(blockee_id)
+      SubscriptionStore.stop(blocker_id)
+    end)
+
+    state = owned_state(last_polled_issues: %{previous.id => previous}, queue_store: AgentQueueStore.new())
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _, _ -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _, _ -> :ok end
+      )
+
+    assert TrackerTasks.running?(pending, {:dependency_subscription, previous.id, blocker.id})
+    assert pending.queue_store.items == %{}
+    result = finish_task(pending)
+    assert Enum.any?(SubscriptionStore.snapshot(blockee_id).subscribed_to, &(&1["topic"] == "ticket.#{blocker_id}.agent.unblocked"))
+    assert Enum.any?(SubscriptionStore.snapshot(blocker_id).subscribed_to, &(&1["topic"] == "ticket.#{blockee_id}.agent.blocked"))
+    assert Enum.any?(result.queue_store.items, fn {_id, item} -> item.event_type == :dependency_added end)
+  end
+
+  test "dependency remove mutates real stores off-owner and enqueues only after the writes finish" do
+    :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+    blockee_id = "its-everdred/aiur#dependency-remove-#{System.unique_integer([:positive])}"
+    blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
+    blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
+    previous = %Issue{id: "dependency-remove", identifier: blockee_id, state: "in-progress", blocked_by: [blocker]}
+    current = %{previous | blocked_by: []}
+    :ok = AutoSubscriptions.auto_subscribe_for_dependency(previous, blocker)
+
+    on_exit(fn ->
+      SubscriptionStore.stop(blockee_id)
+      SubscriptionStore.stop(blocker_id)
+    end)
+
+    state = owned_state(last_polled_issues: %{previous.id => previous}, queue_store: AgentQueueStore.new())
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _, _ -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _, _ -> :ok end
+      )
+
+    assert TrackerTasks.running?(pending, {:dependency_subscription, previous.id, blocker.id})
+    assert pending.queue_store.items == %{}
+    # The cleared-dependency resume runs as its own tracker task beside the unsubscribe.
+    result = pending |> finish_task() |> finish_task()
+    assert result.tracker_tasks == %{}
+    refute Enum.any?(SubscriptionStore.snapshot(blockee_id).subscribed_to, &(&1["topic"] == "ticket.#{blocker_id}.agent.unblocked"))
+    refute Enum.any?(SubscriptionStore.snapshot(blocker_id).subscribed_to, &(&1["topic"] == "ticket.#{blockee_id}.agent.blocked"))
+    assert Enum.any?(result.queue_store.items, fn {_id, item} -> item.event_type == :dependency_removed end)
+  end
+
+  test "a dependency removed while its add is still held runs after it, leaving no bindings" do
+    :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+    blockee_id = "its-everdred/aiur#dependency-flip-#{System.unique_integer([:positive])}"
+    blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
+    blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
+    previous = %Issue{id: "dependency-flip", identifier: blockee_id, state: "in-progress", blocked_by: []}
+    current = %{previous | blocked_by: [blocker]}
+    held_topic = "ticket.#{blocker_id}.agent.unblocked"
+    parent = self()
+
+    AutoSubscriptions.set_add_subscription_fn(fn identifier, topic, reason ->
+      if identifier == blockee_id and topic == held_topic, do: wait_for_release(parent)
+      SubscriptionStore.add_subscription(identifier, topic, reason)
+    end)
+
+    on_exit(fn ->
+      AutoSubscriptions.set_add_subscription_fn(nil)
+      SubscriptionStore.stop(blockee_id)
+      SubscriptionStore.stop(blocker_id)
+    end)
+
+    sync = fn state, issue ->
+      IssueSync.sync_polled_issue_state(state, [issue], fn _ -> {:ok, []} end, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+    end
+
+    key = {:dependency_subscription, previous.id, blocker.id}
+    adding = sync.(owned_state(last_polled_issues: %{previous.id => previous}, queue_store: AgentQueueStore.new()), current)
+    receive_barrier({:io_waiting, worker})
+    removing = sync.(adding, previous)
+    assert Enum.count(removing.tracker_tasks, fn {_ref, job} -> job.key == key end) == 1
+    send(worker, :release)
+    # Add, the queued remove, and the cleared-dependency resume beside them.
+    result = removing |> finish_task() |> finish_task() |> finish_task()
+    assert result.tracker_tasks == %{}
+    assert SubscriptionStore.snapshot(blockee_id).subscribed_to == []
+    assert SubscriptionStore.snapshot(blocker_id).subscribed_to == []
+    events = result.queue_store.items |> Map.values() |> Enum.sort_by(& &1.sequence) |> Enum.map(& &1.event_type)
+    assert events == [:dependency_added, :dependency_removed]
   end
 
   test "startup release does not apply a late response over a newly owned runtime" do
@@ -130,6 +353,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     send(worker, :release)
     next = finish_task(current)
     assert next.running[issue.id] == entry
+    assert Map.get(next.terminal_verification_attempts, issue.id, 0) == 0
     refute Map.has_key?(next.last_polled_issues, issue.id)
   end
 

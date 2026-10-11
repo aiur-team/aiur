@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   require Logger
 
   alias Aiur.{Alerts, CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
-  alias Aiur.Orchestrator.LifecycleFenceExpiry
+  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, PushRouting, RuntimeWatchdog}
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
@@ -29,10 +29,10 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
-    state = state |> LifecycleFenceExpiry.reconcile() |> Orchestrator.reconcile_runtime_health()
-    state = Orchestrator.reconcile_stalled_running_issues(state)
-    state = Orchestrator.reconcile_overrunning_agents(state)
-    state = Orchestrator.reconcile_pending_auto_resumes(state)
+    state = state |> LifecycleFenceExpiry.reconcile() |> RuntimeWatchdog.reconcile_runtime_health()
+    state = RuntimeWatchdog.reconcile_stalled_running_issues(state)
+    state = RuntimeWatchdog.reconcile_overrunning_agents(state)
+    state = PushRouting.reconcile_pending_auto_resumes(state)
     RateLimitFallback.reconcile(state)
   end
 
@@ -512,7 +512,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp mark_divergence_checked(state, _issue_id, nil), do: state
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do
-    if safely_set_terminal_verification_pending(issue.tracker_identity, false) == :ok do
+    if CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, issue.tracker_identity, false) in [:ok, :skipped] do
       Orchestrator.terminate_running_issue(state, issue.id, true)
     else
       mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
@@ -674,28 +674,13 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   defp mark_membership_unavailable(state, mark_reconciled_fun, identity) do
-    _ = safely_set_terminal_verification_pending(identity, true)
+    _ = CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, identity, true)
     _ = mark_reconciled_fun.(:unavailable)
     state
   rescue
     _error -> state
   catch
     _kind, _reason -> state
-  end
-
-  defp safely_set_terminal_verification_pending(identity, pending?) do
-    if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do
-      case CurrentRunMembership.set_terminal_verification_pending(identity, pending?) do
-        :ok -> :ok
-        _ -> :error
-      end
-    else
-      :ok
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
@@ -739,7 +724,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
     state =
       if pause_reason == :ci_wait,
-        do: Orchestrator.cancel_ci_wait_rewake(state, issue.id),
+        do: CiLifecycle.cancel_ci_wait_rewake(state, issue.id),
         else: state
 
     case Orchestrator.resume_paused_issue(state, new_entry, false) do

@@ -189,6 +189,8 @@ defmodule Aiur.Orchestrator.ReworkGate do
     * `{:skip, :no_unresolved_review_threads}` — the open PR has no unresolved
       threads; the reviewer is not currently asking for a change, so the ticket
       must not be routed to rework;
+    * `{:skip, :approved_and_queued}` — the PR is approved and in the merge
+      queue; the ticket keeps its waiting state (#4204);
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
 
@@ -199,13 +201,13 @@ defmodule Aiur.Orchestrator.ReworkGate do
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
           {:ok, map()}
-          | {:skip, :no_open_pr | :no_unresolved_review_threads}
+          | {:skip, :no_open_pr | :no_unresolved_review_threads | :approved_and_queued}
           | {:error, term()}
   def verify_unresolved_review_threads(issue_key, opts \\ []) do
     case open_pr(issue_key, opts) do
       {:ok, %{} = pr} ->
         case open_pull_request_rework_verdict(pr, opts) do
-          {:ok, :rework} -> {:ok, pr}
+          {:ok, :rework} -> rework_unless_queued(pr, opts)
           {:skip, reason} -> {:skip, reason}
           {:error, reason} -> {:error, reason}
         end
@@ -215,6 +217,25 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # #4204: a queued branch rejects pushes, so a rework turn could only ask the
+  # Executor to dequeue it, and the approval already outranks an open thread
+  # (#1756). A failed read keeps the rework verdict the threads justified.
+  defp rework_unless_queued(pr, opts) do
+    fetcher = Keyword.get(opts, :queued_approval_fetcher, &default_queued_approval_fetcher/1)
+    # A blocking review submitted after the approval leaves `reviewDecision` APPROVED; it is still a finding.
+    blocking? = Keyword.get(opts, :blocking_review_submission?, false)
+    if not blocking? and fetcher.(pr) == {:ok, true}, do: {:skip, :approved_and_queued}, else: {:ok, pr}
+  end
+
+  defp default_queued_approval_fetcher(pr) do
+    with true <- available?(),
+         number when is_integer(number) <- Map.get(pr, "number") do
+      GitHubClient.pull_request_approved_and_queued?(number)
+    else
+      _unavailable -> {:ok, false}
     end
   end
 

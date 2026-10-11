@@ -56,17 +56,34 @@ if [[ -f "$list_file" ]]; then
   grep -vE '^[[:space:]]*(#|$)' "$list_file" | sed 's/[[:space:]]*$//' > "$known_file"
 fi
 
+# Escape workflow-command data; colons in test names remain literal message text.
+annotation() {
+  local message="$1"
+  message="${message//'%'/'%25'}"
+  message="${message//$'\r'/'%0D'}"
+  message="${message//$'\n'/'%0A'}"
+  printf '::error title=aiur-test-failure::%s\n' "$message"
+}
+
 known=0
 new=0
 while IFS= read -r test; do
   if [[ -f "$list_file" ]] && grep -Fxq -- "$test" "$known_file"; then
     echo "  - $test — **known flake** (listed in .github/known-flaky-tests.txt)" >> "$summary_file"
+    classification=known-flake
     known=$((known + 1))
   else
     echo "  - $test — **NEW failure** (not a known flake)" >> "$summary_file"
+    classification=new-failure
     new=$((new + 1))
   fi
+  if (( known + new <= 9 )); then
+    annotation "$classification :: $test"
+  fi
 done <<< "$failing_tests"
+if (( known + new > 9 )); then
+  annotation "truncated :: and $((known + new - 9)) more"
+fi
 
 echo "" >> "$summary_file"
 if (( new == 0 )); then
