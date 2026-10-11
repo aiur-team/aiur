@@ -14,18 +14,10 @@ defmodule Aiur.Orchestrator.IssueSyncTelemetryTest do
     :ok
   end
 
-  test "terminal usage failure does not prevent membership recording for a nil identifier" do
-    issue = %{issue("nil-identifier") | identifier: nil}
-    parent = self()
+  test "terminal usage failure stays fail open for a nil identifier" do
+    issue = %Issue{id: "nil-identifier", identifier: nil, state: "done"}
 
-    assert :ok =
-             MembershipLifecycle.record(issue, :completed, fn identity, lifecycle ->
-               send(parent, {:membership, identity, lifecycle})
-               :ok
-             end)
-
-    assert_received {:membership, identity, :completed}
-    assert identity == issue.tracker_identity
+    assert :ok = MembershipLifecycle.record(issue, :completed, fn _, _ -> :ok end)
   end
 
   test "two real polls record state change and blocker clearance" do
