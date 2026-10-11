@@ -1,14 +1,15 @@
 defmodule Aiur.BuildQueue.Progress do
   @moduledoc "Shared list progress calculation and reconciliation fact producer."
+  require Logger
   alias Aiur.BuildProgress
   alias Aiur.BuildQueue.ReadModel
 
   @spec available?() :: boolean()
   def available?, do: Code.ensure_loaded?(BuildProgress) and GenServer.whereis(BuildProgress) != nil
 
-  @spec summary([map()]) :: map()
-  def summary(items) do
-    if available?(), do: counts(items), else: unknown()
+  @spec summary([map()], boolean()) :: map()
+  def summary(items, available \\ available?()) do
+    if available, do: counts(items), else: unknown()
   end
 
   defp counts(items) do
@@ -39,7 +40,20 @@ defmodule Aiur.BuildQueue.Progress do
     end
   end
 
-  @spec publish(map()) :: :ok
+  @spec reconcile(map()) :: map()
+  def reconcile(state) do
+    case publish(Map.put(state, :progress_unavailable, false)) do
+      :ok ->
+        Map.put(state, :progress_unavailable, false)
+
+      {:error, reason} ->
+        reasons = Map.get(state, :progress_errors, MapSet.new())
+        unless MapSet.member?(reasons, reason), do: Logger.warning("Build queue progress publication failed: #{inspect(reason)}")
+        Map.merge(state, %{progress_unavailable: true, progress_errors: MapSet.put(reasons, reason)})
+    end
+  end
+
+  @spec publish(map()) :: :ok | {:error, term()}
   def publish(state) do
     if available?() do
       model = ReadModel.build(state)
@@ -47,12 +61,30 @@ defmodule Aiur.BuildQueue.Progress do
       source = %{source | observed_at: source.observed_at || model.snapshot.captured_at}
       queues = Map.new(state.document.queues, &{&1.id, &1})
 
-      for row <- model.queues, fact = fact(queues[row.queue_id], row.items, source), fact != nil do
-        :ok = BuildProgress.put_fact(fact)
-      end
-    end
+      Enum.reduce_while(model.queues, :ok, fn row, :ok ->
+        case fact(queues[row.queue_id], row.items, source) do
+          nil ->
+            {:cont, :ok}
 
-    :ok
+          fact ->
+            case put_fact(fact) do
+              :ok -> {:cont, :ok}
+              error -> {:halt, error}
+            end
+        end
+      end)
+    else
+      :ok
+    end
+  end
+
+  defp put_fact(fact) do
+    BuildProgress.put_fact(fact)
+  rescue
+    error -> {:error, {:exception, error.__struct__, Exception.message(error)}}
+  catch
+    :exit, {reason, {GenServer, :call, _}} -> {:error, {:exit, reason}}
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp unknown, do: %{completed: nil, resolved: nil, total: nil, percent: nil, resolution: :unknown}
