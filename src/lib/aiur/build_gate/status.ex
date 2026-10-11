@@ -455,9 +455,16 @@ defmodule Aiur.BuildGate.Status do
   defp process_group_status(pid, pgid) do
     case File.read("/proc/#{pid}/status") do
       {:ok, status} ->
-        case Regex.run(~r/^NSpgid:\s+(\d+)(?:\s|$)/m, status) do
-          [_, group] -> String.to_integer(group) == pgid
-          _ -> :unknown
+        case Regex.run(~r/^NSpgid:\s+(\d+(?:\s+\d+)*)\s*$/m, status) do
+          [_, groups] ->
+            groups
+            |> String.split()
+            |> List.last()
+            |> String.to_integer()
+            |> then(&(&1 == pgid))
+
+          _ ->
+            :unknown
         end
 
       {:error, :enoent} ->
