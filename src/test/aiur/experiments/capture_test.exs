@@ -1,4 +1,5 @@
 defmodule Aiur.Experiments.CaptureTest do
+  # Lifecycle cases share one capture/Exchange fixture so outage and recovery exercise the same journal.
   use ExUnit.Case, async: true
   alias Aiur.Events.Exchange
   alias Aiur.Experiments.{Capture, Evaluator}

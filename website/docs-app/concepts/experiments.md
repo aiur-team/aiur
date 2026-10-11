@@ -164,6 +164,7 @@ begins a new conservative coverage interval.
 When Capture has 1,024 queued messages, it drops incoming events and marks
 matching metrics `unavailable` with `capture_overloaded`. Those metrics stop
 appending until Capture restarts or the metric is removed and registered again.
+
 Journal failures also stop further appends for the affected metric. Metadata
 is written only when its state changes, including one attempt per failure state.
 An Exchange outage reports `unavailable`; after the Exchange recovers, the next
@@ -171,8 +172,9 @@ pack reload resubscribes and begins a new coverage interval.
 
 Evaluation reads only the journal months overlapping its window. An invalid
 line (including a torn final write after a crash) makes overlapping windows
-`unavailable/capture_corrupt`; other months remain usable. To repair a journal,
-stop Aiur, back up the affected `events-YYYY-MM.ndjson`, and restore the damaged
+`unavailable/capture_corrupt`; other months remain usable.
+
+To repair a journal, stop Aiur, back up the affected `events-YYYY-MM.ndjson`, and restore the damaged
 line from its source. If the observation cannot be recovered, retain the damaged
 file: deleting the line would turn missing evidence into apparently complete
 capture. Restart Aiur after repair.

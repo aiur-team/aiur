@@ -1,5 +1,5 @@
 defmodule Aiur.Experiments.Capture do
-  @moduledoc "Journals only fields declared by consumer event metrics."
+  @moduledoc "Journals declared consumer fields; keeps subscription and durable coverage transitions in one process."
   use GenServer
   require Logger
 
