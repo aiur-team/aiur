@@ -4,7 +4,8 @@
   "kind": "reference",
   "only_paths": [
     "src/lib/aiur/orchestrator/blocker_propagation.ex",
-    "src/lib/aiur/orchestrator/restack_scheduler.ex"
+    "src/lib/aiur/orchestrator/restack_scheduler.ex",
+    "src/lib/aiur/orchestrator/merge_order_audit.ex"
   ],
   "reason": "#3771: GitHub-only restack scheduling consumes locally held direct blocker evidence"
 }
