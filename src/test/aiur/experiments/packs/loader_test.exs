@@ -5,7 +5,7 @@ defmodule Aiur.Experiments.Packs.LoaderTest do
   setup do
     root = Path.join(System.tmp_dir!(), "pack-loader-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(root, "packs"))
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root}
   end
 

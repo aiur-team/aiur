@@ -24,7 +24,7 @@ defmodule Aiur.Experiments.Sources.EvaluatorTest do
   setup do
     capture = Path.join(System.tmp_dir!(), "metric-evaluator-#{System.unique_integer([:positive])}")
     File.mkdir_p!(capture)
-    on_exit(fn -> File.rm_rf!(capture) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(capture) end)
     %{capture: capture}
   end
 

@@ -8,7 +8,7 @@ defmodule Aiur.Experiments.CaptureTest do
     repo = Path.join(root, "repo")
     packs = Path.join(repo, ".aiur/experiments/packs")
     File.mkdir_p!(packs)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     {:ok, exchange} = start_supervised({Exchange, []})
     {:ok, clock} = start_supervised({Agent, fn -> ~U[2026-10-01 00:00:00Z] end})
     context = %{repo_path: repo, builtin_packs: []}
