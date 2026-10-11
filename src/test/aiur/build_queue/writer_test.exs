@@ -58,8 +58,8 @@ defmodule Aiur.BuildQueue.WriterTest do
 
   test "promotion retries stop when readiness evidence expires", %{document: document} do
     Fake.put(:result, {:error, :unavailable})
-    context = context(document) |> Map.put(:observation_max_age_ms, 10_000) |> Map.put(:sleep, fn delay -> Fake.put(:now, Fake.clock() + delay) end)
-    result = Writer.run(context, [{:promote, "1"}], Writer.new())
+    context = Map.put(context(document), :observation_max_age_ms, 10_000)
+    result = retry_sequence(context, [{:promote, "1"}])
     assert calls() == [promote("1"), promote("1"), promote("1")]
     assert List.last(result.write_results) == {:promote, "1", {:error, :stale_observation}}
     assert result.writer.failures == %{"1" => 3}
@@ -165,11 +165,12 @@ defmodule Aiur.BuildQueue.WriterTest do
 
   test "five consecutive failed attempts latch write_failed once and use bounded backoff", %{document: document} do
     Fake.put(:result, {:error, :unavailable})
-    first = run(document, [{:promote, "1"}])
+    first = retry_sequence(context(document), [{:promote, "1"}])
     assert first.writer.failures == %{"1" => 4}
     assert Fake.get(:delays) == [1_000, 4_000, 16_000]
     next = run(first.document, [{:promote, "1"}], first.writer)
     assert next.write_attentions == [{:attention_open, {:write_failed, "1"}}]
+    Fake.put(:now, Fake.clock() + 1_000)
     last = run(next.document, [{:promote, "1"}], next.writer)
     assert last.write_attentions == []
     assert [%{key: {:write_failed, "1"}}] = last.document.latches
@@ -188,6 +189,27 @@ defmodule Aiur.BuildQueue.WriterTest do
     assert failed.document.intents == []
   end
 
+  test "reconciliation during backoff does not retry early", %{document: document} do
+    Fake.put(:result, {:error, :unavailable})
+    first = run(document, [{:promote, "1"}])
+    waiting = run(first.document, [{:promote, "1"}], first.writer)
+    assert calls() == [promote("1")]
+    assert waiting.write_results == [{:promote, "1", {:error, :retry_wait}}]
+    assert Fake.get(:delays) == [1_000]
+    Fake.put(:now, 2_000)
+    Fake.put(:result, :ok)
+    resumed = run(waiting.document, [{:promote, "1"}], waiting.writer)
+    assert resumed.writer.retries == %{}
+    assert calls() == [promote("1"), promote("1"), {:notify_demand, ["1"]}]
+  end
+
+  defp retry_sequence(context, actions) do
+    Enum.reduce([0, 1_000, 4_000, 16_000], Map.put(context, :writer, Writer.new()), fn delay, previous ->
+      Fake.put(:now, Fake.clock() + delay)
+      Writer.run(%{context | document: previous.document}, actions, previous.writer)
+    end)
+  end
+
   defp calls, do: Enum.map(Fake.get(:calls), &elem(&1, 0))
   defp promote(id), do: {:update_issue_state, id, "todo", [expected_state: :none]}
 
@@ -200,6 +222,7 @@ defmodule Aiur.BuildQueue.WriterTest do
       store: Fake,
       claim_probe: Fake,
       clock: &Fake.clock/0,
+      schedule: fn _pid, :retry_writes, delay -> Fake.sleep(delay) end,
       sleep: &Fake.sleep/1,
       marker: "agent:queued",
       todo: "agent:todo",
