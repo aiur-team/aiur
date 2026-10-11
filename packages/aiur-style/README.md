@@ -56,6 +56,43 @@ The package supports light and dark themes via the `data-theme` attribute on `<h
 
 When the attribute is absent, the theme follows the system preference via `prefers-color-scheme`.
 
+## Tokens
+
+`src/tokens/tokens.json` is the source for `dist/tokens.css`, `dist/tokens.js`,
+`dist/tokens.d.ts`, and the token layer in `dist/aiur-style.css`. CSS names use
+`--aiur-{group}-{role}`; JavaScript keys use `group.role`.
+
+```javascript
+import { tokens, breakpoints, contrastPairs } from 'aiur-style/tokens';
+import 'aiur-style/tokens.css'; // Or load the complete aiur-style.css instead.
+```
+
+Colors have `light` and `dark` values; other tokens have `value` (theme-specific
+shadow values use a light/dark object). Every entry records its description and
+source. Aliases such as `{color.muted}` resolve to CSS `var()` references and
+concrete values in the JavaScript maps.
+
+The brand palette stays fixed. For readable text, use these substitution tokens
+on the named background; their per-theme aliases and explanations live together
+in `tokens.json`:
+
+| Text token | Background | Substitution |
+|---|---|---|
+| `--aiur-color-faint-on-bg` | `--aiur-color-bg` | Light: muted; dark: faint |
+| `--aiur-color-faint-on-bg-2` | `--aiur-color-bg-2` | Light: muted; dark: faint |
+| `--aiur-color-faint-on-bg-app` | `--aiur-color-bg-app` | Light: muted; dark: faint |
+| `--aiur-color-accent-on-bg-2` | `--aiur-color-bg-2` | Light: accent-ink; dark: accent |
+| `--aiur-color-accent-on-surface-2` | `--aiur-color-surface-2` | Light: accent; dark: accent-ink |
+
+Raw light faint is below 4.5:1 on page backgrounds; raw light accent on bg-2 and
+raw dark accent on surface-2 also fail. `contrastPairs` describes readable text
+combinations (4.5:1) and focus indicators (3:1), including these substitutions.
+White text belongs on `fill`, `fill-hover`, or `fill-pressed`, never dark `accent`.
+`breakpoints` exports `{shell: 960, features2: 720, features1: 440}` in pixels.
+
+The [gallery](gallery/index.html) shows every color, its resolved value, and a
+sample in either theme. `?theme=system` previews the system preference.
+
 ## Development
 
 See the aiur-style plan: [docs/aiur-style/plan.md](../../docs/aiur-style/plan.md).

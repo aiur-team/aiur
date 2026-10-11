@@ -247,6 +247,10 @@ Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;
 unknown start, end, and join times remain unknown.
 
+Optimistic dispatches persist their attempt, trigger, blocker PR facts and counters in `optimistic-starts.json` under the repository’s state node. Records survive restarts, close on merge or discard, and remain for 14 days after closure. A ledger failure warns and alerts without stopping dispatch.
+
+Run telemetry joins the `optimistic_start` point to the dispatch using the same attempt ID.
+
 ### Cascading blocker pushes
 
 With `tracker.propagate_blocker_pushes`, an idle dependent incorporates only its direct blocker’s new push. The default enables this for members of queues with optimistic start triggers (`pr_opened`, `pr_ci_green`, `pr_approved`); an explicit boolean overrides it. 
