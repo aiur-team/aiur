@@ -139,6 +139,8 @@ defmodule Aiur.AccountsCLI do
 
     case snapshot_for(harness, name, snapshots, daemon_available?) do
       {:ok, reading, observed_at, freshness} ->
+        age_ms = max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
+
         %{
           name: name,
           harness: harness,
@@ -149,9 +151,11 @@ defmodule Aiur.AccountsCLI do
           weekly_percent: percent(reading.windows, "seven_day"),
           five_hour_percent: percent(reading.windows, "five_hour"),
           remaining_percent: HeadroomDispatch.remaining_percent(%{windows: %{"seven_day" => percent(reading.windows, "seven_day"), "five_hour" => percent(reading.windows, "five_hour")}}),
-          freshness: Atom.to_string(freshness),
+          # Dispatch scores a reading past the headroom max age as unknown, so
+          # it is not "fresh" here either (#4127).
+          freshness: if(age_ms > HeadroomDispatch.max_reading_age_seconds() * 1000, do: "stale", else: Atom.to_string(freshness)),
           observed_at: DateTime.to_iso8601(observed_at),
-          age_ms: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
+          age_ms: age_ms
         }
 
       {:error, reason} ->

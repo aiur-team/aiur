@@ -359,6 +359,7 @@ aiur_engine_main() {
       ;;
   esac
 }
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
