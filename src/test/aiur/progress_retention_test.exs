@@ -5,7 +5,7 @@ defmodule Aiur.ProgressRetentionTest do
 
   setup do
     state_dir = Aiur.TestSupport.tmp_root!("progress-retention-test")
-    on_exit(fn -> File.rm_rf!(state_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(state_dir) end)
     %{state_dir: state_dir}
   end
 

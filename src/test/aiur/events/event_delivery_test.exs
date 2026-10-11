@@ -17,7 +17,6 @@ defmodule Aiur.Events.EventDeliveryTest do
     File.mkdir_p!(tmp_dir)
     original = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
-    Aiur.TestSupport.put_runtime_state_dir!(Path.join(tmp_dir, "runtime-state"))
 
     Publisher.set_tracked_fn(fn _ -> true end)
 
@@ -42,8 +41,11 @@ defmodule Aiur.Events.EventDeliveryTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      File.rm_rf!(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
+
+    # After the on_exit above, so its restore runs before that removal.
+    Aiur.TestSupport.put_runtime_state_dir!(Path.join(tmp_dir, "runtime-state"))
 
     %{identifier: identifier}
   end

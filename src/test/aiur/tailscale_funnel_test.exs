@@ -239,7 +239,7 @@ defmodule Aiur.TailscaleFunnelTest do
   test "closes the spawned Tailscale process when its command times out" do
     directory = Path.join(System.tmp_dir!(), "tailscale-timeout-#{System.unique_integer([:positive])}")
     File.mkdir_p!(directory)
-    on_exit(fn -> File.rm_rf!(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory) end)
 
     pid_file = Path.join(directory, "pid")
     executable = Path.join(directory, "tailscale")

@@ -12,7 +12,7 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
   setup do
     dir = Aiur.TestSupport.tmp_root!("history-backfill")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     clock = start_supervised!({Agent, fn -> @now end})
     %{dir: dir, clock: clock, path: Path.join(dir, "history.json")}
   end

@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.TerminalVerificationTest do
     test "#{name} identity terminal ticket skips the store without degrading membership health" do
       identity = unquote(Macro.escape(identity))
       dir = Aiur.TestSupport.tmp_root!("terminal-verification-guard")
-      on_exit(fn -> File.rm_rf!(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
       store = start_supervised!({Store, name: nil, state_dir: dir, run_id: "guard-test"})
       parent = self()
 

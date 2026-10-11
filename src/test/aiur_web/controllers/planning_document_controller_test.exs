@@ -30,7 +30,7 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :build_order_planning_pack, previous), else: Application.delete_env(:aiur, :build_order_planning_pack)
-      File.rm_rf!(directory)
+      Aiur.TestCleanup.rm_rf!(directory)
     end)
 
     %{directory: directory}

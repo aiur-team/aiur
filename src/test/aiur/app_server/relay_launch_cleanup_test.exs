@@ -7,7 +7,7 @@ defmodule Aiur.AppServer.RelayLaunchCleanupTest do
   test "failed launcher inherits toolchain variables, applies overrides and removes its spec and directory" do
     root = Aiur.TestSupport.tmp_root!("relay-failed-launch")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     observed = Path.join(root, "observed.json")
     script = Path.join(root, "failed.py")
 
@@ -65,7 +65,7 @@ defmodule Aiur.AppServer.RelayLaunchCleanupTest do
   test "missing interpreter removes its spec and directory before returning a handled launch error" do
     root = Aiur.TestSupport.tmp_root!("relay-missing-python")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     File.ln_s!(System.find_executable("bash"), Path.join(root, "bash"))
     previous = System.get_env("PATH")
     System.put_env("PATH", root)

@@ -4,7 +4,7 @@ defmodule Aiur.TestLogTmpTest do
   setup do
     base = Aiur.TestSupport.tmp_root!("test-log-sweep")
     File.mkdir_p!(base)
-    on_exit(fn -> File.rm_rf!(base) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(base) end)
     %{base: base, owner: File.stat!(base).uid}
   end
 

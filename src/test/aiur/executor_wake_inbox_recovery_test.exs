@@ -15,7 +15,7 @@ defmodule Aiur.ExecutorWakeInboxRecoveryTest do
       pending_path: Path.join(root, "pending.json")
     ]
 
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{opts: opts}
   end
 

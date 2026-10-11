@@ -78,7 +78,7 @@ defmodule Aiur.Claude.ReplAgentTest do
   describe "resume_session_id/2" do
     setup do
       dir = Aiur.TestSupport.tmp_root!("repl-resume-id")
-      on_exit(fn -> File.rm_rf(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
       %{projects_dir: dir, workspace: "/ws/aiur/613"}
     end
 
@@ -108,7 +108,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     ws = "/ws/aiur/613"
     sid = "sess-#{System.unique_integer([:positive])}"
     projects_dir = Aiur.TestSupport.tmp_root!("repl-resume")
-    on_exit(fn -> File.rm_rf(projects_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(projects_dir) end)
     slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
     File.mkdir_p!(slug_dir)
     File.write!(Path.join(slug_dir, sid <> ".jsonl"), "{}\n")
@@ -179,7 +179,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     ws = "/ws/aiur/613"
     sid = "sess-#{System.unique_integer([:positive])}"
     projects_dir = Aiur.TestSupport.tmp_root!("repl-rc-resume")
-    on_exit(fn -> File.rm_rf(projects_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(projects_dir) end)
     slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
     File.mkdir_p!(slug_dir)
     File.write!(Path.join(slug_dir, sid <> ".jsonl"), "{}\n")

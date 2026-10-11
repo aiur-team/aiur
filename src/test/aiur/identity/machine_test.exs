@@ -12,7 +12,7 @@ defmodule Aiur.Identity.MachineTest do
 
     on_exit(fn ->
       File.chmod(dir, 0o700)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
       for {key, value} <- previous, do: :persistent_term.put(key, value)
     end)
 

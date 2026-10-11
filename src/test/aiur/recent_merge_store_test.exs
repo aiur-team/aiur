@@ -7,7 +7,7 @@ defmodule Aiur.RecentMergeStoreTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-recent-merges")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir}
   end
 

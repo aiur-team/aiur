@@ -43,7 +43,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
 
     on_exit(fn ->
       Enum.each(previous, fn {key, value} -> if is_nil(value), do: Application.delete_env(:aiur, key), else: Application.put_env(:aiur, key, value) end)
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory)
     end)
 
     root = RootSummary.new(%{identity: identity(99), title: "Live root", url: url(99), labels: ["build-order"], member_count: 1})

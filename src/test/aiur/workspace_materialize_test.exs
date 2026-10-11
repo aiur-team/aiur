@@ -21,7 +21,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
     File.mkdir_p!(Path.join(base, "_build"))
     File.write!(Path.join(base, "_build/sentinel"), "warm\n")
 
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
     {:ok, tmp: tmp, base: base}
   end
 

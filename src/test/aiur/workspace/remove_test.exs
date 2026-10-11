@@ -9,7 +9,7 @@ defmodule Aiur.Workspace.RemoveTest do
     workspace = Path.join(test_root, "ws")
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
     {:ok, workspace: workspace, test_root: test_root}
   end
 

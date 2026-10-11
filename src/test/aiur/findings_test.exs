@@ -15,7 +15,7 @@ defmodule Aiur.FindingsTest do
         value -> Application.put_env(:aiur, :repo_base_root, value)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, repo: "https://github.com/owner/repo.git", second_repo: "https://github.com/other/project.git"}

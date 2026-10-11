@@ -11,13 +11,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   @repository {"owner", "repo"}
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   test "cold start publishes exactly one complete catalog generation and restart invents no stale state" do

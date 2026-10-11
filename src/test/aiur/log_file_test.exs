@@ -59,7 +59,7 @@ defmodule Aiur.LogFileTest do
           value -> Application.put_env(:aiur, :log_file, value)
         end
 
-        File.rm_rf!(tmp_root)
+        Aiur.TestCleanup.rm_rf!(tmp_root)
       end)
 
       %{log_file: log_file}
@@ -272,8 +272,6 @@ defmodule Aiur.LogFileTest do
       File.mkdir_p!(dir)
 
       on_exit(fn ->
-        File.rm_rf!(dir)
-
         case original_path do
           nil -> Aiur.Workflow.clear_workflow_file_path()
           path -> Aiur.Workflow.set_workflow_file_path(path)
@@ -283,6 +281,8 @@ defmodule Aiur.LogFileTest do
           nil -> System.delete_env("AIUR_DEBUG")
           value -> System.put_env("AIUR_DEBUG", value)
         end
+
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       %{dir: dir}

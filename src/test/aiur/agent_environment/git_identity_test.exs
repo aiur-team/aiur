@@ -16,7 +16,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
     home = Path.join(root, "home")
     File.mkdir_p!(workspace)
     File.mkdir_p!(Path.join(home, "git"))
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     # The operator's global identity, in both places git reads it from.
     operator = "[user]\n\tname = Operator Person\n\temail = operator@example.com\n"
