@@ -52,12 +52,16 @@ PR facts are captured at merge or terminal ticket observation as body-free `pr_f
 lifecycle points, including ready/review/approval times, review counts/classes,
 size, merge SHA and epic. Both reducers carry these fields into ticket summaries.
 `FactsCapture.capture/1` queues historical terminal tickets for backfill.
+The completion journal retains 10,000 recent trigger keys (two per merged ticket);
+evicted backfills may capture again.
 
 `repo-timeline.ndjson` follows `schema/repo-timeline.v1.json`. The daemon reads
 base-branch history and tags at boot and hourly, deduplicating rows across boots.
 Pending CI rollups leave red intervals unchanged; revert messages are classified
 in memory and never stored. Non-ticket merges have `ticket: null`. GitHub
 budget holds defer capture; three failed PR reads record unavailable coverage.
+Other timeline failures back off exponentially from one minute to one hour.
+Unresolvable revert targets stay null; unsupported or missing tags are skipped.
 `observability.capture_github_facts: false` disables both GitHub capture paths.
 
 ## Tools

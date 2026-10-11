@@ -1,11 +1,18 @@
 defmodule Aiur.RunTelemetry.FactsCapture do
-  @moduledoc "Durable, serial, budget-aware terminal-ticket PR fact capture."
+  @moduledoc """
+  Durable, serial, budget-aware terminal-ticket PR fact capture.
+
+  The completion journal retains the latest 10,000 trigger keys across boots.
+  Older backfills can be captured again after eviction.
+  """
   use GenServer
   require Logger
 
   alias Aiur.Config.ObservabilitySettings
   alias Aiur.GitHub.Errors
   alias Aiur.RunTelemetry.{GitHubFacts, Lifecycle, Summaries, Writer}
+
+  @completion_limit 10_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -22,17 +29,16 @@ defmodule Aiur.RunTelemetry.FactsCapture do
   @spec observe(map(), GenServer.server()) :: :ok
   def observe(attributes, server \\ __MODULE__) do
     event = attributes[:event] || attributes["event"]
-    terminal = (attributes[:state] || attributes["state"]) in ["done", "closed", "cancelled", "canceled"]
     ticket = attributes[:ticket] || attributes["ticket"]
 
-    if is_binary(ticket) and (event in [:pr_merged, "pr_merged"] or (event in [:state_change, "state_change"] and terminal)),
-      do: GenServer.cast(server, {:capture, if(event in [:pr_merged, "pr_merged"], do: ticket <> ":merged", else: ticket)}),
+    if is_binary(ticket) and event in [:pr_merged, "pr_merged"],
+      do: GenServer.cast(server, {:capture, ticket <> ":merged"}),
       else: :ok
   end
 
   @doc false
   @spec terminal(Aiur.TrackerIdentity.t(), atom()) :: :ok
-  def terminal(%Aiur.TrackerIdentity{kind: :github, identifier: ticket}, lifecycle) when lifecycle in [:completed, :cancelled], do: capture(ticket)
+  def terminal(%Aiur.TrackerIdentity{kind: :github, identifier: ticket}, lifecycle) when is_binary(ticket) and lifecycle in [:completed, :cancelled], do: capture(ticket)
   def terminal(_identity, _lifecycle), do: :ok
 
   @doc false
@@ -43,12 +49,14 @@ defmodule Aiur.RunTelemetry.FactsCapture do
   def init(opts) do
     path = Keyword.get_lazy(opts, :path, fn -> Path.join(Summaries.analytics_dir(), "facts-pending.json") end)
     stored = load(path)
+    completed = Enum.take(Enum.uniq(stored["completed"] || []), @completion_limit)
 
     state = %{
       path: path,
       storage_available: stored["unavailable"] != true,
       pending: stored["pending"] || %{},
-      captured_keys: stored["completed"] || [],
+      captured_keys: Map.from_keys(completed, true),
+      completion_journal: completed,
       enabled: Keyword.get(opts, :enabled, &ObservabilitySettings.capture_github_facts?/0),
       fetch: Keyword.get(opts, :fetch, &GitHubFacts.fetch/1),
       record: Keyword.get(opts, :record, &record_facts/2),
@@ -62,7 +70,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   @impl true
   def handle_cast({:capture, ticket}, state) do
-    if state.enabled.() and ticket not in state.captured_keys and not Map.has_key?(state.pending, ticket) do
+    if state.enabled.() and not Map.has_key?(state.captured_keys, ticket) and not Map.has_key?(state.pending, ticket) do
       state = %{state | pending: Map.put(state.pending, ticket, %{"attempts" => 0})}
       persist(state)
       send(self(), :work)
@@ -153,8 +161,9 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   defp publish(state, ticket, facts) do
     if state.record.(bare_ticket(ticket), facts) == :ok do
-      completed = completion_keys(ticket, facts) ++ state.captured_keys
-      state = %{state | pending: Map.drop(state.pending, completion_keys(ticket, facts)), captured_keys: Enum.uniq(completed)}
+      keys = completion_keys(ticket, facts)
+      completed = Enum.take(Enum.uniq(keys ++ state.completion_journal), @completion_limit)
+      state = %{state | pending: Map.drop(state.pending, keys), captured_keys: Map.from_keys(completed, true), completion_journal: completed}
       persist(state)
       state
     else
@@ -215,7 +224,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
     temporary = state.path <> ".tmp"
 
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
-         :ok <- File.write(temporary, Jason.encode!(%{pending: state.pending, completed: state.captured_keys}), [:sync]),
+         :ok <- File.write(temporary, Jason.encode!(%{pending: state.pending, completed: state.completion_journal}), [:sync]),
          :ok <- File.rename(temporary, state.path) do
       :ok
     else

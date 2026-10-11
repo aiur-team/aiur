@@ -15,7 +15,7 @@ defmodule Aiur.RunTelemetry.GitHubFacts do
           nodes { ... on CrossReferencedEvent { source { ... on PullRequest { ...FactsPR } } } }
         }
       }
-      pullRequests(first: 100, headRefName: $branch, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pullRequests(first: 5, headRefName: $branch, orderBy: {field: CREATED_AT, direction: DESC}) {
         pageInfo { hasNextPage } nodes { ...FactsPR }
       }
     }

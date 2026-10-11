@@ -55,13 +55,12 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   @doc false
   @spec observe(TrackerIdentity.t(), atom()) :: :ok | {:error, :membership_observation_failed}
   def observe(identity, lifecycle) do
-    Lifecycle.terminal_capture(identity, lifecycle)
-
     case CurrentRunMembership.observe(identity, lifecycle,
            source: :tracker,
            timeout: @membership_observe_timeout
          ) do
       {:ok, _result} ->
+        capture_terminal(identity, lifecycle)
         :ok
 
       {:error, reason} ->
@@ -97,6 +96,14 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
       severity: "warning",
       central: true
     )
+  end
+
+  defp capture_terminal(identity, lifecycle) do
+    Lifecycle.terminal_capture(identity, lifecycle)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp safely_observe(observe_membership_fun, identity, lifecycle) do

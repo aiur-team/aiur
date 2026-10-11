@@ -86,7 +86,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline.Rows do
           {:cont, {:ok, [row | rows]}}
 
         _ ->
-          {:halt, {:error, :unsupported_tag_target}}
+          {:cont, {:ok, rows}}
       end
     end)
   end

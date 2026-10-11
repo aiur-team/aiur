@@ -217,6 +217,51 @@ defmodule Aiur.RunTelemetry.FactsCaptureTest do
     assert File.read!(path) == bytes
   end
 
+  test "completion journal prunes oldest keys while retaining merged aliases across restart", %{path: path} do
+    parent = self()
+    File.mkdir_p!(Path.dirname(path))
+    completed = Enum.map(1..10_001, &Integer.to_string/1)
+    File.write!(path, Jason.encode!(%{pending: %{}, completed: completed}))
+
+    opts = [
+      enabled: fn -> true end,
+      fetch: fn ticket ->
+        send(parent, {:queried, ticket})
+        {:ok, %{merged_at: "2026-10-09T00:05:00Z"}}
+      end,
+      record: fn _, _ -> :ok end
+    ]
+
+    pid = worker(path, opts)
+    FactsCapture.capture("1", pid)
+    FactsCapture.capture("10001", pid)
+    assert_receive {:queried, "10001"}, 500
+    wait_for_completed(path, "10001:merged")
+    stored = Jason.decode!(File.read!(path))["completed"]
+    assert length(stored) == 10_000
+    assert Enum.take(stored, 2) == ["10001:merged", "10001"]
+    refute "9999" in stored
+    refute_receive {:queried, "1"}, 100
+    stop_supervised!(FactsCapture)
+
+    restarted = worker(path, opts)
+    FactsCapture.capture("10001", restarted)
+    FactsCapture.observe(%{event: "pr_merged", ticket: "10001"}, restarted)
+    FactsCapture.drain(restarted)
+    refute_receive {:queried, "10001"}, 100
+  end
+
+  test "terminal ignores invalid identifiers and observer ignores unsupported state changes", %{path: path} do
+    parent = self()
+    assert :ok = FactsCapture.terminal(%Aiur.TrackerIdentity{kind: :github, identifier: nil}, :completed)
+
+    pid = worker(path, enabled: fn -> true end, fetch: fn ticket -> send(parent, {:unexpected, ticket}) end)
+    FactsCapture.observe(%{event: "state_change", state: "done", ticket: "51"}, pid)
+    FactsCapture.drain(pid)
+    refute_receive {:unexpected, _}, 100
+    refute File.exists?(path)
+  end
+
   defp wait_for_completed(path, ticket, remaining \\ 100) do
     if ticket in Jason.decode!(File.read!(path))["completed"] do
       :ok

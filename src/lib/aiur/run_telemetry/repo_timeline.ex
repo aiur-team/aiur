@@ -8,6 +8,8 @@ defmodule Aiur.RunTelemetry.RepoTimeline do
   use GenServer
   require Logger
 
+  alias Aiur.Config.TrackerSettings
+  alias Aiur.GitHub.{Config, Errors}
   alias Aiur.RunTelemetry.{Lifecycle, Summaries}
   alias Aiur.RunTelemetry.RepoTimeline.{GitHub, Rows}
 
@@ -26,9 +28,10 @@ defmodule Aiur.RunTelemetry.RepoTimeline do
       opts: opts,
       repo: Keyword.get_lazy(opts, :repo, &Aiur.GitHub.Config.repo/0),
       branch: Keyword.get(opts, :branch),
-      enabled: Keyword.get(opts, :enabled_fun, &Aiur.Config.capture_github_facts?/0),
+      enabled: Keyword.get(opts, :enabled_fun, &enabled?/0),
       interval: Keyword.get(opts, :interval_ms, 3_600_000),
       retry: Keyword.get(opts, :retry_ms, 60_000),
+      failure_delay: Keyword.get(opts, :retry_ms, 60_000),
       timer: nil,
       now: Keyword.get(opts, :now_fun, &DateTime.utc_now/0)
     }
@@ -51,8 +54,19 @@ defmodule Aiur.RunTelemetry.RepoTimeline do
 
   defp schedule(state, result) do
     if state.timer, do: Process.cancel_timer(state.timer)
-    delay = if result == :ok, do: state.interval, else: state.retry
-    %{state | timer: Process.send_after(self(), :capture, delay)}
+
+    {delay, failure_delay} =
+      cond do
+        result == :ok -> {state.interval, state.retry}
+        Errors.outcome(result) == :held or result == {:error, :github_budget_broker_timeout} -> {state.retry, state.failure_delay}
+        true -> {min(state.failure_delay, state.interval), min(state.failure_delay * 2, state.interval)}
+      end
+
+    %{state | timer: Process.send_after(self(), :capture, delay), failure_delay: failure_delay}
+  end
+
+  defp enabled? do
+    Aiur.Config.capture_github_facts?() and TrackerSettings.tracker_kind() == "github" and is_binary(Config.token())
   end
 
   defp collect(state) do

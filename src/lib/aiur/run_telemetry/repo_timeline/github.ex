@@ -28,7 +28,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
       variables = %{"owner" => owner, "name" => name, "branch" => "refs/heads/" <> branch, "since" => since, "historyCursor" => nil, "tagCursor" => nil}
       request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-      with {:ok, commits, tags} <- pages(request, token, variables, [], [], MapSet.new()),
+      with {:ok, commits, tags} <- pages(request, token, variables, [], [], %{}),
            {:ok, tags} <- resolve_tags(tags, request, token, variables),
            {:ok, commits} <- resolve_reverts(commits, request, token, variables) do
         {:ok, commits, tags}
@@ -58,12 +58,12 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
   defp continue({nil, nil}, _request, _token, _variables, commits, tags, _seen), do: {:ok, commits, tags}
 
   defp continue({history, tags_cursor} = next, request, token, variables, commits, tags, seen) do
-    if history == :invalid or tags_cursor == :invalid or MapSet.member?(seen, next) do
+    if history == :invalid or tags_cursor == :invalid or Map.has_key?(seen, next) do
       {:error, :pagination_cycle}
     else
       # Retain a finished connection's final cursor; rereading its final page is deduped locally.
       variables = variables |> advance("historyCursor", history) |> advance("tagCursor", tags_cursor)
-      pages(request, token, variables, commits, tags, MapSet.put(seen, next))
+      pages(request, token, variables, commits, tags, Map.put(seen, next, true))
     end
   end
 
@@ -77,8 +77,9 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
 
   defp resolve_tags(tags, request, token, variables) do
     Enum.reduce_while(tags, {:ok, []}, fn tag, {:ok, resolved} ->
-      case resolve_target(tag["target"], request, token, variables, MapSet.new()) do
+      case resolve_target(tag["target"], request, token, variables, %{}) do
         {:ok, target} -> {:cont, {:ok, [%{tag | "target" => target} | resolved]}}
+        :skip -> {:cont, {:ok, resolved}}
         error -> {:halt, error}
       end
     end)
@@ -88,22 +89,23 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
     do: resolve_target(target, request, token, variables, seen)
 
   defp resolve_target(%{"__typename" => "Tag", "oid" => oid}, request, token, variables, seen) do
-    if MapSet.member?(seen, oid) do
-      {:error, :tag_cycle}
+    if Map.has_key?(seen, oid) do
+      :skip
     else
       args = Map.take(variables, ["owner", "name"]) |> Map.put("oid", oid)
 
       with {:ok, data, _} <- Transport.github_graphql_response(request, token, @target_query, args, caller: "analytics_repo_timeline"),
            %{} = target <- get_in(data, ["data", "repository", "object", "target"]) do
-        resolve_target(target, request, token, variables, MapSet.put(seen, oid))
+        resolve_target(target, request, token, variables, Map.put(seen, oid, true))
       else
-        {:error, reason, _} -> {:error, reason}
-        _ -> {:error, :invalid_tag}
+        {:error, reason, response} -> if missing_optional_object?(response), do: :skip, else: {:error, reason}
+        _ -> :skip
       end
     end
   end
 
-  defp resolve_target(target, _request, _token, _variables, _seen), do: {:ok, target}
+  defp resolve_target(%{"__typename" => "Commit"} = target, _request, _token, _variables, _seen), do: {:ok, target}
+  defp resolve_target(_target, _request, _token, _variables, _seen), do: :skip
 
   @revert_query """
   query AnalyticsTimelineRevert($owner: String!, $name: String!, $number: Int!) {
@@ -140,10 +142,17 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
         commit = Map.put(commit, "revertOid", get_in(data, ["data", "repository", "pullRequest", "mergeCommit", "oid"]))
         {:cont, {:ok, [commit | resolved]}}
 
-      {:error, reason, _} ->
-        {:halt, {:error, reason}}
+      {:error, reason, response} ->
+        if missing_optional_object?(response),
+          do: {:cont, {:ok, [Map.put(commit, "revertOid", nil) | resolved]}},
+          else: {:halt, {:error, reason}}
     end
   end
+
+  defp missing_optional_object?(%{body: %{"errors" => errors}}) when is_list(errors) and errors != [],
+    do: Enum.all?(errors, &(&1["type"] == "NOT_FOUND" or get_in(&1, ["extensions", "code"]) == "NOT_FOUND"))
+
+  defp missing_optional_object?(_response), do: false
 
   defp advance(variables, _key, nil), do: variables
   defp advance(variables, key, cursor), do: Map.put(variables, key, cursor)
