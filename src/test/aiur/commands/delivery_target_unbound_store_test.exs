@@ -9,6 +9,7 @@ defmodule Aiur.Commands.DeliveryTargetUnboundStoreTest do
   @request %{"question" => "Deploy now?", "blocking" => true, "source_id" => "answer-unbound-target", "options" => [%{"id" => "ship", "label" => "Ship it"}]}
 
   setup do
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
     dir = Aiur.TestSupport.tmp_root!("aiur-delivery-target-unbound")
     originals = Map.new([:decision_state_dir, :commands_delivery_target], &{&1, Application.fetch_env(:aiur, &1)})
     Application.put_env(:aiur, :decision_state_dir, dir)

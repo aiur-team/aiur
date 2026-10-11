@@ -379,6 +379,8 @@ defmodule Aiur.TestSupport do
   defdelegate ensure_resource_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_workflow_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_pubsub_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_id_generator_running(), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_provider_meter_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_subscription_store_supervisor_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_read_cache_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
   defdelegate write_workflow_file!(path, overrides \\ []), to: Aiur.TestSupport.WorkflowFiles

@@ -331,9 +331,7 @@ defmodule Aiur.ProviderMetersTest do
   defp account_generation_source(:fake), do: :fake_app_server
 
   defp ensure_pubsub do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   defp broadcast_probe_tombstone do
