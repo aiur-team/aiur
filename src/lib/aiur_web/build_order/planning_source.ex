@@ -360,31 +360,31 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp completed?(ticket, pack, membership, live_lifecycles) do
     match?(
       {"CLOSED", "COMPLETED"},
-      progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership, live_lifecycles)
+      progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, live_lifecycles)
     )
   end
 
   defp completion_known?(ticket, pack, membership, live_lifecycles) do
-    progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership, live_lifecycles) != {:unknown, :unknown}
+    progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, live_lifecycles) != {:unknown, :unknown}
   end
 
-  defp progress_lifecycle(%{number: nil} = ticket, _identity, _pack, _membership, live_lifecycles) do
-    case Map.get(live_lifecycles, ticket.id) do
-      %Lifecycle{} = lifecycle -> lifecycle_tuple(lifecycle)
-      nil -> {:unknown, :unknown}
-    end
-  end
+  defp progress_lifecycle(ticket, identity, pack, live_lifecycles) do
+    case status_lifecycle(identity, pack) do
+      :completed ->
+        {"CLOSED", "COMPLETED"}
 
-  defp progress_lifecycle(ticket, identity, pack, membership, live_lifecycles) do
-    case lifecycle(ticket, identity, pack, membership) do
-      {:unknown, :unknown} ->
+      :cancelled ->
+        {"CLOSED", "NOT_PLANNED"}
+
+      :open ->
+        {"OPEN", nil}
+
+      nil ->
         case Map.get(live_lifecycles, ticket.id) do
           %Lifecycle{} = live -> lifecycle_tuple(live)
+          nil when pack.completed -> {"CLOSED", "COMPLETED"}
           nil -> {:unknown, :unknown}
         end
-
-      known ->
-        known
     end
   end
 

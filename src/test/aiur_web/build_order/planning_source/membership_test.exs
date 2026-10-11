@@ -154,7 +154,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.MembershipTest do
     assert catalog.health.state == :healthy
     assert catalog.membership_health.state == :unavailable
     assert catalog.status_health.state == :unavailable
-    assert [%{identity: identity, progress_resolution: :partial}] = catalog.data.entries
+    assert [%{identity: identity, progress_resolution: :unresolved}] = catalog.data.entries
 
     {:ok, selected} = PlanningSource.demand(identity)
     assert selected.health.state == :healthy
