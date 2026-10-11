@@ -199,7 +199,16 @@ defmodule Aiur.AgentResourceGuard do
   end
 
   @impl true
+  def handle_call(:tick, _from, state) do
+    {:reply, :ok, tick(state)}
+  end
+
+  @impl true
   def handle_info(:tick, state) do
+    {:noreply, tick(state)}
+  end
+
+  defp tick(state) do
     state =
       try do
         RunawayGroups.check(state.enforce_opts)
@@ -214,7 +223,7 @@ defmodule Aiur.AgentResourceGuard do
         schedule_tick(state.interval_ms)
       end
 
-    {:noreply, state}
+    state
   end
 
   # The orphan scan reads every process on the host (measured ~70-140ms for

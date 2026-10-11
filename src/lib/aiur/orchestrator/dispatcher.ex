@@ -119,7 +119,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
     |> maybe_warn_ci_readiness()
     |> TrackedSet.refresh()
-    |> CommentPolling.start_firehose(&after_firehose/1)
+    |> CommentPolling.start_firehose(&after_firehose/1, &TrackerTasks.start/4)
   end
 
   defp after_firehose(state) do

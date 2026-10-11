@@ -32,6 +32,7 @@ config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
   Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
+  Aiur.Experiments.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
   Aiur.Commands,

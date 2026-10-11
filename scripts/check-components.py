@@ -297,8 +297,9 @@ def declaration_ownership(root, manifest):
     fields = re.findall(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", config, re.MULTILINE)
     env = re.findall(r'^\s*\{"([A-Z][A-Z0-9_]+)",',
                      (root / 'src/lib/aiur/env/schema.ex').read_text(), re.MULTILINE)
-    state = re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b',
-                       (root / 'src/lib/aiur/config/paths.ex').read_text(), re.MULTILINE)
+    state_sources = [root / path for path in ('src/lib/aiur/config/paths.ex', 'src/lib/aiur/repo_base.ex')]
+    state = [name for path in state_sources if path.exists()
+             for name in re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b', path.read_text(), re.MULTILINE)]
     inventories = {'config': sections + fields, 'env': env, 'state': state}
     for kind, names in inventories.items():
         if not names or (kind == 'config' and not sections):

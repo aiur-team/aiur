@@ -1581,22 +1581,20 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_received {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused.resolved"}}
   end
 
-  test "records exactly one Executor wake when an issue transitions to human-review" do
+  test "records exactly one Executor wake for human-review despite unrelated attention traffic" do
     Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
-
     previous = issue("handoff", "in-progress")
     start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
-    current = %{previous | state: "human-review"}
+    listener = start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
+    {:ok, _, _} = Publisher.publish("ticket.42.agent.attention.comment_wake_state_unresolved", %{"needs_attention" => false})
     sha = String.duplicate("c", 40)
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
-    :ok = ResourceStore.put_resource(key, %{"number" => 3019, "head" => %{"sha" => sha}})
+    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id), %{"number" => 3019, "head" => %{"sha" => sha}})
 
     state =
       IssueSync.sync_polled_issue_state(
         %State{last_polled_issues: %{previous.id => previous}},
-        [current],
+        [%{previous | state: "human-review"}],
         fn _ -> {:ok, []} end,
         fn _identity, _lifecycle -> :ok end,
         MapSet.new(["done"]),
@@ -1604,10 +1602,12 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert state.last_polled_issues[current.id].state == "human-review"
+    assert state.last_polled_issues[previous.id].state == "human-review"
+    # Publication sends from this process; the listener barrier waits for both deliveries and synchronous enqueue.
+    :sys.get_state(listener)
 
     assert {:ok, [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review", "pr_number" => 3019, "head_sha" => ^sha}]} =
-             ExecutorWakeInbox.wait(500)
+             ExecutorWakeInbox.wait(0)
 
     assert [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review"}] = ExecutorWakeInbox.pending()
   end

@@ -318,10 +318,7 @@ Dispatch orders candidates with fresh cached native dependency holds after other
 
 <!--@include: ../.vitepress/includes/github-view-state.md-->
 
-The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
-moment a delivery deposits the changed issue; the sweep's only other
-steady-state cost is the single divergence-watermark head page on its own
-cadence, and pack status still reflects an outside change within one sweep.
+The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the moment a delivery deposits the changed issue; the sweep's only other steady-state cost is the single divergence-watermark head page on its own cadence, and pack status still reflects an outside change within one sweep.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
@@ -351,7 +348,6 @@ reply delivery. A longer OS or disk stall can exceed this finite margin.
 Sustained broker retry pressure still appears as
 `system.github.budget_broker_degraded`; reduce host load or SQLite contention.
 
-
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
 | Core | REST requests | The Units meter, `aiur units`, or `aiur github-cost --budget core`. |
@@ -369,8 +365,7 @@ agent dispatch.
 
 The meters above say how much is left.
 
-`aiur github-cost` says which code path spent it, ranked by points and by points
-per hour, for one budget at a time.
+`aiur github-cost` says which code path spent it, ranked by points and by points per hour, for one budget at a time.
 
 | Column | What it means |
 | --- | --- |
@@ -726,6 +721,8 @@ For the next 10 handoffs after rollout, record the tested PR head, observed base
 
 ## Changes Aiur makes itself
 
+There is a third path, and it is the cheapest one: a change Aiur makes.
+
 Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
 
 Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
@@ -736,7 +733,9 @@ Queue progress retains existing CI and merge facts; boot CI heads bind to local 
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
-Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; markers and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. No saving is claimed ([cost](/concepts/build-orders#queue-cost)).
+Build queue writes use `build_queue_label_post` / `build_queue_label_delete`; guard GETs use `build_queue_write_observe`. Writes are paced by `build_queue.max_writes_per_minute` (default 20). Retries schedule reconciliation without blocking the queue.
+
+Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. See [request costs](/concepts/build-orders#queue-cost); no saving is claimed.
 
 CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), head/queue evidence, PR changed paths and Actions run attempts (`ci_recovery` caller). Fully annotated tests outside the diff and known flakes get one failed-job rerun per head; there is no fleet or hourly cap.
 
