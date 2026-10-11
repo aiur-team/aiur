@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.MembershipFactsCaptureTest do
   alias Aiur.RunTelemetry.FactsCapture
 
   setup do
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
     unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
 
     Enum.each([Store, FactsCapture], fn name ->
