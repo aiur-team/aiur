@@ -469,7 +469,6 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
          build_order_projection: projection,
          clock: fn -> get(:now) end,
          schedule: fn _, _, _ -> make_ref() end,
-         sleep: fn _ -> :ok end,
          exchange: :missing_exchange,
          open_issues_topic: "tracker:open_issues:#{System.unique_integer([:positive])}"}
       )

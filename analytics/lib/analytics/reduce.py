@@ -76,6 +76,7 @@ def reduce_files(files: list[str] | list[Any], opts: dict | None = None) -> dict
     return {
         "records": records,
         "restarts": restarts,
+        "run_contexts": [r for r in records if r["kind"] == "run_context"],
         "actors": actors,
         "tickets": tickets,
         "findings": findings,
