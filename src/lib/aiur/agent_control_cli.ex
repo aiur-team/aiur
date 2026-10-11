@@ -199,7 +199,7 @@ defmodule Aiur.AgentControlCLI do
     Commands.print_projection_status()
     print_codeowners_trust()
     ReloadRejection.print_status()
-
+    Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
     # Count from the rows that are actually printed. Counting the unfiltered `statuses` let
@@ -342,13 +342,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    guarded("alerts", fn ->
-      opts
-      |> AlertFeed.list()
-      |> Enum.each(&IO.puts(Jason.encode!(&1)))
-
-      exit_marker(0)
-    end)
+    guarded("alerts", fn -> opts |> Aiur.AlertsCLI.run() |> exit_marker() end)
   end
 
   @spec commands(keyword()) :: :ok
@@ -2744,7 +2738,7 @@ defmodule Aiur.AgentControlCLI do
   # post-reconciliation stale claim is the same contradiction and gets the same
   # treatment.
   defp visible_status_row?(%{state: :idle, reason: reason} = status, tracker_states)
-       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting] do
+       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting, :workspace_retained] do
     not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
   end
 
