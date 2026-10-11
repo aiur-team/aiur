@@ -74,7 +74,7 @@ defmodule AiurEngineRestartTest do
     root = Aiur.TestSupport.tmp_root!("aiur-restart-legacy-config")
     File.mkdir_p!(root)
     File.write!(Path.join(root, ".aiurconfig"), "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       run_restart("",

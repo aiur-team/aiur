@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.ControlCLI.{DispatchAccount, Reasons}
+  alias Aiur.ControlCLI.{CiWait, DispatchAccount, Reasons}
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -38,6 +38,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
+  alias Aiur.WorkflowStore.ReloadRejection
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -96,10 +97,9 @@ defmodule Aiur.AgentControlCLI do
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
-  # `aiur watch` remembers the last board it reported (per-row signature) in a
-  # node-local persistent term so `--changes` can print only state-level deltas
-  # across one-shot RPC invocations. Updated at Executor cadence (minutes), so
-  # the persistent_term churn is negligible.
+  # `aiur watch` remembers the last board it reported (per-row signature) in a node-local persistent term so
+  # `--changes` can print only state-level deltas across one-shot RPC invocations. Updated at Executor cadence
+  # (minutes), so the persistent_term churn is negligible.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
@@ -198,12 +198,11 @@ defmodule Aiur.AgentControlCLI do
     print_executor_wake_status()
     Commands.print_projection_status()
     print_codeowners_trust()
-
+    ReloadRejection.print_status()
+    Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
-    # Count from the rows that are actually printed. Counting the unfiltered
-    # `statuses` let `RELEASED CLAIMS n` claim releases whose rows were hidden,
-    # so the headline and the table disagreed (#1475).
+    # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
     released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))
@@ -212,6 +211,7 @@ defmodule Aiur.AgentControlCLI do
       Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     print_status_table(visible_statuses)
+    CiWait.print(snapshot)
 
     if released_claims > 0 do
       recovery = if automatic_reclaims == released_claims, do: "automatic re-claim pending", else: "operator recovery required for some claims"
@@ -342,13 +342,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    guarded("alerts", fn ->
-      opts
-      |> AlertFeed.list()
-      |> Enum.each(&IO.puts(Jason.encode!(&1)))
-
-      exit_marker(0)
-    end)
+    guarded("alerts", fn -> opts |> Aiur.AlertsCLI.run() |> exit_marker() end)
   end
 
   @spec commands(keyword()) :: :ok
@@ -2744,7 +2738,7 @@ defmodule Aiur.AgentControlCLI do
   # post-reconciliation stale claim is the same contradiction and gets the same
   # treatment.
   defp visible_status_row?(%{state: :idle, reason: reason} = status, tracker_states)
-       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting] do
+       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting, :workspace_retained] do
     not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
   end
 

@@ -40,6 +40,14 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @git_script_path",
       "@external_resource @broker_path"
     ],
+    "aiur/agent_github_guard/git_script.ex" => [
+      "@queue_guard_path Path.expand(\"../../../priv/github_merge_queue_push_guard.sh\", __DIR__)",
+      "@external_resource @queue_guard_path"
+    ],
+    "aiur/agent_github_guard/recursion_guard.ex" => [
+      "@snippet_path Path.expand(\"../../../priv/guard_recursion.sh\", __DIR__)",
+      "@external_resource @snippet_path"
+    ],
     "aiur/github/budget.ex" => [
       "@broker_source_path Path.expand(\"../../../priv/github_budget.py\", __DIR__)",
       "@external_resource @broker_source_path"

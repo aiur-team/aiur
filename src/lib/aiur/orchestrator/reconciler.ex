@@ -512,7 +512,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp mark_divergence_checked(state, _issue_id, nil), do: state
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do
-    if safely_set_terminal_verification_pending(issue.tracker_identity, false) == :ok do
+    if CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, issue.tracker_identity, false) in [:ok, :skipped] do
       Orchestrator.terminate_running_issue(state, issue.id, true)
     else
       mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
@@ -674,28 +674,13 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   defp mark_membership_unavailable(state, mark_reconciled_fun, identity) do
-    _ = safely_set_terminal_verification_pending(identity, true)
+    _ = CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, identity, true)
     _ = mark_reconciled_fun.(:unavailable)
     state
   rescue
     _error -> state
   catch
     _kind, _reason -> state
-  end
-
-  defp safely_set_terminal_verification_pending(identity, pending?) do
-    if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do
-      case CurrentRunMembership.set_terminal_verification_pending(identity, pending?) do
-        :ok -> :ok
-        _ -> :error
-      end
-    else
-      :ok
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()

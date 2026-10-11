@@ -23,7 +23,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
 
   setup do
     home = Aiur.TestSupport.tmp_root!("aiur-alert-watch")
-    on_exit(fn -> File.rm_rf(home) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     {:ok, home: home, ndjson: ndjson_path(home)}
   end
 

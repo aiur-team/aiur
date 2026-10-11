@@ -76,7 +76,7 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     write!(repo, "README.md", "seed\n")
     commit_all!(repo, "seed")
     git!(repo, ["push", "-q", "-u", "origin", "main"])
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     {repo, origin}
   end
 
@@ -431,7 +431,7 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
       Path.join(System.tmp_dir!(), "aiur-not-a-worktree-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(not_a_repo)
-    on_exit(fn -> File.rm_rf!(not_a_repo) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(not_a_repo) end)
 
     # A real directory under the workspace would inherit the workspace repo via
     # git's upward walk, so give it a `.git` gitfile pointing nowhere to make it

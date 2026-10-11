@@ -21,7 +21,7 @@ defmodule Aiur.DogfoodHooksTest do
   setup do
     test_root = Aiur.TestSupport.tmp_root!("aiur-dogfood-hooks")
     File.mkdir_p!(test_root)
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     {:ok, origin: origin, seed: seed} = create_origin!(test_root)
     {:ok, test_root: test_root, origin: origin, seed: seed}

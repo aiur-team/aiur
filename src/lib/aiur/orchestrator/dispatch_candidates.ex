@@ -20,11 +20,11 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
   defp held?(issue, terminal_states, github?) do
     if github? and DispatchPolicy.normalize_issue_state(issue.state) == "todo" do
       case Tracker.cached_blocked_by(issue) do
-        {:ok, hydrated} -> DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states)
+        {:ok, hydrated} -> DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states)
         {:error, _unknown} -> false
       end
     else
-      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+      DispatchPolicy.todo_issue_held_by_dependency?(issue, terminal_states)
     end
   end
 end

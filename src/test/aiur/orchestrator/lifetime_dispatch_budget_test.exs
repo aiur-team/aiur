@@ -667,7 +667,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     # exercises the production routing rather than the no-workspace fallback.
     workspace = Aiur.Workspace.workspace_path_under(Config.workspace_root(), issue.identifier)
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     Dispatcher.persist_lifetime_trip(state, issue, fn _identifier, _target_state -> :ok end)
 

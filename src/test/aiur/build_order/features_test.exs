@@ -8,7 +8,7 @@ defmodule Aiur.BuildOrder.FeaturesTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("features")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     pid = start_store(dir)
     %{dir: dir, pid: pid, meta: meta(pid)}
   end

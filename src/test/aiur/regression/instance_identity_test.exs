@@ -86,7 +86,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       File.mkdir_p!(home)
       File.mkdir_p!(proj_a)
       File.mkdir_p!(proj_b)
-      on_exit(fn -> File.rm_rf!(base) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(base) end)
 
       id = fn cd ->
         {out, 0} =
@@ -139,7 +139,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       proj_b = Path.join([home, "projects", "beta"])
       File.mkdir_p!(proj_a)
       File.mkdir_p!(proj_b)
-      on_exit(fn -> File.rm_rf!(home) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
 
       key = fn cd ->
         {out, 0} =
@@ -189,7 +189,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       File.mkdir_p!(deep_a)
       File.mkdir_p!(Path.join(root_b, ".aiur"))
       File.write!(Path.join([root_b, ".aiur", "config"]), "")
-      on_exit(fn -> File.rm_rf!(base) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(base) end)
 
       key = fn cd ->
         {out, 0} =

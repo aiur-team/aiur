@@ -9,7 +9,7 @@ defmodule Aiur.Executor.RosterTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-executor-roster")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{path: Path.join(root, "claims.json")}
   end
 
@@ -55,7 +55,7 @@ defmodule Aiur.Executor.RosterTest do
     # work, which is the exact failure this roster exists to prevent.
     now = DateTime.utc_now()
     path = Aiur.TestSupport.tmp_root!("aiur-roster-evidence") <> ".json"
-    on_exit(fn -> File.rm_rf!(path) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
 
     {:ok, _owner} = Claims.claim("agent-a", path: path, now: now)
     {:ok, _observer} = Claims.observe("agent-b", path: path, now: now)

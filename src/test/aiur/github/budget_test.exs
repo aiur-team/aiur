@@ -14,7 +14,7 @@ defmodule Aiur.GitHub.BudgetTest do
     CredentialHeadroom.reset()
 
     on_exit(fn ->
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
       restore_env(:github_budget_enabled?, previous)
       CredentialHeadroom.reset()
     end)

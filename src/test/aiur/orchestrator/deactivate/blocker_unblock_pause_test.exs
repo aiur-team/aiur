@@ -46,7 +46,7 @@ defmodule Aiur.Orchestrator.Deactivate.BlockerUnblockPauseTest do
           Application.delete_env(:aiur, :runtime_state_dir)
         end
 
-        File.rm_rf(tmp_dir)
+        Aiur.TestCleanup.rm_rf!(tmp_dir)
       end)
 
       fake_pid = spawn_link(fn -> fake_agent_loop() end)

@@ -19,7 +19,7 @@ defmodule Aiur.TestSupport.OpenAICompatAgent do
 
         File.mkdir_p!(workspace)
         File.write!(Path.join(workspace, "sample.txt"), "workspace evidence\n")
-        on_exit(fn -> File.rm_rf!(workspace) end)
+        on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
         %{workspace: workspace}
       end
     end

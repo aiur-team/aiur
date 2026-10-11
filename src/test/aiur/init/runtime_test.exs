@@ -11,7 +11,7 @@ defmodule Aiur.Init.RuntimeTest do
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-init-runtime-test")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     {:ok, dir: dir}
   end
 

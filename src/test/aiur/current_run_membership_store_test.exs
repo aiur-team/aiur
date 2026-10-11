@@ -17,7 +17,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     dir = Aiur.TestSupport.tmp_root!("aiur-current-run-membership")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir}
   end
 

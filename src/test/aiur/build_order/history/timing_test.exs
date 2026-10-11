@@ -78,7 +78,7 @@ defmodule Aiur.BuildOrder.History.TimingTest do
 
   test "store merges late signals and replay changes nothing" do
     dir = Aiur.TestSupport.tmp_root!("timing-store")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     for {name, times} <- [{__MODULE__.Forward, [@t, DateTime.add(@t, -60)]}, {__MODULE__.Reverse, [DateTime.add(@t, -60), @t]}] do
       start_supervised!({History, name: name, repository: "acme/widgets", state_dir: Path.join(dir, inspect(name)), flush_ms: 60_000})
