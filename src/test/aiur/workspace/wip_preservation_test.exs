@@ -14,7 +14,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
     state_dir = Path.join(test_root, "runtime-state")
     Aiur.TestSupport.put_runtime_state_dir!(state_dir)
 
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root, unset: [:runtime_state_dir]) end)
     {:ok, test_root: test_root, state_dir: state_dir}
   end
 

@@ -44,7 +44,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     labels = Map.new(["11", "12"], &{&1, %{labels: ["agent:queued"]}}) |> Map.put("10", %{labels: ["agent:error"]})

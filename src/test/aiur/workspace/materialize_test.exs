@@ -15,7 +15,7 @@ defmodule Aiur.Workspace.MaterializeTest do
     System.cmd("git", ["-C", base, "add", "."])
     System.cmd("git", ["-C", base, "commit", "--quiet", "-m", "init"])
 
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
     {:ok, tmp: tmp, base: base}
   end
 

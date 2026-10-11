@@ -21,7 +21,7 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     :ok

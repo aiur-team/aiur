@@ -201,7 +201,7 @@ defmodule Aiur.RunTelemetry.DatasetTest do
   test "returns an explicit error when no telemetry file exists" do
     empty = Aiur.TestSupport.tmp_root!("aiur-empty-dataset")
     File.mkdir_p!(empty)
-    on_exit(fn -> File.rm_rf!(empty) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(empty) end)
 
     assert {:error, {:no_telemetry_files, [^empty]}} = Dataset.build(empty)
   end
@@ -260,7 +260,7 @@ defmodule Aiur.RunTelemetry.DatasetTest do
   defp temporary_stream! do
     root = Aiur.TestSupport.tmp_root!("aiur-dataset")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     Path.join(root, "telemetry.ndjson")
   end
 

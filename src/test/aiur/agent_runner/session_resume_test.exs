@@ -60,7 +60,7 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
   describe "persist_handle_best_effort/3" do
     test "returns :ok for a valid handle write" do
       dir = Aiur.TestSupport.tmp_root!("aiur_session_resume_test")
-      on_exit(fn -> File.rm_rf(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
       assert :ok =
                SessionResume.persist_handle_best_effort("9", %{backend: "codex", thread_id: "t"}, dir: dir, hostname: "h")
@@ -71,7 +71,7 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
     test "swallows a raised handle write" do
       not_a_dir = Aiur.TestSupport.tmp_root!("aiur_session_resume_raise")
       File.write!(not_a_dir, "x")
-      on_exit(fn -> File.rm_rf(not_a_dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(not_a_dir) end)
 
       log =
         capture_log(fn ->

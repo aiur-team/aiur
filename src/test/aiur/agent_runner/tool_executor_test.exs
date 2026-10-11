@@ -703,7 +703,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       issue = %Issue{id: "gid-publication-success", identifier: identifier}
       test_pid = self()
       workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
-      on_exit(fn -> File.rm_rf!(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
       executor =
         ToolExecutor.build(issue, workspace, nil, %{},
@@ -754,7 +754,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       issue = %Issue{id: "gid-publication-failure", identifier: identifier}
       test_pid = self()
       workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
-      on_exit(fn -> File.rm_rf!(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
       executor =
         ToolExecutor.build(issue, workspace, nil, %{},
@@ -808,7 +808,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         issue = %Issue{id: "gid-#{label}", identifier: identifier}
         test_pid = self()
         workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
-        on_exit(fn -> File.rm_rf!(workspace) end)
+        on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
         executor =
           ToolExecutor.build(issue, workspace, nil, %{},
@@ -849,7 +849,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       secret = "ghp_" <> String.duplicate("c", 36)
       issue = %Issue{id: "gid-publication-log", identifier: "AIUR-PUBLICATION-LOG"}
       workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
-      on_exit(fn -> File.rm_rf!(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
       executor =
         ToolExecutor.build(issue, workspace, nil, %{},
@@ -977,7 +977,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       issue = %Issue{id: "gid-publication-remote", identifier: identifier}
       test_pid = self()
       workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
-      on_exit(fn -> File.rm_rf!(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
       executor =
         ToolExecutor.build(issue, workspace, "remote.example.com", %{},

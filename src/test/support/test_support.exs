@@ -342,7 +342,7 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :memory_tracker_recipient)
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
-          File.rm_rf(workflow_root)
+          Aiur.TestCleanup.rm_rf!(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
           # observes the now-deleted `workflow_root` config, and recover the

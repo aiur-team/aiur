@@ -9,8 +9,8 @@ defmodule AiurEngineInstanceTest do
     File.mkdir_p!(launch_root)
 
     on_exit(fn ->
-      File.rm_rf(state)
-      File.rm_rf(launch_root)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(launch_root)
     end)
 
     script = """
@@ -48,7 +48,7 @@ defmodule AiurEngineInstanceTest do
 
   test "instance record backfill never overwrites a concurrent launch record" do
     state = tmp_state()
-    on_exit(fn -> File.rm_rf(state) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(state) end)
 
     script = """
     AIUR_BG_STATE_DIR="$STATE"
@@ -94,9 +94,9 @@ defmodule AiurEngineInstanceTest do
     File.mkdir_p!(subdir)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(base)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(base)
     end)
 
     live_node = "aiur-tester-live123@127.0.0.1"
@@ -149,8 +149,8 @@ defmodule AiurEngineInstanceTest do
     File.chmod!(rpc, 0o755)
 
     on_exit(fn ->
-      File.rm_rf(state)
-      File.rm_rf(caller)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(caller)
       File.rm(rpc)
     end)
 
@@ -185,7 +185,7 @@ defmodule AiurEngineInstanceTest do
 
     on_exit(fn ->
       File.rm(rpc)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(state)
     end)
 
     script = """

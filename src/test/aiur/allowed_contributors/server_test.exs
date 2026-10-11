@@ -90,7 +90,7 @@ defmodule Aiur.AllowedContributors.ServerTest do
 
   test "the seen set survives a restart", context do
     dir = Path.join(System.tmp_dir!(), "aiur-ac-restart-#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     {server, _gh} = Fixture.start(context, state_dir: dir, id: :first_boot)
     assert {:accept, _} = AllowedContributors.observe(Fixture.candidate(), server)
@@ -211,7 +211,7 @@ defmodule Aiur.AllowedContributors.ServerTest do
 
   test "the per-author hourly cap survives a daemon restart", context do
     dir = Path.join(System.tmp_dir!(), "aiur-ac-rate-#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     {server, _gh} = Fixture.start(context, state_dir: dir, rate_limit: 2, id: :rate_first_boot)
     for n <- 1..2, do: assert({:accept, _} = AllowedContributors.observe(Fixture.candidate(number: n), server))

@@ -18,8 +18,8 @@ defmodule AiurEngineStopTest do
 
     on_exit(fn ->
       System.cmd("pkill", ["-f", sibling_marker], stderr_to_stdout: true)
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(events)
     end)
 
@@ -80,8 +80,8 @@ defmodule AiurEngineStopTest do
     tmux = fake_tmux_script("exit 0")
 
     on_exit(fn ->
-      File.rm_rf(state)
-      File.rm_rf(workspace_root)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(workspace_root)
       File.rm(workspace_root_file)
       File.rm(record)
       File.rm(events)
@@ -136,7 +136,7 @@ defmodule AiurEngineStopTest do
     File.write!(events, "")
 
     on_exit(fn ->
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(events)
     end)
 
@@ -173,7 +173,7 @@ defmodule AiurEngineStopTest do
     File.write!(events, "")
 
     on_exit(fn ->
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(events)
     end)
 
@@ -261,9 +261,9 @@ defmodule AiurEngineStopTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(caller)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(caller)
       File.rm(events)
     end)
 

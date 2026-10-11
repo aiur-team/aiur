@@ -128,7 +128,7 @@ defmodule Aiur.Config.WorkflowSettingsTest do
     File.mkdir_p!(explicit_cache)
     assert {:ok, canonical_explicit_workspace} = Aiur.PathSafety.canonicalize(explicit_workspace)
 
-    on_exit(fn -> File.rm_rf(explicit_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(explicit_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: explicit_root,

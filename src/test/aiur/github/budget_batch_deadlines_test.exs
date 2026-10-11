@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.BudgetBatchDeadlinesTest do
     test "expired request remains isolated during #{@scenario}" do
       root = Aiur.TestSupport.tmp_root!("batch-deadlines")
       File.mkdir_p!(root)
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       script = """
       import importlib.util, json, sqlite3, sys

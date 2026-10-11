@@ -5,7 +5,7 @@ defmodule Aiur.Opencode.InputIdentityPluginTest do
 
   test "slot installs the executable transport plugin that preserves original action identity" do
     workspace = Aiur.TestSupport.tmp_root!("identity-plugin")
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert {:ok, _token} = WorkspaceSetup.materialize_slot(workspace, "http://127.0.0.1:4097", ["identity"], 92, 1)
     config = workspace |> Path.join("opencode.json") |> File.read!() |> Jason.decode!()
