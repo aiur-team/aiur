@@ -219,4 +219,45 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
       assert ReworkGate.verify_rework_attempt(state, "2422", nil) == {:ok, state}
     end
   end
+
+  # #3971: a stopped rework agent whose head did not move in this run.
+  describe "stopped_agent_handoff/3 with an unmoved head" do
+    @pr %{"number" => 42, "head" => %{"sha" => "head"}}
+
+    defp handoff(reviews, extra \\ []) do
+      ReworkGate.stopped_agent_handoff(
+        "3971",
+        "head",
+        Keyword.merge(
+          [
+            superseded_review_handoff?: true,
+            open_pr_fetcher: fn _ -> {:ok, @pr} end,
+            reviews_fetcher: fn 42 -> {:ok, reviews} end,
+            commit_ci_status_fetcher: fn "head" -> {:ok, %{check_runs: [], commit_status: %{"state" => "failure"}}} end
+          ],
+          extra
+        )
+      )
+    end
+
+    defp review(commit, attrs \\ %{}) do
+      Map.merge(%{"state" => "CHANGES_REQUESTED", "commit_id" => commit, "user" => %{"login" => "reviewer"}, "submitted_at" => "2026-10-10T00:00:00Z", authoritative: true}, attrs)
+    end
+
+    test "hands off to review when every blocking review names an older commit" do
+      assert handoff([review("older")]) == {:handoff, "human-review"}
+    end
+
+    test "does not hand off while a blocking review names the head, or none exists, or the read fails" do
+      assert handoff([review("older"), review("head", %{"user" => %{"login" => "second"}})]) == :none
+      assert handoff([]) == :none
+      assert handoff([review("older", %{authoritative: false})]) == :none
+      assert handoff([review("older"), review("older", %{"state" => "APPROVED", "submitted_at" => "2026-10-10T01:00:00Z"})]) == :none
+      assert ReworkGate.stopped_agent_handoff("3971", "head", open_pr_fetcher: fn _ -> {:ok, @pr} end, superseded_review_handoff?: true, reviews_fetcher: fn _ -> {:error, :timeout} end) == :none
+    end
+
+    test "is opt-in so retry exhaustion and the turn limit keep their behaviour" do
+      assert handoff([review("older")], superseded_review_handoff?: false) == :none
+    end
+  end
 end

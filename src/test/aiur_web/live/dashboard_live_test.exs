@@ -31,7 +31,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias Aiur.TestSupport.LiveViewAsync
+  alias Aiur.TestSupport.{LiveViewAsync, RefreshTrace}
   alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
@@ -745,7 +745,7 @@ defmodule AiurWeb.DashboardLiveTest do
     # as an empty circle on every breakpoint. Guard the whole class of bug: any
     # icon wrapper the shell renders must have its SVG sized in dashboard.css.
     test "every icon wrapper in the shell has an svg sizing rule" do
-      css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+      {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
 
       wrapper_classes =
         global_pause_fleet(false)
@@ -843,10 +843,9 @@ defmodule AiurWeb.DashboardLiveTest do
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
-    :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
+    assert RefreshTrace.count(fn -> :ok = StatusReport.notify_dashboard(:sys.get_state(pid)) end) == 0
 
-    refute_receive {:observability_updated, _event_id}, 20
-    assert_receive {:observability_updated, _event_id}, 1_000
+    assert eventually(fn -> assert_receive({:observability_updated, _event_id}, 1_000) && match?({:current, _, _}, SnapshotStore.read(orchestrator_name, 1_000)) end)
     assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
   end
 

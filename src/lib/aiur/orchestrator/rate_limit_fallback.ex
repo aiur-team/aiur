@@ -624,7 +624,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     |> select_current_route(opts)
   end
 
-  defp select_backend(issue, backend), do: %{issue | selected_backend: backend}
+  # A headroom choice is dropped here, so the fallback backend is a pin (#3960).
+  defp select_backend(issue, backend),
+    do: %{issue | selected_backend: backend, selected_account: nil, dispatch_selection: nil, selected_model: if(issue.dispatch_selection, do: nil, else: issue.selected_model)}
 
   defp select_current_route(issue, opts) do
     backend =
@@ -640,10 +642,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   # `model:<backend>` override also sits on the issue (so we must not use
   # `override_backend/1`, which would pick the first label and could strip the
   # operator's). When `selected_backend` is not set (a reloaded entry drops the
-  # in-memory field), fall back to the configured fallback — correct as long as
-  # the fallback config has not changed since engage, which is the normal case;
-  # a config change between engage and revert is a rare edge that could orphan
-  # the label, and is not handled here.
+  # in-memory field), fall back to the configured fallback — correct as long as the fallback config has not changed since engage, which is the normal case;
+  # a config change between engage and revert is a rare edge that could orphan the label, and is not handled here.
   defp engaged_fallback(%Issue{selected_backend: backend}, _opts) when is_binary(backend), do: backend
   defp engaged_fallback(_issue, opts), do: fallback_backend(opts)
 

@@ -3,43 +3,37 @@ defmodule Aiur.TrackerTaskDrainSupportTest do
 
   import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 2]
 
-  # Stands in for the Orchestrator: it holds tracker tasks and, like a retried
-  # tracker read, starts another task when one dies, `respawns` times.
+  # Stands in for the Orchestrator mid poll cycle: every tracker task that
+  # dies or replies makes it start the next one, without end.
   defmodule Owner do
     use GenServer
 
-    def start_link(respawns), do: GenServer.start_link(__MODULE__, respawns)
+    def start_link(tasks), do: GenServer.start_link(__MODULE__, tasks)
 
-    def init(respawns), do: {:ok, start_task(%{tracker_tasks: %{}, respawns: respawns})}
+    def init(tasks), do: {:ok, start_task(%{tracker_tasks: %{}, tasks: tasks, started: 0})}
 
-    def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-      state = %{state | tracker_tasks: Map.delete(state.tracker_tasks, ref)}
+    def handle_info({:DOWN, ref, :process, _pid, _reason}, state), do: {:noreply, respawn(state, ref)}
+    def handle_info({ref, _result}, state) when is_reference(ref), do: {:noreply, respawn(state, ref)}
 
-      case state.respawns do
-        0 -> {:noreply, state}
-        :infinity -> {:noreply, start_task(state)}
-        count -> {:noreply, start_task(%{state | respawns: count - 1})}
-      end
-    end
+    defp respawn(state, ref), do: start_task(%{state | tracker_tasks: Map.delete(state.tracker_tasks, ref)})
 
     defp start_task(state) do
-      {pid, ref} = spawn_monitor(fn -> Process.sleep(:infinity) end)
-      job = %{key: {:poll, map_size(state.tracker_tasks)}, task: %{pid: pid}}
-      %{state | tracker_tasks: Map.put(state.tracker_tasks, ref, job)}
+      task = Task.Supervisor.async_nolink(state.tasks, fn -> Process.sleep(:infinity) end)
+      job = %{key: :dispatch_poll, task: task, timer: nil}
+      %{state | tracker_tasks: Map.put(state.tracker_tasks, task.ref, job), started: state.started + 1}
     end
   end
 
-  test "drains a task that respawns after the first kill pass" do
-    owner = start_supervised!({Owner, 2})
+  test "drains an owner that starts another task whenever one ends" do
+    tasks = start_supervised!(Task.Supervisor)
+    owner = start_supervised!({Owner, tasks})
+    [task_pid] = Task.Supervisor.children(tasks)
 
     assert :ok = drain_tracker_tasks(owner, 5_000)
-    assert :sys.get_state(owner).tracker_tasks == %{}
-  end
 
-  test "a timeout names the tracker task keys still held" do
-    owner = start_supervised!({Owner, :infinity})
-
-    error = assert_raise RuntimeError, fn -> drain_tracker_tasks(owner, 50) end
-    assert error.message =~ "still held: [poll: 0]"
+    assert %{tracker_tasks: tracker_tasks, started: 1} = :sys.get_state(owner)
+    assert tracker_tasks == %{}
+    refute Process.alive?(task_pid)
+    assert Task.Supervisor.children(tasks) == []
   end
 end

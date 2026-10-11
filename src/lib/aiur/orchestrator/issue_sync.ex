@@ -9,8 +9,8 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.PollCadence
 
@@ -1226,7 +1226,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
           severity: task_state_alert_severity(current_state)
@@ -1244,7 +1244,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
           severity: task_state_alert_severity(current_state)
@@ -1310,7 +1310,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       case Alerts.emit_system(topic,
              issue: issue,
-             worker_host: Orchestrator.running_worker_host(state, issue.id),
+             worker_host: State.WorkerHost.running_worker_host(state, issue.id),
              reason: message,
              needs_attention: true,
              severity: "warning",
@@ -1337,7 +1337,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       active? ->
         case Alerts.emit_system("#{topic}.resolved",
                issue: issue,
-               worker_host: Orchestrator.running_worker_host(state, issue.id),
+               worker_host: State.WorkerHost.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
                needs_attention: false,
                severity: "info",
@@ -1450,7 +1450,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       {true, false} ->
         Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
           needs_attention: false,
           severity: "info"
@@ -1473,7 +1473,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     unless active_attention?(state, topic) do
       Alerts.emit_system(topic,
         issue: issue,
-        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason:
           "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
             "This clears when the operator removes agent:paused.",
@@ -1492,7 +1492,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     if force? or active_attention?(state, topic) do
       Alerts.emit_system("#{topic}.resolved",
         issue: issue,
-        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
         needs_attention: false,
         severity: "info",
@@ -1783,19 +1783,16 @@ defmodule Aiur.Orchestrator.IssueSync do
     live_count = State.active_running_count(state.running)
     effective_cap = Slots.effective_concurrent_agent_limit(state)
 
-    %{
+    Map.merge(PressureAdmission.envelope_context(sample), %{
       state: state,
       ready_count: length(ready_issues),
       live_count: live_count,
       occupied_slots: Slots.used_slots(state),
       effective_cap: effective_cap,
       configured_cap: Slots.max_concurrent_agent_limit(state),
-      load: Map.get(sample, :load),
-      target: Map.get(sample, :target),
-      schedulers: Map.get(sample, :schedulers),
       constraints: Enum.map(constraint_entries, & &1.identity),
       binding_constraint: selected_binding_constraint(state, constraint_entries, ready_issues)
-    }
+    })
   end
 
   defp dependency_circular_waits(state, issues) do
@@ -1929,9 +1926,9 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp envelope_ramping?(_context), do: false
 
-  defp load_below_or_at_target?(%{load: load, target: target, schedulers: schedulers})
+  defp load_below_or_at_target?(%{load: load, ramp_threshold: target, schedulers: schedulers} = context)
        when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0,
-       do: load <= target * schedulers
+       do: if(context.metric == "CPU PSI some avg60 (%)", do: load < target, else: load <= target * schedulers)
 
   defp load_below_or_at_target?(_context), do: false
 
@@ -1995,7 +1992,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp fleet_capacity_starvation_reason(context) do
     "Ready tickets=#{context.ready_count}, live agents=#{context.live_count}, " <>
-      "load=#{context.load}/#{context.target * context.schedulers}, effective cap=#{context.effective_cap}, " <>
+      "#{context.metric}=#{inspect(context.load)}/#{inspect(context.threshold)}, effective cap=#{context.effective_cap}, " <>
       "configured cap=#{context.configured_cap}; binding constraint=#{fleet_capacity_constraint(context)}."
   end
 
@@ -2006,7 +2003,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp fleet_capacity_constraint(%{effective_cap: effective, configured_cap: configured, live_count: live})
        when effective <= live and effective < configured,
-       do: "load envelope (effective cap=#{effective})"
+       do: "adaptive envelope (effective cap=#{effective})"
 
   defp fleet_capacity_constraint(%{effective_cap: effective, configured_cap: configured, live_count: live})
        when effective <= live and effective == configured,
@@ -2046,7 +2043,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
-  defp capacity_hold_identity(:build), do: "build-queue"
+  defp capacity_hold_identity(:cpu_pressure), do: "cpu-pressure"
   defp capacity_hold_identity(:envelope), do: "load-envelope"
   defp capacity_hold_identity(:file_descriptors), do: "fd"
   defp capacity_hold_identity(:run_queue), do: "run-queue"
@@ -2393,7 +2390,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp dispatch_capacity_constraint_entry(_constraint), do: []
 
   defp dispatch_constraint_identity(:build), do: "build"
-  defp dispatch_constraint_identity(:build_queue), do: "build-queue"
+  defp dispatch_constraint_identity(:cpu_pressure), do: "cpu-pressure"
   defp dispatch_constraint_identity(:fd), do: "fd"
   defp dispatch_constraint_identity(:load), do: "load"
   defp dispatch_constraint_identity(:load_envelope), do: "load-envelope"
@@ -2404,14 +2401,14 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "prewarm build (#{detail})"
 
-  defp render_capacity_constraint(%{kind: :build_queue, detail: detail}),
-    do: "build-queue gate (#{detail})"
+  defp render_capacity_constraint(%{kind: :cpu_pressure, detail: detail}),
+    do: "CPU PSI gate (#{detail})"
 
   defp render_capacity_constraint(%{kind: :fd, detail: detail}), do: "FD gate (#{detail})"
   defp render_capacity_constraint(%{kind: :load, detail: detail}), do: "load gate (#{detail})"
 
   defp render_capacity_constraint(%{kind: :load_envelope, detail: detail}),
-    do: "load-envelope limit (#{detail})"
+    do: "adaptive envelope limit (#{detail})"
 
   defp render_capacity_constraint(%{kind: :memory, detail: detail}), do: "memory gate (#{detail})"
 
@@ -2478,7 +2475,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       %Issue{} = issue ->
         Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
           issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Todo issue count exceeds the current dispatch capacity.",
           needs_attention: true,
           severity: "warning"

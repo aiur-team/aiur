@@ -2557,7 +2557,7 @@ defmodule Aiur.CoreTest do
               if [ ! -f "#{port_closed_once}" ]; then
                 touch "#{port_closed_once}"
                 touch "#{port_closed_after_completion}"
-                exit 0
+                exec 0<&-; sleep 1; exit 0 # stdin closes first, so the queued write hits EPIPE (#4017)
               fi
             fi
             ;;

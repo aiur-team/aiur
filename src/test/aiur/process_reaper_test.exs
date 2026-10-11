@@ -268,4 +268,21 @@ defmodule Aiur.ProcessReaperTest do
         wait_for_lines(path, attempts - 1)
     end
   end
+
+  test "default pane killer comes from app config", %{reaper: reaper} do
+    previous = Application.get_env(:aiur, :process_reaper_pane_killer)
+    # The composition root wires the TUI's killer; the reaper itself names no TUI module.
+    assert previous == {Aiur.Tmux, :kill_pane}
+
+    Application.put_env(:aiur, :process_reaper_pane_killer, {__MODULE__, :record_pane_kill})
+    on_exit(fn -> Application.put_env(:aiur, :process_reaper_pane_killer, previous) end)
+    Process.register(self(), :process_reaper_pane_kill_recorder)
+
+    :ok = ProcessReaper.register(reaper, :agent, {:pane, "%41"}, [])
+    :ok = ProcessReaper.reap(reaper, [:agent], [])
+
+    assert_receive {:configured_pane_kill, "%41"}, 1000
+  end
+
+  def record_pane_kill(pane_id), do: send(:process_reaper_pane_kill_recorder, {:configured_pane_kill, pane_id})
 end
