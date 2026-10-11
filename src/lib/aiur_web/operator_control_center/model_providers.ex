@@ -74,7 +74,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelProviders do
     end
   end
 
-  defp keyed?(compat) do
+  @doc false
+  @spec keyed?(map()) :: boolean()
+  def keyed?(compat) do
     case Map.get(compat, :management_api_key_env) || Map.get(compat, :api_key_env) do
       env when is_binary(env) and env != "" -> System.get_env(env) not in [nil, ""]
       _missing -> false
