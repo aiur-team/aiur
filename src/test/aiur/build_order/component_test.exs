@@ -12,6 +12,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Webhooks.ModeTable,
     Aiur.Capabilities.Table,
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
+    Aiur.AgentPubSub.FleetRefresh,
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
     {Registry, [keys: :unique, name: Aiur.Opencode.PaneRegistry]},
     {Registry, [keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry]},
@@ -73,6 +74,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.DecisionAttention,
     Aiur.OperatorWaitLog,
     Aiur.Orchestrator.TrackedSet,
+    Aiur.Orchestrator.SnapshotCache,
     Aiur.Orchestrator.SnapshotStore,
     Aiur.Orchestrator.SnapshotPublisher,
     Aiur.CurrentRunMembership.Store,
@@ -107,7 +109,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ExecutorListener,
     AiurWeb.ControlCenterCache,
     AiurWeb.FinancialData.Supervisor,
-    Aiur.HttpServer,
+    {Aiur.HttpServer, dashboard_pages?: true},
     Aiur.Opencode.TokenRegistry,
     Aiur.Opencode.ActiveTurns,
     Aiur.Opencode.PaneSupervisor,
@@ -147,7 +149,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
     without_dashboard =
       @foreground
-      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]))
+      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
       |> Enum.map(fn
         {Aiur.OpenTicketSource, _} -> {Aiur.OpenTicketSource, poll_on_start: false}
         spec -> spec

@@ -93,7 +93,7 @@ defmodule Aiur.SaturationSentinel do
       atom_limit: safe(&:erlang.system_info/1, [:atom_limit]),
       ets_tables: safe(fn -> length(:ets.all()) end),
       run_queue: safe(&:erlang.statistics/1, [:run_queue]),
-      memory: safe(&:erlang.memory/0)
+      memory: safe(fn -> Map.new(:erlang.memory()) end)
     }
   end
 

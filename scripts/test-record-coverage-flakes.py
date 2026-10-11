@@ -55,7 +55,7 @@ class CoverageFlakesTest(unittest.TestCase):
 
     def test_workflow_preserves_evidence_on_failure_and_rerun(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        shard = workflow.split("  coverage-partition:\n")[1].split("\n  coverage:\n")[0]
+        shard = workflow.split("  coverage-partition:\n")[1].split("\n  test:\n")[0]
         self.assertIn("id: partition-tests", shard)
         self.assertIn("PARTITION_OUTCOME: ${{ steps.partition-tests.outcome }}", shard)
         self.assertIn("pattern: shard-flake-evidence-${{ matrix.partition }}-*", shard)

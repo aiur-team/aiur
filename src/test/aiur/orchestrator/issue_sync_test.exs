@@ -695,7 +695,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "Ready tickets=1"
     assert event["reason"] =~ "effective cap=4, configured cap=4"
-    assert event["reason"] =~ "load-envelope limit"
+    assert event["reason"] =~ "adaptive envelope limit"
     assert event["reason"] =~ "memory gate"
     assert event["reason"] =~ "FD gate"
     assert event["reason"] =~ "load gate"
@@ -1213,7 +1213,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
     assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
-    assert event["reason"] =~ "binding constraint=load envelope (effective cap=3)"
+    assert event["reason"] =~ "binding constraint=adaptive envelope (effective cap=3)"
   end
 
   test "reports a per-state ceiling as the binding constraint" do
@@ -1583,11 +1583,11 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   test "records exactly one Executor wake when an issue transitions to human-review" do
     Publisher.set_tracked_fn(fn _ -> true end)
-    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest})
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
     previous = issue("handoff", "in-progress")
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+    start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
     current = %{previous | state: "human-review"}
     sha = String.duplicate("c", 40)
     key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)

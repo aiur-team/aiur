@@ -1,7 +1,7 @@
 defmodule Aiur.AppServer.AdapterTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.Adapter
+  alias Aiur.AppServer.{Adapter, Transport}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Codex.{Interrupts, TurnLoop}
 
@@ -495,7 +495,7 @@ defmodule Aiur.AppServer.AdapterTest do
     try do
       assert_received {:port_registered_at_spawn, ^port}
     after
-      Port.close(port)
+      Transport.close(port)
     end
   end
 

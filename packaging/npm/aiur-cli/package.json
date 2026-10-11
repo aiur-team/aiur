@@ -18,6 +18,8 @@
   "files": [
     "bin/aiur.js",
     "libexec/aiur-engine.sh",
+    "libexec/engine/*.sh",
+    "libexec/aiur-daemon-supervisor.sh",
     "libexec/aiur-queue.sh",
     "libexec/aiur-epic.sh",
     "libexec/aiur-capabilities.sh",

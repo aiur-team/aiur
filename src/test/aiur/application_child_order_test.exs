@@ -124,6 +124,8 @@ defmodule Aiur.ApplicationChildOrderTest do
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
     Aiur.BuildOrder.History.Feeder => "Subscribe to History before Backfill starts so completion triggers catch-up",
+    Aiur.AgentPubSub.FleetRefresh => "Create the subscriber table after PubSub and before channels can register",
+    Aiur.Orchestrator.SnapshotCache => "Create the snapshot table before SnapshotStore or SnapshotPublisher can write",
     # The first CI poll and queue reconcile need the seeded progress table before they run.
     Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress"
   }

@@ -18,6 +18,7 @@ defmodule Aiur.BuildQueue.Server do
     ReadModel,
     Reconcile,
     Recovery,
+    Refresh,
     Settings,
     Store,
     Withdrawal,
@@ -50,6 +51,7 @@ defmodule Aiur.BuildQueue.Server do
       clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),
       schedule: Keyword.get(opts, :schedule, &Process.send_after/3),
       exchange: Keyword.get(opts, :exchange, Exchange),
+      open_issues_topic: Keyword.get(opts, :open_issues_topic, "tracker:open_issues"),
       exchange_pid: nil,
       pending: nil,
       status: :disabled,
@@ -59,6 +61,8 @@ defmodule Aiur.BuildQueue.Server do
       projections: [],
       observations: %{},
       observed_at_ms: nil,
+      refresh_not_before_ms: nil,
+      refresh_pid: nil,
       actions: [],
       holds: MapSet.new(),
       build_order_projection: Keyword.get(opts, :build_order_projection, BuildOrderSource.projection()),
@@ -105,7 +109,7 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call(:recover, from, %{status: :store_unavailable} = state) do
     case state.store.load() do
       {:ok, document} ->
-        Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+        Phoenix.PubSub.subscribe(Aiur.PubSub, state.open_issues_topic)
         schedule_tick(state)
         state = %{state | document: document, status: :running, phase: :awaiting_first_observation, pending: nil, writer: Writer.new()}
         {:reply, :ok, state |> AttentionHealth.store() |> subscribe() |> request()}
@@ -233,7 +237,7 @@ defmodule Aiur.BuildQueue.Server do
     case Recovery.rebuild(state, force) do
       {:ok, document} ->
         if state.status == :store_unavailable do
-          Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+          Phoenix.PubSub.subscribe(Aiur.PubSub, state.open_issues_topic)
           schedule_tick(state)
         end
 
@@ -290,7 +294,7 @@ defmodule Aiur.BuildQueue.Server do
 
     case state.store.load() do
       {:ok, document} ->
-        Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+        Phoenix.PubSub.subscribe(Aiur.PubSub, state.open_issues_topic)
         state = %{state | status: :running, document: document}
         schedule_tick(state)
         state |> subscribe() |> request()
@@ -313,7 +317,7 @@ defmodule Aiur.BuildQueue.Server do
 
   defp reconcile(state) do
     {freshness, observations, observed_at_ms} = Reconcile.observed_snapshot(state)
-    state = Recovery.resolve(%{state | freshness: freshness, observed_at_ms: observed_at_ms}, observations)
+    state = Recovery.resolve(Refresh.maybe_request(%{state | freshness: freshness, observed_at_ms: observed_at_ms}), observations)
     state = state |> sync_sources(observations) |> replay_list_markers(observations)
     plan(state, Reconcile.observations(state))
   end

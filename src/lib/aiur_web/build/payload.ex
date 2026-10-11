@@ -36,7 +36,7 @@ defmodule AiurWeb.Build.Payload do
   | added / deps | boolean / identifiers |
   | wave / qpos | integer or nil (positive on plan) / nonnegative integer or nil |
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
-  | cue flags | waitAny and blockedChain booleans |
+  | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
   | pr | nil or positive integer num and open/merged/closed state |
 
@@ -66,7 +66,7 @@ defmodule AiurWeb.Build.Payload do
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts
   before history.from are excluded. Earlier: envelope without now plus rows/history.
-  Error: v/kind/reason (invalid_params/unavailable/read_only/not_found).
+  Error: v/kind/reason (invalid_params/unavailable/read_only/not_found/throttled).
 
   Epoch identifies a LiveView process; generation advances once per diff, twice
   for an index restart. Snapshots do not increment it. Source index_generation

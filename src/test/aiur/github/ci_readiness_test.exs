@@ -40,11 +40,11 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert parsed["on"]["pull_request"]["types"] == ~w(opened synchronize reopened ready_for_review)
     assert Map.has_key?(parsed["on"], "merge_group")
     assert "main" in parsed["on"]["push"]["branches"]
-    gate = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    gate = "needs.changes.outputs.draft != 'true'"
 
     for {id, job} <- parsed["jobs"] do
       if id in ~w(changes lint build) do
-        refute String.contains?(Map.get(job, "if", ""), "pull_request.draft")
+        refute String.contains?(Map.get(job, "if", ""), "draft")
       else
         assert job["if"] in ["${{ #{gate} }}", "${{ always() && (#{gate}) }}", "${{ !cancelled() && (#{gate}) }}"]
       end
@@ -54,7 +54,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
     readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)
     assert readiness.ready?
-    assert length(readiness.required_checks) == 13
+    assert length(readiness.required_checks) == 12
   end
 
   test "reports a repository without a pull request workflow" do

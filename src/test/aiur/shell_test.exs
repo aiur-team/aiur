@@ -54,4 +54,23 @@ defmodule Aiur.ShellTest do
       assert Shell.escape("abc", fast_path: false) == "'abc'"
     end
   end
+
+  describe "remote_assign/2" do
+    test "expands ~ and ~/ on the executing host and escapes quotes" do
+      expected = ~S"""
+      ws='~/it'"'"'s'
+      case "$ws" in
+        '~') ws="$HOME" ;;
+        '~/'*) ws="$HOME/${ws#\~/}" ;;
+      esac
+      """
+
+      assert Shell.remote_assign("ws", "~/it's") == String.trim_trailing(expected)
+
+      for {raw, value} <- [{"~", "/h"}, {"~/a b", "/h/a b"}, {"/abs/~/x", "/abs/~/x"}, {"it's", "it's"}] do
+        script = Shell.remote_assign("ws", raw) <> ~s(\nprintf %s "$ws")
+        assert {^value, 0} = System.cmd("sh", ["-c", script], env: [{"HOME", "/h"}])
+      end
+    end
+  end
 end
