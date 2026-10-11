@@ -111,7 +111,7 @@ jobs:
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test config documentation and design extract guards
@@ -414,11 +414,11 @@ jobs:
           path: src/cover/${{ matrix.partition }}.coverdata
           if-no-files-found: error
 
-  coverage:
+  test:
     needs: [coverage-partition, changes]
     if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: read
@@ -458,6 +458,12 @@ jobs:
       - name: Aggregate coverage gate
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make coverage-report
+      - name: Install tmux for regression test
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Agent teardown reaping regression (#423)
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        run: make regression
 
   quarantine:
     name: quarantined tests (non-blocking)
@@ -517,40 +523,6 @@ jobs:
         # path the restore step promises).
         run: rm -rf _build/test/lib/aiur
 
-  test:
-    needs: [coverage, changes]
-    if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: read
-    defaults:
-      run:
-        working-directory: src
-    steps:
-      - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Report failed coverage gate
-        if: ${{ (needs.coverage.result != 'success') && needs.changes.outputs.docs_only != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        working-directory: .
-        run: bash scripts/report-ci-failures.sh '^coverage( \([1-4]/4\))?$' "${{ needs.coverage.result }}"
-      - name: Set up Elixir
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-elixir
-      - name: Install tmux for regression test
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: sudo apt-get update && sudo apt-get install -y tmux
-      - name: Agent teardown reaping regression (#423)
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: make regression
 
   analytics:
     needs: changes
