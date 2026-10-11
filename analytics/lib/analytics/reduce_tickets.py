@@ -64,7 +64,7 @@ def _lifecycle_event(record: dict) -> dict | None:
         # Backend / worker_host identify the model+provider a ticket ran on.
         # Lifecycle attributes carry them; surfacing them here lets the Executor
         # tools and the dashboard report model/provider per ticket.
-        "backend": attributes.get("backend"),
+        **{key: attributes.get(key) for key in ("backend", "model", "effort", "feature", "epic", "tags", "blockers", "start_mode")},
         "worker_host": attributes.get("worker_host"),
         "timestamp": record["timestamp_iso"],
         "timestamp_ms": record["timestamp_ms"],

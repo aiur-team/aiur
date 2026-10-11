@@ -36,6 +36,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
     #{PromptBuilder.integration_branch_restatement()}
+    #{PromptBuilder.merge_policy_restatement()}
     #{PromptBuilder.rename_test_audit_restatement()}
     """
 
@@ -145,6 +146,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Do not end the turn while the issue stays active unless you are truly blocked.
     #{PromptBuilder.integration_branch_restatement()}
+    #{PromptBuilder.merge_policy_restatement()}
     #{PromptBuilder.rename_test_audit_restatement()}
     """
   end

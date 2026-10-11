@@ -1,5 +1,4 @@
 name: ci
-
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -17,17 +16,12 @@ on:
   # head directly when the pull_request synchronize path is not creating runs
   # (#2397). Checks attach to the head commit either way.
   workflow_dispatch:
-
 # Main pushes finish the running run; only the newest pending run is kept.
 # Initial PR runs share a group; other events and all reruns stay independent.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
-
-# Job timeouts (#2461): 3-4x observed duration, rounded to five minutes.
-# Re-measure completed job spans when profiles change. Release smoke has
-# extra headroom for cold Chromium installs and release assembly.
-
+# Job timeouts (#2461): 3-4x observed duration; re-measure when profiles change.
 jobs:
   # Drafts run only changes, lint and build, gated on the live draft state that
   # `changes` reads (never the event payload, #4002). Job-level skips on drafts are
@@ -71,7 +65,6 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: bash scripts/classify-ci-changes.sh
-
   workflow-security:
     needs: changes
     if: ${{ needs.changes.outputs.draft != 'true' }}
@@ -80,6 +73,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -88,8 +82,23 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Guard workflow triggers and action pins
-        run: bash scripts/test-workflow-security.sh
+      - name: Set up Elixir for PR evidence
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: erlef/setup-beam@e6d7c94229049569db56a7ad5a540c051a010af9 # v1.20.4
+        with:
+          otp-version: '28'
+          elixir-version: '1.19.5'
+      - name: Check PR body and local-test evidence
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr-evidence.json"
+          python3 scripts/check-pr-body.py --pr-json "$RUNNER_TEMP/pr-evidence.json" --base "$PR_BASE"
+      - name: Guard workflow triggers, action pins and PR body rollout
+        run: bash scripts/test-workflow-security.sh && python3 scripts/test-check-pr-body.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -153,7 +162,6 @@ jobs:
           esac
           test -n "$base"
           python3 scripts/check-file-size.py --base "$base"
-
   merge-ruleset-drift:
     needs: changes
     if: ${{ needs.changes.outputs.draft != 'true' }}
@@ -172,7 +180,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
-
   build:
     needs: changes
     if: ${{ !cancelled() }}
@@ -195,7 +202,6 @@ jobs:
       - name: Build release
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make build
-
   lint:
     needs: changes
     if: ${{ !cancelled() }}
@@ -222,10 +228,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
       # Keep guards in required lint so they remain merge-blocking.
-      - name: Every config key has a documentation entry
+      - name: Config docs and Docker dependency guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-config-docs.py
+        run: python3 scripts/check-config-docs.py && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
       - name: Cache component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -257,7 +263,6 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: node packaging/scripts/check-platform-drift.mjs
-
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     needs: changes
@@ -413,7 +418,6 @@ jobs:
           name: coverage-${{ matrix.partition }}
           path: src/cover/${{ matrix.partition }}.coverdata
           if-no-files-found: error
-
   test:
     needs: [coverage-partition, changes]
     if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
@@ -464,7 +468,6 @@ jobs:
       - name: Agent teardown reaping regression (#423)
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make regression
-
   quarantine:
     name: quarantined tests (non-blocking)
     needs: changes
@@ -522,8 +525,6 @@ jobs:
         # cache post-step saves, keeping the stored cache dependency-only (the
         # path the restore step promises).
         run: rm -rf _build/test/lib/aiur
-
-
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.draft != 'true' }}
@@ -542,7 +543,6 @@ jobs:
         env:
           PYTHONPATH: analytics/lib
         run: python3 -m unittest discover -s analytics/tests -t analytics -v
-
   dialyzer:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.draft != 'true') }}
@@ -572,7 +572,6 @@ jobs:
       - name: Dialyzer
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
-
   browser:
     name: browser harness
     container:
@@ -637,7 +636,6 @@ jobs:
           path: src/browser/.artifacts-run-*/
           if-no-files-found: ignore
           include-hidden-files: true
-
   streamdeck:
     name: streamdeck
     needs: changes
@@ -674,7 +672,6 @@ jobs:
       - name: Build
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: npm run build
-
   layout-release:
     name: layout release smoke
     needs: changes

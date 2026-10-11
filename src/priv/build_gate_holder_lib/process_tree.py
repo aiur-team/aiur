@@ -2,6 +2,7 @@
 
 import os
 import signal
+import subprocess
 import time
 
 
@@ -186,17 +187,21 @@ def detach_standard_streams(lease_fd: int) -> None:
                 pass
 
 
-def reap_exited_children() -> bool:
+def reap_exited_children(process: subprocess.Popen | None = None) -> bool:
     retained = False
 
     while True:
         try:
-            child_pid, _child_status = os.waitpid(-1, os.WNOHANG)
+            child_pid, child_status = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:
             return retained
 
         if child_pid == 0:
             return True
+
+        # Preserve Popen's status when reaping its child alongside adopted orphans.
+        if process is not None and child_pid == process.pid:
+            process.returncode = os.waitstatus_to_exitcode(child_status)
 
 
 def subtree_cpu_ns() -> int | None:

@@ -48,6 +48,7 @@ defmodule Aiur.RunTelemetry.Dataset do
        %{
          records: records,
          restarts: Enum.filter(records, &daemon_restart?/1),
+         run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
          actors: actors,
          tickets: tickets,
          findings: findings,
@@ -90,6 +91,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     Map.merge(dataset, %{
       records: records,
       restarts: Enum.filter(records, &daemon_restart?/1),
+      run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
       actors: actors,
       tickets: scoped_tickets,
       findings: dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
@@ -136,6 +138,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     %{
       records: records,
       restarts: Enum.filter(records, &daemon_restart?/1),
+      run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
       actors: actors,
       tickets: tickets,
       findings: findings,
