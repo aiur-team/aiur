@@ -56,6 +56,18 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.sort(reads) == [:issue, :issue_labels, :sub_issue]
   end
 
+  test "catalog skips issue and sub-issue entries without bodies" do
+    seed_order(9000, "open", nil, [9010])
+    seed_member(9010, "T-1", "closed", "completed", 0)
+
+    ResourceStore.put_etag(ResourceStore.key_for_repo(:issue, "acme/widgets", 9999), ~s("issue"))
+    ResourceStore.put_etag(ResourceStore.key_for_repo(:sub_issue, "acme/widgets", "9000:9999"), ~s("edge"))
+
+    [root] = PlanningSource.catalog().data.entries
+
+    assert root.member_count == 2
+  end
+
   test "full draft IDs retain distinct identities and dependency edges including T00" do
     path = Application.fetch_env!(:aiur, :build_order_planning_pack)
     pack = Jason.decode!(@pack)

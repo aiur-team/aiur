@@ -66,13 +66,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   defp issue_member(_issue, _build_order_id, _ticket_ids), do: nil
 
   defp issues_by_number(issues) do
-    Map.new(issues, fn {_key, entry} -> {Map.get(entry.data, "number"), entry.data} end)
-    |> Map.delete(nil)
+    Enum.reduce(issues, %{}, fn {_key, entry}, acc ->
+      case Map.get(entry, :data) do
+        %{"number" => number} = issue when not is_nil(number) -> Map.put(acc, number, issue)
+        _bodyless -> acc
+      end
+    end)
   end
 
   defp member_numbers(entries) do
     Enum.reduce(entries, %{}, fn {_key, entry}, acc ->
-      case entry.data do
+      case Map.get(entry, :data) do
         %{"present" => true, "parent_issue_number" => parent, "sub_issue_number" => sub}
         when is_integer(parent) and is_integer(sub) ->
           Map.update(acc, parent, [sub], &[sub | &1])
