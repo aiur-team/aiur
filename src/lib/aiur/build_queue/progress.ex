@@ -61,21 +61,20 @@ defmodule Aiur.BuildQueue.Progress do
       source = %{source | observed_at: source.observed_at || model.snapshot.captured_at}
       queues = Map.new(state.document.queues, &{&1.id, &1})
 
-      Enum.reduce_while(model.queues, :ok, fn row, :ok ->
-        case fact(queues[row.queue_id], row.items, source) do
-          nil ->
-            {:cont, :ok}
-
-          fact ->
-            case put_fact(fact) do
-              :ok -> {:cont, :ok}
-              error -> {:halt, error}
-            end
-        end
-      end)
+      facts = for row <- model.queues, fact = fact(queues[row.queue_id], row.items, source), fact != nil, do: fact
+      publish_facts(facts)
     else
       :ok
     end
+  end
+
+  defp publish_facts(facts) do
+    Enum.reduce_while(facts, :ok, fn fact, :ok ->
+      case put_fact(fact) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp put_fact(fact) do
