@@ -8,7 +8,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
   import Aiur.Codex.AccountGenerationTestSupport
 
   setup_all do
-    Aiur.TestSupport.ensure_runtime_children_running()
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   setup do

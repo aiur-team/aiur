@@ -9,7 +9,7 @@ defmodule Aiur.DecisionApiTest do
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
   @policy %{allowed_kinds: ["architecture"], allow_non_reversible: false}
 
-  setup_all do: if(Process.whereis(Aiur.Events.IdGenerator), do: :ok, else: raise("Aiur.Events.IdGenerator is not running before DecisionApiTest; a preceding test stopped the application child"))
+  setup_all do: :ok = Aiur.TestSupport.ensure_runtime_children_running()
 
   defmodule RetainedOnlyStore do
     use GenServer
