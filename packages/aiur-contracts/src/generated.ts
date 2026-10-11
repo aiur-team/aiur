@@ -13,7 +13,7 @@ export type CapabilityEntry = {
   version?: number;
   observed_at?: string;
   route?: string;
-  mode?: "in_band_hold" | "defer_resume" | "none";
+  mode?: string;
   v?: number;
   retention?: unknown;
   [k: string]: unknown;

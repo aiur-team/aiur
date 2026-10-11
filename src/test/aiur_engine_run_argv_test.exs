@@ -32,8 +32,8 @@ defmodule AiurEngineRunArgvTest do
     File.rm!(Path.join([rel, "releases", "0.1.1", "elixir"]))
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(signal)
     end)
 
@@ -63,8 +63,8 @@ defmodule AiurEngineRunArgvTest do
     File.chmod!(release_bin, 0o755)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(signal)
     end)
 
@@ -117,7 +117,7 @@ defmodule AiurEngineRunArgvTest do
     tailscale = Path.join(bin, "tailscale")
     File.write!(tailscale, "#!/bin/sh\nprintf '100.64.0.42\\n'\n")
     File.chmod!(tailscale, 0o755)
-    on_exit(fn -> File.rm_rf!(bin) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(bin) end)
 
     {host, 0} =
       run_sourced_engine("default_dashboard_host", [
@@ -322,8 +322,8 @@ defmodule AiurEngineRunArgvTest do
       on_exit(fn ->
         kill_pid(inside_pid)
         kill_pid(outside_pid)
-        File.rm_rf(root)
-        File.rm_rf(outside)
+        Aiur.TestCleanup.rm_rf!(root)
+        Aiur.TestCleanup.rm_rf!(outside)
       end)
 
       {out, 0} =
@@ -345,7 +345,7 @@ defmodule AiurEngineRunArgvTest do
     home = Aiur.TestSupport.tmp_root!("aiur-tilde-canon")
     File.mkdir_p!(home)
 
-    on_exit(fn -> File.rm_rf(home) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
 
     {out, 0} =
       run_sourced_engine(
@@ -381,8 +381,8 @@ defmodule AiurEngineRunArgvTest do
       on_exit(fn ->
         kill_pid(inside_pid)
         kill_pid(outside_pid)
-        File.rm_rf(home)
-        File.rm_rf(outside)
+        Aiur.TestCleanup.rm_rf!(home)
+        Aiur.TestCleanup.rm_rf!(outside)
       end)
 
       {out, 0} =

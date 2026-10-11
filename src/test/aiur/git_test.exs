@@ -79,7 +79,7 @@ defmodule Aiur.GitTest do
           System.cmd(pkill, ["-f", fake_git], stderr_to_stdout: true)
         end
 
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       task =
@@ -117,7 +117,7 @@ defmodule Aiur.GitTest do
           _ -> :ok
         end
 
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       assert {:error, {:git_ls_remote_timeout, 1_000, ""}} =

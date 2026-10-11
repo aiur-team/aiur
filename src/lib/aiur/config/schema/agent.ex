@@ -43,7 +43,7 @@ defmodule Aiur.Config.Schema.Agent do
   import Ecto.Changeset
 
   alias Aiur.Config.RoutingValue
-  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy, Rtk}
+  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, GitIdentity, PricingPolicy, Rtk}
 
   @primary_key false
   embedded_schema do
@@ -173,6 +173,8 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     field(:synthetic_load_process_cap, :integer)
+    # false = busy-loop-detected and orphaned generators are reported, not killed.
+    field(:synthetic_load_kill_detected, :boolean, default: false)
     # Cap ERTS scheduler threads on agent-spawned Mix BEAMs via
     # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
     # four bounds every agent test shape without relying on prompt compliance.
@@ -210,6 +212,7 @@ defmodule Aiur.Config.Schema.Agent do
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:git_identity, GitIdentity, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pricing_policy, PricingPolicy, on_replace: :update, defaults_to_struct: true)
     embeds_one(:rtk, Rtk, on_replace: :update, defaults_to_struct: true)
   end
@@ -261,6 +264,7 @@ defmodule Aiur.Config.Schema.Agent do
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
+        :synthetic_load_kill_detected,
         :mix_scheduler_cap,
         :saturation_log_enabled,
         :capacity_starvation_alert_after_seconds,
@@ -335,6 +339,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:git_identity, with: &GitIdentity.changeset/2)
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end

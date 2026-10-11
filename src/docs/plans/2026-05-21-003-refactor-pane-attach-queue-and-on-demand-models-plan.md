@@ -10,7 +10,7 @@ origin: elixir/docs/brainstorms/2026-05-21-pane-attach-queue-and-on-demand-model
 
 ## Overview
 
-Three bugs surfaced in live use of the slot-bound opencode work (`elixir/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`) plus one model simplification. This plan fixes the pane title leak, eliminates the pre-warm race by queueing opens instead of falling back to cold-attach, and drops the "every slot knows every agent" seeding so slots grow their models map only when the user actually attaches an agent. A new `a` keybind in the agent list adds explicit "attach to focused pane" so multi-agent panes are a deliberate user choice, not an accident of background seeding.
+Three bugs surfaced in live use of the slot-bound opencode work (`src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`) plus one model simplification. This plan fixes the pane title leak, eliminates the pre-warm race by queueing opens instead of falling back to cold-attach, and drops the "every slot knows every agent" seeding so slots grow their models map only when the user actually attaches an agent. A new `a` keybind in the agent list adds explicit "attach to focused pane" so multi-agent panes are a deliberate user choice, not an accident of background seeding.
 
 Expected net diff is **negative**: deletes `Aiur.Opencode.PaneSession` (the legacy cold-attach module), the cold-attach branch in `PaneManager`, the orchestrator-wait in `Slot.handle_continue(:start_serve)`, and the full-list seeding in `WorkspaceSetup.materialize_slot/5`. Adds a small FIFO open queue in PaneManager and one new keybind path.
 
@@ -486,5 +486,5 @@ Key difference from current code: `materialize_slot` is called with `MapSet.to_l
 ## Sources & References
 
 - **Origin document:** [elixir/docs/brainstorms/2026-05-21-pane-attach-queue-and-on-demand-models-requirements.md](elixir/docs/brainstorms/2026-05-21-pane-attach-queue-and-on-demand-models-requirements.md)
-- Prior plan (the model this builds on): `elixir/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`
+- Prior plan (the model this builds on): `src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md`
 - Prior round's verification: `elixir/docs/notes/2026-05-21-slot-bound-verification.md`

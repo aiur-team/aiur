@@ -474,7 +474,7 @@ defmodule Aiur.AgentRunnerTest do
       # started successfully; persistence is best-effort and must never take it down.
       not_a_dir = Aiur.TestSupport.tmp_root!("ar_persist_test")
       File.write!(not_a_dir, "x")
-      on_exit(fn -> File.rm_rf(not_a_dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(not_a_dir) end)
 
       bad_dir = Path.join(not_a_dir, "nested")
 

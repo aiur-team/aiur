@@ -86,6 +86,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     orphaned_agent_reap_count: :lifecycle,
     contradictory_state_label_tickets: :lifecycle,
     contradictory_state_label_alert_active: :lifecycle,
+    terminal_verification_attempts: :lifecycle,
     globally_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
@@ -160,7 +161,8 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.ReadyForReviewTransitions,
       Aiur.Orchestrator.MergedTicketReconciler,
       Aiur.Orchestrator.ReworkRequeue,
-      Aiur.Orchestrator.RestackScheduler
+      Aiur.Orchestrator.RestackScheduler,
+      Aiur.Orchestrator.MergeOrderAudit
     ],
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],

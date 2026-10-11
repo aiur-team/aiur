@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
       orphaned_claim: "StartupClaimReconciler",
       stale_claim: "Reconciler",
       workspace_ownership_waiting: "Workspace.Ownership",
+      workspace_retained: "Workspace.Ownership",
       active: "AgentRunner"
     }
 
@@ -258,8 +259,22 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
       attached = WaitingReason.attach(row, state, clocks)
       assert attached.waiting.since == nil
       assert attached.waiting.age_ms == nil
-      assert WaitingReason.render_wait(attached) == " · #{reason} · #{attached.waiting.owner} · since unknown"
+      assert WaitingReason.render_wait(attached) =~ " · #{reason} · #{attached.waiting.owner} · since unknown"
     end
+  end
+
+  test "dependency waiting evidence and rendered text name the dispatch trigger" do
+    blocker = %{id: "surfacing-blocker", identifier: "12", state: "ci-wait"}
+    row = %{issue_id: "surfacing-dependent", identifier: "13", waiting_reason: :waiting_for_dependency, blocked_by: [blocker]}
+    attached = WaitingReason.attach(row, %State{})
+    assert attached.waiting.reason == :waiting_for_dependency
+    assert attached.waiting.cause == [blocker]
+    assert attached.waiting.trigger == :pr_merged
+    assert attached.waiting.description =~ "#12 needs pr_merged (now pr_opened)"
+    assert String.ends_with?(attached.waiting.description, "needs pr_merged")
+    assert WaitingReason.render_wait(attached) =~ attached.waiting.description
+    assert WaitingReason.public_wait(attached).cause == [blocker]
+    assert WaitingReason.render(:waiting_for_dependency) == "waiting_for_dependency"
   end
 
   defp fleet(snapshot), do: {:ok, snapshot, %{status: :current, age_seconds: 0}}

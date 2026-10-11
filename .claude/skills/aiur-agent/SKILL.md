@@ -64,6 +64,8 @@ shared [dictated-input note](dictated-input.md).
   local tests and format, size, components gates. After the third, emit a
   non-blocking Executor alert; keep going if the base is safe. Never open a
   blocking decision for base integration. Record attempts in `dev-loop.md`.
+  A PR already in the merge queue is left alone: never dequeue it, or ask the
+  Executor to, in order to update its branch.
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of

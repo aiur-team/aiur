@@ -40,6 +40,7 @@ defmodule AiurWeb.AnalyticsLive do
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
      |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
      |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
+     |> assign(:capture_enabled?, Aiur.RunTelemetry.telemetry_enabled?())
      |> assign(:range, :run)
      |> assign(:sort, :cpu)
      |> assign(:time_domain, nil)
@@ -119,10 +120,11 @@ defmodule AiurWeb.AnalyticsLive do
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />
       </:banner>
-
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
-
       <section id="analytics-page" class="analytics-root" aria-label="Run analytics">
+        <p :if={!@capture_enabled?} id="analytics-capture-off" role="status" class="an-empty">
+          Analytics capture is off (observability.telemetry_enabled: false). Experiments will have no data for this period.
+        </p>
         <div :if={@unavailable} class="an-empty" data-empty-reason={@unavailable}>
           <div :if={@unavailable == :no_telemetry}>
             <p><b>No run telemetry to analyze yet.</b></p>
@@ -137,7 +139,6 @@ defmodule AiurWeb.AnalyticsLive do
             <p>The durable run-telemetry stream could not be analyzed right now.</p>
           </div>
         </div>
-
         <div :if={!@unavailable} class="an-controls">
           <div>
             <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
@@ -155,7 +156,6 @@ defmodule AiurWeb.AnalyticsLive do
             <button type="button" class={[@range == :full && "on"]} phx-click="range" phx-value-range="full">Full log</button>
           </div>
         </div>
-
         <div :if={!is_nil(@time_domain)} class="an-zoombar" role="status">
           <span>Zoomed to {Charts.time_domain_label(@chart_model, @time_domain)}</span>
           <button type="button" phx-click="reset-time-domain">Reset</button>
