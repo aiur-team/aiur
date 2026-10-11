@@ -745,7 +745,7 @@ defmodule AiurWeb.DashboardLiveTest do
     # as an empty circle on every breakpoint. Guard the whole class of bug: any
     # icon wrapper the shell renders must have its SVG sized in dashboard.css.
     test "every icon wrapper in the shell has an svg sizing rule" do
-      css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+      {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
 
       wrapper_classes =
         global_pause_fleet(false)

@@ -6,6 +6,11 @@ config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 
 config :aiur, :signal, alert_sink: Aiur.Alerts
 
+# The agent sandbox sits below the TUI and the orchestrator, so it reaches both
+# through these names instead of referencing them.
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux, :kill_pane}
+config :aiur, :pause_containment_result_target, Aiur.Orchestrator
+
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
   Aiur.GitHub.Budget.SandboxRoots,
