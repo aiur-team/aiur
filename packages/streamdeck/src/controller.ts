@@ -1,307 +1,40 @@
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
-import { chatKind, rowKindOfRole, type DiffLine, type StreamDeckChannel, type StreamDeckCommand, type StreamDeckCommandAnswerResult, type StreamDeckCommandsPage, type StreamDeckGrid, type StreamDeckLogs, type TranscriptRow } from "./channel.js";
 import {
   clampHistoryOffset,
   clampOptionOffset,
-  commandIdempotencyKey,
-  COMMANDS_APPROVE_SLOT,
-  COMMANDS_CANCEL_SLOT,
-  COMMANDS_MIC_SLOT,
-  COMMANDS_MORE_SLOT,
   hasMoreHistory,
-  hasMoreOptions,
   HISTORY_PER_PAGE,
   isAnswerable,
-  OPTIONS_PER_PAGE,
 } from "./commands.js";
-import { agentIndexForKey } from "./keys.js";
-import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./touchStrip/chatLog.js";
-import { createTypewriter } from "./touchStrip/typewriter.js";
 import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/providerPanel.js";
-import { micAtSlot, micSlotForKey, nextMicPage, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY } from "./settings.js";
 import { agentLess } from "./surface.js";
-import type { AudioDevice } from "./audio/index.js";
+import {
+  CMD_PAUSE,
+  CMD_LOGS,
+  CMD_MIC,
+  CMD_SETTINGS,
+  CMD_COMMANDS,
+  CMD_SEND,
+  CMD_CANCEL,
+  CMD_IMPLEMENT,
+  SETTINGS_TEST_MIC,
+  COMMANDS_MIC,
+  type ControllerState,
+  type PhysicalControllerOptions,
+  DEMO_CHORD,
+  initialState,
+  agentAt,
+  identifierOf,
+  type ControllerCore,
+} from "./controller/state.js";
 
-export type ControllerMode = "grid" | "cmd" | "logs" | "settings" | "commands";
+import { createCommands } from "./controller/commands.js";
+import { createGridLogs } from "./controller/grid-logs.js";
+import { createVoiceSettings } from "./controller/voice-settings.js";
 
-/* Command-mode key indices. Named because three of them are also handled in
- * `handleReport`'s key-up pass, and a bare number there silently drifts from
- * the face `surface.ts` paints on the same key. */
-const CMD_PAUSE = 0;
-const CMD_LOGS = 1;
-const CMD_MIC = 2;
-const CMD_SETTINGS = 3;
-const CMD_COMMANDS = 4;
-const CMD_SEND = 5;
-const CMD_CANCEL = 6;
-/* The last cmd slot is Implement, and only for a ticket with no agent: the
- * surface paints it there from the same `agentLess` predicate this press reads,
- * so a press can never mean something the key does not say. */
-const CMD_IMPLEMENT = 7;
-
-/* Settings-mode key indices. TestMic shares `CMD_MIC`'s slot so hold-to-talk is
- * under the same finger on both surfaces; the microphones fill what is left, in
- * the order `MIC_KEY_INDICES` gives. Those come from `settings.ts` so this
- * handler and the face `surface.ts` paints read one mapping, not two. */
-const SETTINGS_TEST_MIC = SETTINGS_TEST_MIC_KEY;
-const SETTINGS_NEXT_PAGE = SETTINGS_NEXT_PAGE_KEY;
-
-
-/* Commands-mode key indices. Option slots and the mic/approve/cancel/paging
- * slots are shared with `commands.ts` so the key face and the press cannot
- * drift. */
-const COMMANDS_OPTION_SLOTS = OPTIONS_PER_PAGE;
-const COMMANDS_MIC = COMMANDS_MIC_SLOT;
-const COMMANDS_APPROVE = COMMANDS_APPROVE_SLOT;
-const COMMANDS_CANCEL = COMMANDS_CANCEL_SLOT;
-const COMMANDS_MORE = COMMANDS_MORE_SLOT;
-
-/**
- * What the controller needs from the host's voice stack.
- *
- * A port rather than the `VoiceSession` itself, because the controller also
- * drives microphone discovery and the remembered choice, which are three
- * different objects in `src/audio/`. Absent on a host with no audio, and every
- * call site tolerates that — the deck still pages, focuses and reads logs on a
- * machine with no `parec`.
- */
-export interface ControllerVoice {
-  /** Begins capture. Idempotent. */
-  hold(): void;
-  /** Ends capture, keeping settled text. Idempotent. */
-  release(): void;
-  /** Settled text to deliver to the agent. */
-  message(): string;
-  hasMessage(): boolean;
-  /** Discards the buffer. */
-  clear(): void;
-  /** Stops capture and drops any open provider session. */
-  dispose(): void;
-  /** Microphones detected at the last enumeration. */
-  microphones(): readonly AudioDevice[];
-  /** Re-enumerates. Called when the settings surface opens, and only there. */
-  refresh(): void;
-  selectedDeviceId(): string | null;
-  select(deviceId: string): void;
-}
-
-/**
- * One row of the log surface, kept structured all the way to the renderer.
- *
- * The daemon sends `{kind, badge, text, time}` per event key. Flattening that
- * to a single display string on arrival threw away the direction badge and the
- * relative timestamp, so every event key painted an identical grey `INFO` badge
- * and no time at all.
- */
-export interface EventKey {
-  /** `live` is the feed's sentinel *last* row — the right-hand end of the chat. */
-  readonly kind: "live" | "event";
-  /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
-  readonly badge: string;
-  readonly text: string;
-  /** Relative timestamp such as "3m"; empty when the feed omits one. */
-  readonly time: string;
-  /**
-   * Offset of this key's header in the flattened transcript — where pressing it
-   * scrolls to. Carried per key rather than derived from a parallel array of
-   * header positions: the client no longer has to reproduce the server's
-   * anchoring rules to address a key, so the two cannot disagree about which
-   * row a key means.
-   */
-  readonly start: number;
-}
-
-const asString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
-const asNumber = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
-/** Empty strings are absent values here: the daemon omits, rather than blanks, a missing diff line. */
-const asText = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
-
-/** Normalises one server transcript row into a {@link TranscriptRow}. */
-/**
- * Anything that is not a unified-diff marker is context. Passing an arbitrary
- * string through as a sign would let the feed pick the row's colour, and the
- * added/removed tint is the one thing a diff row's colour has to mean.
- */
-const toDiffSign = (value: unknown): DiffLine["sign"] => {
-  const sign = asString(value, " ");
-  return sign === "+" || sign === "-" ? sign : " ";
-};
-
-const toTranscriptRow = (entry: Readonly<Record<string, unknown>>): TranscriptRow => {
-  if (entry.kind === "diff_line") {
-    return { kind: "diff_line", sign: toDiffSign(entry.sign), text: asString(entry.text) };
-  }
-  if (entry.kind === "event_header") {
-    return {
-      kind: "event_header",
-      badge: asString(entry.badge, "INFO"),
-      body: asString(entry.body),
-      label: asString(entry.label, asString(entry.body)),
-      timestamp: asText(entry.timestamp),
-    };
-  }
-  if (entry.kind === "diff") {
-    return {
-      kind: "diff",
-      path: asString(entry.path, "changed file"),
-      additions: asNumber(entry.additions),
-      deletions: asNumber(entry.deletions),
-      line: asText(entry.line),
-    };
-  }
-  // Anything else is treated as a message rather than dropped: a row the
-  // renderer cannot classify still has to hold its position, because every
-  // position after it is a jump target the log keys address by index.
-  // `system` rather than `agent`: it is the daemon's own default for an entry
-  // with no role, and painting an unattributed row in the agent's colour claims
-  // the agent said something it did not.
-  return {
-    kind: "message",
-    role: asString(entry.role, "system"),
-    body: asString(entry.body, asString(entry.line)),
-    tool: asText(entry.tool),
-    // The server's `row_kind`/`glyph` are authoritative (the emulator and the
-    // device agree); a row that carried neither derives its class from its
-    // role so a live push or legacy DTO still paints coherently.
-    rowKind: entry.row_kind === undefined ? rowKindOfRole(asString(entry.role, "system")) : chatKind(entry.row_kind),
-    glyph: asText(entry.glyph),
-  };
-};
-
-/** Normalises one server event-key payload into an {@link EventKey}. */
-const toEventKey = (event: Readonly<Record<string, unknown>>): EventKey => ({
-  kind: event.kind === "live" ? "live" : "event",
-  badge: event.kind === "live" ? "AGENT" : asString(event.badge, "INFO"),
-  text: asString(event.text, asString(event.label, event.kind === "live" ? "LIVE" : "EVENT")),
-  time: asString(event.time),
-  start: asNumber(event.start),
-});
-
-export interface ControllerState {
-  readonly mode: ControllerMode;
-  readonly focusedIdentifier: string | null;
-  readonly columnOffset: number;
-  /** First provider row the grid strip's merged provider panel shows. */
-  readonly providerOffset: number;
-  readonly eventOffset: number;
-  readonly chatOffset: number;
-  readonly transcriptRows: readonly TranscriptRow[];
-  readonly eventLines: readonly EventKey[];
-  readonly eventHasPrevious: boolean;
-  readonly eventHasNext: boolean;
-  readonly chatHasPrevious: boolean;
-  readonly chatHasNext: boolean;
-  /** Position in `eventLines` the transcript is currently showing, or null. */
-  readonly selectedEvent: number | null;
-  readonly micHeld: boolean;
-  /** First microphone shown on the settings surface; key 7 pages it. */
-  readonly micOffset: number;
-  /** The remembered microphone, re-read from the store after each selection. */
-  readonly selectedMicId: string | null;
-  /**
-   * True while the voice buffer holds settled text.
-   *
-   * Mirrored into controller state rather than read live by the surface,
-   * because it decides whether the Send and Cancel *keys exist* — and a key
-   * appearing or disappearing has to go through the same publish/diff path as
-   * every other key change, or the deck keeps painting keys that are gone.
-   */
-  readonly hasTranscript: boolean;
-  /** The focused agent's Command history, from the last `commands` push. */
-  readonly commandsPage: StreamDeckCommandsPage;
-  /** Whether the Commands page is showing history or one Command's detail. */
-  readonly commandsView: "history" | "detail";
-  /** First Command shown on the history window; dial D pages it. */
-  readonly historyOffset: number;
-  /** Index into the history window of the focused key, or null. */
-  readonly historySelection: number | null;
-  /** The Command the detail view is reading, or null on the history view. */
-  readonly selectedCommand: StreamDeckCommand | null;
-  /** First option shown on the detail window; dial D pages it. */
-  readonly optionOffset: number;
-  /** Index into the selected Command's options, or null when none is selected. */
-  readonly selectedOption: number | null;
-  /** True while the Commands dictation buffer holds settled text. */
-  readonly commandDictation: boolean;
-  /** An answer error from the channel, shown on the detail strip. */
-  readonly commandsError: string | null;
-  /**
-   * True from a successful Implement press until the next grid push.
-   *
-   * It only changes the Implement key's sub-label to `QUEUED`. Nothing here
-   * pretends the ticket is running: the daemon decides when it dispatches, and
-   * the running face arrives with the snapshot that says so.
-   */
-  readonly implementQueued: boolean;
-}
-
-export interface PhysicalControllerOptions {
-  grid(): StreamDeckGrid;
-  channel(): Pick<StreamDeckChannel, "focus" | "control" | "say" | "commandsPage" | "answerCommand"> | null;
-  /** The voice stack, or null on a host with no audio. */
-  voice?(): ControllerVoice | null;
-  /**
-   * Providers the daemon currently reports, which is what bounds the provider
-   * scroll. Absent for hosts with no usage feed, where the list cannot scroll.
-   */
-  providerCount?(): number;
-  stateChanged(state: ControllerState): void;
-  /** Invoked when the demo chord is held; absent when the host has no demo. */
-  toggleDemo?(): void;
-}
-
-/**
- * Encoder buttons that toggle demo mode when pressed together: the middle two
- * knobs.
- *
- * Knobs rather than keys, and specifically these two, because their presses are
- * the only controls on the deck with no meaning of their own — dial A presses
- * for back and dial D cycles the window, while B and C are free. So the chord
- * cannot shadow a real action in any mode, and cannot be hit while paging.
- * Knob B turning the provider list does not change that: a turn and a press are
- * separate report kinds, so scrolling never puts the chord halfway down.
- * Holding it also returns the surface to the grid: swapping the data source
- * underneath a focused agent would leave the command screen describing a ticket
- * that is no longer in the fleet being shown.
- */
-export const DEMO_CHORD: readonly number[] = [1, 2];
-
-const initialState: ControllerState = {
-  mode: "grid",
-  focusedIdentifier: null,
-  columnOffset: 0,
-  providerOffset: 0,
-  eventOffset: 0,
-  chatOffset: 0,
-  transcriptRows: [],
-  eventLines: [],
-  eventHasPrevious: false,
-  eventHasNext: false,
-  chatHasPrevious: false,
-  chatHasNext: false,
-  selectedEvent: null,
-  micHeld: false,
-  micOffset: 0,
-  selectedMicId: null,
-  hasTranscript: false,
-  commandsPage: { items: [] },
-  commandsView: "history",
-  historyOffset: 0,
-  historySelection: null,
-  selectedCommand: null,
-  optionOffset: 0,
-  selectedOption: null,
-  commandDictation: false,
-  commandsError: null,
-  implementQueued: false,
-};
-
-const agentAt = (grid: StreamDeckGrid, offset: number, key: number): Readonly<Record<string, unknown>> | undefined =>
-  grid.agents[agentIndexForKey(offset, key)];
-
-const identifierOf = (agent: Readonly<Record<string, unknown>> | undefined): string | null =>
-  typeof agent?.identifier === "string" ? agent.identifier : null;
+export type { ControllerMode, ControllerState, ControllerVoice, EventKey, PhysicalControllerOptions } from "./controller/state.js";
+export { DEMO_CHORD } from "./controller/state.js";
 
 /**
  * Production input/state composition for the direct-HID surface. It owns only
@@ -313,47 +46,6 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let state = initialState;
   let pressed = new Set<string>();
   let chordActive = false;
-  let transcriptHistory: readonly TranscriptRow[] = [];
-  /**
-   * Jump target for each key, in key order, taken from the feed's own `start`
-   * field. The last entry is LIVE's, which is the newest row.
-   */
-  let eventStarts: readonly number[] = [];
-  let eventHistory: readonly EventKey[] = [];
-  let eventMaxOffset = 0;
-  let chatMaxOffset = 0;
-  /** True once a logs payload has been applied, so the first one can open at the end. */
-  let logsSeen = false;
-  const typewriter = createTypewriter();
-
-  /**
-   * The five rows painted for a reading position.
-   *
-   * The position and the window are deliberately different things. Every row
-   * has to be addressable as a position, because an event whose header lands in
-   * the last few rows — one published after the agent's last word, which is
-   * most of them — must still be somewhere a key press can go. But a window
-   * that literally started at the last row would paint one line above four
-   * blank ones, which is not what "scroll fully right" looks like in any chat
-   * client. So the window stops at the end while the position keeps going,
-   * exactly as a scroll view does.
-   */
-  const visibleRows = (offset: number): readonly TranscriptRow[] => {
-    const rows = typewriter.render(transcriptHistory);
-    const start = Math.max(0, Math.min(offset, rows.length - CHAT_WINDOW_ROWS));
-    return rows.slice(start, start + CHAT_WINDOW_ROWS);
-  };
-
-  /** Drops every position that is an index into one agent's transcript. */
-  const forgetLogs = (): void => {
-    transcriptHistory = [];
-    eventHistory = [];
-    eventStarts = [];
-    eventMaxOffset = 0;
-    chatMaxOffset = 0;
-    logsSeen = false;
-    typewriter.forget();
-  };
 
   const publish = (next: ControllerState): void => {
     if (JSON.stringify(next) === JSON.stringify(state)) return;
@@ -364,171 +56,20 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const focusedAgent = (): Readonly<Record<string, unknown>> | undefined =>
     options.grid().agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
 
-  const setGridOffset = (value: number): void => {
-    const grid = options.grid();
-    const offset = Math.max(0, Math.min(value, maxColumnOffset(grid.total)));
-    publish({ ...state, columnOffset: offset });
+  const core: ControllerCore = {
+    // A getter, not a copy: `publish` replaces `state`, and every part must see it.
+    get state() {
+      return state;
+    },
+    options,
+    publish,
   };
-
-  /**
-   * Publishes both logs offsets, the visible transcript window, and which event
-   * that window is sitting in.
-   *
-   * The selection is derived from the chat offset rather than remembered from
-   * the last key press, which is what makes the highlight bidirectional: a
-   * press moves the offset and the selection follows, and so does a scroll.
-   *
-   * `follow` decides whether the event key window chases that selection. It
-   * must be off whenever the operator is moving the event window *itself* —
-   * knob 3 and its press — or the chase immediately drags the window back to
-   * the selected key and the knob does nothing at all. It is on for the chat
-   * scroll and the event-key jumps, where a highlight on a key the operator
-   * cannot see would look like the highlight is broken.
-   */
-  const setLogsOffsets = (eventOffset: number, chatOffset: number, follow = true, pressed?: number): void => {
-    const maxChat = chatMaxOffset;
-    const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
-    // A press says which key it was; only a scroll has to infer it.
-    //
-    // Inference alone could not tell the two apart at one particular offset: an
-    // event published after the agent's last word — `ci.passed`, `pr.merged`, a
-    // resolved decision, all of which arrive with no transcript under them —
-    // has its header as the final row, so its jump target and LIVE's are the
-    // same number. Whichever way that tie broke, one of the two keys became
-    // permanently unselectable.
-    const selectedEvent = pressed ?? selectedKeyAtOffset(eventStarts, boundedChat, maxChat);
-    const requested = Math.max(0, Math.min(eventOffset, eventMaxOffset));
-    const boundedEvent = follow && selectedEvent !== null ? ensureEventVisible(requested, selectedEvent, eventMaxOffset) : requested;
-    // Typing only reads as typing at the live end of the log, on the surface
-    // that shows it. `setLogs` also runs in grid and cmd mode, and arming the
-    // reveal there left it primed: the operator opened logs to a blank newest
-    // row that then typed out a message minutes old.
-    typewriter.observe(transcriptHistory, state.mode === "logs" && boundedChat >= maxChat);
-    publish({
-      ...state,
-      eventOffset: boundedEvent,
-      chatOffset: boundedChat,
-      eventLines: eventHistory,
-      transcriptRows: visibleRows(boundedChat),
-      eventHasPrevious: boundedEvent > 0,
-      eventHasNext: boundedEvent < eventMaxOffset,
-      chatHasPrevious: boundedChat > 0,
-      chatHasNext: boundedChat < maxChat,
-      selectedEvent,
-    });
-  };
-
-  /**
-   * Opens the logs surface and repaints its transcript window.
-   *
-   * Leaving logs clears the visible rows, so re-entering has to rebuild the
-   * window from the retained history; without it the strip stayed blank until
-   * the daemon happened to push again.
-   */
-  /**
-   * Opens the logs surface at the live end.
-   *
-   * Entering logs used to land on offset 0, which under the old newest-first
-   * flattening was the newest entry and under the current oldest-first
-   * flattening would be the ticket's very first line. Either way the operator
-   * opened logs to see what the agent is doing *now*, so the surface opens
-   * scrolled fully right — the same place the LIVE key jumps to.
-   */
-  const enterLogs = (): void => {
-    stopVoice();
-    publish({ ...state, mode: "logs", micHeld: false });
-    setLogsOffsets(eventMaxOffset, chatMaxOffset);
-  };
-
-  /** The current voice port, or null when the host wired none. */
-  const voice = (): ControllerVoice | null => options.voice?.() ?? null;
-
-  /** Ends any capture in progress without touching the buffer. */
-  const stopVoice = (): void => {
-    voice()?.dispose();
-  };
-
-  /**
-   * Opens the settings surface and re-enumerates microphones.
-   *
-   * Re-enumerating here rather than on a timer is the whole discovery policy:
-   * the operator plugs a headset in and then goes looking for it, so the moment
-   * they open this screen is the moment the list has to be right. Polling
-   * `pw-dump` in the background would spawn a process every few seconds for a
-   * screen that is open for a few seconds a week.
-   */
-  const enterSettings = (): void => {
-    stopVoice();
-    const port = voice();
-    port?.refresh();
-    publish({ ...state, mode: "settings", micHeld: false, micOffset: 0, selectedMicId: port?.selectedDeviceId() ?? null });
-  };
-
-  /** True while the voice buffer holds text worth a Send key. */
-  const transcriptPresent = (): boolean => voice()?.hasMessage() === true;
-
-  /** True while the Commands dictation buffer holds text worth Approve/Cancel keys. */
-  const commandDictationPresent = (): boolean => voice()?.hasMessage() === true;
-
-  /**
-   * Opens the Commands page for the focused agent, at its history.
-   *
-   * The Commands key is always present on the agent row — it is a destination,
-   * not an alert — so this never depends on whether a Command exists. A
-   * leftover chat dictation from the agent row is cleared on entry: words said
-   * about a ticket's conversation must not silently become a Command answer.
-   */
-  const enterCommands = (): void => {
-    leaveVoice();
-    publish({
-      ...state,
-      mode: "commands",
-      micHeld: false,
-      commandsView: "history",
-      historyOffset: 0,
-      historySelection: null,
-      selectedCommand: null,
-      optionOffset: 0,
-      selectedOption: null,
-      commandDictation: false,
-      commandsError: null,
-    });
-  };
-
-  /**
-   * Enters the detail view for one Command.
-   *
-   * Dictation is addressed to exactly one Command: entering another Command
-   * discards any text held for the previous one, so an answer can never be
-   * sent to the wrong decision.
-   */
-  const enterCommandDetail = (command: StreamDeckCommand): void => {
-    leaveVoice();
-    publish({
-      ...state,
-      commandsView: "detail",
-      selectedCommand: command,
-      historySelection: null,
-      optionOffset: 0,
-      selectedOption: null,
-      commandDictation: false,
-      commandsError: null,
-    });
-  };
-
-  /** Returns to the history view from a Command's detail. */
-  const leaveCommandDetail = (): void => {
-    leaveVoice();
-    publish({
-      ...state,
-      commandsView: "history",
-      selectedCommand: null,
-      selectedOption: null,
-      optionOffset: 0,
-      commandDictation: false,
-      commandsError: null,
-    });
-  };
+  const voicePart = createVoiceSettings(core);
+  const { stopVoice, leaveVoice, enterSettings, transcriptPresent, commandDictationPresent, sendTranscript, cancelTranscript, pressSettingsKey, holdMic, releaseMic } = voicePart;
+  const logs = createGridLogs(core, voicePart);
+  const { forgetLogs, setGridOffset, setLogsOffsets, enterLogs } = logs;
+  const commands = createCommands(core, voicePart);
+  const { enterCommands, leaveCommandDetail, pressCommandsKey, approveCommand, pageOptions } = commands;
 
   const back = (): void => {
     if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptRows: [], micHeld: false });
@@ -560,31 +101,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     }
   };
 
-  /** Stops capture and discards the buffer; used whenever the focus is dropped. */
-  const leaveVoice = (): void => {
-    const port = voice();
-    port?.dispose();
-    port?.clear();
-  };
-
   const pressKey = (index: number): void => {
     const grid = options.grid();
     if (state.mode === "logs") {
-      // Pressing a key scrolls the transcript to that key's own start. LIVE is
-      // pinned to the bottom-right key and is not part of the scroll window, so
-      // it is not addressable as eventOffset + index: key EVENTS_PER_PAGE (7)
-      // is LIVE, the feed's last key, and keys 0-6 are the event page. Its
-      // start is the newest row, so the same line of code serves both, and the
-      // selection that follows is derived from where the scroll landed — which
-      // is what makes exactly one of {LIVE, an event} active at a time.
-      const position = index === EVENTS_PER_PAGE ? eventHistory.length - 1 : state.eventOffset + index;
-      // An event slot that is not a real event is a padded empty key: the last
-      // real event sits at `eventHistory.length - 2` (LIVE owns the last
-      // index), so anything at or past LIVE's index on an event key is empty.
-      if (index !== EVENTS_PER_PAGE && position >= eventHistory.length - 1) return;
-      const entry = eventHistory[position];
-      if (entry === undefined) return;
-      setLogsOffsets(state.eventOffset, entry.start, true, position);
+      logs.pressLogsKey(index);
       return;
     }
     if (state.mode === "grid") {
@@ -644,155 +164,6 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   };
 
   /**
-   * One key press on the Commands page.
-   *
-   * On the history view, pressing a Command enters its detail (answering for an
-   * open one, read-only for a completed one). On the detail view, an option key
-   * selects for reading and never commits, the mic starts a dictation, and
-   * Approve/Cancel settle a spoken custom response.
-   */
-  const pressCommandsKey = (index: number): void => {
-    if (state.commandsView === "history") {
-      const command = state.commandsPage.items[state.historyOffset + index];
-      if (command === undefined) return;
-      // Focus the key and show its detail; entering the detail is what happens
-      // next, and read-only versus answerable is decided by the detail view.
-      enterCommandDetail(command);
-      return;
-    }
-    const command = state.selectedCommand;
-    if (command === null) return;
-    if (index < COMMANDS_OPTION_SLOTS) {
-      // Selecting an option is reading, not committing — the deliberate
-      // second action (dial D) is what turns it into the answer.
-      const optionIndex = state.optionOffset + index;
-      if (optionIndex >= command.options.length) return;
-      publish({ ...state, selectedOption: optionIndex, commandsError: null });
-      return;
-    }
-    if (index === COMMANDS_MIC && isAnswerable(command.status)) {
-      holdMic();
-      return;
-    }
-    if (index === COMMANDS_APPROVE && state.commandDictation && isAnswerable(command.status)) {
-      // Fire-and-forget: the key derivation is async (SHA-256), so the answer
-      // is sent once the digest resolves.
-      void approveCommand(command);
-      return;
-    }
-    if (index === COMMANDS_CANCEL && state.commandDictation) {
-      cancelCommandDictation();
-      return;
-    }
-    if (index === COMMANDS_MORE) {
-      pageOptions();
-    }
-  };
-
-  /** Discards the Commands dictation buffer and hides Approve/Cancel. */
-  const cancelCommandDictation = (): void => {
-    voice()?.clear();
-    publish({ ...state, commandDictation: false });
-  };
-
-  /**
-   * Turns the reading into the answer and sends it to the Command.
-   *
-   * Approving is always the deliberate second action: the operator either read
-   * an option (dial D) or dictated a custom response (dial D or the Approve
-   * key). The custom response wins when both exist — it is the "none of the
-   * above" path, and a spoken instruction must override a stale selection. The
-   * idempotency key is derived from the Command and the answer content, so a
-   * dropped reply that is retried records a replay, never a second decision.
-   */
-  const approveCommand = async (command: StreamDeckCommand): Promise<void> => {
-    const port = voice();
-    const response = port?.hasMessage() === true ? port.message() : null;
-    const answer =
-      response !== null && response !== ""
-        ? { custom_response: response }
-        : state.selectedOption !== null
-          ? { option_id: command.options[state.selectedOption]?.id ?? "" }
-          : null;
-    if (answer === null || answer.option_id === "") return;
-    const idempotencyKey = await commandIdempotencyKey(command.decision_id, answer);
-    options.channel()?.answerCommand(command.decision_id, command.version, idempotencyKey, answer);
-    // The buffer is consumed by the answer; it must not also sit in the cmd
-    // surface's Send buffer later.
-    port?.clear();
-    publish({ ...state, commandDictation: false, selectedOption: null, commandsError: null });
-  };
-
-  /** Pages the detail view's options forward, wrapping back to the first page. */
-  const pageOptions = (): void => {
-    if (state.selectedCommand === null) return;
-    const count = state.selectedCommand.options.length;
-    if (count <= COMMANDS_OPTION_SLOTS) return;
-    const next = state.optionOffset + COMMANDS_OPTION_SLOTS;
-    publish({ ...state, optionOffset: hasMoreOptions(state.optionOffset, count) ? clampOptionOffset(next, count) : 0, selectedOption: null });
-  };
-
-  /**
-   * Delivers the settled text to the focused agent and empties the buffer.
-   *
-   * Guarded on `hasMessage` rather than on the key being painted: the key face
-   * and the report that pressed it are a frame apart, so a press that raced the
-   * buffer emptying would otherwise `say` an empty string, which the operator
-   * would see land in the agent's chat as a blank turn.
-   */
-  const sendTranscript = (identifier: string): void => {
-    const port = voice();
-    if (port === null || !port.hasMessage()) return;
-    options.channel()?.say(identifier, port.message());
-    port.clear();
-    publish({ ...state, hasTranscript: false });
-  };
-
-  const cancelTranscript = (): void => {
-    voice()?.clear();
-    publish({ ...state, hasTranscript: false });
-  };
-
-  const pressSettingsKey = (index: number): void => {
-    const port = voice();
-    const slot = micSlotForKey(index);
-    if (slot !== undefined) {
-      const device = port === null ? undefined : micAtSlot(port.microphones(), state.micOffset, slot);
-      if (device === undefined) return;
-      // Persisted immediately, through `MicPreferences.select`, so the choice
-      // survives a sidecar restart rather than living in this closure. The id
-      // is then read *back* out of the port rather than assumed, so state shows
-      // what was actually stored.
-      port?.select(device.id);
-      publish({ ...state, selectedMicId: port?.selectedDeviceId() ?? null });
-      return;
-    }
-    if (index === SETTINGS_TEST_MIC) {
-      holdMic();
-      return;
-    }
-    if (index === SETTINGS_NEXT_PAGE) {
-      const count = port?.microphones().length ?? 0;
-      publish({ ...state, micOffset: nextMicPage(state.micOffset, count) });
-    }
-  };
-
-  /** Key-down on the mic or TestMic key: one gesture, one capture. */
-  const holdMic = (): void => {
-    voice()?.hold();
-    publish({ ...state, micHeld: true });
-  };
-
-  const releaseMic = (): void => {
-    if (!state.micHeld) return;
-    voice()?.release();
-    // Both buffers read the same settled text: the agent row's Send/Cancel and
-    // the Commands detail view's Approve/Cancel. Whichever surface is showing
-    // gets the key refresh.
-    publish({ ...state, micHeld: false, hasTranscript: transcriptPresent(), commandDictation: commandDictationPresent() });
-  };
-
-  /**
    * One detent moves the list exactly one position.
    *
    * This used to route a turn through the mock's 0-100 knob value: a detent
@@ -810,10 +181,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value));
 
     if (input.index === 0 && state.mode === "logs") {
-      const next = clamp(state.chatOffset + steps, chatMaxOffset);
+      const next = clamp(state.chatOffset + steps, logs.chatMaxOffset());
       setLogsOffsets(state.eventOffset, next);
     } else if (input.index === 3 && state.mode === "logs") {
-      const next = clamp(state.eventOffset + steps, eventMaxOffset);
+      const next = clamp(state.eventOffset + steps, logs.eventMaxOffset());
       setLogsOffsets(next, state.chatOffset, false);
     } else if (input.index === 3 && state.mode === "commands") {
       // Dial D pages the Commands page: the history window on the history view,
@@ -852,7 +223,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       // `eventMaxOffset + EVENTS_PER_PAGE + 1` is the total key count (events
       // plus the pinned LIVE key), which is what the dial's max-offset math
       // expects as its `eventCount`.
-      const next = cycleEventPage(state.eventOffset, eventMaxOffset + EVENTS_PER_PAGE + 1);
+      const next = cycleEventPage(state.eventOffset, logs.eventMaxOffset() + EVENTS_PER_PAGE + 1);
       return setLogsOffsets(next.eventOffset, state.chatOffset, false);
     }
     if (state.mode === "commands") {
@@ -942,85 +313,8 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   return {
     state: (): ControllerState => state,
     handleReport,
-    setLogs: (logs: StreamDeckLogs): void => {
-      // Deliberately not falling back to `event_keys_visible`: that is the
-      // server's own eight-key slice, already offset and padded with empty
-      // slots. Paging a pre-sliced list adds the client's offset a second time,
-      // so a press addressed the wrong event, and each padding slot normalised
-      // into a pressable key that jumped nowhere.
-      eventHistory = (logs.event_keys ?? []).map(toEventKey);
-      const transcript = logs.transcript ?? [];
-      transcriptHistory = transcript.map(toTranscriptRow);
-      eventStarts = eventHistory.map((event) => event.start);
-      eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - EVENTS_PER_PAGE - 1);
-      // Every row must be reachable as a window *start*, not just visible in
-      // some window. The daemon flattens newest event first, so the oldest
-      // event's header is usually within the last few rows; capping the offset
-      // at `length - CHAT_WINDOW_ROWS` made those headers impossible to scroll
-      // to, and a jump to one landed short — mid-message, with the highlight on
-      // a different key than the one pressed. The last few windows therefore
-      // run off the end of the transcript and paint fewer than
-      // CHAT_WINDOW_ROWS rows, which is what a scroll view is supposed to do.
-      //
-      // Never taken from the server's `transcript_max_offset`: how many rows
-      // fit is a client render decision the server cannot know.
-      const previousMax = chatMaxOffset;
-      const previousStarts = eventStarts;
-      const previousSelection = state.selectedEvent;
-      const previousChat = state.chatOffset;
-      // Every row stays addressable as a reading position, because an event
-      // header in the last few rows must still be somewhere a key can jump to.
-      // What is clamped is the *painted* window, not the position — see
-      // `visibleRows`.
-      chatMaxOffset = Math.max(0, transcriptHistory.length - 1);
-      // A live logs push is a refresh, not a navigation command. Preserve the
-      // operator's position while the logs surface is open — with one
-      // exception: while LIVE is the active key the view follows the feed,
-      // because that is the entire meaning of LIVE. Without this, the first new
-      // message after opening logs would push the newest row out of the window
-      // and the surface would silently stop being live.
-      //
-      // A first payload always follows live, even if the operator opened logs
-      // before it arrived: there was no reading position to preserve.
-      const following = !logsSeen || state.mode !== "logs" || previousChat >= previousMax;
-      logsSeen = true;
-      if (following) {
-        setLogsOffsets(eventMaxOffset, chatMaxOffset);
-        return;
-      }
-      // Carrying the *absolute* offset drifts. The daemon sends a sliding
-      // window of the newest transcript entries, so once a ticket passes that
-      // limit every new message shifts every row down one and a reader who has
-      // not touched a knob scrolls forward one row per flush. Carry how far
-      // into the selected event the operator was instead, and re-derive the
-      // absolute offset from that event's new header — which is exactly what
-      // the server does across its own refreshes.
-      const anchor = previousSelection === null ? undefined : previousStarts[previousSelection];
-      const into = anchor === undefined ? 0 : previousChat - anchor;
-      const rebased = previousSelection === null ? previousChat : (eventStarts[previousSelection] ?? previousChat) + into;
-      // `follow: false` — this branch is by definition "the operator is not
-      // following the feed", so a flush must not drag the key window back onto
-      // the selection. The server takes the same care in `restore_events_offset`
-      // and it would be undone here.
-      setLogsOffsets(state.eventOffset, rebased, false, previousSelection ?? undefined);
-    },
-    /**
-     * Advances the live-typing reveal by one frame.
-     *
-     * Returns true when the surface owes the device another repaint. The host
-     * owns the timer: the controller has no clock, which is what keeps every
-     * transition in this module testable without waiting on one.
-     */
-    tickTyping: (): boolean => {
-      if (state.mode !== "logs" || !typewriter.animating()) return false;
-      const more = typewriter.tick();
-      // `follow: false` — a frame of the reveal changes rendered text, nothing
-      // positional. Letting it re-run the chase dragged the event-key window
-      // back onto the selection every 40ms, so dial D was inert for the whole
-      // time the agent appeared to be typing.
-      setLogsOffsets(state.eventOffset, state.chatOffset, false, state.selectedEvent ?? undefined);
-      return more;
-    },
+    setLogs: logs.setLogs,
+    tickTyping: logs.tickTyping,
     /**
      * Re-reads whether the voice buffer holds text.
      *
@@ -1040,53 +334,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       stopVoice();
       if (state.micHeld) publish({ ...state, micHeld: false, hasTranscript: transcriptPresent(), commandDictation: commandDictationPresent() });
     },
-    /**
-     * Applies a `commands` push: a fresh history page for the focused agent.
-     *
-     * A push can arrive while the operator is reading a detail view (a decision
-     * elsewhere changed). The detail is re-read from the pushed page if the
-     * Command is still in it, so the strip does not describe a Command that is
-     * no longer current; a Command that left the page drops back to history.
-     */
-    setCommands: (page: StreamDeckCommandsPage): void => {
-      let next: ControllerState = { ...state, commandsPage: page, commandsError: null };
-      if (state.commandsView === "detail" && state.selectedCommand !== null) {
-        const refreshed = page.items.find((item) => item.decision_id === state.selectedCommand?.decision_id);
-        if (refreshed !== undefined) next = { ...next, selectedCommand: refreshed };
-        else next = { ...next, commandsView: "history" };
-      }
-      publish(next);
-    },
-    /**
-     * Applies an `answer_command` reply: the durable answer was recorded.
-     *
-     * The refreshed Command carries its new status (decided/acknowledged), so
-     * the detail view becomes read-only: the strip shows what was decided and
-     * no Approve affordance remains. The page is also updated in place so the
-     * history list reflects the answer.
-     */
-    commandAnswered: (result: StreamDeckCommandAnswerResult): void => {
-      const answered = result.decision;
-      const page: StreamDeckCommandsPage = {
-        ...state.commandsPage,
-        items: state.commandsPage.items.map((item) => (item.decision_id === answered.decision_id ? answered : item)),
-      };
-      publish({
-        ...state,
-        commandsPage: page,
-        selectedCommand: state.selectedCommand?.decision_id === answered.decision_id ? answered : state.selectedCommand,
-        commandDictation: false,
-        selectedOption: null,
-        commandsError: null,
-      });
-    },
-    /**
-     * Applies a channel error for the Commands page or an answer: the strip
-     * shows the reason instead of silently doing nothing.
-     */
-    commandsError: (reason: string): void => {
-      publish({ ...state, commandsError: reason });
-    },
+    setCommands: commands.setCommands,
+    commandAnswered: commands.commandAnswered,
+    commandsError: commands.commandsError,
     /**
      * Applies a fresh grid: the fleet state the Implement key was waiting on.
      *

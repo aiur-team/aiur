@@ -10,33 +10,42 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import stat
-from pathlib import Path
 from typing import Any
 
+import skill_publication_path  # noqa: F401
 from publication_common import (
-    SHA,
-    Report,
     nonempty_string,
-    strict_int,
+    Report,
+    SHA,
     strict_object,
     string_list,
     valid_rfc3339_utc,
 )
-from publication_receipt_authority import (
-    ReceiptAuthority,
-    ReceiptBlobBudget,
-    _commit_blob,
+from publication_receipt_authority import ReceiptAuthority
+from publication_rendering import BODY_SHA
+from execution_amendment_render import (
+    EXPECTED_LANES,
+    INDIVIDUAL_POLICY_LINES,
+    render_authorization_comment,
+    render_ticket_amendment_comment,
 )
-from publication_rendering import (
-    BODY_SHA,
-    exact_commit,
-    repository_relative,
-    repository_root,
+from execution_amendment_render import (  # noqa: F401
+    AMENDMENT_MARKER,
+    LANE_ANCHORS,
+    lane_for_ticket,
+    MARKER,
+    MARKER_KEYS,
+    _marker_payload,
+    _ownership_packet,
+    parse_execution_comment,
+    _policy_link,
+)
+from execution_amendment_source import (  # noqa: F401
+    load_amendment_at_commit,
+    validate_policy_authority_source,
 )
 
 
-AMENDMENT_MARKER = "aiur-execution-amendment"
 AMENDMENT_ID = "DEC-015"
 POLICY_AUTHORITY_COMMIT = "c6a8bafe3b777ba1781e8a786a71ae87ddf873d9"
 POLICY_AUTHORITY_DOCUMENT = "11-execution-amendment.md"
@@ -58,80 +67,6 @@ EXPECTED_LANE_MAPPING_SHA256 = (
     "5082c48efb2a41f5935f0b6c6ba20a05304c1c20edd3ed049c58b86704a6fdcd"
 )
 
-# Array order is part of the authorized lane receipt, not just presentation.
-EXPECTED_LANES = {
-    "L1": [
-        "BO-007", "BO-011", "BO-012", "BO-013", "BO-014", "BO-020",
-        "DASH-023",
-    ],
-    "L2": [
-        "BO-018", "DASH-003", "DASH-005", "DASH-015", "DASH-022",
-        "DASH-027", "DASH-028", "DASH-031", "DASH-034",
-    ],
-    "L3": ["DASH-014", "DASH-032"],
-    "L4": ["DASH-024", "DASH-025", "DASH-030"],
-    "L5": ["DASH-033", "BO-015"],
-}
-
-LANE_ANCHORS = {
-    "L1": {
-        "logical_id": "BO-007",
-        "issue_url": "https://github.com/aiur-team/aiur/issues/1095",
-        "policy_line": 132,
-        "one_writer_packet": (
-            "one dedicated BuildOrderLive vertical plus its namespaced CSS and "
-            "browser-harness surface"
-        ),
-    },
-    "L2": {
-        "logical_id": "BO-018",
-        "issue_url": "https://github.com/aiur-team/aiur/issues/1105",
-        "policy_line": 133,
-        "one_writer_packet": (
-            "one DashboardLive/OCC CSS/component owner plus the shared focus hook"
-        ),
-    },
-    "L3": {
-        "logical_id": "DASH-014",
-        "issue_url": "https://github.com/aiur-team/aiur/issues/1120",
-        "policy_line": 134,
-        "one_writer_packet": "pure run-state projections plus one runtime child",
-    },
-    "L4": {
-        "logical_id": "DASH-024",
-        "issue_url": "https://github.com/aiur-team/aiur/issues/1128",
-        "policy_line": 135,
-        "one_writer_packet": "usage accounting modules plus one accounting child",
-    },
-    "L5": {
-        "logical_id": "BO-015",
-        "issue_url": "https://github.com/aiur-team/aiur/issues/1102",
-        "policy_line": 136,
-        "one_writer_packet": "the shipped-harness convergence and parity capstone",
-    },
-}
-
-INDIVIDUAL_POLICY_LINES = {
-    "BO-003": 98,
-    "BO-005": 99,
-    "BO-006": 100,
-    "BO-016": 101,
-    "BO-019": 102,
-    "DASH-001": 103,
-    "DASH-007": 104,
-    "DASH-008": 105,
-    "DASH-009": 106,
-    "DASH-010": 107,
-    "DASH-011": 108,
-    "DASH-012": 109,
-    "DASH-013": 110,
-    "DASH-016": 111,
-    "DASH-019": 112,
-    "DASH-020": 113,
-    "DASH-021": 114,
-    "DASH-026": 115,
-    "DASH-029": 116,
-}
 EXPECTED_AFFECTED_IDS = {
     *INDIVIDUAL_POLICY_LINES,
     *(item for members in EXPECTED_LANES.values() for item in members),
@@ -179,31 +114,12 @@ BASELINE_KEYS = {
 POLICY_AUTHORITY_KEYS = {"commit", "document", "document_sha256"}
 POLICY_KEYS = set(EXPECTED_POLICY)
 COMMENT_EVIDENCE_KEYS = {"url", "body_sha256", "author_login"}
-MARKER_KEYS = {
-    "schema",
-    "amendment_id",
-    "build_order_id",
-    "plan_version",
-    "publication_receipt_commit",
-    "policy_authority_commit",
-    "policy_document_sha256",
-    "logical_id",
-    "decision_sha256",
-    "lane_id",
-    "state",
-}
 COMMENT_URL = re.compile(
     r"^https://github\.com/(?P<repository>[^/\s]+/[^/\s]+)/issues/"
     r"(?P<number>[1-9][0-9]*)#issuecomment-(?P<comment>[1-9][0-9]*)$",
     re.ASCII,
 )
 LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$", re.ASCII)
-MARKER = re.compile(
-    rf"<!-- {AMENDMENT_MARKER}[ \t]*\n(?P<payload>[^\n]*)\n-->",
-    re.ASCII,
-)
-
-
 def canonical_sha256(value: object) -> str:
     """Hash a JSON value with the canonical representation used by receipts."""
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -369,216 +285,6 @@ def decision_sha256(amendment: dict[str, Any]) -> str:
     return canonical_sha256(value)
 
 
-def render_authorization_comment(amendment: dict[str, Any]) -> str:
-    policy = amendment.get("policy") if isinstance(amendment.get("policy"), dict) else {}
-    root_id = amendment.get("build_order_id")
-    policy_authority = (
-        amendment.get("policy_authority")
-        if isinstance(amendment.get("policy_authority"), dict) else {}
-    )
-    marker = _marker_payload(amendment, root_id, None)
-    return (
-        f"Execution amendment **{amendment.get('amendment_id')}** is authorized for "
-        f"Build Order `{root_id}`.\n\n"
-        f"Binding policy authority: [commit-pinned execution policy]"
-        f"({_policy_link(amendment)}) at `{policy_authority.get('commit')}` / "
-        f"`{policy_authority.get('document_sha256')}`.\n\n"
-        f"Feature work targets `{policy.get('target_ref')}` and must be refreshed to "
-        "the exact current target head before review, CI, and merge. The five-lane "
-        "overlay changes ownership and repeated acceptance tails only; publication "
-        "membership, native dependencies, mappings, and per-ticket agent gates remain "
-        "unchanged.\n\n"
-        f"<!-- {AMENDMENT_MARKER}\n{marker}\n-->\n"
-    )
-
-
-def render_ticket_amendment_comment(
-    amendment: dict[str, Any], logical_id: str,
-) -> str:
-    policy = amendment.get("policy") if isinstance(amendment.get("policy"), dict) else {}
-    lane_id = lane_for_ticket(amendment, logical_id)
-    ownership = (
-        f"consolidated lane `{lane_id}`" if lane_id is not None else "individual ticket ownership"
-    )
-    marker = _marker_payload(amendment, logical_id, lane_id)
-    ownership_packet = _ownership_packet(amendment, logical_id, lane_id)
-    return (
-        f"Execution amendment **{amendment.get('amendment_id')}** applies to "
-        f"`{logical_id}` using {ownership}.\n\n"
-        f"{ownership_packet}\n\n"
-        f"Work targets `{policy.get('target_ref')}`. Before review, CI, or merge, the "
-        "owning head must contain the exact current target head. Preserve this ticket's "
-        "agent acceptance; lane ownership collapses only repeated at-merge/manual "
-        "ceremony. After one bounded recovery attempt, the Executor may take direct "
-        "ownership when delegation is not making material progress.\n\n"
-        f"<!-- {AMENDMENT_MARKER}\n{marker}\n-->\n"
-    )
-
-
-def parse_execution_comment(
-    body: object, label: str, report: Report,
-) -> dict[str, Any] | None:
-    if not isinstance(body, str):
-        report.error(f"{label} body must be text")
-        return None
-    openings = body.count(f"<!-- {AMENDMENT_MARKER}")
-    matches = list(MARKER.finditer(body))
-    if openings != 1 or len(matches) != 1:
-        report.error(f"{label} must contain exactly one {AMENDMENT_MARKER} marker")
-        return None
-    try:
-        payload = json.loads(matches[0].group("payload"))
-    except json.JSONDecodeError as exc:
-        report.error(f"{label} marker must be one-line JSON: {exc}")
-        return None
-    marker = strict_object(payload, f"{label} marker", MARKER_KEYS, report)
-    if marker is None:
-        return None
-    if marker.get("schema") != 1:
-        report.error(f"{label} marker schema must equal integer 1")
-    if marker.get("state") != "authorized":
-        report.error(f"{label} marker state must equal authorized")
-    lane = marker.get("lane_id")
-    if lane is not None and lane not in EXPECTED_LANES:
-        report.error(f"{label} marker lane_id is invalid")
-    return marker
-
-
-def lane_for_ticket(amendment: dict[str, Any], logical_id: str) -> str | None:
-    lanes = amendment.get("lanes")
-    if not isinstance(lanes, dict):
-        return None
-    found = [
-        lane_id for lane_id, members in lanes.items()
-        if isinstance(members, list) and logical_id in members
-    ]
-    return found[0] if len(found) == 1 else None
-
-
-def _ownership_packet(
-    amendment: dict[str, Any], logical_id: str, lane_id: str | None,
-) -> str:
-    if lane_id is None:
-        line = INDIVIDUAL_POLICY_LINES.get(logical_id)
-        link = _policy_link(amendment, line)
-        return (
-            f"Individual owner packet: follow the exact `{logical_id}` binding "
-            f"correction in the [commit-pinned policy row]({link})."
-        )
-    anchor = LANE_ANCHORS[lane_id]
-    members = ", ".join(f"`{item}`" for item in EXPECTED_LANES[lane_id])
-    packet_link = _policy_link(amendment, anchor["policy_line"])
-    owner_link = f"[{anchor['logical_id']}]({anchor['issue_url']})"
-    if logical_id == anchor["logical_id"]:
-        return (
-            f"Lane owner: {owner_link} owns `{lane_id}`. Exact members: {members}. "
-            f"One-writer packet: {anchor['one_writer_packet']}. See the "
-            f"[commit-pinned lane packet]({packet_link})."
-        )
-    return (
-        f"Lane follower: `{logical_id}` follows `{lane_id}` owner {owner_link} and "
-        f"the [commit-pinned lane packet]({packet_link}). It closes individually "
-        "only when its own acceptance evidence is recorded; implementation and "
-        "review flow through the lane integration head."
-    )
-
-
-def _policy_link(amendment: dict[str, Any], line: object = None) -> str:
-    policy = amendment.get("policy_authority")
-    commit = policy.get("commit") if isinstance(policy, dict) else None
-    document = policy.get("document") if isinstance(policy, dict) else None
-    root_id = amendment.get("build_order_id")
-    repository = root_id.rsplit(":", 1)[0] if isinstance(root_id, str) else ""
-    url = (
-        f"https://github.com/{repository}/blob/{commit}/docs/build-order/{document}"
-    )
-    return f"{url}#L{line}" if strict_int(line) and line > 0 else url
-
-
-def load_amendment_at_commit(
-    amendment_path: Path, amendment_commit: str, report: Report,
-) -> dict[str, Any] | None:
-    """Load exact committed amendment bytes and reject mutable-source drift."""
-    root = repository_root(amendment_path, report)
-    if root is None:
-        return None
-    if not isinstance(amendment_commit, str) or not SHA.fullmatch(amendment_commit):
-        report.error("amendment_commit must be a 40-character Git SHA")
-        return None
-    if not exact_commit(root, amendment_commit, "amendment_commit", report):
-        return None
-    relative = repository_relative(amendment_path, root, report)
-    if relative is None:
-        return None
-    budget = ReceiptBlobBudget(files_remaining=1, bytes_remaining=2 * 1024 * 1024)
-    committed = _commit_blob(
-        root, amendment_commit, relative, "execution amendment", budget, report,
-    )
-    try:
-        mode = amendment_path.lstat().st_mode
-        current = amendment_path.read_bytes()
-    except OSError as exc:
-        report.error(f"cannot read current execution amendment: {exc}")
-        return None
-    if not stat.S_ISREG(mode) or amendment_path.is_symlink():
-        report.error("current execution amendment must be a regular non-symlink file")
-        return None
-    if committed is None:
-        return None
-    if current != committed:
-        report.error("current execution amendment must equal amendment_commit bytes")
-        return None
-    try:
-        value = json.loads(committed.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        report.error(f"execution amendment must be valid UTF-8 JSON: {exc}")
-        return None
-    if not isinstance(value, dict):
-        report.error("execution amendment must be a JSON object")
-        return None
-    return value
-
-
-def validate_policy_authority_source(
-    amendment_path: Path, amendment: dict[str, Any], report: Report,
-) -> None:
-    """Prove the supplied policy commit contains the exact authorized document."""
-    value = amendment.get("policy_authority")
-    if not isinstance(value, dict):
-        report.error("execution amendment policy_authority is unavailable")
-        return
-    commit, document = value.get("commit"), value.get("document")
-    wanted_sha = value.get("document_sha256")
-    root = repository_root(amendment_path, report)
-    if root is None or not isinstance(commit, str):
-        return
-    if not exact_commit(root, commit, "policy_authority.commit", report):
-        return
-    policy_path = amendment_path.parent / str(document)
-    relative = repository_relative(policy_path, root, report)
-    if relative is None:
-        return
-    budget = ReceiptBlobBudget(files_remaining=1, bytes_remaining=2 * 1024 * 1024)
-    committed = _commit_blob(
-        root, commit, relative, "execution amendment policy document", budget, report,
-    )
-    if committed is None:
-        return
-    observed_sha = hashlib.sha256(committed).hexdigest()
-    if observed_sha != wanted_sha:
-        report.error("policy authority document hash does not match the supplied receipt")
-    try:
-        current = policy_path.read_bytes()
-        mode = policy_path.lstat().st_mode
-    except OSError as exc:
-        report.error(f"cannot read current policy authority document: {exc}")
-        return
-    if not stat.S_ISREG(mode) or policy_path.is_symlink():
-        report.error("current policy authority document must be regular and non-symlinked")
-    elif current != committed:
-        report.error("current policy authority document must equal policy commit bytes")
-
-
 def _validate_baseline(
     value: object, build: dict[str, Any], report: Report,
 ) -> None:
@@ -737,28 +443,3 @@ def _receipt_mappings(
     return result
 
 
-def _marker_payload(
-    amendment: dict[str, Any], logical_id: object, lane_id: str | None,
-) -> str:
-    return json.dumps(
-        {
-            "schema": 1,
-            "amendment_id": amendment.get("amendment_id"),
-            "build_order_id": amendment.get("build_order_id"),
-            "plan_version": amendment.get("plan_version"),
-            "publication_receipt_commit": amendment.get("publication_receipt_commit"),
-            "policy_authority_commit": (
-                amendment.get("policy_authority", {}).get("commit")
-                if isinstance(amendment.get("policy_authority"), dict) else None
-            ),
-            "policy_document_sha256": (
-                amendment.get("policy_authority", {}).get("document_sha256")
-                if isinstance(amendment.get("policy_authority"), dict) else None
-            ),
-            "logical_id": logical_id,
-            "decision_sha256": amendment.get("decision_sha256"),
-            "lane_id": lane_id,
-            "state": "authorized",
-        },
-        separators=(",", ":"),
-    )

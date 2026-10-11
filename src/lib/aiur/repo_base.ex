@@ -24,13 +24,14 @@ defmodule Aiur.RepoBase do
 
   alias Aiur.Commands
   alias Aiur.Config
+  alias Aiur.Config.Paths
   alias Aiur.Findings
   alias Aiur.Fs
   alias Exqlite.Basic
 
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
-  @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+  @cache_sidecars Paths.repo_cache_sidecars()
   @state_entries ["builds", "analytics", "meta", "executor"]
   @migration_lease_suffix ".migration-lock.sqlite3"
   @findings_transfer_suffix ".migration-transfer"
@@ -62,9 +63,7 @@ defmodule Aiur.RepoBase do
 
   @doc false
   @spec cache_sidecar_paths(Path.t()) :: [Path.t()]
-  def cache_sidecar_paths(root) when is_binary(root) do
-    Enum.map(@cache_sidecars, &Path.join(root, &1))
-  end
+  defdelegate cache_sidecar_paths(root), to: Paths, as: :repo_cache_sidecar_paths
 
   @doc "Absolute root beneath which every per-repository state node lives."
   @spec state_root() :: Path.t()
@@ -72,13 +71,11 @@ defmodule Aiur.RepoBase do
 
   @doc "Absolute path of the per-repository state node for `repo_url`."
   @spec repo_path(String.t()) :: Path.t()
-  def repo_path(repo_url) when is_binary(repo_url),
-    do: Path.join(base_root(), slug(repo_url))
+  defdelegate repo_path(repo_url), to: Paths, as: :repo_state_path
 
   @doc "Path of the per-repository state node relative to its owning home directory."
   @spec repo_relative_path(String.t()) :: Path.t()
-  def repo_relative_path(repo_url) when is_binary(repo_url),
-    do: Path.join([".aiur", "repo", slug(repo_url)])
+  defdelegate repo_relative_path(repo_url), to: Paths, as: :repo_state_relative_path
 
   @doc "Absolute path of the build-order store for `repo_url`."
   @spec builds_path(String.t()) :: Path.t()
@@ -1495,32 +1492,8 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp base_root do
-    Application.get_env(:aiur, :repo_base_root) || Path.expand("~/.aiur/repo")
-  end
-
-  # Reduce a repo URL or local path to a stable `<owner>/<name>`-style slug for
-  # the base directory. Handles https/ssh URLs and bare local paths. Rejects
-  # path-traversal components (`..`) so a malicious or malformed repo identity
-  # can never resolve outside the state root — defense in depth, since the CLI
-  # already validates the slug at its boundary.
-  defp slug(repo_url) do
-    slug =
-      repo_url
-      |> String.trim_trailing("/")
-      |> String.replace_suffix(".git", "")
-      |> String.split(~r{[/:]})
-      |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
-      |> Enum.take(-2)
-      |> Enum.join("/")
-
-    if Enum.any?(Path.split(slug), &(&1 == "..")) do
-      raise ArgumentError,
-            "repo identity must not escape the state root (got: #{inspect(repo_url)})"
-    end
-
-    slug
-  end
+  defp base_root, do: Paths.repo_state_root()
+  defp slug(repo_url), do: Paths.repo_slug(repo_url)
 
   defp emit(phase), do: AgentPubSub.broadcast_prewarm_phase(phase)
 

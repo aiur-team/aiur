@@ -333,6 +333,13 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
       unavailable = Presenter.present(snapshot(%{health: {:unavailable, :compaction_floor_unavailable}}))
       assert unavailable.health.status == :unavailable
     end
+
+    # Guards the unknown freshness branch (already true on main, not new coverage):
+    # an unrecognised status is named Unknown, never a placeholder.
+    test "an unrecognised freshness status is named Unknown" do
+      view = Presenter.present(snapshot(%{freshness: %{status: :unknown}}))
+      assert view.freshness == %{status: :unknown, label: "Unknown"}
+    end
   end
 
   describe "reconcile/2 last-known-good retention" do
