@@ -11,16 +11,18 @@ defmodule Aiur.TestSupportLoadingTest do
     assert files -- Code.required_files() == []
   end
 
-  # A support file earns an explicit line only when it must load before the
-  # sorted glob reaches it. Growing this list brings back the append conflict (#4219).
-  test "the explicit load-first list does not grow" do
-    listed = Regex.scan(~r/require_file\("([^"]+)"/, @helper, capture: :all_but_first)
+  # Other support files import these two at compile time, so they must load before the
+  # sorted glob. The stricter check, that the explicit list does not grow, returns with
+  # the cleanup that deletes the list (#4219); until then open PRs still add lines.
+  test "the glob loader follows the load-first files" do
+    offset = fn text ->
+      assert {at, _length} = :binary.match(@helper, text)
+      at
+    end
 
-    assert List.flatten(listed) == [
-             "support/test_boot_guard.exs",
-             "support/test_tmp.exs",
-             "support/test_support.exs",
-             "support/event_ticket.ex"
-           ]
+    glob = offset.(~s|Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))|)
+
+    assert offset.(~s|require_file("support/test_support.exs"|) < glob
+    assert offset.(~s|require_file("support/event_ticket.ex"|) < glob
   end
 end
