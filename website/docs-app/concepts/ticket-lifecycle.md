@@ -158,7 +158,7 @@ and never deletes ones a repository already has; those keep working as exact pin
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
 it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
-The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
+Promotion and dispatch follow the same ladder: `pr_opened` → `pr_ci_green` → `pr_approved` → `pr_merged` (default) → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
 
 Item states are projections, not tracker labels:
 

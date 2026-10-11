@@ -24,10 +24,10 @@ defmodule Aiur.RunTelemetry.SummariesTest do
     :persistent_term.put({Aiur.Boot, :run_id}, "boot-b")
 
     on_exit(fn ->
-      File.rm_rf!(root)
       restore_run_id(prior_run_id)
       restore_env(:repo_base_root, prior_repo_base_root)
       restore_env(:analytics_repo, prior_analytics_repo)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     :ok
@@ -340,7 +340,7 @@ defmodule Aiur.RunTelemetry.SummariesTest do
     script = Path.join(dir, "reduce")
     File.write!(script, "#!/usr/bin/env bash\nprintf 'ok\\n'\n")
     File.chmod!(script, 0o755)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     fun.(dir)
   end
 end

@@ -106,7 +106,7 @@ defmodule Aiur.AgentEnvironmentTest do
     File.mkdir_p!(release_bin)
     File.write!(Path.join(release_erts_bin, "erl"), "#!/bin/sh\necho poisoned-release-erl\nexit 86\n")
     File.chmod!(Path.join(release_erts_bin, "erl"), 0o755)
-    on_exit(fn -> File.rm_rf!(release_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(release_root) end)
 
     command =
       AgentEnvironment.scrub_shell_command("mise exec -- elixir -e 'IO.puts(:code.lib_dir(:inets)); IO.inspect(Application.ensure_all_started(:inets))'")
@@ -832,7 +832,7 @@ defmodule Aiur.AgentEnvironmentTest do
     setup do
       workspace = Aiur.TestSupport.tmp_root!("aiur-env-scratch")
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
       {:ok, workspace: workspace}
     end
 

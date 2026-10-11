@@ -40,7 +40,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     on_exit(fn ->
       restore_env(:github_budget_dir, previous_budget)
       restore_env(:github_budget_enabled?, previous_enabled)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, workspace: workspace, budget: budget}

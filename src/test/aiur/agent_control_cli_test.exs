@@ -1329,8 +1329,8 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :build_gate_dir_override, previous)
       end
 
-      File.rm_rf!(gate_dir)
-      File.rm_rf!(lock_dir)
+      Aiur.TestCleanup.rm_rf!(gate_dir)
+      Aiur.TestCleanup.rm_rf!(lock_dir)
     end)
 
     assert %{active: 1, queued: 1} = BuildGate.status()
@@ -1413,8 +1413,8 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :build_gate_dir_override, previous)
       end
 
-      File.rm_rf!(gate_dir)
-      File.rm_rf!(lock_dir)
+      Aiur.TestCleanup.rm_rf!(gate_dir)
+      Aiur.TestCleanup.rm_rf!(lock_dir)
     end)
 
     :sys.replace_state(pid, fn state ->
@@ -1450,8 +1450,8 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :build_gate_dir_override, previous)
       end
 
-      File.rm_rf!(gate_dir)
-      File.rm_rf!(lock_dir)
+      Aiur.TestCleanup.rm_rf!(gate_dir)
+      Aiur.TestCleanup.rm_rf!(lock_dir)
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
@@ -3280,7 +3280,7 @@ defmodule Aiur.AgentControlCLITest do
       workspace_root =
         Aiur.TestSupport.tmp_root!("aiur-control-alerts")
 
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
       restore_workflow_file_after_test()
       write_workflow_file!(Aiur.Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -3404,7 +3404,7 @@ defmodule Aiur.AgentControlCLITest do
 
       root = Aiur.TestSupport.tmp_root!("aiur-watch")
       File.mkdir_p!(root)
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       {:ok, watch_root: root}
     end
@@ -3486,7 +3486,7 @@ defmodule Aiur.AgentControlCLITest do
 
       on_exit(fn ->
         if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
-        File.rm_rf!(asks_root)
+        Aiur.TestCleanup.rm_rf!(asks_root)
       end)
 
       restore_workflow_file_after_test()
@@ -3521,7 +3521,7 @@ defmodule Aiur.AgentControlCLITest do
 
       on_exit(fn ->
         if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
-        File.rm_rf!(asks_root)
+        Aiur.TestCleanup.rm_rf!(asks_root)
       end)
 
       restore_workflow_file_after_test()

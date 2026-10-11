@@ -70,7 +70,7 @@ defmodule ScriptsAiurdevTest do
     )
 
     File.chmod!(engine, 0o755)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     root
   end
 
@@ -224,7 +224,7 @@ defmodule ScriptsAiurdevTest do
 
     on_exit(fn ->
       File.rm(path)
-      File.rm_rf(opencode_dir)
+      Aiur.TestCleanup.rm_rf!(opencode_dir)
     end)
 
     path
@@ -234,7 +234,7 @@ defmodule ScriptsAiurdevTest do
   defp sandbox_home do
     home = Aiur.TestSupport.tmp_root!("aiurdev-home")
     File.mkdir_p!(Path.join([home, ".aiur", "logs", "old-session"]))
-    on_exit(fn -> File.rm_rf!(home) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     home
   end
 
@@ -280,7 +280,7 @@ defmodule ScriptsAiurdevTest do
 
     File.mkdir_p!(bin)
     File.ln_s!(target, link)
-    on_exit(fn -> File.rm_rf!(bin) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(bin) end)
 
     link
   end
@@ -472,7 +472,7 @@ defmodule ScriptsAiurdevTest do
 
     seed_ready_release(root)
     File.mkdir_p!(lock)
-    on_exit(fn -> File.rm_rf(lock) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(lock) end)
 
     {out, 0} =
       run_shim(["status"], [
@@ -707,7 +707,7 @@ defmodule ScriptsAiurdevTest do
     shim = Path.join(shim_dir, "aiurdev")
     File.cp!(@script, shim)
     File.chmod!(shim, 0o755)
-    on_exit(fn -> File.rm_rf!(shim_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(shim_dir) end)
 
     seed_ready_release(root)
     File.mkdir_p!(Path.join([root, "src", "lib"]))
@@ -1620,7 +1620,7 @@ defmodule ScriptsAiurdevTest do
       File.mkdir_p!(Path.join(partial, "scripts"))
       File.write!(Path.join([partial, "scripts", "aiurdev"]), "")
       File.write!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"]), "")
-      on_exit(fn -> File.rm_rf!(partial) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(partial) end)
 
       seed_ready_release(checkout_a)
 
@@ -1670,7 +1670,7 @@ defmodule ScriptsAiurdevTest do
       # then compare that borrowed SHA against itself on every later launch.
       outer = Aiur.TestSupport.tmp_root!("aiurdev-outer")
       File.mkdir_p!(outer)
-      on_exit(fn -> File.rm_rf!(outer) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(outer) end)
       init_git_repo(outer)
 
       root = fake_repo(Path.join(outer, "inner"))

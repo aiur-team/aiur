@@ -6,7 +6,7 @@ defmodule Aiur.RunTelemetry.ProcfsTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-procfs")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root}
   end
 

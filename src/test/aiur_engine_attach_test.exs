@@ -25,11 +25,11 @@ defmodule AiurEngineAttachTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(tmux_state)
       File.rm(events)
-      File.rm_rf(logs)
+      Aiur.TestCleanup.rm_rf!(logs)
     end)
 
     script = """
@@ -86,9 +86,9 @@ defmodule AiurEngineAttachTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     script = """
@@ -149,9 +149,9 @@ defmodule AiurEngineAttachTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(base)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(base)
     end)
 
     path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
@@ -220,9 +220,9 @@ defmodule AiurEngineAttachTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     script = """
@@ -271,8 +271,8 @@ defmodule AiurEngineAttachTest do
     state = tmp_state()
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
     end)
 
     script = """
@@ -320,8 +320,8 @@ defmodule AiurEngineAttachTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(tmux_state)
       File.rm(events)
     end)
@@ -381,8 +381,8 @@ defmodule AiurEngineAttachTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(tmux_state)
       File.rm(events)
       File.rm(dump)

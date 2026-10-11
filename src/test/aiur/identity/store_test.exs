@@ -8,7 +8,7 @@ defmodule Aiur.Identity.StoreTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-identity-store-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir, path: Path.join(dir, "identity.json")}
   end
 

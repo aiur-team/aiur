@@ -69,6 +69,12 @@ printf '%s\n' \
 summary="$test_dir/summary.md"
 output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/sample.log" "$summary" "$test_dir/list.txt")"
 
+
+assert_contains 'known test annotation contract' \
+  '::error title=aiur-test-failure::known-flake :: Aiur.KnownFlakeFixtureTest :: a listed flake standing in for a quarantine entry' "$output"
+assert_contains 'new test annotation contract' \
+  '::error title=aiur-test-failure::new-failure :: Aiur.SomeNewTest :: a genuinely new failure the change broke' "$output"
+
 assert_contains 'mixed run counts two known and one new' 'classified known=2 new=1' "$output"
 assert_file_contains 'listed fixture test is classified as a known flake' \
   'Aiur.KnownFlakeFixtureTest :: a listed flake standing in for a quarantine entry — **known flake**' "$summary"
@@ -104,6 +110,23 @@ no_failures_summary="$test_dir/no-failures-summary.md"
 output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/no-failures.log" "$no_failures_summary" "$test_dir/list.txt")"
 assert_file_contains 'a log with no ExUnit failures invents no classification' \
   'No failing ExUnit tests detected in the log' "$no_failures_summary"
+
+if grep -q '^::error' <<<"$output"; then
+  echo 'no failures must emit no annotations' >&2
+  exit 1
+fi
+
+for n in $(seq 1 15); do
+  printf '  %s) test failure %s (Aiur.CapFixtureTest)\n' "$n" "$n"
+done > "$test_dir/capped.log"
+output="$(bash "$reporter" "$test_dir/capped.log" "$test_dir/capped.md" "$test_dir/list.txt")"
+[[ "$(grep -c '^::error title=aiur-test-failure::' <<<"$output")" == 10 ]]
+assert_contains 'overflow is explicit' '::error title=aiur-test-failure::truncated :: and 6 more' "$output"
+
+printf '  1) test value :: 100%% (Aiur.EscapeFixtureTest)\n' > "$test_dir/escaped.log"
+output="$(bash "$reporter" "$test_dir/escaped.log" "$test_dir/escaped.md" "$test_dir/list.txt")"
+assert_contains 'percent escaped and colons preserved' \
+  '::error title=aiur-test-failure::new-failure :: Aiur.EscapeFixtureTest :: value :: 100%25' "$output"
 
 # A missing known-flaky list must classify every failure as NEW and say so.
 cat >"$test_dir/new-only.log" <<'LOG'

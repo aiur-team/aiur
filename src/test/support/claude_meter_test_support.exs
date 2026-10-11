@@ -12,11 +12,7 @@ defmodule Aiur.Claude.MeterTestSupport do
     do: Path.expand("../fixtures/claude/#{name}", __DIR__)
 
   def ensure_pubsub do
-    unless Process.whereis(Aiur.PubSub) do
-      ExUnit.Callbacks.start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   def sequence_mint do

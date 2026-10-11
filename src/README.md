@@ -174,9 +174,9 @@ comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
 `github.human_mergers` is a separate, explicit human-only allowlist used for
-post-merge attribution. It never inherits CODEOWNERS, bot accounts, trusted
-accounts, or dispatch `allowed_users`; an absent list treats every merger as
-unallowlisted and raises a needs-attention alert without undoing terminal state.
+post-merge attribution and the planned `aiur pr merge` identity check. It never inherits CODEOWNERS, bot accounts, trusted accounts, or dispatch `allowed_users`; an absent list treats every merger as unallowlisted and raises a needs-attention alert without undoing terminal state.
+
+`merge_policy` is validated and shown by `aiur status` and `aiur capabilities`. Defaults: `ci: wait`, `local_tests: partial`. Enforcement and main watching ship separately. See the [config reference](../website/docs-app/reference/configuration.md#merge-policy).
 
 Build Order planning reads use finite `github.planning_root_limit`,
 `github.planning_page_budget`, and `github.planning_call_budget` safeguards.

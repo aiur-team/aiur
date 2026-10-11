@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.Client do
   alias Aiur.GitHub.{
     AuthPreflight,
     Comments,
+    CompareStatus,
     CycleFetchCache,
     DependenciesApi,
     Errors,
@@ -325,6 +326,10 @@ defmodule Aiur.GitHub.Client do
   def fetch_compare_files(base_sha, head_sha, opts \\ []),
     do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
 
+  @spec fetch_compare_status(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def fetch_compare_status(base_sha, head_sha, opts \\ []),
+    do: CompareStatus.fetch(base_sha, head_sha, opts)
+
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
   def ensure_pull_request_base(pr, expected_base, opts \\ []),
@@ -361,6 +366,10 @@ defmodule Aiur.GitHub.Client do
   @spec verify_human_review_ready(String.t() | integer(), keyword()) :: :ok | {:error, term()}
   def verify_human_review_ready(issue_number, opts \\ []),
     do: HumanReviewGate.verify_human_review_ready(issue_number, opts)
+
+  @spec pull_request_approved_and_queued?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def pull_request_approved_and_queued?(pr_number, opts \\ []),
+    do: HumanReviewGate.approved_and_queued?(pr_number, opts)
 
   @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}

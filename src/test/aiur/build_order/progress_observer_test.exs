@@ -21,7 +21,7 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     id = System.unique_integer([:positive])
     :ok = Exchange.subscribe("system.build_order.#{id}.progress")
     :ok = BuildProgress.subscribe()
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{path: Path.join(dir, "latches.json"), id: id, scope: {:build_order, id}}
   end
 

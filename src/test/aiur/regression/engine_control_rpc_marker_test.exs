@@ -19,8 +19,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -41,8 +41,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -67,8 +67,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
         File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
         on_exit(fn ->
-          File.rm_rf(rel)
-          File.rm_rf(state)
+          Aiur.TestCleanup.rm_rf!(rel)
+          Aiur.TestCleanup.rm_rf!(state)
         end)
 
         {out, 0} =
@@ -95,8 +95,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -131,8 +131,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -163,8 +163,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       expression = """
@@ -200,8 +200,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -221,8 +221,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -253,8 +253,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -281,8 +281,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -307,8 +307,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       {out, 0} =
@@ -328,7 +328,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
 
     test "every read-only command surfaces a diagnostic on each silent-failure shape (#1684)" do
       state = tmp_state()
-      on_exit(fn -> File.rm_rf(state) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(state) end)
 
       shapes = silent_failure_shapes()
 
@@ -337,7 +337,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
         rel = fake_release()
         File.write!(Path.join([rel, "bin", "aiur"]), body)
         File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
-        on_exit(fn -> File.rm_rf(rel) end)
+        on_exit(fn -> Aiur.TestCleanup.rm_rf!(rel) end)
 
         {out, 0} =
           run_control_rpc_captured(
@@ -360,7 +360,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
 
     test "every mutating command exits non-zero with stderr on each silent-failure shape (#1736)" do
       state = tmp_state()
-      on_exit(fn -> File.rm_rf(state) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(state) end)
 
       shapes = silent_failure_shapes()
 
@@ -378,7 +378,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
         rel = fake_release()
         File.write!(Path.join([rel, "bin", "aiur"]), body)
         File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
-        on_exit(fn -> File.rm_rf(rel) end)
+        on_exit(fn -> Aiur.TestCleanup.rm_rf!(rel) end)
 
         {out, 0} =
           run_control_rpc_captured(
@@ -414,8 +414,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
 
       on_exit(fn ->
-        File.rm_rf(rel)
-        File.rm_rf(state)
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
       end)
 
       commands = [

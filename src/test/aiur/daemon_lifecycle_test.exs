@@ -66,7 +66,7 @@ defmodule Aiur.DaemonLifecycleTest do
       on_exit(fn ->
         restore_env(:control_lifecycle_store_path, previous_store_path)
         restore_env(:executor_state_dir, previous_state_dir)
-        File.rm_rf!(state_dir)
+        Aiur.TestCleanup.rm_rf!(state_dir)
       end)
 
       code_paths = test_code_paths()
@@ -102,7 +102,7 @@ defmodule Aiur.DaemonLifecycleTest do
         restore_env(:control_lifecycle_store_path, previous_store_path)
         restore_env(:executor_state_dir, previous_state_dir)
         restore_env(:log_file, previous_log_file)
-        File.rm_rf!(state_dir)
+        Aiur.TestCleanup.rm_rf!(state_dir)
       end)
 
       Application.put_env(:aiur, :log_file, Path.join(state_dir, "run-first/log/aiur.log"))

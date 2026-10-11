@@ -16,7 +16,7 @@ defmodule Aiur.Executor.TakeoverAlert.StoreTest do
     File.mkdir_p!(dir)
     # unique_integer values are reused across VM boots, so clean the dir up to
     # prevent a later run's "fresh" store from loading a prior run's state file.
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     dir
   end
 

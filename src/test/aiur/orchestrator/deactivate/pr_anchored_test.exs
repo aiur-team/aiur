@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.Deactivate.PrAnchoredTest do
       test_root = Aiur.TestSupport.tmp_root!("aiur-pr-anchored-route")
 
       File.mkdir_p!(test_root)
-      on_exit(fn -> File.rm_rf(test_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
       {:ok, test_root: test_root}
     end
 
@@ -212,7 +212,7 @@ defmodule Aiur.Orchestrator.Deactivate.PrAnchoredTest do
       test_root = Aiur.TestSupport.tmp_root!("aiur-pr-anchored-teardown")
 
       File.mkdir_p!(test_root)
-      on_exit(fn -> File.rm_rf(test_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
       {:ok, test_root: test_root}
     end
 

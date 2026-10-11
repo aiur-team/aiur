@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrder.HistoryTest do
   setup do
     dir = Aiur.TestSupport.tmp_root!("build-history")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir, path: Path.join(dir, "history.json"), opts: [server: @name]}
   end
 

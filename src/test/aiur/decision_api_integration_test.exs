@@ -52,7 +52,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
         value -> Application.put_env(:aiur, :decision_state_dir, value)
       end
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir, store: store}

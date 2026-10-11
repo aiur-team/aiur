@@ -11,7 +11,7 @@ defmodule Aiur.Config.TurnSandboxRootsTest do
     root = Aiur.TestSupport.tmp_root!("turn-sandbox-roots")
     workspace = Path.join(root, "workspace")
     File.mkdir_p!(workspace)
-    keys = [:github_budget_enabled?, :github_budget_dir, :turn_sandbox_root_contributors]
+    keys = [:github_budget_enabled?, :github_budget_dir, :turn_sandbox_root_contributors, :build_gate_dir_override]
     previous = Map.new(keys, &{&1, Application.fetch_env(:aiur, &1)})
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, Path.join(root, "budget"))
@@ -23,7 +23,7 @@ defmodule Aiur.Config.TurnSandboxRootsTest do
         {key, :error} -> Application.delete_env(:aiur, key)
       end)
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, workspace: workspace, root: root}

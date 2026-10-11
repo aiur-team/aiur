@@ -68,7 +68,7 @@ defmodule Aiur.ProcessReaper do
     * `:comm` — substring expected in `/proc/<pid>/cmdline`; guards against
       pid reuse. Pane refs need no guard.
     * `:ticket` / `:backend` — non-sensitive actor attribution for runtime
-      observers such as debug telemetry.
+      observers such as run telemetry.
     * `:worker_host` / `:remote` — identifies roots that execute remotely and
       therefore cannot be sampled from the daemon host.
 

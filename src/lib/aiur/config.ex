@@ -149,13 +149,10 @@ defmodule Aiur.Config do
   @spec settings_uncached() :: {:ok, Schema.t()} | {:error, term()}
   def settings_uncached, do: settings_from(Workflow.load())
 
-  defp settings_from({:ok, %{config: config}}) when is_map(config) do
-    config
-    |> prepare_config()
-    |> Schema.parse()
-  end
-
-  defp settings_from({:error, reason}), do: {:error, reason}
+  @doc false
+  @spec settings_from({:ok, map()} | {:error, term()}) :: {:ok, Schema.t()} | {:error, term()}
+  def settings_from({:ok, %{config: config}}) when is_map(config), do: config |> prepare_config() |> Schema.parse()
+  def settings_from({:error, reason}), do: {:error, reason}
 
   @spec settings!() :: Schema.t()
   def settings! do
@@ -195,6 +192,7 @@ defmodule Aiur.Config do
   defdelegate server_tailscale_funnel?(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_enabled?(), to: Aiur.Config.ObservabilitySettings
   defdelegate telemetry_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
+  defdelegate capture_github_facts?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
@@ -363,7 +361,9 @@ defmodule Aiur.Config do
     end
   end
 
-  defp format_config_error(reason) do
+  @doc false
+  @spec format_config_error(term()) :: String.t()
+  def format_config_error(reason) do
     label = config_file_label()
 
     case reason do

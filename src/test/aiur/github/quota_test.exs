@@ -567,7 +567,7 @@ defmodule Aiur.GitHub.QuotaTest do
   test "finds the agent-shell log through a dot directory under a tilde-form workspace root" do
     relative = "aiur-quota-test-#{System.unique_integer([:positive])}"
     root = Path.join(System.user_home!(), relative)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     quota_dir = Path.join([Layout.issue_workspace_path(root, "1790"), ".aiur-runtime", "github-quota"])
     File.mkdir_p!(quota_dir)
@@ -589,7 +589,7 @@ defmodule Aiur.GitHub.QuotaTest do
   test "a stale-broker marker raises one fleet alert per workspace and rearms on recovery" do
     parent = self()
     root = Path.join(System.tmp_dir!(), "aiur-gh-stale-#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     quota_dir = Path.join([root, "ws-2307", ".aiur-runtime", "github-quota"])
     File.mkdir_p!(quota_dir)
@@ -633,7 +633,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
   test "publishes and clears resource-specific shell holds" do
     hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-holds")
-    on_exit(fn -> File.rm_rf(hold_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(hold_dir) end)
     quota = start_quota(hold_dir: hold_dir)
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 0))
@@ -688,7 +688,7 @@ defmodule Aiur.GitHub.QuotaTest do
   test "a secondary limit alerts, keeps dispatch available, publishes a shell hold, and resolves on expiry" do
     parent = self()
     hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-secondary")
-    on_exit(fn -> File.rm_rf(hold_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(hold_dir) end)
     {:ok, clock} = Agent.start_link(fn -> @now end)
 
     quota =

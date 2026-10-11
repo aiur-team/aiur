@@ -101,7 +101,7 @@ defmodule Aiur.BuildOrder.Features.RootImportRunnerTest do
 
   defp stores do
     dir = Aiur.TestSupport.tmp_root!("root-import-runner")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "History#{System.unique_integer([:positive])}")
     h = start_supervised!({History, name: name, repository: "aiur-team/aiur", state_dir: Path.join(dir, "history")})
     f = start_supervised!({Features, name: nil, state_dir: Path.join(dir, "features"), general_epics: [], filesystem_sync_fun: fn -> :ok end, alert_fun: fn _, _, _ -> :ok end})
