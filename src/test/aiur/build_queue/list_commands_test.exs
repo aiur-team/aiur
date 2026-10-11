@@ -146,10 +146,15 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert Enum.count(markers, &(&1 == {:mark, "2", "agent:queued"})) == 1
   end
 
-  test "successful marker retry returns success after an intermediate failure" do
-    server()
+  test "failed marker is reported immediately and scheduled retry finishes membership" do
+    pid = server()
     update(:marker_failures, 1)
-    assert :ok = Aiur.BuildQueue.add(["1"], "paseo")
+    assert {:error, {:marker_write_failed, [{:mark, "1", {:error, :transient}}]}} = Aiur.BuildQueue.add(["1"], "paseo")
+    assert ListCommands.pending(document()) == [{:mark, "1"}]
+    assert_received {:scheduled, ^pid, :retry_writes}
+    update(:now, 2_000)
+    send(pid, :retry_writes)
+    GenServer.call(pid, :status)
     assert ListCommands.pending(document()) == []
     calls = Agent.get(Boundary, &Enum.map(&1.calls, fn {call, _} -> call end))
     assert Enum.count(calls, &(&1 == {:mark, "1", "agent:queued"})) == 2
@@ -202,7 +207,6 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
          store: Boundary,
          claim_probe: Boundary,
          clock: fn -> Agent.get(Boundary, & &1.now) end,
-         sleep: fn _ -> :ok end,
          schedule: fn target, message, _ ->
            send(owner, {:scheduled, target, message})
            make_ref()

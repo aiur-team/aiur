@@ -1552,34 +1552,16 @@ defmodule Aiur.AgentControlCLITest do
 
     bash = System.find_executable("bash") || flunk("bash is required for build-gate status tests")
 
-    holder =
-      Port.open({:spawn_executable, String.to_charlist(bash)}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: [
-          "-c",
-          ~S"""
-          exec 8<>"$1"
-          flock 8
-          exec 9<>"$2"
-          flock 9
-          printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
-          """,
-          "build-gate-holder",
-          slot_lock,
-          queue_path,
-          release_path
-        ]
-      ])
+    script = ~S"""
+    exec 8<>"$1"
+    flock 8
+    exec 9<>"$2"
+    flock 9
+    """
 
-    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+    holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, queue_path], Path.dirname(slot_lock), release_path)
 
     on_exit(fn ->
-      File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
-
       if is_nil(previous) do
         Application.delete_env(:aiur, :build_gate_dir_override)
       else
@@ -1636,34 +1618,16 @@ defmodule Aiur.AgentControlCLITest do
 
     bash = System.find_executable("bash") || flunk("bash is required for build-gate status tests")
 
-    holder =
-      Port.open({:spawn_executable, String.to_charlist(bash)}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: [
-          "-c",
-          ~S"""
-          exec 8<>"$1"
-          flock 8
-          exec 9<>"$2"
-          flock 9
-          printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
-          """,
-          "build-gate-holder",
-          slot_lock,
-          queue_path,
-          release_path
-        ]
-      ])
+    script = ~S"""
+    exec 8<>"$1"
+    flock 8
+    exec 9<>"$2"
+    flock 9
+    """
 
-    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+    holder = Aiur.BuildGateTestHolder.start!(bash, script, ["build-gate-holder", slot_lock, queue_path], Path.dirname(slot_lock), release_path)
 
     on_exit(fn ->
-      File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
-
       if is_nil(previous) do
         Application.delete_env(:aiur, :build_gate_dir_override)
       else

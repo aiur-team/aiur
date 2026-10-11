@@ -152,6 +152,15 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
     put(:results, [{:error, :transport}])
     pid = server()
     reconcile(pid)
+    assert length(get(:calls)) == 1
+
+    for delay <- [1_000, 4_000, 16_000] do
+      put(:now, get(:now) + delay)
+      put(:observed_at, get(:now))
+      send(pid, :retry_writes)
+      GenServer.call(pid, :status)
+    end
+
     assert length(get(:calls)) == 4
     assert Hints.held?("1")
     assert labels() == ["agent:queued", "agent:todo"]
@@ -244,7 +253,6 @@ defmodule Aiur.BuildQueue.WithdrawalTest do
        store: Boundary,
        claim_probe: Boundary,
        clock: fn -> get(:now) end,
-       sleep: fn _ -> :ok end,
        exchange: :absent_withdrawal_exchange,
        schedule: fn pid, message, _delay ->
          send(owner, {:scheduled, pid, message})

@@ -5,7 +5,8 @@ defmodule Aiur.PromptBuilder do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Config, ExternalContent, Workflow}
+  alias Aiur.AgentRunner.{MergePolicyPrompt, OptimisticPrompt}
+  alias Aiur.{CodingAgent, Config, ExternalContent, MergePolicy, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
@@ -32,7 +33,7 @@ defmodule Aiur.PromptBuilder do
       |> ensure_utf8()
 
     shared_prompt_prefix() <>
-      integration_branch_prompt(issue) <> rendered_prompt <> complexity_suffix(issue)
+      integration_branch_prompt(issue) <> OptimisticPrompt.render(issue.optimistic_start) <> merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
   end
 
   # SECURITY INVARIANT — issue title and body are attacker-controlled.
@@ -141,6 +142,14 @@ defmodule Aiur.PromptBuilder do
 
     """
   end
+
+  @doc "Current local-test policy, rebuilt for cold and continuation turns."
+  @spec merge_policy_prompt() :: String.t()
+  def merge_policy_prompt, do: MergePolicyPrompt.build(MergePolicy.current())
+
+  @doc "Restates the current policy for long-lived agents."
+  @spec merge_policy_restatement() :: String.t()
+  def merge_policy_restatement, do: merge_policy_prompt()
 
   # Appends the dev-configured guidance for the issue's complexity level
   # (agent.complexity_prompts) to the end of the rendered prompt. No label

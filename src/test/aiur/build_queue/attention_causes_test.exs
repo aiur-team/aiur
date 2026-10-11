@@ -268,8 +268,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     pid = server(store: LatchFailStore)
     reconcile(pid)
     change(write_result: {:error, :offline})
-    assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
-    assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
+    fail_mark(pid)
     assert GenServer.call(pid, :status) == :store_unavailable
     topic = "system.queue.attention.store_unavailable"
     assert_received {:event, %{topic: ^topic}}
@@ -281,13 +280,13 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     reconcile(pid)
     topic = "ticket.11.queue.attention.write_failed"
     change(write_result: {:error, :offline})
-    assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
     refute_received {:event, %{topic: ^topic}}
-    assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
+    fail_mark(pid)
     assert_received {:event, %{topic: ^topic, ticket: "11"}}
+    change(now: 52_000)
     assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
     refute_received {:event, %{topic: ^topic}}
-    change(write_result: :ok)
+    change(now: 56_000, write_result: :ok)
     assert GenServer.call(pid, {:write, :mark, "11"}) == :ok
     resolved = topic <> ".resolved"
     assert_received {:event, %{topic: ^resolved}}
@@ -300,7 +299,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     pid = server()
     reconcile(pid)
     change(write_result: {:error, :offline})
-    for _ <- 1..2, do: GenServer.call(pid, {:write, :mark, "11"})
+    fail_mark(pid)
     topic = "ticket.11.queue.attention.write_failed"
     assert_received {:event, %{topic: ^topic}}
     stop_supervised!(Server)
@@ -313,7 +312,7 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     Process.unregister(Aiur.Events.IdGenerator)
 
     try do
-      change(now: 11_000, write_result: :ok)
+      change(now: 34_000, write_result: :ok)
       assert GenServer.call(pid, {:write, :mark, "11"}) == :ok
       assert {:ok, %{latches: [%{key: {:write_failed, "11"}}]}} = Store.load()
     after
@@ -341,7 +340,6 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
          tracker: Boundary,
          claim_probe: Boundary,
          settings: {:ok, settings},
-         sleep: fn _ -> :ok end,
          clock: fn -> Agent.get(Boundary, & &1.now) end,
          schedule: fn server, message, _ -> send(owner, {:scheduled, server, message}) end}
       )
@@ -355,6 +353,13 @@ defmodule Aiur.BuildQueue.AttentionCausesTest do
     assert_received {:scheduled, ^pid, {:reconcile, _} = message}
     send(pid, message)
     GenServer.call(pid, :show)
+  end
+
+  defp fail_mark(pid) do
+    for now <- [10_000, 11_000, 15_000, 31_000, 32_000] do
+      change(now: now)
+      assert GenServer.call(pid, {:write, :mark, "11"}) == {:error, :offline}
+    end
   end
 
   defp change(changes), do: Agent.update(Boundary, &Enum.into(changes, &1))

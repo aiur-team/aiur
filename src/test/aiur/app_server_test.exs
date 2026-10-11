@@ -1152,8 +1152,7 @@ defmodule Aiur.AppServerTest do
 
       log =
         capture_log(fn ->
-          assert {:ok, _result} =
-                   AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
+          assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message) |> tap(fn _result -> Logger.flush() end)
         end)
 
       assert_received {:app_server_message, %{event: :turn_completed}}

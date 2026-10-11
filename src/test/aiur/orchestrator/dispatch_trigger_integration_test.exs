@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
   end
 
   test "status, candidates, issue sync, queued resume and both dispatcher gates share the effective trigger" do
-    candidate = issue("3765-integration", state: "todo", blocked_by: [%{id: "3765-blocker", state: "ci-wait"}], priority: 1)
+    candidate = issue("3765-integration", state: "todo", blocked_by: [%{id: "37650", identifier: "37650", state: "ci-wait"}], priority: 1)
     other = issue("3765-other", state: "todo", priority: 2)
     state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1, last_polled_issues: %{candidate.id => candidate}}
     terminal = DispatchPolicy.terminal_state_set()
@@ -50,6 +50,7 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
           send(parent, {:hydrated, issue.id})
           {:ok, issue}
         end,
+        blocker_ref_lookup: fn _ -> %{ref: "refs/heads/aiur/37650-blocker", sha: String.duplicate("a", 40)} end,
         runner: fn _, _, _ ->
           receive do
             :stop -> :ok
@@ -57,11 +58,11 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
         end
       )
 
-    assert dispatched.running[candidate.id].optimistic_blockers == ["3765-blocker"]
+    assert dispatched.running[candidate.id].optimistic_blockers == ["37650"]
     assert_received {:refreshed, "3765-integration"}
     assert_received {:hydrated, "3765-integration"}
     assert_received {:hydrated, "3765-integration"}
-    assert_received {:lifecycle, %{event: "dispatch", optimistic_blockers: ["3765-blocker"]}}
+    assert_received {:lifecycle, %{event: "dispatch", optimistic_blockers: ["37650"]}}
     send(dispatched.running[candidate.id].pid, :stop)
   end
 

@@ -89,7 +89,7 @@ defmodule Aiur.RunTelemetry.Writer.Retention do
              daemon_started_at: RunTelemetry.boot_started_at(),
              existing_records: true
            }, timestamp}
-        ] ++ reopening ++ Encoding.carried_point_records(state.carried_points)
+        ] ++ [{:run_context, Map.put(state.run_context, :segment_continuation, "carried"), timestamp}] ++ reopening ++ Encoding.carried_point_records(state.carried_points)
 
     {rolled, contents, _encoded_records} = Encoding.encode_records(state, records)
 
