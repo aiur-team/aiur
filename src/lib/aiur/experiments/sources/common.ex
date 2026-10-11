@@ -24,63 +24,76 @@ defmodule Aiur.Experiments.Sources.Common do
 
   def timestamp(_at), do: nil
 
-  @spec events(String.t(), map(), map()) :: {:ok, [map()]} | {:error, term()}
-  def events(ref, window, ctx) do
-    case capture_error(ref, ctx) do
-      nil ->
-        case Map.fetch(ctx, :events) do
-          {:ok, events} -> {:ok, select_events(events, ref, window)}
-          :error -> read_events(ref, window, ctx)
-        end
-
-      reason ->
-        {:error, reason}
-    end
-  end
-
-  defp capture_error(ref, ctx) do
+  @spec prepare_context(map(), map()) :: map()
+  def prepare_context(window, ctx) do
     server = Map.get(ctx, :capture_server, Capture)
-
     active = (is_pid(server) and Process.alive?(server)) or (is_atom(server) and not is_nil(Process.whereis(server)))
     injected = Enum.any?([:capture_root, :events, :capture_started_at], &Map.has_key?(ctx, &1))
 
-    if not active and not injected do
-      :capture_inactive
-    else
-      live_errors = if active, do: Capture.status(server).errors, else: %{}
-      live_errors[ref] || disk_error(ref, ctx)
+    snapshot =
+      if not active and not injected do
+        %{events: {:error, :capture_inactive}, errors: %{}, live_errors: %{}, started: nil}
+      else
+        capture_snapshot(window, ctx, server, active)
+      end
+
+    Map.put(ctx, :capture_snapshot, snapshot)
+  end
+
+  defp capture_snapshot(window, ctx, server, active) do
+    status = if active, do: Map.get(ctx, :capture_status, &Capture.status/1).(server), else: %{errors: %{}}
+    errors = read_metadata("errors.json", ctx, :capture_corrupt)
+    started = Map.get_lazy(ctx, :capture_started_at, fn -> read_metadata("coverage.json", ctx, nil) end)
+    events = if Map.has_key?(ctx, :events), do: {:ok, ctx.events}, else: read_events(window, ctx)
+    %{events: events, errors: errors, live_errors: status.errors, started: started}
+  end
+
+  @spec events(String.t(), map(), map()) :: {:ok, [map()]} | {:error, term()}
+  def events(ref, window, ctx) do
+    snapshot = Map.get_lazy(ctx, :capture_snapshot, fn -> prepare_context(window, ctx).capture_snapshot end)
+    reason = snapshot.live_errors[ref] || if(is_map(snapshot.errors), do: snapshot.errors[ref], else: snapshot.errors)
+
+    case {reason, snapshot.events} do
+      {nil, {:ok, events}} -> {:ok, select_events(events, ref, window)}
+      {nil, error} -> error
+      {reason, _events} -> {:error, reason}
     end
   end
 
-  defp disk_error(ref, ctx) do
-    with {:ok, body} <- File.read(Path.join(capture_root(ctx), "errors.json")),
-         {:ok, errors} when is_map(errors) <- Jason.decode(body) do
-      errors[ref]
+  defp read_metadata(file, ctx, invalid) do
+    with {:ok, body} <- read_file(Path.join(capture_root(ctx), file), ctx),
+         {:ok, metadata} when is_map(metadata) <- Jason.decode(body) do
+      metadata
     else
-      {:error, :enoent} -> nil
-      _invalid -> :capture_corrupt
+      {:error, :enoent} -> %{}
+      _invalid -> invalid
     end
   end
 
-  defp read_events(ref, window, ctx) do
+  defp read_file(path, ctx), do: Map.get(ctx, :capture_read, &File.read/1).(path)
+
+  defp read_events(window, ctx) do
+    first = month(window.start)
+    last = month(DateTime.add(window.end, -1, :microsecond))
+
     capture_root(ctx)
     |> Path.join("events-*.ndjson")
     |> Path.wildcard()
-    |> Enum.reduce_while({:ok, []}, &read_event_file/2)
-    |> case do
-      {:ok, events} -> {:ok, select_events(events, ref, window)}
-      error -> error
-    end
+    |> Enum.filter(fn path ->
+      name = Path.basename(path)
+      name >= "events-#{first}.ndjson" and name <= "events-#{last}.ndjson"
+    end)
+    |> Enum.reduce_while({:ok, []}, fn path, {:ok, events} ->
+      with {:ok, body} <- read_file(path, ctx),
+           {:ok, lines} <- decode_events(body) do
+        {:cont, {:ok, lines ++ events}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
-  defp read_event_file(path, {:ok, events}) do
-    with {:ok, body} <- File.read(path),
-         {:ok, lines} <- decode_events(body) do
-      {:cont, {:ok, events ++ lines}}
-    else
-      {:error, reason} -> {:halt, {:error, reason}}
-    end
-  end
+  defp month(at), do: Calendar.strftime(at, "%Y-%m")
 
   defp decode_events(body) do
     body
@@ -122,21 +135,13 @@ defmodule Aiur.Experiments.Sources.Common do
   end
 
   defp capture_started_at(ref, ctx) do
-    case Map.fetch(ctx, :capture_started_at) do
-      {:ok, started} when is_map(started) and not is_struct(started) ->
-        started[ref]
+    started =
+      case Map.fetch(ctx, :capture_snapshot) do
+        {:ok, snapshot} -> snapshot.started
+        :error -> Map.get_lazy(ctx, :capture_started_at, fn -> read_metadata("coverage.json", ctx, nil) end)
+      end
 
-      {:ok, started} ->
-        started
-
-      :error ->
-        with {:ok, body} <- File.read(Path.join(capture_root(ctx), "coverage.json")),
-             {:ok, metadata} when is_map(metadata) <- Jason.decode(body) do
-          metadata[ref]
-        else
-          _missing -> nil
-        end
-    end
+    if is_map(started) and not is_struct(started), do: started[ref], else: started
   end
 
   @spec facts(map()) :: [String.t()]

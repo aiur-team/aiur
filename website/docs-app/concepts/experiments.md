@@ -61,6 +61,11 @@ Run `aiur experiments metrics --json` to inspect definitions and pack problems.
 Built-in packs implement `Aiur.Experiments.MetricPack` and are registered with
 `:experiment_metric_packs`.
 
+This release registers no built-in packs yet. A repository without a consumer
+pack has an empty catalog, so `aiur experiments create` cannot succeed: every
+spec requires at least one registered metric. Load the example below before
+creating an experiment; the reserved `delivery-speed` pack ships separately.
+
 Consumer packs are tracked JSON files under
 `.aiur/experiments/packs/` in the default-branch base checkout. An agent branch
 cannot alter the catalog.
@@ -155,6 +160,22 @@ whole event payloads. Monthly journals live in `experiments/capture/` and keep
 at least 365 days plus the history needed by active experiment windows.
 Packs reload within a minute; changing an event metric or restarting capture
 begins a new conservative coverage interval.
+
+When Capture has 1,024 queued messages, it drops incoming events and marks
+matching metrics `unavailable` with `capture_overloaded`. Those metrics stop
+appending until Capture restarts or the metric is removed and registered again.
+Journal failures also stop further appends for the affected metric. Metadata
+is written only when its state changes, including one attempt per failure state.
+An Exchange outage reports `unavailable`; after the Exchange recovers, the next
+pack reload resubscribes and begins a new coverage interval.
+
+Evaluation reads only the journal months overlapping its window. An invalid
+line (including a torn final write after a crash) makes overlapping windows
+`unavailable/capture_corrupt`; other months remain usable. To repair a journal,
+stop Aiur, back up the affected `events-YYYY-MM.ndjson`, and restore the damaged
+line from its source. If the observation cannot be recovered, retain the damaged
+file: deleting the line would turn missing evidence into apparently complete
+capture. Restart Aiur after repair.
 
 Coverage is separate from sample count: `captured` permits zero observations;
 `partial` reports `covered_from`; `not_captured` identifies missing capture or

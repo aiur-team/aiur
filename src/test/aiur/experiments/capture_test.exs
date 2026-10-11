@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.CaptureTest do
   use ExUnit.Case, async: true
   alias Aiur.Events.Exchange
-  alias Aiur.Experiments.Capture
+  alias Aiur.Experiments.{Capture, Evaluator}
 
   setup do
     root = Path.join(System.tmp_dir!(), "capture-#{System.unique_integer([:positive])}")
@@ -107,6 +107,100 @@ defmodule Aiur.Experiments.CaptureTest do
     assert :ok = Capture.refresh(pid)
     assert_receive {:pack_alert, changed_message}, 1000
     assert changed_message =~ "invalid.json"
+  end
+
+  test "flood bounds journal work and makes observations unavailable", ctx do
+    pack(ctx.packs, Map.put(source(), "match", "#"))
+    counts = start_supervised!({Agent, fn -> %{appends: 0, errors: 0, coverage: 0} end}, id: :counts)
+
+    append = fn path, row ->
+      Agent.update(counts, &Map.update!(&1, :appends, fn n -> n + 1 end))
+      Aiur.Journal.append(path, row)
+    end
+
+    pid = capture(ctx, append: append, write: counted_writer(counts), queue_limit: 8)
+    assert :ok = :sys.suspend(pid)
+    for id <- 1..100, do: Exchange.publish("app.deploy.started", %{id: id, topic: "app.deploy.started", id_value: "d#{id}"}, ctx.exchange)
+    assert :ok = :sys.resume(pid)
+    assert %{dropped: 100, errors: %{"app/latency" => ":capture_overloaded"}} = Capture.status(pid)
+    assert Agent.get(counts, & &1) == %{appends: 0, errors: 2, coverage: 1}
+    assert :ok = Capture.refresh(pid)
+    assert Agent.get(counts, & &1) == %{appends: 0, errors: 2, coverage: 1}
+    window = %{start: ~U[2026-10-01 00:00:00Z], end: ~U[2026-10-02 00:00:00Z]}
+    context = Map.merge(ctx.context, %{capture_root: Path.join(ctx.root, "capture"), capture_server: pid})
+    assert %{coverage: %{state: :unavailable, reason: ":capture_overloaded"}, observations: []} = Evaluator.observations(["app/latency"], window, context)["app/latency"]
+  end
+
+  test "failed appends and unchanged refresh do not repeat persistence", ctx do
+    pack(ctx.packs, source())
+    counts = start_supervised!({Agent, fn -> %{appends: 0, errors: 0, coverage: 0} end}, id: :counts)
+
+    append = fn _path, _row ->
+      Agent.update(counts, &Map.update!(&1, :appends, fn n -> n + 1 end))
+      {:error, :enospc}
+    end
+
+    pid = capture(ctx, append: append, write: counted_writer(counts))
+    for id <- 1..20, do: Exchange.publish("app.deploy.started", %{id: id, topic: "app.deploy.started"}, ctx.exchange)
+    assert Capture.status(pid).dropped == 20
+    assert :ok = Capture.refresh(pid)
+    assert Agent.get(counts, & &1) == %{appends: 1, errors: 2, coverage: 1}
+  end
+
+  test "metadata write failure is attempted once per state while events keep arriving", ctx do
+    pack(ctx.packs, source())
+    counts = start_supervised!({Agent, fn -> %{appends: 0, errors: 0, coverage: 0} end}, id: :counts)
+
+    write = fn path, _body, _opts ->
+      key = if Path.basename(path) == "errors.json", do: :errors, else: :coverage
+      Agent.update(counts, &Map.update!(&1, key, fn n -> n + 1 end))
+      {:error, :enospc}
+    end
+
+    append = fn _path, _row ->
+      Agent.update(counts, &Map.update!(&1, :appends, fn n -> n + 1 end))
+      :ok
+    end
+
+    pid = capture(ctx, append: append, write: write, queue_limit: 8)
+    assert :ok = :sys.suspend(pid)
+    for id <- 1..100, do: Exchange.publish("app.deploy.started", %{id: id, topic: "app.deploy.started"}, ctx.exchange)
+    assert :ok = :sys.resume(pid)
+    assert Capture.status(pid).errors == %{"app/latency" => ":enospc"}
+    assert :ok = Capture.refresh(pid)
+    assert Agent.get(counts, & &1) == %{appends: 0, errors: 1, coverage: 1}
+  end
+
+  test "Exchange outage clears coverage and rebinds after restart", ctx do
+    pack(ctx.packs, source())
+    name = Module.concat(__MODULE__, "Exchange#{System.unique_integer([:positive])}")
+    exchange = start_supervised!({Exchange, name: name}, id: :restart_exchange)
+    pid = capture(%{ctx | exchange: name})
+    assert Exchange.bindings_for(pid, name) == ["app.deploy.started"]
+    assert :ok = :sys.suspend(pid)
+    assert :ok = stop_supervised(:restart_exchange)
+    ref = Process.monitor(exchange)
+    assert_receive {:DOWN, ^ref, :process, ^exchange, _reason}, 1000
+    assert :ok = :sys.resume(pid)
+    assert %{coverage: coverage, errors: %{"app/latency" => ":exchange_unavailable"}} = Capture.status(pid)
+    assert coverage == %{}
+    Agent.update(ctx.clock, fn _ -> ~U[2026-10-03 00:00:00Z] end)
+    start_supervised!({Exchange, name: name}, id: :restart_exchange)
+    assert :ok = Capture.refresh(pid)
+    assert Capture.status(pid).coverage["app/latency"] == "2026-10-03T00:00:00Z"
+    assert Capture.status(pid).errors == %{}
+    assert Exchange.bindings_for(pid, name) == ["app.deploy.started"]
+    Exchange.publish("app.deploy.started", %{id: 201, topic: "app.deploy.started", id_value: "recovered"}, name)
+    assert Capture.status(pid).dropped == 0
+    assert [%{"unit" => "recovered"}] = rows(ctx, "2026-10")
+  end
+
+  defp counted_writer(counts) do
+    fn path, body, opts ->
+      key = if Path.basename(path) == "errors.json", do: :errors, else: :coverage
+      Agent.update(counts, &Map.update!(&1, key, fn n -> n + 1 end))
+      Aiur.Fs.atomic_write(path, body, opts)
+    end
   end
 
   defp capture(ctx, opts \\ []) do

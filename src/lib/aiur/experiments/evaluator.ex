@@ -12,6 +12,8 @@ defmodule Aiur.Experiments.Evaluator do
 
     case normalize_window(window, ctx) do
       {:ok, window} ->
+        ctx = if event_refs?(refs, catalog), do: Common.prepare_context(window, ctx), else: ctx
+
         refs
         |> Enum.group_by(fn ref -> ref |> String.split("/", parts: 2) |> hd() end)
         |> Enum.flat_map(fn {pack, refs} -> evaluate_pack(catalog, pack, refs, window, ctx) end)
@@ -20,6 +22,15 @@ defmodule Aiur.Experiments.Evaluator do
       {:error, reason} ->
         Map.new(refs, &{&1, Common.unavailable(reason)})
     end
+  end
+
+  defp event_refs?(refs, catalog) do
+    Enum.any?(refs, fn ref ->
+      case catalog.metrics[ref] do
+        %{pack: pack, source: %{"kind" => kind}} when kind in ["event_interval", "event_count"] -> not is_atom(catalog.packs[pack]) or is_nil(catalog.packs[pack])
+        _metric -> false
+      end
+    end)
   end
 
   defp normalize_window(window, ctx) when is_map(window) do

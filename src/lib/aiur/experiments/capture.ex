@@ -26,6 +26,11 @@ defmodule Aiur.Experiments.Capture do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       append: Keyword.get(opts, :append, &Aiur.Journal.append/2),
       alert: Keyword.get(opts, :alert, &alert/1),
+      write: Keyword.get(opts, :write, &Aiur.Fs.atomic_write/3),
+      queue_limit: Keyword.get(opts, :queue_limit, 1024),
+      exchange_monitor: nil,
+      exchange_pid: nil,
+      persisted: %{},
       problem_hashes: %{},
       metrics: %{},
       patterns: MapSet.new(),
@@ -54,6 +59,23 @@ defmodule Aiur.Experiments.Capture do
   def handle_info({:event, event}, state) when is_map(event) do
     id = Fields.get(event, "id")
 
+    {:message_queue_len, queued} = Process.info(self(), :message_queue_len)
+
+    if queued >= state.queue_limit do
+      {:noreply, drop_event(event, state) |> persist_metadata()}
+    else
+      capture_once(event, id, state)
+    end
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{exchange_monitor: ref} = state) do
+    state = exchange_lost(state) |> persist_metadata()
+    {:noreply, state}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp capture_once(event, id, state) do
     if id && id in state.seen do
       {:noreply, state}
     else
@@ -63,8 +85,6 @@ defmodule Aiur.Experiments.Capture do
     end
   end
 
-  def handle_info(_message, state), do: {:noreply, state}
-
   defp schedule(state), do: Process.send_after(self(), :refresh, state.interval)
 
   defp reload(state) do
@@ -72,8 +92,7 @@ defmodule Aiur.Experiments.Capture do
     state = report_problems(catalog.problems, state)
     metrics = catalog.metrics |> Map.filter(fn {_ref, metric} -> event_source?(metric.source) end)
     patterns = metrics |> Enum.flat_map(fn {_ref, metric} -> patterns(metric.source) end) |> MapSet.new()
-    Enum.each(MapSet.difference(state.patterns, patterns), &Exchange.unsubscribe(&1, state.exchange))
-    Enum.each(MapSet.difference(patterns, state.patterns), &Exchange.subscribe(&1, state.exchange))
+    state = bind_exchange(state, patterns)
     now = DateTime.to_iso8601(state.clock.())
 
     coverage =
@@ -82,10 +101,56 @@ defmodule Aiur.Experiments.Capture do
         {ref, started}
       end)
 
-    state = %{state | metrics: metrics, patterns: patterns, coverage: coverage, errors: Map.take(state.errors, Map.keys(metrics))}
+    coverage = if state.exchange_monitor, do: coverage, else: %{}
+    state = %{state | metrics: metrics, coverage: coverage, errors: Map.take(state.errors, Map.keys(metrics))}
+    state = if state.exchange_monitor, do: state, else: exchange_lost(state)
     state = persist_metadata(state)
     Retention.run(state.root, state.clock.())
     state
+  end
+
+  defp bind_exchange(state, patterns) do
+    case GenServer.whereis(state.exchange) do
+      nil ->
+        exchange_lost(state)
+
+      pid ->
+        if Process.alive?(pid) do
+          state = if state.exchange_pid == pid, do: state, else: exchange_restored(state, pid)
+          Enum.each(MapSet.difference(state.patterns, patterns), &Exchange.unsubscribe(&1, state.exchange))
+          Enum.each(MapSet.difference(patterns, state.patterns), &Exchange.subscribe(&1, state.exchange))
+          %{state | patterns: patterns}
+        else
+          exchange_lost(state)
+        end
+    end
+  catch
+    :exit, _reason -> exchange_lost(state)
+  end
+
+  defp exchange_restored(state, pid) do
+    if state.exchange_monitor, do: Process.demonitor(state.exchange_monitor, [:flush])
+    errors = Map.reject(state.errors, fn {_ref, reason} -> reason == ":exchange_unavailable" end)
+    %{state | exchange_monitor: Process.monitor(pid), exchange_pid: pid, metrics: %{}, patterns: MapSet.new(), errors: errors, seen: []}
+  end
+
+  defp exchange_lost(state) do
+    if state.exchange_monitor, do: Process.demonitor(state.exchange_monitor, [:flush])
+    errors = Enum.reduce(Map.keys(state.metrics), state.errors, &Map.put_new(&2, &1, ":exchange_unavailable"))
+    %{state | exchange_monitor: nil, exchange_pid: nil, patterns: MapSet.new(), coverage: %{}, errors: errors}
+  end
+
+  defp drop_event(event, state) do
+    topic = Fields.get(event, "topic")
+
+    errors =
+      Enum.reduce(state.metrics, state.errors, fn {ref, metric}, errors ->
+        if is_binary(topic) and Enum.any?(patterns(metric.source), &Exchange.matches?(&1, topic)),
+          do: Map.put_new(errors, ref, ":capture_overloaded"),
+          else: errors
+      end)
+
+    %{state | errors: errors, dropped: state.dropped + 1}
   end
 
   defp report_problems(problems, state) do
@@ -129,7 +194,11 @@ defmodule Aiur.Experiments.Capture do
   end
 
   defp capture_metric({ref, metric}, state, topic, event) do
-    if Enum.any?(patterns(metric.source), &Exchange.matches?(&1, topic)), do: append(ref, metric.source, event, state), else: state
+    cond do
+      not Enum.any?(patterns(metric.source), &Exchange.matches?(&1, topic)) -> state
+      Map.has_key?(state.errors, ref) -> %{state | dropped: state.dropped + 1}
+      true -> append(ref, metric.source, event, state)
+    end
   end
 
   defp append(ref, source, event, state) do
@@ -166,13 +235,22 @@ defmodule Aiur.Experiments.Capture do
   end
 
   defp persist_metadata(state) do
-    with :ok <- Aiur.Journal.ensure_directory(state.root),
-         :ok <- Aiur.Fs.atomic_write(Path.join(state.root, "coverage.json"), Jason.encode!(state.coverage), fsync: true, mode: 0o600),
-         :ok <- Aiur.Fs.atomic_write(Path.join(state.root, "errors.json"), Jason.encode!(state.errors), fsync: true, mode: 0o600) do
-      state
-    else
-      {:error, reason} -> Enum.reduce(Map.keys(state.metrics), state, &failed(&2, &1, reason))
-    end
+    Enum.reduce([:coverage, :errors], state, fn key, state ->
+      value = Map.fetch!(state, key)
+
+      if state.persisted[key] == value do
+        state
+      else
+        state = %{state | persisted: Map.put(state.persisted, key, value)}
+
+        with :ok <- Aiur.Journal.ensure_directory(state.root),
+             :ok <- state.write.(Path.join(state.root, "#{key}.json"), Jason.encode!(value), fsync: true, mode: 0o600) do
+          state
+        else
+          {:error, reason} -> Enum.reduce(Map.keys(state.metrics), state, &failed(&2, &1, reason))
+        end
+      end
+    end)
   end
 
   defp failed(state, ref, reason) do
