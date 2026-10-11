@@ -224,7 +224,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
 
   defp valid_record?(id, %{"v" => 1} = row) do
     row["attempt_id"] == id and is_binary(row["ticket"]) and is_integer(row["started_at_ms"]) and
-      (is_nil(row["attempt_sequence"]) or (is_integer(row["attempt_sequence"]) and row["attempt_sequence"] > 0)) and
+      valid_sequence?(row["attempt_sequence"]) and
       valid_blockers?(row["blockers"]) and
       valid_counters?(row["counters"]) and
       row["status"] in ["running", "parked", "closed"] and (row["status"] != "closed" or is_integer(row["closed_at_ms"]))
@@ -232,6 +232,9 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
 
   defp valid_record?(_id, %{"v" => v}) when is_integer(v) and v > 1, do: true
   defp valid_record?(_id, _row), do: false
+
+  defp valid_sequence?(nil), do: true
+  defp valid_sequence?(sequence), do: is_integer(sequence) and sequence > 0
 
   defp valid_blockers?(blockers) when is_list(blockers), do: Enum.all?(blockers, &(is_map(&1) and is_binary(&1["id"])))
   defp valid_blockers?(_), do: false
