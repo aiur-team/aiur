@@ -82,6 +82,6 @@
   {Aiur.Orchestrator.State, :rework_attempt_alerted, "Baseline pr_lifecycle write in Aiur.Orchestrator.State; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.State, :rework_attempts, "Baseline pr_lifecycle write in Aiur.Orchestrator.State; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.State, :running, "Baseline lifecycle write in Aiur.Orchestrator.State; retain until this responsibility moves to its field owner."},
-  {Aiur.Orchestrator.StatusReport, :waiting_for_human_episodes, "Baseline core write in Aiur.Orchestrator.StatusReport; retain until this responsibility moves to its field owner."},
+  {Aiur.Orchestrator.StatusReport.HumanWait, :waiting_for_human_episodes, "Baseline core write in StatusReport.HumanWait; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.TokenAccounting, :running, "Baseline lifecycle write in Aiur.Orchestrator.TokenAccounting; retain until this responsibility moves to its field owner."}
 ]

@@ -83,7 +83,7 @@
     },
     {
       "id": "github-listeners", "name": "GitHub event ingestion (webhook + pollers)", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur_web/routes/github_webhook.ex", "src/lib/aiur_web/controllers/github_webhook_controller.ex", "src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/branch_rewrite_classifier.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/stacking/**", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
+      "paths": ["src/lib/aiur_web/routes/github_webhook.ex", "src/lib/aiur_web/controllers/github_webhook_controller.ex", "src/lib/aiur/events/branch_ref_store.ex", "src/lib/aiur/events/branch_rewrite_classifier.ex", "src/lib/aiur/events/comment_filter.ex", "src/lib/aiur/events/github*.ex", "src/lib/aiur/events/github_ci_poller/**", "src/lib/aiur/events/github_comments_poller/**", "src/lib/aiur/stacking/**", "src/lib/aiur/events/ls_remote_ticker.ex", "src/lib/aiur/events/pr_command_scanner.ex", "src/lib/aiur/events/sanitizer.ex", "src/lib/aiur/orchestrator/comment_polling*.ex", "src/lib/aiur/poll_cadence.ex", "src/lib/aiur/poll_cadence/**", "src/lib/aiur/webhooks.ex", "src/lib/aiur/webhooks/**", "src/lib/aiur_web/github_webhook*"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["identity", "github", "event-bus", "config", "web-kit", "kernel"], "optional": [],
       "owns": {"config": ["webhooks"], "env": ["AIUR_GITHUB_WEBHOOK_SECRET"], "state": [], "capabilities": ["webhook_ingress"]},
@@ -91,7 +91,7 @@
     },
     {
       "id": "harness-adapters", "name": "Harness adapter package (MP-R7)", "layer": 2, "kind": "required",
-      "paths": ["src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
+      "paths": ["src/priv/agent_relay.py", "src/lib/aiur/agent_tools/**", "src/lib/aiur/app_server/**", "src/lib/aiur/claude/**", "src/lib/aiur/codex/**", "src/lib/aiur/codex_prober.ex", "src/lib/aiur/coding_agent.ex", "src/lib/aiur/coding_agent/**", "src/lib/aiur/model_availability.ex", "src/lib/aiur/model_catalog.ex", "src/lib/aiur/model_discovery.ex", "src/lib/aiur/model_discovery/**", "src/lib/aiur/muse/**", "src/lib/aiur/open_ai_compat/**", "src/lib/aiur/rtk.ex", "src/lib/aiur/rtk_startup_check.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["identity", "agent-sandbox", "config", "kernel"], "optional": ["accounting"],
       "owns": {"config": ["agent"], "env": [], "state": [], "capabilities": ["remote_control"]},
