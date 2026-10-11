@@ -10,11 +10,4 @@ defmodule Aiur.RunTelemetry.EventFields do
 
   @spec take(map()) :: %{atom() => term()}
   def take(attributes), do: Map.new(@fields, &{&1, Map.get(attributes, Atom.to_string(&1))})
-
-  @spec resource_evidence() :: [atom()]
-  def resource_evidence, do: ~w(
-    fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms
-    fleet_admission_signal fleet_binding_kind
-    build_gate_enabled build_gate_status build_gate_observed_at_ms
-  )a
 end

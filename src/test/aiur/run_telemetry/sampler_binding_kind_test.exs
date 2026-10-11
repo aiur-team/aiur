@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetry.SamplerBindingKindTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Orchestrator.TelemetryEvents
   alias Aiur.RunTelemetry.Sampler
 
   @full_cap %{occupied: 4, configured: 4, max: 4, effective: 4, available: 0}
@@ -28,7 +29,7 @@ defmodule Aiur.RunTelemetry.SamplerBindingKindTest do
         operator_pid: nil,
         fd_headroom_fun: fn -> :unavailable end,
         system_ms_fun: fn -> 42 end,
-        fleet_snapshot_fun: fn -> Aiur.Orchestrator.TelemetryEvents.binding_snapshot(fleet_snapshot_fun.()) end,
+        fleet_snapshot_fun: fn -> TelemetryEvents.binding_snapshot(fleet_snapshot_fun.()) end,
         build_status_fun: fn -> %{enabled?: false} end
       )
 
