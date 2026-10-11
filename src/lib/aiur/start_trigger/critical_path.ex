@@ -17,6 +17,7 @@ defmodule Aiur.StartTrigger.CriticalPath do
     Map.new(ranks)
   end
 
+  @spec depth(String.t(), map(), MapSet.t(String.t()), MapSet.t(String.t()), map()) :: {non_neg_integer(), map(), boolean()}
   defp depth(node, graph, open, seen, memo) do
     cond do
       MapSet.member?(seen, node) -> {0, memo, true}
@@ -25,6 +26,7 @@ defmodule Aiur.StartTrigger.CriticalPath do
     end
   end
 
+  @spec children_depth(String.t(), map(), MapSet.t(String.t()), MapSet.t(String.t()), map()) :: {non_neg_integer(), map(), boolean()}
   defp children_depth(node, graph, open, seen, memo) do
     children = Enum.filter(Map.get(graph, node, []), &(MapSet.member?(open, &1) and not MapSet.member?(seen, &1)))
     cycle? = Enum.any?(Map.get(graph, node, []), &(MapSet.member?(open, &1) and MapSet.member?(seen, &1)))
@@ -38,6 +40,7 @@ defmodule Aiur.StartTrigger.CriticalPath do
     {value, if(cyclic?, do: memo, else: Map.put(memo, node, value)), cyclic?}
   end
 
+  @spec reachable([String.t()], map(), MapSet.t(String.t())) :: MapSet.t(String.t())
   defp reachable([], _graph, seen), do: seen
 
   defp reachable([node | rest], graph, seen) do
