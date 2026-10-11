@@ -752,10 +752,10 @@ The durable repository Executor state also records every daemon start and stop i
 ## build_queue
 
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
-
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
+| `build_queue.optimistic_slot_share` | float | 0.5 | Fleet-wide optimistic share, 0..1. Zero disables optimistic dispatch; otherwise the cap is max(1, floor(share × effective agent limit)). Ready work starts first; merged blockers free share on the next cycle. Running agents are never preempted. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |

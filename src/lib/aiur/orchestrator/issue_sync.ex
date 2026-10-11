@@ -2355,7 +2355,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   # unknown, not known-blocking — so a ticket held there stays ready work and
   # still alerts.
   defp dependency_declined?(%State{} = state, issue),
-    do: Map.get(state.dispatch_declines, issue.id) == :dependency
+    do: Map.get(state.dispatch_declines, issue.id) in [:dependency, :optimistic_share]
 
   defp capacity_constraint_entries(%State{} = state, issues) do
     state.dispatch_capacity_constraints

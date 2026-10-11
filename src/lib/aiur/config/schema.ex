@@ -39,6 +39,7 @@ defmodule Aiur.Config.Schema do
   # Embedded struct defaults must rebuild when the agent schema changes.
   require Agent
   require Tracker
+  require BuildQueue
 
   @primary_key false
 

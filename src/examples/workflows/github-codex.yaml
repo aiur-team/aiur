@@ -177,6 +177,7 @@ prompt_file: github-codex.prompt.md
 
 # Build queue (GitHub only; defaults shown).
 # build_queue:
+#   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds

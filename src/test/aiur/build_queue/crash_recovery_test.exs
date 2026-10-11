@@ -36,7 +36,7 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
 
     assert before.status == :running
     assert Enum.map(before.projections, & &1.issue_id) |> Enum.sort() == ["1", "2", "3"]
-    assert before_hints == [{"1", {-1, 0}, false, :pr_merged}, {"2", {0, 0}, true, :pr_merged}, {"3", {0, 0}, false, :pr_merged}]
+    assert before_hints == [{"1", {-1, 0}, false, :pr_merged, 1}, {"2", {0, 0}, true, :pr_merged, 0}, {"3", {0, 0}, false, :pr_merged, 0}]
 
     ref = Process.monitor(before_pid)
     Process.exit(before_pid, :kill)

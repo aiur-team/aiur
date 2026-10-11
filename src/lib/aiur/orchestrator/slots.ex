@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -220,6 +220,7 @@ defmodule Aiur.Orchestrator.Slots do
       max: max,
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
+      optimistic: OptimisticSlots.status(state),
       capacity_hold: state.capacity_hold,
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,

@@ -35,7 +35,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, OptimisticSlots, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   alias Aiur.WorkflowStore.ReloadRejection
@@ -2176,7 +2176,7 @@ defmodule Aiur.AgentControlCLI do
               is_integer(configured) do
     binding = capacity_binding(capacity, polling)
     resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}")
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}#{OptimisticSlots.label(capacity)}")
   end
 
   defp print_capacity_status(_capacity, _polling), do: :ok
