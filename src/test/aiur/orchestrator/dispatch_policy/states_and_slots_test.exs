@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
       description = DispatchPolicy.describe_dependency_hold(blocked, terminal_states)
 
-      assert description == "blocked by open dependency #41 (rework); 3 terminal dependencies ignored"
+      assert description == "blocked by open dependency #41 (rework); 3 terminal dependencies ignored [#41 needs pr_merged (now pr_ci_green)]; needs pr_merged"
       refute description =~ "36"
       refute description =~ "42"
     end
@@ -229,7 +229,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         issue("blocked", state: "todo", blocked_by: [blocker("7", "todo"), blocker("8", "rework")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependencies #7 (todo), #8 (rework)"
+               "blocked by open dependencies #7 (todo), #8 (rework) [#7 needs pr_merged (now no PR stage); #8 needs pr_merged (now pr_ci_green)]; needs pr_merged"
     end
 
     test "an all-terminal blocked_by list is not a hold at all" do
@@ -249,7 +249,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         issue("blocked", state: "todo", blocked_by: [blocker("9", nil), blocker("10", "Closed")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored"
+               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored [#9 unknown: blocker state unreadable]; needs pr_merged"
     end
 
     test "a non-numeric blocker identifier is printed without a number sigil" do
@@ -257,7 +257,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
       blocked = issue("blocked", state: "todo", blocked_by: [blocker("KHALA-41", "rework")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependency KHALA-41 (rework)"
+               "blocked by open dependency KHALA-41 (rework) [KHALA-41 needs pr_merged (now pr_ci_green)]; needs pr_merged"
     end
 
     test "an unnameable blocked_by shape still reads as a hold" do

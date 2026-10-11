@@ -91,7 +91,10 @@ defmodule AiurWeb.BuildQueue.Copy do
   defp humanize(value), do: value |> String.replace("_", " ") |> String.capitalize()
 
   @spec prerequisite(map()) :: String.t()
-  def prerequisite(edge), do: "##{edge.number} · #{label(edge.verdict)} · #{reason(edge.source)}"
+  def prerequisite(edge), do: edge.description
+
+  @spec trigger(map()) :: String.t()
+  def trigger(queue), do: "start on #{queue.start_trigger}" <> if(queue.start_trigger_source == :config, do: " (default)", else: "")
 
   @spec progress(map()) :: String.t()
   def progress(queue) do

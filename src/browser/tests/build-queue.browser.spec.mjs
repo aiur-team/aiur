@@ -43,7 +43,8 @@ for (const width of [1280, 390]) {
     }
     await expect(panel).toContainText('12s ago')
     await expect(panel).toContainText('3 open downstream · priority 2')
-    await expect(panel).toContainText('#2999 · Waiting for completion')
+    await expect(panel).toContainText('start on pr_merged (default)')
+    await expect(panel).toContainText('#2999 needs pr_merged (now pr_opened)')
     await expect(panel.locator('[data-queue-attention="open"]')).toContainText('operator attention')
     await expect(panel.locator('[data-queue-attention="resolved"]')).toContainText('prerequisite recovered')
     await expect(panel.locator('button, input, form')).toHaveCount(0)

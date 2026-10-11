@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   import Aiur.Orchestrator.DispatchPolicy.IssueStates
 
   alias Aiur.{Config, Issue}
+  alias Aiur.BuildQueue.Hints
   alias Aiur.Orchestrator.{DependencyGate, Slots, State}
 
   # Kept as the pre-#2751 phrasing for the shapes that carry no nameable
@@ -111,7 +112,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   def describe_dependency_hold(%Issue{blocked_by: blockers} = issue, terminal_states)
       when is_list(blockers) do
     holding = holding_blockers(issue, terminal_states)
-    describe_hold(holding, length(blockers) - length(holding))
+    description = describe_hold(holding, length(blockers) - length(holding))
+    details = DependencyGate.descriptions(issue, terminal_states)
+    description <> " [#{Enum.join(details, "; ")}]" <> "; needs #{Hints.trigger_for(issue.id)}"
   end
 
   def describe_dependency_hold(_issue, _terminal_states), do: @unknown_dependency_hold

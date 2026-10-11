@@ -33,7 +33,7 @@ defmodule Aiur.BuildQueue.PRObserver do
           true -> observation.pr
         end
 
-      {id, %{observation | stage_reached: stage, pr: pr}}
+      {id, %{observation | stage_reached: stage, pr: pr, pr_number: (row && row.pr_number) || observation.pr_number}}
     end)
   end
 
@@ -53,10 +53,10 @@ defmodule Aiur.BuildQueue.PRObserver do
     if observation && observation.open? == true && error not in observation.labels do
       case state.tracker.ticket_pull_request(id) do
         {:ok, %{state: :closed, merged?: false} = pr} ->
-          {Map.put(observations, id, %{observation | pr: :closed_unmerged}), publish(id, pr, state)}
+          {Map.put(observations, id, %{observation | pr: :closed_unmerged, pr_number: Map.get(pr, :number)}), publish(id, pr, state)}
 
-        {:ok, %{merged?: merged, state: status}} ->
-          {Map.put(observations, id, %{observation | pr: if(merged, do: :merged, else: status)}), state}
+        {:ok, %{merged?: merged, state: status} = pr} ->
+          {Map.put(observations, id, %{observation | pr: if(merged, do: :merged, else: status), pr_number: Map.get(pr, :number)}), state}
 
         {:ok, nil} ->
           {observations, state}

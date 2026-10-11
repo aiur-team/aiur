@@ -17,6 +17,16 @@ defmodule Aiur.Orchestrator.DependencyGate do
 
   def verdicts(_issue, _terminal_states), do: []
 
+  @spec descriptions(Issue.t(), MapSet.t()) :: [String.t()]
+  def descriptions(issue, terminal_states) do
+    trigger = Hints.trigger_for(issue.id)
+    now = System.system_time(:millisecond)
+
+    for {blocker, verdict} <- verdicts(issue, terminal_states), not match?({:satisfied, _}, verdict) do
+      StartTrigger.describe(trigger, evidence(blocker, terminal_states, now, Hints.observation_max_age_ms()), verdict)
+    end
+  end
+
   defp evidence(%{state: state} = blocker, terminal_states, now, max_age_ms) when is_binary(state) do
     state = state |> String.trim() |> String.downcase()
     terminal? = state != "error" and (state in ["closed", "not_planned"] or MapSet.member?(terminal_states, state))
@@ -26,6 +36,7 @@ defmodule Aiur.Orchestrator.DependencyGate do
     final? = terminal? or row_stage == :pr_merged
 
     %Evidence{
+      identifier: Map.get(blocker, :identifier),
       issue_open?: not terminal?,
       state_reason: if(terminal?, do: "completed"),
       state_label: state,
@@ -36,7 +47,8 @@ defmodule Aiur.Orchestrator.DependencyGate do
     }
   end
 
-  defp evidence(_blocker, _terminal_states, now, _max_age_ms), do: %Evidence{observed_at_ms: now, unavailable_reason: :blocker_state_unreadable}
+  defp evidence(blocker, _terminal_states, now, _max_age_ms),
+    do: %Evidence{identifier: if(is_map(blocker), do: Map.get(blocker, :identifier)), observed_at_ms: now, unavailable_reason: :blocker_state_unreadable}
 
   defp fresh_stage(%{stage: stage, observed_at_ms: at}, now, max_age_ms) when is_integer(at) do
     if stage == :pr_merged or now - at <= max_age_ms, do: stage
