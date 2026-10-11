@@ -32,9 +32,9 @@ defmodule Aiur.ElevenLabs.TTSTest do
     assert url =~ URI.encode(@voice_id, &URI.char_unreserved?/1)
     assert {"xi-api-key", @api_key} in Keyword.fetch!(options, :headers)
     assert Keyword.fetch!(options, :json) == %{text: "Agent reply", model_id: "eleven_flash_v2_5"}
-    assert_receive {:elevenlabs_audio, :chunk, <<1, 2>>}, 1000
-    assert_receive {:elevenlabs_audio, :chunk, <<3, 4>>}, 1000
-    assert_receive {:elevenlabs_audio, :done}, 1000
+    assert_receive {:voice_audio, :chunk, <<1, 2>>}, 1000
+    assert_receive {:voice_audio, :chunk, <<3, 4>>}, 1000
+    assert_receive {:voice_audio, :done}, 1000
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
   end
 
@@ -78,9 +78,9 @@ defmodule Aiur.ElevenLabs.TTSTest do
              )
 
     monitor = Process.monitor(pid)
-    assert_receive {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"}, 1000
-    refute_receive {:elevenlabs_audio, :chunk, _data}, 100
-    refute_receive {:elevenlabs_audio, :done}, 100
+    assert_receive {:voice_audio, :error, "Voice reply exceeded its playback limit"}, 1000
+    refute_receive {:voice_audio, :chunk, _data}, 100
+    refute_receive {:voice_audio, :done}, 100
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
     assert Process.alive?(owner)
   end
@@ -95,7 +95,7 @@ defmodule Aiur.ElevenLabs.TTSTest do
                )
 
       monitor = Process.monitor(pid)
-      assert_receive {:elevenlabs_audio, :error, reason}, 1000
+      assert_receive {:voice_audio, :error, reason}, 1000
       refute reason =~ @api_key
       assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
     end

@@ -1140,16 +1140,16 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => session})
       assert_receive {:voice_session_started, pid}, 1000
 
-      send(socket.channel_pid, {:elevenlabs_transcript, :partial, "ship the"})
+      send(socket.channel_pid, {:voice_transcript, :partial, "ship the"})
       assert_push("voice", %{"session" => ^session, "kind" => "partial", "text" => "ship the"})
 
-      send(socket.channel_pid, {:elevenlabs_transcript, :final, "ship the fix"})
+      send(socket.channel_pid, {:voice_transcript, :final, "ship the fix"})
       assert_push("voice", %{"session" => ^session, "kind" => "final", "text" => "ship the fix"})
 
-      send(socket.channel_pid, {:elevenlabs_error, "ElevenLabs rejected the API key"})
+      send(socket.channel_pid, {:voice_error, %{code: :provider_auth, message: "ElevenLabs rejected the API key"}})
       assert_push("voice_error", %{"session" => ^session, "reason" => "ElevenLabs rejected the API key"})
 
-      send(socket.channel_pid, {:elevenlabs_closed})
+      send(socket.channel_pid, {:voice_closed})
       assert_push("voice_closed", %{"session" => ^session})
 
       # The session is released, so a late frame for it is inert.
@@ -1250,7 +1250,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     @impl true
     def terminate(_reason, state) do
-      send(state.owner, {:elevenlabs_transcript, :partial, "abandoned"})
+      send(state.owner, {:voice_transcript, :partial, "abandoned"})
       :ok
     end
 

@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.PollCadence
+  alias Aiur.Workspace.Ownership.Retention
 
   @doc false
   @spec snapshot_payload(State.t()) :: map()
@@ -120,6 +121,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     waiting_reason =
       WaitingReason.for_running(%{
         tracker_state: metadata.issue.state,
+        workspace_retained?: not is_nil(Retention.for_ticket(metadata.identifier)),
         pause_reason: pause_reason,
         work_state: work_state,
         open_decision_count: open_decision_count,
