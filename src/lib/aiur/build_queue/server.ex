@@ -44,7 +44,6 @@ defmodule Aiur.BuildQueue.Server do
       settings: settings,
       writer: Writer.new(),
       write_results: [],
-      sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
       tracker: Keyword.get(opts, :tracker, Aiur.Tracker),
       store: Keyword.get(opts, :store, Store),
       claim_probe: Keyword.get(opts, :claim_probe, ClaimProbe),
@@ -230,6 +229,8 @@ defmodule Aiur.BuildQueue.Server do
     {:noreply, reconcile(%{state | pending: nil})}
   end
 
+  def handle_info(:retry_writes, %{status: status} = state) when status in [:running, :writes_paused], do: {:noreply, reconcile(state)}
+
   def handle_info({:DOWN, _ref, :process, pid, _reason}, %{exchange_pid: pid} = state), do: {:noreply, %{state | exchange_pid: nil}}
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -373,7 +374,7 @@ defmodule Aiur.BuildQueue.Server do
     Reconcile.write_hints(projections, holds, state.document, state.settings)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
     state = %{state | projections: projections, observations: observations, actions: state.actions, holds: holds, hold_ages: ages, reconciles: state.reconciles + 1}
-    Progress.publish(state)
+    state = Progress.reconcile(state)
     if Enum.any?(actions, &match?({:dequeue, _}, &1)), do: request(state), else: state
   end
 

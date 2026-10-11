@@ -31,8 +31,23 @@ fi
 # ExUnit prints each failure as:
 #     1) test <name> (<Module>)
 failing_tests="$(
-  sed -nE 's/^[[:space:]]*[0-9]+\) test (.*) \(([A-Za-z0-9_.]+)\)[[:space:]]*$/\2 :: \1/p' "$log_file" |
-    sort -u
+  awk '
+    function flush() { if (identity != "") print identity "\t" path "\t" line }
+    /^[[:space:]]*[0-9]+\) test .* \([A-Za-z0-9_.]+\)[[:space:]]*$/ {
+      flush(); name=$0; sub(/^[[:space:]]*[0-9]+\) test /, "", name)
+      module=name; sub(/^.* \(/, "", module); sub(/\)[[:space:]]*$/, "", module)
+      sub(/ \([A-Za-z0-9_.]+\)[[:space:]]*$/, "", name)
+      identity=module " :: " name; path=""; line=""; next
+    }
+    identity != "" && /^[[:space:]]*(src\/)?test\/.*\.exs:[0-9]+[[:space:]]*$/ {
+      location=$0; sub(/^[[:space:]]*/, "", location); sub(/[[:space:]]*$/, "", location)
+      line=location; sub(/^.*:/, "", line)
+      path=location; sub(/:[0-9]+$/, "", path)
+      if (path ~ /^test\//) path="src/" path
+      flush(); identity=""
+    }
+    END { flush() }
+  ' "$log_file" | sort -u
 )"
 
 {
@@ -58,16 +73,23 @@ fi
 
 # Escape workflow-command data; colons in test names remain literal message text.
 annotation() {
-  local message="$1"
+  local message="$1" path="${2:-}" line="${3:-}"
   message="${message//'%'/'%25'}"
   message="${message//$'\r'/'%0D'}"
   message="${message//$'\n'/'%0A'}"
-  printf '::error title=aiur-test-failure::%s\n' "$message"
+  if [[ -n "$path" ]]; then
+    path="${path//'%'/'%25'}"
+    path="${path//','/'%2C'}"
+    path="${path//':'/'%3A'}"
+    printf '::error title=aiur-test-failure,file=%s,line=%s::%s\n' "$path" "$line" "$message"
+  else
+    printf '::error title=aiur-test-failure::%s\n' "$message"
+  fi
 }
 
 known=0
 new=0
-while IFS= read -r test; do
+while IFS=$'\t' read -r test path line; do
   if [[ -f "$list_file" ]] && grep -Fxq -- "$test" "$known_file"; then
     echo "  - $test — **known flake** (listed in .github/known-flaky-tests.txt)" >> "$summary_file"
     classification=known-flake
@@ -78,7 +100,7 @@ while IFS= read -r test; do
     new=$((new + 1))
   fi
   if (( known + new <= 9 )); then
-    annotation "$classification :: $test"
+    annotation "$classification :: $test" "$path" "$line"
   fi
 done <<< "$failing_tests"
 if (( known + new > 9 )); then

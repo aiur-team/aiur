@@ -5,7 +5,7 @@ defmodule Aiur.RunTelemetry.Dataset.Source do
   alias Aiur.RunTelemetry.Lifecycle
 
   @telemetry_filename "telemetry.ndjson"
-  @supported_kinds ~w(restart lifecycle resource warning)
+  @supported_kinds ~w(restart run_context lifecycle resource warning)
   @tail_chunk_bytes 64 * 1024
   @max_tail_line_bytes 1 * 1024 * 1024
 

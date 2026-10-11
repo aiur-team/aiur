@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Post-deploy smoke check for the published docs site (https://aiur.team/docs/).
 #
-# The docs are deployed by Netlify on push to main, so this script runs from
-# the push-to-main website workflow right after the docs build and compares the
+# Production deploys are manual. Dispatch the website workflow with deployed_sha
+# after publishing; it builds that exact commit and compares the
 # freshly built pages (dist/docs) against the live site. It fails when the
 # published site does not return 200 or when its content lags the merged
 # commit — the silent-stale failure mode from #1921, where a broken deploy hook

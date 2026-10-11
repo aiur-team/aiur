@@ -47,6 +47,7 @@ def boot_summary(dataset: dict, boot_id: str, opts: dict | None = None) -> dict:
         "source_bytes": source_bytes,
         "records": records,
         "restarts": [record for record in dataset["restarts"] if _in_boot(record, boot_id)],
+        "run_contexts": [record for record in dataset["records"] if record["kind"] == "run_context" and _in_boot(record, boot_id)],
         "actors": actors,
         "tickets": tickets,
         "findings": findings,

@@ -81,8 +81,8 @@ defmodule Aiur.MainWatch.GitHubTest do
     end
 
     assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], request_fun: request, actions_write: false)
-    assert [%{id: 1, name: "test", tests: [%{identity: "ExampleTest :: regression", classification: :new_failure}]}] = observation.digest.checks
-    assert observation.digest.tests == [%{identity: "ExampleTest :: regression", classification: :new_failure}]
+    assert [%{id: 1, name: "test", tests: [%{identity: "ExampleTest :: regression", classification: :new_failure, path: nil}]}] = observation.digest.checks
+    assert observation.digest.tests == [%{identity: "ExampleTest :: regression", classification: :new_failure, path: nil}]
     refute observation.digest.flake_only
   end
 
@@ -105,7 +105,7 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert observation.failed_workflow
     assert Enum.sort(Enum.map(observation.checks, & &1.conclusion)) == ["cancelled", "failure"]
     assert Enum.map(observation.digest.checks, & &1.id) == [1, 2]
-    assert observation.digest.tests == [%{identity: "ExampleTest :: fail fast", classification: :new_failure}]
+    assert observation.digest.tests == [%{identity: "ExampleTest :: fail fast", classification: :new_failure, path: nil}]
     refute observation.digest.flake_only
   end
 
