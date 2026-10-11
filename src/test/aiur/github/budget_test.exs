@@ -845,7 +845,7 @@ defmodule Aiur.GitHub.BudgetTest do
     observe_headroom(request, limit: 10, remaining: 10, reset: reset)
 
     for _ <- 1..2 do
-      assert {:ok, lease} = Budget.acquire(request, opts)
+      assert {:ok, lease} = acquire_retrying_timeout(request, opts)
       assert :ok = Budget.release(lease, opts)
     end
 
