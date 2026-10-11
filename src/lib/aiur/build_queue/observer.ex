@@ -1,5 +1,5 @@
 defmodule Aiur.BuildQueue.Observer do
-  @moduledoc "Transient prerequisite closure evidence; open listings invalidate terminal entries."
+  @moduledoc "Transient closure evidence for queue members and prerequisites; open listings invalidate terminal entries."
   alias Aiur.BuildQueue.{Model.Observation, Settings}
 
   @spec observe(map()) :: {map(), map()}
@@ -16,10 +16,10 @@ defmodule Aiur.BuildQueue.Observer do
     end
   end
 
-  @doc "Adds closure evidence for prerequisites missing from an open listing taken at `observed_at_ms`."
+  @doc "Adds closure evidence for queue members and prerequisites missing from an open listing taken at `observed_at_ms`."
   @spec enrich(map(), map(), integer()) :: {map(), map()}
   def enrich(state, open, observed_at_ms) do
-    ids = state.document.edges |> Enum.map(& &1.prerequisite) |> Enum.uniq()
+    ids = (Enum.map(state.document.edges, & &1.prerequisite) ++ Enum.map(state.document.items, & &1.issue_id)) |> Enum.uniq()
     cache = state |> Map.get(:closure_cache, %{}) |> Map.take(ids) |> Map.drop(Map.keys(open))
     age = Settings.observation_max_age_ms(state.settings)
     Enum.reduce(ids, {open, cache}, &observe_missing(&1, &2, state.tracker, observed_at_ms, age))

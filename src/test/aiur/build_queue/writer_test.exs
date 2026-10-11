@@ -36,7 +36,7 @@ defmodule Aiur.BuildQueue.WriterTest do
     observations = input(first.document).observations |> Map.update!("1", &%{&1 | open?: false, state_reason: "completed", observed_at_ms: 2_000})
     {_, next} = Planner.plan(%{input(first.document) | observations: observations})
     run(first.document, next, first.writer)
-    assert calls() == [promote("1"), {:notify_demand, ["1"]}, promote("2"), {:notify_demand, ["2"]}]
+    assert calls() == [promote("1"), {:notify_demand, ["1"]}, {:remove_label, "1", "agent:queued"}, promote("2"), {:notify_demand, ["2"]}]
   end
 
   test "pacing: 30 ready at 20 per minute writes 20 now and 10 next window" do

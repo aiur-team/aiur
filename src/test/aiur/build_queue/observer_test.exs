@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ObserverTest do
   use ExUnit.Case, async: true
-  alias Aiur.BuildQueue.{Model.Edge, Observer, Readiness}
+  alias Aiur.BuildQueue.{Model.Edge, Model.Item, Observer, Readiness}
   alias Aiur.Config.Schema
 
   defmodule Tracker do
@@ -21,7 +21,7 @@ defmodule Aiur.BuildQueue.ObserverTest do
        settings: %Schema{build_queue: %Schema.BuildQueue{}, polling: %Schema.Polling{}},
        tracker: Tracker,
        closure_cache: %{},
-       document: %{edges: [%Edge{prerequisite: "1", dependent: "2", source: :native}]}
+       document: %{edges: [%Edge{prerequisite: "1", dependent: "2", source: :native}], items: []}
      }}
   end
 
@@ -34,6 +34,14 @@ defmodule Aiur.BuildQueue.ObserverTest do
     end)
 
     assert Process.get(:reads) == ["1"]
+  end
+
+  test "closed queue members are observed even when they have no prerequisite edges", %{state: state} do
+    item = %Item{issue_id: "9", queue_id: "q-list", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: DateTime.from_unix!(0)}
+    {observations, _cache} = Observer.observe(%{state | document: %{edges: [], items: [item]}})
+    assert observations["9"].open? == false
+    assert observations["9"].state_reason == "completed"
+    assert Process.get(:reads) == ["9"]
   end
 
   test "closure reasons produce completed, failed and unknown verdicts", %{state: state} do
