@@ -60,6 +60,20 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     assert retained.capacity.dispatch_observation == retained.observations.dispatch
   end
 
+  test "per-ticket group age follows later ticket polls without resetting older row ages" do
+    now = DateTime.utc_now()
+    old_ticket = DateTime.add(now, -300, :second)
+    fresh_ticket = DateTime.add(now, -15, :second)
+
+    state = %State{tracker_observations: %{"old" => old_ticket, "fresh" => fresh_ticket}}
+    snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(state))
+
+    assert snapshot.observations.per_ticket.observed_at == DateTime.to_iso8601(fresh_ticket)
+    assert snapshot.observations.per_ticket.age_ms >= 15_000
+    assert snapshot.ticket_observations["old"] == old_ticket
+    assert snapshot.ticket_observations["fresh"] == fresh_ticket
+  end
+
   test "successful tracker observations survive failed cycles and paused idle rows retain their age" do
     issue = %Issue{id: "idle", identifier: "idle", state: "todo", title: "Idle", paused: true, labels: ["agent:paused"]}
     before_observation = DateTime.utc_now()
@@ -77,6 +91,10 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     server = self()
     on_exit(fn -> SnapshotStore.forget(server) end)
     :ok = SnapshotStore.publish(server, snapshot, input)
+    payload = Presenter.state_payload(server, 5_000)
+    assert [idle_payload] = payload.idle
+    assert idle_payload.observed_at == idle.observed_at
+    assert idle_payload.age_ms >= 60_000
     {:ok, cli, _} = StatusReport.fleet_view(server, 5_000, fleet_rows?: true)
     assert [row] = cli.statuses
     assert row.observed_at == idle.observed_at

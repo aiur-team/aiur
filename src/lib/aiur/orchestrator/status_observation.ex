@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.StatusObservation do
   @spec attach(map(), map(), DateTime.t()) :: map()
   def attach(snapshot, state, now) do
     captured = Map.get(state, :status_observed_at) || now
-    tracker = oldest_observation(Map.values(state.tracker_observations))
+    tracker = newest_observation(Map.values(state.tracker_observations))
     observations = Map.new(@groups, &{&1, observation(captured, now)})
     observations = Map.put(observations, :per_ticket, observation(tracker, now))
     observations = Map.put(observations, :dispatch, observation(state.dispatch_capacity_sample[:observed_at], now))
@@ -91,8 +91,8 @@ defmodule Aiur.Orchestrator.StatusObservation do
 
   def sample_observed_at(_unavailable), do: nil
 
-  defp oldest_observation([]), do: nil
-  defp oldest_observation(times), do: Enum.min_by(times, &DateTime.to_unix(&1, :microsecond))
+  defp newest_observation([]), do: nil
+  defp newest_observation(times), do: Enum.max_by(times, &DateTime.to_unix(&1, :microsecond))
 
   @spec label(map() | nil) :: String.t()
   defdelegate label(observation), to: Aiur.Protocol.ObservationAge
