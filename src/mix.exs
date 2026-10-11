@@ -132,7 +132,13 @@ defmodule Aiur.MixProject do
       ],
       test_ignore_filters: [
         "test/support/snapshot_support.exs",
-        "test/support/test_support.exs"
+        "test/support/test_support.exs",
+        "test/support/test_support/workflow_yaml_sections.exs",
+        "test/support/test_support/workflow_yaml.exs",
+        "test/support/test_support/runtime_children.exs",
+        "test/support/test_support/processes.exs",
+        "test/support/test_support/workflow_files.exs",
+        "test/support/test_reset_support.ex"
       ],
       dialyzer: [
         plt_add_apps: [:mix],
@@ -176,6 +182,7 @@ defmodule Aiur.MixProject do
       {:ecto, "~> 3.13.6"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
+      {:voice_converse, path: "../packages/elixir/voice_converse"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}

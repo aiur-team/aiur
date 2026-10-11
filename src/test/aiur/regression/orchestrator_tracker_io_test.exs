@@ -65,8 +65,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       {:ok, [maybe_authorize(issue, Application.get_env(:aiur, :tracker_io_test_authorization))]}
     end
 
-    # Stands in for the timeline read the GitHub client authorizes every revalidated issue with
-    # (`DispatchAuthorization.authorize/5`). It verifies: a denial emits a real alert from the reader (#4009).
+    # Stands in for the timeline read behind `DispatchAuthorization.authorize/5`; it verifies, since a denial emits a real alert from the reader (#4009).
     defp maybe_authorize(issue, nil), do: issue
 
     defp maybe_authorize(issue, {owner, token}) do
@@ -158,7 +157,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
     send(server, :run_poll_cycle)
-    receive_barrier({:poll_started, ^token, tracker_pid})
+    tracker_pid = await_owned_poll(server, token)
 
     try do
       refute tracker_pid == server, "the tracker is executing in the orchestrator handler"
@@ -216,7 +215,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     state = :sys.get_state(server)
     :ok = SnapshotStore.publish(server, StatusReport.snapshot_payload(state), state)
     send(server, :run_poll_cycle)
-    receive_barrier({:poll_started, ^token, tracker_pid})
+    tracker_pid = await_owned_poll(server, token)
 
     calls = [
       status: fn -> Orchestrator.fleet_view(server, @control_budget_ms, fleet_rows?: true) end,
@@ -262,7 +261,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     put_test_env(:tracker_io_test_fast_writes, true)
     patterns = trace_handler_io(server)
     send(server, :run_poll_cycle)
-    receive_barrier({:poll_started, ^token, tracker_pid})
+    tracker_pid = await_owned_poll(server, token)
     id = issue.identifier
 
     controls = [
@@ -302,9 +301,10 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   test "a successful candidate poll applies after concurrent calls without a PubSub subscription", %{server: server, issue: issue, token: token} do
     put_test_env(:tracker_io_test_result, {:ok, [issue]})
+    {:ok, stray} = start_supervised({Task, fn -> SlowTracker.fetch_candidate_issues() end})
+    send(self(), receive_barrier({:poll_started, ^token, ^stray}))
     send(server, :run_poll_cycle)
-    receive_barrier({:poll_started, ^token, tracker_pid})
-    refute tracker_pid == server
+    tracker_pid = await_owned_poll(server, token)
     assert {:ok, :already_running} = PauseResume.resume_agent(server, issue.identifier)
     send(tracker_pid, {:release_poll, token})
     state = await_poll_finished(server)
@@ -366,8 +366,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       send(worker, :release)
     end
 
-    receive_barrier({:poll_started, ^token, candidate_worker})
-    refute candidate_worker == server
+    candidate_worker = await_owned_poll(server, token)
     send(candidate_worker, {:release_poll, token})
     state = await_poll_finished(server)
     assert state.last_polled_issues[issue.id] == issue
@@ -441,6 +440,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     put_test_env(:tracker_io_test_authorization, {self(), token})
     DispatchAuthorization.clear_cache()
     owner = self()
+    {:ok, stray} = start_supervised({Task, fn -> SlowTracker.fetch_issue_states_by_ids([candidate.id]) end})
+    send(self(), receive_barrier({:timeline_read_started, ^token, ^stray}))
     patterns = [{Aiur.Tracker, :fetch_issue_states_by_ids, :_} | @dispatch_authorization_patterns]
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
@@ -460,8 +461,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       )
     end)
 
-    receive_barrier({:timeline_read_started, ^token, reader})
-    refute reader == server, "dispatch authorization read the timeline in the orchestrator"
+    reader = Aiur.TrackerIoPollBarrier.await_dispatch_timeline_read(server, candidate.id, token)
     # The owner still answers a control while the timeline read is held.
     assert is_list(Orchestrator.status(server, @control_budget_ms))
     send(reader, {:release_timeline, token})

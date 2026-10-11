@@ -64,6 +64,7 @@ defmodule Aiur.Orchestrator.IssueSyncTelemetryTest do
   test "sampler reads the binding kind classified by the real dashboard facade" do
     key = :"metric_snapshot_#{System.unique_integer([:positive])}"
     snapshot = %{capacity: %{occupied: 4, configured: 4, max: 4, effective: 4, available: 0}, polling: %{}}
+    start_supervised!(%{id: key, start: {Agent, :start_link, [fn -> nil end, [name: key]]}})
     :ok = SnapshotStore.publish(key, snapshot)
     on_exit(fn -> SnapshotStore.forget(key) end)
     assert {:current, %{fleet_binding_kind: "config_cap"}, _freshness} = Orchestrator.dashboard_snapshot(key, 100)
