@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{OptimisticSlots, PausedCandidatePoll, ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{OptimisticSlots, PausedCandidatePoll, ReworkGate, TelemetryCohort, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -2573,7 +2573,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     optimistic_blockers = if issue.optimistic_start, do: Enum.map(issue.optimistic_start.blockers, & &1.identifier), else: []
 
     if TelemetryLifecycle.enabled?() do
-      TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
+      TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
         dispatch_selection: issue.dispatch_selection && issue.dispatch_selection.summary,
