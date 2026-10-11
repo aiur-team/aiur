@@ -104,8 +104,9 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
   end
 
   test "rerun reservations admit a ticket atomically", ctx do
-    assert {:error, :ticket_exceeds_rerun_limit} = CIRecoveryStore.reserve_reruns(:poll, 2, 1, 20, ctx.opts)
-    assert :ok = CIRecoveryStore.reserve_reruns(:poll, 1, 1, 20, ctx.opts)
+    assert :ok = CIRecoveryStore.reserve_reruns(:poll, 1, 2, 20, ctx.opts)
+    assert {:error, :poll_limit_reached} = CIRecoveryStore.reserve_reruns(:poll, 2, 2, 20, ctx.opts)
+    assert :ok = CIRecoveryStore.reserve_reruns(:poll, 1, 2, 20, ctx.opts)
   end
 
   test "automatic reruns can be disabled without recovery reads", ctx do
