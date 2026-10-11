@@ -115,17 +115,21 @@ defmodule Aiur.Experiments.Capture do
         exchange_lost(state)
 
       pid ->
-        if Process.alive?(pid) do
-          state = if state.exchange_pid == pid, do: state, else: exchange_restored(state, pid)
-          Enum.each(MapSet.difference(state.patterns, patterns), &Exchange.unsubscribe(&1, state.exchange))
-          Enum.each(MapSet.difference(patterns, state.patterns), &Exchange.subscribe(&1, state.exchange))
-          %{state | patterns: patterns}
-        else
-          exchange_lost(state)
-        end
+        bind_live_exchange(state, patterns, pid)
     end
   catch
     :exit, _reason -> exchange_lost(state)
+  end
+
+  defp bind_live_exchange(state, patterns, pid) do
+    if Process.alive?(pid) do
+      state = if state.exchange_pid == pid, do: state, else: exchange_restored(state, pid)
+      Enum.each(MapSet.difference(state.patterns, patterns), &Exchange.unsubscribe(&1, state.exchange))
+      Enum.each(MapSet.difference(patterns, state.patterns), &Exchange.subscribe(&1, state.exchange))
+      %{state | patterns: patterns}
+    else
+      exchange_lost(state)
+    end
   end
 
   defp exchange_restored(state, pid) do
@@ -241,16 +245,20 @@ defmodule Aiur.Experiments.Capture do
       if state.persisted[key] == value do
         state
       else
-        state = %{state | persisted: Map.put(state.persisted, key, value)}
-
-        with :ok <- Aiur.Journal.ensure_directory(state.root),
-             :ok <- state.write.(Path.join(state.root, "#{key}.json"), Jason.encode!(value), fsync: true, mode: 0o600) do
-          state
-        else
-          {:error, reason} -> Enum.reduce(Map.keys(state.metrics), state, &failed(&2, &1, reason))
-        end
+        write_metadata(state, key, value)
       end
     end)
+  end
+
+  defp write_metadata(state, key, value) do
+    state = %{state | persisted: Map.put(state.persisted, key, value)}
+
+    with :ok <- Aiur.Journal.ensure_directory(state.root),
+         :ok <- state.write.(Path.join(state.root, "#{key}.json"), Jason.encode!(value), fsync: true, mode: 0o600) do
+      state
+    else
+      {:error, reason} -> Enum.reduce(Map.keys(state.metrics), state, &failed(&2, &1, reason))
+    end
   end
 
   defp failed(state, ref, reason) do
