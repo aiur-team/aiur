@@ -11,7 +11,7 @@ defmodule Aiur.Muse.Transport do
     cond do
       Keyword.get(opts, :worker_host) != nil -> {:error, :remote_worker_unsupported}
       not File.dir?(workspace) -> {:error, :workspace_not_found}
-      true -> Adapter.start_port(workspace, command, &record_process(&1, opts))
+      true -> Adapter.start_port(workspace, command, &record_process(&1, opts), relay: false)
     end
   end
 
@@ -123,6 +123,10 @@ defmodule Aiur.Muse.Transport do
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
+
+      # The port is unlinked: a write into closed stdin kills it with no exit status.
+      {:DOWN, _ref, :port, ^port, reason} ->
+        {:error, {:port_exit, reason}}
     after
       remaining -> {:error, :response_timeout}
     end

@@ -69,6 +69,14 @@ defmodule Aiur.Muse.TurnTest do
   end
 
   @tag :tmp_dir
+  test "a write into a provider that closed stdin ends the turn at once, not at the turn timeout", %{tmp_dir: dir} do
+    task = run_fixture(dir, "closed_stdin", 10_000)
+    receive_barrier({:event, %{payload: %{"method" => "item/started", "params" => %{"viewCursor" => "stdin-closed"}}}})
+    send(task.pid, {:pause_agent, 79, 6})
+    assert {:error, {:native_port_exit, :epipe}} = Task.await(task, 5_000)
+  end
+
+  @tag :tmp_dir
   test "MCP calls execute in the runner owner while the native turn waits", %{tmp_dir: dir} do
     task = run_fixture(dir, "mcp")
     receive_barrier({:tool, owner, "aiur_test", %{"value" => 42}})

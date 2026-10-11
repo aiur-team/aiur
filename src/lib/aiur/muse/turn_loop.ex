@@ -45,6 +45,9 @@ defmodule Aiur.Muse.TurnLoop do
         {^port, {:exit_status, status}} ->
           close(state, {:error, {:native_port_exit, status}})
 
+        {:DOWN, _ref, :port, ^port, reason} ->
+          close(state, {:error, {:native_port_exit, reason}})
+
         {:muse_prestart, frame} ->
           continue(state, handle_frame(state, frame))
 

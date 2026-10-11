@@ -424,8 +424,8 @@ defmodule Aiur.Application do
       # is broadcast before there is anything retaining it.
       Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
-      # Decides when usage is observed: one baseline after boot, then only
-      # while agents are running. Starts after the projection so a baseline
+      # Decides when usage is observed: one baseline after boot, then while a
+      # surface is watched or headroom account selection is on. Starts after the projection so a baseline
       # observation always has somewhere to land.
       Aiur.ProviderMeterRefresh,
       Aiur.UsageLedger,
@@ -465,7 +465,6 @@ defmodule Aiur.Application do
       Aiur.TicketContext.child_specs(:late, opts),
       BuildOrders.child_specs(:late, opts),
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence, now reconciling only the pack-status
       # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
       # timer). Starts after its sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
@@ -495,7 +494,7 @@ defmodule Aiur.Application do
       executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
-      dashboard_children(dashboard?, tailscale_funnel?),
+      dashboard_children(dashboard?, Keyword.get(opts, :dashboard_pages?, true), tailscale_funnel?),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
@@ -511,7 +510,7 @@ defmodule Aiur.Application do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu])
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ List.wrap(Aiur.Experiments.child(recording?)))
   end
 
   defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
@@ -539,11 +538,11 @@ defmodule Aiur.Application do
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
 
-  defp dashboard_children(dashboard?, tailscale_funnel?) do
+  defp dashboard_children(dashboard?, dashboard_pages?, tailscale_funnel?) do
     [
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
-      if(dashboard?, do: Aiur.HttpServer),
+      if(dashboard?, do: {Aiur.HttpServer, dashboard_pages?: dashboard_pages?}),
       if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel)
     ]
   end

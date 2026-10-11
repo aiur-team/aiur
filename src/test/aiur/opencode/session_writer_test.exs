@@ -430,9 +430,9 @@ defmodule Aiur.Opencode.SessionWriterTest do
 
     on_exit(fn ->
       Application.delete_env(:aiur, :opencode_db_path_override)
-      File.rm_rf(db_path)
-      File.rm_rf(db_path <> "-shm")
-      File.rm_rf(db_path <> "-wal")
+      Aiur.TestCleanup.rm_rf!(db_path)
+      Aiur.TestCleanup.rm_rf!(db_path <> "-shm")
+      Aiur.TestCleanup.rm_rf!(db_path <> "-wal")
     end)
 
     %{db_path: db_path, session_id: session_id}

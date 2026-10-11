@@ -116,7 +116,7 @@ defmodule Aiur.AgentRunner.TurnProgressTest do
       git!(workspace, ["add", "."])
       git!(workspace, ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "first"])
 
-      on_exit(fn -> File.rm_rf(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
       %{workspace: workspace}
     end
 

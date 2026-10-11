@@ -11,7 +11,7 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-usage-aggregate-checkpoint")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{path: Path.join(root, "checkpoint.json")}
   end
 

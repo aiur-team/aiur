@@ -128,7 +128,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     # Fresh workspace — no transcript file will ever appear.
     ws = Aiur.TestSupport.tmp_root!("tt-cold")
     File.mkdir_p!(ws)
-    on_exit(fn -> File.rm_rf(ws) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(ws) end)
 
     session = %{turn_session(tmux, nil) | workspace: ws, transcript_path: nil, started_at: 0}
 

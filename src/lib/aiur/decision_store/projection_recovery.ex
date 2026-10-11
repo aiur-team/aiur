@@ -2,7 +2,7 @@ defmodule Aiur.DecisionStore.ProjectionRecovery do
   @moduledoc false
 
   alias Aiur.{Alerts, Decision, DecisionEvent, DecisionProjection, JsonStore}
-  alias AiurWeb.OperatorControlCenter.UnitsPresentation
+  alias Aiur.Protocol.ObservationAge
   require Logger
 
   @spec initialize(map(), list()) :: map()
@@ -135,7 +135,7 @@ defmodule Aiur.DecisionStore.ProjectionRecovery do
   @spec label(term()) :: String.t()
   def label({:projection_stale, %DateTime{} = since}) do
     age = max(DateTime.diff(DateTime.utc_now(), since), 0)
-    "Decision projection stale since #{DateTime.to_iso8601(since)} (age #{UnitsPresentation.age_label(age)})"
+    "Decision projection stale since #{DateTime.to_iso8601(since)} (age #{ObservationAge.short_label(age)})"
   end
 
   def label({:projection_stale, _unknown}), do: "Decision projection stale since unknown (age unknown)"
