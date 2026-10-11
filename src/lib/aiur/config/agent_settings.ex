@@ -304,4 +304,16 @@ defmodule Aiur.Config.AgentSettings do
   def ci_wait_rewake_minutes do
     Aiur.Config.settings!().agent.ci_wait_rewake_minutes
   end
+
+  @doc "Whether automatic CI recovery reruns are enabled."
+  @spec ci_recovery_enabled?() :: boolean()
+  def ci_recovery_enabled?, do: Aiur.Config.settings!().agent.ci_recovery_enabled
+
+  @doc "Maximum CI recovery reruns admitted from one CI poll."
+  @spec ci_recovery_max_per_poll() :: pos_integer()
+  def ci_recovery_max_per_poll, do: Aiur.Config.settings!().agent.ci_recovery_max_per_poll
+
+  @doc "Maximum CI recovery reruns admitted in one rolling hour."
+  @spec ci_recovery_max_per_hour() :: pos_integer()
+  def ci_recovery_max_per_hour, do: Aiur.Config.settings!().agent.ci_recovery_max_per_hour
 end

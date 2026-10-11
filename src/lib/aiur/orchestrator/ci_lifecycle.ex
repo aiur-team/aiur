@@ -383,7 +383,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp do_poll_github_ci(state, opts) do
-    launch_ci_poll(state, opts, &Function.identity/1, &TrackerTasks.run/4)
+    launch_ci_poll(state, Keyword.put(opts, :ci_recovery_poll_id, make_ref()), &Function.identity/1, &TrackerTasks.run/4)
   end
 
   defp launch_ci_poll(state, opts, continue, launch) do

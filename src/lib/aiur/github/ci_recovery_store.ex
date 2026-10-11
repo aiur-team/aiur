@@ -59,5 +59,42 @@ defmodule Aiur.GitHub.CIRecoveryStore do
     error -> {:error, {:ci_recovery_journal_failed, Exception.message(error)}}
   end
 
+  @spec reserve_rerun(term(), pos_integer(), pos_integer(), keyword()) :: :ok | {:error, :limit_reached | term()}
+  def reserve_rerun(poll_id, per_poll, per_hour, opts) do
+    journal = path(opts)
+    now = Keyword.get(opts, :ci_recovery_now, System.system_time(:second))
+
+    :global.trans({{__MODULE__, journal}, self()}, fn ->
+      with {:ok, entries} when is_map(entries) <- JsonStore.read(journal, %{}) do
+        limits = Map.get(entries, "_limits", %{})
+        reruns = Map.get(limits, "reruns", [])
+
+        if not is_list(reruns) or not Enum.all?(reruns, &(is_map(&1) and is_integer(&1["at"]) and is_binary(&1["poll"]))) do
+          {:error, :invalid_ci_recovery_limits}
+        else
+          reserve_recent_rerun(entries, reruns, poll_id, now, per_poll, per_hour, journal)
+        end
+      else
+        {:error, _} = error -> error
+        _ -> {:error, :invalid_ci_recovery_journal}
+      end
+    end)
+  rescue
+    error -> {:error, {:ci_recovery_journal_failed, Exception.message(error)}}
+  end
+
+  defp reserve_recent_rerun(entries, reruns, poll_id, now, per_poll, per_hour, journal) do
+    recent = Enum.filter(reruns, &(now - &1["at"] < 3_600))
+    poll_key = inspect(poll_id)
+
+    if Enum.count(recent, &(&1["poll"] == poll_key)) >= per_poll or length(recent) >= per_hour do
+      {:error, :limit_reached}
+    else
+      updated = Map.put(entries, "_limits", %{"reruns" => [%{"at" => now, "poll" => poll_key} | recent]})
+      JsonStore.write!(journal, updated)
+      :ok
+    end
+  end
+
   defp path(opts), do: Keyword.get(opts, :ci_recovery_path, CIApprovalStore.path_for() <> ".recovery")
 end
