@@ -143,11 +143,11 @@ defmodule Aiur.AgentResourceGuardTest do
     {:ok, guard} = AgentResourceGuard.start_link(name: nil, interval_ms: 60_000, enforce_opts: opts)
     on_exit(fn -> Aiur.TestSupport.safe_stop(guard) end)
 
-    send(guard, :tick)
-    assert_receive :holders_scanned, 1_000
-    assert_receive {:killed, 777}, 1_000
+    :ok = GenServer.call(guard, :tick)
+    assert_receive :holders_scanned, 0
+    assert_receive {:killed, 777}, 0
 
-    send(guard, :tick)
+    :ok = GenServer.call(guard, :tick)
     refute_receive :holders_scanned, 50
     refute_receive {:killed, 777}, 50
   end
@@ -185,14 +185,14 @@ defmodule Aiur.AgentResourceGuardTest do
 
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
-    send(pid, :tick)
-    assert_receive :guard_enforced, 1000
+    :ok = GenServer.call(pid, :tick)
+    assert_receive :guard_enforced, 0
     assert Process.alive?(pid)
 
     # The host-wide orphan scan is throttled; enforcement still runs every tick.
-    send(pid, :tick)
-    assert_receive :guard_enforced, 1000
-    assert_receive :orphans_scanned, 1000
+    :ok = GenServer.call(pid, :tick)
+    assert_receive :guard_enforced, 0
+    assert_receive :orphans_scanned, 0
     refute_receive :orphans_scanned, 50
   end
 end
