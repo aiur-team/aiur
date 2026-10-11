@@ -2,8 +2,48 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
   @moduledoc false
   import Aiur.TestSupport
   import Aiur.TestSupport.EventTicket
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.{CodeOwners, ResourceStore}
   alias Aiur.Workflow
+
+  # Shared `setup` for every comments-poller test file.
+  def comments_poller_env(_context) do
+    prev_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "aiur"
+    )
+
+    Publisher.set_tracked_fn(fn _ -> true end)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      restore_env("GITHUB_TOKEN", prev_token)
+      Publisher.set_tracked_fn(fn _ -> true end)
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+
+      # This suite publishes reviews and comments through the shared
+      # `Publisher`, which marks them in `ResourceStore` and records their
+      # dedup keys in the volatile `Publisher.Dedup` window. Neither is cleared
+      # per test anywhere else, so a sibling suite that publishes the same
+      # review ids (e.g. `WebhookPollReconciliationTest`) would be silently
+      # suppressed by the leaked marks/keys when this suite runs first. Clean
+      # both up so the shared state is self-contained per module.
+      ResourceStore.reset()
+
+      case :ets.whereis(Aiur.Events.Publisher.Dedup) do
+        :undefined -> :ok
+        table -> :ets.delete_all_objects(table)
+      end
+    end)
+
+    :ok
+  end
 
   def ensure_codeowners!(contents) do
     case Process.whereis(CodeOwners) do
