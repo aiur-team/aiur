@@ -116,3 +116,15 @@ test('token swatches remain readable and fit a mobile viewport', async ({ page }
   await expect(page.locator('.swatch')).toHaveCount(Object.keys(tokens.light).filter(name => name.startsWith('color.')).length);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test('system theme changes update rendered swatches and labels together', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('./?theme=system');
+  const swatch = page.locator('[data-token="color.bg"]');
+  await expect(swatch.locator('.swatch-value')).toHaveText('#e7d6b2');
+  await expect(swatch.locator('.swatch-color')).toHaveCSS('background-color', 'rgb(231, 214, 178)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(swatch.locator('.swatch-value')).toHaveText('#1a1b1e');
+  await expect(swatch.locator('.swatch-color')).toHaveCSS('background-color', 'rgb(26, 27, 30)');
+  expect(await page.locator('html').getAttribute('data-theme')).toBeNull();
+});
