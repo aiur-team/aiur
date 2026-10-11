@@ -319,9 +319,8 @@ defmodule Aiur.Orchestrator.ReworkGate do
   @spec agent_handoff_blockers(String.t(), String.t() | atom() | nil, keyword()) ::
           {:blocked, [String.t()]} | :allow
   def agent_handoff_blockers(issue_key, dispatch_head, opts \\ []) do
-    with {:ok, pr} <- open_pr(issue_key, opts) do
-      ReworkHandoffChecks.agent_handoff_blockers(dispatch_head, head_sha(pr), opts)
-    else
+    case open_pr(issue_key, opts) do
+      {:ok, pr} -> ReworkHandoffChecks.agent_handoff_blockers(dispatch_head, head_sha(pr), opts)
       _unknown -> :allow
     end
   end
