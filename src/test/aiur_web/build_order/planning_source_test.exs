@@ -27,11 +27,11 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     directory = Aiur.TestSupport.tmp_root!("planning-source-multiple-packs")
     File.mkdir_p!(directory)
 
+    repository = Config.repo()
+
     paths =
       for index <- 1..4 do
         path = Path.join(directory, "pack-#{index}.json")
-        repository = Config.repo()
-
         pack =
           Jason.decode!(@pack)
           |> Map.put("repository", repository)
