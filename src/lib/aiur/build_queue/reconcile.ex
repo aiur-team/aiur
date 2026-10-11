@@ -68,8 +68,8 @@ defmodule Aiur.BuildQueue.Reconcile do
     ProgressStore.watch(Enum.uniq(ids), :pr_approved, observation_max_age_ms: Settings.observation_max_age_ms(state.settings))
   end
 
-  @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map()) :: true
-  def write_hints(projections, holds, document) do
+  @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map(), Aiur.Config.Schema.t()) :: true
+  def write_hints(projections, holds, document, settings \\ Aiur.Config.settings!()) do
     held_queues = for queue <- document.queues, queue.held, do: queue.id
     persisted = for item <- document.items, item.hold != nil or item.queue_id in held_queues, do: item.issue_id
     holds = MapSet.union(holds, MapSet.new(persisted))
@@ -77,15 +77,21 @@ defmodule Aiur.BuildQueue.Reconcile do
     rows =
       for p <- projections,
           p.state not in [:removed, :completed, :cancelled],
-          do: {p.issue_id, hint(p.rank), MapSet.member?(holds, p.issue_id) or p.state == :held or (p.state == :unknown and Hints.held?(p.issue_id))}
+          do: {p.issue_id, hint(p.rank), MapSet.member?(holds, p.issue_id) or p.state == :held or (p.state == :unknown and Hints.held?(p.issue_id)), trigger(p.issue_id, document, settings)}
 
     :ets.insert(Hints.table_name(), rows)
     retained = MapSet.new(rows, &elem(&1, 0))
-    for {id, _, _} <- :ets.tab2list(Hints.table_name()), not MapSet.member?(retained, id), do: :ets.delete(Hints.table_name(), id)
+    for row <- :ets.tab2list(Hints.table_name()), not MapSet.member?(retained, elem(row, 0)), do: :ets.delete(Hints.table_name(), elem(row, 0))
     true
   end
 
   defp hint({downstream, _priority, position, _age, _id}), do: {downstream, position}
+
+  defp trigger(id, document, settings) do
+    item = Enum.find(document.items, &(&1.issue_id == id))
+    queue = item && Enum.find(document.queues, &(&1.id == item.queue_id))
+    if queue, do: Settings.effective_trigger(queue, settings), else: Settings.start_trigger(settings)
+  end
 
   # Prerequisite closure evidence extends a fresh open listing; an unknown listing yields none.
   defp closures(state, observations) do
