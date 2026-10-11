@@ -447,7 +447,7 @@ defmodule Aiur.BuildGate.Status do
     case File.read_link("/proc/#{pid}/ns/pid") do
       {:ok, ^namespace} -> process_group_status(pid, pgid)
       {:ok, _other_namespace} -> false
-      {:error, :enoent} -> false
+      {:error, reason} when reason in [:enoent, :eacces, :eperm] -> false
       _ -> :unknown
     end
   end
