@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   require Logger
 
   alias Aiur.{Alerts, CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
-  alias Aiur.Orchestrator.LifecycleFenceExpiry
+  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, PushRouting, RuntimeWatchdog}
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
@@ -29,10 +29,10 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
-    state = state |> LifecycleFenceExpiry.reconcile() |> Orchestrator.reconcile_runtime_health()
-    state = Orchestrator.reconcile_stalled_running_issues(state)
-    state = Orchestrator.reconcile_overrunning_agents(state)
-    state = Orchestrator.reconcile_pending_auto_resumes(state)
+    state = state |> LifecycleFenceExpiry.reconcile() |> RuntimeWatchdog.reconcile_runtime_health()
+    state = RuntimeWatchdog.reconcile_stalled_running_issues(state)
+    state = RuntimeWatchdog.reconcile_overrunning_agents(state)
+    state = PushRouting.reconcile_pending_auto_resumes(state)
     RateLimitFallback.reconcile(state)
   end
 
@@ -739,7 +739,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
     state =
       if pause_reason == :ci_wait,
-        do: Orchestrator.cancel_ci_wait_rewake(state, issue.id),
+        do: CiLifecycle.cancel_ci_wait_rewake(state, issue.id),
         else: state
 
     case Orchestrator.resume_paused_issue(state, new_entry, false) do

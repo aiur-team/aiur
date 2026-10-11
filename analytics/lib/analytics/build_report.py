@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import cli, reduce as reducer, render, sources
+from . import cli, reduce as reducer, render_build, sources
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,9 +55,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json:
-        cli.emit_json({"slug": args.slug, "build_order": build_order, "report": render.build_report_rows(summary)})
+        cli.emit_json({"slug": args.slug, "build_order": build_order, "report": render_build.build_report_rows(summary)})
     else:
-        sys.stdout.write(render.render_build_report(summary, args.slug))
+        sys.stdout.write(render_build.render_build_report(summary, args.slug))
     return 0
 
 

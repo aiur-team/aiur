@@ -40,7 +40,7 @@ jobs:
   #
   # The jobs are NOT skipped. Every engine job still runs and still publishes
   # its check name; only its steps short-circuit. The human-only merge ruleset
-  # requires 13 contexts by name (docs/security/human-only-merge-ruleset.json),
+  # requires 12 contexts by name (docs/security/human-only-merge-ruleset.json),
   # and a required check that never reports leaves the pull request unmergeable
   # forever. Running-but-empty jobs report `success` unambiguously, which a
   # job-level `if:` skip does not.
@@ -114,8 +114,8 @@ jobs:
         run: node scripts/test-ci-concurrency.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
-      - name: Test config documentation guard
-        run: bash scripts/test-check-config-docs.sh
+      - name: Test config documentation and design extract guards
+        run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
       - name: Test component manifest guard
         run: bash scripts/test-check-components.sh
       - name: Test env example drift guard
@@ -130,9 +130,10 @@ jobs:
         run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
-
       - name: Test file size gate
         run: bash scripts/test-check-file-size.sh
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
       - name: File size gate
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -141,8 +142,7 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           case "$EVENT_NAME" in
-            pull_request) base="$PR_BASE" ;;
-            merge_group) base="$MERGE_BASE" ;;
+            pull_request|merge_group) base="${PR_BASE:-$MERGE_BASE}" ;;
             push)
               base="$PUSH_BEFORE"
               if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
@@ -236,13 +236,13 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: npm ci --prefix scripts/components --ignore-scripts
-      - name: Component ownership, reference boundaries and fixtures
+      - name: Component ownership, reference boundaries, fixtures and Build Order script suites
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: |
           bash scripts/check-components-ci.sh
           bash scripts/test-check-components.sh --with-elixir --with-node
-          mise exec -- python3 scripts/test-check-pr-structure.py
+          mise exec -- python3 scripts/test-check-pr-structure.py && bash scripts/test-build-order-scripts.sh
       - name: .env.example matches the env-var schema
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .

@@ -46,7 +46,7 @@ defmodule Aiur.OrchestratorTrackedSetTest do
   # Cancels the orchestrator's tick timer and fences the one-shot
   # `:run_poll_cycle` (a 20ms render delay that is not token-fenced), so no
   # scheduled poll can mutate the shared TrackedSet mid-test. Mirrors the
-  # freeze used by `OrchestratorStatusTest`.
+  # freeze used by `OrchestratorStatusSupport`.
   defp freeze_poll_cycle(pid) do
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
