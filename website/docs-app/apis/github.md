@@ -40,9 +40,7 @@ A head whose check runs all finished with at least one cancelled is missing CI, 
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
-Draft PRs remain pending even when
-their fast gate is green. Completed work must be marked ready before CI wait so
-`ready_for_review` can start the full suite.
+Draft PRs remain pending even when their fast gate is green. Completed work must be marked ready before CI wait so `ready_for_review` can start the full suite.
 
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
@@ -113,7 +111,8 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Contents | Read and write |
 | Issues | Read and write |
 | Pull requests | Read and write |
-| Actions | Read and write, only to let the daemon re-run cancelled CI; otherwise never |
+| Checks | Read (CI failure annotations) |
+| Actions | Read and write when using automatic reruns (cancelled runs and failed jobs) |
 | Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
@@ -691,13 +690,9 @@ The wrapper injects the credential only into the real `gh` process it spawns
 for a governed call, for the duration of that call — never into the agent's
 environment and never into the sibling processes the wrapper launches.
 
-So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns
-nothing, and a bare `curl` to `api.github.com` from an agent workspace is
-unauthenticated.
+So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns nothing, and a bare `curl` to `api.github.com` from an agent workspace is unauthenticated.
 
-This is a **policy boundary, not a capability boundary.** Agents run as the
-same OS user as the daemon, so an agent that deliberately goes looking can read
-the credential file, the shared budget database, or the operator keyring.
+This is a **policy boundary, not a capability boundary.** Agents run as the same OS user as the daemon, so an agent that deliberately goes looking can read the credential file, the shared budget database, or the operator keyring.
 
 What the file removes is the raw token from the *environment* of every agent
 process — where a dependency's build script, a `curl` one-liner, or a Node
@@ -727,10 +722,7 @@ unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
 Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
 
-For the next 10 handoffs after rollout, record the tested PR head, observed base
-SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
-separately from harmless stale heads; the earlier 3-of-8 stale-base count is
-context, not an equivalent baseline for this narrower measure.
+For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
@@ -746,7 +738,15 @@ Build queue closure reads use caller `build_queue_observe` and the configured ob
 
 Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; markers and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. No saving is claimed ([cost](/concepts/build-orders#queue-cost)).
 
-Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
+CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), head/queue evidence, PR changed paths and Actions run attempts (`ci_recovery` caller). Fully annotated tests outside the diff and known flakes get one failed-job rerun per head; there is no fleet or hourly cap.
+
+Attempts are journaled before writes; queued PRs are left alone. Recovery does not update the base. A run GET returning 403/404 or a denied rerun POST raises one attention and permits the normal failed/rework handoff instead of holding CI wait.
+
+Three failed CI/rework handoffs per PR raise one attention naming tests and hold further rework/fallback wakes. The Executor fixes or reruns the current head until all required checks pass, releasing the hold and resetting the cycle count. Acknowledging the alert alone does not release it.
+
+A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
+
+Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
 
 The write response supplies this state without another read. Two consequences:
 

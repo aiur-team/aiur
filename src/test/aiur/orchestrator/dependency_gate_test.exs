@@ -62,6 +62,15 @@ defmodule Aiur.Orchestrator.DependencyGateTest do
     assert DispatchPolicy.todo_issue_held_by_dependency?(dependent(ctx.blocker_id, nil), ctx.terminal)
   end
 
+  test "hold descriptions name an optimistic trigger and stale observation", ctx do
+    candidate = dependent(ctx.blocker_id, "ci-wait")
+    :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_opened})
+    stale = Enum.map(candidate.blocked_by, &Map.put(&1, :observed_at_ms, System.system_time(:millisecond) - 86_400_000))
+    text = DispatchPolicy.describe_dependency_hold(%{candidate | blocked_by: stale}, ctx.terminal)
+    assert text =~ "#{ctx.blocker_id} unknown: stale observation"
+    assert String.ends_with?(text, "needs pr_opened")
+  end
+
   describe "optimistic evidence freshness" do
     @day_ms 24 * 60 * 60 * 1000
 

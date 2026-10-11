@@ -102,7 +102,7 @@ This detection makes no GitHub request. Retained CI and merge facts survive labe
 
 ## Queueing a Build Order
 
-`aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+`aiur queue add --build-order <root> [--queue NAME] [--start-on TRIGGER]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
 
@@ -124,6 +124,26 @@ The instance capability report distinguishes queue availability from source avai
 An unrecognised queue status or source flag reports `unknown/unknown` for that capability. A failed provider read reports both capabilities as `unknown/unknown`.
 
 These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
+
+## Start trigger
+
+Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_merged`); later stages satisfy earlier triggers.
+
+| Trigger | Starts when | Evidence |
+| --- | --- | --- |
+| `pr_opened` | The blocker has a ready, non-draft PR | Delivered PR facts or `ci-wait` and later labels |
+| `pr_ci_green` | Required CI has passed | Retained CI verdict or `human-review`/`rework` and later labels |
+| `pr_approved` | Human review approves | Standing review verdict or `merging` and later labels |
+| `pr_merged` | The blocker PR merges (default) | Merge facts, `done`, or completed issue closure |
+| `issue_closed` | The blocker issue closes completed | Confirmed closure and reason |
+
+Choose an override with `aiur queue add 12 13 --queue roadmap --start-on pr_opened` or `aiur queue add --build-order 12 --start-on pr_opened`. Change it with `aiur queue set roadmap --start-on pr_ci_green`; `--start-on default` returns to config. Tightening the trigger withdraws unclaimed queue-owned `todo`; running agents continue.
+
+`queue show` shows the trigger, the needed stage and the observed stage. `(default)` means the queue follows config. Missing or stale evidence stays unknown.
+
+`optimistic` means the dependent starts before its blocker merges; its worker follows the [optimistic dependent workflow](/concepts/ticket-lifecycle#build-queue) and keeps its PR draft until blockers merge.
+
+Linear supports only `issue_closed` and `pr_merged` for dependency dispatch; build queue management currently requires GitHub. `pr_approved` adds one conditional review read per watched blocker; other stages reuse held lifecycle and PR evidence. See [GitHub API costs](/apis/github).
 
 ## Restacking after a squash merge
 
@@ -157,7 +177,7 @@ Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready`
 
 ## Merged PRs with open issues
 
-A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. Only under `issue_closed`, the build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
 
 For `issue_closed` queues, if the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves on closure or when no dependent requires `issue_closed`; Aiur never closes the issue for this rule.
 
