@@ -2,11 +2,17 @@
 """Prevent new oversized text files and growth of existing debt using Git blobs."""
 
 import argparse
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
+import tempfile
 
 LIMIT = 500
+# Tool-written lockfiles cannot be split. They may exceed LIMIT only when the tool reproduces them byte for byte.
+LOCKFILE_REGEN = {
+    'package-lock.json': ['npm', 'install', '--package-lock-only', '--ignore-scripts'],
+    'bun.lock': ['bun', 'install', '--lockfile-only'],
+}
 
 
 def git(*args):
@@ -43,6 +49,21 @@ def counts(revision, batch, cache):
     return files
 
 
+def lockfile_verified(head, path):
+    """True when regenerating the lockfile from its sibling package.json reproduces it exactly."""
+    posix = PurePosixPath(path.decode('utf-8', errors='surrogateescape'))
+    prefix = '' if str(posix.parent) == '.' else f'{posix.parent}/'
+    try:
+        with tempfile.TemporaryDirectory(prefix='lockfile-') as scratch:
+            for file in ('package.json', posix.name):
+                Path(scratch, file).write_bytes(git('show', f'{head}:{prefix}{file}'))
+            subprocess.run(LOCKFILE_REGEN[posix.name], cwd=scratch, check=True, capture_output=True)
+            return Path(scratch, posix.name).read_bytes() == git('show', f'{head}:{posix}')
+    except (subprocess.CalledProcessError, OSError):
+        print(f'{posix}: lockfile unverified (tool, package.json or registry unavailable); failing closed')
+        return False
+
+
 def check(base, head):
     cache = {}
     with subprocess.Popen(['git', '-C', str(Path.cwd()), 'cat-file', '--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as batch:
@@ -69,6 +90,9 @@ def check(base, head):
             failed = current > LIMIT and (baseline <= LIMIT or current > baseline)
             if not failed and 200 < current <= LIMIT and current > baseline:
                 print(f'notice: {name}: {current} lines; give a cohesion reason above 200')
+        if failed and isinstance(current, int) and PurePosixPath(name).name in LOCKFILE_REGEN and lockfile_verified(head, path):
+            print(f'{name}: {current} lines; exempt, regenerates identically')
+            continue
         if failed:
             print(f'{name}: base {previous} -> head {current} (limit {LIMIT})')
             failures += 1

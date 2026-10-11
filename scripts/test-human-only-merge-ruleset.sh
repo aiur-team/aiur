@@ -105,3 +105,17 @@ expect_rejected \
   "untrusted-check-source" \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[0].integration_id) = 1' \
   "ruleset must require every blocking GitHub Actions status check"
+
+# Applying with no arguments must update both declared rulesets in place.
+calls="$test_dir/apply-calls"
+PATH="$fixtures:$PATH" GITHUB_REPOSITORY="example/repository" GH_CALL_LOG="$calls" \
+  bash "$root/scripts/apply-human-only-merge-ruleset.sh"
+
+for expected in \
+  "--method PUT repos/example/repository/rulesets/123 --input $declaration" \
+  "--method PUT repos/example/repository/rulesets/456 --input $root/docs/security/main-merge-queue-ruleset.json"; do
+  if ! grep -Fq -- "$expected" "$calls"; then
+    echo "apply did not issue: $expected" >&2
+    exit 1
+  fi
+done

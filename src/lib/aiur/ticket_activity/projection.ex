@@ -1,7 +1,10 @@
 defmodule Aiur.TicketActivity.Projection do
   @moduledoc false
 
-  alias Aiur.{OpaqueIdentifier, TicketActivity.Reducer, TicketObservation, TrackerIdentity}
+  alias Aiur.TicketActivity.Projection.Snapshot
+  alias Aiur.{TicketActivity.Reducer, TicketObservation, TrackerIdentity}
+
+  import Aiur.TicketActivity.Projection.Sanitize
 
   @default_retention_ms 300_000
   @default_stale_after_ms 60_000
@@ -177,7 +180,7 @@ defmodule Aiur.TicketActivity.Projection do
   def snapshot(%__MODULE__{} = state, %TrackerIdentity{} = identity, now) do
     case TrackerIdentity.github_key(identity) do
       nil -> :not_found
-      entry_key -> state.entries |> Map.get(entry_key) |> snapshot_entry(state, now)
+      entry_key -> state.entries |> Map.get(entry_key) |> then(&Snapshot.entry(&1, state, now))
     end
   end
 
@@ -189,7 +192,7 @@ defmodule Aiur.TicketActivity.Projection do
       state.entries
       |> Map.values()
       |> Enum.sort_by(fn entry -> key(entry.identity) end)
-      |> Enum.map(&snapshot_entry(&1, state, now))
+      |> Enum.map(&Snapshot.entry(&1, state, now))
 
     %{
       generation: state.generation,
@@ -442,54 +445,6 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp key(identity), do: TrackerIdentity.github_key(identity)
 
-  defp snapshot_entry(nil, _state, _now), do: :not_found
-
-  defp snapshot_entry(entry, state, now) do
-    %{
-      identity: entry.identity,
-      status: freshness(entry.last_observed_at, state, now),
-      active_stage: entry.stage && entry.stage.value,
-      stage: stage_snapshot(entry.stage, state, now),
-      progress: progress_snapshot(entry.progress, state, now),
-      latest_evidence: evidence_snapshot(entry.latest_evidence),
-      provenance: entry.provenance,
-      observed_at: entry.last_observed_at,
-      retention: entry.retention
-    }
-  end
-
-  defp progress_snapshot(nil, _state, _now), do: %{status: :unknown}
-
-  defp progress_snapshot(progress, state, now) do
-    progress
-    |> Map.drop([:order])
-    |> Map.put(:status, :known)
-    |> Map.put(:freshness, freshness(progress.observed_at, state, now))
-  end
-
-  defp stage_snapshot(nil, _state, _now), do: %{status: :unknown}
-
-  defp stage_snapshot(stage, state, now) do
-    stage
-    |> Map.drop([:order])
-    |> Map.put(:status, :known)
-    |> Map.put(:freshness, freshness(stage.observed_at, state, now))
-  end
-
-  defp evidence_snapshot(nil), do: %{status: :unknown}
-
-  defp evidence_snapshot(evidence) do
-    evidence
-    |> Map.drop([:order])
-    |> Map.put(:status, :known)
-  end
-
-  defp freshness(observed_at, state, now) do
-    if DateTime.diff(now, observed_at, :millisecond) > state.stale_after_ms,
-      do: :stale,
-      else: :fresh
-  end
-
   defp retention(state) do
     %{
       current: Enum.count(state.entries, fn {_key, entry} -> entry.retention == :current end),
@@ -512,93 +467,6 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp increment(state, key),
     do: %{state | diagnostics: Map.update!(state.diagnostics, key, &(&1 + 1))}
-
-  defp safe_source(%{kind: :agent_event, name: name})
-       when name in ["progress", "progress.checkin", "progress.phase"],
-       do: %{kind: :agent_event, name: name}
-
-  defp safe_source(%{kind: :agent_alert, name: "alert"}), do: %{kind: :agent_alert, name: "alert"}
-
-  defp safe_source(%{kind: :agent_alert, name: name}) do
-    case phase_source(name) do
-      {:ok, stage, transition} ->
-        %{kind: :agent_alert, name: "phase.#{stage}.#{transition}"}
-
-      _ ->
-        %{kind: :agent_alert, name: "alert"}
-    end
-  end
-
-  defp safe_source(%{kind: :legacy}), do: %{kind: :legacy, name: "unclassified"}
-
-  defp safe_source(_source), do: %{kind: :legacy, name: "unclassified"}
-
-  defp safe_attributes(attributes) when is_map(attributes) do
-    attributes
-    |> Map.take([:percent, :stage, :transition, :needs_attention, :severity])
-    |> Enum.reduce(%{}, fn
-      {:percent, percent}, acc when is_integer(percent) and percent >= 0 and percent <= 100 ->
-        Map.put(acc, :percent, percent)
-
-      {:stage, stage}, acc when stage in [:brainstorm, :plan, :work, :review] ->
-        Map.put(acc, :stage, stage)
-
-      {:transition, transition}, acc when transition in [:start, :end] ->
-        Map.put(acc, :transition, transition)
-
-      {:needs_attention, value}, acc when is_boolean(value) ->
-        Map.put(acc, :needs_attention, value)
-
-      {:severity, severity}, acc when severity in ["info", "warning", "critical"] ->
-        Map.put(acc, :severity, severity)
-
-      _entry, acc ->
-        acc
-    end)
-  end
-
-  defp safe_attributes(_attributes), do: %{}
-
-  defp safe_provenance(provenance) when is_map(provenance) do
-    Enum.reduce([:run_id, :attempt, :session_id, :source_event_id], %{}, fn key, acc ->
-      case Map.get(provenance, key) do
-        value when is_integer(value) and value >= 0 ->
-          Map.put(acc, key, value)
-
-        value when is_binary(value) ->
-          put_safe_opaque(acc, key, value)
-
-        _ ->
-          acc
-      end
-    end)
-  end
-
-  defp safe_provenance(_provenance), do: %{}
-
-  defp put_safe_opaque(acc, key, value) do
-    case OpaqueIdentifier.normalize(value) do
-      nil -> acc
-      safe -> Map.put(acc, key, safe)
-    end
-  end
-
-  defp phase_source("phase." <> rest) do
-    case String.split(rest, ".", parts: 2) do
-      [stage, transition]
-      when stage in ["brainstorm", "plan", "work", "review"] and transition in ["start", "end"] ->
-        {:ok, String.to_existing_atom(stage), String.to_existing_atom(transition)}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp phase_source(_name), do: :error
-  defp safe_timestamp(%DateTime{} = timestamp), do: timestamp
-  defp safe_timestamp(_timestamp), do: nil
-  defp safe_event_id(event_id) when is_integer(event_id) and event_id > 0, do: event_id
-  defp safe_event_id(_event_id), do: nil
 
   defp positive_opt(opts, key, default),
     do: if(is_integer(opts[key]) and opts[key] > 0, do: opts[key], else: default)

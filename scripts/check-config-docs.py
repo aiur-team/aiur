@@ -30,6 +30,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "src/lib/aiur/config/schema"
 ROOT_SCHEMA = REPO_ROOT / "src/lib/aiur/config/schema.ex"
 REFERENCE = REPO_ROOT / "website/docs-app/reference/configuration.md"
+# Sections split out of the main reference to keep it under the file-size limit.
+EXTRA_REFERENCES = [REPO_ROOT / "website/docs-app/reference/merge-policy.md"]
 
 ROOT_MODULE = "Aiur.Config.Schema"
 
@@ -141,7 +143,7 @@ def main() -> int:
     if not keys:
         die("found no config keys; that is a broken matcher, not an empty schema")
 
-    reference = REFERENCE.read_text(encoding="utf-8")
+    reference = "\n".join(p.read_text(encoding="utf-8") for p in [REFERENCE, *EXTRA_REFERENCES] if p.exists())
     documented = set(INLINE_CODE_RE.findall(reference))
     missing = sorted(key for key in keys if key not in EXEMPT and key not in documented)
 

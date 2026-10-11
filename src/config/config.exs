@@ -6,6 +6,11 @@ config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 
 config :aiur, :signal, alert_sink: Aiur.Alerts
 
+# The agent sandbox sits below the TUI and the orchestrator, so it reaches both
+# through these names instead of referencing them.
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux, :kill_pane}
+config :aiur, :pause_containment_result_target, Aiur.Orchestrator
+
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
   Aiur.GitHub.Budget.SandboxRoots,
@@ -25,6 +30,7 @@ config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
+  Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
@@ -69,6 +75,10 @@ config :aiur, AiurWeb.Endpoint,
   secret_key_base: String.duplicate("s", 64),
   check_origin: false,
   server: false
+
+# Composition: orchestration implements the Commands delivery port, so the
+# commands component never references orchestration itself.
+config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
 
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time

@@ -41,7 +41,8 @@ defmodule Aiur.CapabilitiesCLI do
         _ -> ""
       end
 
-    "#{String.pad_trailing(id, 25)}#{value(entry, :state)}#{reason}#{needs}"
+    mode = if entry[:mode], do: "  #{entry.mode}", else: ""
+    "#{String.pad_trailing(id, 25)}#{value(entry, :state)}#{reason}#{needs}#{mode}"
   end
 
   defp value(section, key), do: (section && Map.get(section, key)) || "unknown"

@@ -354,13 +354,12 @@ test("failed pin install remains non-fatal with an accurate pinned manual hint",
   expect(result.stderr).not.toContain("opencode was not found");
 });
 
-// Builds a fake OTP release recording argv to exercise the real launcher routing.
 function setupRealLauncher() {
   const launcherSrc = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-  for (const name of ["aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "engine"])
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "engine"])
     cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";
@@ -1002,7 +1001,7 @@ test("alerts supports needs-attention control rpc filter", () => {
   expect(result.status).toBe(0);
 
   const capture = readFileSync(captureFile, "utf8");
-  expect(capture).toContain("Aiur.AgentControlCLI.alerts(needs_attention: true)");
+  expect(capture).toContain('Aiur.AgentControlCLI.alerts(argv: ["--needs-attention"])');
 });
 
 test("set max-agents rejects invalid values before rpc", () => {

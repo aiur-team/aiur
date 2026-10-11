@@ -25,8 +25,26 @@ tracker:
     # allowed_contributors:
     #   users: [583231]
     #   orgs: [{id: 9919, login: github}]
-  # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
-  # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
+  # human_mergers is the explicit human-only post-merge attribution allowlist and the
+  # identity allowlist for the planned aiur pr merge command. It never inherits
+  # CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
+
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait
+#   local_tests: partial           # all | partial | none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+#     red_fallback_minutes: 0      # off; 60 waits for CI after main is red for one hour (MP4)
 
 # === Coding agents ===
 agent:
@@ -41,6 +59,7 @@ agent:
   # accounts: {claude: [default, max]}     # machine-local Claude profiles; omit for legacy single-account behavior
   # account_selection: balance            # balance = lowest weekly usage; priority = first eligible account;
   #                                       # headroom = backend+account with most usage left (routing values may be lists)
+  # git_identity: {name: Agent Name, email: agent@example.com}  # author/committer of agent commits; default = github.bot_account
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
@@ -219,7 +238,7 @@ alerts:
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
-# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
+# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); set host explicitly for remote access
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur

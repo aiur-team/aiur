@@ -353,15 +353,14 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert regressions == [],
              "a merge rolled the held issue body back {wrote, found}: #{inspect(Enum.take(regressions, 5))}"
 
-      held = ResourceStore.data(key)
-
       # The last delivery survived the last merge, rather than being overwritten
       # by a snapshot the merge had read before it.
-      assert held["generation"] == generations
+      assert ResourceStore.data(key)["generation"] == generations
 
-      # And the merge still did its job: the label set the mutation returned is
-      # the one on the body, so A4a holds under contention too.
-      assert Enum.map(held["labels"], & &1["name"]) == ["agent:todo", "merge:#{generations}"]
+      # A delivery writes the whole body, so whichever task finished last owns
+      # `"labels"` (#4129). Merge once more after both: labels land, body stays.
+      WriteThrough.issue_labels(77, labels(["agent:todo", "merge:final"]))
+      assert ResourceStore.data(key) == %{issue_at(generations) | "labels" => labels(["agent:todo", "merge:final"])}
 
       # The marker moved with the body. A version-less merge would leave this
       # `nil`, which is precisely the field `ResourceStore.regression?/2`
