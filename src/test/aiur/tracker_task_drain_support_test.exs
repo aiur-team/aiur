@@ -1,7 +1,7 @@
 defmodule Aiur.TrackerTaskDrainSupportTest do
   use ExUnit.Case, async: true
 
-  import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 2]
+  import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 2, drain_tracker_tasks: 3]
 
   # Stands in for the Orchestrator mid poll cycle: every tracker task that
   # dies or replies makes it start the next one, without end.
@@ -24,6 +24,22 @@ defmodule Aiur.TrackerTaskDrainSupportTest do
     end
   end
 
+  defmodule SlowOwner do
+    use GenServer
+
+    def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
+
+    def init(parent) do
+      {:ok, %{parent: parent, tracker_tasks: %{make_ref() => %{key: {:comment_idle, "500", "issue comment"}}}}}
+    end
+
+    def handle_info(:block, state) do
+      send(state.parent, :owner_blocked)
+      Process.sleep(30)
+      {:noreply, state}
+    end
+  end
+
   test "drains an owner that starts another task whenever one ends" do
     tasks = start_supervised!(Task.Supervisor)
     owner = start_supervised!({Owner, tasks})
@@ -35,5 +51,17 @@ defmodule Aiur.TrackerTaskDrainSupportTest do
     assert tracker_tasks == %{}
     refute Process.alive?(task_pid)
     assert Task.Supervisor.children(tasks) == []
+  end
+
+  test "a timed-out drain names its test and clears the held set for the next test" do
+    owner = start_supervised!({SlowOwner, self()})
+    send(owner, :block)
+    assert_receive :owner_blocked, 1_000
+
+    assert_raise RuntimeError, ~r/during failing test; held: \[\{:comment_idle, \"500\", \"issue comment\"\}\]/, fn ->
+      drain_tracker_tasks(owner, 5, "failing test")
+    end
+
+    assert %{tracker_tasks: %{}} = :sys.get_state(owner)
   end
 end

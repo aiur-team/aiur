@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   alias Aiur.TrackerIdentity
 
   import Aiur.SnapshotFenceSupport, only: [fence_snapshot_read_model: 0]
-  import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 1]
+  import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 3]
 
   defmodule SlowTrackerClient do
     def fetch_issue_states_by_ids(ids), do: await_reply(:fetch, ids)
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   @tracker_hold_ms @control_budget_ms + 1_000
   @probe_timeout_ms 15_000
 
-  setup do
+  setup %{test: test_name} do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid, @probe_timeout_ms)
 
@@ -64,7 +64,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       %{state | poll_frozen: true, tick_timer_ref: nil, tick_token: make_ref(), next_poll_due_at_ms: nil}
     end)
 
-    drain_tracker_tasks(pid)
+    drain_tracker_tasks(pid, 15_000, to_string(test_name))
 
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
@@ -93,7 +93,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     on_exit(fn ->
       if Process.alive?(pid) do
         snapshot_generation = fence_snapshot_read_model()
-        drain_tracker_tasks(pid)
+        drain_tracker_tasks(pid, 15_000, to_string(test_name))
         :sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation, tracker_tasks: %{}} end)
       end
     end)
