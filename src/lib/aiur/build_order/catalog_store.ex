@@ -57,11 +57,14 @@ defmodule Aiur.BuildOrder.CatalogStore do
     labels = labels_by_number(repository)
     memberships = memberships_by_parent(repository)
 
-    roots =
+    root_numbers =
       labels
       |> Enum.filter(fn {_number, issue_labels} -> @root_label in issue_labels end)
       |> Enum.map(fn {number, _labels} -> number end)
       |> Enum.sort()
+
+    roots =
+      root_numbers
       |> Enum.map(fn number ->
         root_summary(
           Map.get(issues, number),
@@ -73,7 +76,55 @@ defmodule Aiur.BuildOrder.CatalogStore do
         )
       end)
 
+    roots =
+      Enum.zip(root_numbers, roots)
+      |> Enum.map(fn {number, root} -> rollup_root(number, root, memberships, issues, labels) end)
+
     Catalog.new(roots, healthy_provider())
+  end
+
+  defp rollup_root(number, root, memberships, issues, labels) do
+    case rollup_members(number, memberships, issues, labels, MapSet.new()) do
+      {:ok, completed, total} ->
+        %{
+          root
+          | member_count: total,
+            progress: if(total == 0, do: 0, else: round(completed / total * 100)),
+            progress_resolution: :resolved,
+            progress_resolved_count: total
+        }
+
+      :unresolved ->
+        %{root | progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0}
+    end
+  end
+
+  defp rollup_members(number, memberships, issues, labels, visited) do
+    members = Map.get(memberships, number, [])
+
+    if members == [] or MapSet.member?(visited, number) or length(members) > @member_limit do
+      :unresolved
+    else
+      Enum.reduce_while(members, {:ok, 0, 0}, &rollup_member(&1, &2, memberships, issues, labels, MapSet.put(visited, number)))
+    end
+  end
+
+  defp rollup_member(member, {:ok, completed, total}, memberships, issues, labels, visited) do
+    if @root_label in Map.get(labels, member, []) do
+      case rollup_members(member, memberships, issues, labels, visited) do
+        {:ok, child_completed, child_total} -> {:cont, {:ok, completed + child_completed, total + child_total}}
+        :unresolved -> {:halt, :unresolved}
+      end
+    else
+      lifecycle = member_lifecycle(member, issues)
+
+      if Lifecycle.valid?(lifecycle) do
+        done = lifecycle.state == :closed and lifecycle.state_reason == :completed
+        {:cont, {:ok, completed + if(done, do: 1, else: 0), total + 1}}
+      else
+        {:halt, :unresolved}
+      end
+    end
   end
 
   defp root_summary(nil, root_labels, member_numbers, _issues, _labels, _repository) do

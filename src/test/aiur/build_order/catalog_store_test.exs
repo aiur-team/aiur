@@ -80,6 +80,39 @@ defmodule Aiur.BuildOrder.CatalogStoreTest do
     assert root.progress_resolution == :unresolved
   end
 
+  test "a nested root counts the tickets in open and closed child orders" do
+    seed_issue(210, "Program", "open", %{"build-order" => ""})
+    seed_issue(211, "Open child", "open", %{"build-order" => ""})
+    seed_issue(212, "Closed child", "closed", %{"build-order" => "", "state_reason" => "completed"})
+    seed_issue(213, "Done", "closed", %{"state_reason" => "completed"})
+    seed_issue(214, "Open", "open", %{})
+    seed_issue(215, "Also done", "closed", %{"state_reason" => "completed"})
+    seed_edge(:sub_issue, "210:211", %{"parent_issue_number" => 210, "sub_issue_number" => 211})
+    seed_edge(:sub_issue, "210:212", %{"parent_issue_number" => 210, "sub_issue_number" => 212})
+    seed_edge(:sub_issue, "211:213", %{"parent_issue_number" => 211, "sub_issue_number" => 213})
+    seed_edge(:sub_issue, "211:214", %{"parent_issue_number" => 211, "sub_issue_number" => 214})
+    seed_edge(:sub_issue, "212:215", %{"parent_issue_number" => 212, "sub_issue_number" => 215})
+
+    assert {:ok, %ProviderResult{candidate: %Catalog{entries: roots}}} = CatalogStore.fetch(repository: @repository)
+    root = Enum.find(roots, &(&1.identity.identifier == "210"))
+
+    assert root.member_count == 3
+    assert root.progress == 67
+    assert root.progress_resolution == :resolved
+  end
+
+  test "a nested root reports unknown progress until each child membership is available" do
+    seed_issue(220, "Program", "open", %{"build-order" => ""})
+    seed_issue(221, "Child", "open", %{"build-order" => ""})
+    seed_edge(:sub_issue, "220:221", %{"parent_issue_number" => 220, "sub_issue_number" => 221})
+
+    assert {:ok, %ProviderResult{candidate: %Catalog{entries: roots}}} = CatalogStore.fetch(repository: @repository)
+    root = Enum.find(roots, &(&1.identity.identifier == "220"))
+
+    assert is_nil(root.progress)
+    assert root.progress_resolution == :unresolved
+  end
+
   test "a tombstoned edge no longer counts a member" do
     seed_issue(300, "Build Order 3", "open", %{"build-order" => ""})
     seed_issue(301, "Member", "open", %{})
