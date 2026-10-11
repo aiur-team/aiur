@@ -9,7 +9,9 @@ defmodule Mix.Tasks.PrBody.Check do
 
   Usage:
 
-      mix pr_body.check --file /path/to/pr_body.md
+      mix pr_body.check --file /path/to/pr_body.md [--policy all|partial|none] [--head SHA]
+
+  Without --policy/--head, checks the evidence shape only.
   """
 
   @template_paths [
@@ -19,7 +21,7 @@ defmodule Mix.Tasks.PrBody.Check do
 
   @impl Mix.Task
   def run(args) do
-    {opts, _argv, invalid} = OptionParser.parse(args, strict: [file: :string, help: :boolean], aliases: [h: :help])
+    {opts, _argv, invalid} = OptionParser.parse(args, strict: [file: :string, policy: :string, head: :string, help: :boolean], aliases: [h: :help])
 
     cond do
       opts[:help] ->
@@ -34,7 +36,7 @@ defmodule Mix.Tasks.PrBody.Check do
         with {:ok, template_path, template} <- read_template(),
              {:ok, body} <- read_file(file_path),
              {:ok, headings} <- extract_template_headings(template, template_path),
-             :ok <- lint_and_print(template_path, template, body, headings) do
+             :ok <- lint_and_print(template_path, template, body, headings, opts) do
           Mix.shell().info("PR body format OK")
         else
           {:error, message} -> Mix.raise(message)
@@ -76,7 +78,7 @@ defmodule Mix.Tasks.PrBody.Check do
 
   defp extract_template_headings(template, template_path) do
     headings =
-      Regex.scan(~r/^\#{4,6}\s+.+$/m, template)
+      Regex.scan(~r/^\#{2,6}\s+.+$/m, template)
       |> Enum.map(&hd/1)
 
     if headings == [] do
@@ -86,8 +88,8 @@ defmodule Mix.Tasks.PrBody.Check do
     end
   end
 
-  defp lint_and_print(template_path, template, body, headings) do
-    errors = lint(template, body, headings)
+  defp lint_and_print(template_path, template, body, headings, opts) do
+    errors = lint(template, body, headings) ++ evidence_errors(body, opts)
 
     if errors == [] do
       :ok
@@ -95,6 +97,16 @@ defmodule Mix.Tasks.PrBody.Check do
       Enum.each(errors, fn err -> Mix.shell().error("ERROR: #{err}") end)
 
       {:error, "PR body format invalid. Read `#{template_path}` and follow it precisely."}
+    end
+  end
+
+  defp evidence_errors(body, opts) do
+    with {:ok, evidence} <- Aiur.LocalTestEvidence.parse(body),
+         :ok <- Aiur.LocalTestEvidence.validate(evidence, opts[:policy] || "none", opts[:head]) do
+      []
+    else
+      :missing -> ["Missing required heading: ## Local tests"]
+      {:error, message} -> [message]
     end
   end
 

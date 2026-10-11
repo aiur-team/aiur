@@ -1,6 +1,7 @@
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
+  alias Aiur.AgentRunner.OptimisticPrompt
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -14,7 +15,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
 
     prompt =
       case first_turn_mode(issue, prompt_opts) do
-        :resumed -> resumed_turn_prompt()
+        :resumed -> resumed_turn_prompt() <> OptimisticPrompt.render(issue.optimistic_start)
         :continuation -> continuation_turn_prompt(issue, prompt_opts, continuation_reason(issue))
         :cold -> PromptBuilder.build_prompt(issue, prompt_opts)
       end
@@ -22,7 +23,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     prompt <> conflict_guidance(workspace)
   end
 
-  def build_turn_prompt(_issue, opts, turn_number, max_turns) do
+  def build_turn_prompt(issue, opts, turn_number, max_turns) do
     prompt = """
     Continuation guidance:
 
@@ -35,10 +36,11 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
     #{PromptBuilder.integration_branch_restatement()}
+    #{PromptBuilder.merge_policy_restatement()}
     #{PromptBuilder.rename_test_audit_restatement()}
     """
 
-    prompt
+    prompt <> OptimisticPrompt.render(issue.optimistic_start)
   end
 
   defp conflict_guidance(workspace) when is_binary(workspace) do
@@ -144,6 +146,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Do not end the turn while the issue stays active unless you are truly blocked.
     #{PromptBuilder.integration_branch_restatement()}
+    #{PromptBuilder.merge_policy_restatement()}
     #{PromptBuilder.rename_test_audit_restatement()}
     """
   end

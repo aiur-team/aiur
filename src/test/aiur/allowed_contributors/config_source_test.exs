@@ -87,7 +87,7 @@ defmodule Aiur.AllowedContributors.ConfigSourceTest do
 
   test "restart remembers explicit empty config and alerts a source switch", context do
     dir = Path.join(System.tmp_dir!(), "aiur-ac-config-restart-#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     {first, _gh} = Fixture.start(context, state_dir: dir, allowed_contributors: %{}, id: :config_boot)
     _ = :sys.get_state(first)
     assert_received {:alert, "allowed_contributors.changed", initial}

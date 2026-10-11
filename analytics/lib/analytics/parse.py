@@ -9,7 +9,7 @@ from typing import Any
 from . import sources
 
 
-SUPPORTED_KINDS = ("restart", "lifecycle", "resource", "warning")
+SUPPORTED_KINDS = ("restart", "run_context", "lifecycle", "resource", "warning")
 _RECORD_REQUIRED = ("kind", "timestamp", "boot_id", "sequence", "record_id", "attributes")
 
 

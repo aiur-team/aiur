@@ -16,13 +16,7 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
   @idle_refresh_ms 600_000
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   test "the catalog no longer arms a periodic sweep after a completion" do

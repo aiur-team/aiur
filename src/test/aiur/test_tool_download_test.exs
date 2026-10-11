@@ -3,7 +3,7 @@ defmodule Aiur.TestToolDownloadTest do
 
   test "test npm children reject uncached packages without contacting a registry" do
     cache = Aiur.TestSupport.tmp_root!("offline-npm-cache")
-    on_exit(fn -> File.rm_rf!(cache) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(cache) end)
 
     {output, status} =
       System.cmd("npm", ["exec", "--yes", "--package=aiur-test-never-cached-package", "--", "missing-command"],

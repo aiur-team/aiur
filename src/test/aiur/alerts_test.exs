@@ -14,7 +14,7 @@ defmodule Aiur.AlertsTest do
     workspace = Path.join([workspace_root, "project", "MT-ALERT-1"])
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -117,7 +117,7 @@ defmodule Aiur.AlertsTest do
     workspace = Path.join([workspace_root, "project", "MT-ALERT-2"])
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -139,7 +139,7 @@ defmodule Aiur.AlertsTest do
     workspace = Path.join([workspace_root, "project", "MT-ALERT-REVIEW"])
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -165,7 +165,7 @@ defmodule Aiur.AlertsTest do
     workspace = Path.join([workspace_root, "project", "MT-TRACKER-PAUSE"])
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -447,7 +447,7 @@ defmodule Aiur.AlertsTest do
     workspace = Path.join([workspace_root, "project", "MT-ALERT-3"])
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: workspace_root,
@@ -970,7 +970,7 @@ defmodule Aiur.AlertsTest do
       # Linear default config namespaces the workspace under <root>/<project_slug>/.
       workspace = Path.join([workspace_root, "project", "MT-WSEXIST"])
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
       assert workspace == Aiur.Alerts.resolve_workspace_for("MT-WSEXIST", fn -> workspace_root end)
     end
@@ -1107,7 +1107,7 @@ defmodule Aiur.AlertsTest do
 
       workspace = Path.join([workspace_root, "project", "MT-ALERT-SILENT"])
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -1144,7 +1144,7 @@ defmodule Aiur.AlertsTest do
 
       workspace = Path.join([workspace_root, "project", "MT-ALERT-RUNTIME"])
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -1189,7 +1189,7 @@ defmodule Aiur.AlertsTest do
 
       workspace = Path.join(workspace_root, "MT-ALERT-RESCUE")
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -1213,7 +1213,7 @@ defmodule Aiur.AlertsTest do
 
       workspace = Path.join(workspace_root, "MT-ALERT-URL")
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
       # Point Alerts at a yaml that has a URL-prefixed sound, then emit.
       yaml_path = Path.join(workspace_root, "alerts.yaml")
@@ -1259,7 +1259,7 @@ defmodule Aiur.AlertsTest do
         Aiur.TestSupport.tmp_root!("aiur-alert-cfg")
 
       File.mkdir_p!(Path.join(workspace_root, "MT-CFG"))
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
 
       %{workspace_root: workspace_root}
     end

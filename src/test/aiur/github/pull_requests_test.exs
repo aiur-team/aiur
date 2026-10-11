@@ -89,7 +89,7 @@ defmodule Aiur.GitHub.PullRequestsTest do
       codeowners = Path.join(repo_root, ".github/CODEOWNERS")
       File.mkdir_p!(Path.dirname(codeowners))
       File.write!(codeowners, "* @owner\n")
-      on_exit(fn -> File.rm_rf!(repo_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(repo_root) end)
 
       review = %{
         "id" => 92_794,

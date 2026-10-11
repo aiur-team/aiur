@@ -163,15 +163,22 @@ focused test runner, test-tree paths and CI gate at each step.
    for Aiur changes, use `website/docs-app/` and the threshold above
 4. Run the scoped local pre-PR verification gate before opening or finalizing
    the PR using the target repository's commands. For Aiur's Elixir core:
-   `mix compile --warnings-as-errors`, `mix format`, and affected tests
-   only (the test files for modules you touched plus directly related tests),
+   Follow the current config-driven `Local tests policy` section: `all` runs
+   the full suite, `partial` selects affected tests only (full suite if unsafe),
+   `none` runs compile and format only. Always run
+   `mix compile --warnings-as-errors` and `mix format`. For `partial`, select
+   changed tests, source mirrors, direct callers and deleted-name references,
    each run with `mix test --max-cases 4`. Compute that scoped set
    deterministically instead of guessing it: from the workspace root run
    `cd src && mise exec -- mix aiur.affected_tests`, which maps the modules you
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
    Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
-   Running only the affected tests also keeps full-suite log volume out of your context.
+   In every PR body, include `## Local tests` with `Policy`, the full pushed
+   `Tested head` SHA, `Base` ref and SHA, `Selection`, and exact command bullets
+   (``- `command` -> result``). Record actual failures/blockers and refresh after
+   every push. Validate with `mix pr_body.check --file <body>`; reviewers compare
+   the head and selection against the diff. Never replace evidence with checkboxes.
    Before marking the PR ready or handing off to CI/review, run all required checks and fix any failures:
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
@@ -368,6 +375,14 @@ focused test runner, test-tree paths and CI gate at each step.
     `git -C "$workspace" merge-tree --write-tree "$head_sha" "$base_sha"`.
     No shared changed paths and no conflicts permits handoff despite staleness.
     A fetch/probe error or incomplete path list does not permit handoff.
+
+    **An approved PR is exempt from integration** (`reviewDecision` is
+    `APPROVED`): never merge or rebase the base into it unless GitHub reports
+    `mergeable: CONFLICTING`, and say why in a PR comment when it does. The
+    merge queue tests the merge; a refresh push only cancels in-flight CI and
+    risks the approval, and it cannot fix a red or cancelled check. The agent
+    `git` guard refuses a push to a PR in the merge queue unless it is
+    conflicting or has changes requested.
 
     If paths overlap or the merge conflicts, allow up to 3 integrations per
     handoff without asking, recording the pre-merge head and rescue ref first.

@@ -72,7 +72,7 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       conflict_note = Path.join([workspace, "logs", "before-run-merge-conflict.md"])
       File.mkdir_p!(Path.dirname(conflict_note))
 
-      on_exit(fn -> File.rm_rf!(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
       File.write!(conflict_note, """
       # Base branch merge conflict

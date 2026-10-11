@@ -692,7 +692,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn ->
       restore_application_env(:github_budget_enabled?, previous_enabled)
       restore_application_env(:github_budget_dir, previous_dir)
-      File.rm_rf(budget_dir)
+      Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     assert %{inflight: %{}} = Budget.snapshot("locked-orchestrator-token")
@@ -742,7 +742,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn ->
       restore_application_env(:github_budget_enabled?, previous_enabled)
       restore_application_env(:github_budget_dir, previous_dir)
-      File.rm_rf(budget_dir)
+      Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     # Subscribe before the request exists, so the release signal cannot be

@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedMemoryTest do
         {key, :error} -> Application.delete_env(:aiur, key)
       end)
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{root: root}

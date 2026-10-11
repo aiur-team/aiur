@@ -34,7 +34,7 @@ defmodule Aiur.RunTelemetry.CaptureSettingTest do
         {key, value} -> :persistent_term.put(key, value)
       end)
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{root: root, gaps: Path.join(Summaries.analytics_dir(), "capture-gaps.ndjson")}

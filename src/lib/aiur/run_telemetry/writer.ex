@@ -27,7 +27,7 @@ defmodule Aiur.RunTelemetry.Writer do
   alias Aiur.Events.Exchange
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.RunTelemetry.{Retention, Summaries}
+  alias Aiur.RunTelemetry.{Retention, RunContext, Summaries}
   alias Aiur.RunTelemetry.Writer.Encoding
   alias Aiur.RunTelemetry.Writer.Retention, as: WriterRetention
 
@@ -87,6 +87,7 @@ defmodule Aiur.RunTelemetry.Writer do
   @impl true
   def init(opts) do
     subscribe_external_events()
+    Phoenix.PubSub.subscribe(Aiur.PubSub, "workflow_store:configuration")
 
     path = Keyword.get(opts, :path, RunTelemetry.telemetry_file())
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
@@ -110,7 +111,9 @@ defmodule Aiur.RunTelemetry.Writer do
       bytes_since_prune: 0,
       prune_interval_bytes: WriterRetention.prune_interval(retention),
       open_lifecycles: %{},
-      carried_points: %{}
+      carried_points: %{},
+      run_context: Keyword.get(opts, :context_builder, &RunContext.current/0).(),
+      context_builder: Keyword.get(opts, :context_builder, &RunContext.current/0)
     }
 
     Process.put(@admission_key, :atomics.new(3, signed: false))
@@ -122,7 +125,7 @@ defmodule Aiur.RunTelemetry.Writer do
       existing_records: existing_records?(path)
     }
 
-    {:ok, append(state, :restart, attributes, clock.())}
+    {:ok, append_many(state, [{:restart, attributes, clock.()}, {:run_context, state.run_context, clock.()}])}
   end
 
   @impl true
@@ -147,10 +150,7 @@ defmodule Aiur.RunTelemetry.Writer do
   @impl true
   def handle_call(:flush, _from, state), do: {:reply, :ok, state}
 
-  # Best-effort shutdown materialization: write the final per-boot run summary
-  # and any build rollups so the dashboard can serve prior boots without a raw
-  # full-stream parse. Fails open (and is regenerable by analytics/reduce) when
-  # the reducer or state node is unavailable.
+  # Materialized summaries are regenerable; shutdown fails open.
   @impl true
   def terminate(_reason, _state) do
     case Summaries.materialize() do
@@ -166,6 +166,16 @@ defmodule Aiur.RunTelemetry.Writer do
     case Lifecycle.external_anchor(event) do
       {:ok, attributes, timestamp} -> {:noreply, append(state, :lifecycle, attributes, timestamp)}
       :skip -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:workflow_config_updated, _generation}, state) do
+    context = state.context_builder.()
+
+    if context.config_hash == state.run_context.config_hash do
+      {:noreply, state}
+    else
+      {:noreply, append(%{state | run_context: context}, :run_context, context, state.clock.())}
     end
   end
 
@@ -233,9 +243,7 @@ defmodule Aiur.RunTelemetry.Writer do
     :ok
   end
 
-  # After the pending queue drains, surface any records dropped at admission as
-  # one warning record so the offline reducer can see the gap. Resetting the
-  # once-flag lets a later, distinct overload log again.
+  # Report drops after the mailbox drains; reset the warning for future overloads.
   defp maybe_emit_overflow_marker(state, counter) do
     with 0 <- :atomics.get(counter, @pending_index),
          dropped when dropped > 0 <- :atomics.exchange(counter, @dropped_index, 0) do

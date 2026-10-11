@@ -10,7 +10,7 @@ defmodule Aiur.Events.IdGeneratorTest do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_idgen_test")
     File.mkdir_p!(tmp_dir)
     path = Path.join(tmp_dir, "event_id")
-    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp_dir) end)
     %{tmp_dir: tmp_dir, path: path}
   end
 

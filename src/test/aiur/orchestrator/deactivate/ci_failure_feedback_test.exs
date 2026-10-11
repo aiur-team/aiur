@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
         restore_application_env(:ci_watcher_update_result, previous_update_result)
         restore_application_env(:ci_approval_store_path, previous_ci_approval_store_path)
         File.rm(ci_approval_store_path)
+        File.rm(ci_approval_store_path <> ".recovery")
       end)
 
       :ok
@@ -51,6 +52,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
 
       try do
         CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_recovery: fn _issue, result, _opts -> result end,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -113,6 +115,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
       end)
 
       CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+        ci_recovery: fn _issue, result, _opts -> result end,
         ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
         ci_poller: fn [^identifier], _opts ->
           {:ok,
@@ -147,6 +150,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
 
       poll = fn ->
         CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_recovery: fn _issue, result, _opts -> result end,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             failures =
@@ -195,7 +199,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
       end
     end
 
-    test "test-only CI failure is surfaced to a ci-wait agent for judgment" do
+    test "non-retryable CI failure is surfaced to a ci-wait agent for judgment" do
       identifier = "826"
 
       issue = %Issue{
@@ -230,6 +234,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
 
       state =
         CiLifecycle.poll_github_ci(state,
+          ci_recovery: fn _issue, result, _opts -> result end,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -266,68 +271,6 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
       assert entry.issue.state == "rework"
     end
 
-    test "test-only CI failure is retried once before rework" do
-      identifier = "ci-test-retry"
-      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Retry test CI"}
-      agent_pid = control_test_agent(self())
-
-      on_exit(fn ->
-        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
-      end)
-
-      state =
-        human_review_running_state(identifier, agent_pid)
-        |> put_in([Access.key(:running), identifier, :issue], issue)
-        |> put_in([Access.key(:running), identifier, :control], confirmed_control(:paused))
-        |> put_in([Access.key(:running), identifier, :paused_reason], :label_override)
-        |> put_in([Access.key(:running), identifier, :paused_at], DateTime.utc_now())
-
-      poll = fn state ->
-        CiLifecycle.poll_github_ci(state,
-          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
-          ci_poller: fn [^identifier], _opts ->
-            {:ok,
-             %{
-               results: [
-                 %{
-                   target: identifier,
-                   decision: :failed,
-                   head_sha: "test-retry-head",
-                   pr_number: 826,
-                   failures: [%{name: "test", result: "failure", excerpt: "failed assertion"}]
-                 }
-               ],
-               errors: []
-             }}
-          end
-        )
-      end
-
-      state = poll.(state)
-
-      # poll/1 returns after both the resume and tracker-update decisions.
-      control_agent_barrier(agent_pid)
-      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
-      refute_received {:ci_watcher_update, ^identifier, "rework"}
-      assert state.ci_lifecycle.test_failure_heads == %{identifier => "test-retry-head"}
-
-      entry = Map.fetch!(state.running, identifier)
-      assert get_in(entry, [:control, :status]) == :paused
-      assert entry.paused_reason == :label_override
-      assert entry.issue.state == "ci-wait"
-
-      persisted = CIApprovalStore.load()
-      state = %{state | ci_lifecycle: persisted}
-
-      state = poll.(state)
-
-      # The second synchronous poll has completed its resume decision.
-      control_agent_barrier(agent_pid)
-      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
-      receive_barrier({:ci_watcher_update, ^identifier, "rework"})
-      assert state.ci_lifecycle.test_failure_heads == %{}
-    end
-
     test "CI poll failure respects a newly applied operator pause" do
       identifier = "ci-poll-paused"
 
@@ -356,6 +299,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
 
       state =
         CiLifecycle.poll_github_ci(state,
+          ci_recovery: fn _issue, result, _opts -> result end,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -400,6 +344,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFailureFeedbackTest do
 
       state =
         CiLifecycle.poll_github_ci(state,
+          ci_recovery: fn _issue, result, _opts -> result end,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
           ci_poller: fn [], _opts -> {:ok, %{results: [], errors: []}} end
         )

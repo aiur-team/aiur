@@ -42,6 +42,7 @@ defmodule Aiur.DecisionStoreTest do
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
 
   setup do
+    :ok = Aiur.TestSupport.ensure_id_generator_running()
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-store")
     Application.put_env(:aiur, :decision_state_dir, dir)
@@ -52,7 +53,7 @@ defmodule Aiur.DecisionStoreTest do
         value -> Application.put_env(:aiur, :decision_state_dir, value)
       end
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir}
@@ -99,10 +100,6 @@ defmodule Aiur.DecisionStoreTest do
     first_dir = Path.join(dir, "first")
     second_dir = Path.join(dir, "second")
 
-    if Process.whereis(IdGenerator) == nil do
-      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :decision_store_test_id_generator)
-    end
-
     {:ok, first} =
       start_supervised(
         {
@@ -147,10 +144,6 @@ defmodule Aiur.DecisionStoreTest do
     second_dir = Path.join(dir, "named-second")
     first_name = Module.concat(__MODULE__, FirstCustomStore)
     second_name = Module.concat(__MODULE__, SecondCustomStore)
-
-    if Process.whereis(IdGenerator) == nil do
-      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :custom_decision_store_test_id_generator)
-    end
 
     {:ok, first} =
       start_supervised(
@@ -2531,10 +2524,6 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   test "answering an escalated Command clears its operator attention", %{dir: dir} do
-    unless Process.whereis(IdGenerator) do
-      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-escalation-event-id.json"), batch_size: 50})
-    end
-
     previous_log_file = Application.get_env(:aiur, :log_file)
     log_root = Path.join(dir, "executor-escalation-log")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
@@ -2577,10 +2566,6 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   test "serializes Executor escalation before a concurrent answer", %{dir: dir} do
-    unless Process.whereis(IdGenerator) do
-      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-serialize-event-id.json"), batch_size: 50})
-    end
-
     parent = self()
 
     opener = fn _decision, _executor_id, _reason ->
@@ -4649,10 +4634,6 @@ defmodule Aiur.DecisionStoreTest do
     end
 
     test "retries a failed requested notification from the canonical Decision", %{dir: dir} do
-      unless Process.whereis(IdGenerator) do
-        start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-request-retry-event-id.json"), batch_size: 50})
-      end
-
       parent = self()
 
       publisher = fn decision ->

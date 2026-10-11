@@ -498,7 +498,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     }
 
     File.mkdir_p!(test_root)
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     # A failing before_run hook parks the runner in a paused provisioning
     # state that holds its workspace lease until something stops it.

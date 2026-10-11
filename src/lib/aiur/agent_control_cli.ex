@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.ControlCLI.{DispatchAccount, Reasons}
+  alias Aiur.ControlCLI.{CiWait, DispatchAccount, Reasons}
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Workspace.Ownership
 
@@ -202,8 +202,7 @@ defmodule Aiur.AgentControlCLI do
     Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
-    # Count from the rows that are actually printed. Counting the unfiltered `statuses` let
-    # `RELEASED CLAIMS n` claim releases whose rows were hidden, so the headline and the table disagreed (#1475).
+    # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
     released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))
@@ -212,6 +211,7 @@ defmodule Aiur.AgentControlCLI do
       Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     print_status_table(visible_statuses)
+    CiWait.print(snapshot)
 
     if released_claims > 0 do
       recovery = if automatic_reclaims == released_claims, do: "automatic re-claim pending", else: "operator recovery required for some claims"

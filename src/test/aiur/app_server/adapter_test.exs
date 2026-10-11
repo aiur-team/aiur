@@ -461,7 +461,7 @@ defmodule Aiur.AppServer.AdapterTest do
     File.mkdir_p!(home)
     File.write!(Path.join(home, ".bash_profile"), "printf 'login-profile-loaded\\n'")
     File.write!(Path.join(home, ".bashrc"), "printf 'interactive-rc-loaded\\n'")
-    on_exit(fn -> File.rm_rf(home) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
 
     assert {:ok, port} =
              Adapter.start_port(File.cwd!(), "printf 'ready\\n'", fn _port -> :ok end, env: [{"HOME", home}])

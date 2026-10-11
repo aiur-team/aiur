@@ -15,7 +15,7 @@ defmodule Aiur.Events.SubscriptionStoreReplayTest do
       SubscriptionStore.stop(id)
       SubscriptionStore.set_enqueue_fn(nil)
       if original, do: Application.put_env(:aiur, :runtime_state_dir, original), else: Application.delete_env(:aiur, :runtime_state_dir)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     %{id: id, pid: pid}

@@ -261,7 +261,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervalsTest do
   defp temporary_stream! do
     root = Aiur.TestSupport.tmp_root!("aiur-dataset")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     Path.join(root, "telemetry.ndjson")
   end
 

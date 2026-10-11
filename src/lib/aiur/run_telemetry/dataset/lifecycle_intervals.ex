@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
   @moduledoc "Ticket lifecycle interval pairing and review wakeup findings for `Aiur.RunTelemetry.Dataset`."
 
+  alias Aiur.RunTelemetry.Cohort
   alias Aiur.RunTelemetry.Dataset.Source
   alias Aiur.RunTelemetry.EventFields
 
@@ -66,6 +67,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
           source_path: record.source_path,
           source_line: record.source_line
         }
+        |> Map.merge(Cohort.event_fields(attributes))
         |> Map.merge(EventFields.take(attributes))
       ]
     else
