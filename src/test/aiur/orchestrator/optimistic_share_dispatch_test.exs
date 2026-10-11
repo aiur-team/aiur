@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.OptimisticDispatchTest do
+defmodule Aiur.Orchestrator.OptimisticShareDispatchTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildQueue.Hints
