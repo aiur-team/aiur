@@ -18,63 +18,18 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     agent_pause agent_resume
   )
   @boundaries ~w(start end point)
-  @metadata_fields [
-    :coverage,
-    :pr_created_at,
-    :pr_ready_at,
-    :first_review_at,
-    :first_review_state,
-    :first_approval_at,
-    :merged_at,
-    :review_count,
-    :commented_count,
-    :changes_requested_count,
-    :approval_count,
-    :dismissed_count,
-    :reviewers_distinct,
-    :reviewer_classes,
-    :additions,
-    :deletions,
-    :changed_files,
-    :commit_count,
-    :merge_commit_sha,
-    :epic,
-    :outcome,
-    :cause,
-    :operation_id,
-    :command_class,
-    :duration_status,
-    :source,
-    :source_id,
-    :actor,
-    :pr_number,
-    :comment_id,
-    :review_thread_id,
-    :author_trusted,
-    :source_timestamp,
-    :worker_host,
-    :backend,
-    :prewarm_outcome,
-    :reason_class,
-    :exit_status,
-    :turn_number,
-    :remote,
-    :retry_attempt,
-    :workspace_owner,
-    :workspace_generation,
-    :workspace_phase,
-    :optimistic_blockers,
-    :optimistic_start,
-    :complexity,
-    # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
-    :dispatch_selection,
-    :model,
-    :effort,
-    :feature,
-    :tags,
-    :blockers,
-    :start_mode
-  ]
+  # Headroom dispatch summary (#3960): dispatch_selection holds the chosen backend/account and every alternative's score.
+  @metadata_fields ~w(
+    outcome cause operation_id command_class duration_status source source_id actor
+    pr_number comment_id review_thread_id author_trusted source_timestamp worker_host backend
+    prewarm_outcome reason_class exit_status turn_number remote retry_attempt
+    workspace_owner workspace_generation workspace_phase optimistic_blockers optimistic_start complexity dispatch_selection
+    model effort feature epic tags blockers start_mode
+    coverage pr_created_at pr_ready_at first_review_at first_review_state first_approval_at merged_at
+    review_count commented_count changes_requested_count approval_count dismissed_count reviewers_distinct reviewer_classes
+    additions deletions changed_files commit_count merge_commit_sha
+  )a
+
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
   def new_attempt_id(ticket) when is_binary(ticket) do
@@ -229,6 +184,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       started_at: Cohort.normalize_metadata_value(:started_at, started_at)
     }
   end
+
+  defp normalize_field(:reviewer_classes, value) when is_list(value), do: Enum.filter(value, &(&1 in ["trusted", "bot", "other"]))
 
   defp normalize_field(key, value), do: Cohort.normalize_metadata_value(key, value)
 
