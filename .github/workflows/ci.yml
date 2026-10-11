@@ -222,14 +222,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
       # Keep guards in required lint so they remain merge-blocking.
-      - name: Every config key has a documentation entry
+      - name: Config docs and Docker dependency guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-config-docs.py
-      - name: Docker image includes Mix path dependencies
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
+        run: python3 scripts/check-config-docs.py && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
       - name: Cache component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
