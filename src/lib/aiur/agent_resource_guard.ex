@@ -242,7 +242,7 @@ defmodule Aiur.AgentResourceGuard do
 
     left = if reported == [], do: "", else: ", left #{length(reported)} running (report-only; set agent.synthetic_load_kill_detected to kill)"
 
-    Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2).(@alert_topic,
+    Keyword.get(opts, :alert_fun, &Aiur.Signal.alert/2).(@alert_topic,
       message: "Agent workspace #{workspace || "(unknown, agent pid #{root_pid})"} #{what}; killed #{length(killed)} load generator process(es)#{left}",
       reason: "synthetic CPU load generators (by name or busy-loop behaviour) are capped per agent and flagged once orphaned; killed=#{inspect(killed)} reported=#{inspect(reported)}",
       needs_attention: false,
