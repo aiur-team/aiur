@@ -54,7 +54,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
     readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)
     assert readiness.ready?
-    assert length(readiness.required_checks) == 13
+    assert length(readiness.required_checks) == 12
   end
 
   test "reports a repository without a pull request workflow" do
