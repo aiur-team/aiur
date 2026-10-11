@@ -42,7 +42,7 @@ defmodule AiurWeb.BuildOrderLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    socket = NavState.assign_nav(socket)
+    socket = DashboardShell.mount(socket)
     connected = connected?(socket)
     source = Application.get_env(:aiur, :build_order_data_source, DataSource)
     request_epoch = "build-order-live-#{System.unique_integer([:positive])}"
@@ -127,7 +127,11 @@ defmodule AiurWeb.BuildOrderLive do
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
 
   def handle_info({:running_changed, _summaries}, socket),
-    do: {:noreply, SourceRuntime.schedule_reload(socket)}
+    do:
+      socket
+      |> DashboardShell.refresh_pause()
+      |> SourceRuntime.schedule_reload()
+      |> then(&{:noreply, &1})
 
   def handle_info({:build_order_adhoc_updated, _snapshot}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
@@ -199,6 +203,9 @@ defmodule AiurWeb.BuildOrderLive do
       {:noreply, socket}
     end
   end
+
+  @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
 
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
@@ -275,6 +282,7 @@ defmodule AiurWeb.BuildOrderLive do
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
       nav_counts={@nav_counts}
+      pause_state={DashboardShell.pause_state(assigns)}
     >
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />

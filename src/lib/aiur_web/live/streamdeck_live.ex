@@ -90,7 +90,7 @@ defmodule AiurWeb.StreamdeckLive do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> NavState.assign_nav()
+      |> DashboardShell.mount()
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, knob_descriptors())
@@ -134,6 +134,8 @@ defmodule AiurWeb.StreamdeckLive do
     {:ok, socket}
   end
 
+  @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
@@ -248,9 +250,7 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({:running_changed, _summaries}, socket) do
-    {:noreply, refresh_grid(socket)}
-  end
+  def handle_info({:running_changed, _summaries}, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> refresh_grid()}
 
   def handle_info({:status_changed, %{identifier: _identifier}}, socket) do
     {:noreply, refresh_grid(socket)}
@@ -341,7 +341,7 @@ defmodule AiurWeb.StreamdeckLive do
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
-      nav_counts={@nav_counts}
+      nav_counts={@nav_counts} pause_state={DashboardShell.pause_state(assigns)}
     >
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />

@@ -20,7 +20,7 @@ defmodule AiurWeb.BuildLive do
     socket =
       socket
       |> Protocol.init()
-      |> NavState.assign_nav()
+      |> DashboardShell.mount()
       |> AwaitingCommands.mount(connected)
       |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
 
@@ -85,9 +85,14 @@ defmodule AiurWeb.BuildLive do
 
   def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
 
+  def handle_info({:running_changed, _summaries}, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
+
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
 
   @impl true
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
@@ -129,7 +134,8 @@ defmodule AiurWeb.BuildLive do
     ~H"""
     <DashboardShell.dashboard_shell route={@route} routes={RouteRegistry.routes(@analytics)}
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
-      nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}>
+      nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
+      pause_state={DashboardShell.pause_state(assigns)}>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>

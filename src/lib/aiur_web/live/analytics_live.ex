@@ -26,15 +26,13 @@ defmodule AiurWeb.AnalyticsLive do
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
-  # Matches the CLI's freshness threshold: telemetry observed within this
-  # window is "just now", anything older is shown with its elapsed age.
   @source_fresh_ms 30_000
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> NavState.assign_nav()
+     |> DashboardShell.mount()
      |> AwaitingCommands.mount(connected?(socket))
      |> assign(:current_route, RouteRegistry.current_route(:analytics))
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
@@ -58,8 +56,10 @@ defmodule AiurWeb.AnalyticsLive do
     do: {:noreply, AwaitingCommands.refresh(socket)}
 
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
 
+  @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
@@ -115,7 +115,7 @@ defmodule AiurWeb.AnalyticsLive do
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
-      nav_counts={@nav_counts}
+      nav_counts={@nav_counts} pause_state={DashboardShell.pause_state(assigns)}
     >
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />
