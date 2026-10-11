@@ -61,7 +61,7 @@ presence does not promise that its feature is installed or enabled.
 | `build_orders` | Build Orders |
 | `build_orders.progress` | Build Order progress |
 | `experiments` | Experiment store availability |
-| `experiments.metric_packs` | Metric pack support; unavailable until installed |
+| `experiments.metric_packs` | Metric catalog; `degraded/pack_invalid` for rejected files, `unavailable/disabled` when experiments are disabled |
 | `build_queue` | Queue promotion |
 | `build_queue.build_order_source` | Build Order dependency source for the queue |
 | `conversations.read` | Conversation history |

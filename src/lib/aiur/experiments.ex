@@ -1,7 +1,16 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Journal, Paths, Reader, Schema, Store}
+  alias Aiur.Experiments.{Capture, Catalog, Evaluator, Journal, Paths, Reader, Schema, Store}
+
+  @spec metric_catalog() :: map()
+  def metric_catalog, do: Catalog.load()
+
+  @spec observations([String.t()], map(), map()) :: map()
+  def observations(refs, window, context \\ %{}), do: Evaluator.observations(refs, window, context)
+
+  @spec children(boolean()) :: [module()]
+  def children(recording?), do: if(child(recording?), do: [Store, Capture], else: [])
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil

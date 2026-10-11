@@ -8,10 +8,16 @@ defmodule Aiur.Experiments.CapabilityProviderTest do
           {%{available?: false, store: {:error, :disabled}}, %{state: :unavailable, reason: :disabled}},
           {%{available?: false, store: {:error, :store_read_only}}, %{state: :degraded, reason: :store_read_only}}
         ] do
-      report = CapabilityProvider.capabilities(%{experiments_status: fn -> status end})
+      report = CapabilityProvider.capabilities(%{experiments_status: fn -> status end, experiments_catalog: fn -> %{problems: []} end})
       assert report["experiments"] == expected
-      assert report["experiments.metric_packs"] == %{state: :unavailable, reason: :not_installed}
+      assert report["experiments.metric_packs"] == if(status.store == {:error, :disabled}, do: %{state: :unavailable, reason: :disabled}, else: %{state: :available})
     end
+  end
+
+  test "invalid packs degrade independently of store availability" do
+    context = %{experiments_status: fn -> %{available?: true, store: :ok} end, experiments_catalog: fn -> %{problems: [%{reason: :pack_invalid}]} end}
+    assert CapabilityProvider.capabilities(context)["experiments.metric_packs"] == %{state: :degraded, reason: :pack_invalid}
+    assert CapabilityProvider.capabilities(context)["experiments"] == %{state: :available}
   end
 
   test "failed or unfamiliar status reads remain unknown" do

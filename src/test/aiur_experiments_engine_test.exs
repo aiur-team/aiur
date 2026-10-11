@@ -23,9 +23,15 @@ defmodule AiurExperimentsEngineTest do
     refute output =~ title
   end
 
+  test "metrics JSON dispatch reaches the control RPC" do
+    {output, 0} = run_engine(["experiments", "metrics", "--json"])
+    assert output =~ "verb: :metrics"
+    assert output =~ Base.encode64("--json")
+  end
+
   test "rejects absent verbs and a line lacking its reference before invoking RPC" do
     assert {output, 64} = run_engine(["experiments"])
-    assert output =~ "expects list, show or create"
+    assert output =~ "expects list, show, metrics or create"
     assert {output, 64} = run_engine(["experiments", "create", "--line", "release"])
     assert output =~ "requires type:ref"
     refute output =~ "RPC:"

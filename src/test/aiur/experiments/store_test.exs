@@ -4,7 +4,38 @@ defmodule Aiur.Experiments.StoreTest do
   alias Aiur.Experiments
   alias Aiur.Experiments.{CapabilityProvider, Journal, Paths, Store}
 
+  defmodule FixturePack do
+    @behaviour Aiur.Experiments.MetricPack
+    def id, do: "delivery-speed"
+    def version, do: 1
+
+    def metrics,
+      do: [
+        %Aiur.Experiments.Metric{
+          id: "start_to_merge",
+          pack: id(),
+          label: "Fixture",
+          unit: "ms",
+          unit_of_analysis: "ticket",
+          kind: "duration",
+          better: "lower",
+          default_direction: "decrease",
+          group: "Fixture",
+          requires: []
+        }
+      ]
+
+    def observations(_ids, _window, _context), do: %{}
+  end
+
   setup do
+    previous_packs = Application.get_env(:aiur, :experiment_metric_packs)
+    Application.put_env(:aiur, :experiment_metric_packs, [FixturePack])
+
+    on_exit(fn ->
+      if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
+    end)
+
     {:ok, _applications} = Application.ensure_all_started(:phoenix_pubsub)
     root = Path.join(System.tmp_dir!(), "experiments-store-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :experiments_dir)
@@ -29,6 +60,20 @@ defmodule Aiur.Experiments.StoreTest do
       design: %{kind: "before_after", change: %{type: "manual", ref: "test", time: "2026-10-01T00:00:00Z"}},
       metrics: [%{ref: "delivery-speed/start_to_merge", direction: "decrease"}]
     }
+  end
+
+  test "mutations reject unknown metric refs while disappeared packs remain readable" do
+    start_supervised!(Store)
+    bad = Map.put(attrs(), :metrics, [%{ref: "delivery-speed/start_to_merg"}])
+    assert {:error, [%{path: "metrics.0.ref", message: message}]} = Experiments.create(bad)
+    assert message =~ "delivery-speed/start_to_merge"
+    assert {:ok, spec} = Experiments.create(attrs())
+    assert {:error, [%{path: "metrics.0.ref"}]} = Experiments.amend(spec.id, %{metrics: [%{ref: "absent/nope"}]}, "operator")
+    Application.put_env(:aiur, :experiment_metric_packs, [])
+    assert {:ok, detail} = Experiments.fetch(spec.id)
+    assert detail.spec["metrics"] == [%{"ref" => "delivery-speed/start_to_merge", "direction" => "decrease", "primary" => true}]
+    assert {:ok, changed} = Experiments.amend(spec.id, %{notes: "pack disappeared"}, "operator")
+    assert changed.notes == "pack disappeared"
   end
 
   test "create persists spec, audit and index, broadcasts and deduplicates by key" do
