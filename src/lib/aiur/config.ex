@@ -195,6 +195,7 @@ defmodule Aiur.Config do
   defdelegate server_tailscale_funnel?(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_enabled?(), to: Aiur.Config.ObservabilitySettings
   defdelegate telemetry_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
+  defdelegate capture_github_facts?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings

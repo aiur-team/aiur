@@ -17,7 +17,7 @@ defmodule Aiur.RunTelemetry.Writer do
   The admission counter is discovered from the Writer process dictionary on
   each caller cast. That keeps named-server lookup restart-safe; replacing it
   with a persistent-term registry is intentionally deferred because this
-  debug-only path would need explicit stale-pid cleanup.
+  telemetry path would need explicit stale-pid cleanup.
   """
 
   use GenServer
