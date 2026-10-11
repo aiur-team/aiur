@@ -222,7 +222,7 @@ agent_pidfile_from_instance_record() {
 #
 #   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
 #   $6 node  $7 run_log_dir  $8 stop_sentinel  $9 crash_marker
-#   $10 workspace_root_file  $11 alert_ledger_path_file  $12 dump_baseline_file
+#   $10 workspace_root_file  $11 alert_ledger_path_file  $12 dump_baseline_file  $13 supervisor_file
 # Any of args 6-9 or 11 arm crash recording. Foreground supplies only the node
 # and alert-ledger handoff, so it can alert on a new dump without writing the
 # background-only run marker.
@@ -230,7 +230,7 @@ agent_pidfile_from_instance_record() {
 start_beam_death_watchdog() {
   local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
   local node="${6:-}" run_log_dir="${7:-}" stop_sentinel="${8:-}" crash_marker="${9:-}" workspace_root_file="${10:-}"
-  local alert_ledger_path_file="${11:-}" dump_baseline_file="${12:-}"
+  local alert_ledger_path_file="${11:-}" dump_baseline_file="${12:-}" supervisor_file="${13:-}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
@@ -239,6 +239,8 @@ start_beam_death_watchdog() {
     while :; do
       if pgrep -f -- "$beam_pattern" >/dev/null 2>&1; then
         seen=1
+      elif supervisor_is_alive "$supervisor_file"; then
+        : # The pane supervisor owns the recovery gap.
       elif [ "$seen" = 1 ]; then
         break
       fi
@@ -254,7 +256,7 @@ start_beam_death_watchdog() {
     fi
     reap_aiur_agents "$socket" "$pidfile"
     reap_workspace_cwd_from_file "$workspace_root_file"
-    rm -f "$alert_ledger_path_file" "$dump_baseline_file" 2>/dev/null || true
+    rm -f "$alert_ledger_path_file" "$dump_baseline_file" "$supervisor_file" "${AIUR_ARGV_FILE:-}" 2>/dev/null || true
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
 }

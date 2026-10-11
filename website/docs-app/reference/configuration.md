@@ -102,7 +102,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
 | `tracker.github.allowed_contributors` | map | nil | Whole intake allow-list: `users: [42]`, `orgs: [{id: 77, login: acme}]`. Positive numeric int64 ids; logins address the membership API only. Present empty map/null admits nobody; present key skips `.github/ALLOWED-CONTRIBUTORS`. Invalid entries fail startup validation. Reload/restart applies changes and alerts with added/removed entries. |
-| `tracker.github.human_mergers` | array | `[]` | GitHub logins allowed to perform human merge actions. |
+| `tracker.github.human_mergers` | array | `[]` | Explicit human-only post-merge attribution allowlist; also the identity allowlist for the planned `aiur pr merge` command. Never inherits CODEOWNERS, bot accounts, trusted accounts or dispatch users. |
 | `tracker.github.planning_root_limit` | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
 | `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub planning pages fetched in one cycle. |
 | `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub planning calls fetched in one cycle. |
@@ -218,6 +218,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
 | `agent.headroom_reading_max_age_seconds` | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
 | `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
+| `agent.git_identity.name`, `agent.git_identity.email` | string or nil | nil | Author and committer of agent commits on every backend. Aiur exports them as `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, which override the operator's git config. An unset field uses the `tracker.github.bot_account` login, or `<login>@users.noreply.github.com`; with neither set, commits use `Aiur Agent <aiur-agent@users.noreply.github.com>` and the daemon logs one warning. Local workspaces also get a `commit-msg` hook that rejects AI co-author trailers and generated-with footers, and Claude settings that stop the CLI adding them. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.relay` | boolean | true | Runs local Codex app-server and headless Claude behind a detached relay that retains provider output between controller connections. `false` uses the direct Port transport. Remote SSH workers keep their existing transport; normal stop and the BEAM-death watchdog still reap agents. |
@@ -239,7 +240,7 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
-| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. A productive turn resets the count; 0 disables the bound. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. After the first no-op turn the worker parks and waits for a queued ticket event or operator message instead of re-prompting (a pushed rework PR is handed off right away); the count survives the wake, so the bound caps wakes that still change nothing. A productive turn resets the count; 0 disables the bound. The park lasts at most two minutes: on timeout the worker resumes with a normal turn and the surviving count still ends an idle ticket. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
@@ -308,8 +309,7 @@ order.** Duplicate *routes* are rejected; duplicate backends are not.
 | Alias claimed by multiple vendors | Rejected during config load. |
 | Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
-**OpenRouter needs an explicit model.** It fronts a catalog rather than a
-product, so a bare `openrouter` entry is a config error.
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a product, so a bare `openrouter` entry is a config error.
 
 **An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
 means direct-only, always. Routing through OpenRouter is something you write.
@@ -759,7 +759,7 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
-| `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. |
+| `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. A non-empty queue whose open-issue snapshot is older than this lists open issues itself, at most once per this age. |
 | `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for an `issue_closed` queue prerequisite whose PR merged but issue remains open; 60..86400. |
 ## build_order
 

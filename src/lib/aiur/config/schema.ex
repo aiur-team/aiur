@@ -20,6 +20,7 @@ defmodule Aiur.Config.Schema do
     Errors,
     Events,
     Hooks,
+    MergePolicy,
     Monitoring,
     Observability,
     Opencode,
@@ -61,6 +62,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:decisions, Decisions, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:merge_policy, MergePolicy, on_replace: :update, defaults_to_struct: true)
     embeds_one(:monitoring, Monitoring, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
@@ -192,6 +194,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:decisions, with: &Decisions.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
+    |> cast_embed(:merge_policy, with: &MergePolicy.changeset/2)
     |> cast_embed(:monitoring, with: &Monitoring.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)

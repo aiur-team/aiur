@@ -10,17 +10,13 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.CIApprovalStore
+  alias Aiur.Events.GithubCIPoller.{BaseRepair, Evaluation}
   alias Aiur.GitHub.{CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
   @type target :: String.t() | integer()
   @type decision :: :pending | :passed | :failed
 
-  @successful_conclusions ~w(success neutral skipped)
-  @failed_statuses ~w(error failure)
-  @failed_conclusions ~w(action_required failure startup_failure timed_out)
-  @terminal_check_conclusions @successful_conclusions ++ @failed_conclusions
   @default_max_concurrency 4
   @default_target_timeout 60_000
 
@@ -82,7 +78,7 @@ defmodule Aiur.Events.GithubCIPoller do
   @doc false
   @spec evaluate_for_test([map()], map()) :: %{decision: decision(), failures: [map()]}
   def evaluate_for_test(check_runs, commit_status) when is_list(check_runs) and is_map(commit_status) do
-    evaluate(check_runs, commit_status)
+    Evaluation.evaluate(check_runs, commit_status)
   end
 
   defp poll_target(target, opts) do
@@ -134,28 +130,28 @@ defmodule Aiur.Events.GithubCIPoller do
          {:ok, head_sha} <- head_sha(pr) do
       expected_base = StackBaseEvidence.expected_base(target, pr, opts)
 
-      case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+      case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
-          evaluate(check_runs, commit_status)
-          |> enforce_required_checks(check_runs, commit_status, pr, opts)
-          |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+          Evaluation.evaluate(check_runs, commit_status)
+          |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+          |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
-          |> Map.merge(merge_queue_observation(pr))
+          |> Map.merge(Evaluation.merge_queue_observation(pr))
           |> log_classification()
 
         {:ok, {:unchanged, recovered_invalidation}} ->
-          evaluate(check_runs, commit_status)
-          |> enforce_required_checks(check_runs, commit_status, pr, opts)
-          |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+          Evaluation.evaluate(check_runs, commit_status)
+          |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+          |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
-          |> Map.merge(merge_queue_observation(pr))
+          |> Map.merge(Evaluation.merge_queue_observation(pr))
           |> log_classification()
 
         {:ok, {:repaired, invalidation}} ->
-          base_branch_repaired(target, pr_number, invalidation, expected_base)
+          BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
 
         {:error, reason, invalidation} ->
-          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+          BaseRepair.base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
       end
     else
       {:error, reason} -> poll_error(target, reason)
@@ -173,39 +169,27 @@ defmodule Aiur.Events.GithubCIPoller do
     end
   end
 
-  # Carries the batch's merge-queue recovery observation (ready/approved/
-  # mergeable/armed/queued) into the poll result so CiLifecycle can alert on a
-  # parked-ready PR. Absent on the REST fallback path and on error/no-PR
-  # results; CiLifecycle treats a missing observation as `:unknown` (fail
-  # closed) instead of arming or clearing a recovery signal on partial data.
-  defp merge_queue_observation(%{} = pr) do
-    case Map.get(pr, "merge_queue") do
-      %{} = observation when map_size(observation) > 0 -> observation
-      _other -> %{}
-    end
-  end
-
   defp poll_open_pull_request(target, pr, opts) do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
          {:ok, head_sha} <- head_sha(pr) do
       expected_base = StackBaseEvidence.expected_base(target, pr, opts)
 
-      case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+      case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
           poll_open_pull_request_ci(target, pr_number, head_sha, opts)
 
         {:ok, {:unchanged, recovered_invalidation}} ->
-          opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
+          opts = BaseRepair.put_base_repair_invalidation(opts, target, recovered_invalidation)
 
           target
           |> poll_open_pull_request_ci(pr_number, head_sha, opts)
           |> Map.put(:base_repair_invalidation, recovered_invalidation)
 
         {:ok, {:repaired, invalidation}} ->
-          base_branch_repaired(target, pr_number, invalidation, expected_base)
+          BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
 
         {:error, reason, invalidation} ->
-          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+          BaseRepair.base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
       end
     else
       {:error, reason} -> poll_error(target, reason)
@@ -256,12 +240,12 @@ defmodule Aiur.Events.GithubCIPoller do
 
     case head_sha(current_pr) do
       {:ok, current_head_sha} ->
-        case ensure_pull_request_base(target, current_pr, current_head_sha, expected_base, opts) do
+        case BaseRepair.ensure_pull_request_base(target, current_pr, current_head_sha, expected_base, opts) do
           {:ok, :unchanged} ->
             current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
 
           {:ok, {:unchanged, recovered_invalidation}} ->
-            opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
+            opts = BaseRepair.put_base_repair_invalidation(opts, target, recovered_invalidation)
 
             target
             |> current_head_result(
@@ -275,10 +259,10 @@ defmodule Aiur.Events.GithubCIPoller do
             |> Map.put(:base_repair_invalidation, recovered_invalidation)
 
           {:ok, {:repaired, invalidation}} ->
-            base_branch_repaired(target, pr_number, invalidation, expected_base)
+            BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
 
           {:error, reason, invalidation} ->
-            base_branch_failure(
+            BaseRepair.base_branch_failure(
               target,
               pr_number,
               current_head_sha,
@@ -296,14 +280,14 @@ defmodule Aiur.Events.GithubCIPoller do
   defp current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts) do
     case head_sha(current_pr) do
       {:ok, ^observed_head_sha} ->
-        evaluate(check_runs, commit_status)
-        |> enforce_required_checks(check_runs, commit_status, current_pr, opts)
-        |> enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
+        Evaluation.evaluate(check_runs, commit_status)
+        |> Evaluation.enforce_required_checks(check_runs, commit_status, current_pr, opts)
+        |> Evaluation.enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{
           target: target,
           pr_number: pr_number,
           head_sha: observed_head_sha,
-          draft?: pr_draft?(current_pr),
+          draft?: Evaluation.pr_draft?(current_pr),
           review_decision: Map.get(current_pr, "review_decision")
         })
         |> log_classification()
@@ -321,298 +305,6 @@ defmodule Aiur.Events.GithubCIPoller do
         poll_error(target, reason)
     end
   end
-
-  defp evaluate(check_runs, commit_status) do
-    check_runs =
-      check_runs
-      |> blocking_check_runs()
-      |> latest_check_runs_per_workflow_and_name()
-
-    statuses = commit_status |> Map.get("statuses", []) |> Enum.filter(&is_map/1)
-    failed_checks = failed_check_runs(check_runs) ++ failed_commit_statuses(statuses)
-
-    failed_checks =
-      if failed_checks == [] do
-        failed_combined_status(commit_status)
-      else
-        failed_checks
-      end
-
-    classification =
-      cond do
-        incomplete_check_runs?(check_runs) -> {:pending, :check_runs_incomplete}
-        incomplete_commit_statuses?(statuses) -> {:pending, :commit_statuses_incomplete}
-        incomplete_combined_status?(commit_status) -> {:pending, :combined_status_incomplete}
-        failed_checks != [] -> {:failed, nil}
-        observed_ci_signal?(check_runs, statuses, commit_status) -> {:passed, nil}
-        true -> {:pending, :ci_not_observed}
-      end
-
-    evaluation(classification, failed_checks)
-  end
-
-  # A skipped draft job satisfies GitHub's check state but never proves the full suite ran.
-  defp enforce_required_checks(%{decision: :passed} = result, check_runs, commit_status, pr, opts) do
-    draft? = Map.get(merge_queue_observation(pr), :draft?, pr_draft?(pr))
-
-    case {draft?, Keyword.fetch!(opts, :required_checks)} do
-      {true, _} ->
-        Map.merge(result, %{decision: :pending, pending_reason: :draft_pull_request})
-
-      {false, {:ok, required}} ->
-        runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
-        statuses = Map.get(commit_status, "statuses", [])
-
-        if Enum.all?(required, &required_check_passed?(&1, runs, statuses)) do
-          result
-        else
-          Map.merge(result, %{decision: :pending, pending_reason: :required_checks_incomplete})
-        end
-
-      {false, {:error, reason}} ->
-        Map.merge(result, %{decision: :pending, pending_reason: :required_checks_unavailable, error: reason})
-    end
-  end
-
-  defp enforce_required_checks(result, _runs, _statuses, _pr, _opts), do: result
-
-  defp required_check_passed?(%{name: name, app_id: app_id}, runs, statuses) do
-    Enum.any?(runs, fn run ->
-      Map.get(run, "name") == name and Map.get(run, "status") == "completed" and
-        Map.get(run, "conclusion") in ~w(success neutral) and
-        (app_id in [nil, -1] or get_in(run, ["app", "id"]) == app_id)
-    end) or
-      (app_id in [nil, -1] and Enum.any?(statuses, &(Map.get(&1, "context") == name and Map.get(&1, "state") == "success")))
-  end
-
-  # A head sha can carry check runs from several runs of the same workflow when
-  # a run was superseded by a re-run on the same sha. A superseded run's
-  # failure is not a failure of the head — the current run is the verdict — so
-  # the gate considers only the latest run per (workflow, name) (#2337 cause 4).
-  #
-  # The workflow scope is `check_suite.id`: GitHub re-runs of the same workflow
-  # reuse the suite id, while different workflows (ci, website, streamdeck,
-  # netlify…) each own a distinct suite. Keying on name alone would collapse a
-  # same-named job across workflows — ci.yml's `build` and
-  # streamdeck-package.yml's `build` land on one head sha, and a failing
-  # required `build` could be dropped by a later-starting green one from the
-  # other workflow. Scoping by suite keeps that impossible (#2346 review).
-  # `started_at` is the recency key (falls back to `completed_at`); ISO8601
-  # strings compare chronologically. Output preserves each key's first-seen
-  # position so downstream failure lists keep their input order. A run with no
-  # suite identity is scoped by its own id, so it is never collapsed with any
-  # other run — failing toward not dropping a failure.
-  defp latest_check_runs_per_workflow_and_name(check_runs) do
-    {latest, ordered_keys} =
-      Enum.reduce(check_runs, {%{}, []}, fn run, {latest, ordered_keys} ->
-        key = {check_run_workflow(run), Map.get(run, "name")}
-
-        case Map.fetch(latest, key) do
-          {:ok, current} ->
-            {put_latest_check_run(latest, key, run, current), ordered_keys}
-
-          :error ->
-            {Map.put(latest, key, run), ordered_keys ++ [key]}
-        end
-      end)
-
-    Enum.map(ordered_keys, &Map.fetch!(latest, &1))
-  end
-
-  # Keeps the newer run for a key when both a superseded and the current run of
-  # the same workflow reported on the head sha.
-  defp put_latest_check_run(latest, key, run, current) do
-    updated = if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
-    Map.put(latest, key, updated)
-  end
-
-  # The check suite id identifies the workflow run a check run belongs to. It
-  # arrives flat (`"check_suite_id"`) from the GraphQL batch and webhook
-  # normalizers and nested (`["check_suite"]["id"]`) from the raw REST
-  # check-runs read. Absent either, the run's own id scopes it so same-named
-  # suite-less runs are never collapsed together.
-  defp check_run_workflow(check_run) do
-    case Map.get(check_run, "check_suite_id") || get_in(check_run, ["check_suite", "id"]) do
-      id when not is_nil(id) -> {:suite, id}
-      _other -> {:run, Map.get(check_run, "id")}
-    end
-  end
-
-  defp check_run_recency_key(check_run) do
-    Map.get(check_run, "started_at") || Map.get(check_run, "completed_at") || ""
-  end
-
-  defp non_blocking_check?(check_run) do
-    case Map.get(check_run, "name") do
-      name when is_binary(name) ->
-        name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
-
-      _ ->
-        false
-    end
-  end
-
-  defp blocking_check_runs(check_runs) do
-    check_runs
-    |> Enum.filter(&is_map/1)
-    |> Enum.reject(&non_blocking_check?/1)
-  end
-
-  defp evaluation({:pending, pending_reason}, failed_checks) do
-    %{decision: :pending, pending_reason: pending_reason, failures: failed_checks}
-  end
-
-  defp evaluation({decision, nil}, failed_checks) do
-    %{decision: decision, failures: failed_checks}
-  end
-
-  defp enforce_base_repair_invalidation(result, target, head_sha, check_runs, commit_status, opts) do
-    invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
-
-    case Map.get(invalidations, to_string(target)) do
-      %{repair_state: :repairing} ->
-        require_base_repair_recovery(result)
-
-      %{"repair_state" => "repairing"} ->
-        require_base_repair_recovery(result)
-
-      %{head_sha: ^head_sha, repaired_at: repaired_at} when is_integer(repaired_at) ->
-        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
-
-      %{"head_sha" => ^head_sha, "repaired_at" => repaired_at}
-      when is_integer(repaired_at) ->
-        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
-
-      _ ->
-        result
-    end
-  end
-
-  # A pre-PATCH marker has no trustworthy completion timestamp. It can never
-  # validate CI directly: the next poll first observes the repaired base, then
-  # journals a confirmed marker whose timestamp is safely after that
-  # observation.
-  defp require_base_repair_recovery(result) do
-    result
-    |> Map.put(:decision, :pending)
-    |> Map.put(:failures, [])
-    |> Map.put(:pending_reason, :base_repair_confirmation_required)
-  end
-
-  defp apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at) do
-    if result.decision in [:passed, :failed] and post_repair_ci?(check_runs, commit_status, repaired_at) do
-      Map.put(result, :base_repair_revalidated, true)
-    else
-      result
-      |> Map.put(:decision, :pending)
-      |> Map.put(:failures, [])
-      |> Map.put(:pending_reason, :base_repair_ci_revalidation_required)
-    end
-  end
-
-  defp post_repair_ci?(check_runs, commit_status, repaired_at) do
-    check_evidence = check_runs |> blocking_check_runs() |> Enum.map(&ci_evidence_timestamp/1)
-
-    status_evidence =
-      commit_status
-      |> Map.get("statuses", [])
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(&ci_evidence_timestamp/1)
-
-    evidence = check_evidence ++ status_evidence
-    evidence != [] and Enum.all?(evidence, &(is_integer(&1) and &1 > repaired_at))
-  end
-
-  defp ci_evidence_timestamp(evidence) when is_map(evidence) do
-    [
-      get_in(evidence, ["check_suite", "created_at"]),
-      Map.get(evidence, "created_at"),
-      Map.get(evidence, "started_at")
-    ]
-    |> Enum.map(&timestamp_seconds/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.min(fn -> nil end)
-  end
-
-  defp ci_evidence_timestamp(_evidence), do: nil
-
-  defp timestamp_seconds(value) when is_integer(value) and value >= 0, do: value
-
-  defp timestamp_seconds(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> DateTime.to_unix(datetime)
-      _ -> nil
-    end
-  end
-
-  defp timestamp_seconds(_value), do: nil
-
-  defp failed_check_runs(check_runs) do
-    Enum.flat_map(check_runs, fn check_run ->
-      status = Map.get(check_run, "status")
-      conclusion = Map.get(check_run, "conclusion")
-
-      if status == "completed" and conclusion in @failed_conclusions do
-        [check_failure(check_run, "check_run", conclusion)]
-      else
-        []
-      end
-    end)
-  end
-
-  defp failed_commit_statuses(statuses) do
-    Enum.flat_map(statuses, fn status ->
-      state = Map.get(status, "state")
-
-      if state in @failed_statuses do
-        [check_failure(status, "commit_status", state)]
-      else
-        []
-      end
-    end)
-  end
-
-  defp failed_combined_status(%{"state" => state}) when state in @failed_statuses do
-    [%{name: "combined commit status", kind: "commit_status", result: state, excerpt: nil}]
-  end
-
-  defp failed_combined_status(_commit_status), do: []
-
-  defp check_failure(check, kind, result) do
-    output = Map.get(check, "output", %{})
-
-    %{
-      name: Map.get(check, "name") || Map.get(check, "context") || "unnamed check",
-      kind: kind,
-      result: result,
-      excerpt: Map.get(output, "summary") || Map.get(output, "text") || Map.get(check, "description")
-    }
-  end
-
-  defp incomplete_check_runs?(check_runs) do
-    Enum.any?(check_runs, fn check_run ->
-      status = Map.get(check_run, "status")
-      conclusion = Map.get(check_run, "conclusion")
-
-      status != "completed" or conclusion not in @terminal_check_conclusions
-    end)
-  end
-
-  defp incomplete_commit_statuses?(statuses) do
-    Enum.any?(statuses, fn status -> Map.get(status, "state") not in ["success" | @failed_statuses] end)
-  end
-
-  defp incomplete_combined_status?(%{"state" => state, "statuses" => [_ | _]}) when is_binary(state) do
-    state not in ["success" | @failed_statuses]
-  end
-
-  defp incomplete_combined_status?(_commit_status), do: false
-
-  defp observed_ci_signal?(check_runs, statuses, %{"state" => state})
-       when is_binary(state) and state != "",
-       do: check_runs != [] or statuses != [] or state in ["success" | @failed_statuses]
-
-  defp observed_ci_signal?(check_runs, statuses, _commit_status), do: check_runs != [] or statuses != []
 
   defp log_classification(result) do
     Logger.debug(fn ->
@@ -633,200 +325,6 @@ defmodule Aiur.Events.GithubCIPoller do
     |> Enum.uniq()
   end
 
-  defp ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
-    repair_started_at = system_time_seconds(opts)
-
-    repairing = %{
-      head_sha: head_sha,
-      repaired_at: repair_started_at,
-      repair_state: :repairing
-    }
-
-    ensure_opts =
-      Keyword.put(opts, :before_base_repair_fun, fn ->
-        journal_base_repair(target, repairing, opts)
-      end)
-
-    case Client.ensure_pull_request_base(pr, expected_base, ensure_opts) do
-      {:ok, :unchanged} ->
-        recover_interrupted_base_repair(target, pr, head_sha, expected_base, opts)
-
-      {:ok, {:repaired, confirmed_head_sha}} ->
-        confirmed = %{
-          head_sha: confirmed_head_sha,
-          repaired_at: system_time_seconds(opts),
-          repair_state: :repaired
-        }
-
-        case journal_base_repair(target, confirmed, opts) do
-          :ok ->
-            {:ok, {:repaired, confirmed}}
-
-          {:error, reason} ->
-            {:error,
-             repair_error(
-               pr,
-               expected_base,
-               {:confirmed_head_journal_failed, confirmed_head_sha, reason}
-             ), repairing}
-        end
-
-      {:error, {:pull_request_base_repair_failed, %{repair_journaled: true}} = reason} ->
-        {:error, reason, repairing}
-
-      {:error, reason} ->
-        {:error, reason, nil}
-    end
-  end
-
-  defp recover_interrupted_base_repair(target, pr, head_sha, expected_base, opts) do
-    case base_repair_invalidation(opts, target) do
-      %{repair_state: :repairing} = repairing ->
-        persist_recovered_base_repair(target, pr, head_sha, expected_base, repairing, opts)
-
-      %{"repair_state" => "repairing"} = repairing ->
-        persist_recovered_base_repair(target, pr, head_sha, expected_base, repairing, opts)
-
-      _ ->
-        {:ok, :unchanged}
-    end
-  end
-
-  defp persist_recovered_base_repair(target, pr, head_sha, expected_base, repairing, opts) do
-    recovered = %{
-      head_sha: head_sha,
-      repaired_at: system_time_seconds(opts),
-      repair_state: :repaired
-    }
-
-    case journal_base_repair(target, recovered, opts) do
-      :ok ->
-        {:ok, {:unchanged, recovered}}
-
-      {:error, reason} ->
-        {:error,
-         repair_error(
-           pr,
-           expected_base,
-           {:repair_confirmation_journal_failed, head_sha, reason}
-         ), repairing}
-    end
-  end
-
-  defp base_repair_invalidation(opts, target) do
-    opts
-    |> Keyword.get(:base_repair_invalidations, %{})
-    |> Map.get(to_string(target))
-  end
-
-  defp put_base_repair_invalidation(opts, target, invalidation) do
-    invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
-    Keyword.put(opts, :base_repair_invalidations, Map.put(invalidations, to_string(target), invalidation))
-  end
-
-  defp journal_base_repair(target, invalidation, opts) do
-    journal_fun =
-      Keyword.get(opts, :base_repair_journal_fun, fn target, marker ->
-        CIApprovalStore.journal_base_repair(target, marker)
-      end)
-
-    try do
-      case journal_fun.(to_string(target), invalidation) do
-        :ok -> :ok
-        {:error, reason} -> {:error, reason}
-        other -> {:error, {:unexpected_base_repair_journal_result, other}}
-      end
-    rescue
-      error -> {:error, {:base_repair_journal_failed, Exception.message(error)}}
-    catch
-      kind, reason -> {:error, {:base_repair_journal_failed, {kind, reason}}}
-    end
-  end
-
-  defp repair_error(pr, expected_base, reason) do
-    {:pull_request_base_repair_failed,
-     %{
-       pr_number: Map.get(pr, "number"),
-       current_base: get_in(pr, ["base", "ref"]),
-       expected_base: expected_base,
-       reason: reason,
-       repair_journaled: true
-     }}
-  end
-
-  defp base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation) do
-    excerpt = base_branch_failure_message(pr_number, expected_base, reason)
-
-    Logger.warning("GithubCIPoller rejected pull request base: issue=#{target} reason=#{inspect(reason)}")
-
-    result = %{
-      target: target,
-      pr_number: pr_number,
-      head_sha: head_sha,
-      decision: :failed,
-      failures: [
-        %{
-          name: "pull request base branch",
-          kind: "pull_request",
-          result: "repair_failed",
-          excerpt: excerpt
-        }
-      ]
-    }
-
-    if is_map(invalidation),
-      do: Map.put(result, :base_repair_invalidation, invalidation),
-      else: result
-  end
-
-  defp base_branch_repaired(target, pr_number, invalidation, expected_base) do
-    Logger.warning(
-      "GithubCIPoller repaired pull request base: issue=#{target} pr=#{pr_number} " <>
-        "expected_base=#{inspect(expected_base)} action=ci_revalidation_required"
-    )
-
-    %{
-      target: target,
-      pr_number: pr_number,
-      head_sha: invalidation.head_sha,
-      decision: :failed,
-      base_repair_invalidation: invalidation,
-      failures: [
-        %{
-          name: "pull request base branch",
-          kind: "pull_request",
-          result: "repaired",
-          excerpt:
-            "Pull request ##{pr_number} was retargeted to configured tracker.base_branch " <>
-              "#{inspect(expected_base)}. CI recorded before the repair is not valid for the new base; " <>
-              "rerun CI or push a follow-up commit, then verify baseRefName before handoff."
-        }
-      ]
-    }
-  end
-
-  defp system_time_seconds(opts) do
-    opts
-    |> Keyword.get(:system_time_fun, fn -> System.system_time(:second) end)
-    |> then(& &1.())
-  end
-
-  defp base_branch_failure_message(
-         pr_number,
-         expected_base,
-         {:pull_request_base_repair_failed, details}
-       ) do
-    "Pull request ##{pr_number} targets #{inspect(details.current_base)}; " <>
-      "configured tracker.base_branch is #{inspect(expected_base)}. Automatic REST retarget failed: " <>
-      "#{inspect(details.reason)}. Retarget only the PR base, then verify baseRefName before retrying CI."
-  end
-
-  defp base_branch_failure_message(pr_number, expected_base, reason) do
-    "Pull request ##{pr_number} base could not be verified against configured tracker.base_branch " <>
-      "#{inspect(expected_base)}: #{inspect(reason)}. " <>
-      "Verify baseRefName or retarget only the PR base before retrying CI."
-  end
-
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
 
   defp positive_integer(value) when is_binary(value) do
@@ -840,14 +338,6 @@ defmodule Aiur.Events.GithubCIPoller do
 
   defp head_sha(%{"head" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
   defp head_sha(_pr), do: {:error, :head_sha_missing}
-
-  # REST pull requests and the GraphQL batch both carry draft state (`draft` /
-  # `isDraft`); `reviewDecision` is GraphQL-only and stays nil on the REST
-  # fallback path. Missing draft state reads false so a never-drafted PR is
-  # never misclassified as a stall.
-  defp pr_draft?(%{"draft" => draft}) when is_boolean(draft), do: draft
-  defp pr_draft?(%{"isDraft" => draft}) when is_boolean(draft), do: draft
-  defp pr_draft?(_pr), do: false
 
   defp poll_error(target, reason) do
     Logger.warning("GithubCIPoller failed: issue=#{target} reason=#{inspect(reason)}")

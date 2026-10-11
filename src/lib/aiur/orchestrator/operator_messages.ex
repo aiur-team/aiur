@@ -2,13 +2,11 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, Commands, OperatorWaitLog, TrackerIdentity}
+  alias Aiur.{AgentQueueStore, TrackerIdentity}
 
-  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, DigestCoalescer, LifecycleFence, PauseResume, State}
+  alias Aiur.Orchestrator.State
 
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
-  alias Aiur.Orchestrator.StatusReason
-  @max_operator_message_chars 8_000
+  alias Aiur.Orchestrator.OperatorMessages.{Calls, Capabilities, ControlAlerts, DeliveryPolicy, Enqueue}
   @operator_message_call_timeout_ms 5_000
 
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
@@ -25,7 +23,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     |> control_api_call({:send_operator_message, issue_identifier, payload}, timeout)
     |> reconcile_send_timeout(
       server,
-      {:message_id, payload_key(payload, :message_id)},
+      {:message_id, Enqueue.payload_key(payload, :message_id)},
       timeout,
       &{:ok, &1.id},
       expected_message(issue_identifier, payload)
@@ -56,7 +54,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     |> control_api_call({:send_correlated_operator_message, issue_identifier, payload}, timeout)
     |> reconcile_send_timeout(
       server,
-      {:action_id, payload_key(payload, :action_id)},
+      {:action_id, Enqueue.payload_key(payload, :action_id)},
       timeout,
       &{:ok, %{status: :duplicate, item: &1}}
     )
@@ -90,13 +88,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp lookup_request(lookup, expected), do: {:lookup_operator_message, lookup, expected}
 
   defp outcome_unknown_info({kind, key}), do: %{kind => key, item_id: nil}
-
-  defp payload_key(payload, key) do
-    case Map.get(payload, key) do
-      value when is_binary(value) and value != "" -> value
-      _other -> nil
-    end
-  end
 
   @doc false
   @spec operator_message_call_timeout_ms() :: pos_integer()
@@ -192,892 +183,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier),
       do: queue_api_call(server, {:fail_delivered_queue_items, issue_identifier, reason})
 
-  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map(), keyword()) :: State.t()
-  def enqueue_event_digest_item(%State{} = state, identifier, events, _summary_source, opts \\ [])
-      when is_binary(identifier) and is_list(events) and is_list(opts) do
-    events = reject_already_queued_events(state.queue_store, events)
-
-    if events == [] do
-      state
-    else
-      do_enqueue_event_digest_item(state, identifier, events, Keyword.get(opts, :subscribed_to))
-    end
-  end
-
-  defp do_enqueue_event_digest_item(state, identifier, events, subscribed_to) do
-    summary_source = if length(events) == 1, do: List.first(events), else: %{events: events}
-
-    blocker_critical? = blocker_critical_events?(state, identifier, events, subscribed_to)
-
-    body = %{
-      summary: CommentWake.event_digest_summary(summary_source),
-      events: events,
-      urgent: blocker_critical?
-    }
-
-    running_entry = State.find_running_by_identifier(state.running, identifier)
-    delivery_opts = DeliveryPolicy.event_digest_delivery_opts(running_entry, events, blocker_critical?)
-
-    {queue_store, item} =
-      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
-      |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
-
-    next_state =
-      state
-      |> Map.put(:queue_store, queue_store)
-      |> maybe_replace_completed_runner(running_entry)
-      |> LifecycleFence.protect_queued_item(identifier, item)
-
-    case running_entry do
-      nil ->
-        :ok
-
-      running_entry ->
-        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
-    end
-
-    next_state
-  end
-
-  defp blocker_critical_events?(state, identifier, events, subscribed_to) do
-    direct_blockers = AutoSubscriptions.direct_blockers_for(state, identifier, subscribed_to)
-
-    AutoSubscriptions.blocker_critical_digest?(
-      %{category: :coordination_event, event_type: :events_digest, body: %{events: events}},
-      direct_blockers
-    )
-  end
-
-  # Deduplicate synchronous CI wakes and asynchronous exchange copies, even
-  # after the original item was delivered or consumed.
-  defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do
-    known_ids =
-      queue_store.items
-      |> Map.values()
-      |> Enum.flat_map(&queued_event_ids/1)
-      |> MapSet.new()
-
-    Enum.reject(events, fn event ->
-      case event_id(event) do
-        id when is_integer(id) -> MapSet.member?(known_ids, id)
-        _ -> false
-      end
-    end)
-  end
-
-  defp queued_event_ids(%{
-         category: :coordination_event,
-         event_type: :events_digest,
-         body: %{events: queued}
-       }) do
-    Enum.flat_map(List.wrap(queued), &event_id_list/1)
-  end
-
-  defp queued_event_ids(_item), do: []
-
-  defp event_id_list(event) do
-    case event_id(event) do
-      id when is_integer(id) -> [id]
-      _ -> []
-    end
-  end
-
-  defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
-  defp event_id(_event), do: nil
-
-  @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
-          {:reply, :ok, State.t()}
-  def enqueue_event_digest_call(%State{} = state, identifier, event, opts \\ []) do
-    {:reply, :ok, enqueue_event_digest_item(state, identifier, [event], event, opts)}
-  end
-
-  @spec enqueue_event_digest_batch_call(State.t(), String.t(), [map()]) ::
-          {:reply, :ok, State.t()}
-  def enqueue_event_digest_batch_call(%State{} = state, identifier, events)
-      when is_binary(identifier) and is_list(events) do
-    {:reply, :ok, enqueue_event_digest_item(state, identifier, events, %{events: events})}
-  end
-
-  @spec send_operator_message_call(State.t(), String.t(), map()) ::
-          {:reply, {:ok, integer()} | {:error, term()}, State.t()}
-  def send_operator_message_call(
-        %State{} = state,
-        issue_identifier,
-        %{kind: :text, body: body} = payload
-      )
-      when is_binary(issue_identifier) and is_binary(body) do
-    {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
-    {:reply, reply, next_state}
-  end
-
-  def send_operator_message_call(%State{} = state, %TrackerIdentity{} = identity, payload) do
-    case State.find_unique_running_by_identity(state.running, identity) do
-      {:ok, _entry, issue_identifier} -> send_operator_message_call(state, issue_identifier, payload)
-      {:error, reason} -> {:reply, {:error, reason}, state}
-    end
-  end
-
-  def send_operator_message_call(%State{} = state, _issue_identifier, _payload) do
-    {:reply, {:error, :invalid_message}, state}
-  end
-
-  @spec send_correlated_operator_message_call(State.t(), String.t(), map()) ::
-          {:reply, {:ok, map()} | {:error, term()}, State.t()}
-  def send_correlated_operator_message_call(
-        %State{} = state,
-        issue_identifier,
-        %{kind: :text, body: body, action_id: action_id, correlation: correlation} = payload
-      )
-      when is_binary(issue_identifier) and is_binary(body) and is_binary(action_id) and is_map(correlation) do
-    if correlation_action_id(correlation) == action_id do
-      {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload, :correlated)
-      {:reply, reply, next_state}
-    else
-      {:reply, {:error, :action_mismatch}, state}
-    end
-  end
-
-  def send_correlated_operator_message_call(%State{} = state, _issue_identifier, _payload) do
-    {:reply, {:error, :invalid_message}, state}
-  end
-
-  @spec control_capabilities_call(State.t(), String.t()) :: {:reply, {:ok, map()}, State.t()}
-  def control_capabilities_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    {:reply, {:ok, issue_control_capabilities(state, issue_identifier)}, state}
-  end
-
-  @spec claim_next_queue_item_call(State.t(), String.t()) ::
-          {:reply, :empty | {:ok, map()}, State.t()}
-  def claim_next_queue_item_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    {state, queue_store, item} = claim_resume_input(state, issue_identifier)
-
-    {queue_store, item} = maybe_coalesce_events(queue_store, issue_identifier, item)
-    queue_claim_reply(state, queue_store, item)
-  end
-
-  defp claim_resume_input(state, identifier) do
-    entry = State.find_running_by_identifier(state.running, identifier)
-    item_id = if entry, do: Map.get(entry, :resume_input_id)
-
-    {store, item} =
-      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, &(&1.id == item_id))
-
-    state = clear_resume_input(state, entry)
-
-    if item do
-      {state, store, item}
-    else
-      {store, item} = AgentQueueStore.claim_next_deliverable(store, identifier)
-      {state, store, item}
-    end
-  end
-
-  defp clear_resume_input(state, %{issue: %{id: id}} = entry),
-    do: %{state | running: Map.put(state.running, id, Map.delete(entry, :resume_input_id))}
-
-  defp clear_resume_input(state, _entry), do: state
-
-  @spec claim_next_checkpoint_queue_item_call(State.t(), String.t()) ::
-          {:reply, :empty | {:ok, map()}, State.t()}
-  def claim_next_checkpoint_queue_item_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    {queue_store, item} =
-      AgentQueueStore.claim_next_deliverable_matching(
-        state.queue_store,
-        issue_identifier,
-        fn item -> item.delivery[:interrupt_requested] != true end
-      )
-
-    queue_claim_reply(state, queue_store, item)
-  end
-
-  @spec claim_blocker_critical_events_digest_call(State.t(), String.t()) ::
-          {:reply, :empty | {:ok, map()}, State.t()}
-  def claim_blocker_critical_events_digest_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    direct_blockers = AutoSubscriptions.direct_blockers_for(state, issue_identifier)
-
-    {queue_store, item} =
-      AgentQueueStore.claim_next_deliverable_matching(
-        state.queue_store,
-        issue_identifier,
-        &AutoSubscriptions.blocker_critical_digest?(&1, direct_blockers)
-      )
-
-    queue_claim_reply(state, queue_store, item)
-  end
-
-  @spec claim_next_operator_queue_item_call(State.t(), String.t()) ::
-          {:reply, :empty | {:ok, map()}, State.t()}
-  def claim_next_operator_queue_item_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    {queue_store, item} =
-      AgentQueueStore.claim_next_deliverable_matching(
-        state.queue_store,
-        issue_identifier,
-        &match?(%{category: :operator_message}, &1)
-      )
-
-    queue_claim_reply(state, queue_store, item)
-  end
-
-  @spec claim_operator_response_call(State.t(), String.t(), String.t()) :: tuple()
-  def claim_operator_response_call(state, identifier, command) do
-    {store, item} =
-      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn
-        %{category: :operator_message, body: %{text: text}} when is_binary(text) ->
-          List.first(String.split(String.trim(text), ~r/\s+/, parts: 2)) == command
-
-        _ ->
-          false
-      end)
-
-    queue_claim_reply(state, store, item)
-  end
-
-  @spec operator_message_status_call(State.t(), integer()) ::
-          {:reply, {:ok, Aiur.AgentQueueItem.status()} | {:error, :unknown_message}, State.t()}
-  def operator_message_status_call(%State{} = state, item_id) when is_integer(item_id) do
-    case AgentQueueStore.get(state.queue_store, item_id) do
-      nil -> {:reply, {:error, :unknown_message}, state}
-      item -> {:reply, {:ok, item.status}, state}
-    end
-  end
-
-  @doc "Find the queue item a keyed send created: by message id, or by decision action id."
-  @spec lookup_operator_message_call(State.t(), {:message_id | :action_id, String.t()}) ::
-          {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, :unknown_message}, State.t()}
-  def lookup_operator_message_call(%State{} = state, {kind, key}) when is_binary(key) do
-    item =
-      case kind do
-        :message_id -> AgentQueueStore.find_by_message_id(state.queue_store, key)
-        :action_id -> AgentQueueStore.find_by_action(state.queue_store, key)
-      end
-
-    case item do
-      nil -> {:reply, {:error, :unknown_message}, state}
-      item -> {:reply, {:ok, item}, state}
-    end
-  end
-
-  @doc """
-  Find the item a keyed plain send created, and check it is that send: the
-  same target and text. An id reused for other text is a conflict (#2717).
-  """
-  @spec lookup_operator_message_call(State.t(), {:message_id, String.t()}, %{target: term(), text: String.t()}) ::
-          {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, term()}, State.t()}
-  def lookup_operator_message_call(%State{} = state, {:message_id, _key} = lookup, %{target: target, text: text}) do
-    case lookup_operator_message_call(state, lookup) do
-      {:reply, {:ok, item}, state} ->
-        expected = %{target_issue_identifier: lookup_target(state, target), body: %{text: String.trim(text)}}
-
-        if AgentQueueStore.same_message?(item, expected),
-          do: {:reply, {:ok, item}, state},
-          else: {:reply, {:error, {:message_id_conflict, item.id}}, state}
-
-      reply ->
-        reply
-    end
-  end
-
-  defp lookup_target(_state, target) when is_binary(target), do: target
-
-  defp lookup_target(state, %TrackerIdentity{} = identity) do
-    case State.find_unique_running_by_identity(state.running, identity) do
-      {:ok, _entry, issue_identifier} -> issue_identifier
-      {:error, _reason} -> identity.identifier
-    end
-  end
-
-  @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}
-  def mark_queue_item_consumed_call(%State{} = state, item_id) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id), :consumed)
-  end
-
-  @spec restore_queue_item_pending_call(State.t(), integer()) :: {:reply, :ok, State.t()}
-  def restore_queue_item_pending_call(%State{} = state, item_id) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.restore_pending(&1, item_id), :restored)
-  end
-
-  @spec mark_queue_item_failed_call(State.t(), integer(), term()) :: {:reply, :ok, State.t()}
-  def mark_queue_item_failed_call(%State{} = state, item_id, reason) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason), :failed, reason)
-  end
-
-  @spec acknowledge_queue_item_delivery_call(State.t(), integer(), map()) ::
-          {:reply, :ok, State.t()}
-  def acknowledge_queue_item_delivery_call(%State{} = state, item_id, provider_metadata)
-      when is_integer(item_id) and is_map(provider_metadata) do
-    previous_item = AgentQueueStore.get(state.queue_store, item_id)
-
-    {queue_store, item} =
-      AgentQueueStore.mark_provider_delivered(
-        state.queue_store,
-        item_id,
-        provider_metadata
-      )
-
-    next_state = %{state | queue_store: queue_store}
-
-    if newly_provider_delivered?(previous_item, item) do
-      record_provider_delivery_evidence(item)
-      {:reply, :ok, LifecycleFence.acknowledge_provider_delivery(next_state, item)}
-    else
-      {:reply, :ok, next_state}
-    end
-  end
-
-  @spec consume_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
-  def consume_delivered_queue_items_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.consume_delivered(&1, issue_identifier), :consumed)
-  end
-
-  @spec restore_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
-  def restore_delivered_queue_items_call(%State{} = state, issue_identifier)
-      when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.restore_delivered(&1, issue_identifier), :restored)
-  end
-
-  @spec fail_delivered_queue_items_call(State.t(), String.t(), term()) ::
-          {:reply, :ok, State.t()}
-  def fail_delivered_queue_items_call(%State{} = state, issue_identifier, reason)
-      when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.fail_delivered(&1, issue_identifier, reason), :failed, reason)
-  end
-
-  @doc false
-  @spec coalesce_for_test(AgentQueueStore.t(), String.t()) ::
-          {AgentQueueStore.t(), map() | nil}
-  def coalesce_for_test(queue_store, issue_identifier) when is_binary(issue_identifier) do
-    {queue_store, item} = AgentQueueStore.claim_next_deliverable(queue_store, issue_identifier)
-    maybe_coalesce_events(queue_store, issue_identifier, item)
-  end
-
-  @spec enqueue_operator_message(State.t(), String.t(), String.t(), map(), :plain | :correlated) ::
-          {{:ok, integer() | map()} | {:error, term()}, State.t()}
-  def enqueue_operator_message(state, issue_identifier, body, payload, mode \\ :plain) do
-    request = %{
-      delivery_policy: Map.get(payload, :delivery_policy, :checkpoint),
-      fallback: Map.get(payload, :fallback),
-      turn_id: Map.get(payload, :turn_id),
-      action_id: if(mode == :correlated, do: Map.get(payload, :action_id)),
-      correlation: if(mode == :correlated, do: Map.get(payload, :correlation)),
-      retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
-      message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
-      mode: mode
-    }
-
-    case validate_operator_message(body) do
-      {:ok, text} ->
-        enqueue_validated_operator_message(state, issue_identifier, text, request)
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
-  end
-
-  defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
-    case replay_existing_correlated_message(state, issue_identifier, text, request) do
-      {:handled, {{:ok, _duplicate}, _replayed_state} = result} ->
-        wake_target_for_replayed_message(result, issue_identifier, request)
-
-      {:handled, result} ->
-        result
-
-      :continue ->
-        case State.find_running_by_identifier(state.running, issue_identifier) do
-          nil ->
-            {{:error, :no_running_agent}, state}
-
-          running_entry ->
-            enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
-        end
-    end
-  end
-
-  defp replay_existing_correlated_message(
-         state,
-         issue_identifier,
-         text,
-         %{mode: :correlated, action_id: action_id} = request
-       )
-       when is_binary(action_id) do
-    case AgentQueueStore.find_by_action(state.queue_store, action_id) do
-      nil ->
-        :continue
-
-      existing ->
-        attrs = %{
-          target_issue_identifier: issue_identifier,
-          source: existing.source,
-          category: existing.category,
-          event_type: existing.event_type,
-          body: %{text: text},
-          delivery: existing.delivery,
-          action_id: action_id,
-          correlation: request.correlation,
-          causal_refs: existing.causal_refs
-        }
-
-        case AgentQueueStore.enqueue_correlated(state.queue_store, attrs) do
-          {:ok, _queue_store, _item, :duplicate}
-          when request.retry_failed and existing.status == :failed ->
-            :continue
-
-          {:ok, queue_store, item, :duplicate} ->
-            result = {{:ok, %{status: :duplicate, item: item}}, %{state | queue_store: queue_store}}
-            {:handled, result}
-
-          {:error, _reason} = error ->
-            {:handled, {error, state}}
-        end
-    end
-  end
-
-  # A keyed plain message is idempotent by its message id (#2717): a retry
-  # after a caller-side timeout returns the item the first call queued
-  # instead of queueing a second copy. The id names one user action, so a
-  # different target or text under the same id is refused, never replayed.
-  defp replay_existing_correlated_message(state, issue_identifier, text, %{mode: :plain, message_id: message_id})
-       when is_binary(message_id) do
-    case AgentQueueStore.find_by_message_id(state.queue_store, message_id) do
-      nil ->
-        :continue
-
-      existing ->
-        if AgentQueueStore.same_message?(existing, %{target_issue_identifier: issue_identifier, body: %{text: text}}),
-          do: {:handled, {{:ok, existing.id}, state}},
-          else: {:handled, {{:error, {:message_id_conflict, existing.id}}, state}}
-    end
-  end
-
-  defp replay_existing_correlated_message(_state, _issue_identifier, _text, _request),
-    do: :continue
-
-  # A correlated answer that resolves to an already-enqueued item short-circuits
-  # `enqueue_for_running_entry/5` — and with it the paused-agent wake that path
-  # performs. The queue item is a duplicate, but the *work* is not done: the
-  # target may have paused again since the first enqueue (an agent that
-  # re-raises its Command does exactly this), and nothing else will wake it. The
-  # Decision was then recorded queued-and-delivered while the agent sat paused on
-  # an answer it never saw, with no failure anywhere for an operator to find
-  # (#2558).
-  #
-  # Idempotent and safe by construction: a correlated message exists only
-  # because an answer was durably recorded, so this can never resume an agent
-  # whose Decision was not answered; it fires only for an entry that is
-  # currently paused; and it routes through `resume_paused_issue/2`, so the
-  # active-cap and per-state slot gates are the same ones the explicit operator
-  # resume obeys. A refused wake is reported as a delivery failure rather than
-  # a silent success, which puts it on `DecisionStore`'s bounded retry ladder.
-  defp wake_target_for_replayed_message({reply, state}, issue_identifier, request) do
-    with running_entry when is_map(running_entry) <-
-           State.find_running_by_identifier(state.running, issue_identifier),
-         true <- message_resumes_pause?(state, running_entry, request),
-         state = remember_resume_input(state, running_entry, reply),
-         {{:ok, :resumed}, resumed_state} <-
-           Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
-      {reply, resumed_state}
-    else
-      {{:error, _reason} = error, next_state} -> {error, next_state}
-      _not_paused -> {reply, state}
-    end
-  end
-
-  # Chatting with a paused agent auto-resumes it — but only if a slot is
-  # free. Routing through `resume_paused_issue/2` reuses the same
-  # active-cap and per-state slot gates as the explicit space-key resume,
-  # so we can't push active over max no matter which entry point the
-  # Executor uses. If no slot is free, the cap error propagates and the
-  # conversation pane surfaces it.
-  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, request) do
-    cond do
-      State.deactivated_running_entry?(running_entry) ->
-        enqueue_after_reactivate(state, running_entry, issue_identifier, text, request)
-
-      message_resumes_pause?(state, running_entry, request) ->
-        enqueue_after_resume(state, running_entry, issue_identifier, text, request)
-
-      true ->
-        do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request)
-    end
-  end
-
-  # A plain operator message resumes any confirmed pause, as before (#2730
-  # leaves that path unchanged). A worker's own request for input also ends
-  # when the input arrives: a correlated answer or a plain message resumes it,
-  # even while the pause is still pending confirmation (control still reports
-  # working). Queue the input before superseding that pause, so the resume
-  # drains it first. This path never lifts an operator, label, or global hold.
-  # A confirmed pause with no recorded reason is a legacy entry; an answer
-  # resumed it before #2730 and still does.
-  defp message_resumes_pause?(state, entry, request) do
-    paused? = State.paused_running_entry?(entry)
-    (paused? and request.mode == :plain) or self_pause_ends_on_input?(state, entry, paused?)
-  end
-
-  defp self_pause_ends_on_input?(state, entry, true = _paused?) do
-    reason = Map.get(entry, :paused_reason)
-    (is_nil(reason) or PauseResume.input_pause_reason?(reason)) and no_hold?(state, entry)
-  end
-
-  # Only a pause request that is still the current pending control counts. A
-  # `pending_pause_reason` left by an expired or rejected request must not
-  # turn a message to a working worker into a resume.
-  defp self_pause_ends_on_input?(state, entry, false = _paused?),
-    do: PauseResume.pending_input_pause?(state, entry) and no_hold?(state, entry)
-
-  defp no_hold?(state, entry),
-    do: not state.globally_paused and not Aiur.Issue.paused?(Map.get(entry, :issue))
-
-  # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`
-  # transition. The fresh agent task spawned by `reactivate_issue/2`
-  # will pick up the queued Executor message when it boots.
-  defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, request) do
-    case Aiur.Orchestrator.reactivate_issue(state, running_entry) do
-      {{:ok, :reactivated}, next_state} ->
-        reactivated_entry = State.find_running_by_identifier(next_state.running, issue_identifier)
-
-        do_enqueue_running_operator_message(next_state, reactivated_entry, issue_identifier, text, request)
-
-      {{:error, _reason} = error, next_state} ->
-        {error, next_state}
-    end
-  end
-
-  defp enqueue_after_resume(state, running_entry, issue_identifier, text, request) do
-    with :ok <- PauseResume.resume_paused_issue_preflight(state, running_entry),
-         {{:ok, _queued} = queued, queued_state} <-
-           do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request),
-         queued_state = remember_resume_input(queued_state, running_entry, queued),
-         queued_entry when is_map(queued_entry) <-
-           State.find_running_by_identifier(queued_state.running, issue_identifier),
-         {{:ok, :resumed}, resumed_state} <-
-           Aiur.Orchestrator.resume_paused_issue(queued_state, queued_entry) do
-      {queued, resumed_state}
-    else
-      {:error, reason} -> {{:error, reason}, state}
-      {{:error, _reason} = error, next_state} -> {error, next_state}
-      _missing_entry -> {{:error, :no_running_agent}, state}
-    end
-  end
-
-  # A restored interrupted input can precede the answer or message at the same
-  # priority. Pin this one resume's first claim without reordering the
-  # remaining queue. A correlated answer replies with its item; a plain
-  # message replies with its item ID.
-  defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, %{item: %{id: item_id, status: :pending}}}) do
-    update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
-  end
-
-  defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, item_id}) when is_integer(item_id) do
-    update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
-  end
-
-  defp remember_resume_input(state, _entry, _reply), do: state
-
-  defp do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request) do
-    capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)
-
-    case DeliveryPolicy.normalize_delivery_request(request.delivery_policy, request.fallback, capabilities) do
-      {:ok, queue_opts} ->
-        attrs =
-          AgentQueue.operator_message(
-            issue_identifier,
-            text,
-            queue_opts
-            |> Keyword.put(:turn_id, request.turn_id)
-            |> Keyword.put(:action_id, request.action_id)
-            |> Keyword.put(:correlation, request.correlation)
-          )
-
-        finish_operator_enqueue(state, running_entry, attrs, request)
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
-  end
-
-  defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain} = request) do
-    case enqueue_plain(state.queue_store, attrs, request) do
-      {:ok, queue_store, item, :accepted} ->
-        record_operator_queued_evidence(item)
-        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
-
-        next_state =
-          %{state | queue_store: queue_store}
-          |> maybe_replace_completed_runner(running_entry)
-          |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
-
-        {{:ok, item.id}, next_state}
-
-      {:ok, queue_store, item, :duplicate} ->
-        {{:ok, item.id}, %{state | queue_store: queue_store}}
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
-  end
-
-  defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
-    case AgentQueueStore.enqueue_correlated(state.queue_store, attrs, retry_failed: request.retry_failed) do
-      {:ok, queue_store, item, status} ->
-        if status in [:accepted, :retried] do
-          record_operator_queued_evidence(item)
-          DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
-        end
-
-        next_state =
-          %{state | queue_store: queue_store}
-          |> maybe_replace_completed_runner(running_entry)
-          |> maybe_protect_correlated_item(item, status)
-
-        {{:ok, %{status: status, item: item}}, next_state}
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
-  end
-
-  defp enqueue_plain(queue_store, attrs, %{message_id: message_id}) when is_binary(message_id),
-    do: AgentQueueStore.enqueue_idempotent(queue_store, Map.put(attrs, :message_id, message_id))
-
-  defp enqueue_plain(queue_store, attrs, _request) do
-    {queue_store, item} = AgentQueueStore.enqueue(queue_store, attrs)
-    {:ok, queue_store, item, :accepted}
-  end
-
-  defp maybe_replace_completed_runner(state, nil), do: state
-
-  defp maybe_replace_completed_runner(state, running_entry) do
-    case Map.get(running_entry, :issue) do
-      %Aiur.Issue{} = issue -> PauseResume.replace_completed_issue(state, running_entry, issue)
-      _ -> state
-    end
-  end
-
-  defp maybe_protect_correlated_item(state, item, status) when status in [:accepted, :retried],
-    do: LifecycleFence.protect_queued_item(state, item.target_issue_identifier, item)
-
-  defp maybe_protect_correlated_item(state, _item, _status), do: state
-
-  @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
-  def maybe_emit_agent_control_alert(previous_status, status, running_entry) do
-    maybe_emit_agent_control_alert(previous_status, status, running_entry, Map.get(running_entry, :paused_reason))
-  end
-
-  @spec maybe_emit_agent_control_alert(atom(), atom(), map(), atom() | String.t() | nil) :: :ok
-  def maybe_emit_agent_control_alert(
-        :working,
-        :paused,
-        %{paused_reason: :ci_wait} = running_entry,
-        _previous_pause_reason
-      )
-      when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Waiting for CI before human review.",
-      needs_attention: false,
-      severity: "info"
-    )
-  end
-
-  def maybe_emit_agent_control_alert(
-        :working,
-        :paused,
-        %{paused_reason: :github_budget_hold} = running_entry,
-        _previous_pause_reason
-      )
-      when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.github-budget.wait",
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      message: "Agent waiting for GitHub budget",
-      reason: "GitHub budget hold paused the agent; automatic retry is scheduled when the hold clears.",
-      needs_attention: false,
-      severity: "info"
-    )
-  end
-
-  def maybe_emit_agent_control_alert(:working, :paused, running_entry, _previous_pause_reason)
-      when is_map(running_entry) do
-    pause_reason = Map.get(running_entry, :paused_reason)
-    reason = StatusReason.render(StatusReason.for_pause(pause_reason))
-
-    Alerts.emit_system(pause_attention_topic(running_entry, pause_reason),
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent paused (#{reason}); expected to clear #{pause_clearance(pause_reason)}.",
-      needs_attention: true,
-      severity: "warning"
-    )
-  end
-
-  def maybe_emit_agent_control_alert(:paused, :working, running_entry, previous_pause_reason)
-      when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent resumed; no Executor action is needed.",
-      needs_attention: false,
-      severity: "info"
-    )
-
-    if is_nil(previous_pause_reason) do
-      :ok
-    else
-      Alerts.emit_system("#{pause_attention_topic(running_entry, previous_pause_reason)}.resolved",
-        issue: Map.get(running_entry, :identifier),
-        workspace: Map.get(running_entry, :workspace_path),
-        worker_host: Map.get(running_entry, :worker_host),
-        reason: "Agent pause cause #{pause_cause(previous_pause_reason)} is resolved.",
-        needs_attention: false,
-        severity: "info"
-      )
-    end
-  end
-
-  def maybe_emit_agent_control_alert(_previous_status, _status, _running_entry, _previous_pause_reason), do: :ok
-
-  defp pause_attention_topic(running_entry, pause_reason) do
-    "ticket.#{Map.get(running_entry, :identifier)}.agent.attention.paused-#{pause_cause(pause_reason)}"
-  end
-
-  defp pause_cause(reason) when is_atom(reason), do: Atom.to_string(reason)
-
-  defp pause_cause(reason) when is_binary(reason) and reason != "" do
-    if Regex.match?(~r/\A[a-z0-9_-]+\z/, reason), do: reason, else: "unknown"
-  end
-
-  defp pause_cause(_reason), do: "unknown"
-
-  defp pause_clearance(reason) when reason in [:operator_pause, :label_override, :agent_pause_request, :input_required, :blocker_dependency],
-    do: "after Executor or agent action"
-
-  defp pause_clearance(reason) when reason in [:global_pause, :usage_limit_exhausted, :github_budget_hold], do: "when the condition is lifted"
-  defp pause_clearance(:before_run_failure), do: "after preflight succeeds"
-  defp pause_clearance(_reason), do: "after the next control reconciliation"
-
-  defp maybe_coalesce_events(
-         queue_store,
-         issue_identifier,
-         %{category: :coordination_event, event_type: :events_digest} = item
-       ) do
-    DigestCoalescer.coalesce_events_digests(queue_store, issue_identifier, item)
-  end
-
-  defp maybe_coalesce_events(queue_store, _issue_identifier, item),
-    do: {queue_store, item}
-
-  defp queue_claim_reply(state, queue_store, item) do
-    reply = if is_nil(item), do: :empty, else: {:ok, item}
-    {:reply, reply, %{state | queue_store: queue_store}}
-  end
-
-  defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
-    {queue_store, items} = update.(state.queue_store)
-    Commands.record_transport_batch_async(transition, List.wrap(items), reason)
-    next_state = %{state | queue_store: queue_store}
-    maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
-    {:reply, :ok, next_state}
-  end
-
-  defp newly_provider_delivered?(
-         %{provider_delivered_at: nil},
-         %{provider_delivered_at: %DateTime{}}
-       ),
-       do: true
-
-  defp newly_provider_delivered?(_previous_item, _item), do: false
-
-  defp record_operator_queued_evidence(
-         %{
-           category: :operator_message,
-           id: request_id,
-           target_issue_identifier: identifier,
-           body: %{text: text}
-         } = item
-       ) do
-    OperatorWaitLog.record_queued(request_id, identifier, byte_size(text))
-
-    AgentPubSub.broadcast_transcript(
-      identifier,
-      AgentEvents.transcript_event(:user, text,
-        turn_id: item.turn_id,
-        payload: %{
-          operator_message:
-            %{request_id: request_id, status: :queued}
-            |> put_decision_id(item)
-        }
-      )
-    )
-  end
-
-  # The echo is written when the message is queued, not when the agent gets
-  # it, so the ticket log labels it with its queue item and, for a Decision
-  # answer, the decision id (#2717). Delivery is logged separately below.
-  defp put_decision_id(evidence, %{correlation: correlation}) when is_map(correlation) do
-    case Map.get(correlation, :decision_id, Map.get(correlation, "decision_id")) do
-      decision_id when is_binary(decision_id) -> Map.put(evidence, :decision_id, decision_id)
-      _other -> evidence
-    end
-  end
-
-  defp put_decision_id(evidence, _item), do: evidence
-
-  defp record_provider_delivery_evidence(
-         %{
-           category: :operator_message,
-           id: request_id,
-           target_issue_identifier: identifier
-         } = item
-       ) do
-    OperatorWaitLog.record_delivered(request_id, identifier)
-
-    AgentPubSub.broadcast_transcript(
-      identifier,
-      AgentEvents.transcript_event(
-        :system,
-        "Executor message delivered to provider (request_id=#{request_id})",
-        payload: %{
-          operator_message: %{
-            request_id: request_id,
-            status: :delivered,
-            provider_turn_id: item.provider_turn_id,
-            provider_delivered_at: item.provider_delivered_at
-          }
-        }
-      )
-    )
-  end
-
-  defp record_provider_delivery_evidence(_item), do: :ok
-
-  defp maybe_alert_failed_fenced_items(state, :failed, items, reason) do
-    Enum.each(items, fn item ->
-      if LifecycleFence.protected_item?(state, item) do
-        identifier = item.target_issue_identifier
-
-        Alerts.emit_system("ticket.#{identifier}.agent.provider_delivery_failed",
-          issue: identifier,
-          reason: "Authoritative input request #{item.id} failed before provider acknowledgement and still fences lifecycle handoff: #{inspect(reason)}.",
-          needs_attention: true,
-          severity: "warning"
-        )
-      end
-    end)
-  end
-
-  defp maybe_alert_failed_fenced_items(_state, _transition, _items, _reason), do: :ok
-
   defp control_api_call(server, request, timeout) do
     if GenServer.whereis(server) do
       GenServer.call(server, request, timeout)
@@ -1096,48 +201,91 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     :exit, _ -> {:error, :unavailable}
   end
 
-  defp validate_operator_message(body) do
-    text = String.trim(body)
+  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map(), keyword()) :: State.t()
+  defdelegate enqueue_event_digest_item(state, identifier, events, summary_source, opts \\ []), to: Enqueue
 
-    cond do
-      text == "" -> {:error, :empty_message}
-      String.length(text) > @max_operator_message_chars -> {:error, :message_too_long}
-      true -> {:ok, text}
-    end
-  end
+  @spec enqueue_operator_message(State.t(), String.t(), String.t(), map(), :plain | :correlated) ::
+          {{:ok, integer() | map()} | {:error, term()}, State.t()}
+  defdelegate enqueue_operator_message(state, issue_identifier, body, payload, mode \\ :plain), to: Enqueue
 
-  defp correlation_action_id(correlation) do
-    Map.get(correlation, :action_id, Map.get(correlation, "action_id"))
-  end
+  @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
+          {:reply, :ok, State.t()}
+  defdelegate enqueue_event_digest_call(state, identifier, event, opts \\ []), to: Calls
+  @spec enqueue_event_digest_batch_call(State.t(), String.t(), [map()]) :: {:reply, :ok, State.t()}
+  defdelegate enqueue_event_digest_batch_call(state, identifier, events), to: Calls
+
+  @spec send_operator_message_call(State.t(), String.t(), map()) ::
+          {:reply, {:ok, integer()} | {:error, term()}, State.t()}
+  defdelegate send_operator_message_call(state, issue_identifier, payload), to: Calls
+
+  @spec send_correlated_operator_message_call(State.t(), String.t(), map()) ::
+          {:reply, {:ok, map()} | {:error, term()}, State.t()}
+  defdelegate send_correlated_operator_message_call(state, issue_identifier, payload), to: Calls
+  @spec control_capabilities_call(State.t(), String.t()) :: {:reply, {:ok, map()}, State.t()}
+  defdelegate control_capabilities_call(state, issue_identifier), to: Calls
+
+  @spec claim_next_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  defdelegate claim_next_queue_item_call(state, issue_identifier), to: Calls
+
+  @spec claim_next_checkpoint_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  defdelegate claim_next_checkpoint_queue_item_call(state, issue_identifier), to: Calls
+
+  @spec claim_blocker_critical_events_digest_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  defdelegate claim_blocker_critical_events_digest_call(state, issue_identifier), to: Calls
+
+  @spec claim_next_operator_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  defdelegate claim_next_operator_queue_item_call(state, issue_identifier), to: Calls
+  @spec claim_operator_response_call(State.t(), String.t(), String.t()) :: tuple()
+  defdelegate claim_operator_response_call(state, identifier, command), to: Calls
+
+  @spec operator_message_status_call(State.t(), integer()) ::
+          {:reply, {:ok, Aiur.AgentQueueItem.status()} | {:error, :unknown_message}, State.t()}
+  defdelegate operator_message_status_call(state, item_id), to: Calls
+
+  @spec lookup_operator_message_call(State.t(), {:message_id | :action_id, String.t()}) ::
+          {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, :unknown_message}, State.t()}
+  defdelegate lookup_operator_message_call(state, arg), to: Calls
+
+  @spec lookup_operator_message_call(State.t(), {:message_id, String.t()}, %{
+          target: term(),
+          text: String.t()
+        }) :: {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, term()}, State.t()}
+  defdelegate lookup_operator_message_call(state, lookup, map), to: Calls
+  @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}
+  defdelegate mark_queue_item_consumed_call(state, item_id), to: Calls
+  @spec restore_queue_item_pending_call(State.t(), integer()) :: {:reply, :ok, State.t()}
+  defdelegate restore_queue_item_pending_call(state, item_id), to: Calls
+  @spec mark_queue_item_failed_call(State.t(), integer(), term()) :: {:reply, :ok, State.t()}
+  defdelegate mark_queue_item_failed_call(state, item_id, reason), to: Calls
+
+  @spec acknowledge_queue_item_delivery_call(State.t(), integer(), map()) ::
+          {:reply, :ok, State.t()}
+  defdelegate acknowledge_queue_item_delivery_call(state, item_id, provider_metadata), to: Calls
+  @spec consume_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
+  defdelegate consume_delivered_queue_items_call(state, issue_identifier), to: Calls
+  @spec restore_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
+  defdelegate restore_delivered_queue_items_call(state, issue_identifier), to: Calls
+  @spec fail_delivered_queue_items_call(State.t(), String.t(), term()) :: {:reply, :ok, State.t()}
+  defdelegate fail_delivered_queue_items_call(state, issue_identifier, reason), to: Calls
+  @spec coalesce_for_test(AgentQueueStore.t(), String.t()) :: {AgentQueueStore.t(), map() | nil}
+  defdelegate coalesce_for_test(queue_store, issue_identifier), to: Calls
+
+  @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
+  defdelegate maybe_emit_agent_control_alert(previous_status, status, running_entry), to: ControlAlerts
+  @spec maybe_emit_agent_control_alert(atom(), atom(), map(), atom() | String.t() | nil) :: :ok
+  defdelegate maybe_emit_agent_control_alert(previous_status, status, running_entry, previous_pause_reason), to: ControlAlerts
 
   @spec send_running_control_message(State.t(), String.t(), (integer() -> term())) ::
           {:ok, integer()} | {:error, atom()}
-  def send_running_control_message(state, issue_identifier, build_message) do
-    request_id = :erlang.unique_integer([:positive])
-    send_running_control_message(state, issue_identifier, request_id, build_message)
-  end
+  defdelegate send_running_control_message(state, issue_identifier, build_message), to: ControlAlerts
 
-  @doc false
   @spec send_running_control_message(State.t(), String.t(), integer(), (integer() -> term())) ::
           {:ok, integer()} | {:error, atom()}
-  def send_running_control_message(state, issue_identifier, request_id, build_message)
-      when is_integer(request_id) and request_id > 0 and is_function(build_message, 1) do
-    case State.find_running_by_identifier(state.running, issue_identifier) do
-      nil ->
-        {:error, :no_running_agent}
-
-      %{pid: pid} when is_pid(pid) ->
-        if Process.alive?(pid) do
-          send(pid, build_message.(request_id))
-          {:ok, request_id}
-        else
-          {:error, :agent_finished}
-        end
-
-      _ ->
-        {:error, :agent_finished}
-    end
-  end
+  defdelegate send_running_control_message(state, issue_identifier, request_id, build_message), to: ControlAlerts
 
   @spec notify_running_queue_update(State.t(), map(), term()) :: :ok
   defdelegate notify_running_queue_update(state, running_entry, item), to: DeliveryPolicy

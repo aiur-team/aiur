@@ -23,6 +23,8 @@ defmodule Aiur.Config.Paths do
 
   alias Aiur.PathSafety
 
+  @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
   `--logs-root` was set. It does not survive a daemon restart.
@@ -345,6 +347,57 @@ defmodule Aiur.Config.Paths do
   @spec sanitize(String.t() | nil, String.t()) :: String.t()
   def sanitize(value, default) when is_binary(default) do
     sanitize(value || default)
+  end
+
+  @doc "Absolute root beneath which every per-repository state node lives."
+  @spec repo_state_root() :: Path.t()
+  def repo_state_root do
+    Application.get_env(:aiur, :repo_base_root) || Path.expand("~/.aiur/repo")
+  end
+
+  @doc "Absolute path of the per-repository state node for `repo_url`."
+  @spec repo_state_path(String.t()) :: Path.t()
+  def repo_state_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_state_root(), repo_slug(repo_url))
+
+  @doc "Path of the per-repository state node relative to its owning home directory."
+  @spec repo_state_relative_path(String.t()) :: Path.t()
+  def repo_state_relative_path(repo_url) when is_binary(repo_url),
+    do: Path.join([".aiur", "repo", repo_slug(repo_url)])
+
+  @doc false
+  @spec repo_cache_sidecars() :: [String.t()]
+  def repo_cache_sidecars, do: @repo_cache_sidecars
+
+  @doc false
+  @spec repo_cache_sidecar_paths(Path.t()) :: [Path.t()]
+  def repo_cache_sidecar_paths(root) when is_binary(root) do
+    Enum.map(@repo_cache_sidecars, &Path.join(root, &1))
+  end
+
+  # Reduce a repo URL or local path to a stable `<owner>/<name>`-style slug for
+  # the base directory. Handles https/ssh URLs and bare local paths. Rejects
+  # path-traversal components (`..`) so a malicious or malformed repo identity
+  # can never resolve outside the state root — defense in depth, since the CLI
+  # already validates the slug at its boundary.
+  @doc false
+  @spec repo_slug(String.t()) :: String.t()
+  def repo_slug(repo_url) when is_binary(repo_url) do
+    slug =
+      repo_url
+      |> String.trim_trailing("/")
+      |> String.replace_suffix(".git", "")
+      |> String.split(~r{[/:]})
+      |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
+      |> Enum.take(-2)
+      |> Enum.join("/")
+
+    if Enum.any?(Path.split(slug), &(&1 == "..")) do
+      raise ArgumentError,
+            "repo identity must not escape the state root (got: #{inspect(repo_url)})"
+    end
+
+    slug
   end
 
   defp safe_project_identity do

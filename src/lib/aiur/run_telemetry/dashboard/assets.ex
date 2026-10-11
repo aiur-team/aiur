@@ -1,0 +1,353 @@
+defmodule Aiur.RunTelemetry.Dashboard.Assets do
+  @moduledoc "Inline stylesheet and script for the self-contained `Aiur.RunTelemetry.Dashboard` HTML document."
+
+  @doc false
+  @spec styles() :: String.t()
+  def styles do
+    ~S"""
+    :root {
+      --canvas: #f7f7f8; --paper: #ffffff; --ink: #202123; --muted: #6e6e80;
+      --line: #dedee5; --line-strong: #b9bbc6; --accent: #10a37f; --accent-dark: #087a60;
+      --accent-soft: #e7f7f2; --danger: #b42318; --danger-soft: #fff0ee; --amber: #9a6700;
+      --amber-soft: #fff7d6; --blue: #2563a6; --violet: #7157a8; --shadow: 0 14px 45px rgba(32,33,35,.08);
+      font-family: "Söhne", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink); background: var(--canvas); font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: radial-gradient(circle at 8% 0%, #ecfaf5 0, transparent 27rem), var(--canvas); color: var(--ink); }
+    button, select, input { font: inherit; }
+    button, select { border: 1px solid var(--line-strong); border-radius: .55rem; background: var(--paper); color: var(--ink); min-height: 2.45rem; padding: .45rem .7rem; }
+    button { cursor: pointer; font-weight: 650; }
+    button:hover { border-color: var(--accent); color: var(--accent-dark); }
+    :focus-visible { outline: 3px solid rgba(16,163,127,.35); outline-offset: 3px; }
+    .skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 10; background: var(--ink); color: white; padding: .7rem 1rem; border-radius: .5rem; }
+    .skip-link:focus { top: 1rem; }
+    .hero { max-width: 1440px; margin: 0 auto; padding: clamp(3.5rem, 7vw, 7rem) clamp(1rem, 4vw, 4rem) 2.25rem; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(18rem, .65fr); gap: 3rem; align-items: end; }
+    .eyebrow, .kicker { text-transform: uppercase; letter-spacing: .13em; font-size: .72rem; font-weight: 800; color: var(--accent-dark); margin: 0 0 .85rem; }
+    .signal { display: inline-block; width: .55rem; height: .55rem; margin-right: .55rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 .35rem rgba(16,163,127,.12); }
+    h1 { max-width: 13ch; margin: 0; font-size: clamp(2.65rem, 6vw, 5.6rem); line-height: .96; letter-spacing: -.055em; }
+    .lede { max-width: 48rem; color: var(--muted); font-size: clamp(1rem, 1.5vw, 1.25rem); line-height: 1.6; margin: 1.5rem 0 .65rem; }
+    .generated { color: var(--muted); font-size: .82rem; }
+    .hero-stats { margin: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: .7rem; }
+    .stat { background: rgba(255,255,255,.85); border: 1px solid var(--line); border-radius: .85rem; padding: 1rem; box-shadow: var(--shadow); }
+    .stat dt { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    .stat dd { margin: .3rem 0 0; font: 750 1.7rem/1.1 "Söhne Mono", ui-monospace, monospace; }
+    main { max-width: 1440px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 4rem) 4rem; }
+    .panel { background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 1rem; padding: clamp(1.1rem, 2.5vw, 2rem); margin: 1rem 0; box-shadow: 0 3px 16px rgba(32,33,35,.035); animation: rise .45s both; }
+    .panel:nth-child(2) { animation-delay: .04s; } .panel:nth-child(3) { animation-delay: .08s; } .panel:nth-child(4) { animation-delay: .12s; }
+    .section-heading { display: flex; justify-content: space-between; gap: 2rem; align-items: end; margin-bottom: 1.5rem; }
+    .section-heading h2 { margin: 0; font-size: clamp(1.45rem, 2.5vw, 2.2rem); letter-spacing: -.035em; }
+    .section-heading > p { max-width: 35rem; margin: 0; color: var(--muted); line-height: 1.5; text-align: right; }
+    .evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+    .subpanel { border: 1px solid var(--line); border-radius: .75rem; padding: 1rem; min-width: 0; }
+    .subpanel h3 { margin: 0 0 .8rem; font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; }
+    .facts { margin: 0; display: grid; gap: .75rem; }
+    .fact dt { color: var(--muted); font-size: .75rem; } .fact dd { margin: .15rem 0 0; overflow-wrap: anywhere; }
+    .event-list, .warning-list, .notes-list { margin: 0; padding-left: 1.2rem; }
+    .event-list li, .warning-list li, .notes-list li { margin: .5rem 0; line-height: 1.45; }
+    .warning-panel { background: linear-gradient(145deg, #fff, var(--amber-soft)); }
+    .warning-list { color: #664500; }
+    .finding-summary { color: var(--muted); margin: -.5rem 0 1rem; }
+    .finding-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .7rem; }
+    .finding { border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: .65rem; padding: .9rem; }
+    .finding[data-status="broken"] { border-left-color: var(--danger); background: var(--danger-soft); }
+    .finding[data-status="resolved"] { border-left-color: var(--accent); background: var(--accent-soft); }
+    .finding[data-status="pending"] { border-left-color: var(--amber); background: var(--amber-soft); }
+    .finding h3 { margin: 0; font-size: 1rem; } .finding p { margin: .45rem 0 0; color: var(--muted); font-size: .88rem; }
+    .controls { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem 1.2rem; margin-bottom: 1rem; padding: .85rem; border: 1px solid var(--line); border-radius: .75rem; background: #fafafa; }
+    .controls label { display: grid; gap: .3rem; color: var(--muted); font-size: .76rem; font-weight: 700; }
+    .controls fieldset { border: 0; padding: 0; margin: 0; min-width: min(100%, 28rem); }
+    .controls legend { color: var(--muted); font-size: .76rem; font-weight: 700; margin-bottom: .35rem; }
+    .check-row { display: flex; flex-wrap: wrap; gap: .5rem .8rem; }
+    .actor-check { display: inline-flex; align-items: center; gap: .35rem; color: var(--ink); font: 500 .84rem/1.2 "Söhne Mono", ui-monospace, monospace; }
+    .actor-check i { width: .65rem; height: .65rem; border-radius: 50%; display: inline-block; }
+    .chart-viewport { overflow-x: auto; border: 1px solid var(--line); border-radius: .75rem; background: #fdfdfd; min-height: 20rem; }
+    .chart { display: block; width: 100%; min-width: 55rem; height: 21rem; color: var(--muted); }
+    .lifecycle-viewport { min-height: 12rem; } .lifecycle-chart { min-width: 62rem; height: auto; }
+    .grid-line { stroke: #e8e8ed; stroke-width: 1; } .axis-label { fill: var(--muted); font-size: 11px; }
+    .restart-line { stroke: var(--danger); stroke-width: 1.4; stroke-dasharray: 5 4; opacity: .7; }
+    .gap-band { fill: var(--amber-soft); } .sample-point { stroke: white; stroke-width: 2; cursor: crosshair; }
+    .unavailable-mark { stroke: var(--line-strong); stroke-width: 2; }
+    .phase-mark { stroke: white; stroke-width: 1.5; cursor: crosshair; }
+    .row-band { fill: #fafafa; } .row-label { fill: var(--ink); font: 700 12px "Söhne Mono", ui-monospace, monospace; }
+    .focus-detail { display: block; min-height: 2.7rem; margin-top: .65rem; padding: .7rem .85rem; border-radius: .6rem; background: var(--ink); color: white; font: 500 .8rem/1.5 "Söhne Mono", ui-monospace, monospace; }
+    .empty-state { margin: 1rem 0; padding: 1rem; border: 1px dashed var(--line-strong); border-radius: .65rem; color: var(--muted); }
+    .result-count { margin-left: auto; color: var(--muted); font-size: .82rem; }
+    .phase-legend { display: flex; flex-wrap: wrap; gap: .4rem .8rem; min-height: 1.5rem; margin: -.2rem 0 .65rem; color: var(--muted); font-size: .72rem; }
+    .phase-key { display: inline-flex; align-items: center; gap: .3rem; }
+    .phase-key i { display: inline-block; width: .65rem; height: .65rem; border-radius: .2rem; }
+    .data-table { margin-top: .7rem; } .data-table summary { cursor: pointer; color: var(--accent-dark); font-weight: 700; }
+    .table-actions { display: flex; justify-content: flex-end; align-items: center; gap: .8rem; margin-top: .7rem; }
+    .table-actions .result-count { margin-left: 0; }
+    .table-actions button[hidden] { display: none; }
+    .table-scroll { overflow-x: auto; margin-top: .7rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    caption { text-align: left; color: var(--muted); margin-bottom: .55rem; }
+    th, td { padding: .65rem .7rem; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+    th { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: .68rem; }
+    tbody tr:hover { background: var(--accent-soft); }
+    code { font-family: "Söhne Mono", ui-monospace, monospace; font-size: .9em; }
+    .notes-panel { background: linear-gradient(135deg, #fff 30%, var(--accent-soft)); }
+    .notes-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .3rem 2rem; }
+    footer { max-width: 1440px; margin: 0 auto; padding: 0 4rem 3rem; color: var(--muted); font-size: .8rem; }
+    .noscript { margin: 1rem; padding: 1rem; background: var(--danger-soft); }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @media (max-width: 850px) {
+      .hero { grid-template-columns: 1fr; gap: 1.5rem; } .evidence-grid { grid-template-columns: 1fr; }
+      .section-heading { display: block; } .section-heading > p { text-align: left; margin-top: .6rem; }
+      .notes-list { grid-template-columns: 1fr; } footer { padding-inline: 1rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    """
+  end
+
+  @doc false
+  @spec javascript() :: String.t()
+  def javascript do
+    ~S"""
+    (() => {
+      "use strict";
+      const data = JSON.parse(document.getElementById("aiur-data").textContent);
+      const NS = "http://www.w3.org/2000/svg";
+      const palette = ["#10a37f", "#2563a6", "#7157a8", "#d97706", "#be3d78", "#4f6b45", "#8b5e34"];
+      const phaseColors = {dispatch:"#5f6b7a", prewarm:"#2b78a0", workspace_setup:"#7157a8", workspace_ownership:"#5b4b8a", agent_spinup:"#9764c7", implement:"#10a37f", build_test:"#d97706", pr_opened:"#2563a6", review_pause:"#9a6700", comment_received:"#be3d78", rework_start:"#b42318", agent_pause:"#7a5d00", agent_resume:"#087a60", pr_merged:"#202123"};
+      const metrics = [
+        ["cpu_percent", "CPU", "%"], ["rss_bytes", "RSS", "bytes"], ["fd_count", "File descriptors", "count"],
+        ["read_bytes_per_second", "Read I/O", "bytes/s"], ["write_bytes_per_second", "Write I/O", "bytes/s"],
+        ["system_fd_used", "System FD used", "count"], ["system_fd_headroom_ratio", "System FD headroom", "ratio"],
+        ["fleet_agents_occupied", "Fleet-wide occupied agents", "count"], ["fleet_agents_effective", "Fleet effective capacity", "count"],
+        ["build_gate_active", "Whole-host active builds", "count"], ["build_gate_queued", "Whole-host queued builds", "count"],
+        ["build_queue_oldest_wait_seconds", "Oldest live build wait", "seconds"]
+      ];
+      const actorTablePageSize = 500;
+      let actorTableRows = [], actorTableOffset = 0, actorTableMetric = "cpu_percent";
+      const pressureTablePageSize = 500;
+      let pressureTableRows = [], pressureTableOffset = 0;
+      const $ = id => document.getElementById(id);
+      const dateFormatter = new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"medium"});
+      const node = (tag, className, text) => { const item = document.createElement(tag); if (className) item.className = className; if (text !== undefined) item.textContent = text; return item; };
+      const svgNode = (tag, attrs = {}) => { const item = document.createElementNS(NS, tag); Object.entries(attrs).forEach(([key, value]) => item.setAttribute(key, String(value))); return item; };
+      const clear = element => element.replaceChildren();
+      const resetChart = (svg, titleId, titleText, descriptionId, descriptionText) => {
+        clear(svg);
+        const title=svgNode("title",{id:titleId}); title.textContent=titleText;
+        const description=svgNode("desc",{id:descriptionId}); description.textContent=descriptionText;
+        svg.append(title,description);
+      };
+      const sortedEntries = object => Object.entries(object || {}).sort(([a], [b]) => a.localeCompare(b, undefined, {numeric:true}));
+      const date = value => { if (!value) return "Unavailable"; const parsed=new Date(value); return Number.isNaN(parsed.getTime()) ? "Unavailable" : dateFormatter.format(parsed); };
+      const numeric = value => { if (value === null || value === undefined || value === "") return null; const parsed=Number(value); return Number.isFinite(parsed) ? parsed : null; };
+      const number = value => { const parsed=numeric(value); return parsed === null ? "—" : new Intl.NumberFormat(undefined, {maximumFractionDigits:2}).format(parsed); };
+      const bytes = value => { const n=numeric(value); if (n === null) return "—"; const units = ["B","KiB","MiB","GiB","TiB"]; let i=0, v=n; while (Math.abs(v)>=1024 && i<units.length-1) {v/=1024;i++;} return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(v)} ${units[i]}`; };
+      const metricMeta = key => metrics.find(metric => metric[0] === key) || [key, key.replaceAll("_", " "), "count"];
+      const metricValue = (key, value) => { const unit=metricMeta(key)[2]; if (unit === "bytes" || unit === "bytes/s") return `${bytes(value)}${unit === "bytes/s" && value != null ? "/s" : ""}`; if (unit === "%") return value == null ? "—" : `${number(value)}%`; if (unit === "ratio") return value == null ? "—" : `${number(Number(value)*100)}%`; return number(value); };
+      const duration = ms => ms == null ? "open" : ms < 1000 ? `${ms} ms` : ms < 60000 ? `${number(ms/1000)} s` : `${number(ms/60000)} min`;
+      const appendFact = (target, term, description) => { const wrap=node("div","fact"); wrap.append(node("dt",null,term), node("dd",null,description)); target.append(wrap); };
+      const tableEmpty = (body, columns, message) => { const row=node("tr"); const cell=node("td",null,message); cell.colSpan=columns; row.append(cell); body.append(row); };
+      const bindDetail = (item, text, output) => { item.addEventListener("mouseenter", () => output.textContent=text); item.addEventListener("focus", () => output.textContent=text); };
+      const actorLabel = actor => actor === "_operator" ? "Executor" : actor;
+      const unavailableReason = reason => ({
+        operator_process_unavailable: "Executor process unavailable",
+        operator_pid_unavailable: "Executor PID unavailable"
+      })[reason] || String(reason || "unknown reason");
+      const fleetMetric = key => key.startsWith("fleet_agents_");
+      const buildMetric = key => key.startsWith("build_gate_") || key.startsWith("build_queue_");
+      const sourceMeasured = (key,sample) => fleetMetric(key) ? sample.fleet_capacity_status === "current" : buildMetric(key) ? ["measured","disabled","partial"].includes(sample.build_gate_status) : sample.availability === "measured";
+      const metricSource = (key,sample) => fleetMetric(key) ? (sample.fleet_capacity_status || "empty") : buildMetric(key) ? (sample.build_gate_status || "empty") : sample.availability;
+
+      function renderHeader() {
+        $("generated-at").textContent = date(data.generated_at);
+        $("generated-at").dateTime = data.generated_at;
+        const stats = [["Records", data.provenance.record_count || 0], ["Actors", Object.keys(data.actors).length], ["Tickets", Object.keys(data.tickets).length], ["Findings", data.findings.length]];
+        stats.forEach(([label,value]) => { const wrap=node("div","stat"); wrap.append(node("dt",null,label),node("dd",null,String(value))); $("hero-stats").append(wrap); });
+      }
+
+      function renderEvidence() {
+        const provenance=$("provenance-list");
+        appendFact(provenance,"Time range",data.provenance.time_range ? `${date(data.provenance.time_range.start)} → ${date(data.provenance.time_range.end)}` : "No valid timestamps");
+        appendFact(provenance,"Telemetry files",String((data.provenance.files || []).length));
+        appendFact(provenance,"Schema",(data.provenance.schema_versions || []).join(", ") || "Unavailable");
+        (data.provenance.inputs || []).forEach((input,index) => appendFact(provenance,`Input ${index+1}`,input));
+        const restarts=$("restart-list");
+        if (!data.restarts.length) restarts.append(node("li",null,"No daemon restart markers were recorded."));
+        data.restarts.forEach(restart => restarts.append(node("li",null,`${date(restart.timestamp)} · ${restart.boot_id}${restart.existing_records ? " · resumed durable log" : " · new log"}`)));
+        const warnings=$("warning-list");
+        if (!data.warnings.length) warnings.append(node("li",null,"No reducer or runtime warnings."));
+        data.warnings.forEach(warning => { const detail=[warning.type, warning.reason, warning.endpoint, warning.path && warning.path.split("/").pop()].filter(Boolean).join(" · "); warnings.append(node("li",null,detail)); });
+      }
+
+      function renderFindings() {
+        const list=$("finding-list"), summary=$("finding-summary");
+        if (!data.findings.length) { summary.textContent="No review pause/resume findings."; list.append(node("p","empty-state","No review pause/resume findings.")); return; }
+        const counts=data.findings.reduce((acc,item) => (acc[item.status]=(acc[item.status]||0)+1,acc),{});
+        summary.textContent=["broken","pending","resolved","closed"].filter(key=>counts[key]).map(key=>`${counts[key]} ${key}`).join(" · ");
+        const labels={broken:["!","Broken pause → resume"],pending:["…","Awaiting listener response"],resolved:["✓","Pause → resume observed"],closed:["◇","Window closed by merge"]};
+        data.findings.forEach(finding => { const card=node("article","finding"); card.dataset.status=finding.status; const [mark,label]=labels[finding.status]||["•",finding.status]; card.append(node("h3",null,`${mark} Ticket ${finding.ticket} · ${label}`),node("p",null,`Comment ${date(finding.comment_at)}${finding.missing.length ? ` · missing ${finding.missing.join(" + ")}` : " · complete"}`)); list.append(card); });
+      }
+
+      function setupActorControls() {
+        const select=$("resource-metric"); metrics.forEach(([key,label]) => { const option=node("option",null,label); option.value=key; select.append(option); });
+        const filters=$("actor-filters"); sortedEntries(data.actors).forEach(([actor],index) => { const label=node("label","actor-check"); const input=node("input"); input.type="checkbox"; input.checked=true; input.value=actor; input.dataset.color=palette[index%palette.length]; const dot=node("i"); dot.style.background=input.dataset.color; label.append(input,dot,document.createTextNode(actorLabel(actor))); filters.append(label); input.addEventListener("change",renderActorChart); });
+        select.addEventListener("change",renderActorChart);
+        $("actor-table-more").addEventListener("click",appendActorTablePage);
+        renderActorChart();
+      }
+
+      function actorSelection() { return [...$("actor-filters").querySelectorAll("input:checked")].map(input=>input.value); }
+      function actorColor(actor) { const input=[...$("actor-filters").querySelectorAll("input")].find(item=>item.value===actor); return input ? input.dataset.color : palette[0]; }
+      function scale(value,min,max,start,end) { return max===min ? (start+end)/2 : start+(value-min)*(end-start)/(max-min); }
+      function grid(svg,left,right,top,bottom,yMax,metric) {
+        for (let i=0;i<=4;i++) { const y=top+(bottom-top)*i/4; svg.append(svgNode("line",{x1:left,x2:right,y1:y,y2:y,class:"grid-line"})); const label=svgNode("text",{x:left-8,y:y+4,"text-anchor":"end",class:"axis-label"}); label.textContent=metricValue(metric,yMax*(1-i/4)); svg.append(label); }
+      }
+
+      function decimateSamples(samples, metric, limit) {
+        if (samples.length <= limit) return samples;
+        const bucketCount=Math.max(1,Math.floor((limit-2)/3)), interior=Math.max(samples.length-2,1), selected=[{index:0,sample:samples[0]}];
+        for (let bucket=0;bucket<bucketCount;bucket++) {
+          const start=1+Math.floor(bucket*interior/bucketCount), end=Math.min(samples.length-1,1+Math.floor((bucket+1)*interior/bucketCount));
+          let minimum=null, maximum=null, unavailable=null;
+          for (let index=start;index<end;index++) {
+            const sample=samples[index], value=numeric(sample[metric]), candidate={index,sample,value};
+            if (!sourceMeasured(metric,sample) || value === null) unavailable ||= candidate;
+            else { if (!minimum || value<minimum.value) minimum=candidate; if (!maximum || value>maximum.value) maximum=candidate; }
+          }
+          [minimum,maximum,unavailable].filter(Boolean).sort((a,b)=>a.index-b.index).forEach(candidate => {
+            if (selected[selected.length-1].index !== candidate.index) selected.push(candidate);
+          });
+        }
+        selected.push({index:samples.length-1,sample:samples[samples.length-1]});
+        return selected.filter((item,index,list)=>index===0 || item.index!==list[index-1].index).map(item=>item.sample);
+      }
+
+      function resetActorTable(rows, metric, emptyMessage) {
+        actorTableRows=rows; actorTableMetric=metric; actorTableOffset=0; clear($("actor-table-body"));
+        if (emptyMessage) {
+          tableEmpty($("actor-table-body"),5,emptyMessage); $("actor-table-count").textContent=""; $("actor-table-more").hidden=true;
+        } else appendActorTablePage();
+      }
+
+      function appendActorTablePage() {
+        const body=$("actor-table-body"), next=Math.min(actorTableOffset+actorTablePageSize,actorTableRows.length);
+        actorTableRows.slice(actorTableOffset,next).forEach(sample => { const row=node("tr"); [date(sample.timestamp),actorLabel(sample.actor),metricSource(actorTableMetric,sample),sourceMeasured(actorTableMetric,sample)?metricValue(actorTableMetric,sample[actorTableMetric]):"—",sample.boot_id].forEach(value=>row.append(node("td",null,value))); body.append(row); });
+        actorTableOffset=next; $("actor-table-count").textContent=`Showing ${actorTableOffset} of ${actorTableRows.length} samples`; $("actor-table-more").hidden=actorTableOffset>=actorTableRows.length;
+      }
+
+      function resetPressureTable(rows, emptyMessage) {
+        pressureTableRows=rows; pressureTableOffset=0; clear($("pressure-table-body"));
+        if (emptyMessage) {
+          tableEmpty($("pressure-table-body"),10,emptyMessage); $("pressure-table-count").textContent=""; $("pressure-table-more").hidden=true;
+        } else appendPressureTablePage();
+      }
+
+      function appendPressureTablePage() {
+        const body=$("pressure-table-body"), next=Math.min(pressureTableOffset+pressureTablePageSize,pressureTableRows.length);
+        pressureTableRows.slice(pressureTableOffset,next).forEach(sample=>{ const fleet=sample.fleet_capacity_status||"empty", build=sample.build_gate_status||"empty", validFleet=fleet==="current", validBuild=["measured","disabled","partial"].includes(build); const load=validFleet&&numeric(sample.fleet_load)!==null?`${number(sample.fleet_load)} / ${number(sample.fleet_load_threshold)}`:"—"; const row=node("tr"); [date(sample.timestamp),fleet,date(sample.fleet_capacity_observed_at_ms),build,date(sample.build_gate_observed_at_ms),sample.fleet_admission_signal||"—",load,validFleet?number(sample.fleet_agents_occupied):"—",validFleet?`${number(sample.fleet_agents_configured)} / ${number(sample.fleet_agents_max)} / ${number(sample.fleet_agents_effective)}`:"— / — / —",validBuild?number(sample.build_gate_capacity):"—",validBuild?`${number(sample.build_gate_active)} / ${number(sample.build_gate_queued)}`:"— / —",validBuild&&numeric(sample.build_queue_oldest_wait_seconds)!==null?`${number(sample.build_queue_oldest_wait_seconds)} s`:"—"].forEach(value=>row.append(node("td",null,value))); body.append(row); });
+        pressureTableOffset=next; $("pressure-table-count").textContent=`Showing ${pressureTableOffset} of ${pressureTableRows.length} samples`; $("pressure-table-more").hidden=pressureTableOffset>=pressureTableRows.length;
+      }
+
+      function renderActorChart() {
+        const svg=$("actor-chart"), state=$("actor-state"), detail=$("actor-detail"); resetChart(svg,"actor-chart-title","Per-actor resource timeline","actor-chart-description","Focus a point to read its exact actor, time, and value.");
+        const actorNames=actorSelection(), metric=$("resource-metric").value || "cpu_percent";
+        const actors=actorNames.map(name=>data.actors[name]).filter(Boolean);
+        const allSamples=actors.flatMap(actor=>actor.samples || []);
+        if (!Object.keys(data.actors).length) { state.hidden=false; state.textContent="No actor resource samples were recorded."; resetActorTable([],metric,"No actor resource samples were recorded."); svg.setAttribute("height","320"); return; }
+        if (!actors.length) { state.hidden=false; state.textContent="Select at least one actor."; resetActorTable([],metric,"No actors selected."); return; }
+        if (!allSamples.length) { state.hidden=false; state.textContent="No samples exist for the selected actors."; resetActorTable([],metric,"No samples exist for the selected actors."); return; }
+        state.hidden=true;
+        const width=1000,height=320,left=92,right=975,top=25,bottom=280;
+        svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("height",String(height));
+        const [minTime,maxTime]=allSamples.reduce(([minimum,maximum],sample)=>{ const value=Number(sample.timestamp_ms); return Number.isFinite(value)?[Math.min(minimum,value),Math.max(maximum,value)]:[minimum,maximum]; },[Infinity,-Infinity]);
+        const yMax=allSamples.reduce((maximum,sample)=>{ const value=numeric(sample[metric]); return value === null ? maximum : Math.max(maximum,value); },1);
+        grid(svg,left,right,top,bottom,yMax,metric);
+        data.restarts.forEach(restart => { const time=Date.parse(restart.timestamp); if (time>=minTime && time<=maxTime) { const x=scale(time,minTime,maxTime,left,right); const line=svgNode("line",{x1:x,x2:x,y1:top,y2:bottom,class:"restart-line"}); const title=svgNode("title"); title.textContent=`Daemon restart ${restart.boot_id} at ${date(restart.timestamp)}`; line.append(title); svg.append(line); } });
+        actors.forEach(actor => {
+          (actor.gaps || []).forEach(gap => { const x=scale(Date.parse(gap.start_at),minTime,maxTime,left,right), x2=scale(Date.parse(gap.end_at),minTime,maxTime,left,right); svg.append(svgNode("rect",{x,y:top,width:Math.max(x2-x,2),height:bottom-top,class:"gap-band"})); });
+          let segment=[]; const flush=()=>{ if (segment.length>1) { const path=svgNode("path",{d:segment.map((point,index)=>`${index?"L":"M"}${point.x},${point.y}`).join(" "),fill:"none",stroke:actorColor(actor.actor),"stroke-width":2.5}); svg.append(path); } segment=[]; };
+          const chartLimit=Math.max(60,Math.floor(1800/actors.length));
+          decimateSamples(actor.samples || [],metric,chartLimit).forEach(sample => {
+            const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right), value=numeric(sample[metric]);
+            if (sourceMeasured(metric,sample) && value !== null) {
+              const y=scale(value,0,yMax,bottom,top); segment.push({x,y}); const circle=svgNode("circle",{cx:x,cy:y,r:5,fill:actorColor(actor.actor),class:"sample-point",tabindex:0,role:"img"});
+              const label=`${actorLabel(actor.actor)} · ${metricMeta(metric)[1]} ${metricValue(metric,value)} · ${date(sample.timestamp)}`; circle.setAttribute("aria-label",label); const title=svgNode("title"); title.textContent=label; circle.append(title); bindDetail(circle,label,detail); svg.append(circle);
+            } else { flush(); const group=svgNode("g",{tabindex:0,role:"img","aria-label":`${actorLabel(actor.actor)} unavailable at ${date(sample.timestamp)}: ${unavailableReason(sample.unavailable_reason)}`}); group.append(svgNode("line",{x1:x-4,x2:x+4,y1:bottom-4,y2:bottom+4,class:"unavailable-mark"}),svgNode("line",{x1:x-4,x2:x+4,y1:bottom+4,y2:bottom-4,class:"unavailable-mark"})); bindDetail(group,group.getAttribute("aria-label"),detail); svg.append(group); }
+          }); flush();
+        });
+        resetActorTable(allSamples,metric);
+        const startLabel=svgNode("text",{x:left,y:307,class:"axis-label"}); startLabel.textContent=date(new Date(minTime).toISOString()); const endLabel=svgNode("text",{x:right,y:307,"text-anchor":"end",class:"axis-label"}); endLabel.textContent=date(new Date(maxTime).toISOString()); svg.append(startLabel,endLabel);
+      }
+
+      function renderPressure() {
+        const samples=((data.actors._daemon||{}).samples||[]).slice().sort((a,b)=>Number(a.timestamp_ms)-Number(b.timestamp_ms));
+        const svg=$("pressure-chart"), state=$("pressure-state"); clear(svg);
+        if (!samples.length) { state.hidden=false; state.textContent="No fleet pressure observations were recorded."; resetPressureTable([],"No fleet pressure observations were recorded."); return; }
+        state.hidden=true;
+        const width=1000,height=330,left=82,right=975,countTop=24,countBottom=180,waitTop=225,waitBottom=285;
+        svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("height",String(height));
+        const countKeys=["fleet_agents_occupied","fleet_agents_effective","build_gate_capacity","build_gate_active","build_gate_queued"];
+        const bounds=samples.reduce((acc,sample)=>{ const timestamp=Number(sample.timestamp_ms); if(Number.isFinite(timestamp)){ acc.minTime=Math.min(acc.minTime,timestamp); acc.maxTime=Math.max(acc.maxTime,timestamp); } countKeys.forEach(key=>{ const value=numeric(sample[key]); if(sourceMeasured(key,sample)&&value!==null) acc.countMax=Math.max(acc.countMax,value); }); const wait=numeric(sample.build_queue_oldest_wait_seconds); if(sourceMeasured("build_queue_oldest_wait_seconds",sample)&&wait!==null) acc.waitMax=Math.max(acc.waitMax,wait); return acc; },{minTime:Infinity,maxTime:-Infinity,countMax:1,waitMax:1});
+        const minTime=bounds.minTime, maxTime=Math.max(bounds.maxTime,minTime+1), countMax=bounds.countMax, waitMax=bounds.waitMax;
+        const draw=(key,color,top,bottom,maximum,label)=>{ let points=[]; const flush=()=>{ if(points.length){ const path=svgNode("path",{d:points.map((p,i)=>`${i?"L":"M"}${p.x},${p.y}`).join(" "),fill:"none",stroke:color,"stroke-width":2.5}); const title=svgNode("title"); title.textContent=label; path.append(title); svg.append(path); } points=[]; }; decimateSamples(samples,key,600).forEach(sample=>{ const value=numeric(sample[key]); if(sourceMeasured(key,sample)&&value!==null) points.push({x:scale(Number(sample.timestamp_ms),minTime,maxTime,left,right),y:scale(value,0,maximum,bottom,top)}); else flush(); }); flush(); };
+        draw("fleet_agents_occupied",palette[0],countTop,countBottom,countMax,"Occupied agents");
+        draw("fleet_agents_effective",palette[3],countTop,countBottom,countMax,"Effective capacity");
+        draw("build_gate_capacity","#6e6e80",countTop,countBottom,countMax,"Build capacity");
+        draw("build_gate_active",palette[1],countTop,countBottom,countMax,"Active builds");
+        draw("build_gate_queued","#b42318",countTop,countBottom,countMax,"Queued builds");
+        draw("build_queue_oldest_wait_seconds","#b42318",waitTop,waitBottom,waitMax,"Oldest live wait");
+        const stateSamples=["fleet_agents_occupied","build_gate_active","build_gate_queued","build_queue_oldest_wait_seconds"].flatMap(key=>decimateSamples(samples,key,250));
+        [...new Map(stateSamples.map(sample=>[sample.timestamp_ms,sample])).values()].sort((a,b)=>Number(a.timestamp_ms)-Number(b.timestamp_ms)).forEach(sample=>{ const fleet=sample.fleet_capacity_status||"empty", build=sample.build_gate_status||"empty"; const sourceState=fleet==="stale"?"stale fleet":build==="degraded"?"degraded build":fleet!=="current"||!["measured","disabled"].includes(build)?"partial":"current"; const colors={current:"#10a37f","stale fleet":"#d97706","degraded build":"#b42318",partial:"#6e6e80",empty:"#d7d7d7"}; const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right); svg.append(svgNode("rect",{x:x-3,y:198,width:6,height:10,fill:colors[sourceState]||colors.empty,tabindex:0,role:"img","aria-label":`${sourceState} at ${date(sample.timestamp)}`})); });
+        resetPressureTable(samples);
+      }
+
+      function setupLifecycleControls() {
+        const filter=$("ticket-filter"); sortedEntries(data.tickets).forEach(([ticket])=>{ const option=node("option",null,`Ticket ${ticket}`); option.value=ticket; filter.append(option); });
+        filter.addEventListener("change",renderLifecycle); $("lifecycle-zoom").addEventListener("input",renderLifecycle);
+        $("reset-zoom").addEventListener("click",()=>{ filter.value=""; $("lifecycle-zoom").value="1"; renderLifecycle(); }); renderLifecycle();
+      }
+
+      function visibleTickets() { const selected=$("ticket-filter").value; return sortedEntries(data.tickets).filter(([ticket])=>!selected || ticket===selected); }
+      function renderLifecycle() {
+        const svg=$("lifecycle-chart"),state=$("lifecycle-state"),table=$("lifecycle-table-body"),detail=$("lifecycle-detail"),legend=$("phase-legend"); resetChart(svg,"lifecycle-chart-title","Per-ticket lifecycle chart","lifecycle-chart-description","Each row is a ticket. Focus a phase marker for exact boundaries and outcomes."); clear(table); clear(legend);
+        const tickets=visibleTickets(), zoom=Number($("lifecycle-zoom").value), intervals=tickets.flatMap(([ticket,item])=>(item.intervals||[]).map(interval=>({...interval,ticket})));
+        $("lifecycle-count").textContent=`${tickets.length} ticket${tickets.length===1?"":"s"} · ${intervals.length} phase${intervals.length===1?"":"s"}`;
+        [...new Set(intervals.map(interval=>interval.phase))].sort().forEach(phase=>{ const key=node("span","phase-key"); const swatch=node("i"); swatch.style.background=phaseColors[phase]||"#6e6e80"; key.append(swatch,document.createTextNode(phase.replaceAll("_"," "))); legend.append(key); });
+        if (!Object.keys(data.tickets).length) { state.hidden=false; state.textContent="No ticket lifecycle events were recorded."; tableEmpty(table,6,"No ticket lifecycle events were recorded."); svg.setAttribute("height","170"); return; }
+        state.hidden=true; const width=1050,height=Math.max(150,tickets.length*58+70),left=125,right=1020,top=28;
+        svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("width",String(Math.round(width*zoom))); svg.setAttribute("height",String(height));
+        const starts=intervals.map(item=>Number(item.start_ms)).filter(Number.isFinite), ends=intervals.map(item=>Number(item.end_ms || item.start_ms)).filter(Number.isFinite); const minTime=Math.min(...starts),maxTime=Math.max(...ends,minTime+1);
+        tickets.forEach(([ticket,item],rowIndex)=>{ const y=top+rowIndex*58; if (rowIndex%2===0) svg.append(svgNode("rect",{x:0,y:y-17,width,height:48,class:"row-band"})); const label=svgNode("text",{x:12,y:y+5,class:"row-label"}); label.textContent=`#${ticket}`; svg.append(label);
+          (item.intervals||[]).forEach(interval=>{ const x=scale(Number(interval.start_ms),minTime,maxTime,left,right), end=Number(interval.end_ms || interval.start_ms), x2=scale(end,minTime,maxTime,left,right), color=phaseColors[interval.phase]||"#6e6e80"; let mark;
+            if (interval.duration_ms == null || interval.status === "point" || interval.status === "orphan_end") mark=svgNode("circle",{cx:x,cy:y,r:7,fill:color,class:"phase-mark",tabindex:0,role:"img"});
+            else mark=svgNode("rect",{x,y:y-8,width:Math.max(x2-x,6),height:16,rx:5,fill:color,class:"phase-mark",tabindex:0,role:"img"});
+            const labelText=`Ticket ${ticket} · ${interval.phase.replaceAll("_"," ")} · ${date(interval.start_at)}${interval.end_at?` → ${date(interval.end_at)} (${duration(interval.duration_ms)})`:" · open/point"}${interval.outcome?` · ${interval.outcome}`:""}`; mark.setAttribute("aria-label",labelText); const title=svgNode("title"); title.textContent=labelText; mark.append(title); bindDetail(mark,labelText,detail); svg.append(mark);
+            const row=node("tr"); [ticket,interval.phase.replaceAll("_"," "),date(interval.start_at),interval.end_at?date(interval.end_at):"—",interval.status,interval.outcome||"—"].forEach(value=>row.append(node("td",null,value))); table.append(row);
+          });
+        });
+        const startLabel=svgNode("text",{x:left,y:height-18,class:"axis-label"}); startLabel.textContent=date(new Date(minTime).toISOString()); const endLabel=svgNode("text",{x:right,y:height-18,"text-anchor":"end",class:"axis-label"}); endLabel.textContent=date(new Date(maxTime).toISOString()); svg.append(startLabel,endLabel);
+      }
+
+      function renderProfiles() {
+        const body=$("profile-table-body"); let count=0;
+        sortedEntries(data.actors).forEach(([actor,item])=>{ sortedEntries(item.profile||{}).forEach(([metric,stats])=>{ const row=node("tr"); [actorLabel(actor),metricMeta(metric)[1],String(stats.count),metricValue(metric,stats.min),metricValue(metric,stats.median),metricValue(metric,stats.p95),metricValue(metric,stats.max)].forEach(value=>row.append(node("td",null,value))); body.append(row); count++; }); });
+        if (!count) tableEmpty(body,7,"No measured resource values are available for profiling.");
+      }
+
+      function renderNotes() {
+        const samples=Object.values(data.actors).flatMap(actor=>actor.samples||[]), gaps=Object.values(data.actors).reduce((sum,actor)=>sum+(actor.gaps||[]).length,0), unavailable=samples.filter(sample=>sample.availability!=="measured").length, broken=data.findings.filter(f=>f.status==="broken").length;
+        const notes=[
+          broken ? `${broken} broken review wakeup path${broken===1?"":"s"} require Executor investigation.` : "No broken review pause → resume path is present in this dataset.",
+          gaps ? `${gaps} within-boot sampling gap${gaps===1?"":"s"} exceeded the configured cadence.` : "No within-boot resource sampling gap exceeded the configured cadence.",
+          `Unavailable samples: ${unavailable} of ${samples.length}. Missing values are excluded from resource distributions.`,
+          `${data.restarts.length} daemon restart marker${data.restarts.length===1?"":"s"} preserve${data.restarts.length===1?"s":""} chronology across handoffs.`,
+          `${data.warnings.length} reducer, runtime, or enrichment warning${data.warnings.length===1?"":"s"} retained without blocking the artifact.`
+        ]; notes.forEach(text=>$("notes-list").append(node("li",null,text)));
+      }
+
+      $("pressure-table-more").addEventListener("click",appendPressureTablePage);
+      renderHeader(); renderEvidence(); renderFindings(); setupActorControls(); renderPressure(); setupLifecycleControls(); renderProfiles(); renderNotes();
+    })();
+    """
+  end
+end
