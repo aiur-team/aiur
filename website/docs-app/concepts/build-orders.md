@@ -127,7 +127,7 @@ These capability states describe whether the integration is available; each adop
 
 ## Start trigger
 
-`build_queue.start_trigger` defaults to `pr_merged`. Both queue promotion and native dependency dispatch require the selected stage; later stages satisfy earlier triggers.
+Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_merged`); later stages satisfy earlier triggers.
 
 | Trigger | Starts when | Evidence |
 | --- | --- | --- |
@@ -139,7 +139,9 @@ These capability states describe whether the integration is available; each adop
 
 Choose an override with `aiur queue add 12 13 --queue roadmap --start-on pr_opened` or `aiur queue add --build-order 12 --start-on pr_opened`. Change it with `aiur queue set roadmap --start-on pr_ci_green`; `--start-on default` returns to config. Tightening the trigger withdraws unclaimed queue-owned `todo`; running agents continue.
 
-`queue show` and the dashboard panel show the trigger, the needed stage and the observed stage. `(default)` means the queue follows config. Missing or stale evidence stays unknown. `optimistic` means the dependent starts before its blocker merges; its worker follows the [optimistic dependent workflow](/concepts/ticket-lifecycle#build-queue) and keeps its PR draft until blockers merge.
+`queue show` and the dashboard panel show the trigger, the needed stage and the observed stage. `(default)` means the queue follows config. Missing or stale evidence stays unknown.
+
+`optimistic` means the dependent starts before its blocker merges; its worker follows the [optimistic dependent workflow](/concepts/ticket-lifecycle#build-queue) and keeps its PR draft until blockers merge.
 
 Linear supports only `issue_closed` and `pr_merged` for dependency dispatch; build queue management currently requires GitHub. `pr_approved` adds one conditional review read per watched blocker; other stages reuse held lifecycle and PR evidence. See [GitHub API costs](/apis/github).
 

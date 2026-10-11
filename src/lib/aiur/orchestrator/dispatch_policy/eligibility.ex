@@ -5,8 +5,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
 
   import Aiur.Orchestrator.DispatchPolicy.IssueStates
 
-  alias Aiur.{Config, Issue}
   alias Aiur.BuildQueue.Hints
+  alias Aiur.{Config, Issue}
   alias Aiur.Orchestrator.{DependencyGate, Slots, State}
 
   # Kept as the pre-#2751 phrasing for the shapes that carry no nameable

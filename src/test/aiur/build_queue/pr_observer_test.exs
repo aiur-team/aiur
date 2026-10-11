@@ -3,12 +3,12 @@ Code.require_file("../../support/build_queue_planner_fixture.exs", __DIR__)
 defmodule Aiur.BuildQueue.PRObserverTest do
   use Aiur.TestSupport
   use Aiur.TestSupport.EventTicket
-  alias Aiur.BuildQueue.{Model.Observation, PlannerFixture, PRObserver, Reconcile, Server}
+  alias Aiur.BuildQueue.{Model.Observation, PlannerFixture, PRObserver, Readiness, Reconcile, Server}
   alias Aiur.Events.Exchange
   alias Aiur.Events.GithubWebhook.Deposit
   alias Aiur.GitHub.ResourceStore
   alias Aiur.StartTrigger.ProgressStore
-  alias Aiur.{Tracker, Workflow}
+  alias Aiur.{StartTrigger, Tracker, Workflow}
 
   defmodule Claims do
     def status(_ids), do: :unavailable
@@ -94,8 +94,8 @@ defmodule Aiur.BuildQueue.PRObserverTest do
     :sys.get_state(ProgressStore)
     {observations, _} = PRObserver.observe(%{ticket => observation}, state)
     assert observations[ticket].pr_number == 99
-    evidence = Aiur.BuildQueue.Readiness.evidence(observations[ticket], "agent")
-    assert Aiur.StartTrigger.describe(:pr_ci_green, evidence, :pending) == "##{ticket} needs pr_ci_green (now pr_opened, PR #99)"
+    evidence = Readiness.evidence(observations[ticket], "agent")
+    assert StartTrigger.describe(:pr_ci_green, evidence, :pending) == "##{ticket} needs pr_ci_green (now pr_opened, PR #99)"
     ProgressStore.record(ticket, %{pr_number: 100, stage: :pr_opened, observed_at_ms: state.clock.(), source: :test})
     :sys.get_state(ProgressStore)
     {observations, _} = PRObserver.observe(%{ticket => observation}, %{state | tracker: Claims})
