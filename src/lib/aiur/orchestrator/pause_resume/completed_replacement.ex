@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.PauseResume.CompletedReplacement do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AgentTeardown
+  alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume.Resume
@@ -75,7 +76,7 @@ defmodule Aiur.Orchestrator.PauseResume.CompletedReplacement do
     state =
       state
       |> Map.update!(:running, &Map.put(&1, issue.id, running_entry))
-      |> Aiur.Orchestrator.cancel_ci_wait_rewake(issue.id)
+      |> CiLifecycle.cancel_ci_wait_rewake(issue.id)
 
     worker_host = Map.get(running_entry, :worker_host)
 

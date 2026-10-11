@@ -35,10 +35,6 @@ defmodule Aiur.Orchestrator do
     TrackedSet.member?(issue_number)
   end
 
-  @doc false
-  @spec refresh_tracked_set(State.t()) :: State.t()
-  def refresh_tracked_set(state), do: TrackedSet.refresh(state)
-
   @impl true
   def handle_info({:tick, tick_token}, %{tick_token: tick_token} = state)
       when is_reference(tick_token),
@@ -282,32 +278,6 @@ defmodule Aiur.Orchestrator do
     do: PauseResume.transition_control_status(state, running_entry, new_status, reason)
 
   @doc false
-  @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
-  def note_github_connectivity_success(state, source),
-    do: TrackerHealth.note_github_connectivity_success(state, source)
-
-  @doc false
-  @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
-  def note_github_connectivity_failure(state, source, reason),
-    do: TrackerHealth.note_github_connectivity_failure(state, source, reason)
-
-  @doc false
-  @spec connectivity_detail(term()) :: map()
-  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
-
-  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
-
-  def connectivity_detail({:github_api_status, status}) when is_integer(status),
-    do: %{status: status}
-
-  def connectivity_detail(_reason), do: %{}
-
-  @doc false
-  @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
-  def note_github_poll_interval(state, source, seconds),
-    do: TrackerHealth.note_github_poll_interval(state, source, seconds)
-
-  @doc false
   @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
   def github_next_poll_delay_ms(state), do: TrackerHealth.github_next_poll_delay_ms(state)
 
@@ -405,18 +375,11 @@ defmodule Aiur.Orchestrator do
 
   @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_ci_wait(state, issue), do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
-  @spec cancel_ci_wait_rewake(State.t(), String.t()) :: State.t()
-  def cancel_ci_wait_rewake(state, issue_id), do: CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
-  @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
-  def reconcile_pending_auto_resumes(%State{} = state),
-    do: PushRouting.reconcile_pending_auto_resumes(state)
 
   @spec cleanup_terminal_issue_artifacts(binary() | term(), binary() | nil) :: :ok
   def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil),
     do: WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
 
-  @spec clear_session_handle(binary() | term()) :: :ok
-  def clear_session_handle(identifier), do: WorkspaceCleanup.clear_session_handle(identifier)
   @spec human_review_state?(term()) :: boolean()
   def human_review_state?(state_name), do: HumanReview.human_review_state?(state_name)
   @spec maybe_deactivate_human_review_issue(State.t(), Issue.t()) :: State.t()
@@ -426,25 +389,6 @@ defmodule Aiur.Orchestrator do
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(state, issue_id, cleanup_workspace),
     do: AgentTeardown.terminate_running_issue(state, issue_id, cleanup_workspace)
-
-  @spec kill_repl_session(map()) :: :ok
-  def kill_repl_session(entry), do: AgentTeardown.kill_repl_session(entry)
-  @spec close_active_chat_streams(String.t() | term(), term()) :: :ok
-  def close_active_chat_streams(identifier, reason),
-    do: AgentTeardown.close_active_chat_streams(identifier, reason)
-
-  @spec terminate_task(term()) :: :ok
-  def terminate_task(pid), do: AgentTeardown.terminate_task(pid)
-  @spec reconcile_overrunning_agents(State.t()) :: State.t()
-  def reconcile_overrunning_agents(state),
-    do: RuntimeWatchdog.reconcile_overrunning_agents(state)
-
-  @spec reconcile_stalled_running_issues(State.t()) :: State.t()
-  def reconcile_stalled_running_issues(state),
-    do: RuntimeWatchdog.reconcile_stalled_running_issues(state)
-
-  @spec reconcile_runtime_health(State.t()) :: State.t()
-  def reconcile_runtime_health(state), do: RuntimeWatchdog.reconcile_runtime_health(state)
 
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(entry, now, max_seconds),
@@ -955,11 +899,6 @@ defmodule Aiur.Orchestrator do
       do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
 
   @doc false
-  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
-  def enqueue_event_digest_item(state, identifier, events, summary_source),
-    do: OM.enqueue_event_digest_item(state, identifier, events, summary_source)
-
-  @doc false
   @spec resume_label_overridden_issue(State.t(), map()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_label_overridden_issue(%State{} = state, running_entry),
     do: PauseResume.resume_label_overridden_issue(state, running_entry)
@@ -1003,19 +942,6 @@ defmodule Aiur.Orchestrator do
   def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
     {:noreply, PushRouting.maybe_mark_sleeping(state, identifier)}
   end
-
-  @doc false
-  @spec schedule_poll_cycle_start() :: :ok
-  def schedule_poll_cycle_start, do: Lifecycle.schedule_poll_cycle_start()
-  @spec running_worker_host(State.t(), binary() | term()) :: binary() | nil
-  def running_worker_host(%State{} = state, issue_id) when is_binary(issue_id) do
-    case Map.get(state.running, issue_id) do
-      %{worker_host: worker_host} -> worker_host
-      _ -> nil
-    end
-  end
-
-  def running_worker_host(_state, _issue_id), do: nil
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()

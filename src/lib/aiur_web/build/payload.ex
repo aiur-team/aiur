@@ -36,7 +36,7 @@ defmodule AiurWeb.Build.Payload do
   | added / deps | boolean / identifiers |
   | wave / qpos | integer or nil (positive on plan) / nonnegative integer or nil |
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
-  | cue flags | waitAny and blockedChain booleans |
+  | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
   | pr | nil or positive integer num and open/merged/closed state |
 
