@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     * a draft observation records `:draft`;
     * a ready observation of a `:draft` PR publishes and records
       `{:announced, head_sha}`;
+    * a ready observation at a new head publishes once for that head;
     * a ready observation of a PR the ledger does not know is resolved from the
       PR's history (`GitHub.Client.fetch_pull_request_was_draft/2`), which the
       comment poll reads once per such PR: a PR that was a draft publishes, and
@@ -27,14 +28,14 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       webhook does. The CI poll does not read history, so it leaves an unknown
       PR for the comment poll.
 
-  Each draft period of a PR therefore gets exactly one wake, at the head the
-  poll saw. The publish carries the webhook's dedup key
+  Each newly ready head therefore gets exactly one wake. The publish carries the webhook's dedup key
   (`GithubKeys.pr_dedup_key(repo, pr, "ready_for_review", head_sha)`), so a
   webhook delivery and a poll of the same transition produce one event.
   """
 
   alias Aiur.Events.{GithubKeys, Publisher}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.State
   alias Aiur.PrReadyLedgerStore
 
@@ -111,6 +112,45 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   def ledger(%State{pr_ready_ledger: ledger}) when is_map(ledger), do: ledger
   def ledger(%State{}), do: PrReadyLedgerStore.load()
 
+  @doc "Records a real webhook-observed draft-to-ready transition without publishing it again."
+  @spec observe_webhook_transition(State.t(), String.t(), pos_integer(), String.t()) :: State.t()
+  def observe_webhook_transition(%State{} = state, ticket, pr_number, head_sha)
+      when is_binary(ticket) and ticket != "" and is_integer(pr_number) and pr_number > 0 and is_binary(head_sha) and head_sha != "" do
+    ledger = ledger(state)
+    next = Map.put(ledger, {ticket, pr_number}, {:announced, head_sha})
+
+    if next != ledger do
+      :ok = PrReadyLedgerStore.save(next)
+    end
+
+    %{state | pr_ready_ledger: next}
+  end
+
+  def observe_webhook_transition(%State{} = state, _ticket, _pr_number, _head_sha), do: state
+
+  @doc "Returns the cached commit reviewed most recently for a PR, when available."
+  @spec last_review_sha(String.t(), pos_integer()) :: String.t() | nil
+  def last_review_sha(repo, pr_number) when is_binary(repo) and is_integer(pr_number) and pr_number > 0 do
+    key = ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)
+
+    case ResourceStore.data(key) do
+      reviews when is_list(reviews) ->
+        reviews
+        |> Enum.filter(&is_map/1)
+        |> Enum.max_by(&Map.get(&1, "submitted_at", ""), fn -> nil end)
+        |> then(&if(is_map(&1), do: Map.get(&1, "commit_id"), else: nil))
+        |> case do
+          sha when is_binary(sha) and sha != "" -> sha
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def last_review_sha(_repo, _pr_number), do: nil
+
   @doc """
   Folds observations into the ledger, publishes what they reveal, and persists
   the ledger when it changed.
@@ -145,6 +185,9 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
         Map.put(ledger, key, :draft)
 
       {false, :draft} ->
+        announce(ledger, key, observation, opts)
+
+      {false, {:announced, prior_head}} when prior_head != observation.head_sha ->
         announce(ledger, key, observation, opts)
 
       {false, nil} ->
@@ -184,7 +227,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       repo when is_binary(repo) and repo != "" ->
         Publisher.publish(
           "ticket.#{ticket}.pr.ready_for_review",
-          ready_payload(pr_number, head_sha, opts),
+          ready_payload(repo, pr_number, head_sha, opts),
           issue_number: ticket,
           dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
         )
@@ -196,8 +239,16 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     end
   end
 
-  defp ready_payload(pr_number, head_sha, opts) do
-    payload = %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}}
+  defp ready_payload(repo, pr_number, head_sha, opts) do
+    pr = %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}
+
+    pr =
+      case last_review_sha(repo, pr_number) do
+        sha when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
+        _ -> pr
+      end
+
+    payload = %{action: "ready_for_review", pr: pr}
 
     case Keyword.get(opts, :observation) do
       "initial_sync" -> Map.put(payload, :observation, "initial_sync")

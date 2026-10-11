@@ -61,12 +61,12 @@ The repository events feed does not show a pull request going from draft to read
 
 A durable per-PR ledger records what they saw:
 
-- `ticket.<id>.pr.ready_for_review` is published once per draft period, whoever ran `gh pr ready`.
-- A restart neither loses nor repeats it.
+- `ticket.<id>.pr.ready_for_review` is published once per ready head, whether the poll or webhook sees the transition; a changed head can wake again.
+- Webhook transitions seed the ledger; the shared dedup key prevents a later poll from replaying that same head as `initial_sync`.
 - A ticket PR first seen already ready costs one issue-events read, once, to tell a former draft from a PR opened ready. A failed read is retried after a backoff, not on every poll.
 - First-sight backfill wakes carry `observation: "initial_sync"`: review if not already reviewed. Observed draft-to-ready transitions carry no marker.
 - Like the webhook, a PR opened ready gets no `ready_for_review`.
-- The poll uses the webhook's dedup key, so a repository with a webhook is not woken twice for the same head.
+- Wake records carry `head_sha` and, when cached review submissions provide it, `last_review_sha`; the Executor drops a ready wake when both match.
 
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 

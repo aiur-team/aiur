@@ -56,6 +56,9 @@ defmodule Aiur.Orchestrator do
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
     do: {:noreply, CommentPolling.request_reconcile(state, hint)}
 
+  def handle_info({:github_pr_ready_transition, ticket, pr_number, head_sha}, %State{} = state),
+    do: {:noreply, Aiur.Orchestrator.ReadyForReviewTransitions.observe_webhook_transition(state, ticket, pr_number, head_sha)}
+
   def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
     do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
 

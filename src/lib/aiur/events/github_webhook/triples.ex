@@ -12,6 +12,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity}
   alias Aiur.Events.GithubWebhook.Identity
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.Orchestrator.ReadyForReviewTransitions
 
   @type triple :: {String.t(), map(), keyword()}
   @type result :: {:publish, [triple()]} | {:drop, term()} | {:error, term()}
@@ -273,6 +274,12 @@ defmodule Aiur.Events.GithubWebhook.Triples do
     actor = get_in(payload, ["sender", "login"])
     pr_number = Map.get(pr, "number")
     head_sha = get_in(pr, ["head", "sha"]) || ""
+
+    pr =
+      case {action, ReadyForReviewTransitions.last_review_sha(repo, pr_number)} do
+        {"ready_for_review", sha} when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
+        _ -> pr
+      end
 
     with {:ok, target, _pr_number} <- Identity.pull_request_identity(payload),
          topic when is_binary(topic) <- pr_topic(target, action, merged?) do

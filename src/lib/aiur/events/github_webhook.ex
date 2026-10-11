@@ -114,6 +114,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.normalize(event_type, payload, opts) do
       {:publish, triples} ->
         outcome = publish_all(triples, opts)
+        record_ready_transitions(triples, outcome.results, opts)
         maybe_wake_on_publish(triples, opts)
         outcome
 
@@ -252,6 +253,26 @@ defmodule Aiur.Events.GithubWebhook do
     published = for {topic, {:ok, _id, _subscribers}} <- results, do: topic
 
     %{status: :published, published: published, results: results}
+  end
+
+  defp record_ready_transitions(triples, results, opts) do
+    Enum.zip(triples, results)
+    |> Enum.each(fn
+      {{topic, %{:pr => %{"number" => pr_number, "head" => %{"sha" => head_sha}}}, _publish_opts}, {_topic, {:ok, _id, _subscribers}}} ->
+        case String.split(topic, ".") do
+          ["ticket", ticket, "pr", "ready_for_review"] ->
+            case resolve_orchestrator(Keyword.get(opts, :orchestrator, Orchestrator)) do
+              pid when is_pid(pid) -> send(pid, {:github_pr_ready_transition, ticket, pr_number, head_sha})
+              nil -> :ok
+            end
+
+          _other ->
+            :ok
+        end
+
+      _other ->
+        :ok
+    end)
   end
 
   # The reconcilers that own label and CI events live in the orchestrator's
