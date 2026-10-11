@@ -139,7 +139,7 @@ Queue promotion and native dependency dispatch use `build_queue.start_trigger` (
 
 Choose an override with `aiur queue add 12 13 --queue roadmap --start-on pr_opened` or `aiur queue add --build-order 12 --start-on pr_opened`. Change it with `aiur queue set roadmap --start-on pr_ci_green`; `--start-on default` returns to config. Tightening the trigger withdraws unclaimed queue-owned `todo`; running agents continue.
 
-`queue show` and the dashboard panel show the trigger, the needed stage and the observed stage. `(default)` means the queue follows config. Missing or stale evidence stays unknown.
+`queue show` shows the trigger, the needed stage and the observed stage. `(default)` means the queue follows config. Missing or stale evidence stays unknown.
 
 `optimistic` means the dependent starts before its blocker merges; its worker follows the [optimistic dependent workflow](/concepts/ticket-lifecycle#build-queue) and keeps its PR draft until blockers merge.
 
@@ -219,7 +219,7 @@ also remove it from open issues before you downgrade.
 
 ## Build queue dashboard panel
 
-The `/build-orders` catalog includes a read-only Build queue panel. It uses the same held read model as `aiur queue show`: queues, completion progress, items in start order, start triggers, prerequisite stage reasons (including optimistic starts), rank, and open attentions. Manage membership and holds through the CLI.
+The `/build-orders` catalog includes a read-only Build queue panel. It uses the same held read model as `aiur queue show`: queues, completion progress, items in start order, prerequisite verdicts, rank, and open attentions. Manage membership and holds through the CLI.
 
 Every source shows its observation timestamp, age and freshness. Stale readiness is dimmed; unavailable readings show Unknown rather than zero or ready. Disabled queues, unsupported trackers, store failures and paused writes have distinct notices.
 

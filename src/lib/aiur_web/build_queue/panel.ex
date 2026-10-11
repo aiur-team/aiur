@@ -57,7 +57,6 @@ defmodule AiurWeb.BuildQueue.Panel do
     ~H"""
     <section data-queue-id={@queue.queue_id}>
       <h3 style={heading()}>{@queue.name} <span :if={@queue.held} class="badge">{Copy.text(:held_queue)}</span></h3>
-      <p style={muted()}>{Copy.trigger(@queue)}</p>
       <p style={flat()} data-queue-progress={Copy.progress_state(@queue)}>{Copy.progress(@queue)}</p>
       <div style="overflow-x: auto" tabindex="0" role="region" aria-label="Build queue items">
         <table class="bo-catalog-table" style="min-width: 48rem">
@@ -73,7 +72,7 @@ defmodule AiurWeb.BuildQueue.Panel do
                 <span :if={Map.get(item, :reason)}>{Copy.reason(item.reason)}</span>
               </td>
               <td>
-                <% waiting = Enum.reject(item.prerequisites, &(&1.verdict == :satisfied and not &1.optimistic)) %>
+                <% waiting = Enum.reject(item.prerequisites, &(&1.verdict == :satisfied)) %>
                 <span :if={waiting == []}>{Copy.text(:no_prerequisites)}</span>
                 <p :for={edge <- waiting} style={flat()}>{Copy.prerequisite(edge)}</p>
               </td>

@@ -78,17 +78,7 @@ defmodule AiurWeb.BuildQueueLiveTest do
   defp model(number) do
     source = %{state: :ok, observed_at: DateTime.utc_now(), age_ms: 0, freshness: :current, reasons: []}
     item = %{number: number, position: 1, state: :waiting, reason: nil, rank: nil, downstream_open: nil, prerequisites: [], attention: nil}
-
-    queue = %{
-      start_trigger: :pr_merged,
-      start_trigger_source: :config,
-      queue_id: "q-abcd",
-      name: "Next",
-      held: false,
-      items: [item],
-      progress: %{completed: 0, total: 1, resolved: 1, percent: 0, resolution: :resolved}
-    }
-
+    queue = %{queue_id: "q-abcd", name: "Next", held: false, items: [item], progress: %{completed: 0, total: 1, resolved: 1, percent: 0, resolution: :resolved}}
     %{status: :running, sources: %{"tracker_observation" => source}, queues: [queue]}
   end
 

@@ -118,30 +118,12 @@ defmodule AiurWeb.BuildQueuePanelTest do
   test "renders progress, waiting causes, rank and open attentions without controls" do
     html = render_component(&Panel.panel/1, view: view(:running), now: @now)
     assert html =~ "50% · 1/2 completed"
-    assert html =~ "#12 needs pr_ci_green (now pr_opened, PR #99)"
-    assert html =~ "start on pr_ci_green"
+    assert html =~ "#12 · Waiting · Local"
     assert html =~ "2 open downstream · priority 1"
     assert html =~ "Queue hold"
     assert html =~ "Prerequisite failed"
     refute html =~ "<button"
     refute html =~ "phx-click"
-  end
-
-  test "optimistic prerequisites stay visible beside a config default trigger" do
-    fixture = view(:running)
-
-    edge = %{
-      number: 12,
-      verdict: :satisfied,
-      optimistic: true,
-      description: Aiur.StartTrigger.describe(:pr_opened, %Aiur.StartTrigger.Evidence{identifier: "12", state_label: "ci-wait"}, {:satisfied, :optimistic})
-    }
-
-    fixture = fixture |> put_in([:model, :queues, Access.at(0), :start_trigger_source], :config) |> put_in([:model, :queues, Access.at(0), :start_trigger], :pr_opened)
-    fixture = put_in(fixture, [:model, :queues, Access.at(0), :items, Access.at(0), :prerequisites], [edge])
-    html = render_component(&Panel.panel/1, view: fixture, now: @now)
-    assert html =~ "start on pr_opened (default)"
-    assert html =~ "#12 optimistic (pr_opened)"
   end
 
   test "resolved attentions expire after sixty seconds and active ones remain" do
@@ -208,29 +190,10 @@ defmodule AiurWeb.BuildQueuePanelTest do
       rank: {-2, 1, 1, 0, "13"},
       downstream_open: 2,
       attention: [:prerequisite_failed],
-      prerequisites: [
-        %{
-          number: 12,
-          verdict: :pending,
-          source: :local,
-          optimistic: false,
-          description: Aiur.StartTrigger.describe(:pr_ci_green, %Aiur.StartTrigger.Evidence{identifier: "12", state_label: "ci-wait", pr_number: 99}, :pending)
-        }
-      ]
+      prerequisites: [%{number: 12, verdict: :waiting, source: :local}]
     }
 
-    queue = %{
-      start_trigger: :pr_ci_green,
-      start_trigger_source: :queue,
-      queue_id: "q-abcd",
-      kind: :list,
-      root: nil,
-      name: "Next",
-      held: true,
-      items: [item],
-      progress: %{completed: 1, total: 2, percent: 50, resolved: 2, resolution: :resolved}
-    }
-
+    queue = %{queue_id: "q-abcd", kind: :list, root: nil, name: "Next", held: true, items: [item], progress: %{completed: 1, total: 2, percent: 50, resolved: 2, resolution: :resolved}}
     source = %{state: :ok, observed_at: @now, age_ms: 0, freshness: :current, reasons: []}
     %{model: %{status: status, sources: %{"tracker_observation" => source}, queues: [queue]}, attentions: []}
   end

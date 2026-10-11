@@ -150,6 +150,20 @@ defmodule Aiur.BuildQueueCLITest do
     refute output =~ "#1 optimistic"
   end
 
+  test "older daemon payloads filter satisfied prerequisites and retain legacy waiting text" do
+    model = ReadModel.build(state())
+    [queue] = model.queues
+    legacy_edges = [%{number: 12, verdict: :satisfied, source: :native}, %{number: 13, verdict: :pending, source: :native}]
+    legacy_items = Enum.map(queue.items, &%{&1 | prerequisites: legacy_edges})
+    legacy_queue = queue |> Map.drop([:start_trigger, :start_trigger_source]) |> Map.put(:items, legacy_items)
+    legacy_model = %{model | queues: [legacy_queue]}
+
+    output = capture_io(fn -> assert BuildQueueCLI.run(server: read_server(legacy_model)) == 0 end)
+    assert output =~ "#13 pending (native)"
+    refute output =~ "#12"
+    refute output =~ "start on"
+  end
+
   @spec document() :: map()
   def document do
     queue = %Model.Queue{id: "q", name: "paseo", kind: :list, root: nil, held: true, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}

@@ -6,26 +6,31 @@ defmodule Aiur.Orchestrator.DependencyGate do
   alias Aiur.StartTrigger.{Evidence, ProgressStore}
 
   @spec verdicts(Issue.t(), MapSet.t()) :: [{map(), StartTrigger.verdict()}]
-  def verdicts(%Issue{id: id, blocked_by: blockers}, terminal_states) when is_list(blockers) and blockers != [] do
+  def verdicts(issue, terminal_states) do
+    Enum.map(evaluated_edges(issue, terminal_states), fn {blocker, _evidence, verdict} -> {blocker, verdict} end)
+  end
+
+  @spec hold_details(Issue.t(), MapSet.t()) :: {[map()], [String.t()]}
+  def hold_details(issue, terminal_states) do
+    trigger = Hints.trigger_for(issue.id)
+    held = Enum.reject(evaluated_edges(issue, terminal_states), fn {_blocker, _evidence, verdict} -> match?({:satisfied, _}, verdict) end)
+    {Enum.map(held, &elem(&1, 0)), Enum.map(held, fn {_blocker, evidence, verdict} -> StartTrigger.describe(trigger, evidence, verdict) end)}
+  end
+
+  defp evaluated_edges(%Issue{id: id, blocked_by: blockers}, terminal_states) when is_list(blockers) and blockers != [] do
     trigger = Hints.trigger_for(id)
     if trigger == :pr_approved, do: ProgressStore.watch(for(%{id: id} <- blockers, is_binary(id), do: id), trigger)
     now = System.system_time(:millisecond)
     max_age_ms = Hints.observation_max_age_ms()
     opts = [now_ms: now, max_age_ms: max_age_ms, not_planned: :satisfy]
-    Enum.map(blockers, &{&1, StartTrigger.edge_verdict(trigger, evidence(&1, terminal_states, now, max_age_ms), opts)})
+
+    Enum.map(blockers, fn blocker ->
+      evidence = evidence(blocker, terminal_states, now, max_age_ms)
+      {blocker, evidence, StartTrigger.edge_verdict(trigger, evidence, opts)}
+    end)
   end
 
-  def verdicts(_issue, _terminal_states), do: []
-
-  @spec descriptions(Issue.t(), MapSet.t()) :: [String.t()]
-  def descriptions(issue, terminal_states) do
-    trigger = Hints.trigger_for(issue.id)
-    now = System.system_time(:millisecond)
-
-    for {blocker, verdict} <- verdicts(issue, terminal_states), not match?({:satisfied, _}, verdict) do
-      StartTrigger.describe(trigger, evidence(blocker, terminal_states, now, Hints.observation_max_age_ms()), verdict)
-    end
-  end
+  defp evaluated_edges(_issue, _terminal_states), do: []
 
   defp evidence(%{state: state} = blocker, terminal_states, now, max_age_ms) when is_binary(state) do
     state = state |> String.trim() |> String.downcase()

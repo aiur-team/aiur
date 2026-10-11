@@ -34,8 +34,6 @@ defmodule Aiur.BrowserHarness.BuildQueueFixture do
   defp queue do
     %{
       queue_id: "q-fixture",
-      start_trigger: :pr_merged,
-      start_trigger_source: :config,
       name: "Release queue",
       held: true,
       items: Enum.with_index(@item_states, 1) |> Enum.map(fn {state, position} -> item(state, position) end),
@@ -51,15 +49,7 @@ defmodule Aiur.BrowserHarness.BuildQueueFixture do
       reason: nil,
       rank: {0, 2, 0, 0, 0},
       downstream_open: 3,
-      prerequisites: [
-        %{
-          number: 2999,
-          verdict: :pending,
-          source: :issue_dependency,
-          optimistic: false,
-          description: Aiur.StartTrigger.describe(:pr_merged, %Aiur.StartTrigger.Evidence{identifier: "2999", state_label: "ci-wait"}, :pending)
-        }
-      ],
+      prerequisites: [%{number: 2999, verdict: :pending, source: :issue_dependency}],
       attention: if(state == :failed_prerequisite, do: :prerequisite_failed, else: nil)
     }
   end
