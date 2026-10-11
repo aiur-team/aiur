@@ -177,6 +177,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
       "node_id" => Map.get(node, "id"),
       "number" => Map.get(node, "number"),
       "title" => Map.get(node, "title"),
+      "body" => Map.get(node, "body"),
       "html_url" => Map.get(node, "url"),
       "url" => Map.get(node, "url"),
       "state" => Map.get(node, "state"),

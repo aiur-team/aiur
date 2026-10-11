@@ -23,6 +23,22 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.progress_resolved_count == 4
   end
 
+  test "reconciliation-shaped entries resolve matching completed members" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    tickets = for id <- ["T-1", "T-2"], do: %{"id" => id, "title" => id, "lane" => "core", "phase" => 1, "depends_on" => [], "ticket" => nil, "doc" => "tickets/#{id}.md"}
+    File.write!(path, Jason.encode!(%{"build_order_id" => "acme/widgets:demo", "title" => "Demo Plan", "repository" => "acme/widgets", "completed" => false, "tickets" => tickets}))
+
+    seed_reconciled_order(9000, [9010, 9011])
+    seed_reconciled_member(9010, "T-1")
+    seed_reconciled_member(9011, "T-2")
+
+    [root] = PlanningSource.catalog().data.entries
+
+    assert root.member_count == 2
+    assert root.progress == 100
+    assert root.progress_resolution == :resolved
+  end
+
   test "catalog loads live progress stores once per repository for several packs" do
     directory = Aiur.TestSupport.tmp_root!("planning-source-multiple-packs")
     File.mkdir_p!(directory)
@@ -306,6 +322,20 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   defp seed_member(number, ticket_id, state, reason, phase) do
     body = "Build Order member: `#{ticket_id}` (acme/widgets:demo, wave #{phase} / phase #{phase}, lane `core`)"
     seed_resource(:issue, number, %{"number" => number, "title" => ticket_id, "body" => body, "state" => state, "state_reason" => reason})
+  end
+
+  defp seed_reconciled_order(number, members) do
+    seed_resource(:issue, number, %{"number" => number, "title" => "Build Order #{number}", "body" => "Build Order id: `acme/widgets:demo`", "state" => "OPEN"})
+    seed_resource(:issue_labels, number, [%{"name" => "build-order"}])
+
+    Enum.each(members, fn member ->
+      seed_resource(:sub_issue, "#{number}:#{member}", %{"present" => true, "parent_issue_number" => number, "sub_issue_number" => member})
+    end)
+  end
+
+  defp seed_reconciled_member(number, ticket_id) do
+    body = "Build Order member: `#{ticket_id}` (acme/widgets:demo, wave 1 / phase 1, lane `core`)"
+    seed_resource(:issue, number, %{"number" => number, "title" => ticket_id, "body" => body, "state" => "CLOSED", "state_reason" => "completed"})
   end
 
   defp seed_resource(type, id, data) do

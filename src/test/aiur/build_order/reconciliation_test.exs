@@ -56,6 +56,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
     assert {:ok, %{data: issue}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 100))
     assert issue["number"] == 100
     assert issue["title"] == "Build Order 100"
+    assert issue["body"] == "Build Order id: `4242`"
     assert issue["state"] == "OPEN"
     assert issue["labels"] == []
 
@@ -66,6 +67,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
     assert {:ok, %{data: member}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 101))
     assert member["state"] == "CLOSED"
     assert member["state_reason"] == "completed"
+    assert member["body"] == "Build Order member: `U0-T01` (4242, completed)"
 
     assert {:ok, %{data: edge}} = ResourceStore.fetch(ResourceStore.key_for_repo(:sub_issue, @repo, "100:101"))
     assert edge["present"] == true
@@ -184,6 +186,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
       "databaseId" => number,
       "number" => number,
       "title" => "Build Order #{number}",
+      "body" => "Build Order id: `4242`",
       "url" => "https://github.com/owner/repo/issues/#{number}",
       "state" => "OPEN",
       "stateReason" => nil,
@@ -202,6 +205,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
       "databaseId" => number,
       "number" => number,
       "title" => "Member #{number}",
+      "body" => "Build Order member: `U0-T01` (4242, completed)",
       "url" => "https://github.com/owner/repo/issues/#{number}",
       "state" => "CLOSED",
       "stateReason" => "completed",
