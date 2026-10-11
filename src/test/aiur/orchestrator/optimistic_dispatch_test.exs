@@ -112,8 +112,10 @@ defmodule Aiur.Orchestrator.OptimisticDispatchTest do
                end
              )
 
-    ProgressStore.record(id, %{stage: :pr_merged})
+    ProgressStore.record(id, %{pr_number: 42, stage: :pr_merged})
     :sys.get_state(ProgressStore)
+    advanced_sha = String.duplicate("b", 40)
+    assert %{pr_number: 42, head_sha: ^advanced_sha, stage: :pr_merged} = ProgressStore.lookup(id)
     started_at = issue.optimistic_start.started_at
     assert [%{sha: ^original_sha, ref: ^original_ref, pr_number: 41}] = issue.optimistic_start.blockers
     dispatch(issue, parent)
