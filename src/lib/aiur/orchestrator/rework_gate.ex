@@ -315,6 +315,17 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   defp alert_no_op_rework(handoff, _issue_key, _pr, _original_head, _opts), do: handoff
 
+  @doc false
+  @spec agent_handoff_blockers(String.t(), String.t() | atom() | nil, keyword()) ::
+          {:blocked, [String.t()]} | :allow
+  def agent_handoff_blockers(issue_key, dispatch_head, opts \\ []) do
+    with {:ok, pr} <- open_pr(issue_key, opts) do
+      ReworkHandoffChecks.agent_handoff_blockers(dispatch_head, head_sha(pr), opts)
+    else
+      _unknown -> :allow
+    end
+  end
+
   # #3971: the head can equal the dispatch head and still carry the fixes — they
   # were pushed by an earlier run. A blocking review that names an older commit
   # has not seen this head, so it goes back to the reviewer, red CI included.

@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{ReworkGate, ReworkHandoffChecks}
+  alias Aiur.Orchestrator.ReworkGate
 
   @spec write(Issue.t(), String.t(), String.t(), Path.t() | nil, String.t() | nil, keyword(), fun()) ::
           {:ok, map()} | {:error, term()}
@@ -25,13 +25,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   end
 
   defp blockers(%Issue{state: state} = issue, "human-review", opts) when state in ["rework", "agent:rework"] do
-    case ReworkGate.open_pr(issue.identifier, opts) do
-      {:ok, pr} ->
-        ReworkHandoffChecks.agent_handoff_blockers(Keyword.get(opts, :rework_head_sha), ReworkGate.head_sha(pr), opts)
-
-      _unknown ->
-        :allow
-    end
+    ReworkGate.agent_handoff_blockers(issue.identifier, Keyword.get(opts, :rework_head_sha), opts)
   end
 
   defp blockers(_issue, _state, _opts), do: :allow
