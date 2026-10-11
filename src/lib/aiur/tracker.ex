@@ -51,6 +51,13 @@ defmodule Aiur.Tracker do
     end
   end
 
+  @doc "Lists open issues remotely to renew `open_issue_labels/1`; it selects no dispatch candidates."
+  @spec refresh_open_issue_labels() :: :ok | {:error, term()}
+  def refresh_open_issue_labels do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :refresh_open_issue_labels, 0), do: tracker.refresh_open_issue_labels(), else: {:error, :unsupported}
+  end
+
   @doc "Reads a ticket's delivered PR evidence without a remote request; unsupported adapters return nil."
   @spec ticket_pull_request(String.t()) :: ticket_pull_request_result()
   def ticket_pull_request(issue_id) do
