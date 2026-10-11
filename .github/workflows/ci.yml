@@ -40,7 +40,7 @@ jobs:
   #
   # The jobs are NOT skipped. Every engine job still runs and still publishes
   # its check name; only its steps short-circuit. The human-only merge ruleset
-  # requires 13 contexts by name (docs/security/human-only-merge-ruleset.json),
+  # requires 12 contexts by name (docs/security/human-only-merge-ruleset.json),
   # and a required check that never reports leaves the pull request unmergeable
   # forever. Running-but-empty jobs report `success` unambiguously, which a
   # job-level `if:` skip does not.
@@ -111,7 +111,7 @@ jobs:
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test config documentation and design extract guards

@@ -1709,7 +1709,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       case target do
         "done" ->
           LocalHold.run(
-            fn -> update_issue_state_fun.(to_string(identifier), "done") end,
+            fn -> update_issue_state_fun.(to_string(identifier), "done") |> Alerts.StaleNotClosed.resolve_on_ok(identifier) end,
             LocalHold.caller_opts(opts)
           )
 

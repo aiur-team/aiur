@@ -171,6 +171,7 @@ if with_node:
             links={'packages/a/node_modules/leak': 'src/lib/leak'})
     imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
             extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
+    imports('non_js_package_dir_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': ''})
     imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
     imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
