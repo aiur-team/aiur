@@ -70,6 +70,10 @@ defmodule Aiur.Orchestrator.TelemetryEvents do
   @spec terminal(Issue.t(), atom()) :: :ok
   def terminal(issue, lifecycle) when lifecycle in [:completed, :cancelled] do
     RunTelemetry.capture_usage(issue.identifier, Issue.tracker_identity(issue))
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   def terminal(_issue, _lifecycle), do: :ok

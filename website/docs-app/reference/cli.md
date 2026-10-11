@@ -1,7 +1,6 @@
 ---
 pageClass: cli-reference
 ---
-
 # CLI
 
 Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches announce the config and `origin` target, then ensure workflow/marker and complexity labels, without model labels. `aiur init` provisions `flake` for [CI failure evidence](/apis/github#ci-failure-evidence).
@@ -60,7 +59,9 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`. `--debug` additionally enables debug-level messages. The default background root is `~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
 
-`aiur status` reports degraded CODEOWNERS trust with cause and age ([GitHub trust](/apis/github#who-aiur-trusts)). With ready work and free slots, it names a preflight hold with duration, a stale dispatch poll, `awaiting dispatch`, or the last empty cycle's reasons and sample age. Prewarm holds keep their cause; unexplained empty cycles report `unknown`.
+`aiur status` prints `MERGE POLICY` configuration; `aiur capabilities` reports its mode as `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
+
+`aiur status` shows degraded CODEOWNERS trust with cause and age ([GitHub trust](/apis/github#who-aiur-trusts)). With ready work and free slots, it names preflight holds, stale polling, `awaiting dispatch`, or empty-cycle reasons and age. Prewarm holds keep their cause; unexplained empty cycles report `unknown`.
 
 The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
 
@@ -118,8 +119,8 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur watch --changes` | Makes the changed-rows default explicit. | `aiur watch --changes` |
 | `aiur watch --once` | Requests the one-shot form. | `aiur watch --once` |
 | `aiur watch --interval 5` | Re-renders until interrupted. The interval must be a positive number of seconds. | `aiur watch --interval 5` |
-| `aiur alerts` | Shows the structured alert feed. Repeated active attentions carry the latest event’s `timestamp` and text; `first_seen_at` retains the opening time. | `aiur alerts` |
-| `aiur alerts --needs-attention` | Filters to unresolved alerts requiring Executor action. | `aiur alerts --needs-attention` |
+| `aiur alerts` | Shows every open attention item plus the latest 100 other retained alerts, oldest first, with an `event: "alert_feed_truncated"` JSON notice when older rows are omitted. `--limit <n>` (positive integer) changes that cap; `--all` removes it. Repeated active attentions carry the latest event’s `timestamp` and text; `first_seen_at` retains the opening time. | `aiur alerts` |
+| `aiur alerts --needs-attention` | Filters to unresolved alerts requiring Executor action. Never truncated. | `aiur alerts --needs-attention` |
 | `aiur set max-agents 6` | Changes the live session cap without editing config. The new cap applies to live state at once (`status` reflects it), and a raise pulls the next scheduled dispatch cycle forward without crossing the GitHub poll floor. Lower or unchanged caps keep the cadence. It does not rewrite the next launch's config; a restart drops it, and `aiur status` then shows the ceiling as `config max_concurrent_agents` rather than as the operator's last command. | `aiur set max-agents 6` |
 | `aiur pause` | Turns on the global pause switch. It stops new provisioning and cooperatively holds the fleet. The switch is persisted with its source and survives restart; a failed persisted-state read starts paused. | `aiur pause` |
 | `aiur resume` | Turns off that global switch. Lifting the pause schedules a prompt poll, so a ramp resumes dispatch within one base interval rather than waiting out the idle poll backoff. | `aiur resume` |

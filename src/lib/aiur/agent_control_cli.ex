@@ -198,7 +198,7 @@ defmodule Aiur.AgentControlCLI do
     print_executor_wake_status()
     Commands.print_projection_status()
     print_codeowners_trust()
-
+    Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
     # Count from the rows that are actually printed. Counting the unfiltered
@@ -342,13 +342,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    guarded("alerts", fn ->
-      opts
-      |> AlertFeed.list()
-      |> Enum.each(&IO.puts(Jason.encode!(&1)))
-
-      exit_marker(0)
-    end)
+    guarded("alerts", fn -> opts |> Aiur.AlertsCLI.run() |> exit_marker() end)
   end
 
   @spec commands(keyword()) :: :ok

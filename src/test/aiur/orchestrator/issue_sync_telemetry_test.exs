@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.IssueSyncTelemetryTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, Orchestrator, TrackerIdentity}
-  alias Aiur.Orchestrator.{IssueSync, SnapshotStore, State}
+  alias Aiur.Orchestrator.{IssueSync, MembershipLifecycle, SnapshotStore, State}
   alias Aiur.RunTelemetry.{Sampler, UsageCapture}
 
   setup do
@@ -12,6 +12,20 @@ defmodule Aiur.Orchestrator.IssueSyncTelemetryTest do
     parent = self()
     Application.put_env(:aiur, :run_telemetry_lifecycle_recorder, fn :lifecycle, fields, _ -> send(parent, {:metric, fields}) end)
     :ok
+  end
+
+  test "terminal usage failure does not prevent membership recording for a nil identifier" do
+    issue = %{issue("nil-identifier") | identifier: nil}
+    parent = self()
+
+    assert :ok =
+             MembershipLifecycle.record(issue, :completed, fn identity, lifecycle ->
+               send(parent, {:membership, identity, lifecycle})
+               :ok
+             end)
+
+    assert_received {:membership, identity, :completed}
+    assert identity == issue.tracker_identity
   end
 
   test "two real polls record state change and blocker clearance" do
