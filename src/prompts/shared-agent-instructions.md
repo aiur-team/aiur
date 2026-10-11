@@ -90,6 +90,16 @@ failing check you believe is inherited from the base, with evidence (for
 example the same check failing on the base head). Inherited red CI is the
 reviewer's call. Fix a failure your own change caused before handing off.
 
+### A queued PR is left alone
+
+A pull request in GitHub's merge queue rejects pushes, and being behind
+`main` there is normal: the queue tests the merge before it lands.
+Never dequeue a queued PR, and never ask the Executor to, in order to update
+its branch. Do not raise a decision or attention about it either. If your
+ticket is not already waiting, move it to `agent:human-review` and end the
+turn; the hand-off gate refuses a PR that is approved at its current head and
+queued only for a real merge conflict.
+
 ### Never refresh an approved PR
 
 Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its

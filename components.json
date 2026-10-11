@@ -75,7 +75,7 @@
     },
     {
       "id": "github", "name": "GitHub client, budget, read cache, domain", "layer": 2, "kind": "optional",
-      "paths": ["src/lib/aiur/allowed_contributors.ex", "src/lib/aiur/allowed_contributors/**", "src/lib/aiur/ci_approval_store.ex", "src/lib/aiur/codeowners.ex", "src/lib/aiur/codeowners/**", "src/lib/aiur/github/**", "src/lib/aiur/global_config_startup.ex", "src/lib/aiur/open_ticket_source.ex", "src/lib/aiur/open_ticket_source/**"],
+      "paths": ["src/lib/aiur/allowed_contributors.ex", "src/lib/aiur/allowed_contributors/**", "src/lib/aiur/ci/failure_digest.ex", "src/lib/aiur/ci_approval_store.ex", "src/lib/aiur/codeowners.ex", "src/lib/aiur/codeowners/**", "src/lib/aiur/github/**", "src/lib/aiur/global_config_startup.ex", "src/lib/aiur/open_ticket_source.ex", "src/lib/aiur/open_ticket_source/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "tracker", "signal"], "optional": ["event-bus", "github-listeners"],
       "owns": {"config": [], "env": ["AIUR_GITHUB_BUDGET_CONSUMER", "AIUR_GITHUB_BUDGET_IDENTITY_KEY", "GH_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_TOKEN"], "state": [], "capabilities": []},
