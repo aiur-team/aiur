@@ -1,5 +1,5 @@
 #!/bin/sh
-
+# @aiur-recursion-guard@
 # Identity guard for agent-launched `git` calls. The daemon prepends this
 # wrapper's directory to agent PATH and captures the real executable before it
 # does so. Authentication remains inert for local commands and reads; when Git

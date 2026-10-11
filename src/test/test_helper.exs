@@ -83,9 +83,23 @@ Code.require_file("support/turn_loop_test_support.ex", __DIR__)
 Code.require_file("support/account_generation_test_support.ex", __DIR__)
 Code.require_file("support/live_view_async.ex", __DIR__)
 Code.require_file("support/refresh_trace.ex", __DIR__)
+Code.require_file("support/github_client_test_support.ex", __DIR__)
 Code.require_file("support/event_ticket.ex", __DIR__)
+
+# Support loads by glob, so a new support file needs no line here. The explicit list below
+# stays only until the queue of open PRs has drained (#4219); do not add to it.
+# Sorted order puts some callers ahead of the support module they call at runtime.
+Code.put_compiler_option(:no_warn_undefined, :all)
+
+for file <- Enum.sort(Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))) do
+  Code.require_file(file)
+end
+
+Code.put_compiler_option(:no_warn_undefined, [])
+
 Code.require_file("support/engine_source.ex", __DIR__)
 Code.require_file("support/engine_case.ex", __DIR__)
+Code.require_file("support/wake_inbox_ack.ex", __DIR__)
 Code.require_file("support/dashboard_font_assertions.ex", __DIR__)
 Code.require_file("support/muse_fixture.exs", __DIR__)
 Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
