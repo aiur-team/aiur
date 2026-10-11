@@ -44,9 +44,6 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
     end
   end
 
-  defp clear_tracker_pause_override(%State{} = state, running_entry),
-    do: {:ok, state, running_entry}
-
   @doc false
   @spec resume_queued_issue(State.t(), term()) :: term()
   def resume_queued_issue(%State{} = state, issue_identifier) do
