@@ -73,8 +73,83 @@ defmodule Aiur.AgentResourceGuardTest do
     assert [] =
              AgentResourceGuard.enforce_once(
                cap: 0,
-               entries_fun: fn -> flunk("entries should not be read when disabled") end
+               entries_fun: fn -> flunk("entries should not be read when disabled") end,
+               orphan_holders_fun: fn -> flunk("the per-tick pass must not scan for orphan holders") end
              )
+  end
+
+  test "finds only legacy holders whose lock path is gone, wherever it lived" do
+    proc_dir = Aiur.TestSupport.tmp_root!("gate-orphan-proc")
+    # Deliberately not under Aiur.BuildGate.lock_dir(): real leaks lock test temp dirs.
+    lock_root = Path.join(proc_dir, "locks")
+    live_lock = Path.join([lock_root, "live.locks", "slot-1.lock"])
+    File.mkdir_p!(Path.dirname(live_lock))
+    File.touch!(live_lock)
+    script = "exec 8<>\"$1\"; flock 8; while [[ ! -e $3 ]]; do sleep 0.05; done"
+    test_pid = self()
+
+    write_proc = fn pid, comm, argv ->
+      File.mkdir_p!(Path.join(proc_dir, "#{pid}"))
+      File.write!(Path.join([proc_dir, "#{pid}", "comm"]), comm <> "\n")
+      File.write!(Path.join([proc_dir, "#{pid}", "cmdline"]), Enum.map_join(argv, &(&1 <> <<0>>)))
+    end
+
+    write_proc.(123, "bash", ["/usr/bin/bash", "-c", script, "build-gate-holder", "#{lock_root}/removed.locks/slot-1.lock"])
+    write_proc.(124, "bash", ["bash", "-c", "sleep forever"])
+    write_proc.(125, "bash", ["/usr/bin/bash", "-c", script, "build-gate-holder", live_lock])
+    write_proc.(126, "beam.smp", ["/usr/bin/bash", "-c", script, "build-gate-holder", "#{lock_root}/removed.locks/slot-2.lock"])
+    write_proc.(127, "bash", ["/run/current-system/bin/bash", "-c", script, "build-gate-holder", "/tmp/aiur-gate-gone-#{System.unique_integer([:positive])}.locks/slot-1.lock"])
+    # The current test holder polls at 0.5 s and exits by itself; it is never a reap target.
+    write_proc.(128, "bash", ["/usr/bin/bash", "-c", String.replace(script, "0.05", "0.5"), "build-gate-holder", "#{lock_root}/removed.locks/slot-3.lock"])
+
+    identity_fun = fn pid ->
+      send(test_pid, {:identity_read, pid})
+      {:ok, {:known, pid}}
+    end
+
+    found = AgentResourceGuard.orphaned_build_gate_holders(proc_dir, identity_fun)
+    assert Enum.sort(found) == [{123, {:known, 123}}, {127, {:known, 127}}]
+    refute_received {:identity_read, 126}
+
+    File.rm_rf!(proc_dir)
+  end
+
+  test "reap_orphaned_build_gate_holders reaps each discovered holder by its captured identity" do
+    test_pid = self()
+
+    assert [777] =
+             AgentResourceGuard.reap_orphaned_build_gate_holders(
+               orphan_holders_fun: fn -> [{777, {:known, :identity}}] end,
+               orphan_kill_fun: fn pid, identity -> send(test_pid, {:killed, pid, identity}) end
+             )
+
+    assert_received {:killed, 777, {:known, :identity}}
+  end
+
+  test "the guard reaps orphan holders on the throttled orphan scan" do
+    test_pid = self()
+
+    opts = [
+      cap: 1,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [] end,
+      orphan_holders_fun: fn ->
+        send(test_pid, :holders_scanned)
+        [{777, {:known, :identity}}]
+      end,
+      orphan_kill_fun: fn pid, _identity -> send(test_pid, {:killed, pid}) end
+    ]
+
+    {:ok, guard} = AgentResourceGuard.start_link(name: nil, interval_ms: 60_000, enforce_opts: opts)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(guard) end)
+
+    send(guard, :tick)
+    assert_receive :holders_scanned, 1_000
+    assert_receive {:killed, 777}, 1_000
+
+    send(guard, :tick)
+    refute_receive :holders_scanned, 50
+    refute_receive {:killed, 777}, 50
   end
 
   test "collect_descendants walks recursively" do
