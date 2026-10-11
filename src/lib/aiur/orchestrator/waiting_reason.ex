@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @type t ::
           :waiting_for_human
           | :waiting_for_supervisor
+          | :optimistic_share
           | :waiting_for_dependency
           | :waiting_for_ci
           | :waiting_for_review
@@ -40,6 +41,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     waiting_for_human: "Executor",
     waiting_for_supervisor: "Executor",
     waiting_for_dependency: "DispatchPolicy",
+    optimistic_share: "DispatchPolicy",
     waiting_for_ci: "CiLifecycle",
     waiting_for_review: "Executor",
     paused: "PauseResume",
@@ -87,6 +89,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # carries no creation time, and the lifetime latch persists only a dispatch
   # count. They report `since: nil` ("since unknown"), never another clock.
   defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
+  defp evidence(:optimistic_share, _facts), do: {:optimistic_share, nil}
   defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
 
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
@@ -269,6 +272,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @spec render(t()) :: String.t()
   def render(:waiting_for_human), do: "waiting_for_human"
   def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
+  def render(:optimistic_share), do: "optimistic_share"
   def render(:waiting_for_dependency), do: "waiting_for_dependency"
   def render(:waiting_for_ci), do: "waiting_for_ci"
   def render(:waiting_for_review), do: "waiting_for_review"
@@ -365,11 +369,16 @@ defmodule Aiur.Orchestrator.WaitingReason do
       Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
         dispatch_hold_or_tracker_state(tracker_state, opts)
 
-      Keyword.get(opts, :capacity_hold_active?, false) ->
-        capacity_or_tracker_state(tracker_state, opts)
-
       true ->
-        idle_by_tracker_state(tracker_state, opts)
+        capacity_classification(tracker_state, opts)
+    end
+  end
+
+  defp capacity_classification(tracker_state, opts) do
+    cond do
+      Keyword.get(opts, :optimistic_share?, false) -> :optimistic_share
+      Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state, opts)
+      true -> idle_by_tracker_state(tracker_state, opts)
     end
   end
 

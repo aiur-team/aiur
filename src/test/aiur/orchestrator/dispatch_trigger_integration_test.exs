@@ -31,7 +31,7 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
 
     :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_opened})
 
-    assert DispatchCandidates.order([other, candidate], terminal) == [candidate, other]
+    assert DispatchCandidates.order([other, candidate], terminal) == [other, candidate]
     assert [ready] = StatusReport.agent_statuses(state)
     refute ready.waiting_reason == :waiting_for_dependency
     assert {:reply, {:tracker_io, _, :fetch_issue_states_by_ids, [[id]]}, _} = resume(state, candidate)
@@ -58,10 +58,11 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
       )
 
     assert dispatched.running[candidate.id].optimistic_blockers == ["3765-blocker"]
+    assert dispatched.running[candidate.id].start_mode == :optimistic
     assert_received {:refreshed, "3765-integration"}
     assert_received {:hydrated, "3765-integration"}
     assert_received {:hydrated, "3765-integration"}
-    assert_received {:lifecycle, %{event: "dispatch", optimistic_blockers: ["3765-blocker"]}}
+    assert_received {:lifecycle, %{event: "dispatch", start_mode: "optimistic", optimistic_blockers: ["3765-blocker"]}}
     send(dispatched.running[candidate.id].pid, :stop)
   end
 
@@ -81,7 +82,8 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
       )
 
     assert dispatched.running[candidate.id].optimistic_blockers == []
-    assert_received {:lifecycle, %{event: "dispatch", optimistic_blockers: []}}
+    assert dispatched.running[candidate.id].start_mode == :ready
+    assert_received {:lifecycle, %{event: "dispatch", start_mode: "ready", optimistic_blockers: []}}
     send(dispatched.running[candidate.id].pid, :stop)
   end
 

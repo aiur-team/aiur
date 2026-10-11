@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Planner, PRObserver, Settings, Withdrawal}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Ordering, Planner, PRObserver, Settings, Withdrawal}
 
   alias Aiur.StartTrigger.ProgressStore
 
@@ -74,15 +74,24 @@ defmodule Aiur.BuildQueue.Reconcile do
     persisted = for item <- document.items, item.hold != nil or item.queue_id in held_queues, do: item.issue_id
     holds = MapSet.union(holds, MapSet.new(persisted))
 
+    ranks = critical_ranks(projections, document)
+
     rows =
       for p <- projections,
           p.state not in [:removed, :completed, :cancelled],
-          do: {p.issue_id, hint(p.rank), MapSet.member?(holds, p.issue_id) or p.state == :held or (p.state == :unknown and Hints.held?(p.issue_id)), trigger(p.issue_id, document, settings)}
+          do:
+            {p.issue_id, hint(p.rank), MapSet.member?(holds, p.issue_id) or p.state == :held or (p.state == :unknown and Hints.held?(p.issue_id)), trigger(p.issue_id, document, settings),
+             elem(Map.get(ranks, p.issue_id, {0, 0}), 0)}
 
     :ets.insert(Hints.table_name(), rows)
     retained = MapSet.new(rows, &elem(&1, 0))
     for row <- :ets.tab2list(Hints.table_name()), not MapSet.member?(retained, elem(row, 0)), do: :ets.delete(Hints.table_name(), elem(row, 0))
     true
+  end
+
+  defp critical_ranks(projections, document) do
+    open = for p <- projections, p.state not in [:removed, :completed, :cancelled, :unknown], do: p.issue_id
+    Ordering.critical_ranks(Map.get(document, :edges, []), open)
   end
 
   defp hint({downstream, _priority, position, _age, _id}), do: {downstream, position}

@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{PausedCandidatePoll, ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{OptimisticSlots, PausedCandidatePoll, ReworkGate, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -239,8 +239,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
 
-        # The poll just refreshed `last_polled_issues`, so this generation can
-        # replace a retained snapshot from a prior same-name orchestrator.
         state = %{state | snapshot_ready?: true}
 
         # Publish all rows, including claims still within the recovery grace period.
@@ -1064,7 +1062,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states, Map.values(state.last_polled_issues)), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
@@ -1120,11 +1118,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # local GitHub budget hold, a rate limit, a transport fault on the timeline
   # fetch) leaves `dispatch_authorized?: false` with a `Logger.warning` and
   # nothing else, and the catch-all clause below then actively cleared any
-  # prior decline. A ticket relabelled `agent:rework` while the core budget is
-  # held therefore sat out poll after poll with free slots, no alert, and no
-  # row on the status board — the operator saw only silence. Recording the
+  # prior decline. Recording the
   # decline makes the hold legible; it does not change whether the ticket
   # dispatches.
+  defp maybe_emit_dispatch_decline(state, issue, :optimistic_share),
+    do: record_dispatch_decline(state, issue, :optimistic_share, OptimisticSlots.waiting(state), false)
+
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
        when reason in [
               :state_capacity,
@@ -1368,15 +1367,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
           DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
       )
 
-      # Record the decline instead of only logging it. A ticket held here sits in
-      # "awaiting-dispatch" for as long as its blocker is open, and with nothing
-      # in `dispatch_declines` the status board and alert feed showed no reason at
-      # all — the operator saw an idle fleet and a stuck ticket with no link
-      # between them (#2545). Non-attention (info): a blocked ticket is normal
-      # dependency ordering, not a fault.
+      # Keep expected dependency waits visible on the status board (#2545).
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
-      do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+      if OptimisticSlots.available?(hydrated, state, terminal_states),
+        do: do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts),
+        else: maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
     end
   end
 
@@ -2587,7 +2583,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
         worker_host: worker_host,
         remote: is_binary(worker_host),
         retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
-        optimistic_blockers: optimistic_blockers
+        optimistic_blockers: optimistic_blockers,
+        start_mode: OptimisticSlots.start_mode(optimistic_blockers)
       })
     end
 
@@ -2615,6 +2612,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             identifier: issue.identifier,
             issue: issue,
             optimistic_blockers: optimistic_blockers,
+            start_mode: OptimisticSlots.start_mode(optimistic_blockers),
             worker_host: worker_host,
             workspace_path: nil,
             session_id: nil,

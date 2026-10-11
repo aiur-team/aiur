@@ -2,7 +2,8 @@ defmodule Aiur.Orchestrator.DependencyGate do
   @moduledoc "Dispatch prerequisite verdicts from hydrated states and recorded PR progress, without tracker I/O."
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.{Issue, StartTrigger}
+  alias Aiur.{Config, Issue, StartTrigger}
+  alias Aiur.GitHub.Tracker
   alias Aiur.StartTrigger.{Evidence, ProgressStore}
 
   @spec verdicts(Issue.t(), MapSet.t()) :: [{map(), StartTrigger.verdict()}]
@@ -16,6 +17,29 @@ defmodule Aiur.Orchestrator.DependencyGate do
   end
 
   def verdicts(_issue, _terminal_states), do: []
+
+  @spec cached_issue(Issue.t(), Issue.t() | nil) :: Issue.t()
+  def cached_issue(issue, fallback \\ nil) do
+    if Config.settings!().tracker.kind == "github" do
+      case Tracker.cached_blocked_by(issue) do
+        {:ok, hydrated} -> hydrated
+        {:error, _unknown} -> fallback || issue
+      end
+    else
+      issue
+    end
+  end
+
+  @spec classify(Issue.t(), MapSet.t()) :: :ready | :optimistic | :held
+  def classify(issue, terminal_states) do
+    verdicts = verdicts(issue, terminal_states)
+
+    cond do
+      Enum.any?(verdicts, fn {_, verdict} -> not match?({:satisfied, _}, verdict) end) -> :held
+      Enum.any?(verdicts, fn {_, verdict} -> verdict == {:satisfied, :optimistic} end) -> :optimistic
+      true -> :ready
+    end
+  end
 
   defp evidence(%{state: state} = blocker, terminal_states, now, max_age_ms) when is_binary(state) do
     state = state |> String.trim() |> String.downcase()

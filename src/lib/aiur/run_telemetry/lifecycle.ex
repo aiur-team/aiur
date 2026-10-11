@@ -43,6 +43,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :workspace_generation,
     :workspace_phase,
     :optimistic_blockers,
+    :start_mode,
     :complexity,
     # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
     :dispatch_selection

@@ -102,6 +102,10 @@ This detection makes no GitHub request. Retained CI and merge facts survive labe
 
 ## Queueing a Build Order
 
+Dispatch starts ready work before optimistic work, then ranks optimistic candidates by open dependent-chain depth and downstream count.
+
+`build_queue.optimistic_slot_share` defaults to 0.5 of the effective agent limit (at least one slot); zero disables optimistic starts. A merged blocker frees share on the next cycle. Existing runners keep their slots.
+
 `aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
