@@ -830,6 +830,7 @@ defmodule Aiur.GitHub.BudgetTest do
       requests_per_minute: 100,
       stagger_ms: 0,
       timeout_ms: 500,
+      broker_server: start_supervised!({Aiur.GitHub.BudgetBroker, name: nil}),
       consumer_key: "workspace:/contradictory-reader",
       agent_core_limit_per_hour: 2,
       agent_graphql_limit_per_hour: 2,
@@ -850,8 +851,7 @@ defmodule Aiur.GitHub.BudgetTest do
 
     hold_opts = Keyword.put(opts, :timeout_ms, 200)
 
-    # The actor is already at its ceiling, so every attempt either holds or
-    # times out; the retry never grants a lease it could double-consume
+    # At its ceiling, each attempt holds or times out; retries cannot double-consume
     # (#2286).
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}, 1000
