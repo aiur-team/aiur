@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
 
   alias Aiur.Events.{GithubKeys, Publisher}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.PullRequests.Reviews
   alias Aiur.Orchestrator.State
   alias Aiur.PrReadyLedgerStore
 
@@ -127,29 +127,6 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   end
 
   def observe_webhook_transition(%State{} = state, _ticket, _pr_number, _head_sha), do: state
-
-  @doc "Returns the cached commit reviewed most recently for a PR, when available."
-  @spec last_review_sha(String.t(), pos_integer()) :: String.t() | nil
-  def last_review_sha(repo, pr_number) when is_binary(repo) and is_integer(pr_number) and pr_number > 0 do
-    key = ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)
-
-    case ResourceStore.data(key) do
-      reviews when is_list(reviews) ->
-        reviews
-        |> Enum.filter(&is_map/1)
-        |> Enum.max_by(&Map.get(&1, "submitted_at", ""), fn -> nil end)
-        |> then(&if(is_map(&1), do: Map.get(&1, "commit_id"), else: nil))
-        |> case do
-          sha when is_binary(sha) and sha != "" -> sha
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  def last_review_sha(_repo, _pr_number), do: nil
 
   @doc """
   Folds observations into the ledger, publishes what they reveal, and persists
@@ -243,7 +220,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     pr = %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}
 
     pr =
-      case last_review_sha(repo, pr_number) do
+      case Reviews.last_review_sha(repo, pr_number) do
         sha when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
         _ -> pr
       end

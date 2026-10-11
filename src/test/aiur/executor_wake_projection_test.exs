@@ -87,6 +87,21 @@ defmodule Aiur.ExecutorWakeProjectionTest do
     assert record["last_review_sha"] == last_review_sha
   end
 
+  # Future regression guard: missing review data must preserve a fresh wake.
+  test "keeps a ready wake when review data is unavailable" do
+    head_sha = String.duplicate("a", 40)
+
+    assert {:ok, record} =
+             ExecutorWakeProjection.project(%{
+               topic: "ticket.42.pr.ready_for_review",
+               action: "ready_for_review",
+               pr: %{"number" => 17, "head" => %{"sha" => head_sha}}
+             })
+
+    assert record["head_sha"] == head_sha
+    assert record["last_review_sha"] == nil
+  end
+
   test "ignores a ready wake when the current head is the latest reviewed commit" do
     head_sha = String.duplicate("a", 40)
 

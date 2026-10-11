@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
 
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity}
   alias Aiur.Events.GithubWebhook.Identity
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{PullRequests.Reviews, ResourceStore}
 
   @type triple :: {String.t(), map(), keyword()}
   @type result :: {:publish, [triple()]} | {:drop, term()} | {:error, term()}
@@ -275,7 +275,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
     head_sha = get_in(pr, ["head", "sha"]) || ""
 
     pr =
-      case {action, last_review_sha(repo, pr_number)} do
+      case {action, Reviews.last_review_sha(repo, pr_number)} do
         {"ready_for_review", sha} when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
         _ -> pr
       end
@@ -294,19 +294,6 @@ defmodule Aiur.Events.GithubWebhook.Triples do
       {:drop, _reason} = drop -> drop
       {:error, _reason} = error -> error
       nil -> {:drop, {:uninteresting_action, "pull_request", action}}
-    end
-  end
-
-  defp last_review_sha(repo, pr_number) do
-    case ResourceStore.data(ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)) do
-      reviews when is_list(reviews) ->
-        reviews
-        |> Enum.filter(&is_map/1)
-        |> Enum.max_by(&Map.get(&1, "submitted_at", ""), fn -> nil end)
-        |> then(&if(is_map(&1), do: Map.get(&1, "commit_id"), else: nil))
-
-      _ ->
-        nil
     end
   end
 

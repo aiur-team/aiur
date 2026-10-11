@@ -18,7 +18,16 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
     :ok = Exchange.subscribe("ticket.55.pr.ready_for_review")
     last_review_sha = String.duplicate("c", 40)
     review_key = ResourceStore.key_for_repo(:pull_request_reviews, @repo, 901)
-    :ok = ResourceStore.put_resource(review_key, [%{"submitted_at" => "2026-06-24T11:00:00Z", "commit_id" => last_review_sha}], source: :poll)
+
+    :ok =
+      ResourceStore.put_resource(
+        review_key,
+        [
+          %{"submitted_at" => "2026-06-23T11:00:00Z", "commit_id" => String.duplicate("d", 40)},
+          %{"submitted_at" => "2026-06-24T11:00:00Z", "commit_id" => last_review_sha}
+        ],
+        source: :poll
+      )
 
     delivery = %{
       "action" => "ready_for_review",
@@ -38,7 +47,7 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
     assert %{topic: "ticket.55.pr.ready_for_review", action: "ready_for_review", pr: %{"number" => 901, "draft" => false, "last_review_sha" => ^last_review_sha}} =
              await_event("ticket.55.pr.ready_for_review")
 
-    assert_receive {:github_pr_ready_transition, "55", 901, "deadbeef"}, 500
+    receive_barrier({:github_pr_ready_transition, "55", 901, "deadbeef"})
   end
 
   # #2707: on a poll-only repository nothing delivers `ready_for_review`, and
@@ -106,7 +115,7 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
                GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, orchestrator: self())
 
       assert %{topic: ^topic} = await_event(topic)
-      assert_receive {:github_pr_ready_transition, "64", 911, "reviewed-head"}, 500
+      receive_barrier({:github_pr_ready_transition, "64", 911, "reviewed-head"})
       assert {:noreply, state} = Aiur.Orchestrator.handle_info({:github_pr_ready_transition, "64", 911, "reviewed-head"}, %State{})
       assert state.pr_ready_ledger[{"64", 911}] == {:announced, "reviewed-head"}
 
@@ -114,7 +123,7 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       _state = poll_draft_flag(state, "64", 911, "reviewed-head", false, [%{"event" => "ready_for_review"}])
 
       refute_received {:history_read, _url}
-      refute_receive {:event, %{topic: ^topic}}, 100
+      refute_received {:event, %{topic: ^topic}}
     end
 
     test "a new ready head after a reviewed head publishes once with both SHAs" do
@@ -128,7 +137,8 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
         ResourceStore.put_resource(
           key,
           [
-            %{"id" => 1, "submitted_at" => "2026-10-10T06:17:00Z", "commit_id" => old_head}
+            %{"id" => 1, "submitted_at" => "2026-10-09T06:17:00Z", "commit_id" => String.duplicate("c", 40)},
+            %{"id" => 2, "submitted_at" => "2026-10-10T06:17:00Z", "commit_id" => old_head}
           ],
           source: :poll
         )
@@ -146,10 +156,10 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
 
       assert get_in(second, [:pr, "head", "sha"]) == new_head
       assert get_in(second, [:pr, "last_review_sha"]) == old_head
-      refute_receive {:event, %{topic: ^topic}}, 100
+      refute_received {:event, %{topic: ^topic}}
 
       _state = poll_draft_flag(state, "65", 912, new_head, false)
-      refute_receive {:event, %{topic: ^topic}}, 100
+      refute_received {:event, %{topic: ^topic}}
     end
 
     test "webhook plus poll of the same draft-to-ready transition wakes once" do
