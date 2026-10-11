@@ -11,45 +11,50 @@ defmodule Aiur.TrackerTaskDrainSupport do
   result, and a poll cycle continues from that result by starting the next
   `:dispatch_poll` task, so a kill loop could chase the chain past its bound
   (#3957, #4070). An owner that does not answer within the timeout exits the
-  caller. If the owner does not answer, forget the stale set before failing so
-  the next test does not fail on the same held task.
+  caller. A timed-out system request can still run later, so it only stops and
+  removes the task references captured before the request.
   """
   @spec drain_tracker_tasks(pid(), non_neg_integer()) :: :ok
   def drain_tracker_tasks(pid, timeout_ms \\ 15_000) do
-    drain_tracker_tasks(pid, timeout_ms, "unknown test")
+    drain_tracker_tasks(pid, timeout_ms, "unknown test", :current)
   end
 
   @spec drain_tracker_tasks(pid(), non_neg_integer(), String.t()) :: :ok
   def drain_tracker_tasks(pid, timeout_ms, test_name) do
-    :sys.replace_state(
-      pid,
-      fn state ->
-        :ok = TrackerTasks.stop(state)
-        %{state | tracker_tasks: %{}}
-      end,
-      timeout_ms
-    )
-
-    :ok
-  catch
-    :exit, reason ->
-      held = held_tasks(pid)
-      clear_tracker_tasks(pid)
-      raise "Timed out draining orchestrator tracker tasks during #{test_name}; held: #{inspect(held)}; reason: #{inspect(reason)}"
+    drain_tracker_tasks(pid, timeout_ms, test_name, :current)
   end
 
-  defp clear_tracker_tasks(pid) do
-    :sys.replace_state(pid, &%{&1 | tracker_tasks: %{}}, 100)
-  catch
-    :exit, _reason -> :ok
-  end
+  @spec drain_tracker_tasks(pid(), non_neg_integer(), String.t(), map() | :current) :: :ok
+  def drain_tracker_tasks(pid, timeout_ms, test_name, tasks) do
+    held =
+      try do
+        if tasks == :current, do: :sys.get_state(pid, timeout_ms).tracker_tasks, else: tasks
+      catch
+        :exit, {:timeout, _} = reason ->
+          raise "Timed out draining orchestrator tracker tasks during #{test_name}; held: [:owner_unresponsive]; reason: #{inspect(reason)}"
 
-  defp held_tasks(pid) do
-    pid
-    |> :sys.get_state(100)
-    |> Map.get(:tracker_tasks, %{})
-    |> Enum.map(fn {_ref, job} -> Map.get(job, :key, :unknown) end)
-  catch
-    :exit, _reason -> [:owner_unresponsive]
+        :exit, reason ->
+          raise "Failed draining orchestrator tracker tasks during #{test_name}; reason: #{inspect(reason)}"
+      end
+
+    try do
+      :sys.replace_state(
+        pid,
+        fn state ->
+          :ok = TrackerTasks.stop(%{state | tracker_tasks: held})
+          %{state | tracker_tasks: Map.drop(state.tracker_tasks, Map.keys(held))}
+        end,
+        timeout_ms
+      )
+
+      :ok
+    catch
+      :exit, {:timeout, _} = reason ->
+        keys = if is_map(held), do: Enum.map(held, fn {_ref, job} -> job.key end), else: [:owner_unresponsive]
+        raise "Timed out draining orchestrator tracker tasks during #{test_name}; held: #{inspect(keys)}; reason: #{inspect(reason)}"
+
+      :exit, reason ->
+        raise "Failed draining orchestrator tracker tasks during #{test_name}; reason: #{inspect(reason)}"
+    end
   end
 end
