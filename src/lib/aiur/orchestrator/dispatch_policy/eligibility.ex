@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
 
   import Aiur.Orchestrator.DispatchPolicy.IssueStates
 
+  alias Aiur.BuildQueue.Hints
   alias Aiur.{Config, Issue}
   alias Aiur.Orchestrator.{DependencyGate, Slots, State}
 
@@ -110,8 +111,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   @spec describe_dependency_hold(term(), MapSet.t()) :: String.t()
   def describe_dependency_hold(%Issue{blocked_by: blockers} = issue, terminal_states)
       when is_list(blockers) do
-    holding = holding_blockers(issue, terminal_states)
-    describe_hold(holding, length(blockers) - length(holding))
+    {holding, details} = DependencyGate.hold_details(issue, terminal_states)
+    description = describe_hold(holding, length(blockers) - length(holding))
+    detail_text = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
+    description <> detail_text <> "; needs #{Hints.trigger_for(issue.id)}"
   end
 
   def describe_dependency_hold(_issue, _terminal_states), do: @unknown_dependency_hold

@@ -43,6 +43,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :workspace_generation,
     :workspace_phase,
     :optimistic_blockers,
+    :optimistic_start,
     :complexity,
     # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
     :dispatch_selection
@@ -174,13 +175,19 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       atom_key = metadata_key(key)
 
       if atom_key in @metadata_fields and not is_nil(value) do
-        [{atom_key, normalize_metadata_value(value)}]
+        [{atom_key, normalize_field(atom_key, value)}]
       else
         []
       end
     end)
     |> Map.new()
   end
+
+  defp normalize_field(:optimistic_start, %{blockers: blockers, primary: primary, pr_base: base, started_at: started_at}) do
+    %{blockers: Enum.map(blockers, &Map.take(&1, [:identifier, :pr_number, :ref, :sha])), primary: primary, pr_base: normalize_metadata_value(base), started_at: normalize_metadata_value(started_at)}
+  end
+
+  defp normalize_field(_key, value), do: normalize_metadata_value(value)
 
   defp metadata_key(key) when is_atom(key), do: key
 

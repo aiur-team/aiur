@@ -5,7 +5,7 @@ defmodule Aiur.PromptBuilder do
 
   require Logger
 
-  alias Aiur.AgentRunner.MergePolicyPrompt
+  alias Aiur.AgentRunner.{MergePolicyPrompt, OptimisticPrompt}
   alias Aiur.{CodingAgent, Config, ExternalContent, MergePolicy, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
@@ -33,7 +33,7 @@ defmodule Aiur.PromptBuilder do
       |> ensure_utf8()
 
     shared_prompt_prefix() <>
-      integration_branch_prompt(issue) <> merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
+      integration_branch_prompt(issue) <> OptimisticPrompt.render(issue.optimistic_start) <> merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
   end
 
   # SECURITY INVARIANT — issue title and body are attacker-controlled.
