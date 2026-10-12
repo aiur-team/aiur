@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/aiur-team/aiur/analytics/schema/repo-timeline.v1.json",
+  "title": "Repository timeline row",
+  "type": "object",
+  "required": ["schema_version", "type", "sha", "ts"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "type": { "enum": ["commit", "main_red_start", "main_red_end", "tag"] },
+    "sha": { "type": "string", "minLength": 1 },
+    "ts": { "type": "string", "format": "date-time" },
+    "pr_number": { "type": ["integer", "null"], "minimum": 1 },
+    "ticket": { "type": ["string", "null"], "pattern": "^[1-9][0-9]*$" },
+    "rollup_state": { "enum": ["SUCCESS", "FAILURE", "ERROR", "PENDING", "EXPECTED", null] },
+    "revert_of": { "type": ["string", "null"] },
+    "tag": { "type": "string", "minLength": 1 },
+    "source": { "enum": ["observation"] }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "commit" } } },
+      "then": { "required": ["pr_number", "ticket", "rollup_state", "revert_of"] } },
+    { "if": { "properties": { "type": { "const": "tag" } } },
+      "then": { "required": ["tag"] } }
+  ],
+  "additionalProperties": false
+}

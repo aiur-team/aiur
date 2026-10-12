@@ -154,17 +154,25 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
 
 ## CI gate
 
-Draft pull requests run `changes`, `lint`, and `build`. The existing path
-classifier only identifies docs-only changes; it does not select affected tests.
-Mark completed work ready for review **before** entering `agent:ci-wait`.
-`ready_for_review` starts the full suite, as do pushes to ready PRs, merge queue
-candidates, integration-branch pushes, and manual workflow dispatches.
+Pull requests, draft or ready, run the fast set: `changes`, workflow security
+(structure and PR-body gates), `lint` (including warning-free compilation and
+repository guards), affected tests on the merge with the base, and the aggregate
+`ci gate`. Mark completed work ready **before** entering `agent:ci-wait`.
 
-A draft's fast gate does not approve its head for human review. Aiur waits for
-the current head's full required-check set, including the configured check
-integrations; missing or skipped required checks remain pending. Ready docs-only
-PRs retain the existing step shortcuts, which publish successful required checks.
-The merge ruleset declaration and its drift guard remain unchanged.
+Merge groups and manual dispatches run the full set, including coverage, tests,
+Dialyzer, browser harness, release smoke, analytics and Stream Deck checks.
+`merge_policy.full_ci_labels`, `full_ci_paths`, and unsafe affected-test selections
+also force full PR runs. Policy is read from the base commit.
+The `ci` workflow does not run on pushes to `main`; Docker publishing and the
+website workflow still do.
+
+During rollout, the legacy required contexts force full PR CI and remain accepted
+by the verifier. Publish `ci gate` on every open head before changing live rules.
+Require the aggregate `ci gate` check in the merge ruleset, rather than individual
+full-suite jobs: it requires the fast set on PRs and the full set in the queue.
+Event-skipped jobs cannot satisfy the other event's gate. Aiur still requires a
+ready PR and every required check successful on its current head, including
+configured integrations; missing or skipped required checks remain pending.
 
 ## Error handling
 

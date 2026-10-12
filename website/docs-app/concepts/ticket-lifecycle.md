@@ -199,7 +199,7 @@ Ordinary queue closed-unmerged prerequisite PR detection uses [webhook evidence]
 stateDiagram-v2
     [*] --> todo: triaged with agent:todo
     todo --> inprogress: dispatcher claims the ticket
-    inprogress --> ciwait: draft PR opened, code complete
+    inprogress --> ciwait: PR ready, code complete
     ciwait --> humanreview: CI passed
     ciwait --> rework: CI failed
     humanreview --> rework: review feedback
@@ -558,10 +558,10 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 
 ## Step 5 — PR opened, agent pauses
 
-The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft
-pushes run only `changes`, `lint`, and `build`. After self-review, the agent
-marks completed work ready to trigger the full suite, then `agent:ci-wait`
-releases the turn and dispatch slot.
+The agent opens a `Closes #<issue>` **draft** PR. Aiur PRs, draft or ready,
+run fast CI; the aggregate `ci gate` requires the full suite in the merge
+queue or when `merge_policy.full_ci_labels` or `full_ci_paths` force a full run.
+After self-review, the agent marks work ready; `agent:ci-wait` releases the turn and dispatch slot. Main has no `ci` push run.
 
 Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
 

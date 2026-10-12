@@ -22,6 +22,7 @@ Label read/create failures stop startup before agents start and explain the requ
 | CI | Terminal checks while a ticket is in `agent:ci-wait` or `agent:human-review` | Returns passed work for human review and failed work for repair. |
 | Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits | Detects failures through check webhooks, base pushes and polling; retains state across restarts. |
 | Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. |
+| Analytics facts | Terminal PR facts; boot/hourly base history and tags | Body-free `pr_facts` and `analytics/repo-timeline.ndjson`; callers `analytics_facts` and `analytics_repo_timeline`. |
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
@@ -30,6 +31,10 @@ Rows and the resume checkpoint share the history file; a restart resumes unfinis
 The predicted cost is about 3 points per 100 issues; `rateLimit.cost` and `aiur github-cost` report the actual spend. Blocker overflow is paged; label and timeline overflow is marked incomplete. A page costing more than 5 reported points is saved, then the job stops with `page_cost_exceeded`, including after restart.
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
+
+`observability.capture_github_facts` gates both analytics readers. Missing credentials and non-GitHub trackers disable history capture. Budget holds defer queued tickets; three failed PR reads record unavailable coverage. Other timeline failures back off from one minute to one hour.
+
+Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding branch candidates to five, then 1 point for #3797 (1,610 nodes). Timeline pages cost 1 point; 146 tags require at least two requests per hourly capture. Actual costs appear in `aiur github-cost`; no fleet saving is claimed.
 
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
@@ -41,7 +46,7 @@ A head whose check runs all finished with at least one cancelled is missing CI, 
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
-Draft PRs remain pending even when their fast gate is green. Completed work must be marked ready before CI wait so `ready_for_review` can start the full suite.
+Draft PRs remain pending even with green checks. Mark completed work ready before CI wait; `ci gate` requires fast checks on PRs and full checks in the merge queue, or on policy-forced PRs. Main has no `ci` push run.
 
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
@@ -183,9 +188,7 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 The cadence is per-state-class since #2309: each poll loop resolves its interval by naming the class it serves, and `polling.intervals` overrides `polling.interval_seconds` for one class while every unlisted class falls back to the scalar.
 
-Poll spend still scales inversely with a class's interval, so
-`polling.interval_seconds` defaults to 120 — and the class that moves the most
-GraphQL spend is the one to widen, not the cheap tracker poll.
+Poll spend still scales inversely with a class's interval, so `polling.interval_seconds` defaults to 120 — and the class that moves the most GraphQL spend is the one to widen, not the cheap tracker poll.
 
 - **`dispatch`** — the tracker poll (open issues, `agent:*` labels). Cheap
   conditional REST (mostly free `304`s) and the dispatch trigger, so it stays at
@@ -212,9 +215,7 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
-When a worker starts or restarts, its bootstrap digest also re-reads the open
-PR's formal review submissions. This strict read revalidates the held review
-list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
+When a worker starts or restarts, its bootstrap digest also re-reads the open PR's formal review submissions. This strict read revalidates the held review list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
 
 The digest includes body-only `CHANGES_REQUESTED` reviews and substantive
 `COMMENTED` reviews submitted after the latest Agent Workpad, subject to the
@@ -223,8 +224,7 @@ dismissal by that reviewer suppresses their earlier request.
 
 ### What a validator may answer
 
-The savings above depend on the validator being the right one for the question
-asked. Two rules keep a `304` honest.
+The savings above depend on the validator being the right one for the question asked. Two rules keep a `304` honest.
 
 **A page-1 ETag cannot answer a multi-page question.**
 
@@ -757,9 +757,9 @@ A label write also corrects the labels on the issue Aiur already holds, and does
 
 A write that fails records nothing.
 
-Main watch debounces base Actions deliveries for two seconds. At the default 120-second cadence, an unchanged completed census costs two Core reads: `main_watch_commits` and `main_watch_runs`. Fingerprints reuse completed checks until a run changes; pagination coverage uses run and commit dates, allowing merge-queue commits without push runs.
+Main watch debounces base Actions deliveries for two seconds. At the default 120-second cadence, an unchanged completed census costs three Core reads: commits plus push and merge_group run censuses. Fingerprints reuse completed checks until a run changes; pagination coverage uses run and commit dates, allowing merge-queue commits without push runs.
 
-A cold 20-SHA green census costs 42 reads; one changed SHA costs four; startup adds one permission probe. These are transport-test counts, not live measurements. Each reconciliation caps all transport calls at 64, including evidence, suspects and reruns; exhausted or incomplete reads retain known state and mark it unavailable.
+Main-watch matches push or merge_group runs to the landed SHA and queue base. Cold 20-SHA census: 43 reads; one changed SHA: five; startup: one permission probe (test counts, not live measurements). Reconciliation caps transport calls at 64; incomplete reads retain known state and mark it unavailable.
 
 Failure events carry tests, flake classifications and suspects. Evidence uses existing CI callers; associations use `main_watch_suspects`, permissions `main_watch_permissions`, and reruns `main_watch_canary`. Actions write is cached until daemon restart; permission changes require a restart.
 
