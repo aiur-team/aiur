@@ -21,7 +21,7 @@ Label read/create failures stop startup before agents start and explain the requ
 | Comments and reviews | Trusted issue comments, PR comments, reviews, and unresolved threads | Wakes the correct agent for operator direction or rework. |
 | CI | Terminal checks while a ticket is in `agent:ci-wait` or `agent:human-review` | Returns passed work for human review and failed work for repair. |
 | Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits | Detects failures through check webhooks, base pushes and polling; retains state across restarts. |
-| Repository events | Default-branch pushes and opened or merged pull requests | Refreshes work whose base or review state changed. |
+| Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. |
 | Analytics facts | Terminal PR facts; boot/hourly base history and tags | Body-free `pr_facts` and `analytics/repo-timeline.ndjson`; callers `analytics_facts` and `analytics_repo_timeline`. |
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
@@ -210,17 +210,11 @@ Poll spend still scales inversely with a class's interval, so `polling.interval_
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
-Comments, review submissions, and watch-target discovery are read over conditional REST with `If-None-Match`. An unchanged answer returns `304`, which
-does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
-tickets is free rather than merely cheap. Validators are kept on disk, so a
-restart does not force a full-price re-read.
+Comments, review submissions, and watch-target discovery are read over conditional REST with `If-None-Match`. An unchanged answer returns `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. Validators are kept on disk, so a restart does not force a full-price re-read.
 
 When a worker starts or restarts, its bootstrap digest also re-reads the open PR's formal review submissions. This strict read revalidates the held review list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
 
-The digest includes body-only `CHANGES_REQUESTED` reviews and substantive
-`COMMENTED` reviews submitted after the latest Agent Workpad, subject to the
-same author trust filter as other GitHub feedback. A later approval or
-dismissal by that reviewer suppresses their earlier request.
+The digest includes body-only `CHANGES_REQUESTED` reviews and substantive `COMMENTED` reviews submitted after the latest Agent Workpad, subject to the same author trust filter as other GitHub feedback. A later approval or dismissal by that reviewer suppresses their earlier request.
 
 ### What a validator may answer
 
@@ -228,18 +222,11 @@ The savings above depend on the validator being the right one for the question a
 
 **A page-1 ETag cannot answer a multi-page question.**
 
-GitHub orders issue timelines oldest-first and issue/PR listings by `created` desc.
-Changes can land beyond page 1, so a page-1 `304` means "page 1 is unchanged",
-never "the whole list is unchanged".
+GitHub orders issue timelines oldest-first and issue/PR listings by `created` desc. Changes can land beyond page 1, so a page-1 `304` means "page 1 is unchanged", never "the whole list is unchanged".
 
-A page-1 `304` on a churned ticket cannot self-heal: the change that would
-refresh it lands on a later page.
+A page-1 `304` on a churned ticket cannot self-heal: the change that would refresh it lands on a later page.
 
-Only trust a `304` for a paginated read when the read was single-page (then
-page 1 *is* the list), or when the validator kept is the last page's rather
-than the first's. If neither is practical, do not make the read conditional:
-an unconditional read that is correct beats a conditional one that is quietly
-wrong.
+Only trust a `304` for a paginated read when the read was single-page (then page 1 *is* the list), or when the validator kept is the last page's rather than the first's. If neither is practical, do not make the read conditional: an unconditional read that is correct beats a conditional one that is quietly wrong.
 
 Issue comments and PR changed files drain every page; single-list readers refuse
 a next page with `pagination_unexpected` rather than return a partial list.
@@ -719,7 +706,7 @@ Stacked-base checks use held dependency edges without the dispatch-age cutoff an
 
 Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity waits for held PR evidence. No new CI polling or saving is claimed.
 
-Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
+Build queue closure uses `build_queue_observe`. Optimistic blockers use `optimistic_guard_read` after the observation age, grace expiry or a PR event; parked dependent labels are confirmed before release. Parking uses `optimistic_guard_draft` and `optimistic_guard_comment`. Failed writes retry from the journal. No saving is claimed.
 
 Build queue writes use `build_queue_label_post` / `build_queue_label_delete`; guard GETs use `build_queue_write_observe`. Writes are paced by `build_queue.max_writes_per_minute` (default 20). Retries schedule reconciliation without blocking the queue.
 
@@ -824,3 +811,14 @@ The path scope and webhook signature are independent locks:
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
+## Operator PR merge command
+
+`aiur pr merge` uses the operator's stored `gh` credential in its standalone process; it never sends that credential to the daemon. Its direct GitHub reads are outside the agent guard ledger. No quota saving is claimed.
+
+Before and after premerge checks it reads the PR, current-head check rollup, linked-ticket labels, paginated paths and reviews, applied rules, protection and base ref. Incomplete observations fail closed.
+
+Reviews use each reviewer's latest decision. An approval must match the current head; changes requests refuse for every identity. A requested operator approval is pinned and reread.
+
+A merge-queue rule routes the pinned head through GraphQL enqueueing; it never authorizes a direct bypass merge. Without a queue, squash merge pins the reviewed head. The ledger distinguishes enqueueing from observed merges.
+
+The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
