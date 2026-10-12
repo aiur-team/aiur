@@ -13,8 +13,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.TestSupport.WakeInboxAck
   alias Aiur.PollCadence
+  alias Aiur.TestSupport.WakeInboxAck
 
   setup :ci_lifecycle_setup
 
