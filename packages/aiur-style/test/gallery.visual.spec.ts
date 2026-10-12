@@ -30,10 +30,12 @@ test.describe('Gallery Visual Tests', () => {
 
     await expect(page.locator('.swatch')).toHaveCount(Object.keys(tokens.light).filter(name => name.startsWith('color.')).length);
 
+    // Keep the token baseline scoped to its original gallery content.
+    await page.locator('#footer').evaluate(element => element.remove());
+
     // Capture screenshot
     await expect(page).toHaveScreenshot('gallery-light.png', {
       fullPage: true,
-      style: '#footer { display: none; }',
       maxDiffPixelRatio: 0.002,
       animations: 'disabled',
       caret: 'hide',
@@ -51,10 +53,12 @@ test.describe('Gallery Visual Tests', () => {
 
     await expect(page.locator('.swatch')).toHaveCount(Object.keys(tokens.light).filter(name => name.startsWith('color.')).length);
 
+    // Keep the token baseline scoped to its original gallery content.
+    await page.locator('#footer').evaluate(element => element.remove());
+
     // Capture screenshot
     await expect(page).toHaveScreenshot('gallery-dark.png', {
       fullPage: true,
-      style: '#footer { display: none; }',
       maxDiffPixelRatio: 0.002,
       animations: 'disabled',
       caret: 'hide',

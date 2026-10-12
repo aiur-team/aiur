@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 for (const theme of ['light', 'dark']) {
   test(`footer contrast and semantics ${theme}`, async ({ page }) => {
     await page.goto(`./?theme=${theme}`);
+    await expect(page.locator('#footer .aiur-footer').first()).toHaveCSS('padding-top', '32px');
     const credit = page.locator('.aiur-footer__credit');
     await expect(credit).toHaveText('built with Aiur');
     await expect(credit).toHaveClass(/aiur-keepout/);
