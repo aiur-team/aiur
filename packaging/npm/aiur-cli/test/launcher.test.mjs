@@ -92,7 +92,7 @@ function setupPackage({
   return { shim: path.join(root, "bin", "aiur.js"), fakeBin };
 }
 
-function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false } = {}) {
+function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false, cwd = root } = {}) {
   const fullEnv = {
     ...process.env,
     AIUR_TEST_OUT: captureFile,
@@ -120,18 +120,15 @@ function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = fals
             `require(${JSON.stringify(path.join(root, "bin", "aiur.js"))});`,
         ]
       : [path.join(root, "bin", "aiur.js"), ...args];
-  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv });
+  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv, cwd });
 }
-
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), "aiur-shim-"));
   captureFile = path.join(root, "capture.txt");
 });
-
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
-
 test("happy path: resolves platform package and execs launcher with args + env", () => {
   const { fakeBin } = setupPackage();
   const result = runShim({ args: ["--host", "127.0.0.1", "WORKFLOW.md"], fakeBin });
@@ -249,8 +246,8 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 
 const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
-  "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
-  "build-orders", "queue", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
+  "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+  "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
   "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
@@ -262,11 +259,14 @@ for (const command of nonLaunchCommands) {
   const guard = ["init", "--version"].includes(command) ? " (future-regression guard)" : "";
   test(`non-launch ${command} never probes or provisions interactive tools${guard}`, () => {
     const { fakeBin } = setupPackage();
+    if (command === "experiments") mkdirSync(path.join(root, command));
     for (const tool of ["tmux", "opencode", "npm"]) {
       const executable = path.join(fakeBin, tool);
       writeFileSync(executable, `#!/bin/bash\necho '${tool}:$*' >>"$AIUR_TEST_OUT"\nexit 1\n`);
       chmodSync(executable, 0o755);
     }
+    // A local path must not turn the standalone PR command into a launch.
+    if (command === "pr") mkdirSync(path.join(root, "pr"));
     const result = runShim({
       args: [command, "--format", "records"], fakeBin,
       env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_TMUX_INSTALL: "", AIUR_SKIP_OPENCODE_INSTALL: "" },
@@ -359,7 +359,7 @@ function setupRealLauncher() {
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "engine"])
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "engine"])
     cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";

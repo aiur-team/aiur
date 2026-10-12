@@ -1,0 +1,37 @@
+{
+  "id": "tracker",
+  "name": "Tracker contract",
+  "layer": 2,
+  "kind": "required",
+  "paths": [
+    "src/lib/aiur/code_host.ex",
+    "src/lib/aiur/issue.ex",
+    "src/lib/aiur/memory/**",
+    "src/lib/aiur/optimistic_start.ex",
+    "src/lib/aiur/ticket_branch.ex",
+    "src/lib/aiur/tracker.ex",
+    "src/lib/aiur/tracker/**",
+    "src/lib/aiur/tracker_config.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [
+      "tracker"
+    ],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [
+    "TRK"
+  ]
+}

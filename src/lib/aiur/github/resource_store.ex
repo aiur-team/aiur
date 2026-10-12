@@ -309,6 +309,7 @@ defmodule Aiur.GitHub.ResourceStore do
     :pr_review_threads,
     :ci_contexts,
     :ci_failure_digest,
+    :main_watch,
     :flake_issues,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
@@ -421,7 +422,6 @@ defmodule Aiur.GitHub.ResourceStore do
   @doc "Every resource identity this store recognises."
   @spec resource_types() :: [resource_type()]
   def resource_types, do: @resource_types
-
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))

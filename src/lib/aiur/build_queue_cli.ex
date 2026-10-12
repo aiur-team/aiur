@@ -62,7 +62,7 @@ defmodule Aiur.BuildQueueCLI do
     IO.puts("  pos  ticket  state  waiting on  rank")
 
     Enum.each(queue["items"], fn item ->
-      IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{waiting(item["prerequisites"])}  #{rank(item)}#{attention(item)}")
+      IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{item_waiting(item)}  #{rank(item)}#{attention(item)}")
     end)
   end
 
@@ -71,6 +71,9 @@ defmodule Aiur.BuildQueueCLI do
     rendered = ProgressRenderer.terminal(completion)
     if is_number(progress["percent"]), do: "#{rendered} (completed #{progress["completed"] || "unknown"}/#{progress["total"] || "unknown"})", else: rendered
   end
+
+  defp item_waiting(%{"reason" => "queue_set_order:" <> _ = reason}), do: reason
+  defp item_waiting(item), do: waiting(item["prerequisites"])
 
   defp waiting(prerequisites) do
     case Enum.reject(prerequisites, &(&1["verdict"] == "satisfied" and &1["optimistic"] != true)) do

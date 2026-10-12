@@ -155,6 +155,7 @@ export default withMermaid(defineConfig({
             { text: 'Operating with aiurdev', link: '/concepts/operating-with-aiurdev' },
             { text: 'Headroom dispatch', link: '/concepts/headroom-dispatch' },
             { text: 'Capabilities', link: '/concepts/capabilities' },
+            { text: 'Experiments', link: '/concepts/experiments' },
             { text: 'Message Bus', link: '/concepts/message-bus' },
             { text: 'Skills', link: '/skills' }
           ]

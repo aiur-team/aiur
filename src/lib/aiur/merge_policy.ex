@@ -11,7 +11,12 @@ defmodule Aiur.MergePolicy do
   @doc "Whether labels or changed repository paths require the full CI gate."
   @spec requires_full_ci?([String.t()], [String.t()]) :: boolean()
   def requires_full_ci?(labels, changed_paths) do
-    policy = current()
+    requires_full_ci?(labels, changed_paths, current())
+  end
+
+  @doc false
+  @spec requires_full_ci?([String.t()], [String.t()], map()) :: boolean()
+  def requires_full_ci?(labels, changed_paths, policy) do
     full_labels = Enum.map(policy.full_ci_labels, &String.downcase/1)
 
     Enum.any?(labels, &(String.downcase(&1) in full_labels)) or

@@ -149,6 +149,9 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       refute out =~ "__AIUR_CONTROL_EXIT__"
     end
 
+    # These boot a real `mix run`, which outlasts the 10 s default RPC budget on
+    # a loaded host (#4223); the budget under test here is the marker seam's.
+    @tag timeout: 180_000
     test "executor application errors cross the real guarded RPC marker seam" do
       rel = fake_release()
       state = tmp_state()
@@ -179,7 +182,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
             {"AIUR_RELEASE_DIR", rel},
             {"AIUR_BG_STATE_DIR", state},
             {"AIUR_SOURCE_ROOT", Path.expand("../../..", __DIR__)},
-            {"MIX_ENV", "test"}
+            {"MIX_ENV", "test"},
+            {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "120"}
           ],
           ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='executor command'|
         )
@@ -400,6 +404,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       end
     end
 
+    @tag timeout: 780_000
     test "real mutating entrypoint errors cross the launcher marker seam (#1736)" do
       state = tmp_state()
       rel = fake_release()
@@ -435,7 +440,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
               {"AIUR_RELEASE_DIR", rel},
               {"AIUR_BG_STATE_DIR", state},
               {"AIUR_SOURCE_ROOT", Path.expand("../../..", __DIR__)},
-              {"MIX_ENV", "test"}
+              {"MIX_ENV", "test"},
+              {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "120"}
             ],
             ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='#{command}'|
           )

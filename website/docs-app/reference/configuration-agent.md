@@ -40,6 +40,9 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
+| `agent.ci_recovery_enabled` | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
+| `agent.ci_recovery_max_per_poll` | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
+| `agent.ci_recovery_max_per_hour` | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
 | `agent.max_cpu_pressure` | float or nil | 20.0 | Linux CPU PSI `some avg60` ceiling in percent (greater than 0, at most 100). Holds new dispatch above the ceiling; null disables it. Independent of scheduler count; avg10 is diagnostic and does not gate dispatch. |
 | `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. Halves capacity after 3 fresh above-target samples, subject to the decrease cooldown; ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
 | `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
@@ -168,10 +171,7 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 
 Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
 
-Local Muse sessions retain a native session handle across Aiur restarts. Aiur
-starts a fresh session only when Muse explicitly reports that the stored session
-was not found. Other resume errors, including a busy session, timeout, or
-mismatched session identity, remain failures to preserve conversation continuity.
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures to preserve conversation continuity.
 
 Remote workers and Claude Remote Control are unsupported for Muse.
 
@@ -207,10 +207,7 @@ Build admission covers direct `mix compile`, `mix test`, `mix lint`, `mix credo`
 
 Reviewer worktrees run `<repo>/scripts/build-gate mise exec -- mix lint` from `src/`. Set the fleet's `AIUR_BUILD_GATE_DIR` and `AIUR_BUILD_GATE_SLOTS` (required) and copy its other `AIUR_BUILD_*` and `AIUR_MIN_FREE_MEMORY_MB` values. The command holds one `review` lease shown in `aiur status`, keeps its exit status, and fails closed.
 
-Malformed compounds and command strings that could hide a Mix build fail with status
-`125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
-canonicalized, but deliberately invoking a separate real executable by absolute,
-relative, or symlinked path bypasses the entrypoint and is not admitted.
+Malformed compounds and command strings that could hide a Mix build fail with status `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are canonicalized, but deliberately invoking a separate real executable by absolute, relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
 
@@ -242,8 +239,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 ## agent.codex
 
-Codex settings belong under `agent.codex`; a legacy root-level `codex:` section
-is rejected with a migration hint rather than silently falling back to defaults.
+Codex settings belong under `agent.codex`; a legacy root-level `codex:` section is rejected with a migration hint rather than silently falling back to defaults.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -259,14 +255,9 @@ is rejected with a migration hint rather than silently falling back to defaults.
 
 ## Model discovery
 
-Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers
-release models faster than that list is edited, so for OpenAI-compatible backends aiur
-also asks the provider's own catalogue endpoint which models it currently serves, and
-caches the answer.
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers release models faster than that list is edited, so for OpenAI-compatible backends aiur also asks the provider's own catalogue endpoint which models it currently serves, and caches the answer.
 
-Discovery **extends** the curated list without replacing registry-owned effort vocabularies,
-capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins
-when an ID collides.
+Discovery **extends** the curated list without replacing registry-owned effort vocabularies, capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins when an ID collides.
 
 | Backend | Endpoint | Credential | Returns |
 | --- | --- | --- | --- |
@@ -274,8 +265,7 @@ when an ID collides.
 | `deepseek` | `GET https://api.deepseek.com/models` | `DEEPSEEK_API_KEY` | identifiers only |
 | `kimi` | `GET https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` | identifiers only |
 
-`codex` and `claude` are not listed: they answer `model/list` over their own CLI
-transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
+`codex` and `claude` are not listed: they answer `model/list` over their own CLI transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
 plus `anthropic-version`) has an adapter for operators who point an OpenAI-compatible
 backend straight at it; it returns identifiers and display names, no pricing.
 

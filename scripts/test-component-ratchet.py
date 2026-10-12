@@ -39,6 +39,9 @@ class RatchetTests(unittest.TestCase):
 
     def base(self):
         self.git('init', '-q')
+        self.git('config', 'gc.auto', '0')
+        self.git('config', 'maintenance.auto', 'false')
+        self.git('config', 'gc.autoDetach', 'false')
         self.git('add', '.')
         self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                  'commit', '-qm', 'Fixture baseline')
@@ -115,6 +118,9 @@ class RatchetTests(unittest.TestCase):
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(remote), *args], text=True).strip()
             git('init', '-q')
+            git('config', 'gc.auto', '0')
+            git('config', 'maintenance.auto', 'false')
+            git('config', 'gc.autoDetach', 'false')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                 'commit', '-qm', 'Remote fixture baseline')
