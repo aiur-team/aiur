@@ -146,7 +146,7 @@ defmodule Aiur.Journal do
   def append_many(_path, [], _opts), do: :accepted
 
   def append_many(path, events, opts) when is_binary(path) and is_list(events) do
-    encoded = Enum.map(events, fn event when is_map(event) -> Jason.encode!(event) <> "\n" end)
+    encoded = Enum.map_join(events, "", fn event when is_map(event) -> Jason.encode!(event) <> "\n" end)
 
     with :ok <- reject_symlink(path),
          {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
