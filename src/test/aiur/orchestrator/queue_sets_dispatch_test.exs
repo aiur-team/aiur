@@ -55,6 +55,18 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert MapSet.new(Map.keys(final.running)) == MapSet.new(Enum.take(expected, 6), & &1.id)
   end
 
+  test "review waits keep a started unfinished set active after all its runners exit" do
+    configure(max_active_sets: 1)
+    {document, issues, projections} = fixture()
+    projections = Enum.map(projections, &if(&1.issue_id in ~w(1 2), do: %{&1 | state: :claimed}, else: &1))
+    publish(document, projections)
+    final = dispatch(Enum.drop(issues, 2))
+    assert final.running == %{}
+    assert Slots.available_slots(final) == 6
+    assert {:declined, {:queue_set_order, reason}} = BuildQueueClaimProbe.classify(final, "3")
+    assert reason =~ "max_active_sets 1"
+  end
+
   test "one reserved slot remains free while earliest set is in review" do
     configure(spill_reserve_slots: 1)
     {document, issues, projections} = fixture()

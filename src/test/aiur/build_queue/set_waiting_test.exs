@@ -1,8 +1,8 @@
 defmodule Aiur.BuildQueue.SetWaitingTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.{BuildQueueCLI, Config.Schema}
   alias Aiur.BuildQueue.{Model, Planner, ReadModel}
+  alias Aiur.{BuildQueueCLI, Config.Schema}
 
   defmodule Reader do
     use GenServer

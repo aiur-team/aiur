@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.QueueSetSlots do
   @moduledoc "Serialized admission for active queue sets, spill reserves and unknown earlier readiness."
 
-  alias Aiur.Config
   alias Aiur.BuildQueue.Hints
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Config
+  alias Aiur.Orchestrator.{OptimisticSlots, Slots, State}
 
   @spec sort_key(String.t()) :: tuple()
   def sort_key(id) do
@@ -31,7 +31,7 @@ defmodule Aiur.Orchestrator.QueueSetSlots do
 
   @spec waiting_reason(atom(), String.t(), State.t()) :: String.t()
   def waiting_reason(:queue_set_order, id, state), do: waiting(id, state)
-  def waiting_reason(:optimistic_share, _id, state), do: Aiur.Orchestrator.OptimisticSlots.waiting(state)
+  def waiting_reason(:optimistic_share, _id, state), do: OptimisticSlots.waiting(state)
 
   defp set_reason(member, snapshot, state, settings) do
     sets = Enum.filter(snapshot.sets, &(&1.unfinished and not &1.held))
@@ -50,16 +50,21 @@ defmodule Aiur.Orchestrator.QueueSetSlots do
       settings.set_order == "ranked" and unknown ->
         message(current, unknown, "readiness unknown; may have ready work")
 
-      settings.max_active_sets != nil and length(active) >= settings.max_active_sets and not Enum.any?(active, &(&1.id == current.id)) ->
+      active_limit?(settings.max_active_sets, active, current.id) ->
         message(current, List.first(active), "max_active_sets #{settings.max_active_sets}")
 
-      settings.spill_reserve_slots > 0 and earliest != nil and Slots.available_slots(state) <= settings.spill_reserve_slots ->
+      reserve_limit?(settings.spill_reserve_slots, earliest, state) ->
         message(current, earliest, "spill reserve #{settings.spill_reserve_slots} slots")
 
       true ->
         nil
     end
   end
+
+  defp active_limit?(nil, _active, _id), do: false
+  defp active_limit?(limit, active, id), do: length(active) >= limit and not Enum.any?(active, &(&1.id == id))
+
+  defp reserve_limit?(reserve, earliest, state), do: reserve > 0 and earliest != nil and Slots.available_slots(state) <= reserve
 
   defp occupied?(set_id, members, occupied), do: Enum.any?(occupied, &(members[&1] && members[&1].set_id == set_id))
 

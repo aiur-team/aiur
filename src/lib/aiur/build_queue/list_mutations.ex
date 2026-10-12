@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ListMutations do
   @moduledoc "Pure, atomic edits of local lists; returns marker actions for the server's writer."
-  alias Aiur.BuildQueue.{Model, QueueTriggers}
+  alias Aiur.BuildQueue.{Model, QueueTriggers, Sets}
   alias Aiur.BuildQueue.Model.{Edge, Item, Queue}
   alias Aiur.BuildQueue.Sources.ExecutorList
 
@@ -81,7 +81,7 @@ defmodule Aiur.BuildQueue.ListMutations do
   defp queue(_, _, _), do: {:error, :invalid_queue}
 
   defp new_queue(document, name, now) do
-    with {:ok, id} <- queue_id(document), do: {:ok, %Queue{id: id, name: name, rank: Aiur.BuildQueue.Sets.next_rank(document), kind: :list, root: nil, held: false, generation: 0, created_at: now}}
+    with {:ok, id} <- queue_id(document), do: {:ok, %Queue{id: id, name: name, rank: Sets.next_rank(document), kind: :list, root: nil, held: false, generation: 0, created_at: now}}
   end
 
   @spec queue_id(Model.t()) :: {:ok, String.t()} | {:error, :queue_limit}

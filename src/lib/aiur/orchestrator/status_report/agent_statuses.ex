@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
@@ -234,7 +235,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       reason:
         idle_reason(waiting_reason, identifier, fn ->
           if waiting_reason in [:optimistic_share, :queue_set_order],
-            do: Aiur.Orchestrator.QueueSetSlots.waiting_reason(waiting_reason, issue.id, state),
+            do: QueueSetSlots.waiting_reason(waiting_reason, issue.id, state),
             else:
               idle_status_reason(
                 work_state,

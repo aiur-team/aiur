@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.{DispatchPolicy, QueueSetSlots}
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
@@ -128,7 +128,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     hold = if(row[:capacity_hold_active?], do: state.capacity_hold, else: state.dispatch_hold) || %{}
 
     %{
-      queue_set_wait: if(row.waiting_reason == :queue_set_order, do: Aiur.Orchestrator.QueueSetSlots.waiting(row.issue_id, state)),
+      queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
       global_pause: state.global_pause,
       auto_resume_cause: resume[:cause],
       auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),

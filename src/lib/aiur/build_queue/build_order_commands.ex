@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.BuildOrderCommands do
   @moduledoc false
   require Logger
-  alias Aiur.BuildQueue.{ListCommands, Model.Queue, Reconcile}
+  alias Aiur.BuildQueue.{ListCommands, Model.Queue, Reconcile, Sets}
   alias Aiur.BuildQueue.Sources.BuildOrder
 
   @spec prepare(map(), {:adopt | :unadopt, term()} | {:adopt, term(), String.t() | nil} | {:adopt, term(), String.t() | nil, Aiur.StartTrigger.trigger() | nil}) ::
@@ -39,7 +39,7 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
       queue = %Queue{
         id: id,
         name: name,
-        rank: Aiur.BuildQueue.Sets.next_rank(state.document),
+        rank: Sets.next_rank(state.document),
         kind: :build_order,
         root: root,
         start_trigger: trigger,

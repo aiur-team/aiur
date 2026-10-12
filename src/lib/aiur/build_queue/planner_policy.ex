@@ -160,8 +160,8 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp promoted(f), do: promoted_ready_or_withdraw(f)
 
   defp set_wait(f, reason) do
-    {state, _, actions} = promoted_ready_or_withdraw(f)
-    {state, reason, actions}
+    {state, existing_reason, actions} = promoted_ready_or_withdraw(f)
+    {state, existing_reason || reason, actions}
   end
 
   defp promoted_ready_or_withdraw(f) do
