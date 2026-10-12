@@ -15,6 +15,12 @@ gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files" \
 base="$(jq -er '.base.sha' "$scratch/pr.json")"
 git -C "${GITHUB_WORKSPACE:-.}" show "$base:.aiur/config" > "$scratch/policy"
 ruby scripts/ci-policy.rb "$scratch/policy" "$scratch/pr.json" "$scratch/files.json" > "$scratch/classification"
+# Keep the full old check set until every open PR has the new aggregate.
+branch="$(jq -er '.base.ref | @uri' "$scratch/pr.json")"
+gh api "repos/$REPO/rules/branches/$branch" > "$scratch/rules.json"
+if ! jq -e '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | length > 0 and all(. == "ci gate")' "$scratch/rules.json" >/dev/null; then
+  printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
+fi
 if grep -qx 'full_ci=false' "$scratch/classification" && ! grep -qx 'docs_only=true' "$scratch/classification"; then
   jq -r '.[] | .filename, (.previous_filename // empty)' "$scratch/files.json" > "$scratch/paths"
   selection="$(elixir -r src/lib/aiur/affected_tests.ex scripts/ci-test-selection.exs "$scratch/paths")"

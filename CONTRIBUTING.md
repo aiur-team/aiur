@@ -166,6 +166,8 @@ also force full PR runs. Policy is read from the base commit.
 The `ci` workflow does not run on pushes to `main`; Docker publishing and the
 website workflow still do.
 
+During rollout, the legacy required contexts force full PR CI and remain accepted
+by the verifier. Publish `ci gate` on every open head before changing live rules.
 Require the aggregate `ci gate` check in the merge ruleset, rather than individual
 full-suite jobs: it requires the fast set on PRs and the full set in the queue.
 Event-skipped jobs cannot satisfy the other event's gate. Aiur still requires a

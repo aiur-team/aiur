@@ -7,15 +7,21 @@ mkdir "$test_dir/bin"
 cat > "$test_dir/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
+  *'/rules/branches/'*)
+    if [[ "${TEST_LEGACY:-false}" == true ]]; then
+      echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"test"}]}}]'
+    else
+      echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci gate"}]}}]'
+    fi ;;
   *'/files'*)
     if [[ "${TEST_BIGPATCH:-false}" == true ]]; then
-      python3 -c 'import json; print(json.dumps([[{"filename":"src/lib/aiur/affected_tests.ex","patch":"x"*200000}]]))'
+      python3 -c 'import json; print(json.dumps([[{"filename":"src/lib/aiur/config.ex","patch":"x"*200000}]]))'
     elif [[ "${TEST_FILE_CAP:-false}" == true ]]; then
       python3 -c 'import json; print(json.dumps([[{"filename":"website/docs-app/guide/a.md"}]*3000]))'
     else
       printf '[%s]\n' "$TEST_FILES"
     fi ;;
-  *) printf '{"base":{"sha":"base-sha"},"labels":%s,"draft":%s}\n' "$TEST_LABELS" "$TEST_DRAFT" ;;
+  *) printf '{"base":{"sha":"base-sha","ref":"main"},"labels":%s,"draft":%s}\n' "$TEST_LABELS" "$TEST_DRAFT" ;;
 esac
 STUB
 cat > "$test_dir/bin/git" <<'STUB'
@@ -55,12 +61,16 @@ for draft in true false; do
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"src/test/support/helper.exs"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"scripts/example.sh"}]'
 done
+for path in scripts/check-ci-gate.py scripts/classify-ci-changes.sh scripts/ci-policy.rb scripts/ci-test-selection.exs scripts/run-ci-affected-tests.py src/lib/aiur/affected_tests.ex src/lib/mix/tasks/aiur.affected_tests.ex; do
+  expect 'docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
+done
 for event in push merge_group workflow_dispatch; do
   expect 'docs_only=false full_ci=true' "$event" true '[]'
 done
 TEST_BIGPATCH=true expect 'docs_only=false full_ci=false' pull_request false '[]'
+TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
 TEST_FILE_CAP=true expect 'docs_only=false full_ci=true' pull_request false '[]'
-if PATH="$test_dir/failbin:$PATH" classify pull_request false '[{"filename":"src/lib/aiur/affected_tests.ex"}]' >/dev/null; then
+if PATH="$test_dir/failbin:$PATH" classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' >/dev/null; then
   echo 'selector failure must not publish a fast classification' >&2
   exit 1
 fi

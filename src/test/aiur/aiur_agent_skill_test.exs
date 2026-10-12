@@ -642,7 +642,7 @@ defmodule Aiur.AiurAgentSkillTest do
     refute source =~ "mix credo --strict"
     refute source =~ "Do not run Credo locally"
     refute source =~ "Credo belongs to CI"
-    assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
+    assert source =~ "event-specific gate is authoritative: fast on PRs, full in the queue"
     refute source =~ "mix dialyzer"
 
     assert source =~ "loop on unrelated suite flakes"
@@ -713,7 +713,7 @@ defmodule Aiur.AiurAgentSkillTest do
     refute pull_skill =~ "merge origin/main"
   end
 
-  test "agent workflow marks completed PRs ready before waiting for full current-head CI" do
+  test "agent workflow marks completed PRs ready before waiting for current-head required CI" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
     turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/turn-workflow.md")))
     monitor = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md")))
@@ -730,8 +730,8 @@ defmodule Aiur.AiurAgentSkillTest do
 
     for source <- [skill, dev_loop, turn_workflow, shared_prompt, repo_prompt, example_prompt] do
       assert source =~ ~r/mark[^.]*ready[^.]*before[^.]*agent:ci-wait/i
-      assert source =~ "Drafts never pass CI"
-      assert source =~ "full required-check set"
+      assert source =~ if(source in [skill, dev_loop, turn_workflow], do: "Drafts never permit handoff", else: "Drafts never pass CI")
+      assert String.downcase(source) =~ if(source in [skill, dev_loop, turn_workflow], do: "all required checks", else: "full required-check set")
       assert source =~ "current head SHA"
       assert source =~ "agent:human-review"
       refute source =~ "keep the PR as a draft"

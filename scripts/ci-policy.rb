@@ -9,8 +9,9 @@ patterns = policy.fetch('full_ci_paths', [])
 raise 'full_ci_labels/full_ci_paths must be string arrays' unless [labels, patterns].all? { |list| list.is_a?(Array) && list.all? { |v| v.is_a?(String) && !v.empty? } }
 pr = JSON.parse(File.read(ARGV.fetch(1)))
 files = JSON.parse(File.read(ARGV.fetch(2)))
+gate_paths = %w(scripts/check-ci-gate.py scripts/classify-ci-changes.sh scripts/ci-policy.rb scripts/ci-test-selection.exs scripts/run-ci-affected-tests.py src/lib/aiur/affected_tests.ex src/lib/mix/tasks/aiur.affected_tests.ex)
 paths = files.flat_map { |file| [file.fetch('filename'), file['previous_filename']].compact }
-full = paths.empty? || files.length >= 3000 || pr.fetch('labels').any? { |label| labels.map(&:downcase).include?(label.fetch('name').downcase) }
+full = paths.empty? || files.length >= 3000 || paths.any? { |path| gate_paths.include?(path) } || pr.fetch('labels').any? { |label| labels.map(&:downcase).include?(label.fetch('name').downcase) }
 # Match the daemon's **, *, ? semantics, including zero directories for **/.
 full ||= patterns.any? do |glob|
   regex = Regexp.escape(glob).gsub('\\*\\*/', '(?:.*/)?').gsub('\\*\\*', '.*').gsub('\\*', '[^/]*').gsub('\\?', '[^/]')

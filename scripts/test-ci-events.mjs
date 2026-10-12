@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const trigger = source.split(/^concurrency:/m)[0];
 assert.ok(/^  pull_request:$/m.test(trigger));
-assert.ok(trigger.includes('labeled, unlabeled'), 'label changes must reevaluate full-CI policy');
+assert.ok(!/\b(unlabeled|labeled)\b/.test(trigger), 'unrelated labels must not start or cancel CI');
 assert.ok(/^  merge_group:$/m.test(trigger));
 assert.ok(/  push:\n    branches: \[v2\]/.test(trigger), 'push CI is limited to v2; main pushes create no run');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]

@@ -1,7 +1,7 @@
 name: ci
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   # The merge queue requires checks on its candidate ref (#1381).
   merge_group:
   push:

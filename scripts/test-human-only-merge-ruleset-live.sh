@@ -58,6 +58,21 @@ expect_accepted() {
 
 run_drift_check "$declaration"
 
+# Frozen pre-rollout contract: never derive this fixture from the verifier's allowlist.
+legacy_checks='["browser harness","build","coverage (1/4)","coverage (2/4)","coverage (3/4)","coverage (4/4)","dialyzer","layout release smoke","lint","streamdeck","test","workflow security"]'
+legacy_filter='(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) = ($legacy | reverse | map({context: ., integration_id: 15368}))'
+jq --argjson legacy "$legacy_checks" "$legacy_filter" "$declaration" > "$test_dir/legacy.json"
+run_drift_check "$test_dir/legacy.json"
+
+expect_rejected \
+  "partial-legacy-contract" \
+  "$legacy_filter | (.rules[] | select(.type == \"required_status_checks\") | .parameters.required_status_checks) |= .[1:]" \
+  "ruleset must require every blocking GitHub Actions status check from the declaration" --argjson legacy "$legacy_checks"
+expect_rejected \
+  "untrusted-legacy-check-source" \
+  "$legacy_filter | (.rules[] | select(.type == \"required_status_checks\") | .parameters.required_status_checks[0].integration_id) = 1" \
+  "ruleset must require every blocking GitHub Actions status check from the declaration" --argjson legacy "$legacy_checks"
+
 # Regression: a live-ruleset query returning no required_status_checks rule
 # must fail the CI drift check (the ticket's acceptance criterion).
 expect_rejected \

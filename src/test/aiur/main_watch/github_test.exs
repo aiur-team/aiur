@@ -139,7 +139,7 @@ defmodule Aiur.MainWatch.GitHubTest do
 
         String.contains?(url, "/actions/runs?") ->
           query = URI.decode_query(URI.parse(url).query)
-          assert query == %{"branch" => "main", "event" => "push", "per_page" => "100"}
+          assert query in [%{"branch" => "main", "event" => "push", "per_page" => "100"}, %{"event" => "merge_group", "per_page" => "100"}]
           ok(%{"workflow_runs" => current ++ [run(99, "outside-window", "ci", "completed", "failure")]})
 
         String.contains?(url, "/check-runs?") ->
@@ -156,23 +156,23 @@ defmodule Aiur.MainWatch.GitHubTest do
     opts = [request_fun: request, actions_write: false]
     assert {:ok, cold} = GitHub.poll("main", ["ci"], opts)
     assert Enum.map(cold.observations, & &1.sha) == Enum.reverse(shas)
-    assert length(Agent.get(calls, & &1.requests)) == 42
+    assert length(Agent.get(calls, & &1.requests)) == 43
     Agent.update(calls, &%{&1 | requests: []})
     history = Enum.reduce(cold.observations, State.new(), fn observation, state -> State.record_history(state, observation, observation.completed_at) end).history
     assert {:ok, warm} = GitHub.poll("main", ["ci"], Keyword.put(opts, :history, history))
     assert warm.observations == cold.observations
-    assert length(Agent.get(calls, & &1.requests)) == 2
+    assert length(Agent.get(calls, & &1.requests)) == 3
 
     Agent.update(calls, fn state -> %{state | requests: [], runs: [Map.put(hd(state.runs), "run_attempt", 2) | tl(state.runs)]} end)
     assert {:ok, rerun} = GitHub.poll("main", ["ci"], Keyword.put(opts, :history, warm.observations))
-    assert length(Agent.get(calls, & &1.requests)) == 4
+    assert length(Agent.get(calls, & &1.requests)) == 5
     refute List.last(rerun.observations).run_fingerprint == List.last(warm.observations).run_fingerprint
 
     Agent.update(calls, &%{&1 | requests: []})
     legacy = Enum.map(rerun.observations, &Map.delete(&1, :run_fingerprint))
     assert {:ok, migrated} = GitHub.poll("main", ["ci"], Keyword.put(opts, :history, legacy))
     assert migrated.observations == rerun.observations
-    assert length(Agent.get(calls, & &1.requests)) == 42
+    assert length(Agent.get(calls, & &1.requests)) == 43
   end
 
   test "paginated census covers time despite merge-queue commits without push runs and default workflows" do
