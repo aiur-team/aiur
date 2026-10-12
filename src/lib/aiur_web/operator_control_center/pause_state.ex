@@ -80,8 +80,17 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   defp snapshot_pause_state(orchestrator) do
     case SnapshotStore.read(orchestrator, 1_000) do
-      {:current, %{globally_paused: paused}, _freshness} when is_boolean(paused) -> paused
-      _unavailable -> nil
+      {:current, %{globally_paused: paused}, _freshness} when is_boolean(paused) ->
+        paused
+
+      {:stale, _, _freshness} ->
+        nil
+
+      unavailable when unavailable in [:orchestrator_unavailable, :snapshot_unpublished] ->
+        live_pause_state(orchestrator)
+
+      _unavailable ->
+        nil
     end
   end
 end

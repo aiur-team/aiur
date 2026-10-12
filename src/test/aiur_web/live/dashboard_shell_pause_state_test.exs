@@ -91,7 +91,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   end
 
   test "stale snapshots render unknown and keep the pause action disabled" do
-    assert_unknown_pause_state(:stale_pause_test, stale?: true)
+    assert_unknown_pause_state(Aiur.Orchestrator, stale?: true)
   end
 
   test "unavailable snapshots render unknown and keep the pause action disabled" do
@@ -110,6 +110,8 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
 
   defp assert_unknown_pause_state(orchestrator, opts \\ []) do
     if Keyword.get(opts, :stale?, false) do
+      previous = SnapshotCache.get(orchestrator)
+      on_exit(fn -> restore_snapshot(orchestrator, previous) end)
       :ok = SnapshotStore.publish(orchestrator, %{globally_paused: true})
       cached = SnapshotCache.get(orchestrator)
 
@@ -136,6 +138,12 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     assert Floki.text(pause) =~ "Pause state unknown"
     assert Floki.attribute(pause, "disabled") == ["disabled"]
     assert Floki.attribute(pause, "aria-checked") == []
+  end
+
+  defp restore_snapshot(orchestrator, nil), do: SnapshotCache.delete(orchestrator)
+
+  defp restore_snapshot(orchestrator, cached) do
+    SnapshotStore.publish(orchestrator, cached.snapshot, cached.source_state)
   end
 
   defp authorized_conn do
