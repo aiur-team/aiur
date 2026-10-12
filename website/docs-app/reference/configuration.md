@@ -1,6 +1,5 @@
 # Configuration reference
-Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels.
-Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
+Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
@@ -454,8 +453,7 @@ Codex settings belong under `agent.codex`; a legacy root-level `codex:` section 
 
 ## Model discovery
 
-Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers release models faster than that list is edited, so for OpenAI-compatible backends aiur
-also asks the provider's own catalogue endpoint which models it currently serves, and caches the answer.
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers release models faster than that list is edited, so for OpenAI-compatible backends aiur also asks the provider's own catalogue endpoint which models it currently serves, and caches the answer.
 
 Discovery **extends** the curated list without replacing registry-owned effort vocabularies, capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins when an ID collides.
 
@@ -465,8 +463,7 @@ Discovery **extends** the curated list without replacing registry-owned effort v
 | `deepseek` | `GET https://api.deepseek.com/models` | `DEEPSEEK_API_KEY` | identifiers only |
 | `kimi` | `GET https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` | identifiers only |
 
-`codex` and `claude` are not listed: they answer `model/list` over their own CLI
-transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
+`codex` and `claude` are not listed: they answer `model/list` over their own CLI transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
 plus `anthropic-version`) has an adapter for operators who point an OpenAI-compatible
 backend straight at it; it returns identifiers and display names, no pricing.
 
@@ -754,6 +751,9 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
+| `build_queue.set_order` | string | `none` | `none` preserves ordinary candidate ordering. Opt into `ranked` to prefer queue sets by persisted rank (creation order by default); ready members follow list position, while optimistic members retain deepest-first ordering within each set. Ready work always precedes optimistic work. With a cap or reserve configured, earlier unknown or stale readiness blocks ranked spill because it may have ready work. Held sets remain stopped. |
+| `build_queue.max_active_sets` | integer or null | nil | Maximum sets with started, unfinished members (including CI/review waits); minimum 1. Null lets capacity decide. Held sets do not consume this cap; existing runners are never preempted. |
+| `build_queue.spill_reserve_slots` | integer | 0 | Slots kept free for the earliest unfinished, unheld set before admitting later-set work; minimum 0. Reserve applies even while that set waits on review. Set-policy waits appear as `queue_set_order` in status and queue show. |
 | `build_queue.optimistic_slot_share` | float | 0.5 | Fleet-wide optimistic share, 0..1. Zero disables optimistic dispatch; otherwise the cap is max(1, floor(share × effective agent limit)). Ready work starts first; merged blockers free share on the next cycle. Running agents are never preempted. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |

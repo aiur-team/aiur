@@ -9,9 +9,26 @@ defmodule Aiur.BuildQueue.Hints do
   alias Aiur.BuildQueue.Settings
 
   @table :aiur_build_queue_hints
+  @sets_table :aiur_build_queue_sets
 
   @spec table_name() :: atom()
   def table_name, do: @table
+
+  @spec publish_sets(map()) :: true
+  def publish_sets(snapshot) do
+    if :ets.whereis(@sets_table) == :undefined, do: :ets.new(@sets_table, [:named_table, :set, :protected, read_concurrency: true])
+    :ets.insert(@sets_table, {:snapshot, snapshot})
+  end
+
+  @spec sets() :: map() | nil
+  def sets do
+    case :ets.lookup(@sets_table, :snapshot) do
+      [{:snapshot, snapshot}] -> snapshot
+      [] -> nil
+    end
+  rescue
+    ArgumentError -> nil
+  end
 
   @spec sort_key(String.t()) :: {integer(), non_neg_integer()}
   def sort_key(issue_id), do: elem(lookup(issue_id), 0)
