@@ -22,7 +22,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     orphan_ref = Process.monitor(orphan)
     # The tracker claim survives the crash; the staged redispatch must not wait out orphan recovery grace.
     Application.put_env(:aiur, :memory_tracker_issues, [%{issue | state: "In Progress", labels: ["agent:in-progress"]}])
-    # Kill the Orchestrator; the test supervisor restarts it like `Aiur.Supervisor`.
+    # Restart completion waits for init cleanup; process registration alone is too early.
     Process.exit(first, :kill)
     second = await_restart(name, first)
 
@@ -462,7 +462,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
              15_000
            )
 
-    Process.whereis(name)
+    Process.whereis(name) |> tap(&:sys.get_state/1)
   end
 
   defp eventually(fun, timeout_ms) do
