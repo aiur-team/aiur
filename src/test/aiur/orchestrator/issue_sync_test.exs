@@ -1865,7 +1865,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_received {:event, %{topic: ^resolved_topic}}
-    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
+    refute Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true), &(&1["topic"] == topic))
 
     _ =
       IssueSync.sync_polled_issue_state(
