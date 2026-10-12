@@ -96,7 +96,8 @@ if classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' fa
 fi
 workflow="$root/.github/workflows/ci.yml"
 ! grep -q 'outputs.draft\|pull_request.draft' "$workflow"
-grep -Fq 'full_ci: ${{ steps.classify.outputs.full_ci }}' "$workflow"
+grep -Eq 'outputs:.*full_ci:.*steps\.classify\.outputs\.full_ci' "$workflow"
+grep -Eq 'outputs:.*affected_paths_b64:.*steps\.classify\.outputs\.affected_paths_b64' "$workflow"
 grep -Fq 'run: bash scripts/classify-ci-changes.sh' "$workflow"
 grep -Fq 'run: bash scripts/test-classify-ci-changes.sh' "$workflow"
 echo 'CI classifier event, policy, rename and draft tests passed'
