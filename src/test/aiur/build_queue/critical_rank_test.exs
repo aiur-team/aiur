@@ -1,8 +1,8 @@
 defmodule Aiur.BuildQueue.CriticalRankTest do
   use Aiur.TestSupport
   alias Aiur.BuildQueue.{Hints, Ordering, Reconcile}
-  alias Aiur.Orchestrator.{DependencyGate, DispatchCandidates, DispatchPolicy}
   alias Aiur.BuildQueue.Model.Edge
+  alias Aiur.Orchestrator.{DependencyGate, DispatchCandidates, DispatchPolicy}
 
   test "critical ranks distinguish chains, fanout, diamonds, closed nodes and cycles" do
     edges = for {a, b} <- [{"1", "2"}, {"2", "3"}, {"1", "4"}, {"4", "3"}, {"1", "5"}], do: %Edge{prerequisite: a, dependent: b, source: :native}
