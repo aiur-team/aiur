@@ -13,6 +13,8 @@
     "src/lib/aiur/events/ls_remote_ticker.ex",
     "src/lib/aiur/events/pr_command_scanner.ex",
     "src/lib/aiur/events/sanitizer.ex",
+    "src/lib/aiur/main_watch.ex",
+    "src/lib/aiur/main_watch/**",
     "src/lib/aiur/orchestrator/comment_polling*.ex",
     "src/lib/aiur/poll_cadence.ex",
     "src/lib/aiur/poll_cadence/**",
@@ -33,6 +35,7 @@
     "github",
     "identity",
     "kernel",
+    "signal",
     "web-kit"
   ],
   "optional": [],
