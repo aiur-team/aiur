@@ -127,7 +127,9 @@ Stale, partial or unavailable graph evidence makes that root's items unknown and
 
 ### Feature sets
 
-A queue is a feature set: dispatch fills capacity in set rank order, then spreads spare capacity into the next set so a deliverable can finish while another starts. `build_queue.set_order` selects `ranked` or `none` (default), `build_queue.max_active_sets` optionally limits concurrent unfinished sets, and `build_queue.spill_reserve_slots` keeps slots for the earliest unfinished set (default 0); `aiur queue order` adjusts ranks, and holds still stop a set.
+A queue is a feature set: dispatch fills capacity in set rank order. Spare capacity spreads into the next set so one deliverable can finish while another starts.
+
+`build_queue.set_order` selects `ranked` or `none` (default); `build_queue.max_active_sets` optionally caps unfinished active sets; `build_queue.spill_reserve_slots` keeps slots for the earliest unfinished set (default 0). `aiur queue order` adjusts ranks, and holds still stop a set.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
 

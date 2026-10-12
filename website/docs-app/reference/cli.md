@@ -172,9 +172,7 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted. Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
-A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote. Aiur saves local work first; see [Saved uncommitted work](#saved-uncommitted-work).
-
-Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
+A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote. Aiur saves local work first; see [Saved uncommitted work](#saved-uncommitted-work). Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
 | Development refresh evidence | Result |
 | --- | --- |
@@ -399,9 +397,7 @@ A claim is a lease with a 10-minute TTL. An `--executor` run registers and renew
 
 ### Executor roster states
 
-A stalled consumer still holds a claim and still renews its lease, so a presence-based list reports it as fine.
-
-`aiur executor-roster` derives state from evidence, never from presence.
+A stalled consumer still holds a claim and still renews its lease, so a presence-based list reports it as fine. `aiur executor-roster` derives state from evidence, never from presence.
 
 | State | Meaning |
 | --- | --- |
@@ -483,11 +479,15 @@ When the script path and current directory point at different checkouts, command
 
 ### aiur queue
 `aiur queue show` reads the running daemon without refreshing upstream data. Human output shows source ages and freshness, `start on <trigger>` (`(default)` follows config), and items in start order with needed/current stages or `optimistic`. Missing evidence renders as `unknown`; stale evidence carries its age. Ready items held by active-set limits, spill reserves, or unknown earlier readiness show `queue_set_order` with the waiting set and cause. See [Start trigger](/concepts/build-orders#start-trigger) for the ladder and review-read cost. `--queue NAME` selects a queue by name; an unknown name is an error.
-`--json` emits schema version 1 (`page: "build-queue"`): instance, snapshot capture time, server status, sources, and queues with progress and item prerequisites, rank, promotion time, and attention. Sets appear in rank order with `set_rank`, `held`, `counts` (ready/started/done), `state` (active/next/waiting/done), and `waiting_reason`; unknown or stale counts are null. Text highlights `NEXT` and renders unknown counts as `unknown`. Older daemons without set ranks retain their previous output. It includes no ticket titles or bodies.
+
+`--json` emits schema version 1 (`page: "build-queue"`): instance, snapshot capture time, server status, sources, and queues with progress and item prerequisites, rank, promotion time, and attention. It includes no ticket titles or bodies.
+
+Sets appear in rank order with `set_rank`, `held`, `counts` (ready/started/done), `state` (active/next/waiting/done), and `waiting_reason`. Unknown or stale counts are null; text renders `unknown` and highlights `NEXT`. Older daemons without set ranks retain their previous output.
 
 Mutations print each ticket's outcome; partial success exits 1 and names refusals. Agent workspace mutations and invalid arguments exit 64. Engine and daemon guards block workspace changes; dispatch authorization still applies. Timeouts exit 124: run `aiur queue show` before retrying. Build Order queues cannot be edited as lists.
 
 Clear persists unmark intents before paced writes; crashes resume on restart. A budget hold reports `writes_paused`; rerun after it lifts. Wait for successful clear before downgrading; `agent:todo` remains dispatchable. The build queue uses the `agent:queued` membership marker; `aiur units --condition queued` still means tickets carrying `agent:todo`.
+
 `queue show` exit codes: 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, or a refused selection; 64 for invalid launcher arguments; 124 for an RPC timeout. Refusal statuses still print their read model.
 
 ## `pr merge`

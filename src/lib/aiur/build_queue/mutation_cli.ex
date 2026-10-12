@@ -34,7 +34,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp validate(opts) do
     ids = Keyword.get(opts, :ids, [])
     queue = opts[:queue]
-    valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and (is_nil(queue) or (is_binary(queue) and String.trim(queue) != ""))
+    valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and valid_queue?(queue)
     valid = valid and valid_rank?(opts)
     valid = valid and valid_options?(opts) and valid_command?(opts[:verb], ids, opts)
     if valid, do: :ok, else: {:error, :invalid_arguments}
@@ -44,6 +44,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
     Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
   end
 
+  defp valid_queue?(nil), do: true
+  defp valid_queue?(queue), do: is_binary(queue) and String.trim(queue) != ""
   defp valid_rank?(opts), do: not Keyword.has_key?(opts, :rank) or (is_binary(opts[:queue]) and position?(opts[:rank]))
   defp allowed_options(:order), do: [:queue, :to]
 
