@@ -4,8 +4,9 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.Orchestrator.{GlobalPause, SnapshotStore}
+  alias Aiur.Orchestrator.{GlobalPause, SnapshotCache, SnapshotStore}
   alias AiurWeb.Endpoint
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, PauseState, RouteRegistry}
 
   @endpoint Endpoint
 
@@ -89,62 +90,65 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     end
   end
 
+  test "stale snapshots render unknown and keep the pause action disabled" do
+    assert_unknown_pause_state(:stale_pause_test, stale?: true)
+  end
+
+  test "unavailable snapshots render unknown and keep the pause action disabled" do
+    assert_unknown_pause_state(:missing_orchestrator)
+  end
+
   test "read-only mode disables the shell toggle and ignores forged events" do
     reconfigure_endpoint(:dashboard_writable, false)
     {:ok, view, html} = live(authorized_conn(), "/analytics")
 
     assert html =~ "Pause all agents"
     assert has_element?(view, "#ax-pause[disabled]")
-
     render_click(view, "toggle-global-pause", %{})
-
     assert {:ok, %{globally_paused: false}} = GlobalPause.global_pause_status()
   end
 
-  test "stale orchestrator snapshots render unknown and keep pause disabled" do
-    orchestrator = Aiur.Orchestrator
-    previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
-    Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 1)
-    on_exit(fn -> restore(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
+  defp assert_unknown_pause_state(orchestrator, opts \\ []) do
+    if Keyword.get(opts, :stale?, false) do
+      :ok = SnapshotStore.publish(orchestrator, %{globally_paused: true})
+      cached = SnapshotCache.get(orchestrator)
 
-    :ok = SnapshotStore.publish(orchestrator, %{globally_paused: true})
-    Process.sleep(5)
+      SnapshotCache.put(orchestrator, %{
+        cached
+        | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()
+      })
+    end
 
-    {:ok, view, html} = live(authorized_conn(), "/analytics")
+    state = PauseState.pause_state(orchestrator)
+    assert is_nil(state)
 
-    assert html =~ "Pause state unknown"
-    assert has_element?(view, "#ax-pause[disabled]")
-    refute has_element?(view, "#ax-pause[aria-checked]")
+    html =
+      render_component(&DashboardShell.dashboard_shell/1,
+        route: RouteRegistry.current_route(:analytics),
+        routes: RouteRegistry.routes(%{}),
+        tracker_kind: "github",
+        agent_kind: "codex",
+        inner_block: [],
+        pause_state: %{globally_paused: state, writable: true, global_pause_error: nil}
+      )
+
+    pause = html |> Floki.parse_document!() |> Floki.find("#ax-pause") |> hd()
+    assert Floki.text(pause) =~ "Pause state unknown"
+    assert Floki.attribute(pause, "disabled") == ["disabled"]
+    assert Floki.attribute(pause, "aria-checked") == []
   end
 
-  test "an unavailable orchestrator snapshot renders unknown and keeps pause disabled" do
-    previous_orchestrator = Endpoint.config(:orchestrator)
-    reconfigure_endpoint(:orchestrator, :missing_orchestrator)
-    on_exit(fn -> Application.put_env(:aiur, Endpoint, put_endpoint_config(:orchestrator, previous_orchestrator)) end)
-
-    {:ok, view, html} = live(authorized_conn(), "/analytics")
-
-    assert html =~ "Pause state unknown"
-    assert has_element?(view, "#ax-pause[disabled]")
-    refute has_element?(view, "#ax-pause[aria-checked]")
+  defp authorized_conn do
+    build_conn()
+    |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
   end
 
   defp restore(key, nil), do: Application.delete_env(:aiur, key)
   defp restore(key, value), do: Application.put_env(:aiur, key, value)
 
-  defp put_endpoint_config(key, value) do
-    Application.fetch_env!(:aiur, Endpoint)
-    |> Keyword.put(key, value)
-  end
-
   defp reconfigure_endpoint(key, value) do
-    config = put_endpoint_config(key, value)
+    config = Application.fetch_env!(:aiur, Endpoint) |> Keyword.put(key, value)
     Application.put_env(:aiur, Endpoint, config)
     Endpoint.config_change(%{Endpoint => config}, [])
-  end
-
-  defp authorized_conn do
-    Phoenix.ConnTest.build_conn()
-    |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
   end
 end

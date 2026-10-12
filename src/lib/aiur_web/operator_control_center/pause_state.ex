@@ -54,9 +54,8 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
     end
   end
 
-  defp pause_state do
-    orchestrator = orchestrator()
-
+  @spec pause_state(GenServer.server()) :: boolean() | nil
+  def pause_state(orchestrator) do
     if orchestrator == Orchestrator do
       case SnapshotStore.read(orchestrator, 1_000) do
         {:current, %{globally_paused: paused}, _freshness} when is_boolean(paused) -> paused
@@ -67,6 +66,8 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
       snapshot_pause_state(orchestrator)
     end
   end
+
+  defp pause_state, do: pause_state(orchestrator())
 
   defp orchestrator, do: Endpoint.config(:orchestrator) || Orchestrator
 
