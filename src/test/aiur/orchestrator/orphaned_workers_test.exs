@@ -5,14 +5,11 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   alias Aiur.Orchestrator.{Lifecycle, OrphanedWorkers, State}
   alias Aiur.Workspace.{HostLock, Layout, Ownership}
 
-  # #2705: an Orchestrator crash leaves its runner tasks (and their workspace
-  # leases) alive under `:rest_for_one`. The restarted Orchestrator must stop
-  # them and redispatch the ticket, not refuse it as a live session forever.
+  # #2705: after a crash, stop orphaned lease-holding runners and redispatch their ticket.
   test "a restarted Orchestrator stops the runner its predecessor left holding a lease and redispatches the ticket" do
     %{issue: %Issue{id: issue_id, identifier: identifier} = issue} = prepare_workflow!("restart", "Todo")
     name = Module.concat(__MODULE__, "Restart#{System.unique_integer([:positive])}")
-    # The initial poll dispatches the todo ticket to a real runner that parks
-    # on the failing before_run hook while holding its lease.
+    # The initial poll's runner parks on the failing before_run hook while holding its lease.
     start_supervised!(Supervisor.child_spec({Orchestrator, name: name}, restart: :permanent))
     first = Process.whereis(name)
 
@@ -29,7 +26,6 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 15_000
     refute orphan in Task.Supervisor.children(Aiur.TaskSupervisor)
     await_generation_released(identifier, orphan_lease.generation)
-    await_host_lock_released(identifier)
 
     # One poll after the release redispatches the ticket onto a fresh lease.
     _ = Orchestrator.request_refresh(second)
@@ -397,15 +393,8 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   defp unique_name(label), do: Module.concat(__MODULE__, "#{label}#{System.unique_integer([:positive])}")
 
   defp await_generation_released(identifier, generation) do
-    assert eventually(
-             fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end,
-             15_000
-           )
-  end
-
-  defp await_host_lock_released(identifier) do
     {:ok, workspace} = Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil)
-    assert eventually(fn -> HostLock.holder(workspace) == :none end, 15_000)
+    assert eventually(fn -> HostLock.holder(workspace) == :none and not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end, 15_000)
   end
 
   defp claim_in_process(identifier, holder) do
@@ -452,11 +441,10 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       {:ok, contents} ->
         contents
         |> String.split("\n", trim: true)
-        |> Enum.map(&Jason.decode!/1)
-        |> Enum.filter(&(&1["topic"] == topic))
+        |> Enum.filter(&(Jason.decode!(&1)["topic"] == topic))
 
       {:error, _missing} ->
-        0
+        []
     end
   end
 
