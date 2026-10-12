@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.Parking
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.PauseResume.CompletedReplacement
   alias Aiur.Orchestrator.PauseResume.ControlRequest
@@ -68,9 +69,9 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
 
   @doc false
   @spec resume_running_issue(State.t(), term()) :: term()
-  def resume_running_issue(%State{} = state, running_entry) do
-    issue = Map.get(running_entry, :issue)
+  def resume_running_issue(%State{} = state, running_entry), do: Parking.resume_running_issue(state, running_entry, &resume_unparked_running_issue/3)
 
+  defp resume_unparked_running_issue(state, running_entry, issue) do
     if is_struct(issue, Issue) and Issue.paused?(issue) do
       run_running_effect(state, running_entry, :clear_pause, fn -> fetch_resuming_issue({running_entry}) end, fn arg1, arg2, arg3 ->
         apply_resuming_issue(arg1, arg2, arg3, {issue})
@@ -104,11 +105,14 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   @spec do_resume_running_issue(State.t(), term()) :: term()
   def do_resume_running_issue(state, running_entry) do
     cond do
+      Issue.parked?(Map.get(running_entry, :issue)) ->
+        {{:error, :ticket_parked}, state}
+
       State.completed_provenance?(running_entry) ->
         CompletedReplacement.restart_completed_provenance_issue(state, running_entry)
 
       State.deactivated_running_entry?(running_entry) ->
-        reactivate_issue(state, running_entry)
+        reactivate_issue(state, Map.delete(running_entry, :operator_parked))
 
       PauseRequest.pending_pause_request?(state, running_entry) ->
         resume_pending_pause(state, running_entry)

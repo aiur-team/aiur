@@ -95,14 +95,17 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  pr_number: 941,
                  head_sha: "failed-head",
                  draft?: false,
-                 review_decision: nil
+                 review_decision: nil,
+                 recovery: nil,
+                 failures: [%{name: "lint", result: "failure", excerpt: "failed"}],
+                 tracker_state: "ci-wait"
                }
              }
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -340,7 +343,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  pr_number: 941,
                  head_sha: "stalled-head",
                  draft?: true,
-                 review_decision: "APPROVED"
+                 review_decision: "APPROVED",
+                 recovery: nil,
+                 failures: [],
+                 tracker_state: "human-review"
                }
              }
 

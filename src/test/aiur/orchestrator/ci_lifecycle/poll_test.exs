@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.TestSupport.WakeInboxAck
   alias Aiur.PollCadence
 
   setup :ci_lifecycle_setup
@@ -135,7 +136,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
       assert_received :ci_issue_fetch
       _ = :sys.get_state(Aiur.ExecutorListener.CIHandoffTest)
-      :ok = ExecutorWakeInbox.acknowledge([wake])
+      :ok = WakeInboxAck.ack_as_owner([wake])
       assert :timeout = ExecutorWakeInbox.wait(0)
     end
 

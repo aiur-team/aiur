@@ -38,17 +38,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Throttles the CI poll to the `:ci` class cadence (#2309). CI is
-  # demand-scoped — it only polls pull requests with work in flight — so the
-  # throttle deliberately only binds while demand is continuous: the timestamp
-  # advances only when there are in-flight targets to poll, never on the
-  # no-target skip, so a PR that enters `ci-wait` between polls is read promptly
-  # on the very next tick.
+  # CI cadence binds only during continuous demand; newly waiting PRs poll promptly (#2309).
   #
-  # Like the comment poll's gate, this is a no-op at default config: nothing
-  # published yet runs every tick, and once the dispatcher publishes, a class
-  # that falls back to `interval_seconds` (120s) is not wider than the dispatch
-  # tick the poll rides on. It only slows CI when an operator sets
+  # Default CI cadence follows dispatch; it slows only when an operator sets
   # `intervals.ci` wider than the tick — which is deliberately *not* the
   # recommended shape (#2309): CI staleness has agent-visible consequences, so
   # keep `ci` at or below `dispatch`.
@@ -158,13 +150,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec start_poll(State.t(), (State.t() -> State.t()), keyword()) :: State.t()
   def start_poll(%State{} = state, continue, opts \\ []) do
     if Config.tracker_kind() == "github" and not within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
-      Poll.launch_ci_poll(state, opts, continue, &TrackerTasks.start/4)
+      Poll.launch_ci_poll(state, Keyword.put_new(opts, :ci_recovery_poll_id, make_ref()), continue, &TrackerTasks.start/4)
     else
       continue.(state)
     end
   end
 
   defp do_poll_github_ci(state, opts) do
-    Poll.launch_ci_poll(state, opts, &Function.identity/1, &TrackerTasks.run/4)
+    Poll.launch_ci_poll(state, Keyword.put_new(opts, :ci_recovery_poll_id, make_ref()), &Function.identity/1, &TrackerTasks.run/4)
   end
 end

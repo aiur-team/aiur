@@ -50,15 +50,19 @@ defmodule Aiur.BuildQueue.ReadModel do
     items = for projection <- context.state.projections, Map.has_key?(members, projection.issue_id), do: item(members[projection.issue_id], projection, context)
     missing = for member <- Map.values(members), not Enum.any?(items, &(&1.number == String.to_integer(member.issue_id))), do: unknown_item(member, context)
     items = items ++ Enum.sort_by(missing, & &1.position)
-    progress = if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: Progress.summary(items)
+
+    progress =
+      if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: Progress.summary(items, Progress.available?() and not Map.get(context.state, :progress_unavailable, false))
 
     %{
       queue_id: queue.id,
+      set_rank: queue.rank,
       kind: queue.kind,
       root: queue.root,
       name: queue.name,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,
+      start_trigger_source: if(is_nil(queue.start_trigger), do: :config, else: :queue),
       held: queue.held,
       progress: progress,
       items: items
@@ -97,14 +101,17 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     for edge <- context.document.edges, edge.dependent == id do
       cyclic = match?({:unknown, _}, context.cycles) or MapSet.member?(context.cycles, edge.prerequisite)
-      result = Readiness.edge_verdict(context.observations[edge.prerequisite], Keyword.put(opts, :cyclic, cyclic))
+      evidence = Readiness.evidence(context.observations[edge.prerequisite], opts[:label_prefix]) || %Aiur.StartTrigger.Evidence{identifier: edge.prerequisite}
+      result = Aiur.StartTrigger.edge_verdict(context.trigger, evidence, Keyword.put(opts, :cyclic, cyclic))
 
       %{
         number: String.to_integer(edge.prerequisite),
         verdict: verdict(result),
         source: edge.source,
         trigger: context.trigger,
-        stage: Aiur.StartTrigger.stage(Readiness.evidence(context.observations[edge.prerequisite], opts[:label_prefix]))
+        stage: Aiur.StartTrigger.stage(evidence),
+        optimistic: result == {:satisfied, :optimistic},
+        description: Aiur.StartTrigger.describe(context.trigger, evidence, result)
       }
     end
   end

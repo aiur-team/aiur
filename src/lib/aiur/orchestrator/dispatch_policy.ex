@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.DispatchPolicy do
   @moduledoc """
-  Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.
+  Dispatch and load policy; dependency holds follow the effective start trigger.
   """
 
   require Logger
@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
 
@@ -83,10 +83,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defdelegate issue_dispatch_authorized?(issue), to: Eligibility
   @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
   defdelegate issue_dispatch_authorization_deferred?(issue), to: Eligibility
-  @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
-  defdelegate todo_issue_blocked_by_non_terminal?(issue, terminal_states), to: Eligibility
-  @spec non_terminal_blockers(term(), MapSet.t()) :: [term()]
-  defdelegate non_terminal_blockers(issue, terminal_states), to: Eligibility
+  @spec todo_issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
+  defdelegate todo_issue_held_by_dependency?(issue, terminal_states), to: Eligibility
+  @spec holding_blockers(term(), MapSet.t()) :: [term()]
+  defdelegate holding_blockers(issue, terminal_states), to: Eligibility
+  @spec optimistic_blockers(Issue.t()) :: [String.t()]
+  defdelegate optimistic_blockers(issue), to: Eligibility
   @spec describe_dependency_hold(term(), MapSet.t()) :: String.t()
   defdelegate describe_dependency_hold(issue, terminal_states), to: Eligibility
   @spec blocked_on_decision?(Issue.t(), MapSet.t() | :unavailable | nil) :: boolean()
@@ -178,6 +180,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :claimed_without_runtime
           | :state_capacity
           | :worker_capacity
+          | :optimistic_share
+          | :queue_set_order
           | :fleet_capacity
 
   # The single list of every reason `dispatch_decision/5` and
@@ -207,6 +211,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :claimed_without_runtime,
     :state_capacity,
     :worker_capacity,
+    :optimistic_share,
+    :queue_set_order,
     :fleet_capacity
   ]
 
@@ -391,10 +397,18 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        ) do
     cond do
       blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
-      todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
+      todo_issue_held_by_dependency?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
+      true -> dispatch_capacity_decision(issue, state, terminal_states)
+    end
+  end
+
+  defp dispatch_capacity_decision(issue, state, terminal_states) do
+    cond do
+      QueueSetSlots.reason(issue.id, state) != nil -> {:skip, :queue_set_order}
+      not OptimisticSlots.available?(issue, state, terminal_states) -> {:skip, :optimistic_share}
       not state_slots_available?(issue, state) -> {:skip, :state_capacity}
       not Slots.worker_slots_available?(state) -> {:skip, :worker_capacity}
       true -> :dispatch
@@ -450,6 +464,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
-      not todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+      not todo_issue_held_by_dependency?(issue, terminal_states)
   end
 end

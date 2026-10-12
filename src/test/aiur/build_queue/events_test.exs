@@ -119,7 +119,7 @@ defmodule Aiur.BuildQueue.EventsTest do
       store: Fake,
       claim_probe: Fake,
       clock: &Fake.clock/0,
-      sleep: &Fake.sleep/1,
+      schedule: fn _pid, :retry_writes, delay -> Fake.sleep(delay) end,
       marker: "agent:queued",
       todo: "agent:todo",
       max_writes: 20,

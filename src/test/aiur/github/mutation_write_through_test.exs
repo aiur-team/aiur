@@ -55,7 +55,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       end
 
       ResourceStore.reset()
-      File.rm_rf(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     {:ok, store_path: Path.join(dir, "github_resources.json")}

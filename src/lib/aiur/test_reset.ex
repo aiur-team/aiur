@@ -35,12 +35,9 @@ defmodule Aiur.TestReset do
 
   require Logger
 
-  alias Aiur.Config.Paths
-  alias Aiur.Events.SubscriptionStore
   alias Aiur.GitHub.HostCommand
-  alias Aiur.GitHub.Labels
-  alias Aiur.{JsonStore, TicketBranch}
-  alias Aiur.Workspace.Layout
+  alias Aiur.JsonStore
+  alias Aiur.TestReset.{Cleanup, Tickets}
 
   @tickets_file ".aiur-test-tickets.json"
 
@@ -268,7 +265,7 @@ defmodule Aiur.TestReset do
 
     with {:ok, open_tickets} <- prepare_reset_tickets(tickets) do
       results = Enum.map(open_tickets, &reset_one(&1, opts))
-      restore_baseline(opts)
+      Cleanup.restore_baseline(opts, @baseline_files)
       ensure_opencode_theme()
 
       case unlabeled_tickets(results) do
@@ -326,126 +323,6 @@ defmodule Aiur.TestReset do
     end
   end
 
-  @doc """
-  Verifies a pinned sandbox ticket is open before normal reset work.
-
-  Closed tickets are skipped from reset and any observed `agent:*` or
-  `model:*` labels are removed so stale automation state is not left on
-  closed issues. `runner` is injected for tests and has the same argv
-  shape as `System.cmd("gh", argv, ...)`.
-  """
-  @spec prepare_reset_ticket(integer() | String.t(), gh_runner()) ::
-          :open | {:closed, [String.t()]} | {:error, String.t()}
-  def prepare_reset_ticket(id, runner) do
-    case fetch_issue_metadata(id, runner) do
-      {:ok, %{state: state, labels: labels}} ->
-        cond do
-          open_issue_state?(state) ->
-            :open
-
-          closed_issue_state?(state) ->
-            clear_closed_ticket_automation_labels(id, labels, runner)
-
-          true ->
-            {:error, "unexpected GitHub issue state #{inspect(state)}"}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  @spec issue_metadata_command_args(integer() | String.t()) :: [String.t()]
-  def issue_metadata_command_args(id) do
-    ["issue", "view", to_string(id), "--json", "state,labels"]
-  end
-
-  @spec automation_label_cleanup_command_args(integer() | String.t(), [String.t()]) ::
-          [String.t()] | nil
-  def automation_label_cleanup_command_args(id, labels) do
-    case automation_labels(labels) do
-      [] -> nil
-      automation -> ["issue", "edit", to_string(id), "--remove-label", Enum.join(automation, ",")]
-    end
-  end
-
-  @spec automation_labels([term()]) :: [String.t()]
-  def automation_labels(labels) when is_list(labels) do
-    labels
-    |> Enum.flat_map(fn label ->
-      case label_name(label) do
-        "agent:" <> _ = name -> [name]
-        "model:" <> _ = name -> [name]
-        _ -> []
-      end
-    end)
-    |> Enum.uniq()
-  end
-
-  def automation_labels(_), do: []
-
-  defp fetch_issue_metadata(id, runner) do
-    case runner.(issue_metadata_command_args(id)) do
-      {output, 0} ->
-        decode_issue_metadata(output)
-
-      {output, _code} ->
-        {:error, String.trim(to_string(output))}
-    end
-  end
-
-  defp decode_issue_metadata(output) do
-    case Jason.decode(output) do
-      {:ok, %{"state" => state} = data} ->
-        labels = Map.get(data, "labels", []) |> Enum.flat_map(&metadata_label_name/1)
-        {:ok, %{state: state, labels: labels}}
-
-      {:ok, _} ->
-        {:error, "could not parse GitHub issue metadata"}
-
-      {:error, _reason} ->
-        {:error, "could not parse GitHub issue metadata"}
-    end
-  end
-
-  defp metadata_label_name(%{"name" => name}) when is_binary(name), do: [name]
-  defp metadata_label_name(name) when is_binary(name), do: [name]
-  defp metadata_label_name(_), do: []
-
-  defp label_name(%{"name" => name}) when is_binary(name), do: name
-  defp label_name(name) when is_binary(name), do: name
-  defp label_name(_), do: nil
-
-  defp open_issue_state?(state), do: normalize_issue_state(state) == "open"
-  defp closed_issue_state?(state), do: normalize_issue_state(state) == "closed"
-
-  defp normalize_issue_state(state) do
-    state
-    |> to_string()
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp clear_closed_ticket_automation_labels(id, labels, runner) do
-    case automation_label_cleanup_command_args(id, labels) do
-      nil ->
-        warn("##{id} closed ticket skipped; no automation labels found")
-        {:closed, []}
-
-      argv ->
-        automation = automation_labels(labels)
-
-        case runner.(argv) do
-          {_, 0} ->
-            warn("##{id} closed ticket skipped; removed automation labels: #{Enum.join(automation, ",")}")
-            {:closed, automation}
-
-          {output, _code} ->
-            {:error, "closed ticket automation label cleanup failed: #{String.trim(to_string(output))}"}
-        end
-    end
-  end
-
   # Install + activate the aiur opencode theme so command/tool
   # blockquotes render dim. Idempotent — re-running `aiur --test`
   # is a no-op once the theme is in place and active. Respects any
@@ -492,262 +369,35 @@ defmodule Aiur.TestReset do
   end
 
   defp reset_one(id, _opts) do
-    delete_subscriptions_file(id)
-    delete_workspace(id)
-    delete_remote_branch(id)
-    close_open_pr(id)
-    delete_workpad_comments(id)
-    reset_labels(id)
-  end
-
-  # The agent records its plan/handoff state as a comment on the issue
-  # whose body starts with `## Agent Workpad`. `aiur --test` previously
-  # left these alone, so each fresh sandbox run started with the
-  # previous run's workpad sitting in the issue — agents would dutifully
-  # reconcile against it instead of treating the ticket as a clean slate.
-  defp delete_workpad_comments(id) do
-    case HostCommand.run(
-           ["api", "repos/{owner}/{repo}/issues/#{id}/comments", "--paginate"],
-           stderr_to_stdout: true,
-           bot_token: true
-         ) do
-      {body, 0} ->
-        case Jason.decode(body) do
-          {:ok, comments} when is_list(comments) ->
-            delete_each_workpad(id, Enum.filter(comments, &workpad_comment?/1))
-
-          _ ->
-            warn("##{id} workpad scan: could not parse `gh api` JSON")
-        end
-
-      {output, _} ->
-        warn("##{id} workpad scan failed: #{String.trim(output)}")
-    end
-  end
-
-  defp delete_each_workpad(id, []) do
-    ok("##{id} workpad clear (no comments to remove)")
-  end
-
-  defp delete_each_workpad(id, comments) do
-    failures =
-      Enum.reduce(comments, 0, fn comment, acc ->
-        case HostCommand.run(
-               [
-                 "api",
-                 "-X",
-                 "DELETE",
-                 "repos/{owner}/{repo}/issues/comments/#{Map.get(comment, "id")}"
-               ],
-               stderr_to_stdout: true,
-               bot_token: true
-             ) do
-          {_, 0} -> acc
-          {_, _} -> acc + 1
-        end
-      end)
-
-    count = length(comments)
-
-    if failures == 0 do
-      ok("##{id} workpad comments removed (#{count})")
-    else
-      warn("##{id} workpad comments: #{count - failures}/#{count} removed; #{failures} failed")
-    end
+    Cleanup.delete_subscriptions_file(id)
+    Cleanup.delete_workspace(id)
+    Cleanup.delete_remote_branch(id)
+    Cleanup.close_open_pr(id)
+    Cleanup.delete_workpad_comments(id)
+    Tickets.reset_labels(id)
   end
 
   @doc """
-  Predicate identifying an agent-workpad comment. The canonical shape
-  is a comment whose body starts with `## Agent Workpad` (optionally
-  preceded by whitespace). Mid-body references to the workpad header
-  in a human review comment must NOT match — only the leading-header
-  form is a workpad.
+  Verifies a pinned sandbox ticket is open before normal reset work.
+
+  Closed tickets are skipped from reset and any observed `agent:*` or
+  `model:*` labels are removed so stale automation state is not left on
+  closed issues. `runner` is injected for tests and has the same argv
+  shape as `System.cmd("gh", argv, ...)`.
   """
-  @spec workpad_comment?(map()) :: boolean()
-  def workpad_comment?(%{"body" => body}) when is_binary(body) do
-    String.starts_with?(String.trim_leading(body), "## Agent Workpad")
-  end
+  @spec prepare_reset_ticket(integer() | String.t(), gh_runner()) ::
+          :open | {:closed, [String.t()]} | {:error, String.t()}
+  defdelegate prepare_reset_ticket(id, runner), to: Tickets
 
-  def workpad_comment?(_), do: false
+  @spec issue_metadata_command_args(integer() | String.t()) :: [String.t()]
+  defdelegate issue_metadata_command_args(id), to: Tickets
 
-  defp delete_subscriptions_file(id) do
-    path = subscriptions_path(id)
+  @spec automation_label_cleanup_command_args(integer() | String.t(), [String.t()]) ::
+          [String.t()] | nil
+  defdelegate automation_label_cleanup_command_args(id, labels), to: Tickets
 
-    case File.rm(path) do
-      :ok -> ok("##{id} subscriptions cleared")
-      {:error, :enoent} -> :ok
-      {:error, reason} -> warn("##{id} subscriptions clear failed: #{inspect(reason)}")
-    end
-  end
-
-  # Per-issue workspace clone (typically <workspace_root>/<repo>/<id>) carries
-  # the agent's uncommitted edits, untracked files, and git state from
-  # the prior session. Without this, the agent on the next run starts
-  # in a dirty tree and reports "I see uncommitted changes" — exactly
-  # the symptom the Executor hit. Fans out across `worker.ssh_hosts`
-  # when configured.
-  #
-  # We don't go through `Aiur.Workspace.remove_issue_workspaces/1`
-  # because that calls `Aiur.Config.settings!()` which requires
-  # .aiur/config to be present and parseable — the reset task runs
-  # outside any orchestrator boot, so it may not have a workflow
-  # context. Instead we compute the workspace root from
-  # `Aiur.Config.workspace_root/0` if available; if not, fall back
-  # to the same default `Aiur.Config.Schema.Workspace` uses
-  # (`<tmp_dir>/aiur_workspaces`).
-  defp delete_workspace(id) do
-    root = workspace_root_with_fallback()
-    remove_workspace(id, root)
-  end
-
-  @doc false
-  @spec remove_workspace(integer() | String.t(), Path.t()) :: :ok
-  def remove_workspace(id, root) do
-    safe_id = Paths.sanitize(to_string(id))
-    path = workspace_path_with_fallback(root, safe_id)
-
-    case File.rm_rf(path) do
-      {:ok, []} ->
-        ok("##{id} workspace already clean")
-
-      {:ok, _} ->
-        ok("##{id} workspace removed")
-
-      {:error, reason, file} ->
-        warn("##{id} workspace cleanup failed at #{file}: #{inspect(reason)}")
-    end
-  end
-
-  defp workspace_path_with_fallback(root, safe_id) do
-    Layout.issue_workspace_path(root, safe_id)
-  rescue
-    _ -> Path.join(root, safe_id)
-  catch
-    _, _ -> Path.join(root, safe_id)
-  end
-
-  defp workspace_root_with_fallback do
-    # Config.workspace_root/0 returns the raw YAML value — when the
-    # Executor wrote `~/code/aiur-workspaces`, that's what we get.
-    # Path.expand/1 resolves `~` against $HOME so the rm path actually
-    # points at the real directory. Without this, the rm targets the
-    # literal `~/code/aiur-workspaces` (a directory with a tilde in
-    # its name, which obviously doesn't exist) and the reset silently
-    # leaves the agent's stale workspace in place.
-    Aiur.Config.workspace_root() |> Path.expand()
-  rescue
-    _ -> Path.join(System.tmp_dir!(), "aiur_workspaces")
-  catch
-    _, _ -> Path.join(System.tmp_dir!(), "aiur_workspaces")
-  end
-
-  defp delete_remote_branch(id) do
-    # A ticket can have either a legacy branch or a readable suffix. The
-    # centralized ticket-branch parser filters the broad remote-ref probe so
-    # similarly numbered tickets are never touched.
-    branches = list_remote_branches_for(id)
-
-    if branches == [] do
-      ok("##{id} remote branch already gone")
-    else
-      Enum.each(branches, &delete_one_remote_branch(id, &1))
-    end
-  end
-
-  defp list_remote_branches_for(id) do
-    pattern = "refs/heads/#{TicketBranch.legacy_branch_name(id)}*"
-
-    case System.cmd("git", ["ls-remote", "--heads", "origin", pattern], stderr_to_stdout: true) do
-      {output, 0} -> parse_remote_branches(id, output)
-      _ -> []
-    end
-  end
-
-  defp parse_remote_branches(id, output) do
-    output
-    |> String.split("\n", trim: true)
-    |> Enum.flat_map(&extract_branch_from_ls_remote_line(id, &1))
-  end
-
-  defp extract_branch_from_ls_remote_line(id, line) do
-    case String.split(line, "refs/heads/", parts: 2) do
-      [_, branch] -> filter_id_match(id, String.trim(branch))
-      _ -> []
-    end
-  end
-
-  defp filter_id_match(id, branch) do
-    if TicketBranch.ticket_branch?(branch, id), do: [branch], else: []
-  end
-
-  defp delete_one_remote_branch(id, branch) do
-    case System.cmd("git", ["push", "origin", "--delete", branch], stderr_to_stdout: true) do
-      {_, 0} ->
-        ok("##{id} remote branch #{branch} deleted")
-
-      {output, _} ->
-        if String.contains?(output, "remote ref does not exist") do
-          :ok
-        else
-          warn("##{id} remote branch #{branch}: #{String.trim(output)}")
-        end
-    end
-  end
-
-  defp close_open_pr(id) do
-    # `gh pr close <branch>` resolves an actual readable or legacy branch to
-    # its open PR head; safe to call when no PR exists (silent no-op).
-    case list_remote_branches_for(id) do
-      [] -> close_pr_for_branch(id, TicketBranch.legacy_branch_name(id))
-      branches -> Enum.each(branches, &close_pr_for_branch(id, &1))
-    end
-  end
-
-  defp close_pr_for_branch(id, branch) do
-    case HostCommand.run(["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true, bot_token: true) do
-      {_, 0} -> ok("##{id} PR on #{branch} closed")
-      {_, _} -> :ok
-    end
-  end
-
-  # Strip every agent:* label and re-add agent:todo so the orchestrator
-  # treats the issue as queued on the next dispatch poll. Without this,
-  # tickets that the previous run flipped to agent:in-progress (or
-  # agent:human-review, agent:done) stay in that state and either
-  # never re-enter the dispatch set or skip the queue logic entirely.
-  #
-  # Issue this as TWO `gh` calls: one to strip every agent:* label,
-  # then one to add agent:todo. The combined form
-  # `gh issue edit N --remove-label "agent:todo,…" --add-label "agent:todo"`
-  # is unsafe — when the same label appears in both the remove and add
-  # sets, GitHub's PATCH ordering resolves the remove last, stripping
-  # the label entirely. That left issues in an unlabeled state, which
-  # made the orchestrator skip dispatching them and the user's chat
-  # pane render no agent text (no codex turn → no transcript events).
-  # GitHub's GraphQL endpoint intermittently 401s during a reset (and its
-  # label index lags), so a single `gh issue edit` attempt is flaky. When it
-  # fails, the ticket is left without `agent:todo` and the orchestrator never
-  # dispatches it — for the 3-ticket blocker chain that strands the whole run
-  # (e.g. #101 opens its PR then pauses forever waiting on the never-dispatched
-  # #100, timing out ~90 min later). Retry a few times, then return an error so
-  # the caller refuses to launch a run that can't dispatch this ticket.
-  @label_reset_attempts 3
-  @label_reset_backoff_ms 1_500
-
-  defp reset_labels(id) do
-    [remove_argv, add_argv] = reset_labels_command_args(id)
-    runner = fn argv -> HostCommand.run(argv, stderr_to_stdout: true, bot_token: true) end
-
-    case apply_label_reset(remove_argv, add_argv, runner, @label_reset_attempts, @label_reset_backoff_ms) do
-      :ok ->
-        ok("##{id} labels prepared on open ticket → agent:todo")
-        :ok
-
-      {:error, output} ->
-        warn("##{id} label reset FAILED after #{@label_reset_attempts} attempts: #{output}")
-        {:error, {:label_reset_failed, id, output}}
-    end
-  end
+  @spec automation_labels([term()]) :: [String.t()]
+  defdelegate automation_labels(labels), to: Tickets
 
   @doc """
   Run the remove-then-add label pair through `runner`, retrying the pair up to
@@ -761,20 +411,7 @@ defmodule Aiur.TestReset do
 
   @spec apply_label_reset([String.t()], [String.t()], gh_runner(), pos_integer(), non_neg_integer()) ::
           :ok | {:error, String.t()}
-  def apply_label_reset(remove_argv, add_argv, runner, attempts, backoff_ms)
-      when attempts > 0 do
-    with {_, 0} <- runner.(remove_argv),
-         {_, 0} <- runner.(add_argv) do
-      :ok
-    else
-      {_output, _code} when attempts > 1 ->
-        if backoff_ms > 0, do: Process.sleep(backoff_ms)
-        apply_label_reset(remove_argv, add_argv, runner, attempts - 1, backoff_ms)
-
-      {output, _code} ->
-        {:error, String.trim(to_string(output))}
-    end
-  end
+  defdelegate apply_label_reset(remove_argv, add_argv, runner, attempts, backoff_ms), to: Tickets
 
   @doc """
   Pure helper returning the argv pair (`--remove-label …`, then
@@ -784,61 +421,31 @@ defmodule Aiur.TestReset do
   invocation.
   """
   @spec reset_labels_command_args(integer() | String.t()) :: [[String.t()]]
-  def reset_labels_command_args(id) do
-    reset_labels =
-      Labels.state_labels("agent") ++
-        Labels.paused_labels("agent") ++ Labels.queued_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+  defdelegate reset_labels_command_args(id), to: Tickets
 
-    [
-      ["issue", "edit", to_string(id), "--remove-label", Enum.join(reset_labels, ",")],
-      ["issue", "edit", to_string(id), "--add-label", "agent:todo"]
-    ]
-  end
+  @doc """
+  Predicate identifying an agent-workpad comment. The canonical shape
+  is a comment whose body starts with `## Agent Workpad` (optionally
+  preceded by whitespace). Mid-body references to the workpad header
+  in a human review comment must NOT match — only the leading-header
+  form is a workpad.
+  """
+  @spec workpad_comment?(map()) :: boolean()
+  defdelegate workpad_comment?(comment), to: Cleanup
 
-  defp restore_baseline(opts) do
-    # If the Executor passed --force AND any sandbox file has uncommitted
-    # local changes, stash them first so destructive checkout doesn't
-    # silently lose work.
-    if opts.force, do: stash_sandbox_if_dirty(opts)
-
-    args = ["checkout", "HEAD", "--"] ++ @baseline_files
-
-    case System.cmd("git", args, stderr_to_stdout: true, cd: opts.repo_root) do
-      {_, 0} -> ok("sandbox baseline restored")
-      {output, code} -> warn("baseline restore exit=#{code}: #{output}")
-    end
-  end
-
-  defp stash_sandbox_if_dirty(opts) do
-    args = ["status", "--porcelain", "--"] ++ @baseline_files
-
-    case System.cmd("git", args, stderr_to_stdout: true, cd: opts.repo_root) do
-      {"", _} ->
-        :ok
-
-      {dirty, _} ->
-        warn(
-          "--force with uncommitted sandbox edits:\n" <>
-            dirty <>
-            "Stashing before checkout."
-        )
-
-        stash_msg = "aiur-test-reset auto-stash #{DateTime.utc_now() |> DateTime.to_iso8601()}"
-
-        System.cmd("git", ["stash", "push", "-m", stash_msg, "--"] ++ @baseline_files,
-          stderr_to_stdout: true,
-          cd: opts.repo_root
-        )
-
-        :ok
-    end
-  end
-
-  defp subscriptions_path(id), do: SubscriptionStore.path_for(to_string(id))
+  @doc false
+  @spec remove_workspace(integer() | String.t(), Path.t()) :: :ok
+  defdelegate remove_workspace(id, root), to: Cleanup
 
   defp say(msg), do: IO.puts(:stderr, msg)
-  defp ok(msg), do: say("✅ #{msg}")
-  defp warn(msg), do: say("⚠️  #{msg}")
+
+  @doc false
+  @spec ok(String.t()) :: :ok
+  def ok(msg), do: say("✅ #{msg}")
+
+  @doc false
+  @spec warn(String.t()) :: :ok
+  def warn(msg), do: say("⚠️  #{msg}")
 
   defp abort(msg) do
     say("❌ --test ABORT: #{msg}")

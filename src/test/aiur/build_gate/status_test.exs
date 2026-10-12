@@ -90,34 +90,20 @@ defmodule Aiur.BuildGate.StatusTest do
     release_path = Path.join(context.gate_dir, "holder.release")
     bash = System.find_executable("bash") || flunk("bash is required")
 
-    holder =
-      Port.open({:spawn_executable, String.to_charlist(bash)}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: [
-          "-c",
-          ~S"""
-          printf '%s\n' "$$" > "$4"
-          exec 8<>"$1"
-          flock 8
-          printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
-          """,
-          "build-gate-holder",
-          slot_lock,
-          owner_path,
-          release_path,
-          pid_path
-        ]
-      ])
+    setup_script = ~S"""
+    printf '%s\n' "$$" > "$4"
+    exec 8<>"$1"
+    flock 8
+    """
 
-    assert_receive {^holder, {:data, "ready\n"}}, 2_000
-
-    on_exit(fn ->
-      File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
-    end)
+    _holder =
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        setup_script,
+        ["build-gate-holder", slot_lock, owner_path, release_path, pid_path],
+        context.lock_dir,
+        release_path
+      )
 
     holder_pid = pid_path |> File.read!() |> String.trim() |> String.to_integer()
 
@@ -150,34 +136,20 @@ defmodule Aiur.BuildGate.StatusTest do
     release_path = Path.join(context.gate_dir, "holder.release")
     bash = System.find_executable("bash") || flunk("bash is required")
 
+    setup_script = ~S"""
+    printf '%s\n' "$$" > "$4"
+    exec 8<>"$1"
+    flock 8
+    """
+
     holder =
-      Port.open({:spawn_executable, String.to_charlist(bash)}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: [
-          "-c",
-          ~S"""
-          printf '%s\n' "$$" > "$4"
-          exec 8<>"$1"
-          flock 8
-          printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
-          """,
-          "build-gate-holder",
-          slot_lock,
-          owner_path,
-          release_path,
-          pid_path
-        ]
-      ])
-
-    assert_receive {^holder, {:data, "ready\n"}}, 2_000
-
-    on_exit(fn ->
-      File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
-    end)
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        setup_script,
+        ["build-gate-holder", slot_lock, owner_path, release_path, pid_path],
+        context.lock_dir,
+        release_path
+      )
 
     holder_pid = pid_path |> File.read!() |> String.trim() |> String.to_integer()
 
@@ -288,47 +260,31 @@ defmodule Aiur.BuildGate.StatusTest do
     release_path = Path.join(context.gate_dir, "scan.release")
     bash = System.find_executable("bash") || flunk("bash is required")
 
-    holder =
-      Port.open({:spawn_executable, String.to_charlist(bash)}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: [
-          "-c",
-          ~S"""
-          now=$(date +%s)
-          for slot in 1 2; do
-            path="$2/slot-$slot.lock"
-            exec {fd}<>"$path"
-            flock "$fd"
-            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - slot))" > "$1/slot-$slot.owner"
-          done
-          mkdir -p "$1/queue"
-          for queue in $(seq 1 8); do
-            path="$1/queue/lease-v2-$queue"
-            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - queue * 10))" > "$path"
-            exec {fd}<>"$path"
-            flock "$fd"
-          done
-          printf 'ready\n'
-          while [[ ! -e $3 ]]; do sleep 0.05; done
-          """,
-          "build-gate-saturated-holder",
-          context.gate_dir,
-          context.lock_dir,
-          release_path
-        ]
-      ])
+    setup_script = ~S"""
+    now=$(date +%s)
+    for slot in 1 2; do
+      path="$2/slot-$slot.lock"
+      exec {fd}<>"$path"
+      flock "$fd"
+      printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - slot))" > "$1/slot-$slot.owner"
+    done
+    mkdir -p "$1/queue"
+    for queue in $(seq 1 8); do
+      path="$1/queue/lease-v2-$queue"
+      printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - queue * 10))" > "$path"
+      exec {fd}<>"$path"
+      flock "$fd"
+    done
+    """
 
-    on_exit(fn ->
-      File.touch!(release_path)
-      if Port.info(holder), do: Port.close(holder)
-    end)
-
-    # Wait on the holder's real "ready" signal; a hang is bounded by the ExUnit test timeout.
-    receive do
-      {^holder, {:data, "ready\n"}} -> :ok
-    end
+    _holder =
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        setup_script,
+        ["build-gate-saturated-holder", context.gate_dir, context.lock_dir, release_path],
+        context.lock_dir,
+        release_path
+      )
 
     status = build_gate_status(gate_dir: context.gate_dir, capacity: 2, strategy: :linux_lock)
 

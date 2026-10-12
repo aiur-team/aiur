@@ -8,7 +8,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-usage-ledger-recovery")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, persistence: Recovery.options(filesystem_sync_fun: fn -> :ok end)}
   end
 

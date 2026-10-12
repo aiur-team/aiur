@@ -295,12 +295,15 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
                  pr_number: nil,
                  head_sha: "same-head",
                  draft?: false,
-                 review_decision: nil
+                 review_decision: nil,
+                 recovery: nil,
+                 failures: [],
+                 tracker_state: "ci-wait"
                }
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==
-               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do

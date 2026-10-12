@@ -27,13 +27,7 @@ defmodule Aiur.BuildOrdersCLIFirstReadTest do
   end
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   test "a CLI single-root read on a fresh projection buys the first graph read and converges to ready with no LiveView" do

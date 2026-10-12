@@ -106,7 +106,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.AlertsTest do
       next = poll_ci(first, issue, gone, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}
+      assert_receive {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}, 100
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
 

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
   """
 
   alias Aiur.Config
+  alias Aiur.Events.GithubCIPoller
   alias Aiur.Events.IdGenerator
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
@@ -123,6 +124,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
 
       Issue.paused?(issue) ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+      GithubCIPoller.attention_hold?(get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)])) ->
+        cancel_ci_wait_rewake(state, issue.id)
 
       not DispatchPolicy.issue_routable_to_worker?(issue) ->
         state

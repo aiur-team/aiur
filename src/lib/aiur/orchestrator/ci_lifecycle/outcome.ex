@@ -3,9 +3,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   Turns a CI poll result into the pass, failure, or stale-wait transition.
   """
 
+  alias Aiur.Events.GithubCIPoller
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
+  alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
@@ -23,12 +25,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   @active_handoff_state "in-progress"
 
-  @doc false
-  @spec apply_ci_poll_result(State.t(), term(), term()) :: term()
-  def apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
+  defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
     cond do
       CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
         state
+
+      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
+        Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
@@ -38,7 +41,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  def apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
+  defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
     if HumanReview.human_review_state?(Transition.effective_ci_state(issue)) do
       state
       |> clear_ci_test_failure_retry(issue)
@@ -50,7 +53,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  def apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
+  defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     cond do
       human_review_ci_replay?(state, issue, result) ->
         log_replayed_human_review_ci_failure(issue, result)
@@ -72,7 +75,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  def apply_ci_poll_result(state, _issue, _result), do: state
+  defp apply_ci_poll_result(state, _issue, _result), do: state
 
   defp transition_ci_pass(state, issue, result) do
     if LifecycleFence.handoff_blocked?(state, issue) do
@@ -83,7 +86,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         state,
         issue,
         "transition_ci_pass",
-        fn -> write_ci_pass_state({issue}) end,
+        fn -> write_ci_pass_state({issue, result}) end,
         fn arg1, arg2 ->
           apply_ci_pass_transition(arg1, arg2, {issue, result})
         end
@@ -100,30 +103,38 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         state,
         issue,
         "transition_ci_failure",
-        fn -> write_ci_failure_state({issue}) end,
+        fn -> write_ci_failure_state({issue, result}) end,
         fn arg1, arg2 -> apply_ci_failure_transition(arg1, arg2, {issue, result}) end
       )
     end
   end
 
-  # A failed `test` check may be the known seed-dependent flake. Defer only the
-  # first terminal observation of that exact head for one regular poll cycle;
-  # the second failure is delivered to the agent like every other CI failure.
-  defp retryable_test_failure?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha, failures: failures})
-       when is_binary(head_sha) and is_list(failures) do
-    test_only_failure?(failures) and
-      Map.get(state.ci_lifecycle.test_failure_heads, CiLifecycle.ci_target_for_issue(issue)) != head_sha
+  @doc false
+  @spec recover_ci_poll_result(State.t(), term(), term(), term()) :: term()
+  def recover_ci_poll_result(state, issue, result, opts) do
+    result = Map.put(result, :ci_recovery_opts, opts)
+
+    if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and
+         (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
+            (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[CiLifecycle.ci_target_for_issue(issue)]))) and
+         is_integer(result[:pr_number]) and not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue) do
+      recovery = Keyword.get(opts, :ci_recovery, &GithubCIPoller.recover_failure/3)
+
+      Poll.run_ci_effect(state, issue, "ci_recovery", fn -> recovery.(issue, result, opts) end, fn current, recovered ->
+        recovered = GithubCIPoller.complete_recovery(issue, result, recovered, opts)
+        current |> ResultProjection.stash_last_ci_result(issue, recovered) |> apply_ci_poll_result(issue, recovered)
+      end)
+    else
+      apply_ci_poll_result(state, issue, result)
+    end
   end
+
+  defp retryable_test_failure?(_state, _issue, %{ci_recovery_checked: true}), do: false
+
+  defp retryable_test_failure?(state, issue, %{head_sha: head_sha, failures: failures}) when is_binary(head_sha) and is_list(failures),
+    do: failures != [] and Enum.all?(failures, &(&1.name == "test")) and Map.get(state.ci_lifecycle.test_failure_heads, CiLifecycle.ci_target_for_issue(issue)) != head_sha
 
   defp retryable_test_failure?(_state, _issue, _result), do: false
-
-  defp test_only_failure?(failures) do
-    failures != [] and
-      Enum.all?(failures, fn
-        %{name: "test"} -> true
-        _ -> false
-      end)
-  end
 
   defp defer_ci_test_failure(state, issue) do
     if HumanReview.human_review_state?(Transition.effective_ci_state(issue)) do
@@ -133,10 +144,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  # A direct agent label flip is the initial CI handoff. Once a head has passed,
-  # retain that exact SHA so a transient re-run does not pull it out of review;
-  # a pending observation for a different SHA is a re-push and must re-enter the
-  # CI gate.
+  # Retain the approved SHA across transient reruns; new heads re-enter CI.
   defp ci_head_approved?(%State{} = state, %Issue{} = issue, result) do
     case {Map.get(state.ci_lifecycle.approved_heads, CiLifecycle.ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
       {approved_head, observed_head} when is_binary(approved_head) and approved_head == observed_head -> true
@@ -243,12 +251,16 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  defp write_ci_pass_state({issue}) do
-    TicketTransition.write_state(
-      to_string(issue.id || issue.identifier),
-      @active_handoff_state,
-      Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)
-    )
+  defp write_ci_pass_state({issue, result}) do
+    response =
+      TicketTransition.write_state(
+        to_string(issue.id || issue.identifier),
+        @active_handoff_state,
+        Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)
+      )
+
+    if response == :ok, do: GithubCIPoller.record_pass(issue, result, result[:ci_recovery_opts] || [])
+    response
   end
 
   defp apply_ci_pass_transition(
@@ -265,6 +277,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         |> remember_ci_approved_head(issue, result)
         |> WaitRewake.cancel_ci_wait_rewake(issue.id)
         |> Reconciler.refresh_running_issue_state(active_issue)
+        |> ResultProjection.stash_last_ci_result(active_issue, result)
         |> TerminalEvent.ensure_ci_terminal_subscription(issue)
         |> TerminalEvent.publish_ci_terminal_event(issue, result, :passed)
 
@@ -278,12 +291,16 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  defp write_ci_failure_state({issue}) do
-    TicketTransition.write_state(
-      to_string(issue.id || issue.identifier),
-      "rework",
-      Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)
-    )
+  defp write_ci_failure_state({issue, result}) do
+    response =
+      TicketTransition.write_state(
+        to_string(issue.id || issue.identifier),
+        "rework",
+        Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)
+      )
+
+    if response == :ok and result[:ci_recovery_checked], do: GithubCIPoller.record_failure(issue, result, result[:ci_recovery_opts])
+    response
   end
 
   defp apply_ci_failure_transition(state, response, {issue, result}) do
@@ -296,6 +313,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         |> CiLifecycle.clear_ci_approved_head(issue)
         |> WaitRewake.cancel_ci_wait_rewake(issue.id)
         |> Reconciler.refresh_running_issue_state(rework_issue)
+        |> ResultProjection.stash_last_ci_result(rework_issue, result)
         |> TerminalEvent.ensure_ci_terminal_subscription(issue)
         |> TerminalEvent.publish_ci_terminal_event(issue, result, :failed)
 

@@ -9,10 +9,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   alias Aiur.GitHub.Client
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
-  alias Aiur.Orchestrator.CiLifecycle.DraftStallAlert
   alias Aiur.Orchestrator.CiLifecycle.Outcome
   alias Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
+  alias Aiur.Orchestrator.CiLifecycle.Transition
+  alias Aiur.Orchestrator.DraftAlertLifecycle
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.LifecycleFence
   alias Aiur.Orchestrator.RestackScheduler
@@ -32,9 +33,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   @spec launch_ci_poll(State.t(), term(), term(), term()) :: term()
   def launch_ci_poll(state, opts, continue, launch) do
     cache = issue_list_cache(state)
-    invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
-    baseline = state.ci_lifecycle
+    {baseline, invalidations} = {state.ci_lifecycle, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})}
 
     launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
       current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
@@ -273,18 +273,29 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
-          |> DraftStallAlert.reconcile_draft_stall_alert(issue, result, opts)
+          |> then(&DraftAlertLifecycle.reconcile(&1, issue, result, Transition.effective_ci_state(issue) == @ci_wait_state, opts))
           |> ParkedReadyAlert.reconcile_parked_ready_alert(issue, result, opts)
           |> ResultProjection.reconcile_base_repair_invalidation(issue, result)
           |> ResultProjection.publish_ready_for_review_transition(issue, result)
           |> ResultProjection.stash_last_ci_result(issue, result)
-          |> Outcome.apply_ci_poll_result(issue, result)
+          |> Outcome.recover_ci_poll_result(issue, result, opts)
         end
 
       _ ->
         state
     end
   end
+
+  # ---- Parked-ready recovery alert ------------------------------------------
+  #
+  # A readied pull request that is approved, conflict-free, and still unarmed
+  # will not re-enter the merge queue on its own (the recovery gap in #1737).
+  # `mergeStateStatus: BLOCKED` on a freshly readied PR is not a merge conflict,
+  # so the classifier keys eligibility on `mergeable` and deliberately ignores
+  # the queue-status field. The daemon never arms auto-merge (the human-only
+  # merge gate in #1841): it surfaces the parked state so the Executor can take
+  # the documented explicit action (`gh pr merge <n> --squash --delete-branch
+  # --auto`, per #1854).
 
   defp all_ci_targets_failed?([], _errors), do: false
 
@@ -315,9 +326,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
     state =
       state
-      |> DraftStallAlert.ensure_draft_stall_alerts_seeded(opts)
       |> ParkedReadyAlert.ensure_parked_ready_alerts_seeded(opts)
       |> ParkedReadyAlert.resolve_departed_parked_ready_alerts(targets, opts)
+
+    state = DraftAlertLifecycle.resolve_departed(state, targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and

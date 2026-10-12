@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiLifecycle.Transition
+  alias Aiur.Orchestrator.DraftAlertLifecycle
   alias Aiur.Orchestrator.ReadyForReviewTransitions
   alias Aiur.Orchestrator.State
 
@@ -15,8 +17,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
   # (no live process, e.g. after the agent's turn ends while still cycling
   # through ci-wait) keep showing the last-known CI/PR state too. Only
   # replaces the cached value when the projection actually changed, so a
-  # genuinely redundant poll for an unchanged head stays a true no-op for
-  # `state.running`/`state.claimed` and the persisted lifecycle markers.
+  # Redundant head polls preserve running/claimed state and lifecycle markers.
   @doc false
   @spec stash_last_ci_result(State.t(), Issue.t(), term()) :: term()
   def stash_last_ci_result(%State{} = state, %Issue{} = issue, result) do
@@ -26,7 +27,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
 
       target ->
         poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
-        projection = ci_result_projection(result, Map.get(poll_cache, target))
+        projection = result |> ci_result_projection(Map.get(poll_cache, target)) |> Map.put(:tracker_state, Transition.effective_ci_state(issue))
 
         if Map.get(poll_cache, target) == projection do
           state
@@ -37,13 +38,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
     end
   end
 
-  # GitHub's repository Events API does not expose draft-to-ready transitions,
-  # so the CI poll feeds the draft flag it already reads into the shared,
-  # durable ledger (#2707). Only a complete current-head observation carries
-  # `:draft?`; any other result (head changed, PR not visible, poll error) is
-  # not evidence either way. The ledger is not `poll_cache`, which
-  # `prune_ci_lifecycle_state/3` drops when a ticket leaves `ci-wait` — exactly
-  # when an agent tends to run `gh pr ready`.
   @doc false
   @spec publish_ready_for_review_transition(State.t(), Issue.t(), term()) :: term()
   def publish_ready_for_review_transition(%State{} = state, %Issue{} = issue, result) do
@@ -67,8 +61,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
       pr_number: Map.get(result, :pr_number),
       head_sha: Map.get(result, :head_sha),
       draft?: projection_value(result, previous, :draft?, false) == true,
-      review_decision: projection_value(result, previous, :review_decision, nil)
+      review_decision: projection_value(result, previous, :review_decision, nil),
+      recovery: if(result[:decision] == :pending and result[:head_sha] == get_in(previous, [:head_sha]), do: projection_value(result, previous, :recovery, nil), else: result[:recovery]),
+      failures: Map.get(result, :failures, [])
     }
+    |> DraftAlertLifecycle.keep_pending_reason(result)
   end
 
   defp projection_value(result, previous, key, default) do

@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.Parking
   alias Aiur.Orchestrator.PauseResume.DeclineReason
   alias Aiur.Orchestrator.PauseResume.Resume
   alias Aiur.Orchestrator.PauseResume.TrackerControl
@@ -86,13 +87,7 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
   # dispatches, so the reconciler cannot pause the fresh agent straight back
   # off the label the operator just resumed past (#1668).
   defp clear_and_resume_queued_issue(state, issue) do
-    case clear_tracker_pause_override(state, issue) do
-      {:ok, state, %Issue{} = cleared_issue} ->
-        refresh_cleared_queued_issue(state, cleared_issue)
-
-      {:error, reason} ->
-        {{:error, {:pause_override_clear_failed, reason}}, state}
-    end
+    Parking.clear_and_resume_queued_issue(state, issue, &clear_tracker_pause_override/2, &refresh_cleared_queued_issue/2)
   end
 
   # Removing `agent:paused` is a tracker mutation, so the copy edited locally
@@ -154,7 +149,7 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
   end
 
   defp dependency_resumability(issue, terminal_states) do
-    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states) do
+    if DispatchPolicy.todo_issue_held_by_dependency?(issue, terminal_states) do
       {:error, :waiting_for_dependencies}
     else
       :ok

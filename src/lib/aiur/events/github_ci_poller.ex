@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Events.GithubCIPoller.{BaseRepair, Evaluation}
+  alias Aiur.Events.GithubCIPoller.{BaseRepair, Evaluation, Recovery}
   alias Aiur.GitHub.{CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
@@ -19,6 +19,17 @@ defmodule Aiur.Events.GithubCIPoller do
 
   @default_max_concurrency 4
   @default_target_timeout 60_000
+
+  @spec recover_failure(map(), map(), keyword()) :: map()
+  defdelegate recover_failure(issue, result, opts), to: Recovery, as: :recover
+  @spec complete_recovery(map(), map(), term(), keyword()) :: map()
+  defdelegate complete_recovery(issue, result, recovered, opts), to: Recovery, as: :complete
+  @spec record_failure(map(), map(), keyword()) :: :ok | {:error, term()}
+  defdelegate record_failure(issue, result, opts), to: Recovery
+  @spec record_pass(map(), map(), keyword()) :: :ok | {:error, term()}
+  defdelegate record_pass(issue, result, opts), to: Recovery
+  @spec attention_hold?(map() | nil) :: boolean()
+  defdelegate attention_hold?(result), to: Recovery
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do

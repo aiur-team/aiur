@@ -65,9 +65,9 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 
 | Target | Written by | Where |
 | --- | --- | --- |
-| `ci-wait` | orchestrator | `src/lib/aiur/orchestrator/ci_lifecycle/transition.ex:63-81`, callers `ci_lifecycle/outcome.ex:37,130` |
-| `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle/outcome.ex:246-252`, `ci_lifecycle/wait_rewake.ex:338-344`; `shared-agent-instructions.md:44,49,120` |
-| `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle/outcome.ex:281-287`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
+| `ci-wait` | orchestrator | `src/lib/aiur/orchestrator/ci_lifecycle/transition.ex:63-81`, callers `ci_lifecycle/outcome.ex:40,141` |
+| `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle/outcome.ex:254-261`, `ci_lifecycle/wait_rewake.ex:342-348`; `shared-agent-instructions.md:44,49,120` |
+| `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle/outcome.ex:294-301`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume/tracker_control.ex:307` |
 | `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
 | `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
@@ -158,7 +158,7 @@ and never deletes ones a repository already has; those keep working as exact pin
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
 it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
-The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
+Promotion and dispatch follow the same ladder: `pr_opened` → `pr_ci_green` → `pr_approved` → `pr_merged` (default) → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
 
 Item states are projections, not tracker labels:
 
@@ -177,7 +177,9 @@ Item states are projections, not tracker labels:
 | `cancelled` | Tracker closure is confirmed as not planned. |
 | `removed` | The membership marker was removed. |
 
-If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
+If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed non-optimistic work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
+
+Terminal optimistic blocker failure pauses running dependents, parks them and drafts their PRs; their work is kept. Closed-unmerged PRs get a 600-second replacement grace. Trouble and churn raise info only. The Executor chooses to wait, re-base and resume, or close. Recovery never auto-resumes parked work.
 
 Manual `todo` sets an override. List adds record pre-existing `todo`; fresh unmet prerequisites
 withdraw it only after dispatch is held and unclaimed status is confirmed. A later manual `todo`
@@ -186,12 +188,10 @@ and overrides. Removing `agent:queued` dequeues; writes re-observe races.
 
 Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains `promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable claim probe preserves a recorded decline.
 
-[Queue attentions](/concepts/build-orders#queue-attentions) cover `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
-`write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
+[Queue attentions](/concepts/build-orders#queue-attentions) cover `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`, `optimistic_blocker_failed`, `write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
 
 See [Queueing a Build Order](/concepts/build-orders#queueing-a-build-order) and [Downgrading](/concepts/build-orders#downgrading).
-Closed-unmerged prerequisite PR detection is [webhook-only](/concepts/build-orders#closed-prerequisite-pull-requests);
-polling alone leaves the prerequisite pending.
+Ordinary queue closed-unmerged prerequisite PR detection uses [webhook evidence](/concepts/build-orders#closed-prerequisite-pull-requests); the optimistic guard also confirms blocker PR state on poll ticks.
 
 ## The state diagram
 
@@ -199,7 +199,7 @@ polling alone leaves the prerequisite pending.
 stateDiagram-v2
     [*] --> todo: triaged with agent:todo
     todo --> inprogress: dispatcher claims the ticket
-    inprogress --> ciwait: draft PR opened, code complete
+    inprogress --> ciwait: PR ready, code complete
     ciwait --> humanreview: CI passed
     ciwait --> rework: CI failed
     humanreview --> rework: review feedback
@@ -558,15 +558,13 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 
 ## Step 5 — PR opened, agent pauses
 
-The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft
-pushes run only `changes`, `lint`, and `build`. After self-review, the agent
-marks completed work ready to trigger the full suite, then `agent:ci-wait`
-releases the turn and dispatch slot.
+The agent opens a `Closes #<issue>` **draft** PR. Aiur PRs, draft or ready, run fast CI; the aggregate `ci gate` requires the full suite in the merge queue or when `merge_policy.full_ci_labels` or `full_ci_paths` force a full run. After self-review, the agent marks work ready; `agent:ci-wait` releases the turn and dispatch slot. Main has no `ci` push run.
 
-A draft's fast gate cannot approve its
-head. Aiur waits for successful required checks from the configured integrations
-on the current head before returning the agent for `agent:human-review`.
-Missing or skipped required checks remain pending. The agent **never self-merges**.
+Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts already in human review stay there instead of moving to CI wait.
+
+Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
+
+[CI recovery](/apis/github#changes-aiur-makes-itself) reruns eligible failures once per head. After three failed handoffs per PR, it holds for the Executor to fix or rerun the current head until required checks pass; acknowledging the alert alone does not release the hold. The agent **never self-merges**.
 
 GitHub mechanics — polling, webhooks, rate budgets, and CI observation — live
 in [GitHub](/apis/github); this page does not duplicate them.

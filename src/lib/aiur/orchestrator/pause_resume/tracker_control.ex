@@ -4,10 +4,12 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   """
 
   alias Aiur.Alerts
+  alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.Parking
   alias Aiur.Orchestrator.PauseResume.CompletedReplacement
   alias Aiur.Orchestrator.PauseResume.ControlCalls
   alias Aiur.Orchestrator.PauseResume.DeclineReason
@@ -135,11 +137,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   defp tracker_control_step(state, action, identifier, :start, _) when action in [:resume, :resume_with_receipt] do
     case State.find_running_by_identifier(state.running, identifier) do
       %{issue: %Issue{} = issue} = entry ->
-        if Issue.paused?(issue) do
-          tracker_io(state, action, identifier, {:running_cleared, issue.id, Map.get(entry, :ref)}, :remove_label, [issue.identifier, Resume.pause_override_label()])
-        else
-          resume_control_reply(state, action, identifier, entry)
-        end
+        Parking.running_control(state, action, identifier, entry, issue, &tracker_io/6, &resume_control_reply/4)
 
       nil ->
         case find_issue_id_by_identifier(state, identifier) do
@@ -162,7 +160,10 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
         issue = cleared_pause_issue(issue)
         entry = Map.put(entry, :issue, issue)
         state = Resume.put_running_entry(state, issue_id, entry)
-        resume_control_reply(state, action, identifier, entry)
+
+        if Issue.parked?(issue),
+          do: tracker_io(state, action, identifier, {:running_unparked, issue_id, ref}, :remove_label, [issue.identifier, "#{Config.settings!().tracker.github.label_prefix}:parked"]),
+          else: resume_control_reply(state, action, identifier, entry)
 
       {{:error, reason}, _entry} ->
         {:reply, {:error, {:pause_override_clear_failed, reason}}, state}
@@ -171,6 +172,9 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
         {:reply, {:error, :no_running_agent}, state}
     end
   end
+
+  defp tracker_control_step(state, action, identifier, {:running_unparked, _, _} = stage, result),
+    do: Parking.running_marker_result(state, action, identifier, stage, result, &Resume.put_running_entry/3, &resume_control_reply/4)
 
   defp tracker_control_step(state, action, identifier, {:completed_refreshed, issue_id, ref}, result) do
     case State.find_running_by_identifier(state.running, identifier) do

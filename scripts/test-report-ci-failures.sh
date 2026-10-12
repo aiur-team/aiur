@@ -56,6 +56,7 @@ if output="$(run_reporter '^coverage \([1-4]/4\)$' failure)"; then
   exit 1
 fi
 
+grep -Fq '::error title=aiur-derived-failure::["coverage (2/4)","coverage (4/4)"]' <<<"$output"
 grep -Fq "coverage (4/4) [failure]: https://example.test/jobs/4" <<<"$output"
 grep -Fq "coverage (2/4) [timed_out]: https://example.test/jobs/2" <<<"$output"
 if grep -Fq "coverage (1/4)" <<<"$output" || grep -Fq "coverage [failure]" <<<"$output" || grep -Fq "lint" <<<"$output"; then
@@ -75,6 +76,7 @@ if api_error="$(run_reporter '^coverage$' failure api_error)"; then
   echo "reporter must fail when the jobs API fails" >&2
   exit 1
 fi
+if grep -Fq "aiur-derived-failure" <<<"$api_error"; then exit 1; fi
 grep -Fq "GitHub did not return job diagnostics" <<<"$api_error"
 grep -Fq "https://github.example.test/aiur-team/aiur/actions/runs/123" <<<"$api_error"
 
@@ -94,8 +96,7 @@ grep -Fq "No matching failed job was returned" <<<"$fallback"
 grep -Fq "https://github.example.test/aiur-team/aiur/actions/runs/123" <<<"$fallback"
 
 workflow="$root/.github/workflows/ci.yml"
-coverage_job="$(sed -n '/^  coverage:$/,/^  quarantine:$/p' "$workflow")"
-test_job="$(sed -n '/^  test:$/,/^  analytics:$/p' "$workflow")"
+test_job="$(sed -n '/^  test:$/,/^  quarantine:$/p' "$workflow")"
 
 # Structural, not literal (#docs-only CI).
 #
@@ -126,53 +127,30 @@ require() {
   fi
 }
 
-coverage_step="$(step_block 'Report failed coverage partitions' <<<"$coverage_job")"
-test_step="$(step_block 'Report failed coverage gate' <<<"$test_job")"
+test_step="$(step_block 'Report failed coverage partitions' <<<"$test_job")"
 
-if [[ -z "$coverage_step" ]]; then
-  echo "the coverage job must report its failed partitions" >&2
-  exit 1
-fi
 if [[ -z "$test_step" ]]; then
-  echo "the test job must report a failed coverage gate" >&2
+  echo "the test job must report failed coverage partitions" >&2
   exit 1
 fi
 
-require 'the coverage partition reporter must run only when a partition did not succeed' \
-  "needs.coverage-partition.result != 'success'" "$coverage_step"
-require 'the coverage partition reporter needs a token' \
-  'GH_TOKEN: ${{ github.token }}' "$coverage_step"
-require 'the coverage partition reporter must run from the repository root' \
-  'working-directory: .' "$coverage_step"
-require 'the coverage partition reporter must name the partition jobs exactly' \
-  'run: bash scripts/report-ci-failures.sh '"'"'^coverage \([1-4]/4\)$'"'"' "${{ needs.coverage-partition.result }}"' \
-  "$coverage_step"
-
-require 'the coverage gate reporter must run only when the gate did not succeed' \
-  "needs.coverage.result != 'success'" "$test_step"
-require 'the coverage gate reporter needs a token' \
+require 'the test partition reporter must run only when a partition did not succeed' \
+  "needs.coverage-partition.result != 'success'" "$test_step"
+require 'the test partition reporter needs a token' \
   'GH_TOKEN: ${{ github.token }}' "$test_step"
-require 'the coverage gate reporter must run from the repository root' \
+require 'the test partition reporter must run from the repository root' \
   'working-directory: .' "$test_step"
-require 'the coverage gate reporter must name the coverage jobs exactly' \
-  'run: bash scripts/report-ci-failures.sh '"'"'^coverage( \([1-4]/4\))?$'"'"' "${{ needs.coverage.result }}"' \
+require 'the test partition reporter must name the partition jobs exactly' \
+  "run: bash scripts/report-ci-failures.sh '^coverage \\([1-4]/4\\)$' \"\${{ needs.coverage-partition.result }}\"" \
   "$test_step"
 
-# The rollups must still depend on what they report on. The dependency list may
-# carry other jobs (the docs-only path classifier), so match the edge, not the
-# whole `needs:` line.
-if ! grep -Eq '^    needs: (coverage-partition$|\[[^]]*\bcoverage-partition\b[^]]*\])' <<<"$coverage_job"; then
-  echo "the coverage rollup must depend on coverage-partition" >&2
+if ! grep -Eq '^    needs: (coverage-partition$|\[[^]]*\bcoverage-partition\b[^]]*\])' <<<"$test_job"; then
+  echo "the test rollup must depend on coverage-partition" >&2
   exit 1
 fi
-if ! grep -Eq '^    needs: (coverage$|\[[^]]*\bcoverage\b[^]]*\])' <<<"$test_job"; then
-  echo "the test rollup must depend on coverage" >&2
-  exit 1
-fi
-grep -Fq 'actions: read' <<<"$coverage_job"
 grep -Fq 'actions: read' <<<"$test_job"
 
-if [[ "$(grep -Fc 'run: bash scripts/report-ci-failures.sh' "$workflow")" -ne 2 ]]; then
+if [[ "$(grep -Fc 'run: bash scripts/report-ci-failures.sh' "$workflow")" -ne 1 ]]; then
   echo "every CI failure reporter invocation must be covered by a structural assertion" >&2
   exit 1
 fi

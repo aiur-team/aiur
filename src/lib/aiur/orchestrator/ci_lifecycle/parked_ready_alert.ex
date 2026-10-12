@@ -162,9 +162,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert do
 
   defp parked_ready_alert_topic(target), do: "ticket.#{target}.pr.parked_ready"
 
-  @doc false
-  @spec alert_emitter(term()) :: term()
-  def alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
   defp put_parked_ready_alerts(%State{} = state, alerts) do
     %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :parked_ready_alerts, alerts)}
@@ -187,17 +185,14 @@ defmodule Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert do
     end
   end
 
-  # Restart dedupe: an alert that was still active before a restart is reloaded
-  # once from the durable alert ledger so the first poll after boot does not
+  # Reload active alerts from the durable ledger so the first boot poll does not
   # re-fire it for a still-parked PR. Targets that left the poll set entirely
   # are resolved by `resolve_departed_parked_ready_alerts/3` instead.
   defp seed_parked_ready_alerts(opts) do
     seed_active_alerts(opts, :parked_ready_alert_loader, "parked_ready")
   end
 
-  @doc false
-  @spec seed_active_alerts(term(), term(), term()) :: term()
-  def seed_active_alerts(opts, loader_key, alert_name) do
+  defp seed_active_alerts(opts, loader_key, alert_name) do
     case Keyword.fetch(opts, loader_key) do
       {:ok, loader} ->
         loader.()

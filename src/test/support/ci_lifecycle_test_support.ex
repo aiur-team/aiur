@@ -117,11 +117,12 @@ defmodule Aiur.CiLifecycleTestSupport do
   def poll_ci(state, issue, result, opts \\ []) do
     next =
       CiLifecycle.poll_github_ci(
-        state,
+        %{state | last_ci_poll_started_at_ms: nil},
         Keyword.merge(
           [
             # Hermetic: parked-ready restart dedupe seeds from the durable
             # alert ledger; tests never read the real ledger.
+            ci_failure_digest: fn _, _ -> {:ok, %Aiur.CI.FailureDigest{}} end,
             parked_ready_alert_loader: fn -> MapSet.new() end,
             draft_stall_alert_loader: fn -> MapSet.new() end,
             ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,

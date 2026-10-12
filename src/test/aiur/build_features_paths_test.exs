@@ -10,7 +10,7 @@ defmodule Aiur.BuildFeaturesPathsTest do
     end)
 
     root = Aiur.TestSupport.tmp_root!("features-path")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     Application.put_env(:aiur, :build_features_state_dir, root)
     assert Paths.build_features_state_dir() == {:ok, root}
     Application.delete_env(:aiur, :build_features_state_dir)
