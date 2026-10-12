@@ -3,9 +3,12 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   require Logger
 
-  alias Aiur.{CurrentRunMembership, Issue, TrackerIdentity}
+  alias Aiur.{Alerts, CurrentRunMembership, Issue, TrackerIdentity}
+  alias Aiur.Orchestrator.{OptimisticLedger, State}
+  alias Aiur.RunTelemetry.Lifecycle
 
   @membership_observe_timeout 5_000
+  @terminal_verification_attempt_limit 5
 
   @spec record(term(), atom(), (TrackerIdentity.t(), atom() -> term())) ::
           :ok | {:error, :membership_observation_failed}
@@ -13,6 +16,8 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   def record(%Issue{} = issue, lifecycle, observe_membership_fun)
       when is_function(observe_membership_fun, 2) do
+    if lifecycle in [:completed, :cancelled], do: OptimisticLedger.close_observed(issue)
+
     case Issue.tracker_identity(issue) do
       %TrackerIdentity{} = identity ->
         if TrackerIdentity.joinable?(identity),
@@ -27,6 +32,29 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   def record(_issue, _lifecycle, _observe_membership_fun), do: :ok
 
   @doc false
+  @spec bound_terminal_verification(State.t(), [String.t()], [String.t()]) :: {State.t(), [String.t()]}
+  def bound_terminal_verification(state, attempted_ids, pending_ids) do
+    {attempts, abandoned_ids} =
+      Enum.reduce(attempted_ids, {state.terminal_verification_attempts, []}, fn id, {attempts, abandoned} ->
+        count = Map.get(attempts, id, 0) + 1
+
+        cond do
+          id not in pending_ids ->
+            {Map.delete(attempts, id), abandoned}
+
+          count < @terminal_verification_attempt_limit ->
+            {Map.put(attempts, id, count), abandoned}
+
+          true ->
+            alert_terminal_verification_abandoned(Map.fetch!(state.last_polled_issues, id), count)
+            {Map.delete(attempts, id), [id | abandoned]}
+        end
+      end)
+
+    {%{state | terminal_verification_attempts: attempts}, pending_ids -- abandoned_ids}
+  end
+
+  @doc false
   @spec observe(TrackerIdentity.t(), atom()) :: :ok | {:error, :membership_observation_failed}
   def observe(identity, lifecycle) do
     case CurrentRunMembership.observe(identity, lifecycle,
@@ -34,6 +62,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
            timeout: @membership_observe_timeout
          ) do
       {:ok, _result} ->
+        capture_terminal(identity, lifecycle)
         :ok
 
       {:error, reason} ->
@@ -59,6 +88,25 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   end
 
   def terminal_lifecycle(_state), do: :completed
+
+  defp alert_terminal_verification_abandoned(issue, count) do
+    Alerts.emit_system("ticket.#{issue.identifier}.terminal_verification_abandoned",
+      issue: issue.identifier,
+      message: "Terminal verification abandoned for #{issue.identifier} after #{count} attempts.",
+      reason: "Tracker refresh or membership persistence remained unresolved after #{count} attempts; stopped retaining the ticket.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
+  end
+
+  defp capture_terminal(identity, lifecycle) do
+    Lifecycle.terminal_capture(identity, lifecycle)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
 
   defp safely_observe(observe_membership_fun, identity, lifecycle) do
     case observe_membership_fun.(identity, lifecycle) do

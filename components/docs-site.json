@@ -1,0 +1,22 @@
+{
+  "id": "docs-site",
+  "name": "Docs site and the component directory page",
+  "layer": 5,
+  "kind": "required",
+  "paths": [
+    "website/docs-app/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}

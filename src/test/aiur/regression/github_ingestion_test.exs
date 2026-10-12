@@ -47,10 +47,10 @@ defmodule Aiur.Regression.GithubIngestionTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      # Tolerant rm_rf: matches the `File.rm_rf/1` teardown convention in
+      # Tolerant rm_rf: matches the `Aiur.TestCleanup.rm_rf!/1` teardown convention in
       # `Aiur.TestSupport`; the dir is unique per test so a rare leftover is
       # harmless.
-      File.rm_rf(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
 
     :ok

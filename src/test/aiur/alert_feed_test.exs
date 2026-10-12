@@ -8,7 +8,7 @@ defmodule Aiur.AlertFeedTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-alert-feed")
     ledger = Path.join(root, "project.alerts.ndjson")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     {:ok, root: root, ledger: ledger}
   end
 

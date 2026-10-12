@@ -28,8 +28,8 @@ defmodule Aiur.ProviderMeterProbeWorkspaceTest do
       literal_root = Path.join(File.cwd!(), configured_root)
 
       on_exit(fn ->
-        File.rm_rf(literal_root)
-        File.rm_rf(root)
+        Aiur.TestCleanup.rm_rf!(literal_root)
+        Aiur.TestCleanup.rm_rf!(root)
       end)
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: configured_root, tracker_kind: "memory")

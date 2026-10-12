@@ -121,7 +121,7 @@ run_session() {
   fi
 
   # The launch phases below read and set these through bash dynamic scope.
-  local no_dashboard=0 surface_mode=interactive session_root crash_dump_baseline_file=""
+  local no_dashboard=0 surface_mode=interactive session_root crash_dump_baseline_file="" supervisor_file=""
   local startup_capture launcher inner_cmd launch_tempfiles=()
   run_session_prepare_env "$@"
   run_session_write_pane_launcher
@@ -165,6 +165,7 @@ run_session() {
     exit 1
   fi
 
+  printf 'ready\n' >>"$supervisor_file"
   write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
   release_aiur_launch_lock "$launch_lock"
   _session_launch_lock=""
@@ -195,7 +196,7 @@ run_session() {
   _session_watchdog_pid="$(start_beam_death_watchdog \
     "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 0 \
     "$AIUR_RELEASE_NODE" "" "" "" "$AIUR_WORKSPACE_ROOT_FILE" \
-    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file")"
+    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file" "$supervisor_file")"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   # Avoid process substitution here: some sandboxed non-TTY launchers reject
@@ -280,13 +281,15 @@ run_session_prepare_env() {
   # resolved Aiur.Config.workspace_root() here after config loads.
   export AIUR_WORKSPACE_ROOT_FILE="${session_root}/aiur-${$}-workspace-root"
   : >"$AIUR_WORKSPACE_ROOT_FILE"
+  supervisor_file="${session_root}/aiur-${$}-supervisor"
+  : >"$supervisor_file"
 
   # Background runs persist under a known run log dir so (a) the BEAM-death
   # watchdog, which outlives the BEAM, can drop a crash record next to aiur.log,
   # and (b) the post-start boot capture is not lost to /tmp when the launcher
   # removes its startup tempfile. Minting it here and exporting it makes the
   # shell and the BEAM (Aiur.LogFile honors AIUR_LOGS_ROOT) agree on one dir.
-  if [ "$mode" = "background" ] && [ -z "${AIUR_LOGS_ROOT:-}" ]; then
+  if [ -z "${AIUR_LOGS_ROOT:-}" ]; then
     AIUR_LOGS_ROOT="$(printf '%s/%s-%s' "$HOME/.aiur/logs" "$(date -u +%Y%m%dT%H%M%SZ)" "$$")"
     export AIUR_LOGS_ROOT
   fi
@@ -348,17 +351,18 @@ run_session_write_pane_launcher() {
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
+    printf 'source %q\n' "$engine_dir/aiur-engine.sh"
+    printf 'supervise_daemon %q %q %q ' "$supervisor_file" "$startup_capture" "$crash_dump_baseline_file"
     printf '%q' "${release_cmd[0]}"
     for arg in "${release_cmd[@]:1}"; do printf ' %q' "$arg"; done
-    printf ' 2>&1 | tee -a "$capture"\n'
-    printf 'exit ${PIPESTATUS[0]}\n'
+    printf '\n'
   } >"$launcher"
 
   printf -v inner_cmd '%q; rc=$?; rm -f %q; exit $rc' "$launcher" "$launcher"
 
   launch_tempfiles=(
     "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE"
-    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE"
+    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" "$supervisor_file"
   )
   [ -n "$AIUR_ALERT_LEDGER_PATH_FILE" ] && launch_tempfiles+=("$AIUR_ALERT_LEDGER_PATH_FILE")
   [ -n "$crash_dump_baseline_file" ] && launch_tempfiles+=("$crash_dump_baseline_file")
@@ -433,12 +437,10 @@ run_session_arm_background_watchdog() {
     "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1 \
     "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
     "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE" \
-    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file")"
+    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file" "$supervisor_file")"
   disown "$background_watchdog_pid" 2>/dev/null || true
   echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
-  # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
-  # transient argv file is no longer needed.
-  rm -f "$argv_file" 2>/dev/null || true
+  # The supervisor retains argv for recovery; stop/watchdog cleanup owns it.
 }
 
 attach_tmux_session() {

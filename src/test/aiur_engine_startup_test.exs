@@ -158,9 +158,9 @@ defmodule AiurEngineStartupTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(tmp)
       File.rm(events)
     end)
 
@@ -255,9 +255,9 @@ defmodule AiurEngineStartupTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(tmp)
       File.rm(events)
     end)
 

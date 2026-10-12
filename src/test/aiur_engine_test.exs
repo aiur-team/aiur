@@ -8,7 +8,7 @@ defmodule AiurEngineTest do
     # keyed by the project root — two instances for the same user can't collide (#431).
     home = Aiur.TestSupport.tmp_root!("aiur-identity-home")
     File.mkdir_p!(home)
-    on_exit(fn -> File.rm_rf!(home) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     id = identity([{"HOME", home}, {"XDG_CONFIG_HOME", nil}])
 
     assert id["AIUR_SESSION_PREFIX"] == "aiur"
@@ -91,9 +91,9 @@ defmodule AiurEngineTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     script = """
@@ -152,8 +152,8 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
       """)
 
     on_exit(fn ->
-      File.rm_rf(state)
-      File.rm_rf(tmp)
+      Aiur.TestCleanup.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     script = """
@@ -232,7 +232,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     File.mkdir_p!(home)
     File.mkdir_p!(repo)
     File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       System.cmd(engine(), [],
@@ -259,7 +259,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     repo = Path.join(home, "repo")
     File.mkdir_p!(repo)
     File.write!(Path.join(home, ".aiurconfig"), "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     env = [
       {"HOME", home},
@@ -287,7 +287,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     File.mkdir_p!(home)
     File.mkdir_p!(repo)
     File.write!(legacy, "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       System.cmd(engine(), [legacy],
@@ -314,7 +314,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     File.mkdir_p!(home)
     File.mkdir_p!(Path.join(repo, ".aiur"))
     File.write!(Path.join([repo, ".aiur", "config"]), "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       System.cmd(engine(), ["--bg", "--logs-root", Path.join(root, "archive.aiurconfig")],
@@ -341,7 +341,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     File.mkdir_p!(home)
     File.mkdir_p!(repo)
     File.write!(Path.join(home, ".aiurconfig"), "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       System.cmd(engine(), [],
@@ -370,7 +370,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     File.mkdir_p!(repo)
     File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
     File.write!(canonical, "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       System.cmd(engine(), [canonical],
@@ -398,7 +398,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
     File.write!(Path.join(repo, "--portable.yaml"), "tracker:\n  kind: memory\n")
     File.write!(Path.join(repo, "--portable.aiurconfig"), "tracker:\n  kind: memory\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     env = [
       {"HOME", home},
@@ -448,7 +448,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
 
   test "a missing engine module aborts by path before any command runs" do
     root = Aiur.TestSupport.tmp_root!("aiur-engine-modules")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     File.cp_r!(Path.dirname(engine()), root)
     File.rm!(Path.join(root, "engine/upgrade.sh"))
 

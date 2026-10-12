@@ -23,7 +23,7 @@
     "test:performance": "node scripts/run-browser-tests.mjs tests/build-order-performance.browser.spec.mjs",
     "test:responsive": "node scripts/run-browser-tests.mjs tests/build-order-responsive.browser.spec.mjs",
     "test:ticket-context": "node scripts/run-browser-tests.mjs tests/ticket-context.browser.spec.mjs",
-    "test:units": "node scripts/run-browser-tests.mjs tests/units.browser.spec.mjs",
+    "test:units": "node scripts/run-browser-tests.mjs tests/units.browser.spec.mjs tests/units-voice.browser.spec.mjs tests/units-tickets.browser.spec.mjs",
     "test:provider-meters": "node scripts/run-browser-tests.mjs tests/provider_meters.browser.spec.mjs",
     "test:meter-row": "node scripts/run-browser-tests.mjs tests/meter-row.browser.spec.mjs",
     "test:models-panel": "node scripts/run-browser-tests.mjs tests/models-panel.browser.spec.mjs",

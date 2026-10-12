@@ -21,7 +21,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      File.rm_rf(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
 
     %{tmp_dir: tmp_dir}

@@ -15,7 +15,7 @@ defmodule Aiur.DecisionArtifactTest do
 
     root = Aiur.TestSupport.tmp_root!("aiur-decision-artifact")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     %{root: root}
   end
@@ -54,7 +54,7 @@ defmodule Aiur.DecisionArtifactTest do
         Aiur.TestSupport.tmp_root!("aiur-artifact-outside")
 
       File.mkdir_p!(outside_dir)
-      on_exit(fn -> File.rm_rf!(outside_dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(outside_dir) end)
 
       target = Path.join(outside_dir, "secret.md")
       File.write!(target, "secret")
