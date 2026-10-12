@@ -1,5 +1,12 @@
 defmodule Aiur.GitHub.MembershipAccess do
-  @moduledoc false
+  @moduledoc """
+  Serializes membership access through the resource store owner.
+
+  An owner timeout or exit exits `{:membership_unavailable, reason}`; a timeout
+  carries `{:aiur, :unknown, :timeout}` (see `Aiur.GitHub.Errors.outcome/1`). The
+  queued call may still run later, so callers must reconcile rather than assume
+  it did not happen.
+  """
 
   @table Aiur.GitHub.ResourceStore.Table
 
@@ -18,6 +25,7 @@ defmodule Aiur.GitHub.MembershipAccess do
     # A queued call may still execute after a timeout. Neither timeout nor
     # owner death proves a write completed (or that a read found no members).
     # Keep the failure distinct so webhook delivery cannot confirm old data.
+    :exit, {:timeout, _call} -> exit({:membership_unavailable, {:aiur, :unknown, :timeout}})
     :exit, reason -> exit({:membership_unavailable, reason})
   end
 

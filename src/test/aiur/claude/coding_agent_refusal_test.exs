@@ -14,7 +14,7 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",
@@ -81,7 +81,7 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",
@@ -177,7 +177,7 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",
@@ -212,7 +212,7 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",
@@ -267,7 +267,7 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",

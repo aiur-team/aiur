@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.RequestLogTest do
 
   defp tmp_path do
     path = Path.join(System.tmp_dir!(), "aiur-request-log-#{System.unique_integer([:positive])}.tsv")
-    on_exit(fn -> File.rm_rf(path) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
     path
   end
 

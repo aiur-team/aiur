@@ -1,0 +1,20 @@
+{
+  "id": "mobile-app",
+  "name": "Phone app (MP-N1)",
+  "layer": 5,
+  "kind": "optional",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}

@@ -3,10 +3,11 @@ Code.require_file("../../support/build_queue_planner_fixture.exs", __DIR__)
 defmodule Aiur.BuildQueue.PRObserverTest do
   use Aiur.TestSupport
   use Aiur.TestSupport.EventTicket
-  alias Aiur.BuildQueue.{PlannerFixture, Reconcile, Server}
+  alias Aiur.BuildQueue.{Model.Observation, PlannerFixture, PRObserver, Readiness, Reconcile, Server}
   alias Aiur.Events.Exchange
   alias Aiur.Events.GithubWebhook.Deposit
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.StartTrigger
   alias Aiur.StartTrigger.ProgressStore
   alias Aiur.{Tracker, Workflow}
 
@@ -19,6 +20,10 @@ defmodule Aiur.BuildQueue.PRObserverTest do
       do: {:ok, %{"1" => %{labels: ["agent:queued"]}, Application.fetch_env!(:aiur, :pr_observer_ticket) => %{labels: []}}, Application.fetch_env!(:aiur, :pr_observer_observed_at)}
 
     def ticket_pull_request(id), do: Tracker.ticket_pull_request(id)
+  end
+
+  defmodule OpenPR do
+    def ticket_pull_request(_id), do: {:ok, %{number: 99, state: :open, merged?: false}}
   end
 
   defmodule QueueStore do
@@ -74,8 +79,28 @@ defmodule Aiur.BuildQueue.PRObserverTest do
     deposit(%{})
     assert {[%{state: :failed_prerequisite, verdict: {:failed, [:pr_closed_unmerged]}}], actions, observations, _} = plan(state)
     assert observations[ticket].pr == :closed_unmerged
+    assert observations[ticket].pr_number == 77
     assert {:attention_open, {{:prerequisite_failed, :pr_closed_unmerged}, ticket}} in actions
     refute {:promote, "1"} in actions
+  end
+
+  test "fresh open PR identity survives absent and label-only progress rows", %{state: state} do
+    ticket = ticket_id()
+    observation = %Observation{issue_id: ticket, open?: true, labels: ["agent:ci-wait"], state_reason: nil, pr: nil, observed_at_ms: state.clock.()}
+    state = %{state | tracker: OpenPR}
+    assert ProgressStore.lookup(ticket) == nil
+    {observations, _} = PRObserver.observe(%{ticket => observation}, state)
+    assert observations[ticket].pr_number == 99
+    ProgressStore.record(ticket, %{pr_number: nil, stage: :pr_opened, observed_at_ms: state.clock.(), source: :test})
+    :sys.get_state(ProgressStore)
+    {observations, _} = PRObserver.observe(%{ticket => observation}, state)
+    assert observations[ticket].pr_number == 99
+    evidence = Readiness.evidence(observations[ticket], "agent")
+    assert StartTrigger.describe(:pr_ci_green, evidence, :pending) == "##{ticket} needs pr_ci_green (now pr_opened, PR #99)"
+    ProgressStore.record(ticket, %{pr_number: 100, stage: :pr_opened, observed_at_ms: state.clock.(), source: :test})
+    :sys.get_state(ProgressStore)
+    {observations, _} = PRObserver.observe(%{ticket => observation}, %{state | tracker: Claims})
+    assert observations[ticket].pr_number == 100
   end
 
   test "publishes once per observed closed version and observes reopening", %{state: state} do

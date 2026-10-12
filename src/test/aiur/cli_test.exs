@@ -1,5 +1,5 @@
 defmodule Aiur.CLITest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
 

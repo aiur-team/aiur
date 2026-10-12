@@ -12,7 +12,7 @@ defmodule Aiur.Config.PathsTest do
     end)
 
     root = Aiur.TestSupport.tmp_root!("history-path")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     Application.put_env(:aiur, :build_history_state_dir, root)
     assert Paths.build_history_state_dir() == {:ok, root}
     Application.delete_env(:aiur, :build_history_state_dir)
@@ -26,7 +26,7 @@ defmodule Aiur.Config.PathsTest do
 
     on_exit(fn ->
       if is_nil(original), do: Application.delete_env(:aiur, :epic_overrides_state_dir), else: Application.put_env(:aiur, :epic_overrides_state_dir, original)
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     Application.put_env(:aiur, :epic_overrides_state_dir, root)

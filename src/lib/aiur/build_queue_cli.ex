@@ -58,10 +58,11 @@ defmodule Aiur.BuildQueueCLI do
 
   defp print_queue(queue) do
     IO.puts("#{queue["name"]}  #{progress(queue["progress"])}#{if queue["held"], do: "  held", else: ""}")
+    if queue["start_trigger"], do: IO.puts("  start on #{queue["start_trigger"]}#{if queue["start_trigger_source"] == "config", do: " (default)", else: ""}")
     IO.puts("  pos  ticket  state  waiting on  rank")
 
     Enum.each(queue["items"], fn item ->
-      IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{waiting(item["prerequisites"])}  #{rank(item)}#{attention(item)}")
+      IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{item_waiting(item)}  #{rank(item)}#{attention(item)}")
     end)
   end
 
@@ -71,10 +72,13 @@ defmodule Aiur.BuildQueueCLI do
     if is_number(progress["percent"]), do: "#{rendered} (completed #{progress["completed"] || "unknown"}/#{progress["total"] || "unknown"})", else: rendered
   end
 
+  defp item_waiting(%{"reason" => "queue_set_order:" <> _ = reason}), do: reason
+  defp item_waiting(item), do: waiting(item["prerequisites"])
+
   defp waiting(prerequisites) do
-    case Enum.reject(prerequisites, &(&1["verdict"] == "satisfied")) do
+    case Enum.reject(prerequisites, &(&1["verdict"] == "satisfied" and &1["optimistic"] != true)) do
       [] -> "—"
-      edges -> Enum.map_join(edges, ", ", &"##{&1["number"]} #{&1["verdict"]} (#{&1["source"]})")
+      edges -> Enum.map_join(edges, ", ", &(&1["description"] || "##{&1["number"]} #{&1["verdict"]} (#{&1["source"]})"))
     end
   end
 

@@ -13,7 +13,7 @@ import tempfile
 source = Path(sys.argv[1])
 checker = source / 'scripts/check-file-size.py'
 workflow = (source / '.github/workflows/ci.yml').read_text()
-job = workflow.split('  workflow-security:', 1)[1].split('  merge-ruleset-drift:', 1)[0]
+job = workflow.split('  workflow-security:', 1)[1].split('  build:', 1)[0]
 assert 'docs_only' not in job
 assert 'fetch-depth: 0' in job
 assert 'run: bash scripts/test-check-file-size.sh' in job
@@ -38,7 +38,7 @@ def write(repo, files):
     for name, data in files.items():
         path = repo / name
         if data is None:
-            path.unlink()
+            path.unlink(missing_ok=True)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -60,6 +60,8 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     repo = root / 'repo'
     repo.mkdir()
     git(repo, 'init', '-q', '-b', 'feature')
+    for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+        git(repo, 'config', key, value)
     git(repo, 'config', 'user.email', 'fixture@example.invalid')
     git(repo, 'config', 'user.name', 'Fixture')
     cases = [
@@ -150,4 +152,38 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
                             env=dict(env, EVENT_NAME='pull_request', PR_BASE=base), capture_output=True, text=True)
     assert result.returncode == 1 and 'website/docs-app/oversized.md: base 0 -> head 501' in result.stdout, result
     print('PASS: website-only PR fixture runs the workflow gate')
+
+    # Lockfile class: a fake npm "regenerates" whatever FAKE_LOCK holds, so each case controls the tool's output.
+    tools = root / 'tools'
+    tools.mkdir()
+    (tools / 'npm').write_text('#!/bin/sh\ncp "$FAKE_LOCK" package-lock.json\n')
+    (tools / 'npm').chmod(0o755)
+    generated = lines(3028)
+    (root / 'generated').write_bytes(generated)
+    lock_env = dict(os.environ, FAKE_LOCK=str(root / 'generated'))
+
+    def lock_case(title, files, expected, snippet, env):
+        write(repo, {'pkg/package.json': b'{}\n', 'pkg/package-lock.json': None, 'pkg/data.json': None})
+        base = commit(repo)
+        write(repo, files)
+        head = commit(repo)
+        result = subprocess.run(['python3', str(checker), '--base', base, '--head', head], cwd=repo,
+                                env=env, capture_output=True, text=True)
+        assert result.returncode == expected and snippet in result.stdout, (title, result)
+        print(f'PASS: {title}')
+
+    with_tools = dict(lock_env, PATH=f'{tools}:{os.environ["PATH"]}')
+    offline = root / 'offline'
+    offline.mkdir()
+    (offline / 'npm').write_text('#!/bin/sh\nexit 1\n')
+    (offline / 'npm').chmod(0o755)
+    no_tools = dict(lock_env, PATH=f'{offline}:{os.environ["PATH"]}')
+    lock_case('generated lockfile above 500 lines is exempt', {'pkg/package-lock.json': generated}, 0,
+              'pkg/package-lock.json: 3028 lines; exempt', with_tools)
+    lock_case('hand-edited lockfile fails', {'pkg/package-lock.json': generated.replace(b'x', b'y', 1)}, 1,
+              'pkg/package-lock.json: base 0 -> head 3028', with_tools)
+    lock_case('lockfile fails closed when the registry is unreachable', {'pkg/package-lock.json': generated}, 1,
+              'lockfile unverified', no_tools)
+    lock_case('501-line non-lockfile JSON still fails', {'pkg/data.json': lines(501)}, 1,
+              'pkg/data.json: base 0 -> head 501', with_tools)
 PY

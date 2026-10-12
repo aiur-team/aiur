@@ -21,7 +21,7 @@ defmodule Aiur.TestBootstrapConfigTest do
     config = Config.Reader.read!(@config_path, env: :test)
 
     workflow_file_path = config[:aiur][:workflow_file_path]
-    on_exit(fn -> File.rm_rf!(config[:aiur][:test_state_root]) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(config[:aiur][:test_state_root]) end)
 
     assert is_binary(workflow_file_path)
     assert Path.basename(workflow_file_path) == "test.yaml"

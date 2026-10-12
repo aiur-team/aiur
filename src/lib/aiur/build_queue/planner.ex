@@ -112,7 +112,7 @@ defmodule Aiur.BuildQueue.Planner do
         id in unknown
 
       {:dependency_changed_after_start, id} ->
-        Enum.any?(states, &(&1.issue_id == id and &1.state not in [:removed, :completed, :cancelled] and (&1.state == :unknown or &1.verdict != :ready)))
+        not optimistic?(id, context) and Enum.any?(states, &(&1.issue_id == id and &1.state not in [:removed, :completed, :cancelled] and (&1.state == :unknown or &1.verdict != :ready)))
 
       {:merged_issue_open, id} ->
         strict_prerequisite?(id, context) and not match?(%Observation{open?: false}, context.input.observations[id])
@@ -138,10 +138,12 @@ defmodule Aiur.BuildQueue.Planner do
   defp attention_keys(%{state: :promoted_unauthorized, issue_id: id}, _context), do: [{:promoted_unauthorized, id}]
 
   defp attention_keys(%{state: :claimed, verdict: verdict, issue_id: id}, context) when verdict != :ready do
-    if Enum.any?(context.input.items, &(&1.issue_id == id and &1.promoted_at != nil)), do: [{:dependency_changed_after_start, id}], else: []
+    if not optimistic?(id, context) and Enum.any?(context.input.items, &(&1.issue_id == id and &1.promoted_at != nil)), do: [{:dependency_changed_after_start, id}], else: []
   end
 
   defp attention_keys(_state, _context), do: []
+
+  defp optimistic?(id, context), do: MapSet.member?(Keyword.get(context.opts, :optimistic_dependents, MapSet.new()), id)
 
   defp failed_keys(%{state: state}, _context) when state in [:removed, :completed, :cancelled], do: []
 
