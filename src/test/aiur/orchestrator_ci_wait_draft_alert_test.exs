@@ -50,9 +50,14 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     state = poll_ci(state, issue, draft, emitter, 400_000)
     refute_received {:alert, ^ref, ^alert_topic, _opts}
 
-    _state = poll_ci(state, issue, draft, emitter, 700_000)
+    state = poll_ci(state, issue, draft, emitter, 700_000)
     assert_received {:alert, ^ref, ^alert_topic, alert_opts}
     assert Keyword.get(alert_opts, :needs_attention) == true
+
+    outside_ci_wait = %{issue | state: "in-progress"}
+    _state = poll_ci(state, outside_ci_wait, draft, emitter, 701_000)
+    assert_received {:alert, ^ref, ^resolved_topic, resolved_opts}
+    assert Keyword.get(resolved_opts, :needs_attention) == false
   end
 
   defp poll_ci(state, issue, result, emitter, now_ms) do

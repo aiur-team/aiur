@@ -16,6 +16,7 @@ defmodule Aiur.OrchestratorCiWaitDraftReviewTest do
     previous = Application.fetch_env!(:aiur, :tracker_adapters)
     Application.put_env(:aiur, :tracker_adapters, Map.put(previous, "github", RecordingTracker))
     Application.put_env(:aiur, :ci_draft_review_recipient, self())
+
     write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "github",
       tracker_repo: "owner/repo",
