@@ -33,4 +33,18 @@ defmodule Aiur.Shell do
       escape(value)
     end
   end
+
+  @doc "Shell fragment assigning `raw_path` to `variable_name`, expanding a leading `~` on the executing host."
+  @spec remote_assign(String.t(), String.t()) :: String.t()
+  def remote_assign(variable_name, raw_path)
+      when is_binary(variable_name) and is_binary(raw_path) do
+    [
+      "#{variable_name}=#{escape(raw_path)}",
+      "case \"$#{variable_name}\" in",
+      "  '~') #{variable_name}=\"$HOME\" ;;",
+      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#\\~/}\" ;;",
+      "esac"
+    ]
+    |> Enum.join("\n")
+  end
 end

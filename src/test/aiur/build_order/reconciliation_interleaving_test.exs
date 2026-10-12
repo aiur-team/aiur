@@ -9,10 +9,7 @@ defmodule Aiur.BuildOrder.ReconciliationInterleavingTest do
   @full "#{@owner}/#{@repo}"
 
   setup do
-    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub),
-      do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     unless Process.whereis(ResourceStore), do: start_supervised!({ResourceStore, path: nil})
     ResourceStore.clear(:sub_issue, @owner, @repo)

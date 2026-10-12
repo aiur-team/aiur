@@ -14,7 +14,7 @@ defmodule Aiur.BuildQueue.ClearTest do
       if (state.fail_outcome and Enum.any?(doc.intents, &(&1.outcome == :ok))) or (state.fail_empty and doc.intents == []), do: {:error, :disk_full}, else: Store.save(doc)
     end
 
-    def open_issue_labels(_), do: Agent.get(__MODULE__, &if(&1.available, do: {:ok, &1.labels, &1.now}, else: {:error, :offline}))
+    def open_issue_labels(_), do: Agent.get(__MODULE__, &if(&1.available, do: {:ok, Map.drop(&1.labels, &1.closed_ids), &1.now}, else: {:error, :offline}))
     def blocked_by(_), do: {:ok, []}
     def status(_), do: :unavailable
     def notify_demand(_), do: :ok
@@ -41,6 +41,7 @@ defmodule Aiur.BuildQueue.ClearTest do
          fn ->
            %{
              labels: %{"1" => %{labels: ["agent:queued", "agent:todo"]}, "2" => %{labels: ["agent:queued"]}, "3" => %{labels: ["agent:todo"]}},
+             closed_ids: [],
              now: 1_000,
              calls: [],
              pause: false,
@@ -59,7 +60,7 @@ defmodule Aiur.BuildQueue.ClearTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     :ok = Store.save(document())
@@ -75,6 +76,16 @@ defmodule Aiur.BuildQueue.ClearTest do
     assert Store.load() == {:ok, @empty}
     assert clear(pid) == {:ok, [{"clear", :ok}]}
     assert length(calls()) == 2
+  end
+
+  test "clear removes markers from former members absent from the open listing" do
+    Agent.update(Boundary, &%{&1 | labels: Map.put(&1.labels, "4", %{labels: ["agent:queued"]}), closed_ids: ["4"]})
+    pid = server()
+    completed = %Model.Item{issue_id: "4", queue_id: "q-ab12", position: 1, hold: nil, override: nil, promoted_at: nil, added_at: DateTime.from_unix!(0)}
+    :sys.replace_state(pid, fn state -> %{state | document: %{state.document | items: state.document.items ++ [completed]}} end)
+    assert {:ok, [{"clear", :ok}]} = clear(pid)
+    assert calls() == [{"1", "agent:queued"}, {"2", "agent:queued"}, {"4", "agent:queued"}]
+    assert Store.load() == {:ok, @empty}
   end
 
   test "clear without yes exits one without any writes through CLI or direct RPC" do
@@ -197,7 +208,6 @@ defmodule Aiur.BuildQueue.ClearTest do
          claim_probe: Boundary,
          settings: {:ok, settings},
          clock: fn -> Agent.get(Boundary, & &1.now) end,
-         sleep: fn _ -> :ok end,
          schedule: fn target, message, _ ->
            send(owner, {:scheduled, target, message})
            make_ref()

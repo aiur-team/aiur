@@ -31,7 +31,7 @@ defmodule Aiur.Init.LabelsTest do
   end
 
   defp all_lifecycle_labels do
-    Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+    ["flake"] ++ Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
   end
 
   test "all labels already present: prints created status, no create_labels call" do

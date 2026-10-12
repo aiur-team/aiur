@@ -60,6 +60,8 @@ presence does not promise that its feature is installed or enabled.
 | `commands.supervisor_api` | Supervisor Decision API |
 | `build_orders` | Build Orders |
 | `build_orders.progress` | Build Order progress |
+| `experiments` | Experiment store availability |
+| `experiments.metric_packs` | Metric catalog; `degraded/pack_invalid` for rejected files, `unavailable/disabled` when experiments are disabled |
 | `build_queue` | Queue promotion |
 | `build_queue.build_order_source` | Build Order dependency source for the queue |
 | `conversations.read` | Conversation history |
@@ -82,6 +84,7 @@ presence does not promise that its feature is installed or enabled.
 | `tracker.github` | GitHub tracker |
 | `tracker.linear` | Linear tracker |
 | `accounting.meters` | Provider usage meters |
+| `merge_policy` | Configured merge policy; `mode` is `ci=<mode> local_tests=<mode>` ([configuration](/reference/merge-policy)) |
 
 Per-capability `version` defaults to 1. Registered `route` attributes tell clients
 where to open a feature's dashboard page; do not hard-code those destinations.

@@ -17,7 +17,7 @@ defmodule Aiur.NonElixirValidationInstallTest do
 
     on_exit(fn ->
       if is_nil(previous), do: Workflow.clear_workflow_file_path(), else: Workflow.set_workflow_file_path(previous)
-      File.rm_rf!(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     {:ok, workspace: workspace}

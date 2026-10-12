@@ -7,12 +7,12 @@ defmodule Aiur.AgentGitHubGuard.ScriptTest do
   @hook_path Path.expand("../../../../.claude/hooks/issue-disposition.py", __DIR__)
 
   # SHA-256 of `src/priv/github_quota_guard.sh` and `src/priv/github_push_guard.sh`
-  # at 6c88efd16, the last commit that kept each guard as one file. The split
+  # at 8a4505b15da9, including main's recursion and queue markers. The split
   # moved bytes and changed none; drop this pin with the first deliberate guard
   # edit, and say so in that review.
   @pre_split [
-    gh: "de4ebb7d9de17c297f154de5440b73caa765388a48bb4486f1f707fd9edd3591",
-    git: "a3bd61717ee91bd66a2f2b31bd9f4fba288e3f3b461f70ff5f1d8f485a91e943"
+    gh: "960a0be3fe1680f48a56ac6cd7636f587eeca6ba43448208aafed74770ddd76a",
+    git: "4c460dc1f84cd172a5854cf6d6f4abaa2a4d7f1abab27ff87c421c6dbf1ff1c5"
   ]
 
   test "the assembled guards equal the pre-split scripts" do

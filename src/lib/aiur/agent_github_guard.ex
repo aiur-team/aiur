@@ -14,8 +14,8 @@ defmodule Aiur.AgentGitHubGuard do
 
   @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
   @external_resource @broker_path
-  @gh_script Script.gh()
-  @git_script Script.git()
+  @gh_script Aiur.AgentGitHubGuard.RecursionGuard.splice(Script.gh(), "gh")
+  @git_script Aiur.AgentGitHubGuard.RecursionGuard.splice(Aiur.AgentGitHubGuard.GitScript.compose(Script.git()), "git")
   # The budget broker is embedded at compile time and re-installed into every
   # workspace on each local dispatch (`Provisioner.maybe_install_agent_support`
   # runs `install/1` on every worker attempt). A workspace therefore runs the

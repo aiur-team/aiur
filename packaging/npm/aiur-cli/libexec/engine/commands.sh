@@ -92,6 +92,8 @@ cmd_pause_resume() {
   local command="$1"
   shift
 
+  [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
+
   # Bare `aiur pause` / `aiur resume` (no IDs, no --all) flips the single
   # global pause switch: a daemon-wide halt distinct from per-agent pause.
   if [ "$#" -eq 0 ]; then

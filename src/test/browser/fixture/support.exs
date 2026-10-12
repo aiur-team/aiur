@@ -40,13 +40,13 @@ defmodule Aiur.BrowserHarness.VoiceSTT do
 
   @impl true
   def handle_cast({:push, _pcm}, channel) do
-    send(channel, {:elevenlabs_transcript, :partial, "hello"})
+    send(channel, {:voice_transcript, :partial, "hello"})
     {:noreply, channel}
   end
 
   def handle_cast(:commit, channel) do
-    send(channel, {:elevenlabs_transcript, :final, "hello browser"})
-    send(channel, {:elevenlabs_closed})
+    send(channel, {:voice_transcript, :final, "hello browser"})
+    send(channel, {:voice_closed})
     {:noreply, channel}
   end
 

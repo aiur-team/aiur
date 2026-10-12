@@ -10,7 +10,7 @@ defmodule Aiur.AppServer.RelayAdapterTest do
       File.mkdir_p!(workspace)
       script = Path.join(workspace, "fake.py")
       File.write!(script, fake_server())
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       results =
         for enabled <- [false, true] do

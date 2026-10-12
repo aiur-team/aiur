@@ -13,7 +13,7 @@ defmodule Aiur.AccountsCLIHeadroomTest do
 
     on_exit(fn ->
       if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
-      File.rm_rf!(home)
+      Aiur.TestCleanup.rm_rf!(home)
     end)
 
     %{home: home}
@@ -40,6 +40,14 @@ defmodule Aiur.AccountsCLIHeadroomTest do
 
     stale = capture_io(fn -> assert :ok = AccountsCLI.accounts(true, "codex", snapshot, fn "codex" -> %{stale: true, age_seconds: 7_200, source: "ledger"} end) end)
     assert [%{"freshness" => "stale_ledger", "age_ms" => 7_200_000, "remaining_percent" => nil, "weekly_percent" => nil}] = stale |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
+
+    # A Claude meter reading past the headroom max age (default 1800s) is what
+    # dispatch scores as unknown, so it must not read "fresh" (#4127).
+    old = fn names -> Map.new(snapshot.(names), fn {name, entry} -> {name, %{entry | observed_at: DateTime.add(DateTime.utc_now(), -3_600)}} end) end
+    aged = capture_io(fn -> assert :ok = AccountsCLI.accounts(true, "claude", old, ledger) end)
+    assert [%{"freshness" => "stale", "age_ms" => age_ms, "remaining_percent" => 50}] = aged |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
+    assert age_ms >= 3_600_000
+    assert %{"freshness" => "fresh"} = Enum.find(rows, &(&1["harness"] == "claude"))
 
     text = capture_io(fn -> assert :ok = AccountsCLI.accounts(false, "codex", snapshot, fn "codex" -> nil end) end)
     assert text =~ "remaining_percent=nil"

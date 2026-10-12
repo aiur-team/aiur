@@ -24,7 +24,7 @@ defmodule Aiur.AllowedContributorsFixture do
     test = self()
     {:ok, gh} = Agent.start_link(fn -> %{body: Keyword.get(opts, :body, "user 42\n"), members: Keyword.get(opts, :members, %{}), now: System.os_time(:millisecond)} end)
     dir = Path.join(System.tmp_dir!(), "aiur-ac-#{System.unique_integer([:positive])}")
-    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(dir) end)
+    ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     _ = context
 
     server =

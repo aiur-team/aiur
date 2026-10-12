@@ -1,0 +1,27 @@
+{
+  "id": "voice-conversation",
+  "name": "Conversational voice assistant (MP-E6, new)",
+  "layer": 3,
+  "kind": "optional",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "listener-modes",
+    "voice-stt"
+  ],
+  "optional": [
+    "commands",
+    "conversations",
+    "executor-attention"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}
