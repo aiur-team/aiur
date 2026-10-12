@@ -151,32 +151,32 @@ defmodule AiurWeb.VoiceChannel do
   def handle_in(_event, _payload, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({:elevenlabs_transcript, kind, text}, socket) when kind in [:partial, :final] and is_binary(text) do
+  def handle_info({:voice_transcript, kind, text}, socket) when kind in [:partial, :final] and is_binary(text) do
     push(socket, "transcript", %{"kind" => Atom.to_string(kind), "text" => text})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_error, reason}, socket) when is_binary(reason) do
+  def handle_info({:voice_error, %{message: reason}}, socket) when is_binary(reason) do
     push(socket, "error", %{"reason" => reason})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_closed}, socket) do
+  def handle_info({:voice_closed}, socket) do
     push(socket, "stopped", %{})
     {:noreply, release_stt(socket)}
   end
 
-  def handle_info({:elevenlabs_audio, :chunk, data}, socket) when is_binary(data) do
+  def handle_info({:voice_audio, :chunk, data}, socket) when is_binary(data) do
     push(socket, "audio", %{"data" => Base.encode64(data), "format" => "pcm_44100"})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_audio, :done}, socket) do
+  def handle_info({:voice_audio, :done}, socket) do
     push(socket, "audio_done", %{})
     {:noreply, socket |> assign(:voice_tts, nil) |> release_voice_lease()}
   end
 
-  def handle_info({:elevenlabs_audio, :error, reason}, socket) when is_binary(reason) do
+  def handle_info({:voice_audio, :error, reason}, socket) when is_binary(reason) do
     push(socket, "audio_error", %{"reason" => reason})
     {:noreply, socket |> assign(:voice_tts, nil) |> release_voice_lease()}
   end

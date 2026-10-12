@@ -122,7 +122,7 @@ defmodule Aiur.HttpServerPortCollisionTest do
           Application.delete_env(:aiur, :log_file)
         end
 
-        File.rm_rf!(log_root)
+        Aiur.TestCleanup.rm_rf!(log_root)
       end)
 
       specs = [

@@ -45,6 +45,8 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
 
+An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
+
 Automatic fallback label writes back off per ticket from one dispatch poll, doubling up to ten minutes. Other tickets remain eligible. The third consecutive failure raises `rate_limit_fallback_write_failed` once; a successful write clears the backoff. Backoff is in memory and resets on restart.
 
 ### Retrospective daemon heartbeat gaps

@@ -112,7 +112,7 @@ defmodule AiurWeb.StreamdeckVoiceLatencyTest do
       lags
     else
       receive do
-        {:elevenlabs_transcript, :partial, text} ->
+        {:voice_transcript, :partial, text} ->
           await_until(deadline, started_at, sent_ms, [{lag(started_at, sent_ms), text} | lags])
       after
         remaining -> lags
@@ -126,9 +126,9 @@ defmodule AiurWeb.StreamdeckVoiceLatencyTest do
 
   defp await_final(started_at, sent_ms, lags) do
     receive do
-      {:elevenlabs_transcript, :final, text} -> {text, lags}
-      {:elevenlabs_transcript, :partial, text} -> await_final(started_at, sent_ms, [{lag(started_at, sent_ms), text} | lags])
-      {:elevenlabs_error, reason} -> flunk("provider failed: #{reason}")
+      {:voice_transcript, :final, text} -> {text, lags}
+      {:voice_transcript, :partial, text} -> await_final(started_at, sent_ms, [{lag(started_at, sent_ms), text} | lags])
+      {:voice_error, %{message: reason}} -> flunk("provider failed: #{reason}")
     after
       15_000 -> flunk("no settled transcript within 15s")
     end

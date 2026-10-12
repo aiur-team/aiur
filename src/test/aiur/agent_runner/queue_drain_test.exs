@@ -26,7 +26,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       # A late log writer can recreate an entry between rm_rf's directory
       # listing and final rmdir under CI load. As documented in #461/#480,
       # tolerate that race for this unique test root instead of raising.
-      File.rm_rf(log_root)
+      Aiur.TestCleanup.rm_rf!(log_root, unset: [:runtime_state_dir])
     end)
 
     %{log_root: log_root}

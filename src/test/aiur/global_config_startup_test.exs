@@ -10,7 +10,7 @@ defmodule Aiur.GlobalConfigStartupTest do
     path = Path.join(home, ".aiur/config")
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, "tracker:\n  kind: github\n  base_branch: main\n  github:\n    label_prefix: agent\n")
-    on_exit(fn -> File.rm_rf!(home) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     parent = self()
 
     request = fn req ->

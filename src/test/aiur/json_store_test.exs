@@ -6,7 +6,7 @@ defmodule Aiur.JsonStoreTest do
   setup do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_json_store_test")
     File.mkdir_p!(tmp_dir)
-    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp_dir) end)
     %{tmp_dir: tmp_dir}
   end
 

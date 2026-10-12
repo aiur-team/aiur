@@ -3,17 +3,21 @@ defmodule Aiur.Orchestrator.WaitingReason do
   Derives one explicit fleet-row waiting reason for OCC-5. Every branch names
   a concrete cause or `:active` — never a generic "blocked".
 
-  Classification and descriptions use supplied facts only. Status rows
-  attach existing in-memory evidence without querying stores or persisting it.
+  Classification uses supplied facts. Status rows attach held dependency
+  evidence and trigger settings without tracker I/O or persistence.
   """
 
   require Logger
 
+  alias Aiur.BuildQueue.Hints
+  alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
           :waiting_for_human
           | :waiting_for_supervisor
+          | :optimistic_share
           | :waiting_for_dependency
           | :waiting_for_ci
           | :waiting_for_review
@@ -30,6 +34,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :claim_released
           | :orphaned_claim
           | :stale_claim
+          | :workspace_retained
           | :workspace_ownership_waiting
           | :active
 
@@ -38,6 +43,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     waiting_for_human: "Executor",
     waiting_for_supervisor: "Executor",
     waiting_for_dependency: "DispatchPolicy",
+    optimistic_share: "DispatchPolicy",
     waiting_for_ci: "CiLifecycle",
     waiting_for_review: "Executor",
     paused: "PauseResume",
@@ -54,6 +60,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     orphaned_claim: "StartupClaimReconciler",
     stale_claim: "Reconciler",
     workspace_ownership_waiting: "Workspace.Ownership",
+    workspace_retained: "Workspace.Ownership",
     active: "AgentRunner"
   }
 
@@ -61,8 +68,15 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def describe(reason, facts) do
     {cause, since} = evidence(reason, facts)
     owner = if reason == :backing_off and facts[:capacity_hold_active?], do: "Dispatcher", else: Map.fetch!(@owners, reason)
-    %{reason: reason, owner: owner, cause: cause || :unknown, since: since}
+    %{reason: reason, owner: owner, cause: cause || :unknown, since: since} |> dependency_details(reason, facts)
   end
+
+  defp dependency_details(waiting, :waiting_for_dependency, facts) do
+    issue = %Issue{id: facts[:issue_id], blocked_by: facts[:blocked_by]}
+    Map.merge(waiting, %{trigger: Hints.trigger_for(issue.id), description: DispatchPolicy.describe_dependency_hold(issue, DispatchPolicy.terminal_state_set())})
+  end
+
+  defp dependency_details(waiting, _reason, _facts), do: waiting
 
   defp evidence(:backing_off, %{capacity_hold_active?: true} = facts), do: {facts[:hold_cause], facts[:hold_since]}
   defp evidence(:backing_off, facts), do: {facts[:error], facts[:last_failure_at]}
@@ -84,9 +98,11 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # carries no creation time, and the lifetime latch persists only a dispatch
   # count. They report `since: nil` ("since unknown"), never another clock.
   defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
+  defp evidence(:optimistic_share, _facts), do: {:optimistic_share, nil}
   defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
 
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
+  defp evidence(:workspace_retained, facts), do: {facts[:workspace_retention][:cause], facts[:workspace_retention][:since]}
   defp evidence(:workspace_ownership_waiting, facts), do: {facts[:workspace_wait][:cause] || facts[:workspace_wait][:owner], facts[:workspace_wait][:since]}
   defp evidence(:unresponsive, facts), do: {:activity_timeout, facts[:last_codex_timestamp] || facts[:started_at]}
   defp evidence(:tracker_unavailable, facts), do: {facts[:dispatch_hold_reason], facts[:hold_since]}
@@ -120,6 +136,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
       released_at: monotonic_since(release[:released_at_ms], now),
       hold_since: monotonic_since(hold[:held_since_ms], now),
       hold_cause: hold[:detail] || hold[:signal],
+      workspace_retention: retained(row.identifier),
       workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
     }
   end
@@ -161,9 +178,12 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render_wait(%{waiting: %{reason: :active, owner: "AgentRunner"}}), do: ""
 
   def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age} = waiting}),
-    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_pending_ids(waiting)
+    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_dependency(waiting) <> render_pending_ids(waiting)
 
   def render_wait(_row), do: ""
+
+  defp render_dependency(%{reason: :waiting_for_dependency, description: description}), do: " · #{description}"
+  defp render_dependency(_waiting), do: ""
 
   defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
   defp render_pending_ids(_waiting), do: ""
@@ -179,6 +199,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
   end
 
   def public_wait(_row), do: nil
+
+  defp retained(nil), do: nil
+  defp retained(identifier), do: Retention.for_ticket(identifier)
 
   @doc false
   @spec workspace_recovery?(map(), term(), term()) :: boolean()
@@ -224,6 +247,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
+      Map.get(attrs, :workspace_retained?) -> :workspace_retained
       Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
       unresponsive?(attrs) -> :unresponsive
       # A duration-capped pause is one consistent state, never re-labelled by
@@ -260,6 +284,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @spec render(t()) :: String.t()
   def render(:waiting_for_human), do: "waiting_for_human"
   def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
+  def render(:optimistic_share), do: "optimistic_share"
   def render(:waiting_for_dependency), do: "waiting_for_dependency"
   def render(:waiting_for_ci), do: "waiting_for_ci"
   def render(:waiting_for_review), do: "waiting_for_review"
@@ -284,7 +309,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
   only ever true for a `todo` issue with an unresolved dependency (see
-  `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`).
+  `DispatchPolicy.todo_issue_held_by_dependency?/2`).
 
   The fourth argument is a keyword list of idle-reason evidence so #1457 can
   render *why* a row is idle rather than a bare "idle":
@@ -347,17 +372,25 @@ defmodule Aiur.Orchestrator.WaitingReason do
       # envelope. Release may require provider-exit proof, so it is not always
       # self-clearing. It outranks the tracker-state classifications below,
       # which would misreport the row as an orphaned or stale claim (#2810).
+      Keyword.get(opts, :workspace_retained?, false) ->
+        :workspace_retained
+
       Keyword.get(opts, :workspace_recovery?, false) ->
         :workspace_ownership_waiting
 
       Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
         dispatch_hold_or_tracker_state(tracker_state, opts)
 
-      Keyword.get(opts, :capacity_hold_active?, false) ->
-        capacity_or_tracker_state(tracker_state, opts)
-
       true ->
-        idle_by_tracker_state(tracker_state, opts)
+        capacity_classification(tracker_state, opts)
+    end
+  end
+
+  defp capacity_classification(tracker_state, opts) do
+    cond do
+      Keyword.get(opts, :optimistic_share?, false) -> :optimistic_share
+      Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state, opts)
+      true -> idle_by_tracker_state(tracker_state, opts)
     end
   end
 

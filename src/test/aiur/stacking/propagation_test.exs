@@ -28,7 +28,7 @@ defmodule Aiur.Workspace.PropagationTest do
     File.write!(Path.join(work, "C"), "C\n")
     c = commit(work, "C")
     Git.git(work, ["push", "origin", "main", "A", "B", "C"])
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{work: work, a: a, b: b, c: c}
   end
 

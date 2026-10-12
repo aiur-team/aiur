@@ -1,5 +1,6 @@
 defmodule Aiur.CoreTest do
   use Aiur.TestSupport
+  import Aiur.TestSupport.RejectedWorkflow
 
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
@@ -81,14 +82,10 @@ defmodule Aiur.CoreTest do
     assert config.agent.max_concurrent_builds == 4
     assert Config.max_concurrent_builds() == 4
 
-    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
-
-    assert_raise ArgumentError, ~r/interval_seconds/, fn ->
-      Config.settings!().polling.interval_seconds
-    end
-
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
     assert message =~ "polling.interval_seconds"
+    # The rejected reload leaves the last known good config in effect (#3961).
+    assert Config.settings!().polling.interval_seconds == 120
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: 45)
     assert Config.settings!().polling.interval_seconds == 45
@@ -97,16 +94,13 @@ defmodule Aiur.CoreTest do
     assert Config.settings!().max_vertical_panes == 4
     assert Config.max_vertical_panes() == 4
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 0)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 0)
     assert message =~ "max_vertical_panes"
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert message =~ "agent.max_turns"
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: -1)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: -1)
     assert message =~ "agent.max_concurrent_builds"
 
     write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 0)
@@ -119,8 +113,7 @@ defmodule Aiur.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: "none")
     assert Config.settings!().agent.max_turns == nil
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
     assert message =~ "tracker.active_states"
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -130,12 +123,12 @@ defmodule Aiur.CoreTest do
 
     assert {:error, :missing_linear_project_slug} = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_project_slug: "project",
-      codex_command: ""
-    )
+    assert {:error, {:invalid_workflow_config, message}} =
+             write_rejected_workflow_file!(Workflow.workflow_file_path(),
+               tracker_project_slug: "project",
+               codex_command: ""
+             )
 
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "codex.command"
     assert message =~ "can't be blank"
 
@@ -158,12 +151,10 @@ defmodule Aiur.CoreTest do
 
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: 123)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: 123)
     assert message =~ "codex.approval_policy"
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: 123)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: 123)
     assert message =~ "codex.thread_sandbox"
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "123")

@@ -102,7 +102,20 @@ This detection makes no GitHub request. Retained CI and merge facts survive labe
 
 ## Queueing a Build Order
 
-`aiur queue add --build-order <root> [--queue NAME]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+Dispatch starts ready work before optimistic work, then ranks optimistic candidates by open dependent-chain depth and downstream count.
+
+`build_queue.optimistic_slot_share` defaults to 0.5 of the effective agent limit (at least one slot); zero disables optimistic starts. A merged blocker frees share on the next cycle. Existing runners keep their slots.
+
+`aiur queue add --build-order <root> [--queue NAME] [--start-on TRIGGER]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
+
+When a start trigger permits work before a blocker PR merges, dispatch binds the blocker’s events before starting the dependent. A fresh prewarmed ticket branch starts at the evaluated blocker SHA for one unmerged blocker. If fetching the head or checking its ancestry fails, checkout uses the base.
+
+Several blockers start from the configured base. An existing remote ticket branch keeps its tip.
+
+The optimistic-start prompt lists every blocker ref and SHA, requires an ancestry check, and covers cold or remote workspaces where hooks choose the checkout.
+
+With one unmerged blocker, the dependent PR targets its branch; with several, it targets the configured base. The PR stays draft until the blockers merge.
+
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
 
@@ -125,6 +138,26 @@ An unrecognised queue status or source flag reports `unknown/unknown` for that c
 
 These capability states describe whether the integration is available; each adopted root still carries its own evidence freshness. Builds without the provider report both IDs as `unavailable/not_installed`.
 
+## Start trigger
+
+Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_merged`); later stages satisfy earlier triggers.
+
+| Trigger | Starts when | Evidence |
+| --- | --- | --- |
+| `pr_opened` | The blocker has a ready, non-draft PR | Delivered PR facts or `ci-wait` and later labels |
+| `pr_ci_green` | Required CI has passed | Retained CI verdict or `human-review`/`rework` and later labels |
+| `pr_approved` | Human review approves | Standing review verdict or `merging` and later labels |
+| `pr_merged` | The blocker PR merges (default) | Merge facts, `done`, or completed issue closure |
+| `issue_closed` | The blocker issue closes completed | Confirmed closure and reason |
+
+Choose an override with `aiur queue add 12 13 --queue roadmap --start-on pr_opened` or `aiur queue add --build-order 12 --start-on pr_opened`. Change it with `aiur queue set roadmap --start-on pr_ci_green`; `--start-on default` returns to config. Tightening the trigger withdraws unclaimed queue-owned `todo`; running agents continue.
+
+`queue show` shows the trigger, the needed stage and the observed stage. `(default)` means the queue follows config. Missing or stale evidence stays unknown.
+
+`optimistic` means the dependent starts before its blocker merges; its worker follows the [optimistic dependent workflow](/concepts/ticket-lifecycle#build-queue) and keeps its PR draft until blockers merge.
+
+Linear supports only `issue_closed` and `pr_merged` for dependency dispatch; build queue management currently requires GitHub. `pr_approved` adds one conditional review read per watched blocker; other stages reuse held lifecycle and PR evidence. See [GitHub API costs](/apis/github).
+
 ## Restacking after a squash merge
 
 When a blocker merges, Aiur restacks idle dependents with a fast-forward merge commit. It subtracts the original blocker changes using the blocker PR’s retained head ref, so the PR diff contains the dependent’s changes. Merge events trigger the task; CI polling reconciles missed events using delivered PR facts.
@@ -133,15 +166,35 @@ The task holds the workspace lock and leaves the checkout and index untouched. A
 
 `tracker.restack_after_blocker_merge` defaults to `true`. Set it to `false` to leave restacking to agents. Automatic restacking requires git 2.40 or newer. CI still checks clean textual merges for semantic failures; a restack push may dismiss approval and require review again.
 
+## Merge order
+
+The Executor runs `check-stack-order.sh` before every merge. It refuses a dependent PR unless its base is the integration branch and each `blocked_by` blocker has landed in the dependent's head.
+
+A blocker has landed when it is closed `completed`, or its PR is merged and the merge commit is contained in the dependent's head. Exit 2 means refuse and exit 3 means it could not decide; neither merges.
+
+A blocker closed `not_planned` or `duplicate`, a closed-unmerged blocker PR, or an ambiguous PR refuses. Remove the `blocked_by` edge to proceed.
+
+With `--approved <sha>` it prints `RESTACK-ONLY` when the only change since that approved head is a verified Aiur restack, so the Executor can re-approve without a new review.
+
+If a PR merges anyway, the daemon raises a critical `merge.out-of-order` alert naming the PR and blockers. It is detective and undoes nothing; missing blocker facts raise a warning, never a silent pass.
+
 ## Queue cost
 
+Transient label failures retry after 1, 4 and 16 seconds through scheduled reconciliation; the queue remains responsive and rechecks current readiness.
+
+Membership commands report the first marker failure immediately, retain the pending marker and retry it in the background.
+
 Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+
+The dispatch poll normally renews the open-issue snapshot the queue plans from. When that snapshot is older than the observation age, a non-empty queue lists open issues itself with caller `build_queue_open_issue_list`: at most once per observation age, starting one observation age after boot. The listing selects and authorizes no dispatch candidates.
+
+The listing is conditional on the queue's own page cache: an unchanged page answers `304` and renews the snapshot. It runs whenever the dispatch cadence is wider than the observation age, never while the previous one is still running. It needs the daemon scheduled and GitHub reachable, so a saturated host or failed listing can leave freshness `unknown`.
 
 Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready` backlog and `newly_ready`: items now ready that were not ready in the previous pass, including the initial population. Both measure demand, not successful writes.
 
 ## Merged PRs with open issues
 
-A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. The build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. Only under `issue_closed`, the build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
 
 For `issue_closed` queues, if the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves on closure or when no dependent requires `issue_closed`; Aiur never closes the issue for this rule.
 
@@ -198,6 +251,10 @@ GitHub labels and sets no baseline.
 Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;
 unknown start, end, and join times remain unknown.
+
+Optimistic dispatches persist their attempt, trigger, blocker PR facts and counters in `optimistic-starts.json` under the repository’s state node. Records survive restarts, close on merge or discard, and remain for 14 days after closure. A ledger failure warns and alerts without stopping dispatch.
+
+Run telemetry joins the `optimistic_start` point to the dispatch using the same attempt ID.
 
 ### Cascading blocker pushes
 

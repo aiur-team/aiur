@@ -58,6 +58,7 @@ defmodule Aiur.BuildQueueCLI do
 
   defp print_queue(queue) do
     IO.puts("#{queue["name"]}  #{progress(queue["progress"])}#{if queue["held"], do: "  held", else: ""}")
+    if queue["start_trigger"], do: IO.puts("  start on #{queue["start_trigger"]}#{if queue["start_trigger_source"] == "config", do: " (default)", else: ""}")
     IO.puts("  pos  ticket  state  waiting on  rank")
 
     Enum.each(queue["items"], fn item ->
@@ -72,9 +73,9 @@ defmodule Aiur.BuildQueueCLI do
   end
 
   defp waiting(prerequisites) do
-    case Enum.reject(prerequisites, &(&1["verdict"] == "satisfied")) do
+    case Enum.reject(prerequisites, &(&1["verdict"] == "satisfied" and &1["optimistic"] != true)) do
       [] -> "—"
-      edges -> Enum.map_join(edges, ", ", &"##{&1["number"]} #{&1["verdict"]} (#{&1["source"]})")
+      edges -> Enum.map_join(edges, ", ", &(&1["description"] || "##{&1["number"]} #{&1["verdict"]} (#{&1["source"]})"))
     end
   end
 

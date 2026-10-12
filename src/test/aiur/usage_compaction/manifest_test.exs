@@ -120,7 +120,7 @@ defmodule Aiur.UsageCompaction.ManifestTest do
   test "writes and loads durably, treating an absent file as missing" do
     dir = Aiur.TestSupport.tmp_root!("aiur-manifest")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     path = Path.join(dir, "manifest.json")
 
     assert Manifest.load(path) == :missing
