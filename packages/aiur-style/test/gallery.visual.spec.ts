@@ -1,4 +1,5 @@
 import { registerContentTests } from './content.spec';
+import './footer.spec';
 import { test, expect } from '@playwright/test';
 import { tokens, contrastPairs } from '../dist/tokens.js';
 
@@ -32,6 +33,7 @@ test.describe('Gallery Visual Tests', () => {
     // Capture screenshot
     await expect(page).toHaveScreenshot('gallery-light.png', {
       fullPage: true,
+      style: '#footer { display: none; }',
       maxDiffPixelRatio: 0.002,
       animations: 'disabled',
       caret: 'hide',
@@ -52,6 +54,7 @@ test.describe('Gallery Visual Tests', () => {
     // Capture screenshot
     await expect(page).toHaveScreenshot('gallery-dark.png', {
       fullPage: true,
+      style: '#footer { display: none; }',
       maxDiffPixelRatio: 0.002,
       animations: 'disabled',
       caret: 'hide',
