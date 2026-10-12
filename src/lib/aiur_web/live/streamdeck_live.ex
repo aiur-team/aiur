@@ -251,12 +251,9 @@ defmodule AiurWeb.StreamdeckLive do
 
   @impl true
   def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
-
   def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
 
-  def handle_info({:status_changed, %{identifier: _identifier}}, socket) do
-    {:noreply, refresh_grid(socket)}
-  end
+  def handle_info({:status_changed, %{identifier: _identifier}}, socket), do: {:noreply, refresh_grid(socket)}
 
   def handle_info(:streamdeck_fixture_fleet_changed, socket) do
     {:noreply, refresh_grid(socket)}
