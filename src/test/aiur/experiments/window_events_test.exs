@@ -203,4 +203,11 @@ defmodule Aiur.Experiments.WindowEventsTest do
     assert first["range"] == next["range"]
     assert first["snapshot_hash"] == next["snapshot_hash"]
   end
+
+  test "a planned future end is not reported as an observed horizon", %{spec: spec} do
+    spec = put_in(spec, ["windows", "after", "end"], "2026-10-15T00:00:00Z")
+    snapshot = WindowEvents.collect(spec, opts([], [pull(1, "2026-10-14T00:00:00Z")]))
+    assert snapshot["range"]["end"] == "2026-10-11T00:00:00Z"
+    assert snapshot["events"] == []
+  end
 end

@@ -126,7 +126,11 @@ defmodule Aiur.Experiments.WindowEvents do
   defp number(name), do: name |> String.trim_leading("events-") |> String.trim_trailing(".ndjson") |> String.to_integer()
 
   defp windows(experiment, now) do
-    Enum.map(experiment["windows"], fn {name, window} -> %{name: name, start: Common.timestamp(window["start"]), end: Common.timestamp(window["end"]) || now} end)
+    Enum.map(experiment["windows"], fn {name, window} ->
+      finish = Common.timestamp(window["end"]) || now
+      finish = if DateTime.compare(finish, now) == :gt, do: now, else: finish
+      %{name: name, start: Common.timestamp(window["start"]), end: finish}
+    end)
     |> Enum.sort_by(& &1.start, DateTime)
   end
 

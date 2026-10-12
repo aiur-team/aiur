@@ -27,13 +27,13 @@ defmodule Aiur.Experiments.WindowEvents.Alerts do
     end
   end
 
-  defp read_bounded(path, state, remaining) do
+  defp read_bounded(path, state, remaining) when is_binary(path) and is_integer(remaining) and remaining > 0 do
     chunk_size = min(@chunk, remaining)
     before = state.bytes
 
     {state, buffer, skipping?} =
       path
-      |> File.stream!(chunk_size, [:raw])
+      |> File.stream!(chunk_size, read_ahead: false)
       |> Stream.take(div(remaining, chunk_size))
       |> Enum.reduce_while({state, "", false}, fn chunk, {state, buffer, skipping?} ->
         result = lines(chunk, buffer, skipping?, %{state | bytes: state.bytes + byte_size(chunk)})
@@ -47,6 +47,8 @@ defmodule Aiur.Experiments.WindowEvents.Alerts do
   rescue
     _error -> %{state | missing: true, bytes: state.max_bytes}
   end
+
+  defp read_bounded(_path, state, _remaining), do: %{state | missing: true, bytes: state.max_bytes}
 
   defp lines(chunk, buffer, skipping?, state) do
     parts = :binary.split(buffer <> chunk, "\n", [:global])
