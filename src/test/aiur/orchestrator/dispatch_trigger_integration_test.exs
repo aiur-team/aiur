@@ -2,9 +2,14 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, IssueSync, PauseResume, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, IssueSync, OptimisticLedger, PauseResume, State, StatusReport}
 
   setup do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, OptimisticLedger)
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, OptimisticLedger) end)
+    ledger_root = Aiur.TestSupport.tmp_root!("optimistic-dispatch-ledger")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(ledger_root) end)
+    start_supervised!({OptimisticLedger, path: Path.join(ledger_root, "starts.json")})
     :ets.new(Hints.table_name(), [:named_table, :set])
     previous = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
     parent = self()

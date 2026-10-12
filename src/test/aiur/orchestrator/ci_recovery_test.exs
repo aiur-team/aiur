@@ -277,6 +277,11 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert length(writes(ctx)) == 1
   end
 
+  test "status names skipped draft checks" do
+    output = capture_io(fn -> CiWait.print(%{ci_wait: [%{identifier: "4316", pr_number: 17, decision: :pending, pending_reason: :draft_pull_request, failures: []}]}) end)
+    assert output =~ "CI WAIT 4316 PR #17: draft_pr"
+  end
+
   test "a cancelled verdict stays pending and raises one neutral skip attention", ctx do
     setup_lifecycle(ctx)
     cancelled = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})

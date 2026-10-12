@@ -13,6 +13,6 @@ defmodule Aiur.Experiments.StartupTest do
   test "enabled experiments supply the component writer child" do
     write_workflow_file!(Workflow.workflow_file_path())
     assert Aiur.Experiments.child(true) == Aiur.Experiments.Store
-    assert Aiur.Experiments.children(true) == [Aiur.Experiments.Store, Aiur.Experiments.Capture]
+    assert Aiur.Experiments.children(true) == [Aiur.Experiments.Store, Aiur.Experiments.Capture, Aiur.Experiments.Checkpointer]
   end
 end

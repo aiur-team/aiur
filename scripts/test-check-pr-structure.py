@@ -50,6 +50,8 @@ class StructuralGateTest(unittest.TestCase):
         self.write('src/test/fixture_test.exs', 'assert_receive :done, 100\n')
         self.git('init', '-q')
         self.git('config', 'gc.auto', '0')
+        self.git('config', 'maintenance.auto', 'false')
+        self.git('config', 'gc.autoDetach', 'false')
         self.git('config', 'user.email', 'fixture@example.invalid')
         self.git('config', 'user.name', 'Fixture')
         self.commit()
