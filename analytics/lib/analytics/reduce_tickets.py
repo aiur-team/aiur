@@ -34,6 +34,7 @@ def _reduce_tickets(records: list[dict], opts: dict) -> tuple[dict, list[dict]]:
         tickets[ticket] = {
             "ticket": ticket,
             "complexity": _dispatch_complexity(ticket_events),
+            "pr_facts": next((e["pr_facts"] for e in reversed(ticket_events) if e["event"] == "pr_facts"), None),
             "events": ticket_events,
             "intervals": _lifecycle_intervals(ticket_events),
             "findings": findings_by_ticket.get(ticket, []),
@@ -50,6 +51,7 @@ def _lifecycle_event(record: dict) -> dict | None:
         return None
     return {
         "ticket": ticket,
+        "pr_facts": attributes if event == "pr_facts" else None,
         "event": event,
         "boundary": boundary,
         "attempt_id": attributes.get("attempt_id"),
@@ -64,7 +66,7 @@ def _lifecycle_event(record: dict) -> dict | None:
         # Backend / worker_host identify the model+provider a ticket ran on.
         # Lifecycle attributes carry them; surfacing them here lets the Executor
         # tools and the dashboard report model/provider per ticket.
-        "backend": attributes.get("backend"),
+        **{key: attributes.get(key) for key in ("backend", "model", "effort", "feature", "epic", "tags", "blockers", "start_mode")},
         "worker_host": attributes.get("worker_host"),
         "timestamp": record["timestamp_iso"],
         "timestamp_ms": record["timestamp_ms"],
@@ -287,6 +289,7 @@ def _rescope_tickets(tickets: dict, boot_id: str) -> tuple[dict, list[dict]]:
         scoped[ticket_id] = {
             "ticket": ticket["ticket"],
             "complexity": ticket["complexity"],
+            "pr_facts": next((e["pr_facts"] for e in reversed(events) if e["event"] == "pr_facts"), None),
             "events": events,
             "intervals": _lifecycle_intervals(events),
             "findings": ticket.get("findings", []),

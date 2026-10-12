@@ -1,0 +1,59 @@
+{
+  "valid": false,
+  "spec": {
+    "schema_version": 1,
+    "id": "2026-10-09-smoke",
+    "key": null,
+    "title": "Delivery speed",
+    "hypothesis": "Delivery gets faster",
+    "owner": {
+      "kind": "human",
+      "id": "operator"
+    },
+    "status": "active",
+    "origin": {
+      "kind": "manual",
+      "ref": null
+    },
+    "design": {
+      "kind": "before_after",
+      "change": {
+        "type": "release",
+        "ref": "v0.0.9",
+        "time": "2026-10-09T00:00:00Z"
+      },
+      "assign_by": "start"
+    },
+    "metrics": [
+      {
+        "ref": "bad",
+        "direction": "decrease",
+        "primary": true
+      }
+    ],
+    "min_samples": 15,
+    "alpha": 0.05,
+    "power_target": 0.8,
+    "windows": {
+      "before": {
+        "start": "2026-09-25T00:00:00Z",
+        "end": "2026-10-09T00:00:00Z"
+      },
+      "after": {
+        "start": "2026-10-09T00:00:00Z",
+        "end": null
+      }
+    },
+    "filters": {
+      "all": []
+    },
+    "stratify_by": [
+      "complexity"
+    ],
+    "tags": [],
+    "notes": "",
+    "created_at": "2026-10-09T00:00:00Z",
+    "updated_at": "2026-10-09T00:00:00Z",
+    "registered_at": null
+  }
+}

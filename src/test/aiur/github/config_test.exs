@@ -847,7 +847,7 @@ defmodule Aiur.GitHub.ConfigTest do
             :ok
         end
       after
-        File.rm_rf!(Path.dirname(pidfile))
+        Aiur.TestCleanup.rm_rf!(Path.dirname(pidfile))
       end
     end)
   end
