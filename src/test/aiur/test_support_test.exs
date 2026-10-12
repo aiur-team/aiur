@@ -2,6 +2,7 @@ defmodule Aiur.TestSupportTest do
   use Aiur.TestSupport
 
   alias Aiur.CurrentRunMembership
+  alias Aiur.Events.IdGenerator
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Events.SubscriptionStoreRegistry
   alias Aiur.Events.SubscriptionStoreSupervisor
@@ -116,6 +117,23 @@ defmodule Aiur.TestSupportTest do
     assert :ok = CurrentRunMembership.subscribe()
     Phoenix.PubSub.unsubscribe(Aiur.PubSub, "current-run-membership:changed")
     assert ReadCache.snapshot().available?
+  end
+
+  test "ensure_runtime_children_running restores shared event and provider stores" do
+    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+
+    assert is_pid(Process.whereis(IdGenerator))
+    assert is_pid(Process.whereis(Aiur.ProviderMeters.Store))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, IdGenerator)
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.ProviderMeters.Store)
+    refute Process.whereis(IdGenerator)
+    refute Process.whereis(Aiur.ProviderMeters.Store)
+
+    assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
+    assert is_pid(Process.whereis(IdGenerator))
+    assert is_pid(Process.whereis(Aiur.ProviderMeters.Store))
+    assert {:ok, id} = IdGenerator.reserve_durable_id()
+    assert is_integer(id)
   end
 
   test "ensure_read_cache_running recovers a stopped read cache (contained to one child)" do

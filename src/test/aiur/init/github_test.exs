@@ -162,13 +162,13 @@ defmodule Aiur.Init.GitHubTest do
       System.put_env("AIUR_CI_READINESS_TOKEN", "operator-token")
 
       on_exit(fn ->
-        File.rm_rf!(root)
-
         if original_token do
           System.put_env("AIUR_CI_READINESS_TOKEN", original_token)
         else
           System.delete_env("AIUR_CI_READINESS_TOKEN")
         end
+
+        Aiur.TestCleanup.rm_rf!(root)
       end)
 
       assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
@@ -233,7 +233,7 @@ defmodule Aiur.Init.GitHubTest do
 
       tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
 
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, tracker)
       assert message =~ "Repository CI readiness is incomplete"
@@ -284,7 +284,7 @@ defmodule Aiur.Init.GitHubTest do
 
       tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
 
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
 
@@ -325,7 +325,7 @@ defmodule Aiur.Init.GitHubTest do
 
       tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
 
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
 
@@ -430,7 +430,7 @@ defmodule Aiur.Init.GitHubTest do
     test "returns owner/name from git remote" do
       dir = Aiur.TestSupport.tmp_root!("detect-repo")
       File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
       System.cmd("git", ["init"], cd: dir)
       System.cmd("git", ["remote", "add", "origin", "git@github.com:o/r.git"], cd: dir)
@@ -442,7 +442,7 @@ defmodule Aiur.Init.GitHubTest do
     test "returns nil when no origin remote" do
       dir = Aiur.TestSupport.tmp_root!("detect-repo-noremote")
       File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
       System.cmd("git", ["init"], cd: dir)
 

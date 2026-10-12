@@ -15,11 +15,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
+  alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.OptimisticDispatch
+  alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @doc false
@@ -74,7 +78,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @doc false
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
-    case CodingAgent.select_for_dispatch(issue) do
+    with {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+      state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
+      dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
+    else
+      {:error, reason} ->
+        Candidates.emit_dispatch_attempt_decline(state, issue, reason, false)
+
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           state
@@ -88,11 +99,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
           %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}
         end
-
-      {:ok, selected_issue} ->
-        state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
-
-        dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
     end
   end
 
@@ -215,18 +221,23 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
     lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    optimistic_blockers = if issue.optimistic_start, do: Enum.map(issue.optimistic_start.blockers, & &1.identifier), else: []
 
     if TelemetryLifecycle.enabled?() do
-      TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
+      TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
         dispatch_selection: issue.dispatch_selection && issue.dispatch_selection.summary,
         worker_host: worker_host,
         remote: is_binary(worker_host),
-        retry_attempt: RetryEngine.normalize_retry_attempt(attempt)
+        retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
+        optimistic_blockers: optimistic_blockers,
+        optimistic_start: issue.optimistic_start,
+        start_mode: OptimisticSlots.start_mode(optimistic_blockers)
       })
     end
 
+    OptimisticDispatch.record(issue, lifecycle_attempt_id, optimistic_blockers)
     rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
 
     runner_context = %{
@@ -250,6 +261,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             ref: ref,
             identifier: issue.identifier,
             issue: issue,
+            optimistic_blockers: optimistic_blockers,
+            optimistic_start: issue.optimistic_start,
+            start_mode: OptimisticSlots.start_mode(optimistic_blockers),
             worker_host: worker_host,
             workspace_path: nil,
             session_id: nil,

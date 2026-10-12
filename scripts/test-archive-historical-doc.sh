@@ -20,6 +20,9 @@ fail() {
 
 cd "$work"
 git init -q .
+git config gc.auto 0
+git config maintenance.auto false
+git config gc.autoDetach false
 git config user.email t@example.com
 git config user.name t
 mkdir docs

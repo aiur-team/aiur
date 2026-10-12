@@ -7,7 +7,7 @@ defmodule AiurEngineOneshotTest do
     dir = Aiur.TestSupport.tmp_root!("aiur-env")
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, ".env"), "# token\nGITHUB_TOKEN=fromfile\nFOO=\"bar baz\"\n")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     src = "cd #{dir}; source #{engine()}; load_dotenv; echo \"TOK=$GITHUB_TOKEN|FOO=$FOO\""
 
@@ -35,7 +35,7 @@ defmodule AiurEngineOneshotTest do
       repo = Path.join(root, "repo")
       File.mkdir_p!(Path.join(home, ".aiur"))
       File.mkdir_p!(repo)
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       File.write!(
         Path.join(home, ".aiur/.env"),
@@ -114,7 +114,7 @@ defmodule AiurEngineOneshotTest do
     dir = Aiur.TestSupport.tmp_root!("aiur-readiness-env")
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, ".env"), "AIUR_CI_READINESS_TOKEN=operator-only\n")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     src =
       "cd #{dir}; source #{engine()}; load_dotenv; " <>
@@ -142,8 +142,8 @@ defmodule AiurEngineOneshotTest do
     File.write!(elixir, "#!/usr/bin/env bash\nprintf 'CI_TOKEN=%s\\n' \"${AIUR_CI_READINESS_TOKEN-unset}\"\n")
 
     on_exit(fn ->
-      File.rm_rf!(rel)
-      File.rm_rf!(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
     end)
 
     {out, 0} =
@@ -175,7 +175,7 @@ defmodule AiurEngineOneshotTest do
     File.write!(Path.join(root, "installed/package.json"), "{\n  \"version\": \"1.2.3\"\n}\n")
     File.write!(Path.join(checkout_package, "package.json"), "{\n  \"version\": \"1.3.0\"\n}\n")
     File.write!(Path.join(release, "AIUR_BUILD_STAMP"), "repo_root=#{Path.join(root, "checkout")}\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       run_sourced_engine(
@@ -206,7 +206,7 @@ defmodule AiurEngineOneshotTest do
 
     File.write!(Path.join(checkout_package, "package.json"), "{\n  \"version\": \"1.2.3\"\n}\n")
     File.write!(Path.join(release, "AIUR_BUILD_STAMP"), "repo_root=#{Path.join(root, "checkout")}\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {out, code} =
       run_sourced_engine(

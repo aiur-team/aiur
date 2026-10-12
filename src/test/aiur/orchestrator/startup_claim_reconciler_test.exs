@@ -77,6 +77,21 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert result.startup_claim_reconciliation_complete?
   end
 
+  test "regression guard: parked in-progress claims stay out of startup orphan recovery" do
+    issue = %{issue("2952", "in-progress") | parked: true, labels: ["agent:parked", "agent:in-progress"]}
+
+    {state, [retained]} =
+      reconcile(%State{}, [issue],
+        update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
+          flunk("a parked ticket must retain its tracker state on restart")
+        end,
+        emit_alert_fun: fn _topic, _opts -> flunk("a parked ticket is not an orphaned claim") end
+      )
+
+    assert retained == issue
+    assert state.startup_claim_reconciliation_complete?
+  end
+
   test "protects an in-progress claim with a staged pid-less entry" do
     # A rate-limit-fallback or deactivated row is parked in `running` with
     # `pid: nil` while a replacement is admitted. It is still owned by this

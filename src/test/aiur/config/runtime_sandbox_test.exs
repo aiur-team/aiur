@@ -15,7 +15,7 @@ defmodule Aiur.Config.RuntimeSandboxTest do
         path -> Application.put_env(:aiur, :build_gate_dir_override, path)
       end
 
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     workspace = Path.join(test_root, "workspace")

@@ -1,6 +1,8 @@
 defmodule Aiur.ProcessTree do
   @moduledoc "OS process signalling, subtree cleanup and identity-checked reaping."
 
+  alias Aiur.ProcessExhaustion
+
   @kill_grace_ms 2_000
   @kill_poll_ms 25
 
@@ -17,10 +19,10 @@ defmodule Aiur.ProcessTree do
 
   def graceful_kill(os_pid) when is_integer(os_pid) do
     pid = Integer.to_string(os_pid)
-    System.cmd("kill", ["-TERM", pid], stderr_to_stdout: true)
+    ProcessExhaustion.cmd("kill", ["-TERM", pid], stderr_to_stdout: true)
 
     unless await_exit(pid, @kill_grace_ms) do
-      System.cmd("kill", ["-KILL", pid], stderr_to_stdout: true)
+      ProcessExhaustion.cmd("kill", ["-KILL", pid], stderr_to_stdout: true)
       await_exit(pid, @kill_grace_ms)
     end
 
@@ -166,7 +168,7 @@ defmodule Aiur.ProcessTree do
   defp pidfd_reap(identifier, {:procfs_birth_and_session, start_time, session}, kind) do
     with python when is_binary(python) <- System.find_executable("python3"),
          script when is_binary(script) <- pidfd_reaper_script(),
-         {_, 0} <- System.cmd(python, [script, Atom.to_string(kind), Integer.to_string(identifier), start_time, session], stderr_to_stdout: true) do
+         {_, 0} <- ProcessExhaustion.cmd(python, [script, Atom.to_string(kind), Integer.to_string(identifier), start_time, session], stderr_to_stdout: true) do
       {:ok, :reaped}
     else
       _ -> {:error, :identity_signal_unavailable}
@@ -193,7 +195,7 @@ defmodule Aiur.ProcessTree do
   end
 
   defp signal_process_group(process_group_id, signal) do
-    System.cmd("kill", [signal, "--", "-#{process_group_id}"], stderr_to_stdout: true)
+    ProcessExhaustion.cmd("kill", [signal, "--", "-#{process_group_id}"], stderr_to_stdout: true)
     :ok
   end
 
@@ -223,7 +225,7 @@ defmodule Aiur.ProcessTree do
           []
 
         pgrep ->
-          case System.cmd(pgrep, ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
+          case ProcessExhaustion.cmd(pgrep, ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
             {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1)
             _ -> []
           end
@@ -239,7 +241,7 @@ defmodule Aiur.ProcessTree do
 
   defp await_process_group_leader(ps, pid, attempts) do
     process_group_id =
-      case System.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
+      case ProcessExhaustion.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
         {out, 0} -> out |> String.trim() |> positive_pid_string()
         _ -> nil
       end

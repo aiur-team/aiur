@@ -175,7 +175,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       on_exit(fn ->
         Application.delete_env(:aiur, :remote_control_claude_json)
         File.rm(claude_json)
-        File.rm_rf(workspace)
+        Aiur.TestCleanup.rm_rf!(workspace)
       end)
 
       {:ok, workspace: workspace}

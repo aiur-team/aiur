@@ -1,0 +1,31 @@
+{
+  "id": "listener-modes",
+  "name": "Listener send router, mode store and scheduler (MP-E7; RC-36)",
+  "layer": 3,
+  "kind": "required",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "event-bus",
+    "harness-adapters",
+    "identity"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "forbid": [
+    "Aiur.Orchestrator",
+    "Aiur.Orchestrator.*",
+    "AiurWeb.Endpoint",
+    "AiurWeb.Router"
+  ]
+}

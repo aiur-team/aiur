@@ -17,19 +17,16 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
-  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, ReviewFindings, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
 
   # Where a merged PR that never claimed to close its ticket leaves that ticket:
-  # open, and back in front of a human. Never `done` — see
-  # `merged_pr_closes_ticket?/2`.
+  # open, back in front of a human. Never `done` — see `merged_pr_closes_ticket?/2`.
   @non_closing_merge_state "human-review"
-  # See `refresh_other_closed_issues/2`.
   @max_closing_refreshes 10
 
   @spec maybe_reactivate_on_comment(
@@ -54,6 +51,8 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
+    OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
+
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
@@ -414,12 +413,12 @@ defmodule Aiur.Orchestrator.CommentWake do
          mark_reconciled_fun,
          set_terminal_verification_pending_fun
        ) do
-    case safely_set_terminal_verification_pending(
+    case CurrentRunMembership.set_terminal_verification_pending(
            set_terminal_verification_pending_fun,
            issue.tracker_identity,
            false
          ) do
-      :ok ->
+      result when result in [:ok, :skipped] ->
         clear_session_handle_fun.(identifier)
         terminate_running_issue_fun.(state, issue.id, true)
 
@@ -454,7 +453,7 @@ defmodule Aiur.Orchestrator.CommentWake do
          identity
        ) do
     _ =
-      safely_set_terminal_verification_pending(
+      CurrentRunMembership.set_terminal_verification_pending(
         set_terminal_verification_pending_fun,
         identity,
         true
@@ -466,44 +465,6 @@ defmodule Aiur.Orchestrator.CommentWake do
     _error -> :ok
   catch
     _kind, _reason -> :ok
-  end
-
-  defp safely_set_terminal_verification_pending(
-         set_terminal_verification_pending_fun,
-         %TrackerIdentity{} = identity,
-         pending?
-       ) do
-    if TrackerIdentity.joinable?(identity) do
-      invoke_terminal_verification_marker(
-        set_terminal_verification_pending_fun,
-        identity,
-        pending?
-      )
-    else
-      :ok
-    end
-  end
-
-  defp safely_set_terminal_verification_pending(
-         _set_terminal_verification_pending_fun,
-         _identity,
-         _pending?
-       ),
-       do: :ok
-
-  defp invoke_terminal_verification_marker(
-         set_terminal_verification_pending_fun,
-         identity,
-         pending?
-       ) do
-    case set_terminal_verification_pending_fun.(identity, pending?) do
-      :ok -> :ok
-      _ -> :error
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   @doc false
@@ -811,7 +772,7 @@ defmodule Aiur.Orchestrator.CommentWake do
        when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
     remedy =
       case reason do
-        :parked -> "unpark the issue and assign its intended agent state"
+        :parked -> "resume the issue explicitly to clear the park marker"
         :unlabeled_issue -> "assign an agent state if this issue should be worked"
         :no_open_pr -> "open a pull request before requesting rework"
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
@@ -1118,7 +1079,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
 
   defp dispatch_decline_reason("issue is parked", _issue),
-    do: "Dispatch policy refused to wake the parked issue. Remedy: unpark it and assign its intended agent state."
+    do: "Dispatch policy refused to wake the parked issue. Remedy: resume it explicitly to clear the park marker."
 
   defp dispatch_decline_reason("issue is already running", _issue),
     do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."

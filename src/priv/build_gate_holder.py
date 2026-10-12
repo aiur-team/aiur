@@ -238,6 +238,7 @@ def wait_for_command(
     token: str,
 ) -> int:
     while True:
+        reap_exited_children(process)
         result = process.poll()
         if result is not None:
             return result

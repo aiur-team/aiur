@@ -6237,7 +6237,7 @@ defmodule AiurWeb.DashboardLiveTest do
   defp start_dashboard_metrics(name, decision_store, opts \\ []) do
     dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-metrics")
     path = Path.join(dir, "decision-latency.ndjson")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     metrics_opts =
       Keyword.merge(
@@ -6271,7 +6271,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     on_exit(fn ->
       stop_registered_metrics(name)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     {metrics, restart}
@@ -6293,7 +6293,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp start_recent_merge_store(name) do
     dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-merges")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     start_supervised!({RecentMergeStore, name: name, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
   end
@@ -6387,7 +6387,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     on_exit(fn ->
       restore_application_env(:decision_state_dir, previous)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     defaults = [

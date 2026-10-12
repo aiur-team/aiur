@@ -342,7 +342,7 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :memory_tracker_recipient)
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
-          File.rm_rf(workflow_root)
+          Aiur.TestCleanup.rm_rf!(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
           # observes the now-deleted `workflow_root` config, and recover the
@@ -379,6 +379,8 @@ defmodule Aiur.TestSupport do
   defdelegate ensure_resource_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_workflow_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_pubsub_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_id_generator_running(), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_provider_meter_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_subscription_store_supervisor_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_read_cache_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
   defdelegate write_workflow_file!(path, overrides \\ []), to: Aiur.TestSupport.WorkflowFiles

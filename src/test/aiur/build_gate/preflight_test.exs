@@ -48,7 +48,7 @@ defmodule Aiur.BuildGate.PreflightTest do
 
     on_exit(fn ->
       File.chmod(restricted, 0o700)
-      File.rm_rf(restricted)
+      Aiur.TestCleanup.rm_rf!(restricted)
     end)
 
     valid_root = context.gate_dir
@@ -78,7 +78,7 @@ defmodule Aiur.BuildGate.PreflightTest do
 
     on_exit(fn ->
       File.chmod(restricted, 0o700)
-      File.rm_rf(restricted)
+      Aiur.TestCleanup.rm_rf!(restricted)
     end)
 
     bad_root_a = Path.join(restricted, "a")
@@ -104,7 +104,7 @@ defmodule Aiur.BuildGate.PreflightTest do
 
     on_exit(fn ->
       File.chmod(restricted, 0o700)
-      File.rm_rf(restricted)
+      Aiur.TestCleanup.rm_rf!(restricted)
     end)
 
     # valid_root is /tmp — it overlaps the lock_dir which lives under /tmp.

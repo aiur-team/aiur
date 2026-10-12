@@ -36,7 +36,7 @@ defmodule Aiur.DurableRuntimeStateTest do
         {key, value} -> System.put_env(key, value)
       end)
 
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{logs_parent: logs_parent, state_dir: state_dir}

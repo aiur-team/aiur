@@ -598,13 +598,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
       when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
-        # A ticket carrying the `agent:paused` override must stop receiving
-        # automatic continuation turns even though its underlying state label
-        # (e.g. `agent:todo`) remains in `tracker.active_states`. The paused
-        # marker is what parks the ticket; recursing on the state label alone
-        # fired turn after turn on a paused ticket until `agent.max_turns` was
-        # reached (#1686). Mirror the pause check the resume path already
-        # applies in `Aiur.Orchestrator.AutoResume.resumable?/2`.
+        refreshed_issue = %{refreshed_issue | optimistic_start: issue.optimistic_start}
+        # The paused override parks a ticket even when its underlying state is active.
         if active_issue_state?(refreshed_issue.state) and not Issue.paused?(refreshed_issue) do
           {:continue, refreshed_issue}
         else

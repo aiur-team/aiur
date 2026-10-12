@@ -216,7 +216,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   # historical CI data from being copied along with every dashboard refresh.
   defp snapshot_ci_lifecycle(%State{} = state) do
     identifiers = snapshot_identifiers(state)
-    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(identifiers)
+    cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+    waiting = Map.filter(cache, fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end)
+    poll_cache = Map.merge(Map.take(cache, identifiers), waiting)
 
     %{
       approved_heads: %{},

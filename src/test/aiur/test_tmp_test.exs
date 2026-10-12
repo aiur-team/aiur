@@ -4,7 +4,7 @@ defmodule Aiur.TestTmpTest do
   setup do
     base = Aiur.TestSupport.tmp_root!("test-tmp-lifecycle")
     File.mkdir_p!(base)
-    on_exit(fn -> File.rm_rf!(base) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(base) end)
     %{base: base}
   end
 

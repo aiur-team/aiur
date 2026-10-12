@@ -203,7 +203,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
     |> CiReadinessAdmission.maybe_warn_ci_readiness()
     |> TrackedSet.refresh()
-    |> CommentPolling.start_firehose(&after_firehose/1)
+    |> CommentPolling.start_firehose(&after_firehose/1, &TrackerTasks.start/4)
   end
 
   defp after_firehose(state) do
@@ -324,8 +324,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
 
-        # The poll just refreshed `last_polled_issues`, so this generation can
-        # replace a retained snapshot from a prior same-name orchestrator.
         state = %{state | snapshot_ready?: true}
 
         # Publish all rows, including claims still within the recovery grace period.
@@ -393,7 +391,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states, Map.values(state.last_polled_issues)), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),

@@ -10,11 +10,12 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.RepoBase
-  alias Aiur.Workspace.Ownership.HoldStatus
+  alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
 
   @repo_base_status_timeout_ms 100
 
@@ -68,6 +69,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     waiting_reason =
       WaitingReason.for_running(%{
         tracker_state: Map.get(issue, :state),
+        workspace_retained?: not is_nil(Retention.for_ticket(identifier)),
         pause_reason: pause_reason,
         work_state: work_state,
         open_decision_count: open_decision_count,
@@ -232,16 +234,19 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       claim_release_cause: release && release.cause,
       reason:
         idle_reason(waiting_reason, identifier, fn ->
-          idle_status_reason(
-            work_state,
-            pause_reason,
-            prewarm_blocked?,
-            budget,
-            max_dispatches,
-            latch_status,
-            release && release.cause,
-            idle_evidence.auto_resume_retry_in_ms
-          )
+          if waiting_reason in [:optimistic_share, :queue_set_order],
+            do: QueueSetSlots.waiting_reason(waiting_reason, issue.id, state),
+            else:
+              idle_status_reason(
+                work_state,
+                pause_reason,
+                prewarm_blocked?,
+                budget,
+                max_dispatches,
+                latch_status,
+                release && release.cause,
+                idle_evidence.auto_resume_retry_in_ms
+              )
         end),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
@@ -261,12 +266,12 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # agent and naming why beats re-deriving it from work state. Everything else
   # falls through to the ordinary reason ladder, which the caller passes as a
   # thunk so it is only computed when it is needed.
-  @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting]
+  @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting, :workspace_retained]
 
-  defp idle_reason(:workspace_ownership_waiting, identifier, _fallback) do
+  defp idle_reason(reason, identifier, _fallback) when reason in [:workspace_ownership_waiting, :workspace_retained] do
     case HoldStatus.for_ticket(identifier) do
-      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, identifier, generation, proof}
-      nil -> :workspace_ownership_waiting
+      %{generation: generation, proof: proof} -> {reason, identifier, generation, proof}
+      nil -> reason
     end
   end
 
@@ -290,13 +295,16 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       waiting_reason:
         WaitingReason.for_idle(
           Map.get(issue, :state),
-          DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()),
+          DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
           open_decision_count,
+          queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
+          optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
           latched_lifetime: latch_status != :none,
           tracker_paused: Issue.paused?(issue),
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           dispatch_hold_reason: dispatch_hold_reason,
           capacity_hold_active?: capacity_hold_active?,
+          workspace_retained?: not is_nil(Retention.for_ticket(Map.get(issue, :identifier) || Map.get(issue, :id))),
           workspace_recovery?: WaitingReason.workspace_recovery?(state, Map.get(issue, :id), Map.get(issue, :identifier)),
           startup_reconciliation_complete?: state.startup_claim_reconciliation_complete?
         )

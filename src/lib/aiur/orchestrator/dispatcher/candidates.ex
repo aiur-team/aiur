@@ -12,6 +12,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.OptimisticSlots
+  alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
@@ -120,6 +122,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   # dispatches.
   @doc false
   @spec maybe_emit_dispatch_decline(State.t(), Issue.t(), term()) :: State.t()
+  def maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
+    do: record_dispatch_decline(state, issue, reason, QueueSetSlots.waiting_reason(reason, issue.id, state), false)
+
   def maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
       when reason in [
              :state_capacity,
@@ -243,7 +248,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
-         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+         true <- DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
@@ -320,21 +325,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+    if DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
       Logger.info(
         "Skipping dispatch; #{State.issue_context(hydrated)} " <>
           DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
       )
 
-      # Record the decline instead of only logging it. A ticket held here sits in
-      # "awaiting-dispatch" for as long as its blocker is open, and with nothing
-      # in `dispatch_declines` the status board and alert feed showed no reason at
-      # all — the operator saw an idle fleet and a stuck ticket with no link
-      # between them (#2545). Non-attention (info): a blocked ticket is normal
-      # dependency ordering, not a fault.
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
-      Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+      if OptimisticSlots.available?(hydrated, state, terminal_states) do
+        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+      else
+        maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
+      end
     end
   end
 
@@ -367,7 +370,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     end
   end
 
-  defp emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
+  @doc false
+  @spec emit_dispatch_attempt_decline(State.t(), Issue.t(), term(), boolean()) :: State.t()
+  def emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
     record_dispatch_decline(
       state,
       issue,

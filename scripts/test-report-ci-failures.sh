@@ -56,6 +56,7 @@ if output="$(run_reporter '^coverage \([1-4]/4\)$' failure)"; then
   exit 1
 fi
 
+grep -Fq '::error title=aiur-derived-failure::["coverage (2/4)","coverage (4/4)"]' <<<"$output"
 grep -Fq "coverage (4/4) [failure]: https://example.test/jobs/4" <<<"$output"
 grep -Fq "coverage (2/4) [timed_out]: https://example.test/jobs/2" <<<"$output"
 if grep -Fq "coverage (1/4)" <<<"$output" || grep -Fq "coverage [failure]" <<<"$output" || grep -Fq "lint" <<<"$output"; then
@@ -75,6 +76,7 @@ if api_error="$(run_reporter '^coverage$' failure api_error)"; then
   echo "reporter must fail when the jobs API fails" >&2
   exit 1
 fi
+if grep -Fq "aiur-derived-failure" <<<"$api_error"; then exit 1; fi
 grep -Fq "GitHub did not return job diagnostics" <<<"$api_error"
 grep -Fq "https://github.example.test/aiur-team/aiur/actions/runs/123" <<<"$api_error"
 

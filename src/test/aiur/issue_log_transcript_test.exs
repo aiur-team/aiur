@@ -22,7 +22,7 @@ defmodule Aiur.IssueLogTranscriptTest do
 
     on_exit(fn ->
       if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
-      File.rm_rf!(tmp)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     %{identifier: identifier}
