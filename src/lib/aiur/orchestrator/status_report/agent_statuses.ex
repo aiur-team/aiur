@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
-  alias Aiur.Orchestrator.OptimisticSlots
+  alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
@@ -234,8 +234,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       claim_release_cause: release && release.cause,
       reason:
         idle_reason(waiting_reason, identifier, fn ->
-          if waiting_reason == :optimistic_share,
-            do: OptimisticSlots.waiting(state),
+          if waiting_reason in [:optimistic_share, :queue_set_order],
+            do: QueueSetSlots.waiting_reason(waiting_reason, issue.id, state),
             else:
               idle_status_reason(
                 work_state,
@@ -297,6 +297,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           Map.get(issue, :state),
           DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
           open_decision_count,
+          queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
           latched_lifetime: latch_status != :none,
           tracker_paused: Issue.paused?(issue),
