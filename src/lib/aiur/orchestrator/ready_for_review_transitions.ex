@@ -35,7 +35,6 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
 
   alias Aiur.Events.{GithubKeys, Publisher}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.PullRequests.Reviews
   alias Aiur.Orchestrator.State
   alias Aiur.PrReadyLedgerStore
 
@@ -52,6 +51,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
           required(:pr_number) => pos_integer(),
           required(:head_sha) => String.t(),
           required(:draft?) => boolean(),
+          optional(:pr_author) => String.t() | nil,
           optional(:was_draft?) => boolean() | :error | nil
         }
 
@@ -81,6 +81,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
          ref when is_binary(ref) <- Map.get(head, "ref"),
          {:ticket, ticket, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> ref) do
       observation(ticket, Map.get(pr, "number"), Map.get(head, "sha"), Map.get(pr, "draft"))
+      |> maybe_put_author(get_in(pr, ["user", "login"]))
     else
       _ -> nil
     end
@@ -197,30 +198,31 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     end
   end
 
-  defp announce(ledger, {ticket, pr_number} = key, %{head_sha: head_sha}, opts) do
+  defp announce(ledger, {ticket, pr_number} = key, observation, opts) do
     repo_fun = Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0)
 
     case repo_fun.() do
       repo when is_binary(repo) and repo != "" ->
         Publisher.publish(
           "ticket.#{ticket}.pr.ready_for_review",
-          ready_payload(repo, pr_number, head_sha, opts),
+          ready_payload(repo, pr_number, observation.head_sha, observation, opts),
           issue_number: ticket,
-          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
+          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", observation.head_sha)
         )
 
-        Map.put(ledger, key, {:announced, head_sha})
+        Map.put(ledger, key, {:announced, observation.head_sha})
 
       _no_repo ->
         ledger
     end
   end
 
-  defp ready_payload(repo, pr_number, head_sha, opts) do
+  defp ready_payload(repo, pr_number, head_sha, observation, opts) do
+    pr_author = Map.get(observation, :pr_author)
     pr = %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}
 
     pr =
-      case Reviews.last_review_sha(repo, pr_number) do
+      case GithubKeys.last_review_sha(repo, pr_number, pr_author) do
         sha when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
         _ -> pr
       end
@@ -232,6 +234,11 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       _ -> payload
     end
   end
+
+  defp maybe_put_author(observation, author) when is_map(observation) and is_binary(author),
+    do: Map.put(observation, :pr_author, author)
+
+  defp maybe_put_author(observation, _author), do: observation
 
   defp prune(ledger) when map_size(ledger) <= @max_entries, do: ledger
 

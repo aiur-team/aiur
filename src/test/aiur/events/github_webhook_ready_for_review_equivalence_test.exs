@@ -23,8 +23,8 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       ResourceStore.put_resource(
         review_key,
         [
-          %{"submitted_at" => "2026-06-23T11:00:00Z", "commit_id" => String.duplicate("d", 40)},
-          %{"submitted_at" => "2026-06-24T11:00:00Z", "commit_id" => last_review_sha}
+          %{"submitted_at" => "2026-06-23T11:00:00Z", "commit_id" => String.duplicate("d", 40), "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}},
+          %{"submitted_at" => "2026-06-24T11:00:00Z", "commit_id" => last_review_sha, "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}}
         ],
         source: :poll
       )
@@ -35,6 +35,7 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       "pull_request" => %{
         "number" => 901,
         "draft" => false,
+        "user" => %{"login" => "aiur-worker"},
         "updated_at" => "2026-06-24T12:00:00Z",
         "head" => %{"ref" => "aiur/55", "sha" => "deadbeef"}
       },
@@ -137,8 +138,8 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
         ResourceStore.put_resource(
           key,
           [
-            %{"id" => 1, "submitted_at" => "2026-10-09T06:17:00Z", "commit_id" => String.duplicate("c", 40)},
-            %{"id" => 2, "submitted_at" => "2026-10-10T06:17:00Z", "commit_id" => old_head}
+            %{"id" => 1, "submitted_at" => "2026-10-09T06:17:00Z", "commit_id" => String.duplicate("c", 40), "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}},
+            %{"id" => 2, "submitted_at" => "2026-10-10T06:17:00Z", "commit_id" => old_head, "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}}
           ],
           source: :poll
         )
@@ -160,6 +161,34 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
 
       _state = poll_draft_flag(state, "65", 912, new_head, false)
       refute_received {:event, %{topic: ^topic}}
+    end
+
+    test "a PR author's comment on the current head does not count as its last review" do
+      topic = "ticket.66.pr.ready_for_review"
+      :ok = Exchange.subscribe(topic)
+      head = String.duplicate("f", 40)
+      review_key = ResourceStore.key_for_repo(:pull_request_reviews, @repo, 913)
+
+      :ok =
+        ResourceStore.put_resource(
+          review_key,
+          [%{"submitted_at" => "2026-10-10T06:40:00Z", "commit_id" => head, "state" => "COMMENTED", "user" => %{"login" => "aiur-worker"}}],
+          source: :poll
+        )
+
+      delivery = %{
+        "action" => "ready_for_review",
+        "repository" => %{"full_name" => @repo},
+        "pull_request" => %{"number" => 913, "draft" => false, "user" => %{"login" => "aiur-worker"}, "head" => %{"ref" => "aiur/66", "sha" => head}},
+        "sender" => %{"login" => "its-everdred"}
+      }
+
+      assert %{status: :published, published: [^topic]} = GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo)
+      assert %{pr: pr} = await_event(topic)
+      refute Map.has_key?(pr, "last_review_sha")
+
+      projected = Aiur.ExecutorWakeProjection.project(%{topic: topic, pr: pr})
+      assert {:ok, %{"head_sha" => ^head, "last_review_sha" => nil}} = projected
     end
 
     test "webhook plus poll of the same draft-to-ready transition wakes once" do

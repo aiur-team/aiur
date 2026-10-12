@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
 
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity}
   alias Aiur.Events.GithubWebhook.Identity
-  alias Aiur.GitHub.{PullRequests.Reviews, ResourceStore}
+  alias Aiur.GitHub.ResourceStore
 
   @type triple :: {String.t(), map(), keyword()}
   @type result :: {:publish, [triple()]} | {:drop, term()} | {:error, term()}
@@ -275,7 +275,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
     head_sha = get_in(pr, ["head", "sha"]) || ""
 
     pr =
-      case {action, Reviews.last_review_sha(repo, pr_number)} do
+      case {action, GithubKeys.last_review_sha(repo, pr_number, get_in(pr, ["user", "login"]))} do
         {"ready_for_review", sha} when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
         _ -> pr
       end
