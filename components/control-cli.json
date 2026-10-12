@@ -5,9 +5,9 @@
   "kind": "required",
   "paths": [
     "src/lib/aiur.ex",
-    "src/lib/aiur/application/**",
     "src/lib/aiur/*_cli.ex",
     "src/lib/aiur/affected_tests.ex",
+    "src/lib/aiur/application/**",
     "src/lib/aiur/cli.ex",
     "src/lib/aiur/control_cli/**",
     "src/lib/aiur/daemon_lifecycle.ex",
