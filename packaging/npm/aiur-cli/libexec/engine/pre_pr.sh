@@ -1,7 +1,7 @@
 # Merge the integration branch, then report every cheap gate in one final block.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path affected selection pr_json
+  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json
   local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
@@ -12,7 +12,8 @@ cmd_pre_pr() {
   [ -z "$(git status --porcelain)" ] || { echo "pre-pr requires a clean working tree (commit or stash changes first)" >&2; exit 1; }
   base_ref="${AIUR_BASE_BRANCH:-main}"
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-pre-pr.XXXXXX")"
-  trap 'rm -rf "$temp_dir"' EXIT
+  printf -v cleanup_command 'rm -rf -- %q' "$temp_dir"
+  trap "$cleanup_command" EXIT
   test_home="$temp_dir/home"
   test_config="$temp_dir/config"
   mkdir -p "$test_home" "$test_config"
@@ -21,8 +22,13 @@ cmd_pre_pr() {
   if [ "${AIUR_AGENT_WORKSPACE:-}" = "$root" ] && [ -x "$root/.aiur-runtime/bin/git" ]; then test_path="/usr/bin:/bin:$PATH"; fi
   test_env=(
     env -u AIUR_AGENT_WORKSPACE -u AIUR_INSTANCE_KEY -u AIUR_REPO_ROOT
+    -u AIUR_PROJECT_ROOT -u AIUR_PROJECT_ROOT_SOURCE -u AIUR_ARGV_FILE
+    -u AIUR_BIN -u AIUR_RELEASE_DIR -u AIUR_NODE -u AIUR_OPERATOR_PID
     -u AIUR_BG_STATE_DIR -u AIUR_COOKIE_FILE -u AIUR_SESSION_PREFIX
-    -u AIUR_PROFILES_FILE -u AIUR_RELEASE_NODE
+    -u AIUR_PROFILES_FILE -u AIUR_RELEASE_NODE -u AIUR_DEFAULT_DASHBOARD_HOST
+    -u AIUR_AGENT_BIN -u AIUR_AGENT_QUOTA_STATE_PATH -u AIUR_AGENT_TMPFILE
+    -u AIUR_ALERT_LEDGER_PATH_FILE -u AIUR_REPO_STATE_PATH -u AIUR_SESSION_TMPFILE
+    -u AIUR_WORKSPACE_ROOT_FILE -u AIUR_TMUX_CONF -u AIUR_TMUX_SESSION -u AIUR_TMUX_SOCKET
     "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=/tmp"
     "PATH=$test_path"
   )

@@ -21,8 +21,10 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "FAIL merge conflict: collision.txt"
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
+    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
     assert git_output!(repo, ["status", "--porcelain"]) == ""
     refute File.exists?(Path.join(fixture, "home/.aiur"))
+    refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
 
   test "a failing gate is named and full-suite selector fallback is executed" do
@@ -39,7 +41,9 @@ defmodule AiurEnginePrePrTest do
     assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
+    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
     refute File.exists?(Path.join(fixture, "home/.aiur"))
+    refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
 
   defp fixture(name) do
@@ -73,7 +77,7 @@ defmodule AiurEnginePrePrTest do
     #!/usr/bin/env bash
     case "$*" in
       *"mix test"*|*"make ci"*)
-        if [ "${AIUR_AGENT_WORKSPACE+x}" = x ]; then echo leaked > "#{root}/test-env"; exit 79; fi
+        if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
         echo clean >> "#{root}/test-env"
         ;;
     esac
