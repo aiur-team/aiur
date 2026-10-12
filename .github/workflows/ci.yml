@@ -725,7 +725,7 @@ jobs:
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
-        run: python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+        run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
