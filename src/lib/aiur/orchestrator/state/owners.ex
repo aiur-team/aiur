@@ -155,7 +155,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     control: [Aiur.Orchestrator.PauseResume, Aiur.Orchestrator.GlobalPause, Aiur.Orchestrator.ControlLifecycle],
     pr_lifecycle: [
       Aiur.Orchestrator.CiLifecycle,
-      Aiur.Orchestrator.CiWaitDraftAlert,
+      Aiur.Orchestrator.DraftAlertLifecycle,
       Aiur.Orchestrator.CommentWake,
       Aiur.Orchestrator.ReworkGate,
       Aiur.Orchestrator.PRHealthScanner,

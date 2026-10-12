@@ -494,8 +494,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -745,28 +745,6 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       _again = poll_ci(next, issue, result, alert_emitter: emitter)
       sync_recorder(recorder)
       refute_received {:parked_alert, ^ref, ^alert_topic, _opts}
-    end
-
-    test "alerts after a draft has remained in ci-wait without requiring a worker rewake" do
-      identifier = unique_identifier("ci-wait-draft")
-      topic = "ticket.#{identifier}.pr.draft_ci_wait"
-      ref = make_ref()
-      emitter = capture_alert_emitter(self(), ref)
-      issue = issue(identifier, "ci-wait")
-      state = %Aiur.Orchestrator.State{}
-      first = poll_ci(state, issue, %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 943, draft?: true}, alert_emitter: emitter, ci_wait_draft_now_ms: 1_000)
-      refute_received {:parked_alert, ^ref, ^topic, _opts}
-
-      overdue =
-        poll_ci(first, issue, %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 943, draft?: true},
-          alert_emitter: emitter,
-          ci_wait_draft_now_ms: 1_000 + 5 * 60_000
-        )
-
-      assert_received {:parked_alert, ^ref, ^topic, alert_opts}
-      assert Keyword.get(alert_opts, :needs_attention) == true
-      assert MapSet.member?(overdue.ci_lifecycle.ci_wait_draft_alerts, identifier)
-      assert first.ci_lifecycle.poll_cache[identifier].pending_reason == :draft_pull_request
     end
 
     test "does not alert for a ready (non-draft) green PR" do
@@ -1100,8 +1078,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                }
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts]) ==
-               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do

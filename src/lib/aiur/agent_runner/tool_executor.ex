@@ -7,7 +7,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   require Logger
 
-  alias Aiur.AgentRunner.{DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
+  alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
 
   alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
 
@@ -185,28 +185,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp write_ticket_state(coordination, issue_id, state_name) do
-    with :ok <- verify_ci_wait_pr(coordination, issue_id, state_name),
-         :ok <- coordination.set_ticket_state.(issue_id, state_name) do
-      {:ok, %{state: state_name, issue: issue_id}}
-    else
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
-    end
-  end
-
-  defp verify_ci_wait_pr(_coordination, _issue_id, state_name) when state_name != "ci-wait", do: :ok
-
-  defp verify_ci_wait_pr(coordination, issue_id, "ci-wait") do
-    if Aiur.CodeHost.available?() do
-      case coordination.ci_wait_pr_fetcher.(issue_id) do
-        {:ok, %{"draft" => true, "number" => number}} -> {:error, {:draft_pr_cannot_enter_ci_wait, number}}
-        {:ok, _pr_or_missing} -> :ok
-        {:error, _reason} -> :ok
-        _other -> :ok
-      end
-    else
-      :ok
-    end
+    CiWaitTransition.write(coordination, issue_id, state_name)
   end
 
   defp tracker_issue_id(issue) do
