@@ -71,7 +71,11 @@ defmodule Aiur.MainWatch.GitHub do
   defp runs(owner, repo, branch, commits, dates, workflows, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{branch: branch, event: "push", per_page: 100})
 
-    with {:ok, runs} <- runs_page(url, token, dates, opts) do
+    queue_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{event: "merge_group", per_page: 100})
+
+    with {:ok, push_runs} <- runs_page(url, token, dates, opts),
+         {:ok, queue_runs} <- runs_page(queue_url, token, dates, opts) do
+      runs = push_runs ++ Enum.filter(queue_runs, &(&1["event"] == "merge_group"))
       {:ok, runs |> Enum.filter(&watched?(&1, commits, branch, workflows)) |> Enum.map(&normalize/1) |> Enum.sort_by(& &1.id, :desc)}
     end
   end
@@ -100,8 +104,13 @@ defmodule Aiur.MainWatch.GitHub do
     dates != [] and created_at != [] and Enum.all?(dates ++ created_at, &is_integer/1) and Enum.min(created_at) <= Enum.min(dates)
   end
 
-  defp watched?(run, commits, branch, workflows),
-    do: run["head_sha"] in commits and run["head_branch"] == branch and run["event"] == "push" and (workflows == [] or run["name"] in workflows)
+  defp watched?(run, commits, branch, workflows) do
+    branch_event? =
+      (run["event"] == "push" and run["head_branch"] == branch) or
+        (run["event"] == "merge_group" and is_binary(run["head_branch"]) and String.starts_with?(run["head_branch"], "gh-readonly-queue/#{branch}/"))
+
+    run["head_sha"] in commits and branch_event? and (workflows == [] or run["name"] in workflows)
+  end
 
   defp normalize(run),
     do: %{
