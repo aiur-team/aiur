@@ -35,6 +35,14 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
     Map.put(observations, :dependents, Map.take(issues, dependents))
   end
 
+  defp safe_read(reader, args) do
+    apply(reader, args)
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   defp cache_usable?(blocker, now, max_age, grace, force) do
     cached = decode(blocker["guard_observation"])
     blocker["id"] != force and fresh?(cached, now, max_age) and not grace_crossed?(blocker["suspect_since_ms"], cached[:observed_at_ms], now, grace)
@@ -56,7 +64,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
   defp fetch_issues([], _fetch), do: %{}
 
   defp fetch_issues(ids, fetch) do
-    case fetch.(ids) do
+    case safe_read(fetch, [ids]) do
       {:ok, rows} -> Map.new(rows, &{to_string(&1.identifier), &1})
       _ -> %{}
     end
@@ -77,7 +85,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
 
   defp read_edge(dep, entry, now, max_age, read, {edges, cache}) do
     fresh = edge_fresh?(entry, now, max_age)
-    result = if fresh, do: {:ok, entry["ids"]}, else: read.(dep)
+    result = if fresh, do: {:ok, entry["ids"]}, else: safe_read(read, [dep])
 
     case result do
       {:ok, ids} ->
@@ -95,9 +103,9 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
   defp edge_fresh?(_, _, _), do: false
 
   defp observe(id, blocker, issue, now, max_age, read_pr, closure, opts) do
-    with {:ok, %{open?: open?, state_reason: reason}} <- closure.(id, max_age),
+    with {:ok, %{open?: open?, state_reason: reason}} <- safe_read(closure, [id, max_age]),
          true <- not open? or match?(%Issue{}, issue),
-         {:ok, pr} <- read_pr.(id, blocker["pr_number"]) do
+         {:ok, pr} <- safe_read(read_pr, [id, blocker["pr_number"]]) do
       labels = if issue, do: labels(issue, opts), else: []
 
       Map.merge(%{confirmed?: true, observed_at_ms: now, issue_open?: open?, state_reason: reason, labels: labels}, pr_facts(pr || %{}))

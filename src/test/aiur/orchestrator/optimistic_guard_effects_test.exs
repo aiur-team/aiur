@@ -6,6 +6,9 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffectsTest do
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{OptimisticGuardEffects, OptimisticLedger, OptimisticSlots, PauseResume, Slots, State, TrackerTasks}
 
+  defmodule MissingConditionalRead do
+  end
+
   @topic "ticket.11.queue.attention.optimistic_blocker_failed"
   @park {:park, "11", "10", :pr_closed_unmerged}
 
@@ -68,6 +71,28 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffectsTest do
     assert {:ok, %{latches: [latch]}} = Store.load()
     assert latch.key == {:optimistic_blocker_failed, "11"}
     assert latch.emitted?
+  end
+
+  test "open ledger and unsupported tracker closure cannot crash or park", %{opts: opts} do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    previous = Application.fetch_env(:aiur, :github_client_module)
+    Application.put_env(:aiur, :github_client_module, MissingConditionalRead)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:aiur, :github_client_module, value)
+        :error -> Application.delete_env(:aiur, :github_client_module)
+      end
+    end)
+
+    opts = Keyword.merge(opts, settings: Config.settings!(), fetch_issues: fn _ -> {:ok, [remote_issue("10", [])]} end, blocked_by: fn _ -> {:ok, ["10"]} end)
+    state = running()
+    assert OptimisticGuardEffects.reconcile(state, opts) == state
+    assert {:ok, %{"status" => "running"}} = OptimisticLedger.get("11")
+    refute_received {:effect, :pause}
+    refute_received {:effect, :label}
+    refute_received {:effect, :draft}
+    refute_received {:event, %{topic: @topic}}
   end
 
   test "default park label uses the transition owner and records its writer", %{opts: opts} do

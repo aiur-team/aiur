@@ -129,6 +129,24 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservationsTest do
     refute Enum.any?(OptimisticGuard.decide([record()], observations, @now), &match?({:park, _, _, _}, &1))
   end
 
+  test "raising closure, PR and issue readers leave the observation unconfirmed" do
+    failures = [closure: fn _, _ -> raise "closure unavailable" end, read_pr: fn _, _ -> raise "PR unavailable" end, fetch_issues: fn _ -> raise "issues unavailable" end]
+
+    for failure <- failures do
+      observations = OptimisticGuardObservations.read([record()], @now, opts([failure]))
+      assert observations["10"].confirmed? == false
+      assert OptimisticGuard.decide([record()], observations, @now) == []
+    end
+  end
+
+  test "raising or exiting edge readers retain unknown edges without parking" do
+    for read <- [fn _ -> raise "edge unavailable" end, fn _ -> exit(:noproc) end] do
+      observations = OptimisticGuardObservations.read([record()], @now, opts(blocked_by: read))
+      assert observations["10"].edges["11"] == :unknown
+      refute Enum.any?(OptimisticGuard.decide([record()], observations, @now), &match?({:park, _, _, _}, &1))
+    end
+  end
+
   test "failed closure, PR or issue reads fail closed" do
     for failure <- [opts(closure: fn _, _ -> {:error, :unavailable} end), opts(read_pr: fn _, _ -> {:error, :unavailable} end), opts(fetch_issues: fn _ -> {:error, :unavailable} end)] do
       observations = OptimisticGuardObservations.read([record()], @now, failure)
