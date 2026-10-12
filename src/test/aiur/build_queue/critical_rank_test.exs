@@ -16,8 +16,8 @@ defmodule Aiur.BuildQueue.CriticalRankTest do
     ids = ~w(1 2 3)
 
     document = %{
-      queues: [%{id: "q", held: false, start_trigger: :pr_opened}],
-      items: Enum.map(ids, &%{issue_id: &1, queue_id: "q", hold: nil}),
+      queues: [%{id: "q", rank: 0, held: false, start_trigger: :pr_opened}],
+      items: Enum.map(ids, &%{issue_id: &1, queue_id: "q", position: 3, hold: nil}),
       edges: [%Edge{prerequisite: "1", dependent: "2", source: :native}, %Edge{prerequisite: "2", dependent: "3", source: :native}]
     }
 
