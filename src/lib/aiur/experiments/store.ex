@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Store do
   use GenServer
   require Logger
 
-  alias Aiur.Experiments.{Catalog, Journal, Paths, Persistence, Reader, Registration, Schema, Spec}
+  alias Aiur.Experiments.{AnalysisInput, Catalog, Checkpoint, Journal, Paths, Persistence, Reader, Registration, Schema, Snapshot, Spec}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -43,6 +43,19 @@ defmodule Aiur.Experiments.Store do
 
   def handle_call({:annotate, id, annotation, actor}, _from, state) do
     {:reply, annotate(id, annotation, actor), state}
+  end
+
+  def handle_call({:freeze, id, window, opts}, _from, state) do
+    opts = Keyword.put_new(opts, :context, state.catalog_context)
+    {:reply, Snapshot.freeze(id, window, opts), state}
+  end
+
+  def handle_call({:export_analysis_input, id}, _from, state) do
+    {:reply, AnalysisInput.export(id, context: state.catalog_context), state}
+  end
+
+  def handle_call({:checkpoint, id, now}, _from, state) do
+    {:reply, Checkpoint.safe_run(id, now, state.catalog_context), state}
   end
 
   @impl true
@@ -89,7 +102,18 @@ defmodule Aiur.Experiments.Store do
       true ->
         spec = %{spec | id: id}
         entry = entry("created", Keyword.get(opts, :actor, "operator"), spec.updated_at, %{"origin" => Keyword.get(opts, :origin)})
-        with :ok <- Persistence.commit(id, Spec.to_map(spec), entry, state.append), do: {:ok, spec}
+        with :ok <- Persistence.commit(id, Spec.to_map(spec), entry, state.append), :ok <- freeze_created(spec, opts, state.catalog_context), do: {:ok, spec}
+    end
+  end
+
+  defp freeze_created(spec, opts, context) do
+    if spec.design["kind"] == "before_after" and Keyword.get(opts, :freeze, true) do
+      case Snapshot.freeze(spec.id, "before", context: context) do
+        {:ok, _snapshot} -> :ok
+        error -> error
+      end
+    else
+      :ok
     end
   end
 

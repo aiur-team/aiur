@@ -26,7 +26,11 @@ The default minimum is 15 samples per arm.
 
 Creation and metric amendments reject references absent from the catalog. Stored
 specs remain readable if a pack disappears; evaluation reports those metrics as
-`unavailable`. Creation reports when baseline freezing is unavailable.
+`unavailable`.
+
+Before/after creation freezes the before window immediately;
+`--no-freeze` opts out. Creation prints its window, observation count and
+per-metric coverage; JSON includes `frozen_snapshot`.
 
 Stored statuses are `draft`, `active`, `concluded` and `abandoned`. Drafts do
 not register automatically when the change time passes.
@@ -53,6 +57,32 @@ other packs remain usable. Disabling experiments reports `unavailable/disabled`.
 
 Storage failures leave the daemon running and report the experiments store as
 unavailable; writes return the storage failure while disk reads remain usable.
+
+
+## Baselines and retention
+
+Frozen windows preserve raw per-unit observations, coverage, summaries and pack
+definition hashes in `snapshots/<window>.r<N>.json`, independently of telemetry
+retention and regenerable run summaries. Files are read-only and journaled;
+reads verify their SHA-256. Tampered evidence is refused without live fallback.
+
+`aiur experiments freeze <id>` defaults to `before` for before/after and
+`observation` for A/B. Use `--window after` to freeze the after window, or
+`--reason "updated baseline"` to add a revision; previous revisions remain.
+
+The observation limit (50,000 by default) refuses excess data without truncation.
+Open duration units are censored observations with their elapsed value.
+
+The hourly checkpointer preserves finished after-window units idempotently.
+For a future change it re-freezes the baseline at the change time, and freezes
+the after window when it closes. `show` lists revisions, counts and coverage.
+
+Arm assignment prefers frozen data, then checkpoints, then live evaluation.
+Before/after straddlers are excluded by default; `assign_by: finish` assigns
+by finish time. Cohort assignment counts filtered and ambiguous units.
+
+`export_analysis_input/1` writes `report/analysis-input.json` with assigned
+per-unit rows and a stable `input_sha256`; this is the statistics engine's input.
 
 
 ## Metric packs

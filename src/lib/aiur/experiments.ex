@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Capture, Catalog, Evaluator, Journal, Paths, Reader, Schema, Store}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -10,7 +10,7 @@ defmodule Aiur.Experiments do
   def observations(refs, window, context \\ %{}), do: Evaluator.observations(refs, window, context)
 
   @spec children(boolean()) :: [module()]
-  def children(recording?), do: if(child(recording?), do: [Store, Capture], else: [])
+  def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer], else: [])
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -61,6 +61,18 @@ defmodule Aiur.Experiments do
 
   @spec create(map(), keyword()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def create(attrs, opts \\ []), do: mutate({:create, attrs, opts})
+
+  @spec freeze(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  def freeze(id, window \\ nil, opts \\ []), do: mutate({:freeze, id, window, opts})
+
+  @spec arms(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def arms(id, opts \\ []), do: Arms.read(id, opts)
+
+  @spec export_analysis_input(String.t()) :: {:ok, map()} | {:error, term()}
+  def export_analysis_input(id), do: mutate({:export_analysis_input, id})
+
+  @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def checkpoint(id, now), do: mutate({:checkpoint, id, now})
 
   @spec amend(String.t(), map(), term()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def amend(id, changes, actor), do: mutate({:amend, id, changes, actor, "amended"})
