@@ -474,47 +474,10 @@ full CI in the merge queue. Do not loop locally on unrelated suite flakes.
 Write every PR body from `.github/pull_request_template.md`; the required body
 gate checks that structure and the local-test evidence. Keep the closing keyword
 from the template (`Closes #N`, or `Refs #N` when the PR delivers only part of
-its ticket), and fill every section:
-
-```markdown
-Closes #<!-- issue number -->
-
-#### Context
-
-<!-- Why is this change needed? -->
-
-#### TL;DR
-
-*<!-- Short description of the change -->*
-
-#### Summary
-
-- <!-- High-level change -->
-
-#### Alternatives
-
-- <!-- Alternatives considered and why not -->
-
-#### Complexity routing
-
-- Signal: <!-- complexity:N or untagged -> treated as complexity:3 -->
-- Skills used: <!-- Skills and model/provider path when relevant -->
-- Rationale: <!-- Why this route fit -->
-- Adjustment: <!-- Whether the recommendation was followed or changed -->
-
-#### Docs
-
-- [ ] Docs updated in this PR — name the pages
-- [ ] Docs not required
-
-## Local tests
-
-Policy: <!-- all / partial / none; at least the configured mode -->
-Tested head: <!-- full 40-character pushed SHA; update after every push -->
-Base: <!-- base ref @ full 40-character SHA -->
-Selection: <!-- why these tests cover the change -->
-- `<!-- exact command -->` -> <!-- actual result -->
-```
+its ticket), and fill every section, including `#### Complexity routing` and
+the strict `## Local tests` evidence block. Keep `Policy:`, `Tested head:` and
+`Base:` as plain lines, not list items or backticks; include `Base:` as
+`<ref> @ <40-character-sha>`, and each command as `` `command` -> result ``.
 
 After every push, update `Tested head:` to the new full head SHA. Before
 handoff, run `python3 scripts/check-pr-body.py --pr-json <(gh api

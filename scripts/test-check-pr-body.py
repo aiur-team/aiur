@@ -20,35 +20,34 @@ class PrBodyGateTests(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         skill = (root / '.claude/skills/aiur-agent/dev-loop.md').read_text()
         template = (root / '.github/pull_request_template.md').read_text()
-        example = skill.split('```markdown\n', 1)[1].split('\n```', 1)[0]
-
-        for heading in [
-            '#### Context', '#### TL;DR', '#### Summary', '#### Alternatives',
-            '#### Complexity routing', '#### Docs', '## Local tests',
-        ]:
-            self.assertIn(heading, example)
-            self.assertIn(heading, template)
-
+        self.assertIn('from `.github/pull_request_template.md`', skill)
+        self.assertIn('`#### Complexity routing`', skill)
+        self.assertIn('the strict `## Local tests` evidence block', skill)
+        self.assertIn('`<ref> @ <40-character-sha>`', skill)
+        self.assertIn('`` `command` -> result ``', skill)
         self.assertIn('update `Tested head:` to the new full head SHA', skill)
         self.assertIn('scripts/check-pr-body.py', skill)
         self.assertNotIn('Do not include complexity-routing explanations', skill)
 
-        body = example.replace('Closes #<!-- issue number -->', 'Closes #4345')
-        body = body.replace('<!-- Why is this change needed? -->', 'Keep worker guidance aligned with CI.')
-        body = body.replace('*<!-- Short description of the change -->*', '*Align PR guidance with the required gate.*')
-        body = body.replace('<!-- High-level change -->', 'Update the worker PR body instructions.')
-        body = body.replace('<!-- Alternatives considered and why not -->', 'Keep the template as the single source of truth.')
-        body = body.replace('<!-- complexity:N or untagged -> treated as complexity:3 -->', 'complexity:3')
-        body = body.replace('<!-- Skills and model/provider path when relevant -->', 'ce-work')
-        body = body.replace('<!-- Why this route fit -->', 'The contained documentation and test change fits this route.')
-        body = body.replace('<!-- Whether the recommendation was followed or changed -->', 'Followed the recommendation.')
-        body = body.replace('- [ ] Docs updated in this PR — name the pages\n- [ ] Docs not required', '- [ ] Docs not required')
-        body = body.replace('<!-- all / partial / none; at least the configured mode -->', 'partial')
-        body = body.replace('<!-- full 40-character pushed SHA; update after every push -->', 'a' * 40)
-        body = body.replace('<!-- base ref @ full 40-character SHA -->', 'main @ ' + 'b' * 40)
-        body = body.replace('<!-- why these tests cover the change -->', 'The integration test exercises this example with the shared checker.')
+        body = template.replace('Closes #<!-- issue number; use Fixes or Resolves if you prefer; list multiple as `Closes #43, #46` -->', 'Closes #4345')
+        body = body.replace('<!-- Why is this change needed? Length <= 240 chars -->', 'Keep worker guidance aligned with CI.')
+        body = body.replace('*<!-- A short description of what we are changing. Use simple language. Assume reader is not familiar with this code. Length <= 120 chars -->*', '*Align PR guidance with the required gate.*')
+        body = body.replace('<!-- Details of the changes in bullet points -->', 'Update the worker PR body instructions.')
+        body = body.replace('<!-- Keep them high level -->\n', '')
+        body = body.replace('<!-- Each item <= 120 chars -->\n', '')
+        body = body.replace('<!-- What alternatives have been considered? Why not? -->', 'Keep the repository template as the single source of truth.')
+        body = body.replace('<!-- `complexity:N`, or `untagged -> treated as complexity:3` -->', 'complexity:3')
+        body = body.replace('<!-- e.g. `ce-plan` -> `ce-work` -> `ce-code-review`; include model/provider path when relevant -->', 'ce-work')
+        body = body.replace('<!-- Why this route fit this issue after inspection -->', 'The contained documentation and test change fits this route.')
+        body = body.replace('<!-- Followed the recommendation, moved up/down, or explain why no adjustment was needed -->', 'Followed the recommendation.')
+        body = body.replace('<!-- Keep one of the two lines below, delete the other, and delete every comment on the line you keep — `mix pr_body.check` rejects a body that still contains any `<!--`. Docs live in `website/docs-app/`: config keys in `reference/configuration.md`, commands and flags in `reference/cli.md`, user-facing surfaces in `guide/`, explanations in `concepts/`. Prefer editing an existing page over adding one — a wrong doc is worse than a missing one. -->\n\n', '')
+        body = body.replace('- [ ] Docs updated in this PR — name the pages <!-- required for: a new or changed config key, a CLI command or flag, an operator-set env var, a new user-facing surface (dashboard page, TUI view, Stream Deck mode, panel), or a change that makes an existing page wrong -->\n- [ ] Docs not required <!-- internal refactor, bug fix restoring already-documented behavior, test-only change, or performance work with no interface change -->', '- [ ] Docs not required')
+        body = body.replace('<!-- all / partial / none; at least the configured merge_policy.local_tests mode -->', 'partial')
+        body = body.replace('<!-- full 40-character SHA pushed; update after every push -->', 'a' * 40)
+        body = body.replace('<!-- base ref @ full SHA -->', 'main @ ' + 'b' * 40)
+        body = body.replace('<!-- why this set covers changed tests, source mirrors, direct callers and deleted names; full suite for shared support/build/dependency/runtime config -->', 'The integration test exercises the skill guidance with the shared checker.')
         body = body.replace('<!-- exact command -->', 'python3 scripts/test-check-pr-body.py')
-        body = body.replace('<!-- actual result -->', 'passed')
+        body = body.replace('<!-- actual result, including failures or blockers -->', 'passed')
 
         with tempfile.TemporaryDirectory(prefix='pr-body-skill-') as scratch:
             body_path = Path(scratch) / 'body.md'
