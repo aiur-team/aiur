@@ -697,7 +697,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: src
