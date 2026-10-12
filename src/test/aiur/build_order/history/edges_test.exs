@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.History.EdgesTest do
   alias Aiur.BuildOrder.History.{Edges, Row}
   alias Aiur.BuildOrder.{Lifecycle, ProviderHealth}
   alias AiurWeb.Build.Payload
+  alias Aiur.TestSupport.BuildHome.FixtureSource
   @repo %{owner: "aiur-team", repository: "aiur"}
   @fixtures Path.expand("../../../fixtures/build_home", __DIR__)
 
@@ -164,7 +165,7 @@ defmodule Aiur.BuildOrder.History.EdgesTest do
       assert Payload.scrub(Edges.to_payload(result.by_ticket, t["num"])) == fixture["expected"][t["id"]]
     end
 
-    {:ok, registered} = Aiur.TestSupport.BuildHome.FixtureSource.full(dataset: "odd-edges")
+    {:ok, registered} = FixtureSource.full(dataset: "odd-edges")
     assert registered == snapshot
   end
 

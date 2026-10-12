@@ -12,17 +12,7 @@ defmodule Aiur.BuildOrder.History.Edges do
     # ponytail: full rebuild; use an incremental index if C12-T06 exceeds the 10k-row budget.
     by_ticket = Map.new(rows, fn {number, row} -> {number, empty(missing_count(row, health))} end)
 
-    {edges, by_ticket} =
-      Enum.reduce(rows, {[], by_ticket}, fn {_number, row}, acc ->
-        row.blocked_by
-        |> refs()
-        |> Enum.uniq_by(&{String.downcase(&1.owner), String.downcase(&1.repository), &1.number})
-        |> Enum.reduce(acc, fn ref, {edges, index} ->
-          blocker = if Bounded.same_repository?(repository, ref), do: Map.get(rows, ref.number)
-          edge = edge(row, ref, blocker, health)
-          {[edge | edges], project(index, edge, blocker)}
-        end)
-      end)
+    {edges, by_ticket} = Enum.reduce(rows, {[], by_ticket}, fn {_number, row}, acc -> collect_row(row, rows, health, repository, acc) end)
 
     by_ticket = Map.new(by_ticket, fn {number, projection} -> {number, %{projection | deps: sorted_ids(projection.deps), children: sorted_ids(projection.children)}} end)
     {:ok, %{edges: edges, by_ticket: Map.put(by_ticket, :complete?, health.complete?)}}
@@ -33,6 +23,17 @@ defmodule Aiur.BuildOrder.History.Edges do
   @doc "Projects a number from build/2's by_ticket index, whose :complete? key governs absent rows."
   @spec to_payload(index(), pos_integer()) :: projection()
   def to_payload(by_ticket, number), do: Map.get(by_ticket, number, empty(if(by_ticket[:complete?], do: 0)))
+
+  defp collect_row(row, rows, health, repository, acc) do
+    row.blocked_by
+    |> refs()
+    |> Enum.uniq_by(&{String.downcase(&1.owner), String.downcase(&1.repository), &1.number})
+    |> Enum.reduce(acc, fn ref, {edges, index} ->
+      blocker = if Bounded.same_repository?(repository, ref), do: Map.get(rows, ref.number)
+      edge = edge(row, ref, blocker, health)
+      {[edge | edges], project(index, edge, blocker)}
+    end)
+  end
 
   defp refs(:unknown), do: []
   defp refs(refs), do: refs
