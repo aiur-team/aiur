@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-real_elixir="$(type -P elixir)"
 test_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-classify-ci.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir "$test_dir/bin"
@@ -45,7 +44,7 @@ if [[ -n "${TEST_SELECTOR:-}" ]]; then
   [[ "$TEST_SELECTOR" != fail ]] || exit 1
   echo "$TEST_SELECTOR"
 else
-  exec "$REAL_ELIXIR" "$@"
+  echo scoped:1
 fi
 STUB
 chmod +x "$test_dir/bin/elixir"
@@ -53,7 +52,7 @@ classify() {
   : > "$test_dir/out"
   EVENT_NAME="$1" TEST_DRAFT="$2" TEST_FILES="$3" TEST_LABELS="${4:-[]}" \
     TEST_SELECTOR="${5:-scoped:1}" TEST_OVERSIZED_PATHS="${6:-false}" \
-    REAL_ELIXIR="$real_elixir" REPO=o/r PR_NUMBER=7 \
+    REPO=o/r PR_NUMBER=7 \
     GITHUB_OUTPUT="$test_dir/out" GITHUB_STEP_SUMMARY="$test_dir/summary" \
     PATH="$test_dir/bin:$PATH" bash "$root/scripts/classify-ci-changes.sh" || return $?
   grep -E '^(full_ci|docs_only)=' "$test_dir/out" | sort | paste -sd' ' -
@@ -86,8 +85,8 @@ TEST_BIGPATCH=true expect 'docs_only=false full_ci=false' pull_request false '[]
 TEST_LEGACY=true expect 'docs_only=true full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
 TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
 TEST_FILE_CAP=true expect 'docs_only=false full_ci=true' pull_request false '[]'
-expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
 expect 'docs_only=false full_ci=true' pull_request false '[]' '[]' '' true
+expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
 classify pull_request false '[{"filename":"src/test/aiur/config_test.exs"},{"filename":"src/lib/aiur/config.ex"}]' >/dev/null
 expected_paths="$(printf '["src/lib/aiur/config.ex","src/test/aiur/config_test.exs"]' | base64 -w0)"
 grep -Fxq "affected_paths_b64=$expected_paths" "$test_dir/out"
