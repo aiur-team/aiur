@@ -1,19 +1,35 @@
 defmodule Aiur.Experiments.AnalysisInput do
   @moduledoc "Exports the stable, flat evidence consumed by experiment analysis."
 
-  alias Aiur.Experiments.{Arms, Evidence, Journal, Paths, Persistence, Reader}
+  alias Aiur.Experiments.{Arms, Evidence, Journal, Paths, Persistence, Reader, Snapshot}
 
   @spec export(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def export(id, opts \\ []) do
+    with {:ok, prepared} <- prepare(id, opts), do: commit(prepared)
+  end
+
+  @spec prepare(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def prepare(id, opts) do
     with :ok <- Persistence.writable(id),
          {:ok, spec, false} <- Reader.spec(id),
          {:ok, annotations} <- Journal.read(Paths.file(id, "annotations.ndjson")),
-         {:ok, arms} <- Arms.read(id, opts),
-         input = build(spec, annotations, arms),
-         :ok <- Persistence.write_json(Paths.file(id, "report/analysis-input.json"), input) do
-      {:ok, input}
+         {:ok, arms} <- Arms.read(id, opts) do
+      {:ok, %{id: id, spec: spec, annotations: annotations, input: build(spec, annotations, arms)}}
     else
       {:ok, _spec, true} -> {:error, :newer_spec}
+      error -> error
+    end
+  end
+
+  @spec commit(map()) :: {:ok, map()} | {:error, term()}
+  def commit(prepared) do
+    with :ok <- Snapshot.unchanged_spec(prepared.id, prepared.spec),
+         {:ok, annotations} <- Journal.read(Paths.file(prepared.id, "annotations.ndjson")),
+         true <- annotations == prepared.annotations,
+         :ok <- Persistence.write_json(Paths.file(prepared.id, "report/analysis-input.json"), prepared.input) do
+      {:ok, prepared.input}
+    else
+      false -> {:error, :stale_preparation}
       error -> error
     end
   end

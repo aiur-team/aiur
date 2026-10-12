@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.WindowData do
   @moduledoc false
-  alias Aiur.Experiments.{Evaluator, Journal, Paths, Snapshot}
+  alias Aiur.Experiments.{Checkpoint, Evaluator, Snapshot}
   alias Aiur.Experiments.Sources.Common
 
   @spec read(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
@@ -34,7 +34,7 @@ defmodule Aiur.Experiments.WindowData do
   end
 
   defp live(spec, name, ctx) do
-    with {:ok, data} <- evaluate(spec, name, ctx), {:ok, partial} <- partial(spec["id"], name) do
+    with {:ok, partial} <- partial(spec["id"], name, ctx), {:ok, data} <- evaluate(spec, name, Map.put(ctx, :checkpoint_partial, partial)) do
       {:ok, Map.put(data, :source, if(partial == [], do: :live, else: :checkpoint))}
     end
   end
@@ -42,7 +42,7 @@ defmodule Aiur.Experiments.WindowData do
   @spec evaluate(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def evaluate(spec, name, ctx \\ %{}) do
     with {:ok, window} <- window(spec, name, ctx),
-         {:ok, partial} <- partial(spec["id"], name) do
+         {:ok, partial} <- partial(spec["id"], name, ctx) do
       refs = Enum.map(spec["metrics"], & &1["ref"])
       evaluate = Map.get(ctx, :evaluate, &Evaluator.observations/3)
       metrics = evaluate.(refs, window, interval_context(spec, window, ctx)) |> Aiur.JSONSafe.normalize()
@@ -78,9 +78,11 @@ defmodule Aiur.Experiments.WindowData do
     end
   end
 
-  defp partial(id, name) do
-    path = Paths.file(id, "snapshots/#{name}.partial.ndjson")
-    with :ok <- Journal.writable(path), do: Journal.read(path)
+  defp partial(id, name, ctx) do
+    case Map.fetch(ctx, :checkpoint_partial) do
+      {:ok, rows} -> {:ok, rows}
+      :error -> Checkpoint.partial(id, name)
+    end
   end
 
   defp normalize_result(ref, result, partial) do

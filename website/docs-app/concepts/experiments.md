@@ -30,7 +30,8 @@ specs remain readable if a pack disappears; evaluation reports those metrics as
 
 Before/after creation freezes the before window immediately;
 `--no-freeze` opts out. Creation prints its window, observation count and
-per-metric coverage; JSON includes `frozen_snapshot`.
+per-metric coverage; JSON includes `frozen_snapshot`. A refused baseline leaves
+no new experiment, so the same ID can be retried.
 
 Stored statuses are `draft`, `active`, `concluded` and `abandoned`. Drafts do
 not register automatically when the change time passes.
@@ -41,7 +42,11 @@ creation return the existing experiment.
 The state node at `~/.aiur/repo/<owner>/<repo>/experiments/<id>/` holds
 `spec.json`, append-only `journal.ndjson`, `annotations.ndjson` and `report/`.
 The root `index.json` is a rebuildable cache. One daemon process serializes
-writes; reads access the files directly. Corrupt specs appear as unreadable
+writes; reads access the files directly. Evaluation runs separately, with one
+job at a time and a two-minute deadline. Concurrent evaluations return
+`evaluation_busy`; retry after the current job finishes. Amendments remain
+available, but invalidate any prepared evidence based on the old spec.
+Corrupt specs appear as unreadable
 rows without hiding other experiments.
 
 Files carry `schema_version`. Readers upgrade the previous version; specs from
@@ -75,7 +80,9 @@ Open duration units are censored observations with their elapsed value.
 
 The hourly checkpointer preserves finished after-window units idempotently.
 For a future change it re-freezes the baseline at the change time, and freezes
-the after window when it closes. `show` lists revisions, counts and coverage.
+the after window when it closes. Checkpoints refuse excess observations, record
+`checkpoint_limit_reached` once, and stop evaluating that window.
+`show` lists revisions, counts and coverage.
 
 Arm assignment prefers frozen data, then checkpoints, then live evaluation.
 Before/after straddlers are excluded by default; `assign_by: finish` assigns

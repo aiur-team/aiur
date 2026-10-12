@@ -4,17 +4,45 @@ defmodule Aiur.Experiments.Snapshot do
 
   @spec freeze(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def freeze(id, name \\ nil, opts \\ []) do
-    with :ok <- Persistence.recover_one(id),
-         :ok <- Persistence.writable(id),
+    with :ok <- Persistence.recover_one(id), {:ok, prepared} <- prepare(id, name, opts), do: commit_prepared(prepared)
+  end
+
+  @spec prepare(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  def prepare(id, name, opts) do
+    with :ok <- Persistence.writable(id),
          {:ok, spec, false} <- Reader.spec(id),
          name = name || default_window(spec),
          {:ok, old} <- latest(id, name),
          :ok <- reason(old, opts),
          {:ok, data} <- WindowData.evaluate(spec, name, context(opts)),
-         data = retain_old(old, data),
-         :ok <- size_guard(data.metrics, opts) do
-      snapshot = build(spec, name, old, data, opts)
-      with :ok <- SnapshotPersistence.commit(id, name, snapshot, opts), do: {:ok, snapshot}
+         {:ok, snapshot} <- prepare_spec(spec, name, old, data, opts) do
+      {:ok, %{id: id, spec: spec, name: name, old: old, snapshot: snapshot, opts: opts}}
+    end
+  end
+
+  @spec prepare_spec(map(), String.t(), map() | nil, map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def prepare_spec(spec, name, old, data, opts) do
+    data = retain_old(old, data)
+    with :ok <- reason(old, opts), :ok <- size_guard(data.metrics, opts), do: {:ok, build(spec, name, old, data, opts)}
+  end
+
+  @spec commit_prepared(map()) :: {:ok, map()} | {:error, term()}
+  def commit_prepared(prepared) do
+    with :ok <- unchanged_spec(prepared.id, prepared.spec),
+         {:ok, old} <- latest(prepared.id, prepared.name),
+         true <- old == prepared.old,
+         :ok <- SnapshotPersistence.commit(prepared.id, prepared.name, prepared.snapshot, prepared.opts) do
+      {:ok, prepared.snapshot}
+    else
+      false -> {:error, :stale_preparation}
+      error -> error
+    end
+  end
+
+  @spec unchanged_spec(String.t(), map()) :: :ok | {:error, term()}
+  def unchanged_spec(id, expected) do
+    with {:ok, current, false} <- Reader.spec(id) do
+      if Map.delete(current, "registered_at") == Map.delete(expected, "registered_at"), do: :ok, else: {:error, :stale_preparation}
     end
   end
 

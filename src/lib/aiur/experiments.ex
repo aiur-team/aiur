@@ -106,7 +106,7 @@ defmodule Aiur.Experiments do
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, "experiments")
 
   defp mutate(command) do
-    GenServer.call(Store, command, 30_000)
+    GenServer.call(Store, command, 125_000)
   catch
     :exit, {:noproc, _call} -> {:error, Store.startup_failure()}
     :exit, {:timeout, _call} -> {:error, :outcome_unknown}
