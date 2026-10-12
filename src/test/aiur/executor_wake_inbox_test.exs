@@ -22,6 +22,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
   end
 
   test "coalesces forty events across sixteen tickets", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 60_000)
     start_supervised!({ExecutorWakeInbox, opts})
 
     for id <- 1..40 do
@@ -29,13 +30,15 @@ defmodule Aiur.ExecutorWakeInboxTest do
       :ok = ExecutorWakeInbox.enqueue(record(id, ticket), __MODULE__)
     end
 
-    Process.sleep(1_100)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     records = ExecutorWakeInbox.pending(__MODULE__)
     assert length(records) == 16
     assert Enum.sum(Enum.map(records, & &1["count"])) == 40
   end
 
   test "coalesces by topic class and ticket while keeping the latest identifiers", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 60_000)
     start_supervised!({ExecutorWakeInbox, opts})
     first_seen = "2026-08-16T01:00:00Z"
     last_seen = "2026-08-16T01:00:01Z"
@@ -51,7 +54,8 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :ok = ExecutorWakeInbox.enqueue(first, __MODULE__)
     :ok = ExecutorWakeInbox.enqueue(latest, __MODULE__)
     :ok = ExecutorWakeInbox.enqueue(ci, __MODULE__)
-    Process.sleep(1_100)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
 
     records = ExecutorWakeInbox.pending(__MODULE__)
     assert length(records) == 2
@@ -137,7 +141,8 @@ defmodule Aiur.ExecutorWakeInboxTest do
 
     {:ok, _entry} = Claims.claim("owner-2600")
     :ok = ExecutorWakeInbox.enqueue(record(1, "2600"), __MODULE__)
-    Process.sleep(40)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     assert {:ok, [_ | _] = records} = ExecutorWakeInbox.wait(100, __MODULE__)
 
     lock = StatePaths.claims_path() <> ".lock"
@@ -158,7 +163,8 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert System.monotonic_time(:millisecond) - started_at >= 900
     refute File.exists?(opts[:cursor_path])
     :ok = ExecutorWakeInbox.enqueue(record(11, "43"), __MODULE__)
-    Process.sleep(30)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     assert {:ok, [%{"event_id" => 11}] = records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert :ok = ack_as_owner(records, __MODULE__)
   end
@@ -168,13 +174,15 @@ defmodule Aiur.ExecutorWakeInboxTest do
     start_supervised!({ExecutorWakeInbox, opts})
 
     :ok = ExecutorWakeInbox.enqueue(record(100, "42"), __MODULE__)
-    Process.sleep(30)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
 
     assert {:ok, [%{"wake_id" => 1, "event_id" => 100}] = first} =
              ExecutorWakeInbox.wait(100, __MODULE__)
 
     :ok = ExecutorWakeInbox.enqueue(record(10, "43"), __MODULE__)
-    Process.sleep(30)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     assert :ok = ack_as_owner(first, __MODULE__)
 
     assert {:ok, [%{"wake_id" => 2, "event_id" => 10}] = second} =
@@ -378,11 +386,12 @@ defmodule Aiur.ExecutorWakeInboxTest do
   # will ever acknowledge, and preserving every unread record made the ledger
   # unbounded in exactly that case (#1661).
   test "evicts consumed records first, then bounds unread growth", %{opts: opts} do
-    opts = Keyword.merge(opts, debounce_ms: 20, max_records: 5)
+    opts = Keyword.merge(opts, debounce_ms: 60_000, max_records: 5)
     start_supervised!({ExecutorWakeInbox, opts})
 
     for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
-    Process.sleep(30)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [1, 2, 3]
     assert :ok = ack_as_owner(records, __MODULE__)
@@ -390,14 +399,16 @@ defmodule Aiur.ExecutorWakeInboxTest do
     # Past the bound the ledger trims to its low watermark (4 of 5): consumed
     # records go first, and no unread record is dropped to keep a consumed one.
     for id <- 4..6, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
-    Process.sleep(30)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [4, 5, 6]
     assert journal_ids(opts) == [3, 4, 5, 6]
 
     # Four more push the unread set past the bound: the oldest unread go.
     for id <- 7..10, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
-    Process.sleep(30)
+    send(Process.whereis(__MODULE__), :flush)
+    _ = :sys.get_state(__MODULE__)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [7, 8, 9, 10]
     assert :ok = ack_as_owner(records, __MODULE__)

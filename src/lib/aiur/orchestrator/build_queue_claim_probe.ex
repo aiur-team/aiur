@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
 
   alias Aiur.BuildQueue.ClaimProbe
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{IssueSync, OptimisticLedger, State}
+  alias Aiur.Orchestrator.{IssueSync, OptimisticLedger, QueueSetSlots, State}
 
   @impl true
   def status(ids), do: status(Orchestrator, ids)
@@ -40,6 +40,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
       :claimed
     else
       case Map.get(state.dispatch_declines, id) do
+        :queue_set_order -> {:declined, {:queue_set_order, QueueSetSlots.waiting(id, state)}}
         nil -> :unclaimed
         reason -> {:declined, reason}
       end
