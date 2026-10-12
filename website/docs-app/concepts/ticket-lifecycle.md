@@ -558,7 +558,8 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 
 ## Step 5 — PR opened, agent pauses
 
-The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft pushes run only `changes`, `lint`, and `build`. After self-review, mark completed work ready to trigger the full suite, then `agent:ci-wait` releases the turn and dispatch slot.
+The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft pushes run only `changes`, `lint`, and `build`. After self-review, mark completed work ready to trigger the full suite,
+then `agent:ci-wait` releases the turn and dispatch slot.
 Aiur refuses `ci-wait` and `human-review` hand-offs for drafts. A pending draft already in human review stays there instead of moving to CI wait.
 
 Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
