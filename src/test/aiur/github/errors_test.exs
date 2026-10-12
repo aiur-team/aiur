@@ -152,4 +152,15 @@ defmodule Aiur.GitHub.ErrorsTest do
     assert Errors.transient_github_error?({:github_auth_preflight_failed, %{reason: :http_status, status: 502}})
     refute Errors.transient_github_error?({:github_auth_preflight_failed, %{reason: :invalid_or_expired_token, status: 401}})
   end
+
+  test "outcome/1 separates complete, held, unknown and failed" do
+    assert Errors.outcome({:ok, %{}}) == :complete
+    assert Errors.outcome({:error, {:aiur, :locally_held, %{}}}) == :held
+    assert Errors.outcome({:error, {:aiur, :unknown, :fetch_deadline_exceeded}}) == :unknown
+
+    assert Errors.outcome({:error, {:github, :transport, %{reason: {:aiur, :unknown, :fetch_deadline_exceeded}}}}) ==
+             :unknown
+
+    assert Errors.outcome({:error, {:github, :http, %{status: 404}}}) == :failed
+  end
 end

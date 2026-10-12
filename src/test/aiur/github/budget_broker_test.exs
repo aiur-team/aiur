@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     root = Aiur.TestSupport.tmp_root!("resident-budget-broker")
     File.mkdir_p!(root)
     server = start_supervised!({BudgetBroker, name: __MODULE__})
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, server: server}
   end
 

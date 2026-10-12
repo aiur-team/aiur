@@ -8,11 +8,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
   import Aiur.Codex.AccountGenerationTestSupport
 
   setup_all do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub}, id: {Phoenix.PubSub, Aiur.PubSub})
-    end
-
-    :ok
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   setup do

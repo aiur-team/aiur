@@ -7,7 +7,7 @@ defmodule Aiur.Workspace.ProvisionerLifecycleTest do
     workspace = Aiur.TestSupport.tmp_root!("aiur-existing-workspace")
 
     init_repo!(workspace)
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
     test_pid = self()
 
     recorder = fn kind, attributes, opts ->

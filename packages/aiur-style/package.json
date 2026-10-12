@@ -17,7 +17,12 @@
     },
     "./aiur-style.css": "./dist/aiur-style.css",
     "./css/*": "./dist/css/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./tokens": {
+      "types": "./dist/tokens.d.ts",
+      "default": "./dist/tokens.js"
+    },
+    "./tokens.css": "./dist/tokens.css"
   },
   "files": [
     "dist",
@@ -39,7 +44,7 @@
     "check-dist": "node scripts/check-dist.mjs",
     "sync": "node scripts/sync.mjs",
     "test": "npm run test:node",
-    "test:node": "node --test test/dist.test.mjs",
+    "test:node": "node --test test/*.test.mjs",
     "test:visual": "playwright test test/gallery.visual.spec.ts",
     "test:visual:docker": "docker run --rm --ipc=host -v \"$PWD:/work\" -w /work mcr.microsoft.com/playwright:v1.61.1-noble npm run test:visual"
   },

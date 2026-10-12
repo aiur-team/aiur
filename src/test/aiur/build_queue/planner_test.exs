@@ -105,8 +105,17 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :removed}], [{:dequeue, "1"}]} = input |> F.update_observation(labels: []) |> Planner.plan()
 
     for {reason, state} <- [{"completed", :completed}, {"not_planned", :cancelled}, {"duplicate", :unknown}] do
-      assert {[%{state: ^state}], []} = input |> F.update_observation(open?: false, state_reason: reason) |> Planner.plan()
+      expected = if state == :completed, do: [{:unmark, "1"}], else: []
+      assert {[%{state: ^state}], ^expected} = input |> F.update_observation(open?: false, state_reason: reason) |> Planner.plan()
     end
+
+    completed = F.input() |> F.update_observation(open?: false, state_reason: "completed")
+    assert {[%{state: :completed}], [{:unmark, "1"}]} = completed |> F.update_observation(labels: []) |> Planner.plan()
+    already_unmarked = F.intent(completed |> F.update_observation(labels: []), :unmark, target_labels: [], outcome: :ok)
+    assert {[%{state: :completed}], []} = Planner.plan(already_unmarked)
+    requeued = F.intent(already_unmarked, :mark, target_labels: ["agent:queued"], outcome: :ok)
+    assert {[%{state: :completed}], [{:unmark, "1"}]} = Planner.plan(%{completed | intents: requeued.intents})
+    assert {[%{state: :completed}], [{:unmark, "1"}]} = Planner.plan(%{completed | opts: Keyword.put(completed.opts, :source_verdicts, %{"1" => {:unknown, :source_unavailable}})})
 
     for label <- ~w(agent:in-progress agent:rework agent:error) do
       assert {[%{state: :claimed}], []} = F.input() |> F.update_observation(labels: ["agent:queued", label]) |> Planner.plan()

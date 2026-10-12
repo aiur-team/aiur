@@ -349,8 +349,10 @@ defmodule Aiur.PauseContainment do
   end
 
   defp notify_orchestrator(identifier, generation, result) do
-    if Process.whereis(Aiur.Orchestrator) do
-      send(Aiur.Orchestrator, {:pause_containment_result, identifier, generation, result})
+    target = Application.get_env(:aiur, :pause_containment_result_target)
+
+    if target && Process.whereis(target) do
+      send(target, {:pause_containment_result, identifier, generation, result})
     end
 
     :ok
