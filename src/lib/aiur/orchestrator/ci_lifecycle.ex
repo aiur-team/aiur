@@ -376,21 +376,20 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec start_poll(State.t(), (State.t() -> State.t()), keyword()) :: State.t()
   def start_poll(%State{} = state, continue, opts \\ []) do
     if Config.tracker_kind() == "github" and not within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
-      launch_ci_poll(state, opts, continue, &TrackerTasks.start/4)
+      launch_ci_poll(state, Keyword.put_new(opts, :ci_recovery_poll_id, make_ref()), continue, &TrackerTasks.start/4)
     else
       continue.(state)
     end
   end
 
   defp do_poll_github_ci(state, opts) do
-    launch_ci_poll(state, opts, &Function.identity/1, &TrackerTasks.run/4)
+    launch_ci_poll(state, Keyword.put_new(opts, :ci_recovery_poll_id, make_ref()), &Function.identity/1, &TrackerTasks.run/4)
   end
 
   defp launch_ci_poll(state, opts, continue, launch) do
     cache = issue_list_cache(state)
-    invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
-    baseline = state.ci_lifecycle
+    {baseline, invalidations} = {state.ci_lifecycle, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})}
 
     launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
       current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
@@ -1238,7 +1237,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     result = Map.put(result, :ci_recovery_opts, opts)
 
     if ci_wait_state?(effective_ci_state(issue)) and
-         (result[:decision] == :failed or (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[ci_target_for_issue(issue)]))) and
+         (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
+            (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[ci_target_for_issue(issue)]))) and
          is_integer(result[:pr_number]) and not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue) do
       recovery = Keyword.get(opts, :ci_recovery, &GithubCIPoller.recover_failure/3)
 
