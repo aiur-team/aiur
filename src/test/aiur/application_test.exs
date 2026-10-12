@@ -133,10 +133,11 @@ defmodule Aiur.ApplicationTest do
       Aiur.LauncherWatchdog,
       Aiur.Opencode.PaneSupervisor
     ]
-
-    @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
-
-    # Agent backends kept in headless mode plus core infra both modes need.
+    @dashboard [
+      AiurWeb.ControlCenterCache,
+      AiurWeb.FinancialData.Supervisor,
+      Aiur.HttpServer
+    ]
     @always [
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,
@@ -168,7 +169,6 @@ defmodule Aiur.ApplicationTest do
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
     ]
-
     defp modules(specs) do
       Enum.map(specs, fn
         mod when is_atom(mod) -> mod
@@ -698,8 +698,6 @@ defmodule Aiur.ApplicationTest do
       """)
 
       on_exit(fn ->
-        File.rm_rf!(tmp)
-
         case original_path do
           nil -> Application.delete_env(:aiur, :workflow_file_path)
           value -> Application.put_env(:aiur, :workflow_file_path, value)
@@ -709,6 +707,8 @@ defmodule Aiur.ApplicationTest do
           :unset -> :persistent_term.erase(enabled_key)
           value -> :persistent_term.put(enabled_key, value)
         end
+
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       Application.put_env(:aiur, :workflow_file_path, config_path)

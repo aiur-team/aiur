@@ -64,9 +64,9 @@ defmodule AiurWeb.StreamdeckChannel.Voice do
 
   defp drain_voice_messages do
     receive do
-      {:elevenlabs_transcript, _kind, _text} -> drain_voice_messages()
-      {:elevenlabs_error, _reason} -> drain_voice_messages()
-      {:elevenlabs_closed} -> drain_voice_messages()
+      {:voice_transcript, _kind, _text} -> drain_voice_messages()
+      {:voice_error, _error} -> drain_voice_messages()
+      {:voice_closed} -> drain_voice_messages()
     after
       0 -> :ok
     end

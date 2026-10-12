@@ -9,7 +9,7 @@ defmodule Aiur.UsageLedger.RetirementTest do
     root = Aiur.TestSupport.tmp_root!("aiur-retire")
     File.mkdir_p!(root)
     name = :"ledger_#{System.unique_integer([:positive])}"
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, name: name}
   end
 

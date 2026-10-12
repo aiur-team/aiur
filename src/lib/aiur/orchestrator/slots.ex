@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -211,7 +211,7 @@ defmodule Aiur.Orchestrator.Slots do
     max = max_concurrent_agent_limit(state)
     sample = state.dispatch_capacity_sample
 
-    %{
+    Map.merge(PressureAdmission.status_sample(sample), %{
       active: active,
       paused: State.paused_running_count(state.running),
       reserved_paused: reserved_paused,
@@ -220,6 +220,7 @@ defmodule Aiur.Orchestrator.Slots do
       max: max,
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
+      optimistic: OptimisticSlots.status(state),
       capacity_hold: state.capacity_hold,
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,
@@ -233,7 +234,7 @@ defmodule Aiur.Orchestrator.Slots do
       queued_demand?: queued_dispatch_demand?(state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
-    }
+    })
     |> Map.merge(EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max))
   end
 

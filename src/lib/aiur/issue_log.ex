@@ -16,10 +16,11 @@ defmodule Aiur.IssueLog do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, TicketObservation, TrackerIdentity}
-  alias Aiur.Config.Paths
-  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.IssueLog.{Encoding, EventHistory, Paths}
 
-  @supervisor Aiur.IssueLog.Supervisor
+  import Aiur.IssueLog.Files
+  import Aiur.IssueLog.Format
+  import Aiur.IssueLog.Writers
 
   @spec child_spec(term()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -34,17 +35,12 @@ defmodule Aiur.IssueLog do
 
   # Cap on how many recent events we keep in memory for `history/2`.
   @history_limit 100
-  @max_transcript_record_bytes 16_384
   # The API permits a page of up to 50 records. Read enough for that many
   # capped records, while retaining a fixed ceiling independent of log size.
-  @max_tail_page_events 50
-  @max_tail_bytes (@max_transcript_record_bytes + 1) * @max_tail_page_events
   # How long a writer waits before trying its subscription again while
   # `Aiur.PubSub` is restarting. Short enough that the gap costs at most a
   # couple of transcript rows, long enough not to spin.
   @resubscribe_delay_ms 100
-  @truncated_body_chars 1_000
-  @truncated_diff_chars 2_000
 
   @doc """
   Ensure a writer is running for `identifier`. Returns `:ok` on success;
@@ -99,7 +95,7 @@ defmodule Aiur.IssueLog do
       {:ok, content} ->
         content
         |> String.split("\n", trim: true)
-        |> Enum.map(&parse_line/1)
+        |> Enum.map(&EventHistory.parse_line/1)
         |> Enum.reject(&is_nil/1)
         |> Enum.take(-limit)
 
@@ -115,7 +111,7 @@ defmodule Aiur.IssueLog do
   previous call. It is intentionally a file offset rather than an event id:
   transcript producers do not share an event-id sequence. The read is capped
   at the requested page's number of maximum-size records (and never more than
-  #{@max_tail_bytes} bytes), so a busy or historic transcript cannot turn a
+  #{EventHistory.max_tail_bytes()} bytes), so a busy or historic transcript cannot turn a
   Stream Deck refresh into a full-log scan.
   """
   @spec read_tail(AgentEvents.agent_identifier() | TrackerIdentity.t(), keyword()) ::
@@ -125,13 +121,13 @@ defmodule Aiur.IssueLog do
     before = Keyword.get(opts, :before)
 
     with true <- is_integer(limit) and limit > 0,
-         {:ok, cursor} <- parse_tail_cursor(before),
+         {:ok, cursor} <- EventHistory.parse_tail_cursor(before),
          {:ok, %{size: size}} <- File.stat(transcript_path(identifier)) do
       end_offset = min(cursor || size, size)
-      start_offset = max(end_offset - tail_chunk_bytes(limit), 0)
+      start_offset = max(end_offset - EventHistory.tail_chunk_bytes(limit), 0)
 
-      with {:ok, bytes} <- read_tail_chunk(transcript_path(identifier), start_offset, end_offset - start_offset) do
-        {:ok, tail_page(bytes, start_offset, limit)}
+      with {:ok, bytes} <- EventHistory.read_tail_chunk(transcript_path(identifier), start_offset, end_offset - start_offset) do
+        {:ok, EventHistory.tail_page(bytes, start_offset, limit)}
       end
     else
       false -> {:error, :invalid_limit}
@@ -160,7 +156,7 @@ defmodule Aiur.IssueLog do
   def event_history(identifier_or_identity, opts \\ [])
 
   def event_history(identifier, opts) when is_binary(identifier) do
-    case read_event_history(event_log_path(identifier), opts) do
+    case EventHistory.read_event_history(event_log_path(identifier), Keyword.put_new(opts, :limit, @history_limit)) do
       {:ok, events} -> events
       {:error, _reason} -> []
     end
@@ -168,163 +164,22 @@ defmodule Aiur.IssueLog do
 
   def event_history(%TrackerIdentity{} = identity, opts) do
     if TrackerIdentity.joinable?(identity) do
-      read_event_history(event_log_path(identity), opts)
+      EventHistory.read_event_history(event_log_path(identity), Keyword.put_new(opts, :limit, @history_limit))
     else
       {:error, :invalid_identity}
     end
   end
-
-  defp read_event_history(path, opts) do
-    since_id = Keyword.get(opts, :since_id, 0)
-    kinds = Keyword.get(opts, :kinds, [:emit, :emit_alert])
-    limit = Keyword.get(opts, :limit, @history_limit)
-    kind_set = MapSet.new(Enum.map(kinds, &Atom.to_string/1))
-
-    case File.read(path) do
-      {:ok, content} ->
-        events =
-          content
-          |> String.split("\n", trim: true)
-          |> Enum.map(&parse_event_line/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.filter(fn ev ->
-            MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
-          end)
-          |> Enum.take(-limit)
-
-        {:ok, events}
-
-      {:error, :enoent} ->
-        {:error, :missing_source}
-
-      {:error, reason} ->
-        {:error, {:unavailable, reason}}
-    end
-  end
-
-  defp parse_event_line(line) do
-    # Matches the optional `src=…` / `trust=…` / `digest=…` flag segments between
-    # `id=…` and the topic. Flags are surfaced as fields on the parsed
-    # event so bootstrap replays carry the same `author_trusted?` +
-    # `source` signal that the render-side filter and `<external-content>`
-    # wrapper depend on (a missing flag is treated as untrusted /
-    # non-github respectively).
-    case Regex.run(
-           ~r/\A([0-9T:\-\.Z]+) \[event:([a-z_]+)\] id=(\d+)((?: \w+=[^\s]+)*) ([^:\s]+)(?:: (.*))?\z/,
-           line
-         ) do
-      [_, ts, kind, id_str, flag_segment, topic, summary] ->
-        build_parsed_event(ts, kind, id_str, flag_segment, topic, summary)
-
-      [_, ts, kind, id_str, flag_segment, topic] ->
-        build_parsed_event(ts, kind, id_str, flag_segment, topic, "")
-
-      _ ->
-        nil
-    end
-  end
-
-  defp build_parsed_event(ts, kind, id_str, flag_segment, topic, summary) do
-    flags = parse_flags(flag_segment)
-
-    %{
-      kind: kind,
-      id: String.to_integer(id_str),
-      topic: topic,
-      ts: ts,
-      summary: summary,
-      source: flags |> Map.get("src") |> maybe_atomize_source(),
-      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
-      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source()
-    }
-  end
-
-  defp parse_flags(flag_segment) when is_binary(flag_segment) do
-    flag_segment
-    |> String.split(" ", trim: true)
-    |> Enum.flat_map(fn token ->
-      case String.split(token, "=", parts: 2) do
-        [k, v] -> [{k, v}]
-        _ -> []
-      end
-    end)
-    |> Map.new()
-  end
-
-  defp parse_flags(_), do: %{}
-
-  defp maybe_atomize_source(nil), do: nil
-  defp maybe_atomize_source("github"), do: :github
-  defp maybe_atomize_source(other) when is_binary(other), do: other
-  defp maybe_atomize_source(_), do: nil
-
-  defp maybe_atomize_bool(nil), do: nil
-  defp maybe_atomize_bool("true"), do: true
-  defp maybe_atomize_bool("false"), do: false
-  defp maybe_atomize_bool(_), do: nil
-
-  # `digest=` is written only by IssueLog from Publisher's reserved envelope
-  # field. Rehydrate its fixed vocabulary to atoms so EventsDigest never
-  # treats an arbitrary string from an unknown event source as trusted.
-  defp maybe_atomize_digest_source("agent"), do: :agent
-  defp maybe_atomize_digest_source("orchestrator"), do: :orchestrator
-  defp maybe_atomize_digest_source("system"), do: :system
-  defp maybe_atomize_digest_source(_), do: nil
-
-  defp parse_line(line) do
-    case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
-      [_, _ts, tag, body] ->
-        case role_from_tag(tag) do
-          nil -> nil
-          role -> %{role: role, body: body, turn_id: nil}
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp role_from_tag("agent"), do: :assistant
-  defp role_from_tag("user"), do: :user
-  defp role_from_tag("cmd"), do: :command
-  defp role_from_tag("system"), do: :system
-  defp role_from_tag("alert"), do: :alert
-  defp role_from_tag(_), do: nil
 
   @doc """
   Returns the resolved file path for an issue's log. Useful for tests
   and for users who want to `tail -F` a specific issue.
   """
   @spec log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
-  def log_path(identifier) when is_binary(identifier) do
-    issue_log_path(configured_repository_scope(), identifier, ".log")
-  end
-
-  def log_path(%TrackerIdentity{} = identity) do
-    case TrackerIdentity.github_key(identity) do
-      {:github, owner, repository, _provider_id} ->
-        issue_log_path(repository_scope(owner, repository), identity.identifier, ".log")
-
-      nil ->
-        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
-    end
-  end
+  defdelegate log_path(identifier), to: Paths
 
   @doc false
   @spec event_log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
-  def event_log_path(identifier) when is_binary(identifier) do
-    issue_log_path(configured_repository_scope(), identifier, ".events.log")
-  end
-
-  def event_log_path(%TrackerIdentity{} = identity) do
-    case TrackerIdentity.github_key(identity) do
-      {:github, owner, repository, _provider_id} ->
-        issue_log_path(repository_scope(owner, repository), identity.identifier, ".events.log")
-
-      nil ->
-        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
-    end
-  end
+  defdelegate event_log_path(identifier), to: Paths
 
   @doc """
   Returns the durable JSONL transcript path used by the classified events API.
@@ -333,19 +188,7 @@ defmodule Aiur.IssueLog do
   transcript event, including its provider payload.
   """
   @spec transcript_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
-  def transcript_path(identifier) when is_binary(identifier) do
-    issue_log_path(configured_repository_scope(), identifier, ".agent_events.jsonl")
-  end
-
-  def transcript_path(%TrackerIdentity{} = identity) do
-    case TrackerIdentity.github_key(identity) do
-      {:github, owner, repository, _provider_id} ->
-        issue_log_path(repository_scope(owner, repository), identity.identifier, ".agent_events.jsonl")
-
-      nil ->
-        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
-    end
-  end
+  defdelegate transcript_path(identifier), to: Paths
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -559,17 +402,6 @@ defmodule Aiur.IssueLog do
     :ok
   end
 
-  defp attach_writer(identifier, path, event_path, transcript_path, key) do
-    case ensure_writer(identifier, path, event_path, transcript_path, key) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("IssueLog.attach(#{identifier}) failed: #{inspect(reason)}")
-        :ok
-    end
-  end
-
   defp event_identity(%{ticket_observation: %TicketObservation{} = observation}, identifier) do
     identity = observation.tracker_identity
 
@@ -579,46 +411,6 @@ defmodule Aiur.IssueLog do
   end
 
   defp event_identity(_event, _identifier), do: :error
-
-  defp ensure_writer(identifier, path, event_path, transcript_path, key) do
-    case Registry.lookup(Aiur.IssueLog.Registry, key) do
-      [] ->
-        start_writer(identifier, path, event_path, transcript_path, key)
-
-      [{pid, _}] ->
-        if writer_path(pid) == path do
-          :ok
-        else
-          replace_writer(identifier, pid, path, event_path, transcript_path, key)
-        end
-    end
-  end
-
-  defp replace_writer(identifier, pid, path, event_path, transcript_path, key) do
-    case DynamicSupervisor.terminate_child(@supervisor, pid) do
-      :ok -> start_writer(identifier, path, event_path, transcript_path, key)
-      {:error, :not_found} -> start_writer(identifier, path, event_path, transcript_path, key)
-    end
-  end
-
-  defp start_writer(identifier, path, event_path, transcript_path, key) do
-    DynamicSupervisor.start_child(
-      @supervisor,
-      {__MODULE__, identifier: identifier, path: path, event_path: event_path, transcript_path: transcript_path, writer_key: key}
-    )
-    |> normalize_start_result()
-  end
-
-  defp normalize_start_result({:ok, _pid}), do: :ok
-  defp normalize_start_result({:error, {:already_started, _pid}}), do: :ok
-  defp normalize_start_result({:error, reason}), do: {:error, reason}
-
-  defp writer_for_path(_identifier, path, key) do
-    case Registry.lookup(Aiur.IssueLog.Registry, key) do
-      [{pid, _}] = writer -> if writer_path(pid) == path, do: writer, else: []
-      _ -> []
-    end
-  end
 
   defp push_history(state, item) do
     queue = :queue.in(item, state.history)
@@ -631,22 +423,6 @@ defmodule Aiur.IssueLog do
       %{state | history: queue, history_size: size}
     end
   end
-
-  defp writer_path(pid) do
-    GenServer.call(pid, :path, 1_000)
-  catch
-    :exit, _ -> nil
-  end
-
-  defp writer_key(identifier) when is_binary(identifier),
-    do: {:issue_log, configured_repository_scope(), identifier}
-
-  defp writer_key(%TrackerIdentity{} = identity) do
-    {:github, owner, repository, _provider_id} = TrackerIdentity.github_key(identity)
-    {:issue_log, repository_scope(owner, repository), identity.identifier}
-  end
-
-  defp via(key), do: {:via, Registry, {Aiur.IssueLog.Registry, key}}
 
   defp write_and_continue(state, line, history_item) do
     # A writer's target is fixed when it starts. Re-resolving the mutable
@@ -670,14 +446,8 @@ defmodule Aiur.IssueLog do
     {:noreply, state}
   end
 
-  defp write_line(file, line) do
-    IO.write(file, line)
-  rescue
-    _ -> :ok
-  end
-
   defp write_transcript_line(file, event, identifier) do
-    encoded = event |> persisted_transcript() |> bounded_transcript() |> json_safe() |> encode_transcript()
+    encoded = Encoding.encode(event)
     :ok = IO.write(file, encoded <> "\n")
   rescue
     error ->
@@ -699,351 +469,4 @@ defmodule Aiur.IssueLog do
         state
     end
   end
-
-  # A tail page has a fixed byte budget. This is a second, defensive cap after
-  # `bounded_transcript/1`, which prevents unbounded provider payloads from
-  # being encoded in the first place.
-  defp encode_transcript(record) do
-    encoded = Jason.encode!(record)
-
-    if byte_size(encoded) <= @max_transcript_record_bytes do
-      encoded
-    else
-      record
-      |> Map.take(["role", "timestamp", "msg_id", "sequence", "turn_id"])
-      |> Map.put("body", truncated_body(Map.get(record, "body", "")))
-      |> Map.put("payload", %{"truncated" => true})
-      |> Jason.encode!()
-    end
-  end
-
-  defp truncated_body(body) when is_binary(body) do
-    if String.length(body) > @truncated_body_chars,
-      do: String.slice(body, 0, @truncated_body_chars) <> "…",
-      else: body
-  end
-
-  defp truncated_body(body), do: inspect(body)
-
-  defp persisted_transcript({:transcript_event, event}) when is_map(event), do: event
-
-  defp persisted_transcript({:alert, event}) when is_map(event) do
-    %{
-      role: :alert,
-      body: Map.get(event, :message, ""),
-      timestamp: Map.get(event, :timestamp, DateTime.utc_now()),
-      msg_id: nil,
-      sequence: nil,
-      turn_id: nil,
-      payload: event
-    }
-  end
-
-  defp persisted_transcript(event) when is_map(event), do: event
-
-  # The feed needs a message body and, for edit tools, the provider's real
-  # unified diff. Shell output and generic tool payloads can be arbitrarily
-  # large, so drop them before JSON encoding rather than paying their memory
-  # cost only to reject an oversized record afterward.
-  defp bounded_transcript(%{role: :tool, payload: %{tool: "edit", output: output} = payload} = event) when is_binary(output) do
-    %{event | body: truncated_body(event.body), payload: bounded_edit_payload(payload, output)}
-  end
-
-  defp bounded_transcript(%{body: body} = event) do
-    %{event | body: truncated_body(body), payload: nil}
-  end
-
-  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-
-  defp json_safe(%{} = value) do
-    Map.new(value, fn {key, item} -> {to_string(key), json_safe(item)} end)
-  end
-
-  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-  # `nil`, `true` and `false` are atoms in Elixir, so the generic atom clause
-  # below used to persist them as the strings "nil"/"true"/"false". A stringified
-  # `turn_id` is not merely ugly: `"nil"` is truthy, so every turn-less entry in
-  # a transcript compared equal to every other one and the Stream Deck's
-  # group-by-turn collapsed a whole page of activity into a single event key.
-  # JSON has native literals for all three; use them.
-  defp json_safe(nil), do: nil
-  defp json_safe(value) when is_boolean(value), do: value
-  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
-  defp json_safe(value), do: value
-
-  defp bounded_edit_payload(payload, output) do
-    %{tool: "edit", output: String.slice(output, 0, @truncated_diff_chars)}
-    |> maybe_put_edit_changes(Map.get(payload, :input) || Map.get(payload, "input"))
-  end
-
-  defp maybe_put_edit_changes(payload, input) when is_map(input) do
-    case Map.get(input, :changes) || Map.get(input, "changes") do
-      changes when is_list(changes) ->
-        diffs = Enum.flat_map(changes, &bounded_edit_change/1)
-        if diffs == [], do: payload, else: Map.put(payload, :changes, diffs)
-
-      _ ->
-        payload
-    end
-  end
-
-  defp maybe_put_edit_changes(payload, _input), do: payload
-
-  defp bounded_edit_change(change) when is_map(change) do
-    case Map.get(change, :diff) || Map.get(change, "diff") do
-      diff when is_binary(diff) and diff != "" ->
-        [%{diff: String.slice(diff, 0, @truncated_diff_chars)} |> maybe_put_path(Map.get(change, :path) || Map.get(change, "path"))]
-
-      _ ->
-        []
-    end
-  end
-
-  defp bounded_edit_change(_change), do: []
-
-  defp maybe_put_path(change, path) when is_binary(path) and path != "", do: Map.put(change, :path, path)
-  defp maybe_put_path(change, _path), do: change
-
-  defp read_tail_chunk(path, start_offset, byte_count) do
-    with {:ok, file} <- File.open(path, [:read, :binary]) do
-      try do
-        :file.pread(file, start_offset, byte_count)
-      after
-        :ok = File.close(file)
-      end
-    end
-  end
-
-  defp tail_chunk_bytes(limit), do: min(limit * (@max_transcript_record_bytes + 1), @max_tail_bytes)
-
-  defp open_log_files(path, event_path, transcript_path) do
-    with {:ok, file} <- open_primary_log(path),
-         {:ok, event_file} <- open_event_log(event_path, file),
-         {:ok, transcript_file} <- open_transcript_log(transcript_path, file, event_file) do
-      {:ok, file, event_file, transcript_file}
-    end
-  end
-
-  defp open_primary_log(path) do
-    case File.open(path, [:append, :utf8]) do
-      {:ok, file} ->
-        {:ok, file}
-
-      {:error, reason} ->
-        Logger.warning("IssueLog open failed path=#{path} reason=#{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp open_event_log(path, file) do
-    case File.open(path, [:append, :utf8]) do
-      {:ok, event_file} ->
-        {:ok, event_file}
-
-      {:error, reason} ->
-        _ = File.close(file)
-        Logger.warning("IssueLog event open failed path=#{path} reason=#{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp open_transcript_log(path, file, event_file) do
-    case File.open(path, [:append, :utf8]) do
-      {:ok, transcript_file} ->
-        {:ok, transcript_file}
-
-      {:error, reason} ->
-        _ = File.close(event_file)
-        _ = File.close(file)
-        Logger.warning("IssueLog transcript open failed path=#{path} reason=#{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp parse_tail_cursor(nil), do: {:ok, nil}
-  defp parse_tail_cursor(cursor) when is_integer(cursor) and cursor >= 0, do: {:ok, cursor}
-
-  defp parse_tail_cursor(cursor) when is_binary(cursor) do
-    case Integer.parse(cursor) do
-      {value, ""} when value >= 0 -> {:ok, value}
-      _ -> {:error, :invalid_cursor}
-    end
-  end
-
-  defp parse_tail_cursor(_), do: {:error, :invalid_cursor}
-
-  defp tail_page(bytes, start_offset, limit) do
-    {first, rest} = split_tail_lines(bytes, start_offset)
-
-    events =
-      rest
-      |> line_offsets(first)
-      |> Enum.flat_map(fn {line, offset} ->
-        case Jason.decode(line) do
-          {:ok, %{} = event} -> [{event, offset}]
-          _ -> []
-        end
-      end)
-      |> Enum.reverse()
-      |> Enum.take(limit)
-
-    next_cursor =
-      case List.last(events) do
-        {_event, 0} -> nil
-        {_event, offset} -> Integer.to_string(offset)
-        nil -> if(start_offset > 0, do: Integer.to_string(start_offset), else: nil)
-      end
-
-    %{events: Enum.map(events, &elem(&1, 0)), next_cursor: next_cursor}
-  end
-
-  # The first line in a nonzero byte slice may begin in the middle of a JSON
-  # document, so discard it. Keep its byte length so offsets stay absolute.
-  defp split_tail_lines(bytes, 0), do: {0, String.split(bytes, "\n", trim: true)}
-
-  defp split_tail_lines(bytes, start_offset) do
-    case String.split(bytes, "\n", parts: 2) do
-      [_partial, rest] -> {start_offset + byte_size(bytes) - byte_size(rest), String.split(rest, "\n", trim: true)}
-      [_partial] -> {start_offset + byte_size(bytes), []}
-    end
-  end
-
-  defp line_offsets(lines, initial_offset) do
-    {records, _offset} =
-      Enum.map_reduce(lines, initial_offset, fn line, offset ->
-        {{line, offset}, offset + byte_size(line) + 1}
-      end)
-
-    records
-  end
-
-  defp format_transcript(role, body, event) do
-    ts = timestamp(event)
-    body_text = body |> to_string() |> String.replace("\r\n", "\n")
-    "#{ts} [#{transcript_tag(role, event)}] #{body_text}\n"
-  end
-
-  # An Executor message is echoed when it is queued, not when the agent gets
-  # it. A `[user]` tag made a queued copy look delivered (#2717), so the echo
-  # is tagged `queued` with its queue item and decision id. Provider delivery
-  # is logged as its own line.
-  defp transcript_tag(:user, %{payload: %{operator_message: %{status: :queued} = message}}) do
-    ["queued", tag_field("item", Map.get(message, :request_id)), tag_field("decision", Map.get(message, :decision_id))]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
-  end
-
-  defp transcript_tag(role, _event), do: tag_for_role(role)
-
-  defp tag_field(_name, nil), do: nil
-  defp tag_field(name, value), do: "#{name}=#{value}"
-
-  defp format_alert(name, message, event) do
-    ts = timestamp(event)
-    "#{ts} [alert] #{name}: #{message}\n"
-  end
-
-  defp format_event_marker(kind, event) do
-    "#{timestamp(event)} [event:#{kind}] id=#{event_field(event, :id, "")}" <>
-      flag_segment(event) <>
-      " #{event_field(event, :topic, "")}" <>
-      message_suffix(event) <>
-      "\n"
-  end
-
-  defp event_field(event, key, default) do
-    Map.get(event, key) || Map.get(event, Atom.to_string(key)) || default
-  end
-
-  # `src=`/`trust=`/`digest=` are appended in a fixed order before the `topic`
-  # so `Aiur.IssueLog.event_history/2` can reconstruct the security-
-  # sensitive flags on bootstrap. Without them, U2 replays would
-  # bypass the U7 CODEOWNERS filter and `<external-content>` wrapper.
-  defp flag_segment(event) do
-    flags =
-      []
-      |> append_flag("src", event_field(event, :source, nil))
-      |> append_flag("trust", event_field(event, :author_trusted?, nil))
-      |> append_flag("digest", event_field(event, :digest_source, nil))
-      |> Enum.join(" ")
-
-    if flags == "", do: "", else: " " <> flags
-  end
-
-  defp message_suffix(event) do
-    msg = event_field(event, :message, "")
-    if msg == "", do: "", else: ": " <> summarize(to_string(msg))
-  end
-
-  defp append_flag(acc, _name, nil), do: acc
-  defp append_flag(acc, name, value), do: acc ++ ["#{name}=#{value}"]
-
-  defp format_log_line(role, body, identifier) do
-    "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"
-  end
-
-  defp tag_for_role(role)
-       when role in [:assistant, :user, :system, :command, :alert, :reasoning, :tool],
-       do: AgentEvents.tag_name(role)
-
-  defp tag_for_role(other), do: to_string(other)
-
-  defp summarize(nil), do: ""
-
-  defp summarize(text) when is_binary(text) do
-    single_line = text |> String.replace(~r/\r?\n/, " ") |> String.trim()
-
-    # Sliced by graphemes, not by bytes.
-    #
-    # `binary_part/3` cut mid-codepoint whenever the 200th byte landed inside a
-    # multi-byte character — routine for a model-authored summary carrying an
-    # emoji or CJK — and wrote invalid UTF-8 into the durable event log. That was
-    # survivable while these summaries only ever became prompt text; now that
-    # the Stream Deck reads the same rows and `Jason` encodes them onto the
-    # channel, an invalid byte raises, kills the socket, and the sidecar
-    # reconnects into the same durable line for as long as the log exists.
-    if String.length(single_line) > 200 do
-      String.slice(single_line, 0, 200) <> "…"
-    else
-      single_line
-    end
-  end
-
-  defp summarize(other), do: inspect(other)
-
-  defp timestamp(event) do
-    case Map.get(event, :timestamp) do
-      %DateTime{} = ts -> DateTime.to_iso8601(ts)
-      _ -> DateTime.utc_now() |> DateTime.to_iso8601()
-    end
-  end
-
-  defp log_root_dir, do: Paths.log_root_dir()
-
-  # Deliberately `explicit_configured_repo/0`, not `configured_repo/0`: this
-  # scope names every log, event log and transcript file on disk, and the
-  # writer registry key that keeps one process per ticket. `configured_repo/0`
-  # falls back to the checkout's `origin` remote (#2518), so reading it here
-  # would rename every file for an install that never set `tracker.github.repo`
-  # — the existing history would still be on disk but unreachable through
-  # `history/2` and `read_tail/2`, and a resumed ticket would append to a fresh
-  # empty file. Durable paths only move when an operator moves them.
-  defp configured_repository_scope do
-    case GitHubConfig.explicit_configured_repo() do
-      {:ok, {owner, repository}} -> repository_scope(owner, repository)
-      {:error, _reason} -> repo_name()
-    end
-  end
-
-  defp repository_scope(owner, repository) do
-    encoded = Base.url_encode64("#{String.downcase(owner)}/#{String.downcase(repository)}", padding: false)
-    "github-" <> encoded
-  end
-
-  defp issue_log_path(scope, identifier, suffix) do
-    Path.join(log_root_dir(), "#{scope}.#{sanitize(identifier)}#{suffix}")
-  end
-
-  defp repo_name, do: Paths.repo_name()
-  defp sanitize(name), do: Paths.sanitize(name)
 end

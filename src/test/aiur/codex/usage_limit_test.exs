@@ -33,7 +33,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     File.mkdir_p!(workspace)
     File.write!(binary, fake_app_server(Path.join(root, "codex.trace")))
     File.chmod!(binary, 0o755)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "codex",

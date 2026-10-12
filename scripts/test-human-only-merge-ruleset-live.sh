@@ -58,6 +58,21 @@ expect_accepted() {
 
 run_drift_check "$declaration"
 
+# Frozen pre-rollout contract: never derive this fixture from the verifier's allowlist.
+legacy_checks='["browser harness","build","coverage (1/4)","coverage (2/4)","coverage (3/4)","coverage (4/4)","dialyzer","layout release smoke","lint","streamdeck","test","workflow security"]'
+legacy_filter='(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) = ($legacy | reverse | map({context: ., integration_id: 15368}))'
+jq --argjson legacy "$legacy_checks" "$legacy_filter" "$declaration" > "$test_dir/legacy.json"
+run_drift_check "$test_dir/legacy.json"
+
+expect_rejected \
+  "partial-legacy-contract" \
+  "$legacy_filter | (.rules[] | select(.type == \"required_status_checks\") | .parameters.required_status_checks) |= .[1:]" \
+  "ruleset must require every blocking GitHub Actions status check from the declaration" --argjson legacy "$legacy_checks"
+expect_rejected \
+  "untrusted-legacy-check-source" \
+  "$legacy_filter | (.rules[] | select(.type == \"required_status_checks\") | .parameters.required_status_checks[0].integration_id) = 1" \
+  "ruleset must require every blocking GitHub Actions status check from the declaration" --argjson legacy "$legacy_checks"
+
 # Regression: a live-ruleset query returning no required_status_checks rule
 # must fail the CI drift check (the ticket's acceptance criterion).
 expect_rejected \
@@ -86,23 +101,28 @@ expect_rejected \
   "ruleset must target branches and actively protect main"
 
 expect_rejected \
-  "missing-pull-request-rule" \
-  '.rules |= map(select(.type != "pull_request"))' \
-  "ruleset must require one approval and dismiss stale reviews"
+  "dropped-develop-protection" \
+  '.conditions.ref_name.include -= ["refs/heads/develop"]' \
+  "ruleset must target branches and actively protect main"
 
 expect_rejected \
-  "no-approval-required" \
-  '(.rules[] | select(.type == "pull_request") | .parameters.required_approving_review_count) = 0' \
-  "ruleset must require one approval and dismiss stale reviews"
+  "reintroduced-pull-request-rule" \
+  '.rules += [{"type": "pull_request", "parameters": {"required_approving_review_count": 1}}]' \
+  "ruleset rule types must match the declaration"
 
 expect_rejected \
-  "missing-workflow-security-check" \
-  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "workflow security"))' \
+  "missing-deletion-rule" \
+  '.rules |= map(select(.type != "deletion"))' \
+  "ruleset rule types must match the declaration"
+
+expect_rejected \
+  "missing-ci-gate" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "ci gate"))' \
   "ruleset must require every blocking GitHub Actions status check from the declaration"
 
 expect_rejected \
-  "missing-coverage-partition" \
-  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "coverage (4/4)"))' \
+  "obsolete-full-check" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) += [{"context":"coverage (4/4)","integration_id":15368}]' \
   "ruleset must require every blocking GitHub Actions status check from the declaration"
 
 expect_rejected \
@@ -148,3 +168,41 @@ expect_rejected \
   "strict-true" \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = true' \
   "ruleset must require every blocking GitHub Actions status check from the declaration"
+
+# The `main` merge-queue ruleset is served by the mock as id 456 and compared
+# with docs/security/main-merge-queue-ruleset.json.
+queue_declaration="$root/docs/security/main-merge-queue-ruleset.json"
+
+expect_queue_rejected() {
+  local name="$1"
+  local jq_filter="$2"
+  local fixture="$test_dir/queue-$name.json"
+  local output
+
+  jq "$jq_filter" "$queue_declaration" >"$fixture"
+
+  if output="$(MAIN_RULESET_FIXTURE="$fixture" run_drift_check "$declaration" 2>&1)"; then
+    echo "expected drift check to reject merge queue $name" >&2
+    exit 1
+  fi
+
+  if ! grep -Fq "merge queue ruleset must match the declaration: main" <<<"$output"; then
+    echo "drift check rejected merge queue $name for the wrong reason: $output" >&2
+    exit 1
+  fi
+}
+
+expect_queue_rejected "disabled" '.enforcement = "disabled"'
+expect_queue_rejected "no-queue" '.rules |= map(select(.type != "merge_queue"))'
+expect_queue_rejected "batch-size" '(.rules[] | select(.type == "merge_queue") | .parameters.min_entries_to_merge) = 4'
+expect_queue_rejected "allgreen" '(.rules[] | select(.type == "merge_queue") | .parameters.grouping_strategy) = "ALLGREEN"'
+
+if output="$(RULESET_LIST_FIXTURE='[{"name":"human-only-merge-gate","id":123}]' run_drift_check "$declaration" 2>&1)" ||
+  ! grep -Fq "expected exactly one ruleset named: main" <<<"$output"; then
+  echo "expected drift check to reject a missing merge queue ruleset: $output" >&2
+  exit 1
+fi
+
+# GitHub returns server-side fields and its own rule order; neither is drift.
+jq '.id = 456 | .node_id = "x" | .rules |= reverse' "$queue_declaration" >"$test_dir/queue-live-shape.json"
+MAIN_RULESET_FIXTURE="$test_dir/queue-live-shape.json" run_drift_check "$declaration" >/dev/null

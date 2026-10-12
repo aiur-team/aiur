@@ -287,18 +287,18 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_transcript, kind, text}, %{assigns: %{voice_session: %{id: session}}} = socket)
+  def handle_info({:voice_transcript, kind, text}, %{assigns: %{voice_session: %{id: session}}} = socket)
       when kind in [:partial, :final] and is_binary(text) do
     push(socket, "voice", %{"session" => session, "kind" => Atom.to_string(kind), "text" => text})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_error, reason}, %{assigns: %{voice_session: %{id: session}}} = socket) do
+  def handle_info({:voice_error, %{message: reason}}, %{assigns: %{voice_session: %{id: session}}} = socket) do
     push(socket, "voice_error", %{"session" => session, "reason" => reason_text(reason)})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_closed}, %{assigns: %{voice_session: %{id: session, ref: ref}}} = socket) do
+  def handle_info({:voice_closed}, %{assigns: %{voice_session: %{id: session, ref: ref}}} = socket) do
     Process.demonitor(ref, [:flush])
     push(socket, "voice_closed", %{"session" => session})
     {:noreply, assign(socket, :voice_session, nil)}
