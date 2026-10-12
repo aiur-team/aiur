@@ -13,7 +13,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   alias Aiur.RunTelemetry.Lifecycle.BackendOperations
 
   @events ~w(
-    dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
+    dispatch optimistic_start prewarm workspace_setup workspace_ownership agent_spinup implement build_test
     pr_opened pr_merged pr_facts review_pause comment_received rework_start
     agent_pause agent_resume
   )
@@ -24,7 +24,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     pr_number comment_id review_thread_id author_trusted source_timestamp worker_host backend
     prewarm_outcome reason_class exit_status turn_number remote retry_attempt
     workspace_owner workspace_generation workspace_phase optimistic_blockers optimistic_start complexity dispatch_selection
-    model effort feature epic tags blockers start_mode
+    model effort feature epic tags blockers start_mode start_trigger blocker_prs
     coverage pr_created_at pr_ready_at first_review_at first_review_state first_approval_at merged_at
     review_count commented_count changes_requested_count approval_count dismissed_count reviewers_distinct reviewer_classes
     additions deletions changed_files commit_count merge_commit_sha
@@ -175,6 +175,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     end)
     |> Map.new()
   end
+
+  defp normalize_field(:blocker_prs, values) when is_list(values), do: Enum.map(values, &if(is_integer(&1), do: &1, else: nil))
 
   defp normalize_field(:optimistic_start, %{blockers: blockers, primary: primary, pr_base: base, started_at: started_at}) do
     %{
