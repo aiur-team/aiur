@@ -215,9 +215,7 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
-When a worker starts or restarts, its bootstrap digest also re-reads the open
-PR's formal review submissions. This strict read revalidates the held review
-list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
+When a worker starts or restarts, its bootstrap digest also re-reads the open PR's formal review submissions. This strict read revalidates the held review list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
 
 The digest includes body-only `CHANGES_REQUESTED` reviews and substantive
 `COMMENTED` reviews submitted after the latest Agent Workpad, subject to the
@@ -226,8 +224,7 @@ dismissal by that reviewer suppresses their earlier request.
 
 ### What a validator may answer
 
-The savings above depend on the validator being the right one for the question
-asked. Two rules keep a `304` honest.
+The savings above depend on the validator being the right one for the question asked. Two rules keep a `304` honest.
 
 **A page-1 ETag cannot answer a multi-page question.**
 
@@ -710,7 +707,7 @@ mergeability; those observations permit disjoint paths. A matching head's `CONFL
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
-Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
+Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 

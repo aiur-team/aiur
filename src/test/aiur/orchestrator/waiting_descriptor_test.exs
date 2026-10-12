@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
       waiting_for_human: "Executor",
       waiting_for_supervisor: "Executor",
       waiting_for_dependency: "DispatchPolicy",
+      optimistic_share: "DispatchPolicy",
       waiting_for_ci: "CiLifecycle",
       waiting_for_review: "Executor",
       paused: "PauseResume",

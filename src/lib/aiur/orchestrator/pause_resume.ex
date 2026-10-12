@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   """
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Commands, Config, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
-  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle}
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, OptimisticSlots}
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
@@ -2319,8 +2319,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # a missing clause here crashed `aiur resume` with a FunctionClauseError for
   # a ticket held by an open blocking Decision (#2699). The test suite
   # enumerates that list and fails on any reason that reaches the fallback
-  # clause, and the fallback keeps an unforeseen reason a named refusal rather
-  # than a crash.
+  # clause; the fallback keeps unforeseen reasons a named refusal, not a crash.
   @spec resume_decline_reason(atom(), Issue.t(), State.t(), keyword()) :: term()
   def resume_decline_reason(reason, issue, state, opts \\ [])
 
@@ -2354,6 +2353,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_decline_reason(:state_capacity, issue, _state, _opts),
     do: {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(issue.state)}
 
+  def resume_decline_reason(:optimistic_share, _issue, state, _opts), do: {:optimistic_share, OptimisticSlots.status(state)}
   def resume_decline_reason(:worker_capacity, _issue, _state, _opts), do: :no_worker_capacity
   def resume_decline_reason(:fleet_capacity, _issue, _state, _opts), do: :max_concurrent_agents_reached
 

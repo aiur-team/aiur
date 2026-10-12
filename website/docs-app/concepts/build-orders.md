@@ -102,6 +102,10 @@ This detection makes no GitHub request. Retained CI and merge facts survive labe
 
 ## Queueing a Build Order
 
+Dispatch starts ready work before optimistic work, then ranks optimistic candidates by open dependent-chain depth and downstream count.
+
+`build_queue.optimistic_slot_share` defaults to 0.5 of the effective agent limit (at least one slot); zero disables optimistic starts. A merged blocker frees share on the next cycle. Existing runners keep their slots.
+
 `aiur queue add --build-order <root> [--queue NAME] [--start-on TRIGGER]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
 When a start trigger permits work before a blocker PR merges, dispatch binds the blocker’s events before starting the dependent. A fresh prewarmed ticket branch starts at the evaluated blocker SHA for one unmerged blocker. If fetching the head or checking its ancestry fails, checkout uses the base.
@@ -111,6 +115,7 @@ Several blockers start from the configured base. An existing remote ticket branc
 The optimistic-start prompt lists every blocker ref and SHA, requires an ancestry check, and covers cold or remote workspaces where hooks choose the checkout.
 
 With one unmerged blocker, the dependent PR targets its branch; with several, it targets the configured base. The PR stays draft until the blockers merge.
+
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
 

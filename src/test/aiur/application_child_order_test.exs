@@ -131,7 +131,16 @@ defmodule Aiur.ApplicationChildOrderTest do
     # The first CI poll and queue reconcile need the seeded progress table before they run.
     Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress"
   }
-  @flags [:interactive_cli?, :headless?, :dashboard?, :tailscale_funnel?, :telemetry?, :executor_mode?, :ls_remote_ticker?, :recording?]
+  @flags [
+    :interactive_cli?,
+    :headless?,
+    :dashboard?,
+    :tailscale_funnel?,
+    :telemetry?,
+    :executor_mode?,
+    :ls_remote_ticker?,
+    :recording?
+  ]
 
   test "the fully enabled tree retains every existing child in its pinned order" do
     children = child_ids(Keyword.put(Enum.map(@flags, &{&1, true}), :headless?, false))
