@@ -154,7 +154,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
     test "unknown blocker states block todo issues" do
       blocked = issue("blocked", state: "todo", blocked_by: [%{state: nil}])
 
-      assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(
+      assert DispatchPolicy.todo_issue_held_by_dependency?(
                blocked,
                MapSet.new(["done", "cancelled"])
              )
@@ -171,7 +171,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
         assert DispatchPolicy.terminal_issue_state?(closed_state, terminal_states)
 
-        refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states),
+        refute DispatchPolicy.todo_issue_held_by_dependency?(blocked, terminal_states),
                "expected blocker state #{inspect(closed_state)} to be terminal"
       end
     end
@@ -179,18 +179,18 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
     test "a closed blocker is terminal even when the terminal set is empty" do
       blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Closed"}])
 
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, MapSet.new())
+      refute DispatchPolicy.todo_issue_held_by_dependency?(blocked, MapSet.new())
     end
 
     test "configured terminal label states still clear the dependency gate" do
       terminal_states = MapSet.new(["done", "cancelled"])
       blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Done"}, %{state: "cancelled"}])
 
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
+      refute DispatchPolicy.todo_issue_held_by_dependency?(blocked, terminal_states)
 
       still_blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Closed"}, %{state: "in-progress"}])
 
-      assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(still_blocked, terminal_states)
+      assert DispatchPolicy.todo_issue_held_by_dependency?(still_blocked, terminal_states)
     end
 
     test "a nil blocker state is still non-terminal alongside a closed blocker" do
@@ -198,7 +198,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
       blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Closed"}, %{state: nil}])
 
       refute DispatchPolicy.terminal_issue_state?(nil, terminal_states)
-      assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
+      assert DispatchPolicy.todo_issue_held_by_dependency?(blocked, terminal_states)
     end
 
     test "the hold description names only the blockers actually holding dispatch" do
@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
       description = DispatchPolicy.describe_dependency_hold(blocked, terminal_states)
 
-      assert description == "blocked by open dependency #41 (rework); 3 terminal dependencies ignored"
+      assert description == "blocked by open dependency #41 (rework); 3 terminal dependencies ignored [#41 needs pr_merged (now pr_ci_green)]; needs pr_merged"
       refute description =~ "36"
       refute description =~ "42"
     end
@@ -229,7 +229,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         issue("blocked", state: "todo", blocked_by: [blocker("7", "todo"), blocker("8", "rework")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependencies #7 (todo), #8 (rework)"
+               "blocked by open dependencies #7 (todo), #8 (rework) [#7 needs pr_merged (now no PR stage); #8 needs pr_merged (now pr_ci_green)]; needs pr_merged"
     end
 
     test "an all-terminal blocked_by list is not a hold at all" do
@@ -238,8 +238,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
       blocked =
         issue("blocked", state: "todo", blocked_by: [blocker("7", "Closed"), blocker("8", "Done")])
 
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
-      assert DispatchPolicy.non_terminal_blockers(blocked, terminal_states) == []
+      refute DispatchPolicy.todo_issue_held_by_dependency?(blocked, terminal_states)
+      assert DispatchPolicy.holding_blockers(blocked, terminal_states) == []
     end
 
     test "a blocker with no readable state is named as an unknown-state hold" do
@@ -249,7 +249,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         issue("blocked", state: "todo", blocked_by: [blocker("9", nil), blocker("10", "Closed")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored"
+               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored [#9 unknown: blocker state unreadable]; needs pr_merged"
     end
 
     test "a non-numeric blocker identifier is printed without a number sigil" do
@@ -257,7 +257,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
       blocked = issue("blocked", state: "todo", blocked_by: [blocker("KHALA-41", "rework")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependency KHALA-41 (rework)"
+               "blocked by open dependency KHALA-41 (rework) [KHALA-41 needs pr_merged (now pr_ci_green)]; needs pr_merged"
     end
 
     test "an unnameable blocked_by shape still reads as a hold" do

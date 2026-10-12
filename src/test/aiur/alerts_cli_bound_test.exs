@@ -8,7 +8,7 @@ defmodule Aiur.AlertsCLIBoundTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("alerts-cli-bound")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{ledger: Path.join(root, "alerts.ndjson")}
   end
 

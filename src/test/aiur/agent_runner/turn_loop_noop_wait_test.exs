@@ -39,7 +39,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
 
     {:ok, orchestrator} = FakeOrchestrator.start_link(nil)
     {:ok, turns} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     %{workspace: workspace, issue: issue, orchestrator: orchestrator, turns: turns}
   end

@@ -72,7 +72,7 @@ defmodule Aiur.BuildOrder.PackStatusCase do
         do: Application.put_env(:aiur, :build_order_workspace_directory, previous_workspace_directory),
         else: Application.delete_env(:aiur, :build_order_workspace_directory)
 
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory)
     end)
 
     {:ok, pack_path: pack_path, status_path: PackPaths.status_path(pack_path), workspace_directory: workspace_directory}

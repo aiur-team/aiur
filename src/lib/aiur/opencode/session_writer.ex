@@ -36,6 +36,7 @@ defmodule Aiur.Opencode.SessionWriter do
   alias Aiur.{AgentPubSub, IssueLog}
   alias Aiur.Events.DebugLog
   alias Aiur.Opencode.{ActiveTurns, ApiClient, Db, EventRow, Protocol, TurnMarkers}
+  alias Aiur.Opencode.SessionWriter.{EventRows, TranscriptWrite}
 
   # Sweep open turn buffers every 60s; finalize any whose last event
   # is older than this threshold. Bounds memory if codex never sends
@@ -63,14 +64,6 @@ defmodule Aiur.Opencode.SessionWriter do
     # filling aiur.log with noise. Counter resets on any success.
     consecutive_fk_failures: 0
   ]
-
-  @fk_failure_stop_threshold 5
-
-  # Soft cap for `seen_event_ids` — matches the IssueLog history-pull
-  # window. Older ids may evict; very-late re-deliveries beyond the cap
-  # could double-write (acceptable failure mode given DebugLog's
-  # in-process broadcast contract).
-  @seen_event_ids_cap 500
 
   @spec child_spec(map()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -173,13 +166,13 @@ defmodule Aiur.Opencode.SessionWriter do
   # render as a user turn rather than as assistant speech in the chat pane.
   def handle_info({:transcript_event, %{role: :user, body: body, payload: %{origin: :remote}}}, state)
       when is_binary(body) do
-    case write_user_message(state, body) do
+    case TranscriptWrite.write_user_message(state, body) do
       {:ok, _message_id} ->
-        {:noreply, reset_fk_failures(state)}
+        {:noreply, EventRows.reset_fk_failures(state)}
 
       {:error, reason} ->
-        log_session_write_failure("user_write_failed", state.identifier, reason)
-        handle_write_failure(state, reason)
+        EventRows.log_session_write_failure("user_write_failed", state.identifier, reason)
+        EventRows.handle_write_failure(state, reason)
     end
   end
 
@@ -199,14 +192,14 @@ defmodule Aiur.Opencode.SessionWriter do
     if live_stream_active?(state) do
       {:noreply, state}
     else
-      case write_transcript_event(state, event) do
+      case TranscriptWrite.write_transcript_event(state, event) do
         {:ok, _message_id, parts, new_state} ->
           _ = parts
-          {:noreply, reset_fk_failures(new_state)}
+          {:noreply, EventRows.reset_fk_failures(new_state)}
 
         {:error, reason} ->
-          log_session_write_failure("write_failed", state.identifier, reason)
-          handle_write_failure(state, reason)
+          EventRows.log_session_write_failure("write_failed", state.identifier, reason)
+          EventRows.handle_write_failure(state, reason)
       end
     end
   end
@@ -227,13 +220,13 @@ defmodule Aiur.Opencode.SessionWriter do
     if live_stream_active?(state) do
       {:noreply, state}
     else
-      case write_standalone(state, %{role: :alert, body: message}) do
+      case TranscriptWrite.write_standalone(state, %{role: :alert, body: message}) do
         {:ok, _message_id, _parts} ->
-          {:noreply, reset_fk_failures(state)}
+          {:noreply, EventRows.reset_fk_failures(state)}
 
         {:error, reason} ->
-          log_session_write_failure("alert_failed", state.identifier, reason)
-          handle_write_failure(state, reason)
+          EventRows.log_session_write_failure("alert_failed", state.identifier, reason)
+          EventRows.handle_write_failure(state, reason)
       end
     end
   end
@@ -250,7 +243,7 @@ defmodule Aiur.Opencode.SessionWriter do
   # is rendering the same ticker rows into the active assistant message.
   def handle_info({:event_debug, entry}, state) do
     if EventRow.matches?(entry, state.identifier) and not live_stream_active?(state) do
-      handle_matching_event_debug(state, entry)
+      EventRows.handle_matching_event_debug(state, entry)
     else
       {:noreply, state}
     end
@@ -405,408 +398,27 @@ defmodule Aiur.Opencode.SessionWriter do
     events
     |> Enum.reject(&match?(%{role: :user}, &1))
     |> Enum.reduce(0, fn event, count ->
-      case write_standalone_in_txn(conn, state, event) do
+      case TranscriptWrite.write_standalone_in_txn(conn, state, event) do
         {:ok, _msg_id, _parts} -> count + 1
         {:error, _reason} -> count
       end
     end)
   end
 
-  # --- live transcript write ----------------------------------------------
-
-  # Dispatch based on whether the event has a turn_id. Returns
-  # `{:ok, message_id, parts_written, new_state}` or `{:error, reason}`.
-  # parts_written is a list of `{message_id, part_id, part_data}` for the
-  # caller to feed into fire_part_updates/2.
-  defp write_transcript_event(state, %{turn_id: tid} = event) when is_binary(tid) do
-    case Map.fetch(state.turns, tid) do
-      {:ok, turn} -> append_to_open_turn(state, turn, tid, event)
-      :error -> open_turn(state, event)
-    end
-  end
-
-  defp write_transcript_event(state, event) do
-    case write_standalone(state, event) do
-      {:ok, message_id, parts} -> {:ok, message_id, parts, state}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp append_to_open_turn(state, %{message_id: message_id} = turn, tid, event) do
-    parts = build_body_parts(event.role, event.body, event)
-
-    write_result =
-      Db.with_conn(fn conn ->
-        insert_part_list(conn, state.session_id, message_id, parts)
-      end)
-
-    case write_result do
-      :ok ->
-        new_turn = %{turn | last_event_at_ms: System.os_time(:millisecond)}
-
-        {:ok, message_id, tag_parts(message_id, parts), %{state | turns: Map.put(state.turns, tid, new_turn)}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # Open a new turn-grouped assistant message: insert the message row,
-  # the step-start part, and the first body parts in a single transaction.
-  # Record the open turn in state.turns.
-  defp open_turn(state, %{turn_id: tid, role: role, body: body} = event) do
-    message_id = Db.msg_id()
-    now_ms = System.os_time(:millisecond)
-    step_start_id = Db.prt_id()
-    body_parts = build_body_parts(role, body, event)
-    all_parts = [{step_start_id, Protocol.step_start_part_data()} | body_parts]
-
-    write_result =
-      Db.with_transaction(fn conn ->
-        with :ok <-
-               Db.insert_message(
-                 conn,
-                 state.session_id,
-                 message_id,
-                 build_message_data(state, role)
-               ) do
-          insert_part_list(conn, state.session_id, message_id, all_parts)
-        end
-      end)
-
-    case write_result do
-      :ok ->
-        turn = %{message_id: message_id, started_at_ms: now_ms, last_event_at_ms: now_ms}
-
-        {:ok, message_id, tag_parts(message_id, all_parts), %{state | turns: Map.put(state.turns, tid, turn)}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # Standalone message: message + step-start + body + step-finish in one
-  # transaction. Used for turn_id=nil events and alerts.
-  defp write_standalone(state, event) do
-    Db.with_conn(fn conn -> write_standalone_in_txn(conn, state, event) end)
-  end
-
-  defp write_standalone_in_txn(conn, state, %{role: role, body: body} = event)
-       when role in [:assistant, :command, :system, :alert, :reasoning, :tool] do
-    message_id = Db.msg_id()
-    finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
-
-    step_start_id = Db.prt_id()
-    body_parts = build_body_parts(role, body, event)
-    step_finish_id = Db.prt_id()
-
-    all_parts =
-      [{step_start_id, Protocol.step_start_part_data()}] ++
-        body_parts ++
-        [{step_finish_id, Protocol.step_finish_part_data(reason: finish)}]
-
-    with :ok <-
-           Db.insert_message(
-             conn,
-             state.session_id,
-             message_id,
-             build_message_data(state, role)
-           ),
-         :ok <- insert_part_list(conn, state.session_id, message_id, all_parts) do
-      {:ok, message_id, tag_parts(message_id, all_parts)}
-    end
-  end
-
-  defp write_standalone_in_txn(_conn, _state, _event), do: {:error, :unsupported_role}
-
-  # System-role standalone message — used for cross-ticket event ticker
-  # rows (R2 of the chat-pane follow-ups plan). Bypasses
-  # `assistant_message_data`'s `mode: build` / `agent: build` fields so
-  # opencode-attach renders the row without the `▣ Build · issue-N`
-  # chrome that wraps codex turn messages.
-  defp write_system_standalone(state, body) when is_binary(body) do
-    Db.with_conn(fn conn -> write_system_standalone_in_txn(conn, state, body) end)
-  end
-
-  defp write_system_standalone_in_txn(conn, state, body) do
-    message_id = Db.msg_id()
-    step_start_id = Db.prt_id()
-    text_part_id = Db.prt_id()
-    step_finish_id = Db.prt_id()
-
-    all_parts = [
-      {step_start_id, Protocol.step_start_part_data()},
-      {text_part_id, Protocol.text_part_data(body)},
-      {step_finish_id, Protocol.step_finish_part_data(reason: "stop")}
-    ]
-
-    with :ok <-
-           Db.insert_message(
-             conn,
-             state.session_id,
-             message_id,
-             Protocol.system_message_data(%{
-               identifier: state.identifier,
-               parent_id: state.root_msg_id || Db.msg_id()
-             })
-           ),
-         :ok <- insert_part_list(conn, state.session_id, message_id, all_parts) do
-      {:ok, message_id}
-    end
-  end
-
-  # Remote-origin user message — a genuine user-role row with a single
-  # text part, the same shape opencode writes for locally-typed input.
-  # No step-start/step-finish parts: those wrap assistant turns, not user
-  # messages.
-  defp write_user_message(state, body) when is_binary(body) do
-    Db.with_conn(fn conn -> write_user_message_in_txn(conn, state, body) end)
-  end
-
-  defp write_user_message_in_txn(conn, state, body) do
-    message_id = Db.msg_id()
-    text_part_id = Db.prt_id()
-
-    with :ok <-
-           Db.insert_message(
-             conn,
-             state.session_id,
-             message_id,
-             Protocol.user_message_data(state.identifier)
-           ),
-         :ok <-
-           insert_part_list(conn, state.session_id, message_id, [
-             {text_part_id, Protocol.text_part_data(body)}
-           ]) do
-      {:ok, message_id}
-    end
-  end
-
-  # --- event-row helpers (R2 from chat-pane follow-ups plan) ---------------
-
-  defp handle_matching_event_debug(state, entry) do
-    id = Map.get(entry, :id)
-
-    cond do
-      is_nil(id) ->
-        # No event id → no dedup possible. Render anyway; the in-memory
-        # MapSet only protects against re-deliveries, not first writes.
-        write_event_row(state, entry)
-
-      MapSet.member?(state.seen_event_ids, id) ->
-        {:noreply, state}
-
-      true ->
-        # Only remember the id when the write actually landed (no_reply
-        # path). If write_event_row returned a stop, the FK threshold
-        # tripped and we shouldn't pretend the event was persisted.
-        case write_event_row(state, entry) do
-          {:noreply, new_state} -> {:noreply, remember_event_id(new_state, id)}
-          {:stop, _reason, _new_state} = stop -> stop
-        end
-    end
-  end
-
-  defp write_event_row(state, entry) do
-    case EventRow.from(entry, state.identifier) do
-      nil ->
-        {:noreply, state}
-
-      body ->
-        case write_system_standalone(state, body) do
-          {:ok, _message_id} ->
-            # Reset the FK counter so a healthy event-row stream after
-            # a transient FK burst doesn't leave the counter armed.
-            {:noreply, reset_fk_failures(state)}
-
-          {:error, reason} ->
-            log_session_write_failure(
-              "event_row_failed",
-              state.identifier,
-              reason,
-              kind: inspect(entry[:kind])
-            )
-
-            handle_write_failure(state, reason)
-        end
-    end
-  end
-
-  # FOREIGN KEY violations land here when opencode's SQL session row has
-  # been deleted out from under us — usually because Aiur.Shutdown is
-  # tearing down sessions while events are still in flight, or because
-  # the slot respawned and the writer hasn't been notified yet. Neither
-  # is a real failure; demote those to debug so the warning-level
-  # surface stays signal-only. Other write failures still warn.
-  defp log_session_write_failure(tag, identifier, reason, extra \\ []) do
-    extras = extra |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{v}" end)
-    msg = "opencode_session_writer #{tag} identifier=#{identifier} #{extras} reason=#{inspect(reason)}"
-
-    if foreign_key_violation?(reason) do
-      Logger.debug(msg)
-    else
-      Logger.warning(msg)
-    end
-  end
-
-  defp foreign_key_violation?(%Exqlite.Error{message: msg}) when is_binary(msg),
-    do: String.contains?(msg, "FOREIGN KEY")
-
-  defp foreign_key_violation?(_), do: false
-
-  # Bump the FK-failure counter when the failure was an FK violation
-  # (session gone), stop the writer once we cross the threshold.
-  # Non-FK errors are transient — log and keep running.
-  defp handle_write_failure(state, reason) do
-    if foreign_key_violation?(reason) do
-      bumped = Map.update(state, :consecutive_fk_failures, 1, &(&1 + 1))
-
-      if bumped.consecutive_fk_failures >= @fk_failure_stop_threshold do
-        Logger.info("opencode_session_writer stopping identifier=#{state.identifier} reason=session_reaped fk_failures=#{bumped.consecutive_fk_failures}")
-
-        {:stop, :normal, bumped}
-      else
-        {:noreply, bumped}
-      end
-    else
-      {:noreply, state}
-    end
-  end
-
-  defp reset_fk_failures(state) do
-    case Map.get(state, :consecutive_fk_failures, 0) do
-      0 -> state
-      _ -> Map.put(state, :consecutive_fk_failures, 0)
-    end
-  end
-
   @doc false
   @spec handle_write_failure_for_test(t, term) ::
           {:noreply, t} | {:stop, atom(), t}
   def handle_write_failure_for_test(state, reason) do
-    handle_write_failure(state, reason)
+    EventRows.handle_write_failure(state, reason)
   end
 
   @doc false
   @spec reset_fk_failures_for_test(t) :: t
   def reset_fk_failures_for_test(state) do
-    reset_fk_failures(state)
+    EventRows.reset_fk_failures(state)
   end
 
-  @doc false
   @type t :: %__MODULE__{}
-
-  defp remember_event_id(state, id) do
-    seen = MapSet.put(state.seen_event_ids, id)
-
-    seen =
-      if MapSet.size(seen) > @seen_event_ids_cap do
-        # Cap exceeded — drop a single arbitrary element. MapSet eviction
-        # isn't strictly ordered but the cap exists only to bound memory;
-        # very-late re-deliveries beyond the cap could double-write
-        # (acceptable per the plan's risk table).
-        {dropped, smaller} = pop_any(seen)
-        _ = dropped
-        smaller
-      else
-        seen
-      end
-
-    %{state | seen_event_ids: seen}
-  end
-
-  defp pop_any(set) do
-    [first | _] = MapSet.to_list(set)
-    {first, MapSet.delete(set, first)}
-  end
-
-  # --- part-data builders --------------------------------------------------
-
-  # Returns a list of `{part_id, part_data}` for the event's body. The
-  # caller inserts these and (in the live path) fires PATCH events on
-  # them.
-  defp build_body_parts(:command, body, event) do
-    payload = event[:payload] || %{}
-    command = Map.get(payload, :command, body)
-    output = Map.get(payload, :output, "")
-    title = Map.get(payload, :title, body)
-    workdir = Map.get(payload, :workdir, "")
-
-    input = %{"command" => command}
-    input = if workdir != "", do: Map.put(input, "workdir", workdir), else: input
-
-    part_data =
-      Protocol.tool_part_data(
-        tool: "bash",
-        call_id: Db.call_id(),
-        input: input,
-        output: output,
-        title: title
-      )
-
-    [{Db.prt_id(), part_data}]
-  end
-
-  defp build_body_parts(:tool, body, event) do
-    payload = event[:payload] || %{}
-    tool = Map.get(payload, :tool, "tool")
-    input = Map.get(payload, :input, %{})
-    output = Map.get(payload, :output, "")
-    title = Map.get(payload, :title, body)
-
-    part_data =
-      Protocol.tool_part_data(
-        tool: tool,
-        call_id: Db.call_id(),
-        input: input,
-        output: output,
-        title: title
-      )
-
-    [{Db.prt_id(), part_data}]
-  end
-
-  defp build_body_parts(:reasoning, body, _event) when is_binary(body) and body != "" do
-    [{Db.prt_id(), Protocol.reasoning_part_data(body)}]
-  end
-
-  defp build_body_parts(_role, body, _event) when is_binary(body) do
-    [{Db.prt_id(), Protocol.text_part_data(body)}]
-  end
-
-  defp build_body_parts(_role, _body, _event), do: []
-
-  defp insert_part_list(conn, session_id, message_id, parts) do
-    Enum.reduce_while(parts, :ok, fn {part_id, part_data}, _acc ->
-      case Db.insert_part(conn, session_id, message_id, part_id, part_data) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp tag_parts(message_id, parts) do
-    Enum.map(parts, fn {part_id, part_data} -> {message_id, part_id, part_data} end)
-  end
-
-  defp build_message_data(state, role) do
-    cwd =
-      Aiur.Config.workspace_root()
-      |> Path.expand()
-      |> Aiur.Workspace.workspace_path_under(state.identifier)
-
-    # For turn-grouped messages, opencode renders `finish` from the
-    # step-finish part. Set a sensible default on the message row so
-    # any reader that consults message JSON alone sees a useful value.
-    finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
-
-    Protocol.assistant_message_data(%{
-      identifier: state.identifier,
-      parent_id: state.root_msg_id || Db.msg_id(),
-      cwd: cwd,
-      finish: finish
-    })
-  end
 
   # Live TUI updates flow through `Aiur.Opencode.ChatCompletions`'s
   # bridge-as-LLM stream now (the `__aiur_turn__:<id>` marker posted by

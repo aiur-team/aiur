@@ -10,7 +10,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
     File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 50
@@ -32,7 +32,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
     Application.put_env(:aiur, :build_order_planning_pack, path)
     put_membership(4101, :running)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 50
@@ -60,7 +60,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
     Application.put_env(:aiur, :build_order_planning_pack, path)
     put_membership(4101, :completed)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 0
@@ -90,7 +90,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
       ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
     end)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     snapshot = PlanningSource.catalog()
     assert snapshot.health.state == :healthy
@@ -111,7 +111,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
       ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
     end)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     snapshot = PlanningSource.catalog()
     assert snapshot.health.state == :healthy
@@ -152,7 +152,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
     Application.put_env(:aiur, :build_order_planning_pack, path)
     put_membership(4102, :running)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     snapshot = PlanningSource.catalog()
     assert snapshot.health.state == :healthy
@@ -193,7 +193,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
       ProviderHealth.new(2, :stale, false, failure: :planning_call_budget_exhausted)
     end)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     snapshot = PlanningSource.catalog()
     assert snapshot.health.state == :healthy
@@ -211,7 +211,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackStatusHealthTest do
     File.write!(Path.join(directory, "status.json"), ~s({"members":[]}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     snapshot = PlanningSource.catalog()
     assert snapshot.health.state == :healthy

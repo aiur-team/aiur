@@ -148,13 +148,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource.MembershipTest do
       %{generation: 0, health: :healthy, freshness: %{status: :unavailable}, members: []}
     end)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack]) end)
 
     catalog = PlanningSource.catalog()
     assert catalog.health.state == :healthy
     assert catalog.membership_health.state == :unavailable
     assert catalog.status_health.state == :unavailable
-    assert [%{identity: identity, progress_resolution: :partial}] = catalog.data.entries
+    assert [%{identity: identity, progress_resolution: :partial, progress_resolved_count: 1}] = catalog.data.entries
 
     {:ok, selected} = PlanningSource.demand(identity)
     assert selected.health.state == :healthy

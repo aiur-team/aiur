@@ -125,7 +125,11 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
   about the whole system, so any other test publishing into that namespace can
   fail it. And never call `self()` inside `on_exit` — the callback runs in a
   different process, so the binding, monitor, or subscription you meant to clean
-  up leaks into later tests.
+  up leaks into later tests. Remove a temp directory in `on_exit` with
+  `Aiur.TestCleanup.rm_rf!/1`, never a bare `File.rm_rf!` or `File.rm_rf`: a live
+  writer makes the bang form fail with "file already exists" and the other one
+  fail silently
+  (`scripts/check-on-exit-rm-rf.py` enforces this; `--fix` rewrites call sites).
 - **Quarantine only while fixing.** Tag a confirmed flaky test with
   `@tag :quarantine`, open or link its repair issue, and leave a short reason
   beside the tag. Ordinary local and required CI runs exclude quarantined
@@ -319,11 +323,14 @@ cycles are informational, not failures.
 ## Enforcement
 
 Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
-to one component in `components.json`. Add new source paths and update moved
+to one component indexed by `components.json` in `components/<id>.json`. Add new source paths and update moved
 paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
 toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
 unowned files, equally specific competing owners and stale globs fail the check.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
+Arrays have one member per line; string sets and exemption TSVs stay sorted.
+Workflow security enforces this layout with `scripts/check-hot-list-format.py`.
+Do not use union merges on JSON or sorted/unique exemption lists.
 
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one

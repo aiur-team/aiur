@@ -263,6 +263,7 @@ defmodule Aiur.RunTelemetry.Summaries do
        %{
          records: records,
          restarts: restarts,
+         run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
          actors: actors,
          tickets: tickets,
          findings: Map.get(decoded, "findings", []),

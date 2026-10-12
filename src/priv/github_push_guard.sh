@@ -470,7 +470,7 @@ if [ "$push_command" = true ]; then
       ;;
   esac
 fi
-
+# @aiur-merge-queue-push-guard@
 if [ "$worktree_remove" -eq 1 ]; then
   # Rebuild the argument list without the guard's own override flag (git does
   # not know it) and, when the worktree is dirty and the caller opted in, make

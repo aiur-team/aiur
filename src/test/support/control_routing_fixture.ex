@@ -64,7 +64,7 @@ defmodule Aiur.TestSupport.ControlRoutingFixture do
 
     on_exit(fn ->
       if Process.alive?(worker), do: Process.exit(worker, :kill)
-      File.rm_rf(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     {worker, workspace, marker}

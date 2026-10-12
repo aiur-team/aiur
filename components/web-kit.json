@@ -1,0 +1,31 @@
+{
+  "id": "web-kit",
+  "name": "Phoenix helper library for component route, socket and controller modules (RC-39)",
+  "layer": 1,
+  "kind": "required",
+  "paths": [
+    "src/lib/aiur_web/capability_error.ex",
+    "src/lib/aiur_web/kit.ex",
+    "src/lib/aiur_web/provider_meter_windows.ex",
+    "src/lib/aiur_web/refresh_relay.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [
+    "WEB"
+  ]
+}

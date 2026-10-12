@@ -158,7 +158,7 @@ and never deletes ones a repository already has; those keep working as exact pin
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
 it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
-The build queue manages future work in named lists or adopted Build Orders. `agent:queued` marks membership; `agent:todo` remains the dispatch state. Promotion adds `todo` only when fresh evidence proves readiness and no other state is present. Membership and promotion grant no authorization.
+Promotion and dispatch follow the same ladder: `pr_opened` → `pr_ci_green` → `pr_approved` → `pr_merged` (default) → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
 
 Item states are projections, not tracker labels:
 
@@ -563,10 +563,9 @@ pushes run only `changes`, `lint`, and `build`. After self-review, the agent
 marks completed work ready to trigger the full suite, then `agent:ci-wait`
 releases the turn and dispatch slot.
 
-A draft's fast gate cannot approve its
-head. Aiur waits for successful required checks from the configured integrations
-on the current head before returning the agent for `agent:human-review`.
-Missing or skipped required checks remain pending. The agent **never self-merges**.
+Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
+
+[CI recovery](/apis/github#changes-aiur-makes-itself) reruns eligible failures once per head. After three failed handoffs per PR, it holds for the Executor to fix or rerun the current head until required checks pass; acknowledging the alert alone does not release the hold. The agent **never self-merges**.
 
 GitHub mechanics — polling, webhooks, rate budgets, and CI observation — live
 in [GitHub](/apis/github); this page does not duplicate them.

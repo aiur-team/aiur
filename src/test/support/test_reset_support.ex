@@ -19,7 +19,7 @@ defmodule Aiur.TestResetSupport do
     System.delete_env("AIUR_AGENT_IR_SANDBOX")
 
     on_exit(fn ->
-      File.rm_rf!(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
       restore_system_env("AIUR_AGENT_WORKSPACE", previous_agent_workspace)
       restore_system_env("AIUR_AGENT_IR_SANDBOX", previous_agent_ir_sandbox)
     end)

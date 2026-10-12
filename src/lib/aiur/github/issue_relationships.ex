@@ -34,8 +34,6 @@ defmodule Aiur.GitHub.IssueRelationships do
 
   @spec fetch_linked_pull_requests(TrackerIdentity.t(), TrackerIdentity.repository(), keyword()) ::
           {:ok, %{nodes: [map()], truncated?: boolean()}} | {:error, term()}
-  def fetch_linked_pull_requests(identity, repository, opts \\ [])
-
   def fetch_linked_pull_requests(
         %TrackerIdentity{provider_id: provider_id, identifier: identifier},
         {owner, repository},

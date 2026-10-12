@@ -233,8 +233,8 @@ defmodule Aiur.BuildOrder.PackStatus.ReconcileTest do
       if previous_pack, do: Application.put_env(:aiur, :build_order_planning_pack, previous_pack), else: Application.delete_env(:aiur, :build_order_planning_pack)
       if previous_packs, do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs), else: Application.delete_env(:aiur, :build_order_planning_packs)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm_rf(state_root)
-      File.rm_rf(override_directory)
+      Aiur.TestCleanup.rm_rf!(state_root)
+      Aiur.TestCleanup.rm_rf!(override_directory)
     end)
 
     test = self()
@@ -298,7 +298,7 @@ defmodule Aiur.BuildOrder.PackStatus.ReconcileTest do
         do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs),
         else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
 
-      File.rm_rf(state_root)
+      Aiur.TestCleanup.rm_rf!(state_root)
     end)
 
     test = self()
@@ -359,7 +359,7 @@ defmodule Aiur.BuildOrder.PackStatus.ReconcileTest do
       if previous_pack, do: Application.put_env(:aiur, :build_order_planning_pack, previous_pack), else: Application.delete_env(:aiur, :build_order_planning_pack)
       if previous_packs, do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs), else: Application.delete_env(:aiur, :build_order_planning_packs)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm_rf(state_root)
+      Aiur.TestCleanup.rm_rf!(state_root)
     end)
 
     poller =

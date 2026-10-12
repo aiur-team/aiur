@@ -762,7 +762,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       on_exit(fn ->
         Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
-        File.rm_rf!(dir)
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       payload = %{
@@ -832,7 +832,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       on_exit(fn ->
         Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
-        File.rm_rf!(dir)
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       payload = %{

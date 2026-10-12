@@ -19,7 +19,7 @@ defmodule Aiur.Executor.RecordingTest do
     on_exit(fn ->
       Application.delete_env(:aiur, :executor_state_dir)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
       :ok
     end)
 

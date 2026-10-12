@@ -19,7 +19,7 @@ defmodule Aiur.AgentRunner.QueueDrainPauseTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      File.rm_rf(log_root)
+      Aiur.TestCleanup.rm_rf!(log_root, unset: [:runtime_state_dir])
     end)
 
     %{log_root: log_root}

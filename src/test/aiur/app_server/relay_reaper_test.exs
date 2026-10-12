@@ -11,7 +11,7 @@ defmodule Aiur.AppServer.RelayReaperTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("relay-reaper")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     previous = Application.get_env(:aiur, :process_reaper_registrations)
     previous_pidfile = System.get_env("AIUR_AGENT_TMPFILE")
     Application.put_env(:aiur, :process_reaper_registrations, true)

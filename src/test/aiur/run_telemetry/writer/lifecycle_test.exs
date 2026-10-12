@@ -11,7 +11,7 @@ defmodule Aiur.RunTelemetry.Writer.LifecycleTest do
       Aiur.TestSupport.tmp_root!("aiur-telemetry-writer")
 
     path = Path.join(root, "log/telemetry.ndjson")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{path: path, root: root}
   end
 
@@ -57,6 +57,8 @@ defmodule Aiur.RunTelemetry.Writer.LifecycleTest do
     {:ok, clock_state} =
       Agent.start_link(fn ->
         [
+          ~U[2026-07-11 12:00:00Z],
+          ~U[2026-07-11 12:00:00Z],
           ~U[2026-07-11 12:00:00Z],
           ~U[2026-07-11 12:00:00Z],
           ~U[2026-07-11 12:00:00Z],

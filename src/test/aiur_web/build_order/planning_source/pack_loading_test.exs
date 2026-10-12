@@ -61,7 +61,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
 
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_planning_packs)
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack])
     end)
 
     assert %Snapshot{data: %Catalog{entries: [entry]}} = PlanningSource.catalog()
@@ -106,7 +106,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
 
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_planning_packs)
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack])
     end)
 
     assert %Snapshot{data: %Catalog{entries: [root]}} = PlanningSource.catalog()
@@ -126,7 +126,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
     on_exit(fn ->
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack])
       File.rm(outside_document)
     end)
 
@@ -176,7 +176,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack])
     end)
 
     roots = PlanningSource.catalog().data.entries
@@ -217,7 +217,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm_rf(state_root)
+      Aiur.TestCleanup.rm_rf!(state_root)
     end)
 
     log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
@@ -278,7 +278,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm_rf(state_root)
+      Aiur.TestCleanup.rm_rf!(state_root)
     end)
 
     snapshot = PlanningSource.catalog()
@@ -385,7 +385,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
 
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_planning_packs)
-      File.rm_rf(directory)
+      Aiur.TestCleanup.rm_rf!(directory, unset: [:build_order_planning_pack])
     end)
 
     entries = PlanningSource.catalog().data.entries

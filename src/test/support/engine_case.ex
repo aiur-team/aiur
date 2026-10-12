@@ -39,7 +39,7 @@ defmodule Aiur.TestSupport.EngineCase do
 
   def fake_release do
     dir = Aiur.TestSupport.tmp_root!("aiur-engine-rel")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     vsn = Path.join([dir, "releases", "0.1.1"])
     File.mkdir_p!(vsn)
     File.mkdir_p!(Path.join(dir, "bin"))
@@ -115,7 +115,7 @@ defmodule Aiur.TestSupport.EngineCase do
     path = Path.join(dir, "tmux")
     File.write!(path, "#!/usr/bin/env bash\n#{body}\n")
     File.chmod!(path, 0o755)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     path
   end
 

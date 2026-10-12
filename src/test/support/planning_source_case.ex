@@ -100,7 +100,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceCase do
         else: Application.delete_env(:aiur, :build_order_workspace_directory)
 
       File.rm(path)
-      File.rm_rf(workspace_directory)
+      Aiur.TestCleanup.rm_rf!(workspace_directory, unset: [:build_order_planning_pack])
     end)
 
     {:ok, workspace_directory: workspace_directory}
