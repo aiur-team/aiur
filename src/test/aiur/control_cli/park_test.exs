@@ -26,7 +26,10 @@ defmodule Aiur.ControlCLI.ParkTest do
     assert pending =~ "parking #2952; tracker marker write pending"
     assert pending =~ "__AIUR_CONTROL_EXIT__:0"
     assert_receive {:memory_tracker_add_label, "2952", "agent:parked"}
-    assert await_orchestrator_state(Process.whereis(Orchestrator), fn state -> state.running["2952"].operator_parked end)
+
+    assert await_orchestrator_state(Process.whereis(Orchestrator), fn state ->
+             get_in(state.running, ["2952", :operator_parked]) == true
+           end)
 
     already_parked = capture_io(fn -> AgentControlCLI.park(["2952"]) end)
     assert already_parked =~ "#2952 already parked"
