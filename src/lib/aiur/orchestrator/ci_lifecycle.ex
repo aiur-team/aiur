@@ -999,6 +999,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_wait_state?(effective_ci_state(issue)) ->
         state
 
+      HumanReview.human_review_state?(effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
+        Reconciler.refresh_running_issue_state(state, effective_issue_state(issue))
+
       HumanReview.human_review_state?(effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
         Reconciler.refresh_running_issue_state(state, effective_issue_state(issue))
 

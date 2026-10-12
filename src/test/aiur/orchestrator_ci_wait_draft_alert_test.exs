@@ -25,6 +25,36 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     assert Keyword.get(alert_opts, :needs_attention) == true
   end
 
+  test "resolves when the draft clears and starts a fresh alert delay on re-entry" do
+    identifier = "ci-wait-draft-reentry-#{System.unique_integer([:positive])}"
+    alert_topic = "ticket.#{identifier}.pr.draft_ci_wait"
+    resolved_topic = alert_topic <> ".resolved"
+    ref = make_ref()
+    issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}
+    draft = %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 944, draft?: true}
+    ready = %{decision: :pending, pending_reason: :required_checks_pending, pr_number: 944, draft?: false}
+
+    emitter = fn topic, opts ->
+      send(self(), {:alert, ref, topic, opts})
+      :ok
+    end
+
+    state = poll_ci(%State{}, issue, draft, emitter, 1_000)
+    state = poll_ci(state, issue, draft, emitter, 301_000)
+    assert_received {:alert, ^ref, ^alert_topic, _opts}
+
+    state = poll_ci(state, issue, ready, emitter, 302_000)
+    assert_received {:alert, ^ref, ^resolved_topic, resolved_opts}
+    assert Keyword.get(resolved_opts, :needs_attention) == false
+
+    state = poll_ci(state, issue, draft, emitter, 400_000)
+    refute_received {:alert, ^ref, ^alert_topic, _opts}
+
+    _state = poll_ci(state, issue, draft, emitter, 700_000)
+    assert_received {:alert, ^ref, ^alert_topic, alert_opts}
+    assert Keyword.get(alert_opts, :needs_attention) == true
+  end
+
   defp poll_ci(state, issue, result, emitter, now_ms) do
     CiLifecycle.poll_github_ci(state,
       ci_failure_digest: fn _, _ -> {:ok, %Aiur.CI.FailureDigest{}} end,

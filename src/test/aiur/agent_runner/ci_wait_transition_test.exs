@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.CiWaitTransitionTest do
     def fetch_open_pull_request_for_branch(_), do: {:ok, nil}
   end
 
-  test "refuses ci-wait when the ticket has an open draft PR" do
+  test "refuses ci-wait and human-review when the ticket has an open draft PR" do
     issue = %Issue{id: "gid-te-state-draft", identifier: "4316"}
     previous_adapters = Application.fetch_env!(:aiur, :tracker_adapters)
 
@@ -20,15 +20,18 @@ defmodule Aiur.AgentRunner.CiWaitTransitionTest do
       ToolExecutor.build(issue, nil, nil, %{},
         coordination_runner: fn _key, operation, _opts -> operation.() end,
         ci_wait_pr_fetcher: fn "gid-te-state-draft" -> {:ok, %{"number" => 4318, "draft" => true}} end,
-        ticket_state_writer: fn _id, _state -> flunk("draft PR must not enter ci-wait") end
+        ticket_state_writer: fn _id, _state -> flunk("draft PR must not enter a hand-off state") end
       )
 
-    response = executor.("aiur_set_ticket_state", %{"state" => "ci-wait"})
-    error = Jason.decode!(response["output"])["error"]
+    for state <- ["ci-wait", "human-review"] do
+      response = executor.("aiur_set_ticket_state", %{"state" => state})
+      error = Jason.decode!(response["output"])["error"]
 
-    assert response["success"] == false
-    assert error["reason"] == "draft_pr_cannot_enter_ci_wait"
-    assert error["pull_request"] == 4318
-    assert error["message"] =~ "Mark the draft pull request ready"
+      assert response["success"] == false
+      assert error["reason"] == "draft_pr_cannot_enter_state"
+      assert error["state"] == state
+      assert error["pull_request"] == 4318
+      assert error["message"] =~ "Mark the draft pull request ready"
+    end
   end
 end

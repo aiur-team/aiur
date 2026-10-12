@@ -12,12 +12,12 @@ defmodule Aiur.AgentRunner.CiWaitTransition do
     end
   end
 
-  defp verify_pr(_coordination, _issue_id, state_name) when state_name != "ci-wait", do: :ok
+  defp verify_pr(_coordination, _issue_id, state_name) when state_name not in ["ci-wait", "human-review"], do: :ok
 
-  defp verify_pr(coordination, issue_id, "ci-wait") do
+  defp verify_pr(coordination, issue_id, state_name) do
     if Aiur.CodeHost.available?() do
       case coordination.ci_wait_pr_fetcher.(issue_id) do
-        {:ok, %{"draft" => true, "number" => number}} -> {:error, {:draft_pr_cannot_enter_ci_wait, number}}
+        {:ok, %{"draft" => true, "number" => number}} -> {:error, {:draft_pr_cannot_enter_state, state_name, number}}
         {:ok, _pr_or_missing} -> :ok
         {:error, _reason} -> :ok
         _other -> :ok
