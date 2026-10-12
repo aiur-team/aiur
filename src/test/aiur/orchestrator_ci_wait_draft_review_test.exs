@@ -14,8 +14,15 @@ defmodule Aiur.OrchestratorCiWaitDraftReviewTest do
 
   setup do
     previous = Application.fetch_env!(:aiur, :tracker_adapters)
-    Application.put_env(:aiur, :tracker_adapters, Map.put(previous, "linear", RecordingTracker))
+    Application.put_env(:aiur, :tracker_adapters, Map.put(previous, "github", RecordingTracker))
     Application.put_env(:aiur, :ci_draft_review_recipient, self())
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent",
+      tracker_active_states: ["todo", "in-progress"],
+      tracker_terminal_states: ["done"]
+    )
 
     on_exit(fn ->
       Application.put_env(:aiur, :tracker_adapters, previous)
