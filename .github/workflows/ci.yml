@@ -722,14 +722,11 @@ jobs:
           test/aiur/orchestrator/waiting_descriptor_test.exs
           test/aiur/application_child_order_test.exs
           test/aiur/pr_lifecycle/health_scanner_child_order_test.exs
-      - name: Install zsh for agent scratch regression
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: sudo apt-get update && sudo apt-get install -y zsh
       - name: Run affected tests on the PR merge
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+        run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
