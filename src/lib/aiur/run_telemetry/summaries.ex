@@ -176,13 +176,18 @@ defmodule Aiur.RunTelemetry.Summaries do
          true <- File.regular?(script),
          telemetry when is_binary(telemetry) and telemetry != "" <- telemetry_file(opts),
          state when is_binary(state) and state != "" <- state_node() do
-      logs_root = Keyword.get(opts, :logs_root, Path.expand("~/.aiur/logs"))
+      logs_root = Keyword.get(opts, :logs_root, retained_logs_root(telemetry))
       glob = Path.join([logs_root, "**", "telemetry.ndjson*"])
       args = ["--all", "--all-builds", "--ledger", "--telemetry-glob", glob, "--telemetry", telemetry, "--state-node", state, "--repo", repo_url()]
       {:ok, {script, args}}
     else
       _other -> :unavailable
     end
+  end
+
+  defp retained_logs_root(telemetry) do
+    directory = telemetry |> Path.expand() |> Path.dirname()
+    if Path.basename(directory) == "log", do: directory |> Path.dirname() |> Path.dirname(), else: directory
   end
 
   defp telemetry_file(opts) do

@@ -13,8 +13,6 @@ defmodule Aiur.RunTelemetry.LedgerRetentionTest do
     Application.put_env(:aiur, :log_file, Path.join(root, "log/aiur.log"))
 
     on_exit(fn ->
-      File.rm_rf!(root)
-
       for {key, value} <- prior do
         case value do
           {:ok, old} -> Application.put_env(:aiur, key, old)
@@ -23,6 +21,7 @@ defmodule Aiur.RunTelemetry.LedgerRetentionTest do
       end
 
       if enabled == :unset, do: :persistent_term.erase(enabled_key), else: :persistent_term.put(enabled_key, enabled)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{root: root, path: Aiur.RunTelemetry.telemetry_file()}
