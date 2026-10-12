@@ -29,7 +29,7 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   require Logger
 
-  alias Aiur.Events.{BranchRefStore, GithubKeys, Publisher}
+  alias Aiur.Events.{BranchRefStore, BranchRewriteClassifier, GithubKeys, Publisher}
   alias Aiur.Git
   alias Aiur.GitHub.Connectivity
 
@@ -47,6 +47,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       for tests that want to bypass `git`.
     * `:publisher` — `(topic, payload, opts) -> term` for tests that
       want to capture publishes instead of going through Exchange.
+    * `:request_fun`, `:token`, `:task_supervisor` — compare transport and supervision overrides for tests.
     * `:repo` — `"owner/repo"` used for the dedup key. When `nil` (the
       production default), the ticker resolves it via
       `Aiur.Tracker.project_identity/0` on every tick so config edits
@@ -68,6 +69,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       ref_pattern: Keyword.get(opts, :ref_pattern, @default_ref_pattern),
       ls_remote_fun: Keyword.get(opts, :ls_remote_fun, &default_ls_remote/2),
       publisher: Keyword.get(opts, :publisher),
+      compare_opts: Keyword.take(opts, [:request_fun, :token, :task_supervisor]),
       repo: Keyword.get(opts, :repo),
       refs: %{},
       bootstrapped?: false,
@@ -175,12 +177,14 @@ defmodule Aiur.Events.LsRemoteTicker do
           source: :system,
           ref: ref,
           sha: sha,
+          previous_sha: Map.get(state.refs, ref),
           actor: nil,
           commits: [],
           repo: repo
         }
 
         do_publish(state, topic, payload, issue_number: id)
+        BranchRewriteClassifier.maybe_publish(id, payload, &do_publish(state, &1, &2, &3), state.compare_opts)
 
       {:system, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
@@ -189,6 +193,7 @@ defmodule Aiur.Events.LsRemoteTicker do
           source: :system,
           ref: ref,
           sha: sha,
+          previous_sha: Map.get(state.refs, ref),
           actor: nil,
           commits: [],
           repo: repo

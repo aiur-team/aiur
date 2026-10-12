@@ -7,9 +7,8 @@ defmodule Aiur.Orchestrator.PriorityControl do
   the orchestrator immediately refreshes its in-memory copies so the dashboard
   and dispatch policy observe the same priority before the next poll.
   """
-
-  alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{State, StatusReport, TicketTransition, TrackerTasks}
 
   @prioritized_label "priority:1"
 
@@ -40,15 +39,55 @@ defmodule Aiur.Orchestrator.PriorityControl do
   end
 
   defp change_priority(state, identifier, target, opts) do
-    with {:ok, %Issue{} = issue} <- issue_by_identifier(state, identifier),
-         {:ok, result, updated_issue} <- persist_priority(issue, target, opts) do
-      state = replace_issue(state, updated_issue)
-      notify_dashboard = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1)
-      :ok = notify_dashboard.(state)
-      {:reply, {:ok, result}, state}
-    else
-      {:error, _reason} = error -> {:reply, error, state}
+    case issue_by_identifier(state, identifier) do
+      {:ok, issue} -> change_issue_priority(state, issue, target, opts, Keyword.get(opts, :from))
+      {:error, _} = error -> {:reply, error, state}
     end
+  end
+
+  defp change_issue_priority(state, issue, target, opts, nil) do
+    case persist_priority(issue, target, opts) do
+      {:ok, result, updated_issue} ->
+        state = replace_issue(state, updated_issue)
+        :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(state)
+        {:reply, {:ok, result}, state}
+
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  defp change_issue_priority(state, issue, target, opts, from) do
+    if TrackerTasks.running?(state, {:priority, issue.id}) do
+      {:reply, {:error, :priority_change_in_progress}, state}
+    else
+      next =
+        TrackerTasks.start(state, {:priority, issue.id}, fn -> persist_priority_change({issue, opts, target}) end, fn current, result -> apply_priority_change(current, result, {from, issue, opts}) end)
+
+      {:noreply, next}
+    end
+  end
+
+  defp apply_priority(state, issue_id, priority) do
+    update = fn issue ->
+      if priority == 1, do: with_priority(issue, @prioritized_label), else: without_priority(issue)
+    end
+
+    polled = Map.update(state.last_polled_issues, issue_id, nil, fn issue -> update.(issue) end) |> Map.reject(fn {_id, issue} -> is_nil(issue) end)
+
+    running =
+      case Map.get(state.running, issue_id) do
+        %{issue: %Issue{} = issue} = entry -> Map.put(state.running, issue_id, %{entry | issue: update.(issue)})
+        _ -> state.running
+      end
+
+    retry =
+      case Map.get(state.retry_attempts, issue_id) do
+        entry when is_map(entry) -> Map.put(state.retry_attempts, issue_id, Map.put(entry, :priority, priority))
+        _ -> state.retry_attempts
+      end
+
+    %{state | last_polled_issues: polled, running: running, retry_attempts: retry}
   end
 
   defp issue_by_identifier(%State{} = state, identifier) do
@@ -105,7 +144,7 @@ defmodule Aiur.Orchestrator.PriorityControl do
   end
 
   defp remove_priority_labels(issue_id, labels, opts) do
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+    remove_label = Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :priority_control))
 
     Enum.reduce_while(labels, :ok, fn label, :ok ->
       case remove_label.(issue_id, label) do
@@ -116,7 +155,7 @@ defmodule Aiur.Orchestrator.PriorityControl do
   end
 
   defp add_label(issue_id, label, opts) do
-    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+    add_label = Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :priority_control))
     add_label.(issue_id, label)
   end
 
@@ -157,5 +196,28 @@ defmodule Aiur.Orchestrator.PriorityControl do
   catch
     :exit, {:timeout, _} -> {:error, :timeout}
     :exit, _ -> {:error, :unavailable}
+  end
+
+  defp persist_priority_change({issue, opts, target}) do
+    case persist_priority(issue, target, opts) do
+      {:ok, result, changed} -> {:ok, result, changed.priority}
+      error -> error
+    end
+  end
+
+  defp apply_priority_change(current, outcome, {from, issue, opts}) do
+    {reply, current} =
+      case outcome do
+        {:ok, result, priority} ->
+          current = apply_priority(current, issue.id, priority)
+          :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(current)
+          {{:ok, result}, current}
+
+        {:error, _} = error ->
+          {error, current}
+      end
+
+    GenServer.reply(from, reply)
+    current
   end
 end

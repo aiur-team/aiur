@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.{DecisionAttention, DecisionStore, ExecutorEvents, Issue}
+  alias Aiur.{Commands, ExecutorEvents, Issue}
   alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
@@ -171,13 +171,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp maybe_put_rationale(payload, _rationale), do: payload
 
   defp safe_answer(decision_id, payload) do
-    DecisionStore.answer(decision_id, payload, [actor: actor()], decision_store())
+    Commands.answer(decision_id, payload, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
 
   defp safe_dismiss(decision_id) do
-    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+    Commands.dismiss(decision_id, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -213,7 +213,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp safe_defer(decision_id) do
-    DecisionStore.defer(decision_id, [actor: actor()], decision_store())
+    Commands.defer(decision_id, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -244,7 +244,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp resolve_legacy_attention(%{legacy_attention: %{slug: slug}, ticket: ticket}) when is_binary(slug) do
     issue = %Issue{identifier: ticket.identifier, title: ticket.title, url: ticket.url}
-    DecisionAttention.resolve(decision_attention(), issue, slug)
+    Commands.resolve_attention(decision_attention(), issue, slug)
   catch
     :exit, _reason -> {:error, :attention_registry_unavailable}
   end
@@ -252,7 +252,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp resolve_legacy_attention(_decision), do: :ok
 
   defp safe_retry_dispatch(decision_id, action_id) do
-    DecisionStore.retry_dispatch(decision_id, action_id, decision_store())
+    Commands.retry_dispatch(decision_id, action_id, decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -381,6 +381,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(:answer_missing), do: "No durable answer is available to retry."
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
-  defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
-  defp decision_attention, do: Endpoint.config(:decision_attention) || DecisionAttention
+  defp decision_store, do: Endpoint.config(:decision_store) || Commands.default_store()
+  defp decision_attention, do: Endpoint.config(:decision_attention) || Commands.default_attention()
 end

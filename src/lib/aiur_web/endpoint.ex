@@ -3,6 +3,8 @@ defmodule AiurWeb.Endpoint do
   Phoenix endpoint for Aiur's optional observability UI and API.
   """
 
+  alias AiurWeb.Sockets.{LiveView, Streamdeck, Voice}
+
   use Phoenix.Endpoint, otp_app: :aiur
 
   @session_options [
@@ -11,22 +13,13 @@ defmodule AiurWeb.Endpoint do
     signing_salt: "aiur-session"
   ]
 
-  socket("/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [:user_agent, session: @session_options]],
-    longpoll: false
-  )
+  require LiveView
+  require Streamdeck
+  require Voice
 
-  socket("/streamdeck", AiurWeb.StreamdeckSocket,
-    websocket: true,
-    longpoll: false
-  )
-
-  # Dashboard dictation audio. The browser streams PCM here and the server owns
-  # the ElevenLabs STT session; auth reuses the LiveView session proof.
-  socket("/voice", AiurWeb.VoiceSocket,
-    websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],
-    longpoll: false
-  )
+  LiveView.mount(@session_options)
+  Streamdeck.mount(@session_options)
+  Voice.mount(@session_options)
 
   plug(:authenticate_static_asset)
 
@@ -34,7 +27,7 @@ defmodule AiurWeb.Endpoint do
     at: "/",
     from: :aiur,
     gzip: false,
-    only: AiurWeb.StaticAssets.revalidated_static_paths(),
+    only: AiurWeb.StaticAssets.revalidated_static_paths() -- ["dashboard.css"],
     cache_control_for_etags: "private, max-age=0, must-revalidate",
     cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
   )
@@ -79,8 +72,11 @@ defmodule AiurWeb.Endpoint do
   @doc false
   @spec authenticate_static_asset(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def authenticate_static_asset(conn, opts) do
-    if AiurWeb.StaticAssets.served_path?(conn.path_info),
-      do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts),
-      else: conn
+    if AiurWeb.StaticAssets.served_path?(conn.path_info) do
+      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+      if conn.halted, do: conn, else: AiurWeb.DashboardPagesGate.call(conn, [])
+    else
+      conn
+    end
   end
 end

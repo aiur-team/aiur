@@ -16,6 +16,7 @@ defmodule Aiur.GitHub.Labels do
   """
 
   alias Aiur.CodingAgent
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.Transport
 
   @base_url "https://api.github.com"
@@ -31,8 +32,9 @@ defmodule Aiur.GitHub.Labels do
   @watch_suffix "watch"
   @paused_suffix "paused"
   @parked_suffix "parked"
+  @queued_suffix "queued"
   @rate_limit_fallback_suffix "rate-limit-fallback"
-  @marker_suffixes [@watch_suffix, @paused_suffix, @parked_suffix, @rate_limit_fallback_suffix]
+  @marker_suffixes [@watch_suffix, @paused_suffix, @parked_suffix, @queued_suffix, @rate_limit_fallback_suffix]
 
   @type request :: %{
           method: :post,
@@ -46,7 +48,8 @@ defmodule Aiur.GitHub.Labels do
   @doc "Full label set to create for a repo, given the label prefix and chosen backends."
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
-    state_labels(prefix) ++
+    ["flake"] ++
+      state_labels(prefix) ++
       required_rate_limit_fallback_labels(prefix) ++
       (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
@@ -66,6 +69,10 @@ defmodule Aiur.GitHub.Labels do
   @doc "The explicit operator-held marker label, given the prefix (e.g. `agent:parked`)."
   @spec parked_labels(String.t()) :: [String.t()]
   def parked_labels(prefix), do: ["#{prefix}:#{@parked_suffix}"]
+
+  @doc "The build-queue marker label, given the prefix (e.g. `agent:queued`)."
+  @spec queued_labels(String.t()) :: [String.t()]
+  def queued_labels(prefix), do: ["#{prefix}:#{@queued_suffix}"]
 
   @doc "The marker that records ownership of an automatic usage-limit fallback."
   @spec rate_limit_fallback_marker_labels(String.t()) :: [String.t()]
@@ -120,6 +127,7 @@ defmodule Aiur.GitHub.Labels do
 
   @doc "A short human description for any label in `label_set/2`."
   @spec describe(String.t()) :: String.t()
+  def describe("flake"), do: "known intermittent test failure"
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
   def describe("model:remote"), do: "Supports claude remote-control"
 
@@ -139,6 +147,7 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("watch"), do: "aiur watches this PR for comments"
   defp state_description("paused"), do: "suppress aiur work while preserving state"
   defp state_description("parked"), do: "operator-held: no dispatch, no comment-driven rework"
+  defp state_description("queued"), do: "in the build queue; not yet ready"
   defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
@@ -179,11 +188,18 @@ defmodule Aiur.GitHub.Labels do
           do: :ok,
           else: {:error, {:github_api_status, 422, label}}
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status, label}}
+      {:ok, %{status: status} = response} ->
+        label_error(response, {:github_api_status, status, label})
 
-      {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+      {:error, reason} = error ->
+        label_error(error, {:github_api_request, reason})
+    end
+  end
+
+  defp label_error(response, fallback) do
+    case Errors.classify_error(response) do
+      {:github, kind, _} = reason when kind in [:rate_limited, :local_hold] -> {:error, reason}
+      _ -> {:error, fallback}
     end
   end
 

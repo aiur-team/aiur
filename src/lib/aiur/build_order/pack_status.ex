@@ -16,10 +16,11 @@ defmodule Aiur.BuildOrder.PackStatus do
   of 50 within the configured cycle-wide planning-call budget. The result is
   merged into `status.json`; unrelated keys in that file (`state`,
   `completed_at`, operator annotations) are preserved. A failed, partial, or
-  budget-exhausted fetch leaves the affected projection untouched — a stale
-  completion fact is strictly better than silently reverting a merged ticket
-  to 0%. When demand exceeds one cycle's budget, later cycles rotate the first
-  repository and member chunk so later demand also receives capacity.
+  budget-exhausted fetch preserves unfetched members while successful batches
+  are written. A stale completion fact is strictly better than silently
+  reverting a merged ticket to 0%. When demand exceeds one cycle's budget, later
+  cycles rotate the first repository and member chunk so later demand also
+  receives capacity.
 
   It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
   cadence and asks this source to reconcile; `refresh/1` covers a real demand in
@@ -43,8 +44,7 @@ defmodule Aiur.BuildOrder.PackStatus do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Lifecycle, PackPaths, ProviderHealth}
-  alias Aiur.Fs
+  alias Aiur.BuildOrder.{Lifecycle, PackPaths, PackStatusFile, ProviderHealth}
   alias Aiur.GitHub.{Config, Transport}
 
   @chunk_size 50
@@ -320,14 +320,17 @@ defmodule Aiur.BuildOrder.PackStatus do
   defp reconcile_fact(fact, fetched, state) do
     member_keys = Enum.map(fact.numbers, &Integer.to_string/1)
 
-    if Enum.all?(member_keys, &Map.has_key?(fetched.lifecycles, &1)) do
-      with {:ok, changed?} <- write_status(fact.path, Map.take(fetched.lifecycles, member_keys), state) do
-        {:ok, fact.path, changed?}
-      end
-    else
-      {:error, fetched.error || :incomplete_graphql_response}
+    lifecycles = Map.take(fetched.lifecycles, member_keys)
+
+    with {:ok, changed?} <- persist_lifecycles(fact.path, lifecycles, state) do
+      if map_size(lifecycles) == length(member_keys),
+        do: {:ok, fact.path, changed?},
+        else: {:error, fetched.error || :incomplete_graphql_response, changed?}
     end
   end
+
+  defp persist_lifecycles(_path, lifecycles, _state) when map_size(lifecycles) == 0, do: {:ok, false}
+  defp persist_lifecycles(path, lifecycles, state), do: PackStatusFile.write_status(path, lifecycles, state)
 
   defp rotate([], _offset), do: []
 
@@ -341,6 +344,7 @@ defmodule Aiur.BuildOrder.PackStatus do
       Enum.reduce(results, {[], false, []}, fn
         {:ok, nil, false}, acc -> acc
         {:ok, path, path_changed?}, {paths, changed?, errors} -> {[path | paths], changed? or path_changed?, errors}
+        {:error, reason, path_changed?}, {paths, changed?, errors} -> {paths, changed? or path_changed?, [reason | errors]}
         {:error, reason}, {paths, changed?, errors} -> {paths, changed?, [reason | errors]}
       end)
 
@@ -436,80 +440,6 @@ defmodule Aiur.BuildOrder.PackStatus do
     end
   end
 
-  # --- status.json ------------------------------------------------------------
-
-  defp write_status(pack_path, lifecycles, state) do
-    path = PackPaths.status_path(pack_path)
-    observed_at = DateTime.to_iso8601(state.now_fun.())
-
-    case read_status(path) do
-      {:ok, existing} ->
-        merge_status(path, existing, lifecycles, observed_at)
-
-      {:error, reason} = error ->
-        Logger.warning("aiur_build_order_pack_status phase=read_failed path=#{path} reason=#{inspect(reason)}")
-        error
-    end
-  end
-
-  defp merge_status(path, existing, lifecycles, observed_at) do
-    existing_members = existing |> Map.get("members", %{}) |> then(&if(is_map(&1), do: &1, else: %{}))
-
-    members =
-      Map.merge(
-        existing_members,
-        Map.new(lifecycles, fn {number, lifecycle} ->
-          {number, %{"lifecycle" => lifecycle, "observed_at" => observed_at}}
-        end)
-      )
-
-    # `observed_at` alone would rewrite the projection every cycle; only a
-    # changed lifecycle is worth a write.
-    if lifecycle_map(existing_members) == lifecycle_map(members) do
-      {:ok, false}
-    else
-      with {:ok, body} <- Jason.encode(Map.put(existing, "members", members), pretty: true),
-           :ok <- atomic_write(path, body <> "\n") do
-        {:ok, true}
-      end
-    end
-  end
-
   defp public_result({:ok, paths, _changed?}), do: {:ok, paths}
   defp public_result({:error, reason, _changed?}), do: {:error, reason}
-
-  defp lifecycle_map(members), do: Map.new(members, fn {number, member} -> {number, member_lifecycle(member)} end)
-
-  defp member_lifecycle(%{"lifecycle" => lifecycle}), do: lifecycle
-  defp member_lifecycle(%{"state" => state}), do: state
-  defp member_lifecycle(lifecycle) when is_binary(lifecycle), do: lifecycle
-  defp member_lifecycle(_member), do: nil
-
-  defp read_status(path) do
-    case File.read(path) do
-      {:ok, body} -> decode_status(body)
-      {:error, :enoent} -> {:ok, %{}}
-      {:error, reason} -> {:error, {:status_read_failed, reason}}
-    end
-  end
-
-  defp decode_status(body) do
-    case Jason.decode(body) do
-      {:ok, map} when is_map(map) -> {:ok, map}
-      _invalid -> {:error, :invalid_status}
-    end
-  end
-
-  # A torn status.json would reset completion to unknown, so the projection is
-  # replaced by rename rather than written in place.
-  defp atomic_write(path, body) do
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- Fs.atomic_write(path, body, fsync: true) do
-      :ok
-    else
-      error ->
-        Logger.warning("aiur_build_order_pack_status phase=write_failed reason=#{inspect(error)}")
-        error
-    end
-  end
 end

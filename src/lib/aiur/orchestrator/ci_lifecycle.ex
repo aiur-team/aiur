@@ -1,27 +1,31 @@
 defmodule Aiur.Orchestrator.CiLifecycle do
   @moduledoc """
   Coordinates tracker transitions, runner control, and terminal events for CI.
-  All functions execute inside the orchestrator GenServer process.
+  Tracker reads and writes run outside the orchestrator; results update current state.
   """
 
   require Logger
-
-  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
+  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, StartTrigger.ProgressStore, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
     DispatchPolicy,
+    DraftAlertLifecycle,
     HumanReview,
+    IssueSync,
     LifecycleFence,
     OperatorMessages,
     PauseResume,
     ReadyForReviewTransitions,
     Reconciler,
+    RestackScheduler,
     RetryEngine,
     State,
-    TrackerHealth
+    TicketTransition,
+    TrackerHealth,
+    TrackerTasks
   }
 
   @ci_failure_excerpt_message_max 1_200
@@ -32,10 +36,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
+    state = RestackScheduler.reconcile(state, [])
+
     case Config.tracker_kind() do
       # See `CommentPolling.poll_github_comments/2`: CI polling also keeps the
-      # configured cadence rather than widening on quiet, so CI detection
-      # latency is unchanged at the same polling interval.
       "github" ->
         if within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
           state
@@ -48,17 +52,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Throttles the CI poll to the `:ci` class cadence (#2309). CI is
-  # demand-scoped — it only polls pull requests with work in flight — so the
-  # throttle deliberately only binds while demand is continuous: the timestamp
-  # advances only when there are in-flight targets to poll, never on the
-  # no-target skip, so a PR that enters `ci-wait` between polls is read promptly
-  # on the very next tick.
+  # CI cadence binds only during continuous demand; newly waiting PRs poll promptly (#2309).
   #
-  # Like the comment poll's gate, this is a no-op at default config: nothing
-  # published yet runs every tick, and once the dispatcher publishes, a class
-  # that falls back to `interval_seconds` (120s) is not wider than the dispatch
-  # tick the poll rides on. It only slows CI when an operator sets
+  # Default CI cadence follows dispatch; it slows only when an operator sets
   # `intervals.ci` wider than the tick — which is deliberately *not* the
   # recommended shape (#2309): CI staleness has agent-visible consequences, so
   # keep `ci` at or below `dispatch`.
@@ -151,18 +147,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     else
       issue_key = issue.id || issue.identifier
 
-      case Tracker.update_issue_state(to_string(issue_key), next_state, expected_state_opts(issue)) do
-        :ok ->
-          dispatch_successful_transition(state, issue, next_state)
-
-        {:error, reason} ->
-          Logger.warning(
-            "CI lifecycle transition skipped: #{State.issue_context(issue)} " <>
-              "state=#{next_state} reason=#{inspect(reason)}"
-          )
-
-          state
-      end
+      run_ci_effect(
+        state,
+        issue,
+        next_state,
+        fn -> write_ci_ticket_state({issue, issue_key, next_state}) end,
+        fn arg1, arg2 ->
+          apply_ci_ticket_transition(arg1, arg2, {issue, next_state})
+        end
+      )
     end
   end
 
@@ -310,7 +303,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
         persist_ci_lifecycle_state(%{
           state
-          | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}
+          | ci_lifecycle:
+              state.ci_lifecycle
+              |> Map.put(:approved_heads, approved_heads)
+              |> Map.update(:passed_heads, %{}, &Map.delete(&1, target))
         })
 
       _ ->
@@ -325,7 +321,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       CIApprovalStore.save(
         state.ci_lifecycle.approved_heads,
         state.ci_lifecycle.test_failure_heads,
-        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{}),
+        Map.get(state.ci_lifecycle, :passed_heads, %{})
       )
 
     state
@@ -376,39 +373,72 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp do_poll_github_ci(%State{} = state, opts) do
-    poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
-
-    case fetch_ci_issues(state, opts) do
-      {:ok, issues, state} ->
-        state
-        |> prune_ci_lifecycle_state(issues, opts)
-        |> poll_github_ci_targets(issues, poller, opts)
-
-      {:error, reason, state} ->
-        Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
-        TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
+  @doc false
+  @spec start_poll(State.t(), (State.t() -> State.t()), keyword()) :: State.t()
+  def start_poll(%State{} = state, continue, opts \\ []) do
+    if Config.tracker_kind() == "github" and not within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
+      launch_ci_poll(state, Keyword.put_new(opts, :ci_recovery_poll_id, make_ref()), continue, &TrackerTasks.start/4)
+    else
+      continue.(state)
     end
   end
 
-  defp fetch_ci_issues(%State{} = state, opts) do
+  defp do_poll_github_ci(state, opts) do
+    launch_ci_poll(state, Keyword.put_new(opts, :ci_recovery_poll_id, make_ref()), &Function.identity/1, &TrackerTasks.run/4)
+  end
+
+  defp launch_ci_poll(state, opts, continue, launch) do
+    cache = issue_list_cache(state)
+    generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
+    {baseline, invalidations} = {state.ci_lifecycle, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})}
+
+    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
+      current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
+    end)
+  end
+
+  defp fetch_ci_poll(cache, invalidations, opts) do
+    case fetch_ci_issues(cache, opts) do
+      {:ok, issues, cache} ->
+        issues_by_target = ci_issues_by_target(issues)
+        targets = Map.keys(issues_by_target)
+        poll_opts = Keyword.put(opts, :base_repair_invalidations, invalidations)
+        poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
+
+        observation = observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+
+        {:ok, issues, cache, observation}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp observe_ci_targets([], _issues_by_target, _poll_opts, _poller), do: :no_targets
+
+  defp observe_ci_targets(targets, issues_by_target, poll_opts, poller) do
+    started_at = System.monotonic_time(:millisecond)
+
+    result =
+      case put_ci_batch(poll_opts, targets, issues_by_target) do
+        {:ok, poll_opts} -> poller.(targets, poll_opts)
+        {:skip, _} -> :held
+      end
+
+    {started_at, result}
+  end
+
+  defp fetch_ci_issues(cache, opts) do
     case Keyword.fetch(opts, :ci_issue_fetcher) do
       {:ok, fetcher} ->
         case fetcher.(@ci_poll_states) do
-          {:ok, issues} when is_list(issues) -> {:ok, issues, state}
-          {:error, reason} -> {:error, reason, state}
-          other -> {:error, {:unexpected_ci_targets, other}, state}
+          {:ok, issues} when is_list(issues) -> {:ok, issues, cache}
+          {:error, reason} -> {:error, reason}
+          other -> {:error, {:unexpected_ci_targets, other}}
         end
 
       :error ->
-        case Client.fetch_issues_by_states_conditional(
-               @ci_poll_states,
-               issue_list_cache(state),
-               opts
-             ) do
-          {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
-          {:error, reason} -> {:error, reason, state}
-        end
+        Client.fetch_issues_by_states_conditional(@ci_poll_states, cache, opts)
     end
   end
 
@@ -420,54 +450,69 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
   end
 
-  defp poll_github_ci_targets(%State{} = state, issues, poller, opts) do
-    issues_by_target = ci_issues_by_target(issues)
-    targets = Map.keys(issues_by_target)
+  defp apply_ci_poll(state, {:ok, issues, cache, observation}, generations, baseline, opts) do
+    state = if Keyword.has_key?(opts, :ci_issue_fetcher), do: state, else: put_issue_list_cache(state, cache)
+    state = state |> prune_ci_lifecycle_state(issues, opts, baseline) |> IssueSync.observe_human_review_handoffs(issues)
 
-    if targets == [] do
-      # Demand-scoped: nothing in flight, nothing to read. The throttle
-      # timestamp must NOT advance here, or a PR that enters ci-wait shortly
-      # after would be held back by the previous poll's cadence (#2309).
-      state
-    else
-      state = %{state | last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
-      poll_github_ci_targets(state, issues_by_target, targets, poller, opts)
-    end
-  end
+    current_issues =
+      Enum.filter(issues, fn issue ->
+        Map.get(generations, issue.id) == ci_generation(Map.get(state.running, issue.id))
+      end)
 
-  defp poll_github_ci_targets(state, issues_by_target, targets, poller, opts) do
-    poll_opts =
-      Keyword.put(
-        opts,
-        :base_repair_invalidations,
-        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
-      )
+    issues_by_target = ci_issues_by_target(current_issues)
 
-    case put_ci_batch(poll_opts, targets, issues_by_target) do
-      {:ok, poll_opts} -> poll_github_ci_targets_with_opts(state, targets, issues_by_target, poller, poll_opts, opts)
-      {:skip, _local_hold} -> state
-    end
-  end
-
-  defp poll_github_ci_targets_with_opts(state, targets, issues_by_target, poller, poll_opts, opts) do
-    case poller.(targets, poll_opts) do
-      {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
-        state =
-          state
-          |> merge_journaled_base_repairs()
-          |> note_ci_poll_connectivity(targets, errors)
-          |> log_ci_poll_errors(errors)
-
-        apply_ci_poll_results(state, results, issues_by_target, opts)
-
-      {:error, reason} ->
-        Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
-        TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
-
-      other ->
-        Logger.warning("GithubCIPoller returned unexpected value=#{inspect(other)}")
+    case observation do
+      :no_targets ->
         state
+
+      {started_at, :held} ->
+        %{state | last_ci_poll_started_at_ms: started_at}
+
+      {started_at, result} ->
+        state = %{state | last_ci_poll_started_at_ms: started_at}
+        apply_ci_observation(state, result, Map.keys(ci_issues_by_target(issues)), issues_by_target, opts)
     end
+  end
+
+  defp apply_ci_poll(state, {:error, reason}, _generations, _baseline, _opts) do
+    Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
+    TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
+  end
+
+  defp apply_ci_observation(state, {:ok, %{results: results, errors: errors}}, targets, issues_by_target, opts)
+       when is_list(results) and is_list(errors) do
+    state
+    |> merge_journaled_base_repairs()
+    |> note_ci_poll_connectivity(targets, errors)
+    |> log_ci_poll_errors(errors)
+    |> apply_ci_poll_results(results, issues_by_target, opts)
+    |> RestackScheduler.reconcile(Map.values(issues_by_target))
+  end
+
+  defp apply_ci_observation(state, {:error, reason}, _targets, _issues, _opts) do
+    Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
+    TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
+  end
+
+  defp apply_ci_observation(state, other, _targets, _issues, _opts) do
+    Logger.warning("GithubCIPoller returned unexpected value=#{inspect(other)}")
+    state
+  end
+
+  defp ci_generation(nil), do: nil
+  defp ci_generation(entry), do: Map.take(entry, [:pid, :ref, :session_id, :control, :paused_reason])
+
+  defp run_ci_effect(state, issue, key, fetch, apply_result) do
+    generation = ci_generation(Map.get(state.running, issue.id))
+
+    TrackerTasks.run(state, {:ci, issue.id, key}, fetch, fn current, result ->
+      if generation == ci_generation(Map.get(current.running, issue.id)) and
+           (key in [:rewake_fetch, :terminal_fetch] or not LifecycleFence.handoff_blocked?(current, issue)) do
+        apply_result.(current, result)
+      else
+        current
+      end
+    end)
   end
 
   defp put_ci_batch(opts, targets, issues_by_target) when is_list(opts) do
@@ -576,170 +621,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         if Map.get(result, :delivered) do
-          # A target the batch displaced because a webhook delivery answered it:
-          # the read was skipped, and nothing rides on the delivery — no state
-          # transition, no alert, no cache projection — because a CI verdict is
-          # never answered from a held body at any age (R10). The next
-          # non-displaced read produces the real verdict.
+          # Webhook-displaced reads have no effects; held bodies never answer CI (R10).
           state
         else
+          ProgressStore.ci_identity(ci_target_for_issue(issue), result)
+
           state
-          |> reconcile_draft_stall_alert(issue, result, opts)
+          |> then(&DraftAlertLifecycle.reconcile(&1, issue, result, effective_ci_state(issue) == @ci_wait_state, opts))
           |> reconcile_parked_ready_alert(issue, result, opts)
           |> reconcile_base_repair_invalidation(issue, result)
           |> publish_ready_for_review_transition(issue, result)
           |> stash_last_ci_result(issue, result)
-          |> apply_ci_poll_result(issue, result)
+          |> recover_ci_poll_result(issue, result, opts)
         end
 
       _ ->
-        state
-    end
-  end
-
-  defp reconcile_draft_stall_alert(%State{} = state, %Issue{} = issue, result, opts) do
-    target = ci_target_for_issue(issue)
-
-    if is_binary(target) do
-      state
-      |> ensure_draft_stall_alerts_seeded(opts)
-      |> reconcile_draft_stall_alert_for_target(issue, result, target, opts)
-    else
-      state
-    end
-  end
-
-  defp reconcile_draft_stall_alert_for_target(state, issue, result, target, opts) do
-    active_alerts = Map.get(state.ci_lifecycle, :draft_stall_alerts, MapSet.new())
-
-    case draft_stall_state(result) do
-      :active ->
-        emit_draft_stall_alert(state, issue, result, target, active_alerts, opts)
-
-      status when status in [:clear, :pr_gone] ->
-        resolve_draft_stall_alert(state, issue, result, target, active_alerts, opts)
-
-      :unknown ->
-        state
-    end
-  end
-
-  defp draft_stall_state(result) do
-    case pr_visibility_state(result) do
-      :observable -> observed_draft_stall_state(result)
-      visibility_state -> visibility_state
-    end
-  end
-
-  # A PR the poll can no longer see is gone; one it cannot see yet is not an
-  # observation at all, so neither can decide a stall.
-  defp pr_visibility_state(result) do
-    case Map.get(result, :pending_reason) do
-      :open_pr_no_longer_visible -> :pr_gone
-      :open_pr_not_yet_visible -> :unknown
-      _other -> :observable
-    end
-  end
-
-  defp observed_draft_stall_state(result) do
-    cond do
-      not complete_draft_observation?(result) -> :unknown
-      stall_ruled_out?(result) -> :clear
-      true -> draft_review_state(result)
-    end
-  end
-
-  defp complete_draft_observation?(result) do
-    Map.has_key?(result, :decision) and Map.has_key?(result, :draft?)
-  end
-
-  # CI that is not green, or a PR that is no longer a draft, cannot be stalled
-  # by the draft gate.
-  defp stall_ruled_out?(result) do
-    Map.get(result, :decision) != :passed or Map.get(result, :draft?) == false
-  end
-
-  defp draft_review_state(result) do
-    if Map.get(result, :draft?) == true do
-      review_decision_state(Map.get(result, :review_decision))
-    else
-      :unknown
-    end
-  end
-
-  defp review_decision_state("APPROVED"), do: :active
-  defp review_decision_state(review_decision) when is_binary(review_decision), do: :clear
-  defp review_decision_state(_review_decision), do: :unknown
-
-  defp emit_draft_stall_alert(state, issue, result, target, active_alerts, opts) do
-    if MapSet.member?(active_alerts, target) do
-      state
-    else
-      topic = draft_stall_alert_topic(target)
-      pr_number = Map.get(result, :pr_number)
-      message = "Approved and CI-green PR ##{pr_number} is still a draft and cannot auto-merge"
-
-      case alert_emitter(opts).(topic,
-             issue: issue,
-             central: true,
-             message: message,
-             reason:
-               "A draft blocks the merge queue: the PR is approved, CI is green, and it is still " <>
-                 "a draft (#1974). Mark the PR ready to resume auto-merge; until then finished work sits.",
-             needs_attention: true
-           ) do
-        :ok -> put_draft_stall_alerts(state, MapSet.put(active_alerts, target))
-        {:error, reason} -> log_draft_stall_alert_error(state, topic, reason)
-      end
-    end
-  end
-
-  defp resolve_draft_stall_alert(state, issue, result, target, active_alerts, opts) do
-    if MapSet.member?(active_alerts, target) do
-      topic = draft_stall_alert_topic(target) <> ".resolved"
-
-      message =
-        case Map.get(result, :pr_number) do
-          pr_number when is_integer(pr_number) ->
-            "Pull request ##{pr_number} is no longer approved, CI-green, and draft."
-
-          _ ->
-            "Ticket #{target} is no longer stalled by an approved, CI-green draft pull request."
-        end
-
-      case alert_emitter(opts).(topic,
-             issue: issue,
-             central: true,
-             message: message,
-             reason: message,
-             needs_attention: false
-           ) do
-        :ok -> put_draft_stall_alerts(state, MapSet.delete(active_alerts, target))
-        {:error, reason} -> log_draft_stall_alert_error(state, topic, reason)
-      end
-    else
-      state
-    end
-  end
-
-  defp draft_stall_alert_topic(target), do: "ticket.#{target}.pr.draft_approved_green"
-
-  defp put_draft_stall_alerts(%State{} = state, alerts) do
-    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :draft_stall_alerts, alerts)}
-  end
-
-  defp log_draft_stall_alert_error(state, topic, reason) do
-    Logger.warning("Draft-stall alert emission failed: topic=#{topic} reason=#{inspect(reason)}")
-    state
-  end
-
-  defp ensure_draft_stall_alerts_seeded(%State{} = state, opts) do
-    case Map.get(state.ci_lifecycle, :draft_stall_alerts) do
-      nil ->
-        alerts = seed_active_alerts(opts, :draft_stall_alert_loader, "draft_approved_green")
-        %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :draft_stall_alerts, alerts)}
-
-      _alerts ->
         state
     end
   end
@@ -921,8 +817,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Restart dedupe: an alert that was still active before a restart is reloaded
-  # once from the durable alert ledger so the first poll after boot does not
+  # Reload active alerts from the durable ledger so the first boot poll does not
   # re-fire it for a still-parked PR. Targets that left the poll set entirely
   # are resolved by `resolve_departed_parked_ready_alerts/3` instead.
   defp seed_parked_ready_alerts(opts) do
@@ -964,8 +859,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   # (no live process, e.g. after the agent's turn ends while still cycling
   # through ci-wait) keep showing the last-known CI/PR state too. Only
   # replaces the cached value when the projection actually changed, so a
-  # genuinely redundant poll for an unchanged head stays a true no-op for
-  # `state.running`/`state.claimed` and the persisted lifecycle markers.
+  # Redundant head polls preserve running/claimed state and lifecycle markers.
   defp stash_last_ci_result(%State{} = state, %Issue{} = issue, result) do
     case ci_target_for_issue(issue) do
       nil ->
@@ -973,7 +867,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       target ->
         poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
-        projection = ci_result_projection(result, Map.get(poll_cache, target))
+        projection = result |> ci_result_projection(Map.get(poll_cache, target)) |> Map.put(:tracker_state, effective_ci_state(issue))
 
         if Map.get(poll_cache, target) == projection do
           state
@@ -984,13 +878,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # GitHub's repository Events API does not expose draft-to-ready transitions,
-  # so the CI poll feeds the draft flag it already reads into the shared,
-  # durable ledger (#2707). Only a complete current-head observation carries
-  # `:draft?`; any other result (head changed, PR not visible, poll error) is
-  # not evidence either way. The ledger is not `poll_cache`, which
-  # `prune_ci_lifecycle_state/3` drops when a ticket leaves `ci-wait` — exactly
-  # when an agent tends to run `gh pr ready`.
   defp publish_ready_for_review_transition(%State{} = state, %Issue{} = issue, result) do
     observation =
       ReadyForReviewTransitions.observation(
@@ -1012,8 +899,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       pr_number: Map.get(result, :pr_number),
       head_sha: Map.get(result, :head_sha),
       draft?: projection_value(result, previous, :draft?, false) == true,
-      review_decision: projection_value(result, previous, :review_decision, nil)
+      review_decision: projection_value(result, previous, :review_decision, nil),
+      recovery: if(result[:decision] == :pending and result[:head_sha] == get_in(previous, [:head_sha]), do: projection_value(result, previous, :recovery, nil), else: result[:recovery]),
+      failures: Map.get(result, :failures, [])
     }
+    |> DraftAlertLifecycle.keep_pending_reason(result)
   end
 
   defp projection_value(result, previous, key, default) do
@@ -1108,6 +998,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_wait_state?(effective_ci_state(issue)) ->
         state
 
+      HumanReview.human_review_state?(effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
+        Reconciler.refresh_running_issue_state(state, effective_issue_state(issue))
+
       HumanReview.human_review_state?(effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
         Reconciler.refresh_running_issue_state(state, effective_issue_state(issue))
 
@@ -1157,30 +1050,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       log_fenced_ci_handoff(issue, @active_handoff_state)
       state
     else
-      case Tracker.update_issue_state(
-             to_string(issue.id || issue.identifier),
-             @active_handoff_state,
-             expected_state_opts(issue)
-           ) do
-        :ok ->
-          active_issue = %{issue | state: @active_handoff_state}
-
-          state
-          |> clear_ci_test_failure_retry(issue)
-          |> remember_ci_approved_head(issue, result)
-          |> cancel_ci_wait_rewake(issue.id)
-          |> Reconciler.refresh_running_issue_state(active_issue)
-          |> ensure_ci_terminal_subscription(issue)
-          |> publish_ci_terminal_event(issue, result, :passed)
-
-        {:error, reason} ->
-          Logger.warning(
-            "CI pass transition skipped: #{State.issue_context(issue)} " <>
-              "reason=#{inspect(reason)}"
-          )
-
-          state
-      end
+      run_ci_effect(
+        state,
+        issue,
+        "transition_ci_pass",
+        fn -> write_ci_pass_state({issue, result}) end,
+        fn arg1, arg2 ->
+          apply_ci_pass_transition(arg1, arg2, {issue, result})
+        end
+      )
     end
   end
 
@@ -1189,30 +1067,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       log_fenced_ci_handoff(issue, "rework")
       state
     else
-      case Tracker.update_issue_state(
-             to_string(issue.id || issue.identifier),
-             "rework",
-             expected_state_opts(issue)
-           ) do
-        :ok ->
-          rework_issue = %{issue | state: "rework"}
-
-          state
-          |> clear_ci_test_failure_retry(issue)
-          |> clear_ci_approved_head(issue)
-          |> cancel_ci_wait_rewake(issue.id)
-          |> Reconciler.refresh_running_issue_state(rework_issue)
-          |> ensure_ci_terminal_subscription(issue)
-          |> publish_ci_terminal_event(issue, result, :failed)
-
-        {:error, reason} ->
-          Logger.warning(
-            "CI failure transition skipped: #{State.issue_context(issue)} " <>
-              "reason=#{inspect(reason)}"
-          )
-
-          state
-      end
+      run_ci_effect(
+        state,
+        issue,
+        "transition_ci_failure",
+        fn -> write_ci_failure_state({issue, result}) end,
+        fn arg1, arg2 -> apply_ci_failure_transition(arg1, arg2, {issue, result}) end
+      )
     end
   end
 
@@ -1230,24 +1091,30 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # A failed `test` check may be the known seed-dependent flake. Defer only the
-  # first terminal observation of that exact head for one regular poll cycle;
-  # the second failure is delivered to the agent like every other CI failure.
-  defp retryable_test_failure?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha, failures: failures})
-       when is_binary(head_sha) and is_list(failures) do
-    test_only_failure?(failures) and
-      Map.get(state.ci_lifecycle.test_failure_heads, ci_target_for_issue(issue)) != head_sha
+  defp recover_ci_poll_result(state, issue, result, opts) do
+    result = Map.put(result, :ci_recovery_opts, opts)
+
+    if ci_wait_state?(effective_ci_state(issue)) and
+         (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
+            (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[ci_target_for_issue(issue)]))) and
+         is_integer(result[:pr_number]) and not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue) do
+      recovery = Keyword.get(opts, :ci_recovery, &GithubCIPoller.recover_failure/3)
+
+      run_ci_effect(state, issue, "ci_recovery", fn -> recovery.(issue, result, opts) end, fn current, recovered ->
+        recovered = GithubCIPoller.complete_recovery(issue, result, recovered, opts)
+        current |> stash_last_ci_result(issue, recovered) |> apply_ci_poll_result(issue, recovered)
+      end)
+    else
+      apply_ci_poll_result(state, issue, result)
+    end
   end
+
+  defp retryable_test_failure?(_state, _issue, %{ci_recovery_checked: true}), do: false
+
+  defp retryable_test_failure?(state, issue, %{head_sha: head_sha, failures: failures}) when is_binary(head_sha) and is_list(failures),
+    do: failures != [] and Enum.all?(failures, &(&1.name == "test")) and Map.get(state.ci_lifecycle.test_failure_heads, ci_target_for_issue(issue)) != head_sha
 
   defp retryable_test_failure?(_state, _issue, _result), do: false
-
-  defp test_only_failure?(failures) do
-    failures != [] and
-      Enum.all?(failures, fn
-        %{name: "test"} -> true
-        _ -> false
-      end)
-  end
 
   defp defer_ci_test_failure(state, issue) do
     if HumanReview.human_review_state?(effective_ci_state(issue)) do
@@ -1257,10 +1124,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # A direct agent label flip is the initial CI handoff. Once a head has passed,
-  # retain that exact SHA so a transient re-run does not pull it out of review;
-  # a pending observation for a different SHA is a re-push and must re-enter the
-  # CI gate.
+  # Retain the approved SHA across transient reruns; new heads re-enter CI.
   defp ci_head_approved?(%State{} = state, %Issue{} = issue, result) do
     case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
       {approved_head, observed_head} when is_binary(approved_head) and approved_head == observed_head -> true
@@ -1269,29 +1133,29 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Human review is a terminal operator disposition for the head under review,
-  # including inherited CI failures the operator explicitly dismissed before the
-  # handoff. A CI poll may retain a ci-wait issue snapshot captured before the
-  # human-review label is written, so the persisted approved head is also
-  # authoritative when the tracker projection is stale. Only a failure on a head
-  # review has not seen supersedes that disposition.
+  # Legacy anchors also include operator-dismissed failures. Only a recorded CI
+  # pass proves that a same-head failure in human-review is new repair work.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
-    ci_head_approved?(state, issue, result) or
-      (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result))
-  end
+    target = ci_target_for_issue(issue)
+    approved_head = Map.get(state.ci_lifecycle.approved_heads, target)
+    passed_head = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> Map.get(target)
+    observed_head = Map.get(result, :head_sha)
 
-  defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
-    case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
-      {reviewed_head, observed_head} when is_binary(reviewed_head) and is_binary(observed_head) ->
-        reviewed_head != observed_head
-
-      _ ->
+    cond do
+      Map.get(result, :draft?) == true ->
         false
+
+      HumanReview.human_review_state?(effective_ci_state(issue)) ->
+        is_nil(approved_head) or
+          (ci_head_approved?(state, issue, result) and
+             (is_nil(passed_head) or passed_head != observed_head))
+
+      true ->
+        ci_head_approved?(state, issue, result)
     end
   end
 
-  # Held failures are never silently swallowed: the reviewed head and the failing
-  # checks stay in the log so a genuine red PR in review is still visible.
+  # Held failures retain the reviewed head and failing checks so a red PR in review stays visible.
   defp log_replayed_human_review_ci_failure(%Issue{} = issue, result) do
     checks =
       result
@@ -1304,12 +1168,22 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     )
   end
 
-  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha})
+  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha} = result)
        when is_binary(head_sha) and head_sha != "" do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
         approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
-        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
+        ci_lifecycle = Map.put(state.ci_lifecycle, :approved_heads, approved_heads)
+
+        ci_lifecycle =
+          if Map.get(result, :decision) == :passed do
+            ProgressStore.record(target, %{pr_number: Map.get(result, :pr_number), stage: :pr_ci_green, head_sha: head_sha, source: :ci})
+            Map.update(ci_lifecycle, :passed_heads, %{target => head_sha}, &Map.put(&1, target, head_sha))
+          else
+            ci_lifecycle
+          end
+
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
 
       _ ->
         state
@@ -1318,26 +1192,16 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp remember_ci_approved_head(state, _issue, _result), do: state
 
-  # A `ci-wait` label that co-owns a ticket with a real disposition (human-review,
-  # rework, …) is a stale leftover: CI finished and the ticket moved on, but the
-  # waiting marker was never cleared. The human-review branches keep the ticket in
-  # its review disposition without a state swap, so they must explicitly drop the
-  # stale `ci-wait` to leave GitHub carrying exactly one state label and keep the
-  # ticket dispatchable (#2366). Best-effort: a failed removal logs and leaves the
-  # state untouched; the next terminal observation retries.
+  # Reassert the surviving disposition through the add-first owner; an approved head alone is not a label.
   defp clear_stale_ci_wait(%State{} = state, %Issue{} = issue) do
-    if @ci_wait_state in List.wrap(issue.state_labels) do
-      label = "#{Aiur.GitHub.Config.label_prefix()}:#{@ci_wait_state}"
-
-      case Tracker.remove_label(to_string(issue.id || issue.identifier), label) do
-        :ok ->
-          state
-
-        {:error, reason} ->
-          Logger.warning("Stale ci-wait removal failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
-          state
-      end
+    if @ci_wait_state in List.wrap(issue.state_labels) and HumanReview.human_review_state?(effective_ci_state(issue)) do
+      run_ci_effect(
+        state,
+        issue,
+        :clear_stale_wait,
+        fn -> reassert_human_review_state(issue) end,
+        fn arg1, arg2 -> apply_stale_ci_wait_cleanup(arg1, arg2, {issue}) end
+      )
     else
       state
     end
@@ -1367,19 +1231,20 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp prune_ci_lifecycle_state(%State{} = state, issues, opts) do
+  defp prune_ci_lifecycle_state(%State{} = state, issues, opts, baseline) do
     targets =
       issues
       |> Enum.map(&ci_target_for_issue/1)
       |> Enum.filter(&is_binary/1)
 
-    approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
-    test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
+    approved_heads = prune_ci_map(state.ci_lifecycle.approved_heads, targets, baseline.approved_heads)
+    passed_heads = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> prune_ci_map(targets, Map.get(baseline, :passed_heads, %{}))
+    test_failure_heads = prune_ci_map(state.ci_lifecycle.test_failure_heads, targets, baseline.test_failure_heads)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
 
     poll_cache =
       existing_poll_cache
-      |> Map.take(targets)
+      |> prune_ci_map(targets, Map.get(baseline, :poll_cache, %{}))
       |> keep_shared_list_caches(existing_poll_cache)
 
     # Base repair invalidations intentionally survive while their ticket is in
@@ -1388,11 +1253,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     state =
       state
-      |> ensure_draft_stall_alerts_seeded(opts)
       |> ensure_parked_ready_alerts_seeded(opts)
       |> resolve_departed_parked_ready_alerts(targets, opts)
 
+    state = DraftAlertLifecycle.resolve_departed(state, targets, opts)
+
     if approved_heads == state.ci_lifecycle.approved_heads and
+         passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
          poll_cache == existing_poll_cache do
       state
@@ -1400,11 +1267,19 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_lifecycle =
         state.ci_lifecycle
         |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:passed_heads, passed_heads)
         |> Map.put(:test_failure_heads, test_failure_heads)
         |> Map.put(:poll_cache, poll_cache)
 
       persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
     end
+  end
+
+  # Only prune observations unchanged since this poll started.
+  defp prune_ci_map(current, targets, baseline) do
+    Enum.reduce(current, Map.take(current, targets), fn {key, value}, acc ->
+      if Map.fetch(baseline, key) == {:ok, value}, do: acc, else: Map.put(acc, key, value)
+    end)
   end
 
   defp keep_shared_list_caches(poll_cache, existing_poll_cache) do
@@ -1426,24 +1301,14 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp handle_current_ci_wait_rewake(state, issue_id, issue_fetcher) do
-    case issue_fetcher.([issue_id]) do
-      {:ok, issues} when is_list(issues) ->
-        case Enum.find(issues, &match?(%Issue{id: ^issue_id}, &1)) do
-          %Issue{} = issue -> maybe_rewake_current_ci_wait(state, issue)
-          nil -> state
-        end
+    issue = get_in(state.running, [issue_id, :issue])
 
-      {:error, reason} ->
-        Logger.warning("CI wait fallback revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
-        rearm_ci_wait_rewake(state, issue_id)
-
-      other ->
-        Logger.warning(
-          "CI wait fallback revalidation returned unexpected value: " <>
-            "issue_id=#{issue_id} value=#{inspect(other)}"
-        )
-
-        rearm_ci_wait_rewake(state, issue_id)
+    if is_struct(issue, Issue) do
+      run_ci_effect(state, issue, :rewake_fetch, fn -> fetch_ci_wait_issue({issue_fetcher, issue_id}) end, fn arg1, arg2 ->
+        apply_ci_wait_revalidation(arg1, arg2, {issue_id})
+      end)
+    else
+      state
     end
   end
 
@@ -1465,6 +1330,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       Issue.paused?(issue) ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+      GithubCIPoller.attention_hold?(get_in(state.ci_lifecycle, [:poll_cache, ci_target_for_issue(issue)])) ->
+        cancel_ci_wait_rewake(state, issue.id)
 
       not DispatchPolicy.issue_routable_to_worker?(issue) ->
         state
@@ -1515,27 +1383,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       log_fenced_ci_handoff(issue, @active_handoff_state)
       arm_ci_wait_rewake(state, issue)
     else
-      case Tracker.update_issue_state(
-             to_string(issue.id || issue.identifier),
-             @active_handoff_state,
-             expected_state_opts(issue)
-           ) do
-        :ok ->
-          active_issue = %{issue | state: @active_handoff_state}
-
-          state
-          |> Reconciler.refresh_running_issue_state(active_issue)
-          |> enqueue_ci_wait_rewake_handoff(active_issue)
-          |> maybe_reactivate_after_ci_wait_fallback(active_issue)
-
-        {:error, reason} ->
-          Logger.warning(
-            "CI wait fallback transition failed: #{State.issue_context(issue)} " <>
-              "reason=#{inspect(reason)}"
-          )
-
-          arm_ci_wait_rewake(state, issue)
-      end
+      run_ci_effect(
+        state,
+        issue,
+        "transition_ci_wait_fallback",
+        fn -> write_ci_wait_fallback_state({issue}) end,
+        fn arg1, arg2 ->
+          apply_ci_wait_fallback_transition(arg1, arg2, {issue})
+        end
+      )
     end
   end
 
@@ -1551,7 +1407,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     message =
       "No terminal CI event arrived before the fallback timeout. " <>
-        "Check CI once; if it is still pending, return to agent:ci-wait without polling."
+        "Check CI once. Drafts never pass CI in any repository; mark completed, self-reviewed work ready before waiting. " <>
+        "Before agent:human-review, require the full required-check set to pass on the current head SHA. " <>
+        "A green or skipped gh pr checks aggregate alone is not a full pass; otherwise return to agent:ci-wait without polling."
 
     event = %{
       id: IdGenerator.next_id(),
@@ -1594,23 +1452,27 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp revalidate_ci_terminal_wake(state, running_entry, identifier, outcome, issue_fetcher) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
 
-    case issue_fetcher.([issue_id]) do
-      {:ok, issues} when is_list(issues) ->
-        resume_revalidated_ci_terminal(state, running_entry, identifier, outcome, issue_id, issues)
+    issue = Map.fetch!(running_entry, :issue)
 
-      {:error, reason} ->
-        Logger.warning("CI terminal wake revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+    run_ci_effect(state, issue, :terminal_fetch, fn -> issue_fetcher.([issue_id]) end, fn state, response ->
+      case response do
+        {:ok, issues} when is_list(issues) ->
+          resume_revalidated_ci_terminal(state, Map.fetch!(state.running, issue_id), identifier, outcome, issue_id, issues)
 
-        state
+        {:error, reason} ->
+          Logger.warning("CI terminal wake revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
 
-      other ->
-        Logger.warning(
-          "CI terminal wake revalidation returned unexpected value: " <>
-            "issue_id=#{issue_id} value=#{inspect(other)}"
-        )
+          state
 
-        state
-    end
+        other ->
+          Logger.warning(
+            "CI terminal wake revalidation returned unexpected value: " <>
+              "issue_id=#{issue_id} value=#{inspect(other)}"
+          )
+
+          state
+      end
+    end)
   end
 
   defp resume_revalidated_ci_terminal(state, running_entry, identifier, outcome, issue_id, issues) do
@@ -1703,6 +1565,176 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         String.slice(failure_excerpt, 0, @ci_failure_excerpt_message_max)
     else
       message
+    end
+  end
+
+  defp write_ci_ticket_state({issue, issue_key, next_state}) do
+    TicketTransition.write_state(to_string(issue_key), next_state, Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle))
+  end
+
+  defp apply_ci_ticket_transition(state, response, {issue, next_state}) do
+    case response do
+      :ok ->
+        dispatch_successful_transition(state, issue, next_state)
+
+      {:error, reason} ->
+        Logger.warning(
+          "CI lifecycle transition skipped: #{State.issue_context(issue)} " <>
+            "state=#{next_state} reason=#{inspect(reason)}"
+        )
+
+        state
+    end
+  end
+
+  defp write_ci_pass_state({issue, result}) do
+    response =
+      TicketTransition.write_state(
+        to_string(issue.id || issue.identifier),
+        @active_handoff_state,
+        Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle)
+      )
+
+    if response == :ok, do: GithubCIPoller.record_pass(issue, result, result[:ci_recovery_opts] || [])
+    response
+  end
+
+  defp apply_ci_pass_transition(
+         state,
+         response,
+         {issue, result}
+       ) do
+    case response do
+      :ok ->
+        active_issue = %{issue | state: @active_handoff_state}
+
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> remember_ci_approved_head(issue, result)
+        |> cancel_ci_wait_rewake(issue.id)
+        |> Reconciler.refresh_running_issue_state(active_issue)
+        |> stash_last_ci_result(active_issue, result)
+        |> ensure_ci_terminal_subscription(issue)
+        |> publish_ci_terminal_event(issue, result, :passed)
+
+      {:error, reason} ->
+        Logger.warning(
+          "CI pass transition skipped: #{State.issue_context(issue)} " <>
+            "reason=#{inspect(reason)}"
+        )
+
+        state
+    end
+  end
+
+  defp write_ci_failure_state({issue, result}) do
+    response =
+      TicketTransition.write_state(
+        to_string(issue.id || issue.identifier),
+        "rework",
+        Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle)
+      )
+
+    if response == :ok and result[:ci_recovery_checked], do: GithubCIPoller.record_failure(issue, result, result[:ci_recovery_opts])
+    response
+  end
+
+  defp apply_ci_failure_transition(state, response, {issue, result}) do
+    case response do
+      :ok ->
+        rework_issue = %{issue | state: "rework"}
+
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> clear_ci_approved_head(issue)
+        |> cancel_ci_wait_rewake(issue.id)
+        |> Reconciler.refresh_running_issue_state(rework_issue)
+        |> stash_last_ci_result(rework_issue, result)
+        |> ensure_ci_terminal_subscription(issue)
+        |> publish_ci_terminal_event(issue, result, :failed)
+
+      {:error, reason} ->
+        Logger.warning(
+          "CI failure transition skipped: #{State.issue_context(issue)} " <>
+            "reason=#{inspect(reason)}"
+        )
+
+        state
+    end
+  end
+
+  defp reassert_human_review_state(issue) do
+    TicketTransition.write_state(to_string(issue.id || issue.identifier), @human_review_state, Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle))
+  end
+
+  defp apply_stale_ci_wait_cleanup(state, response, {issue}) do
+    case response do
+      :ok ->
+        state
+
+      {:error, reason} ->
+        Logger.warning("Stale ci-wait cleanup failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+
+        state
+    end
+  end
+
+  defp fetch_ci_wait_issue({issue_fetcher, issue_id}) do
+    issue_fetcher.([issue_id])
+  end
+
+  defp apply_ci_wait_revalidation(state, response, {issue_id}) do
+    case response do
+      {:ok, issues} when is_list(issues) ->
+        case Enum.find(issues, &match?(%Issue{id: ^issue_id}, &1)) do
+          %Issue{} = issue -> maybe_rewake_current_ci_wait(state, issue)
+          nil -> state
+        end
+
+      {:error, reason} ->
+        Logger.warning("CI wait fallback revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+
+        rearm_ci_wait_rewake(state, issue_id)
+
+      other ->
+        Logger.warning(
+          "CI wait fallback revalidation returned unexpected value: " <>
+            "issue_id=#{issue_id} value=#{inspect(other)}"
+        )
+
+        rearm_ci_wait_rewake(state, issue_id)
+    end
+  end
+
+  defp write_ci_wait_fallback_state({issue}) do
+    TicketTransition.write_state(
+      to_string(issue.id || issue.identifier),
+      @active_handoff_state,
+      Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle)
+    )
+  end
+
+  defp apply_ci_wait_fallback_transition(
+         state,
+         response,
+         {issue}
+       ) do
+    case response do
+      :ok ->
+        active_issue = %{issue | state: @active_handoff_state}
+
+        state
+        |> Reconciler.refresh_running_issue_state(active_issue)
+        |> enqueue_ci_wait_rewake_handoff(active_issue)
+        |> maybe_reactivate_after_ci_wait_fallback(active_issue)
+
+      {:error, reason} ->
+        Logger.warning(
+          "CI wait fallback transition failed: #{State.issue_context(issue)} " <>
+            "reason=#{inspect(reason)}"
+        )
+
+        arm_ci_wait_rewake(state, issue)
     end
   end
 end

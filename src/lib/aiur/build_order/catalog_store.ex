@@ -25,6 +25,9 @@ defmodule Aiur.BuildOrder.CatalogStore do
   alias Aiur.TrackerIdentity
 
   @root_label "build-order"
+
+  @spec root_label() :: String.t()
+  def root_label, do: @root_label
   @member_limit 100
 
   @type repository :: {String.t(), String.t()}

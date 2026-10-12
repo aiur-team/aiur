@@ -6,13 +6,15 @@ defmodule Aiur.Workspace.Ownership do
   stays thin so callers cannot bypass generation checks or release ordering.
   """
 
-  alias Aiur.Workspace.Ownership.{Guardian, Store, Waiter}
+  alias Aiur.Workspace.Ownership.{Guardian, HoldStatus, Store, Waiter}
 
   @registry Aiur.Workspace.Ownership.Registry
   @guardian_call_timeout 5_000
 
   @type phase :: :provisioning | :active | :reaping | :released
   @type lease :: %{
+          optional(:retained_since) => String.t() | nil,
+          optional(:retained_cause) => String.t() | nil,
           ticket: String.t(),
           generation: pos_integer(),
           owner_id: String.t(),
@@ -130,7 +132,7 @@ defmodule Aiur.Workspace.Ownership do
 
   def track_host_lock(_lease, _lock), do: {:error, :workspace_ownership_lost}
 
-  @spec release(lease(), registry()) :: :ok
+  @spec release(lease(), registry()) :: :ok | {:error, :release_timeout}
   def release(lease, registry \\ @registry)
   def release(%{guardian: guardian, generation: generation}, _registry) when is_pid(guardian), do: call(guardian, {:release, generation})
   def release(_lease, _registry), do: :ok
@@ -141,6 +143,18 @@ defmodule Aiur.Workspace.Ownership do
     do: call(guardian, {:release_and_wait, generation})
 
   def release_and_wait(_lease), do: {:error, :workspace_ownership_lost}
+
+  @doc false
+  @spec release_with_provider_exit_proof(lease()) ::
+          :ok
+          | {:error,
+             :workspace_ownership_lost
+             | :cannot_release_without_exit_proof
+             | {:audit_write_failed, term()}}
+  def release_with_provider_exit_proof(%{guardian: guardian, generation: generation}) when is_pid(guardian),
+    do: call(guardian, {:release_with_provider_exit_proof, generation})
+
+  def release_with_provider_exit_proof(_lease), do: {:error, :workspace_ownership_lost}
 
   @doc false
   @spec wait_for_release(String.t(), pid(), registry()) ::
@@ -212,6 +226,40 @@ defmodule Aiur.Workspace.Ownership do
   def telemetry_metadata(%{owner_id: owner_id, generation: generation, phase: phase}),
     do: %{workspace_owner: owner_id, workspace_generation: generation, workspace_phase: phase}
 
+  @doc """
+  Releases a held workspace if independent provider-exit proof is available.
+
+  Only releases the requested generation when the workspace is held with proof
+  that the provider is definitely gone (e.g., host reboot after provider was
+  expected). Returns `:not_found` if no lease exists,
+  `:not_held_for_reaping` if a lease is live, `:cannot_release_without_proof`
+  if the hold lacks independent exit proof, or `:ok` on successful release.
+
+  This is a narrow, audited recovery path for operator-driven recovery when
+  the workspace hold cannot self-clear but independent evidence proves the
+  provider is gone.
+  """
+  @spec release_if_held_with_exit_proof(String.t(), pos_integer(), registry()) ::
+          :ok | :not_found | :not_held_for_reaping | {:error, term()}
+  def release_if_held_with_exit_proof(ticket, generation, registry \\ @registry)
+      when is_binary(ticket) and is_integer(generation) and generation > 0 do
+    with {:ok, lease} <- current(ticket, registry),
+         true <- lease.generation == generation,
+         %{generation: ^generation, proof: :boot_changed_release_pending} <- HoldStatus.for_ticket(ticket, registry) do
+      release_with_provider_exit_proof(lease)
+      |> case do
+        :ok -> :ok
+        {:error, :cannot_release_without_exit_proof} -> {:error, :cannot_release_without_proof}
+        error -> error
+      end
+    else
+      :none -> :not_found
+      false -> {:error, :generation_mismatch}
+      nil -> :not_held_for_reaping
+      _ -> {:error, :cannot_release_without_proof}
+    end
+  end
+
   defp call(guardian, message) do
     ref = make_ref()
     send(guardian, {:workspace_guardian_call, self(), ref, message})
@@ -238,5 +286,6 @@ defmodule Aiur.Workspace.Ownership do
        do: {:error, :workspace_ownership_lost}
 
   defp timeout_result({:release_and_wait, _generation}), do: {:error, :workspace_ownership_lost}
-  defp timeout_result(_message), do: :ok
+  defp timeout_result({:release_with_provider_exit_proof, _generation}), do: {:error, :workspace_ownership_lost}
+  defp timeout_result(_message), do: {:error, :release_timeout}
 end

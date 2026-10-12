@@ -6,7 +6,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
-  alias AiurWeb.BuildOrder.{ContextRuntime, RouteState, Runtime}
+  alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, PackOverlay, RouteState, Runtime}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderBreakdown
   alias Phoenix.LiveView.Socket
@@ -37,7 +37,13 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   @spec connect(Socket.t()) :: Socket.t()
   def connect(socket) do
     _ = Runtime.safe_source_call(socket.assigns.source, :subscribe_catalog, [], :ok)
-    _ = Runtime.safe_source_call(socket.assigns.source, :subscribe_sources, [], :ok)
+
+    socket =
+      AiurWeb.RefreshRelay.mount(
+        socket,
+        fn -> Runtime.safe_source_call(socket.assigns.source, :subscribe_sources, [], :ok) end,
+        [:running_changed, :ticket_activity_changed, :build_order_adhoc_updated, :current_run_membership_changed, :current_run_membership_health_changed, :build_order_pack_status_changed]
+      )
 
     socket
     |> reload_catalog()
@@ -73,14 +79,19 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   end
 
   @spec accept_projection(Socket.t(), Snapshot.t()) :: Socket.t()
-  def accept_projection(socket, %Snapshot{scope: :catalog} = snapshot) do
+  def accept_projection(socket, snapshot) do
+    snapshot = if socket.assigns.source == DataSource, do: PackOverlay.snapshot(snapshot), else: snapshot
+    accept_source_projection(socket, snapshot)
+  end
+
+  defp accept_source_projection(socket, %Snapshot{scope: :catalog} = snapshot) do
     case accept_authority(socket, snapshot) do
       {:ok, socket} -> put_catalog(socket, snapshot)
       :ignored -> socket
     end
   end
 
-  def accept_projection(socket, %Snapshot{} = snapshot) do
+  defp accept_source_projection(socket, %Snapshot{} = snapshot) do
     case accept_authority(socket, snapshot) do
       {:ok, socket} -> put_selected(socket, snapshot)
       :ignored -> socket

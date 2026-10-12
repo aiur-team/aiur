@@ -8,8 +8,8 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   `start_terminal_workspace_cleanups/1` runs it in one task under
   `Aiur.TaskSupervisor`, one workspace after the other, and sends
   `{:workspace_cleanup_finished, workspace_identifier, result}` to the caller
-  after each. The startup todo cleanup stays in the Orchestrator because it
-  must finish before the first dispatch; it runs one `git status` with a short
+  after each. Startup cleanup runs in a task and dispatch waits for it; it
+  runs one `git status` with a short
   time limit per workspace and keeps a dirty workspace for the dispatch-time
   recreate, which saves the work in the runner process.
 
@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   require Logger
 
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
-  alias Aiur.Orchestrator.{DispatchPolicy, RetryEngine, State, TrackerHealth}
+  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
   @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
@@ -145,6 +145,26 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   end
 
   def clear_session_handle(_identifier), do: :ok
+
+  @doc false
+  @spec start_startup_workspace_cleanup(State.t(), keyword()) :: State.t()
+  def start_startup_workspace_cleanup(%State{} = state, opts \\ []) do
+    terminal_cleanup = Keyword.get(opts, :terminal_cleanup_fun, &run_terminal_workspace_cleanup/1)
+    todo_cleanup = Keyword.get(opts, :todo_cleanup_fun, &run_startup_todo_workspace_cleanup/1)
+
+    TrackerTasks.start(
+      state,
+      :startup_workspace_cleanup,
+      fn ->
+        state |> terminal_cleanup.() |> todo_cleanup.()
+        :ok
+      end,
+      fn current, result ->
+        if result != :ok, do: Logger.warning("Startup workspace cleanup task failed: #{inspect(result)}; normal workspace lease guards remain active")
+        if Keyword.get(opts, :wake?, true), do: Lifecycle.wake_tick(current), else: current
+      end
+    )
+  end
 
   @spec run_startup_todo_workspace_cleanup(State.t()) :: State.t()
   def run_startup_todo_workspace_cleanup(%State{} = state) do

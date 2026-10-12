@@ -107,7 +107,10 @@ defmodule Aiur.CurrentRunMembership.Store do
     end
   end
 
-  def handle_call({:snapshot, limit}, _from, state), do: {:reply, Runtime.snapshot(state, limit), state}
+  def handle_call({:snapshot, limit}, _from, state) do
+    state = Runtime.cache_members(state)
+    {:reply, Runtime.snapshot(state, limit), state}
+  end
 
   def handle_call({:lookup, identity}, _from, state) do
     case Projection.member(state.projection, identity) do
@@ -118,7 +121,11 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   def handle_call(:generation, _from, state), do: {:reply, state.projection.generation, state}
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
-  def handle_call(:freshness, _from, state), do: {:reply, Runtime.freshness(state), state}
+
+  def handle_call(:freshness, _from, state) do
+    state = Runtime.cache_members(state)
+    {:reply, Runtime.freshness(state), state}
+  end
 
   def handle_call(:projection_checkpoint, _from, state) do
     {:reply, %{run_id: state.run_id, checkpoint: state.projection_checkpoint}, state}

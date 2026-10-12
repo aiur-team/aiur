@@ -32,7 +32,7 @@ defmodule Aiur.Init.DotenvTest do
       on_exit(fn ->
         System.delete_env("LOADED_ONLY")
         System.delete_env("PRESET")
-        File.rm_rf!(dir)
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       File.cd!(dir, fn -> Dotenv.load() end)

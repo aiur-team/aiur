@@ -1,10 +1,12 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{AgentPubSub, AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Workflow
 
   @issue_id "issue-lifetime"
@@ -23,11 +25,10 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Application.delete_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :decision_state_dir, Path.join(dir, "stable-state"))
     Application.put_env(:aiur, :log_file, Path.join([dir, "session-one", "aiur.log"]))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(Path.join(dir, "stable-state"))
 
     on_exit(fn ->
-      File.rm_rf!(dir)
-
       if is_nil(previous) do
         Workflow.clear_workflow_file_path()
       else
@@ -358,7 +359,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
-  test "reset_dispatch_budget_call clears the in-memory and durable latch copies" do
+  test "the reset control call clears the in-memory and durable latch copies" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
 
@@ -367,7 +368,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
 
     assert {:reply, {:ok, :reset}, reset_state} =
-             PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+             reset_control_call(state, "repo#lifetime")
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
@@ -379,7 +380,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     # dropped from `last_polled_issues` by the disappearing-issue
     # reconciliation, so the in-memory lookup alone resolves it as
     # `:unknown_issue` and `reset-budget` reports success while the durable
-    # latch stays in place. `reset_dispatch_budget_call` must fall back to a
+    # latch stays in place. the reset control call must fall back to a
     # direct tracker fetch so the ticket is actually cleared and restored to a
     # dispatchable state.
     issue = %Issue{id: "pruned-lifetime", identifier: "repo#pruned-lifetime", title: "Latched", state: "error"}
@@ -401,7 +402,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     state = %Orchestrator.State{last_polled_issues: %{}}
 
     assert {:reply, {:ok, :reset}, reset_state} =
-             PauseResume.reset_dispatch_budget_call(state, "pruned-lifetime")
+             reset_control_call(state, "pruned-lifetime")
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, "pruned-lifetime")
     assert {:ok, 0} = DispatchBudgetStore.lifetime("pruned-lifetime")
@@ -448,7 +449,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
-  test "queued reset processing emits completion and failure outcomes" do
+  test "reset control processing emits completion and failure outcomes" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
     :ok = AgentPubSub.subscribe_agent(@issue_id)
@@ -457,7 +458,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
       |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
 
-    reset = PauseResume.reset_dispatch_budget_cast(state, issue.identifier)
+    {:reply, {:ok, :reset}, reset} = reset_control_call(state, issue.identifier)
     assert :none = Dispatcher.dispatch_latch_status(reset, @issue_id)
 
     assert_receive {:alert,
@@ -468,7 +469,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
                    2_000
 
     :ok = AgentPubSub.subscribe_agent("missing")
-    _unchanged = PauseResume.reset_dispatch_budget_cast(reset, "missing")
+    {:reply, {:error, :unknown_issue}, _unchanged} = reset_control_call(reset, "missing")
 
     assert_receive {:alert,
                     %{
@@ -496,7 +497,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Application.put_env(:aiur, :dispatch_budget_store_path, unreadable_path)
 
     assert {:reply, {:error, {:budget_reset_failed, _reason}}, reset_state} =
-             PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+             reset_control_call(state, "repo#lifetime")
 
     # The in-memory latch was cleared this generation, but the failure is
     # reported so the operator knows it will re-latch on restart.
@@ -507,7 +508,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   test "reset-budget restores a latched agent:error ticket to todo, never rework" do
     # #1453 review P2c: a latched ticket is durably moved to `agent:error`
     # (not an active state), so clearing the budget alone left it
-    # undispatchable. `reset_dispatch_budget_call` must also restore it to a
+    # undispatchable. The reset control call must also restore it to a
     # dispatchable state so the reset actually returns the ticket to the board.
     #
     # #2075 criterion 3: the restore writes `todo`, never `rework` — a lifetime
@@ -524,7 +525,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
 
     assert {:reply, {:ok, :reset}, reset_state} =
-             PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+             reset_control_call(state, "repo#lifetime")
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
     assert %Issue{state: "todo"} = reset_state.last_polled_issues[@issue_id]
@@ -622,6 +623,36 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
+  test "async lifetime writes retain current alert fields and ignore a reset budget" do
+    issue = %Issue{id: @issue_id, identifier: "repo#async-lifetime"}
+    state = dispatch_n(%Orchestrator.State{snapshot_key: self()}, 10)
+    assert {:trip, state} = run(state, 11 * (@window_ms + 1))
+    parent = self()
+
+    write = fn _, _ ->
+      send(parent, {:latch_writer, self()})
+      receive do: (:release -> :ok)
+    end
+
+    pending = Dispatcher.persist_lifetime_trip(state, issue, write)
+    receive_barrier({:latch_writer, worker})
+    send(worker, :release)
+    receive_barrier({ref, result})
+    current = update_in(pending.dispatch_recovery.codex_thrash_budget[@issue_id], &Map.put(&1, :alert_emitted, true))
+    {:handled, next} = TrackerTasks.result(current, ref, result)
+    assert thrash_budget(next)[@issue_id].durable_latch_applied
+    assert thrash_budget(next)[@issue_id].alert_emitted
+
+    pending = Dispatcher.persist_lifetime_trip(state, issue, write)
+    receive_barrier({:latch_writer, worker})
+    send(worker, :release)
+    receive_barrier({ref, result})
+    reset = with_thrash_budget(pending, %{@issue_id => %{lifetime: 0}})
+    {:handled, next} = TrackerTasks.result(reset, ref, result)
+    assert thrash_budget(next)[@issue_id] == %{lifetime: 0}
+  end
+
+  @tag config: @enabled
   test "the lifetime latch attention reaches the central alert feed" do
     # IssueSync rebuilds the persisted error cause after a restart from the
     # central feed alone (`AlertFeed.list(roots: [], log_roots: [...])`). A
@@ -636,7 +667,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     # exercises the production routing rather than the no-workspace fallback.
     workspace = Aiur.Workspace.workspace_path_under(Config.workspace_root(), issue.identifier)
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     Dispatcher.persist_lifetime_trip(state, issue, fn _identifier, _target_state -> :ok end)
 
@@ -729,4 +760,16 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     assert {:ok, _state} = run(state, 31 * (@window_ms + 1))
     assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
   end
+
+  # Drives a reset control call the way the control caller does: an
+  # Orchestrator step replies with tracker I/O, the caller performs it, and the
+  # next step gets the result.
+  defp reset_control_call(state, identifier), do: drive_control_step(PauseResume.tracker_control_call(state, :reset_budget, identifier))
+
+  defp drive_control_step({:reply, {:tracker_io, {action, identifier, stage}, function, args}, state}) do
+    result = apply(Aiur.Tracker, function, args)
+    drive_control_step(PauseResume.tracker_control_call(state, action, identifier, stage, result))
+  end
+
+  defp drive_control_step(reply), do: reply
 end

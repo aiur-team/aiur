@@ -20,6 +20,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   `empty_supported`), standing, freshness, and reset distinct.
   """
 
+  alias AiurWeb.OperatorControlCenter.AccountUsagePresenter
+
   alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
@@ -58,17 +60,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   content-free locked view.
   """
   @spec present(map(), snapshots()) :: view()
-  def present(capability, snapshots \\ %{})
+  def present(capability, snapshots \\ %{}), do: present(capability, snapshots, %{})
 
-  def present(%{state: :authorized}, snapshots) when is_map(snapshots) do
+  @spec present(map(), snapshots(), map()) :: view()
+  def present(%{state: :authorized}, snapshots, account_readings)
+      when is_map(snapshots) and is_map(account_readings) do
     %{
       state: :authorized,
       locked: nil,
-      cards: Enum.map(CodingAgent.provider_families(), &card(&1, Map.get(snapshots, &1)))
+      cards:
+        Enum.map(CodingAgent.provider_families(), fn provider ->
+          card(provider, Map.get(snapshots, provider), if(provider == :claude, do: account_readings, else: %{}))
+        end)
     }
   end
 
-  def present(capability, _snapshots) do
+  def present(capability, _snapshots, _account_readings) do
     %{state: :locked, locked: locked(capability), cards: []}
   end
 
@@ -104,7 +111,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- per-provider card ---------------------------------------------------
 
-  defp card(provider, snapshot) do
+  defp card(provider, snapshot, account_readings) do
     state = card_state(snapshot)
     known? = known_identity?(state)
 
@@ -121,7 +128,9 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       freshness: freshness(snapshot),
       observed_at: observed_at(snapshot),
       ingested_at: ingested_at(snapshot),
-      windows: windows(snapshot, known?)
+      windows: windows(snapshot, known?),
+      summary_label: if(snapshot, do: snapshot.summary_label),
+      account_usage: AccountUsagePresenter.present(account_readings)
     }
   end
 

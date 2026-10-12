@@ -59,10 +59,31 @@ defmodule Aiur.LogFileTest do
           value -> Application.put_env(:aiur, :log_file, value)
         end
 
-        File.rm_rf!(tmp_root)
+        Aiur.TestCleanup.rm_rf!(tmp_root)
       end)
 
       %{log_file: log_file}
+    end
+
+    test "test logger rotates oversized output and retains recent messages", %{log_file: log_file} do
+      System.put_env("AIUR_DEBUG", "1")
+      on_exit(fn -> System.delete_env("AIUR_DEBUG") end)
+      assert :ok = LogFile.configure()
+      require Logger
+
+      for _ <- 1..12 do
+        Logger.info(String.duplicate("x", 1024 * 1024))
+        Logger.flush()
+        :ok = :logger_std_h.filesync(:aiur_file_log)
+      end
+
+      Logger.info("recent rotation marker")
+      Logger.flush()
+      :ok = :logger_std_h.filesync(:aiur_file_log)
+      assert File.read!(log_file) =~ "recent rotation marker"
+      assert File.regular?(log_file <> ".0")
+      total = Enum.sum(for path <- Path.wildcard(log_file <> "*"), do: File.stat!(path).size)
+      assert total < 10 * 1024 * 1024
     end
 
     test "headless boot persists daemon messages without debug", %{log_file: log_file} do
@@ -251,8 +272,6 @@ defmodule Aiur.LogFileTest do
       File.mkdir_p!(dir)
 
       on_exit(fn ->
-        File.rm_rf!(dir)
-
         case original_path do
           nil -> Aiur.Workflow.clear_workflow_file_path()
           path -> Aiur.Workflow.set_workflow_file_path(path)
@@ -262,6 +281,8 @@ defmodule Aiur.LogFileTest do
           nil -> System.delete_env("AIUR_DEBUG")
           value -> System.put_env("AIUR_DEBUG", value)
         end
+
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       %{dir: dir}

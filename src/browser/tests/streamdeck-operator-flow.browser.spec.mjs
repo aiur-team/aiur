@@ -39,7 +39,7 @@ async function dragDial(page, knob, angles) {
   // leave the dial flush underneath.
   await knob.scrollIntoViewIfNeeded()
   await knob.evaluate((element) => {
-    const topbar = document.querySelector('.topbar')
+    const topbar = document.querySelector('header.ax-top')
     if (!topbar) return
 
     const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
@@ -99,7 +99,7 @@ async function expectCommandSurface(keys, expectedLabels, page) {
   await expect(keys.locator('.sd-cmd-key.is-empty button[disabled]')).toHaveCount(3)
   // No agent grid is left behind under the commands.
   await expect(keys).not.toHaveAttribute('data-grid-page', /.*/)
-  expect(await commandLabels(page)).toEqual(expectedLabels)
+  await expect.poll(() => commandLabels(page)).toEqual(expectedLabels)
 }
 
 // Free dial turns move the column offset without landing on a window boundary,

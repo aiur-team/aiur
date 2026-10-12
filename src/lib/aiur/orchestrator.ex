@@ -1,16 +1,16 @@
 defmodule Aiur.Orchestrator do
   @moduledoc "Polls the issue tracker and dispatches repository copies to agent-backed workers."
-
   use GenServer
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake, Parking}
+  alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
-  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
@@ -35,10 +35,6 @@ defmodule Aiur.Orchestrator do
     TrackedSet.member?(issue_number)
   end
 
-  @doc false
-  @spec refresh_tracked_set(State.t()) :: State.t()
-  def refresh_tracked_set(state), do: TrackedSet.refresh(state)
-
   @impl true
   def handle_info({:tick, tick_token}, %{tick_token: tick_token} = state)
       when is_reference(tick_token),
@@ -47,6 +43,7 @@ defmodule Aiur.Orchestrator do
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
   def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
+  def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
 
   # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
   # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
@@ -81,11 +78,21 @@ defmodule Aiur.Orchestrator do
   def handle_info({:prewarm_phase, _phase}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case CommentPolling.apply_async_down(state, ref) do
+    case TrackerTasks.down(state, ref, reason) do
       {:handled, next_state} -> {:noreply, next_state}
-      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+      :unhandled -> handle_other_down(state, ref, reason)
     end
   end
+
+  def handle_info({ref, result}, state) when is_reference(ref) do
+    case TrackerTasks.result(state, ref, result) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:tracker_task_timeout, ref}, state),
+    do: {:noreply, TrackerTasks.timeout(state, ref)}
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
       when is_binary(issue_id) and is_map(runtime_info),
@@ -247,6 +254,13 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  defp handle_other_down(state, ref, reason) do
+    case CommentPolling.apply_async_down(state, ref) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+    end
+  end
+
   # A wake that collapsed a widened timer changes the countdown `aiur status`
   # reads from the snapshot store, so republish it: otherwise the status line
   # keeps showing the old 600s countdown after `aiur --todo` until the woken
@@ -262,32 +276,6 @@ defmodule Aiur.Orchestrator do
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(state, running_entry, new_status, reason),
     do: PauseResume.transition_control_status(state, running_entry, new_status, reason)
-
-  @doc false
-  @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
-  def note_github_connectivity_success(state, source),
-    do: TrackerHealth.note_github_connectivity_success(state, source)
-
-  @doc false
-  @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
-  def note_github_connectivity_failure(state, source, reason),
-    do: TrackerHealth.note_github_connectivity_failure(state, source, reason)
-
-  @doc false
-  @spec connectivity_detail(term()) :: map()
-  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
-
-  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
-
-  def connectivity_detail({:github_api_status, status}) when is_integer(status),
-    do: %{status: status}
-
-  def connectivity_detail(_reason), do: %{}
-
-  @doc false
-  @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
-  def note_github_poll_interval(state, source, seconds),
-    do: TrackerHealth.note_github_poll_interval(state, source, seconds)
 
   @doc false
   @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
@@ -387,18 +375,11 @@ defmodule Aiur.Orchestrator do
 
   @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_ci_wait(state, issue), do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
-  @spec cancel_ci_wait_rewake(State.t(), String.t()) :: State.t()
-  def cancel_ci_wait_rewake(state, issue_id), do: CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
-  @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
-  def reconcile_pending_auto_resumes(%State{} = state),
-    do: PushRouting.reconcile_pending_auto_resumes(state)
 
   @spec cleanup_terminal_issue_artifacts(binary() | term(), binary() | nil) :: :ok
   def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil),
     do: WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
 
-  @spec clear_session_handle(binary() | term()) :: :ok
-  def clear_session_handle(identifier), do: WorkspaceCleanup.clear_session_handle(identifier)
   @spec human_review_state?(term()) :: boolean()
   def human_review_state?(state_name), do: HumanReview.human_review_state?(state_name)
   @spec maybe_deactivate_human_review_issue(State.t(), Issue.t()) :: State.t()
@@ -408,25 +389,6 @@ defmodule Aiur.Orchestrator do
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(state, issue_id, cleanup_workspace),
     do: AgentTeardown.terminate_running_issue(state, issue_id, cleanup_workspace)
-
-  @spec kill_repl_session(map()) :: :ok
-  def kill_repl_session(entry), do: AgentTeardown.kill_repl_session(entry)
-  @spec close_active_chat_streams(String.t() | term(), term()) :: :ok
-  def close_active_chat_streams(identifier, reason),
-    do: AgentTeardown.close_active_chat_streams(identifier, reason)
-
-  @spec terminate_task(term()) :: :ok
-  def terminate_task(pid), do: AgentTeardown.terminate_task(pid)
-  @spec reconcile_overrunning_agents(State.t()) :: State.t()
-  def reconcile_overrunning_agents(state),
-    do: RuntimeWatchdog.reconcile_overrunning_agents(state)
-
-  @spec reconcile_stalled_running_issues(State.t()) :: State.t()
-  def reconcile_stalled_running_issues(state),
-    do: RuntimeWatchdog.reconcile_stalled_running_issues(state)
-
-  @spec reconcile_runtime_health(State.t()) :: State.t()
-  def reconcile_runtime_health(state), do: RuntimeWatchdog.reconcile_runtime_health(state)
 
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(entry, now, max_seconds),
@@ -699,8 +661,8 @@ defmodule Aiur.Orchestrator do
   def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
-  def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
-    do: OM.enqueue_event_digest_call(state, identifier, event)
+  def handle_call({:enqueue_event_digest, identifier, event}, _from, state), do: OM.enqueue_event_digest_call(state, identifier, event)
+  def handle_call({:enqueue_event_digest, id, event, %{subscribed_to: subs}}, _from, state) when is_list(subs), do: OM.enqueue_event_digest_call(state, id, event, subscribed_to: subs)
 
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events),
@@ -713,6 +675,10 @@ defmodule Aiur.Orchestrator do
 
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
+
+  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
+    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  end
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 
@@ -740,9 +706,9 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_identifier),
       do: OM.control_capabilities_call(state, issue_identifier)
 
-  def handle_call({:pause_agent, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.pause_agent_call(state, issue_identifier)
+  def handle_call({action, issue_identifier}, _from, state)
+      when action in [:pause_agent, :park_agent] and is_binary(issue_identifier),
+      do: if(action == :park_agent, do: Parking.park_agent_call(state, issue_identifier), else: PauseResume.pause_agent_call(state, issue_identifier))
 
   def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
     do: PauseResume.pause_agent_call(state, identity)
@@ -779,9 +745,12 @@ defmodule Aiur.Orchestrator do
       when is_binary(pane_id),
       do: Interrupts.pane_interrupt_by_pane_id_call(state, pane_id)
 
+  def handle_call({:tracker_control_result, action, identifier, stage, result}, _from, state),
+    do: PauseResume.tracker_control_call(state, action, identifier, stage, result)
+
   def handle_call({:resume_agent, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: PauseResume.resume_issue_call(state, issue_identifier)
+      do: PauseResume.tracker_control_call(state, :resume, issue_identifier)
 
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
@@ -789,27 +758,27 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:resume_agent_with_receipt, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: PauseResume.resume_issue_with_receipt_call(state, issue_identifier)
+      do: PauseResume.tracker_control_call(state, :resume_with_receipt, issue_identifier)
 
   def handle_call({:resume_agent_with_receipt, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:prioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
-    do: PriorityControl.prioritize_agent_call(state, issue_identifier)
+  def handle_call({:prioritize_agent, issue_identifier}, from, state) when is_binary(issue_identifier),
+    do: PriorityControl.prioritize_agent_call(state, issue_identifier, from: from)
 
   def handle_call({:prioritize_agent, _issue_identifier}, _from, state),
     do: {:reply, {:error, :invalid_identifier}, state}
 
-  def handle_call({:deprioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
-    do: PriorityControl.deprioritize_agent_call(state, issue_identifier)
+  def handle_call({:deprioritize_agent, issue_identifier}, from, state) when is_binary(issue_identifier),
+    do: PriorityControl.deprioritize_agent_call(state, issue_identifier, from: from)
 
   def handle_call({:deprioritize_agent, _issue_identifier}, _from, state),
     do: {:reply, {:error, :invalid_identifier}, state}
 
   def handle_call({:reset_dispatch_budget, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: PauseResume.reset_dispatch_budget_call(state, issue_identifier)
+      do: PauseResume.tracker_control_call(state, :reset_budget, issue_identifier)
 
   def handle_call({:reset_dispatch_budget, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
@@ -823,17 +792,17 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:set_remote_control, issue_identifier, on?}, _from, state)
+  def handle_call({:set_remote_control, issue_identifier, on?}, from, state)
       when is_binary(issue_identifier) and is_boolean(on?),
-      do: RC.set_remote_control_call(state, issue_identifier, on?)
+      do: RC.set_remote_control_call(state, issue_identifier, on?, from: from)
 
   def handle_call({:set_remote_control, _issue_identifier, _on?}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:ensure_remote_control_trust, workspace}, _from, state)
+  def handle_call({:ensure_remote_control_trust, workspace}, from, state)
       when is_binary(workspace),
-      do: RC.ensure_remote_control_trust_call(state, workspace)
+      do: RC.ensure_remote_control_trust_call(state, workspace, from)
 
   def handle_call(:max_concurrent_agents, _from, state),
     do: Slots.max_concurrent_agents_call(state)
@@ -930,11 +899,6 @@ defmodule Aiur.Orchestrator do
       do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
 
   @doc false
-  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
-  def enqueue_event_digest_item(state, identifier, events, summary_source),
-    do: OM.enqueue_event_digest_item(state, identifier, events, summary_source)
-
-  @doc false
   @spec resume_label_overridden_issue(State.t(), map()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_label_overridden_issue(%State{} = state, running_entry),
     do: PauseResume.resume_label_overridden_issue(state, running_entry)
@@ -970,10 +934,6 @@ defmodule Aiur.Orchestrator do
     do: State.note_agent_activity(state, identifier)
 
   @impl true
-  def handle_cast({:reset_dispatch_budget, issue_identifier}, state)
-      when is_binary(issue_identifier),
-      do: {:noreply, PauseResume.reset_dispatch_budget_cast(state, issue_identifier)}
-
   def handle_cast({:note_agent_activity, identifier}, state) do
     {:noreply, note_agent_activity_state(state, identifier)}
   end
@@ -982,19 +942,6 @@ defmodule Aiur.Orchestrator do
   def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
     {:noreply, PushRouting.maybe_mark_sleeping(state, identifier)}
   end
-
-  @doc false
-  @spec schedule_poll_cycle_start() :: :ok
-  def schedule_poll_cycle_start, do: Lifecycle.schedule_poll_cycle_start()
-  @spec running_worker_host(State.t(), binary() | term()) :: binary() | nil
-  def running_worker_host(%State{} = state, issue_id) when is_binary(issue_id) do
-    case Map.get(state.running, issue_id) do
-      %{worker_host: worker_host} -> worker_host
-      _ -> nil
-    end
-  end
-
-  def running_worker_host(_state, _issue_id), do: nil
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()

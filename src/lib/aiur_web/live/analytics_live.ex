@@ -3,15 +3,14 @@ defmodule AiurWeb.AnalyticsLive do
   Authenticated, read-only LiveView for latest-run utilization. It derives every
   chart from the durable `Aiur.RunTelemetry` stream via the analytics
   `Presenter`, and renders them as inline SVG inside the Operator Control Center
-  shell. Legend, sort, and time-range interactions are plain LiveView events —
-  no client-side charting.
+  shell. Legend, sort, and time-range interactions are plain LiveView events — no client-side charting.
   """
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
-
-  alias Aiur.{PollCadence, UsageAggregate}
+  require Logger
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
+  alias Aiur.UsageAggregate
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   alias AiurWeb.OperatorControlCenter.{
@@ -23,11 +22,10 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Runtime, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
-  # Matches the CLI's freshness threshold: telemetry observed within this
-  # window is "just now", anything older is shown with its elapsed age.
+  # Matches the CLI: telemetry within this window is "just now", older telemetry shows elapsed age.
   @source_fresh_ms 30_000
 
   @impl true
@@ -40,6 +38,7 @@ defmodule AiurWeb.AnalyticsLive do
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
      |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
      |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
+     |> assign(:capture_enabled?, Aiur.RunTelemetry.telemetry_enabled?())
      |> assign(:range, :run)
      |> assign(:sort, :cpu)
      |> assign(:time_domain, nil)
@@ -58,6 +57,48 @@ defmodule AiurWeb.AnalyticsLive do
 
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(:analytics_model, {:ok, {result, rtk}}, socket) do
+    now = DateTime.utc_now()
+    socket = assign(socket, :rtk, rtk)
+
+    socket =
+      case result do
+        {:ok, model} ->
+          domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
+
+          socket
+          |> assign(
+            model: model,
+            provider_spend: provider_spend(socket, model.source_boot_id),
+            selected: MapSet.new(model.actors, & &1.key),
+            unavailable: nil,
+            source: source_info(model, now),
+            now: now
+          )
+          |> assign_time_domain(domain)
+
+        {:unavailable, reason} ->
+          assign(socket,
+            model: nil,
+            chart_model: nil,
+            provider_spend: %{state: :unavailable},
+            time_domain: nil,
+            selected: MapSet.new(),
+            source: nil,
+            unavailable: reason,
+            now: now
+          )
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async(:analytics_model, {:exit, reason}, socket) do
+    Logger.warning("Analytics loading failed: #{inspect(reason)}")
+    handle_async(:analytics_model, {:ok, {{:unavailable, :error}, %{state: :absent, title: "Compression unavailable", message: "Analytics loading failed."}}}, socket)
+  end
 
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
@@ -119,11 +160,13 @@ defmodule AiurWeb.AnalyticsLive do
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />
       </:banner>
-
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
-
       <section id="analytics-page" class="analytics-root" aria-label="Run analytics">
-        <div :if={@unavailable} class="an-empty" data-empty-reason={@unavailable}>
+        <p :if={!@capture_enabled?} id="analytics-capture-off" role="status" class="an-empty">
+          Analytics capture is off (observability.telemetry_enabled: false). Experiments will have no data for this period.
+        </p>
+        <p :if={@unavailable == :loading} role="status" class="an-empty">Loading run analytics…</p>
+        <div :if={@unavailable && @unavailable != :loading} class="an-empty" data-empty-reason={@unavailable}>
           <div :if={@unavailable == :no_telemetry}>
             <p><b>No run telemetry to analyze yet.</b></p>
             <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
@@ -137,7 +180,6 @@ defmodule AiurWeb.AnalyticsLive do
             <p>The durable run-telemetry stream could not be analyzed right now.</p>
           </div>
         </div>
-
         <div :if={!@unavailable} class="an-controls">
           <div>
             <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
@@ -147,7 +189,7 @@ defmodule AiurWeb.AnalyticsLive do
             <p :if={@source} class="an-source" data-source-kind={@source.kind} title={source_title(@source)}>
               Source: <b>{source_kind_label(@source.kind)}</b>
               <span :if={@source.boot_id} class="an-source-boot"> · boot {short_boot(@source.boot_id)}</span>
-              <span class="an-source-age"> · {age_label(@source.age_ms)}</span>
+              <span class="an-source-age"> · {age_label(@source.age_ms)}</span><span :if={@model && Map.get(@model, :retained_runs)}> · newest {@model.retained_runs.included} of {@model.retained_runs.total} retained runs</span>
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">
@@ -155,7 +197,6 @@ defmodule AiurWeb.AnalyticsLive do
             <button type="button" class={[@range == :full && "on"]} phx-click="range" phx-value-range="full">Full log</button>
           </div>
         </div>
-
         <div :if={!is_nil(@time_domain)} class="an-zoombar" role="status">
           <span>Zoomed to {Charts.time_domain_label(@chart_model, @time_domain)}</span>
           <button type="button" phx-click="reset-time-domain">Reset</button>
@@ -345,53 +386,8 @@ defmodule AiurWeb.AnalyticsLive do
     """
   end
 
-  defp load_model(socket) do
-    now = DateTime.utc_now()
-
-    # The Full-log range spans every boot: the current boot stays a live bounded
-    # tail read and prior boots come from materialized run summaries (falling
-    # back to a full parse before the first materialization).
-    session = if socket.assigns.range == :full, do: :cross, else: :current
-
-    opts =
-      [
-        range: socket.assigns.range,
-        session: session,
-        telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file),
-        orchestrator: AiurWeb.Endpoint.config(:orchestrator) || Aiur.Orchestrator,
-        snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.Endpoint.config(:snapshot_timeout_ms) || 15_000)
-      ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
-
-    socket = assign(socket, :rtk, rtk_panel())
-
-    case Presenter.load(opts) do
-      {:ok, model} ->
-        domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
-
-        socket
-        |> assign(
-          model: model,
-          provider_spend: provider_spend(socket, model.source_boot_id),
-          selected: MapSet.new(model.actors, & &1.key),
-          unavailable: nil,
-          source: source_info(model, now),
-          now: now
-        )
-        |> assign_time_domain(domain)
-
-      {:unavailable, reason} ->
-        assign(socket,
-          model: nil,
-          chart_model: nil,
-          provider_spend: %{state: :unavailable},
-          time_domain: nil,
-          selected: MapSet.new(),
-          source: nil,
-          unavailable: reason,
-          now: now
-        )
-    end
-  end
+  defp load_model(socket),
+    do: Runtime.load(socket, ScopeResolver.telemetry_opts(socket.assigns.analytics_scope), &rtk_panel/0)
 
   # The rtk panel reports a measurement rtk itself took, so every way that
   # measurement can be missing is spelled out in words. A percentage is
@@ -418,29 +414,29 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp rtk_absent(:disabled) do
     rtk_state(
-      "Output compression is off",
-      "rtk is not enabled. Set `agent.rtk.enabled: true` to let agents filter shell output."
+      "Savings reporting is off",
+      "rtk savings reporting is off. Set `agent.rtk.enabled: true` to show the host-level report; this does not control a host-wide hook."
     )
   end
 
   defp rtk_absent(:not_installed) do
     rtk_state(
       "rtk is not installed",
-      "rtk is enabled but no `rtk` executable is on the daemon's PATH, so nothing is being filtered."
+      "rtk reporting is enabled but no `rtk` executable is on the daemon's PATH, so savings are unavailable."
     )
   end
 
   defp rtk_absent(:gh_rewrite_not_excluded) do
     rtk_state(
-      "rtk is enabled but held back",
-      ~s(rtk's hook would rewrite `gh`, which would reshape the calls the GitHub quota guard governs. Add `exclude_commands = ["gh"]` under `[hooks]` in rtk's config to admit it.)
+      "rtk gh rewrite detected",
+      ~s(The host rtk hook would rewrite `gh`, reshaping calls the GitHub quota guard governs. A host-wide hook applies regardless of `agent.rtk.enabled`; configure rtk with `exclude_commands = ["gh"]` under `[hooks]`. Savings are withheld, but this report does not disable the hook.)
     )
   end
 
   defp rtk_absent(:no_data) do
     rtk_state(
       "No commands filtered yet",
-      "rtk is admitted but has recorded no commands, so there is no saving to report."
+      "rtk has recorded no commands, so there is no saving to report."
     )
   end
 

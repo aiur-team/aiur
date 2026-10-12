@@ -25,20 +25,22 @@ export function getMaskConfig(page) {
   return VISUAL_MASKS.map(({ selector }) => page.locator(selector))
 }
 
-export async function openVisualRoute(page, { theme, route, collapsed = false, mode = 'read_only' }) {
+export async function openVisualRoute(page, { theme, palette, route, collapsed = false, mode = 'read_only' }) {
   await openFixture(page, mode)
   await page.context().setHTTPCredentials(dashboardCredentials)
   if (mode === 'writable') await page.goto('/streamdeck-control/writable')
-  await page.evaluate(({ theme, collapsed }) => {
+  await page.evaluate(({ theme, palette, collapsed }) => {
     localStorage.setItem('aiur-theme', theme)
+    if (palette !== undefined) localStorage.setItem('aiur-palette', palette)
     localStorage.setItem('aiur-nav-collapsed', String(collapsed))
-  }, { theme, collapsed })
+  }, { theme, palette, collapsed })
   // The synthetic fixture layout lacks production's early theme restore.
   // Read the seeded storage before mounting its LiveView hooks.
   await page.addInitScript(() => {
     document.addEventListener('DOMContentLoaded', () => {
       const stored = localStorage.getItem('aiur-theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
+      document.documentElement.dataset.palette = localStorage.getItem('aiur-palette') === 'aiur' ? 'aiur' : 'gruvbox'
     }, { once: true })
   })
   // A full navigation mounts NavToggle, whose restore-nav pushEvent applies
@@ -46,8 +48,12 @@ export async function openVisualRoute(page, { theme, route, collapsed = false, m
   await page.goto(route)
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+  if (new URL(page.url()).pathname === '/analytics') {
+    await expect(page.getByRole('status').filter({ hasText: 'Loading run analytics…' })).toHaveCount(0)
+    await expect(page.locator('[data-source-kind], [data-empty-reason]:not([data-empty-reason="loading"])')).toBeVisible()
+  }
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-  await expect(page.locator('.dashboard-shell')).toHaveAttribute('data-nav-collapsed', String(collapsed))
+  await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', String(collapsed))
   await page.evaluate(() => document.fonts.ready)
 }
 

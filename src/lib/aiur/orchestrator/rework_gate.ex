@@ -27,9 +27,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.State
-  alias Aiur.Tracker
+  alias Aiur.Orchestrator.{ReviewFindings, State}
 
   @doc """
   Returns the open pull request for the rework target.
@@ -118,7 +116,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
     end
   end
 
-  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # A `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review with no inline comments
   # opens no review thread at all, so the thread read below reports zero
   # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
   # much did make (#2473). Where the caller is routing *that review submission*
@@ -156,9 +154,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # it is the one a refactor must not delete.
   #
   # The option defaults to `false`, so every caller that is *not* holding a live
-  # changes-requested review keeps the pre-#2473 behaviour exactly.
+  # blocking review submission keeps the pre-#2473 behaviour exactly.
   defp no_thread_verdict(opts) do
-    if Keyword.get(opts, :changes_requested_review?, false) do
+    if Keyword.get(opts, :blocking_review_submission?, false) do
       {:ok, :rework}
     else
       {:skip, :no_unresolved_review_threads}
@@ -191,23 +189,25 @@ defmodule Aiur.Orchestrator.ReworkGate do
     * `{:skip, :no_unresolved_review_threads}` — the open PR has no unresolved
       threads; the reviewer is not currently asking for a change, so the ticket
       must not be routed to rework;
+    * `{:skip, :approved_and_queued}` — the PR is approved and in the merge
+      queue; the ticket keeps its waiting state (#4204);
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
 
-  Pass `changes_requested_review?: true` when the caller is routing a live
-  `CHANGES_REQUESTED` review submission. A body-only review opens no review
-  thread, so the thread read cannot see it (#2473); the submission is itself
+  Pass `blocking_review_submission?: true` when the caller is routing a trusted
+  live `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review submission. A body-only
+  review opens no review thread, so the thread read cannot see it (#2473); the submission is itself
   the outstanding finding and stands in for an unresolved thread.
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
           {:ok, map()}
-          | {:skip, :no_open_pr | :no_unresolved_review_threads}
+          | {:skip, :no_open_pr | :no_unresolved_review_threads | :approved_and_queued}
           | {:error, term()}
   def verify_unresolved_review_threads(issue_key, opts \\ []) do
     case open_pr(issue_key, opts) do
       {:ok, %{} = pr} ->
         case open_pull_request_rework_verdict(pr, opts) do
-          {:ok, :rework} -> {:ok, pr}
+          {:ok, :rework} -> rework_unless_queued(pr, opts)
           {:skip, reason} -> {:skip, reason}
           {:error, reason} -> {:error, reason}
         end
@@ -217,6 +217,31 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # #4204: a queued branch rejects pushes, so a rework turn could only ask the
+  # Executor to dequeue it, and the approval already outranks an open thread
+  # (#1756). A failed read keeps the rework verdict the threads justified.
+  defp rework_unless_queued(pr, opts) do
+    # A blocking review submitted after the approval leaves `reviewDecision` APPROVED; it is still a finding.
+    blocking? = Keyword.get(opts, :blocking_review_submission?, false)
+    if not blocking? and approved_and_queued?(pr, opts) == {:ok, true}, do: {:skip, :approved_and_queued}, else: {:ok, pr}
+  end
+
+  @doc false
+  @spec approved_and_queued?(map(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def approved_and_queued?(pr, opts \\ []) do
+    fetcher = Keyword.get(opts, :queued_approval_fetcher, &default_queued_approval_fetcher/1)
+    fetcher.(pr)
+  end
+
+  defp default_queued_approval_fetcher(pr) do
+    with true <- available?(),
+         number when is_integer(number) <- Map.get(pr, "number") do
+      GitHubClient.pull_request_approved_and_queued?(number)
+    else
+      _unavailable -> {:ok, false}
     end
   end
 
@@ -260,6 +285,73 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   def head_sha(_pr), do: nil
 
+  @doc "Returns the safest handoff state when a stopped agent has an open PR."
+  @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::
+          :none | {:handoff, String.t()}
+  def stopped_agent_handoff(issue_key, original_head, opts \\ []) do
+    case open_pr(issue_key, opts) do
+      {:ok, pr} ->
+        current_head = head_sha(pr)
+
+        if is_binary(current_head) and current_head != "" and
+             (not is_binary(original_head) or original_head == "" or current_head != original_head) do
+          {:handoff, ci_handoff_state(current_head, opts)}
+        else
+          superseded_review_handoff(pr, current_head, opts)
+        end
+
+      {:error, _reason} ->
+        {:handoff, "human-review"}
+
+      {:skip, :no_open_pr} ->
+        :none
+    end
+  end
+
+  # #3971: the head can equal the dispatch head and still carry the fixes — they
+  # were pushed by an earlier run. A blocking review that names an older commit
+  # has not seen this head, so it goes back to the reviewer, red CI included.
+  defp superseded_review_handoff(pr, head, opts) do
+    with true <- Keyword.get(opts, :superseded_review_handoff?, false) and is_binary(head),
+         {:ok, reviews} <- (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
+         [_ | _] = blocking <- blocking_reviews(reviews),
+         false <- Enum.any?(blocking, &(&1["commit_id"] == head)) do
+      {:handoff, ci_handoff_state(head, opts)}
+    else
+      _not_superseded -> :none
+    end
+  end
+
+  @doc "Each trusted reviewer's latest verdict that still blocks; an old `CHANGES_REQUESTED` is sticky, so callers compare `commit_id` to the head."
+  @spec blocking_reviews([map()]) :: [map()]
+  def blocking_reviews(reviews) do
+    reviews
+    |> Enum.filter(&(&1["state"] in ~w(APPROVED CHANGES_REQUESTED DISMISSED) or ReviewFindings.blocking_body?(&1["body"])))
+    |> Enum.group_by(&get_in(&1, ["user", "login"]))
+    |> Enum.map(fn {_author, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
+    |> Enum.filter(fn review ->
+      review[:authoritative] == true and
+        (review["state"] == "CHANGES_REQUESTED" or (review["state"] == "COMMENTED" and ReviewFindings.blocking_body?(review["body"])))
+    end)
+  end
+
+  defp default_reviews_fetcher(number) do
+    if available?() and is_integer(number), do: Aiur.CodeHost.fetch_classified_pr_reviews(number), else: {:error, :unavailable}
+  end
+
+  defp ci_handoff_state(head_sha, opts) do
+    fetcher = Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
+
+    case fetcher.(head_sha) do
+      {:ok, %{check_runs: runs, commit_status: status}} ->
+        pending_runs? = Enum.any?(runs, &(Map.get(&1, "status") in ["waiting", "requested", "pending", "in_progress", "queued"]))
+        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
+
+      _ ->
+        "ci-wait"
+    end
+  end
+
   @doc false
   # The thread gate only applies where a live review-thread read is meaningful:
   # the GitHub tracker behind a client that can answer
@@ -269,13 +361,13 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # and the precondition is still pinned by the dedicated tests.
   @spec available?() :: boolean()
   def available? do
-    Tracker.adapter() == GitHubTracker and
+    Aiur.CodeHost.available?() and
       github_client_exported?()
   end
 
   defp default_fetcher(issue_key) do
     if available?() do
-      Tracker.fetch_open_pull_request_for_branch(issue_key)
+      Aiur.CodeHost.fetch_open_pull_request_for_branch(issue_key)
     else
       {:ok, %{}}
     end

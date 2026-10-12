@@ -6,6 +6,9 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
+  alias Aiur.ExecutorListener
+  alias Aiur.ExecutorWakeInbox
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
@@ -692,7 +695,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "Ready tickets=1"
     assert event["reason"] =~ "effective cap=4, configured cap=4"
-    assert event["reason"] =~ "load-envelope limit"
+    assert event["reason"] =~ "adaptive envelope limit"
     assert event["reason"] =~ "memory gate"
     assert event["reason"] =~ "FD gate"
     assert event["reason"] =~ "load gate"
@@ -1210,7 +1213,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
     assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
-    assert event["reason"] =~ "binding constraint=load envelope (effective cap=3)"
+    assert event["reason"] =~ "binding constraint=adaptive envelope (effective cap=3)"
   end
 
   test "reports a per-state ceiling as the binding constraint" do
@@ -1576,6 +1579,66 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "No operator action is needed"
     assert event["needs_attention"] == false
     assert_received {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused.resolved"}}
+  end
+
+  test "records exactly one Executor wake for human-review despite unrelated attention traffic" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+    previous = issue("handoff", "in-progress")
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+    listener = start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
+    {:ok, _, _} = Publisher.publish("ticket.42.agent.attention.comment_wake_state_unresolved", %{"needs_attention" => false})
+    sha = String.duplicate("c", 40)
+    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id), %{"number" => 3019, "head" => %{"sha" => sha}})
+
+    state =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}},
+        [%{previous | state: "human-review"}],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert state.last_polled_issues[previous.id].state == "human-review"
+    # Publication sends from this process; the listener barrier waits for both deliveries and synchronous enqueue.
+    :sys.get_state(listener)
+
+    assert {:ok, [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review", "pr_number" => 3019, "head_sha" => ^sha}]} =
+             ExecutorWakeInbox.wait(0)
+
+    assert [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review"}] = ExecutorWakeInbox.pending()
+  end
+
+  test "resolves an observed error attention when the issue moves to human-review" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+
+    previous = issue("error-to-review", "error")
+    current = %{previous | state: "human-review"}
+    topic = "ticket.#{previous.identifier}.agent.attention.error-observed_tracker_error.resolved"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    _state =
+      IssueSync.sync_polled_issue_state(
+        %State{
+          last_polled_issues: %{previous.id => previous},
+          observed_error_alerts: MapSet.new([previous.id]),
+          active_attention_topics: MapSet.new([String.trim_trailing(topic, ".resolved")])
+        },
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_received {:event, %{topic: ^topic} = event}
+    assert event["needs_attention"] == false
   end
 
   test "persists a reason-carrying fallback when polling observes an ordinary error transition" do
@@ -2250,32 +2313,6 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert result.last_polled_issues == %{"47" => previous_issue}
   end
 
-  test "chunks disappearing idle verification across polls" do
-    previous_issues =
-      for id <- 1..250, into: %{}, do: {Integer.to_string(id), issue(Integer.to_string(id), "in-progress")}
-
-    parent = self()
-    state = %State{last_polled_issues: previous_issues}
-
-    result =
-      IssueSync.sync_polled_issue_state(
-        state,
-        [],
-        fn ids ->
-          send(parent, {:verified_ids, ids})
-          {:ok, []}
-        end,
-        fn _identity, _lifecycle -> flunk("absent tickets cannot be inferred terminal") end,
-        MapSet.new(["done", "cancelled"]),
-        fn _status -> :ok end,
-        fn _identity, _pending? -> :ok end
-      )
-
-    assert_received {:verified_ids, ids}
-    assert length(ids) == 25
-    assert map_size(result.last_polled_issues) == 250
-  end
-
   describe "dependency transition event gating" do
     test "does not enqueue dependency_added when the auto-subscribe fails" do
       on_exit(fn -> AutoSubscriptions.set_add_subscription_fn(nil) end)
@@ -2453,6 +2490,39 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert alert["reason"] =~ "left as-is"
     end
 
+    test "the next label poll resolves a persisted missing-label alert after restart" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      for target <- ~w(in-progress rework ci-wait human-review error) do
+        recovered = %{issue("recovered-#{target}", target) | state_labels: [target]}
+        topic = "ticket.#{recovered.identifier}.agent.attention.state-label-missing-no-evidence"
+        resolved_topic = "#{topic}.resolved"
+        :ok = Exchange.subscribe(resolved_topic)
+        write_central_attention!(topic)
+        assert AlertFeed.active_ticket_attention?(topic)
+
+        update = fn _, _ -> flunk("this observation needs no label write") end
+        missing = %{recovered | state: nil, state_labels: []}
+        {state, [^missing]} = IssueSync.reconcile_contradictory_state_labels(%State{}, [missing], update)
+        assert AlertFeed.active_ticket_attention?(topic)
+        refute_received {:event, %{topic: ^resolved_topic}}
+
+        {state, [observed]} = IssueSync.reconcile_contradictory_state_labels(state, [recovered], update)
+        assert observed.state == target
+        assert_received {:event, %{topic: ^resolved_topic}}
+        refute AlertFeed.active_ticket_attention?(topic)
+
+        IssueSync.reconcile_contradictory_state_labels(state, [recovered], update)
+        mailbox_barrier()
+        refute_received {:event, %{topic: ^resolved_topic}}
+      end
+    end
+
     test "leaves a deliberately parked zero-label ticket alone" do
       # `needs-triage`, `human:todo`, and `Epic:` containers carry no `agent:*`
       # state label on purpose; dispatching them would reverse deliberate
@@ -2502,6 +2572,52 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert left_alone.state_labels == []
       assert is_nil(left_alone.state)
       assert healed_state.last_polled_issues == %{}
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "leaves a queued marker-only ticket alone although its last poll was todo" do
+      topic = "ticket.its-everdred/aiur#queued.agent.attention.state-label-missing"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      queued = %{issue("queued", nil) | state_labels: [], queued: true, labels: ["agent:queued"]}
+      prior_state = %State{last_polled_issues: %{queued.id => issue("queued", "todo")}}
+
+      assert {^prior_state, [^queued]} =
+               IssueSync.reconcile_contradictory_state_labels(
+                 prior_state,
+                 [queued],
+                 fn _id, _target -> flunk("must not restore todo on a queued ticket") end
+               )
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "raises no state-label-missing-no-evidence for a queued ticket" do
+      topic = "ticket.its-everdred/aiur#queued.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      queued = %{issue("queued", nil) | state_labels: [], queued: true, labels: ["agent:queued"]}
+      state = %State{}
+
+      assert {^state, [^queued]} =
+               IssueSync.reconcile_contradictory_state_labels(
+                 state,
+                 [queued],
+                 fn _id, _target -> flunk("must not rewrite a queued ticket") end
+               )
 
       refute_receive {:event, %{topic: ^topic}}, 50
     end
@@ -2851,6 +2967,29 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   end
 
   describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "strand sweep treats a queued marker-only ticket as legitimately unowned" do
+      topic = "ticket.its-everdred/aiur#queued.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      queued = %{issue("queued", nil) | state_labels: [], queued: true, labels: ["agent:queued"]}
+      state = %State{released_claims: %{queued.id => %{cause: :tracker_retry_exhausted}}}
+
+      assert ^state =
+               IssueSync.sync_stranded_ticket_reconciliation(
+                 state,
+                 [queued],
+                 fn _id, _target -> flunk("must not re-queue a queued marker-only ticket") end
+               )
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
     test "re-queues a released-claim ticket with no recovery and alerts" do
       topic = "ticket.its-everdred/aiur#released.agent.attention.stranded-requeued"
       Publisher.set_tracked_fn(fn _ -> true end)

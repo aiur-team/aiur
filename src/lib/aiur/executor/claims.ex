@@ -84,7 +84,7 @@ defmodule Aiur.Executor.Claims do
   @spec observe(String.t(), keyword()) :: {:ok, entry()} | {:error, term()}
   def observe(id, opts \\ []) when is_binary(id), do: call({:observe, id, opts})
 
-  @doc "Renews an existing lease without changing its role."
+  @doc "Renews an existing lease without changing its role; refuses a displaced legacy owner."
   @spec renew(String.t(), keyword()) :: {:ok, entry()} | {:error, :unknown_consumer | term()}
   def renew(id, opts \\ []) when is_binary(id), do: call({:renew, id, opts})
 
@@ -125,7 +125,7 @@ defmodule Aiur.Executor.Claims do
 
     opts
     |> entries()
-    |> Enum.find(&(&1["role"] == "owner" and live?(&1, now)))
+    |> live_owner(now)
     |> case do
       nil -> :none
       entry -> {:ok, entry}
@@ -161,11 +161,7 @@ defmodule Aiur.Executor.Claims do
   @spec call_timeout_ms() :: pos_integer()
   def call_timeout_ms, do: @call_timeout_ms
 
-  # The override exists for tests and for hosts with a slower shared filesystem,
-  # so it is validated rather than trusted: a non-integer would make the retry
-  # guard fall straight through to "timed out" without retrying once, and a
-  # value above the surrounding call budget would expire the caller before the
-  # lock wait ever returns a `claim`-stage diagnostic.
+  # Validate overrides and keep lock retries inside the surrounding call budget.
   defp lock_timeout_ms do
     case Application.get_env(:aiur, :executor_claims_lock_timeout_ms, @lock_timeout_ms) do
       ms when is_integer(ms) and ms > 0 -> min(ms, @call_timeout_ms)
@@ -256,22 +252,34 @@ defmodule Aiur.Executor.Claims do
   defp do_claim(consumers, id, opts) do
     now = now(opts)
 
-    case Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now) and &1["id"] != id)) do
-      nil -> {:ok, touch(consumers, id, "owner", now, opts)}
-      holder -> {:error, {:held_by, holder}}
+    case live_owner(Map.values(consumers), now) do
+      %{"id" => holder_id} = holder when holder_id != id ->
+        {:error, {:held_by, holder}}
+
+      _ ->
+        updated = Map.new(consumers, fn {key, entry} -> {key, if(entry["role"] == "owner" and key != id, do: Map.put(entry, "role", "observer"), else: entry)} end)
+        entry = touch(updated, id, "owner", now, opts)
+        {:replace, Map.put(updated, id, entry), entry}
     end
   end
 
   defp do_renew(consumers, id, opts) do
     case Map.fetch(consumers, id) do
-      {:ok, existing} -> {:ok, touch(consumers, id, existing["role"], now(opts), opts)}
-      :error -> {:error, :unknown_consumer}
+      {:ok, existing} ->
+        owner = live_owner(Map.values(consumers), now(opts))
+
+        if existing["role"] == "owner" and not live?(existing, now(opts)) and not is_nil(owner) and owner["id"] != id,
+          do: {:error, :not_owner},
+          else: {:ok, touch(consumers, id, existing["role"], now(opts), opts)}
+
+      :error ->
+        {:error, :unknown_consumer}
     end
   end
 
   defp do_revoke(consumers, id, opts) do
     now = now(opts)
-    owner = Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now)))
+    owner = live_owner(Map.values(consumers), now)
 
     cond do
       is_nil(owner) -> {:error, :no_owner}
@@ -286,10 +294,16 @@ defmodule Aiur.Executor.Claims do
   defp do_record_acknowledgement(consumers, id, cursor, opts) do
     now = now(opts)
 
-    case Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now))) do
+    case live_owner(Map.values(consumers), now) do
       %{"id" => ^id} = existing -> {:ok, acknowledged(existing, cursor, now)}
       other -> {:error, {:not_owner, other}}
     end
+  end
+
+  defp live_owner(entries, now) do
+    owners = Enum.filter(entries, &(&1["role"] == "owner" and live?(&1, now)))
+    if length(owners) > 1, do: Logger.warning("aiur_executor_claims phase=multiple_live_owners")
+    Enum.max_by(owners, &{DateTime.to_unix(renewed_at(&1, "claimed_at"), :microsecond), &1["id"]}, fn -> nil end)
   end
 
   defp acknowledged(existing, cursor, now) do
@@ -345,9 +359,7 @@ defmodule Aiur.Executor.Claims do
     reply
   end
 
-  # Read and write are one critical section. `update` returns `{:ok, entry}` to
-  # replace one entry, `{:replace, consumers}` to replace the whole map, or
-  # `{:error, reason}` to abort without writing.
+  # Whole-map updates may carry the claimed entry to preserve claim/2 replies.
   defp mutate(state, opts, update) do
     path = path(state, opts)
 
@@ -357,6 +369,7 @@ defmodule Aiur.Executor.Claims do
       case update.(consumers) do
         {:ok, %{"id" => id} = entry} -> write(path, opts, Map.put(consumers, id, entry), {:ok, entry})
         {:replace, updated} -> write(path, opts, updated, {:ok, :ok})
+        {:replace, updated, entry} -> write(path, opts, updated, {:ok, entry})
         {:error, _reason} = error -> error
       end
     end)
@@ -451,14 +464,14 @@ defmodule Aiur.Executor.Claims do
     |> Map.new()
   end
 
-  defp renewed_at(%{"last_renewed_at" => at}) when is_binary(at) do
-    case DateTime.from_iso8601(at) do
-      {:ok, renewed, _offset} -> renewed
+  defp renewed_at(entry, key \\ "last_renewed_at") do
+    with at when is_binary(at) <- entry[key],
+         {:ok, renewed, _offset} <- DateTime.from_iso8601(at) do
+      renewed
+    else
       _invalid -> ~U[1970-01-01 00:00:00Z]
     end
   end
-
-  defp renewed_at(_entry), do: ~U[1970-01-01 00:00:00Z]
 
   defp path(state, opts), do: Keyword.get(opts, :path) || state[:path] || StatePaths.claims_path()
 

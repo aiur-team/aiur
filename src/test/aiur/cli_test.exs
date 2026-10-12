@@ -1,5 +1,5 @@
 defmodule Aiur.CLITest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
 
@@ -120,6 +120,18 @@ defmodule Aiur.CLITest do
 
     assert {:error, usage} = CLI.evaluate(["findings", "--scope", "host"], deps())
     assert usage =~ "aiur findings"
+  end
+
+  test "parses shared account commands and rejects unrelated flags" do
+    assert {:accounts, true, nil} = CLI.evaluate(["accounts", "--json"], deps())
+    assert {:accounts, true, nil} = CLI.evaluate(["accounts", "--all", "--json"], deps())
+    assert {:accounts, false, "codex"} = CLI.evaluate(["accounts", "codex"], deps())
+
+    assert {:account_login, "claude", "work", "/tmp/claude-profile"} =
+             CLI.evaluate(["login", "claude", "work", "--dir", "/tmp/claude-profile"], deps())
+
+    assert {:account_logout, "claude", "work", true} = CLI.evaluate(["logout", "claude", "work", "--purge"], deps())
+    assert {:error, _} = CLI.evaluate(["accounts", "--purge"], deps())
   end
 
   test "parses validated findings writes and digest generation" do

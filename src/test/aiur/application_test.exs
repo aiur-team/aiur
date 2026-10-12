@@ -5,6 +5,7 @@ defmodule Aiur.ApplicationTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Identity.Machine
   alias Aiur.PubSub.Boot, as: PubSubBoot
   alias Aiur.Webhooks.{DeliveryMode, ModeTable}
 
@@ -24,11 +25,45 @@ defmodule Aiur.ApplicationTest do
     def node_name, do: nil
   end
 
+  test "machine identity is loaded by application boot into isolated test state" do
+    dir = Application.fetch_env!(:aiur, :machine_state_dir)
+    assert String.starts_with?(dir, System.tmp_dir!())
+    assert {:ok, identity} = Machine.current()
+    assert Jason.decode!(File.read!(Path.join(dir, "identity.json")))["machine_id"] == identity.machine_id
+  end
+
   test "stop/1 is a no-op returning :ok" do
     # `Application.stop/1` is invoked by OTP during application
     # shutdown. There's no cleanup to perform — releases unmount on
     # node halt — so the callback just returns :ok.
     assert :ok = AiurApp.stop(:any_state)
+  end
+
+  test "runs the RTK host-hook check during application startup" do
+    source = File.read!(Path.expand("../../lib/aiur.ex", __DIR__))
+
+    assert source =~ "Aiur.RtkStartupCheck.run()"
+  end
+
+  test "startup Funnel health check stays quiet while the reconciler owns the route" do
+    settings =
+      {:ok,
+       %{
+         server: %{tailscale_funnel: true},
+         observability: %{build_order_funnel_health_check: true}
+       }}
+
+    refute AiurApp.build_order_funnel_health_check_startup?(settings, false)
+    refute AiurApp.build_order_funnel_health_check_startup?(settings, true)
+
+    health_only_settings =
+      {:ok,
+       %{
+         server: %{tailscale_funnel: false},
+         observability: %{build_order_funnel_health_check: true}
+       }}
+
+    assert AiurApp.build_order_funnel_health_check_startup?(health_only_settings, false)
   end
 
   test "logs the resolved base branch exactly once at info level" do
@@ -98,10 +133,11 @@ defmodule Aiur.ApplicationTest do
       Aiur.LauncherWatchdog,
       Aiur.Opencode.PaneSupervisor
     ]
-
-    @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
-
-    # Agent backends kept in headless mode plus core infra both modes need.
+    @dashboard [
+      AiurWeb.ControlCenterCache,
+      AiurWeb.FinancialData.Supervisor,
+      Aiur.HttpServer
+    ]
     @always [
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,
@@ -133,7 +169,6 @@ defmodule Aiur.ApplicationTest do
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
     ]
-
     defp modules(specs) do
       Enum.map(specs, fn
         mod when is_atom(mod) -> mod
@@ -169,6 +204,38 @@ defmodule Aiur.ApplicationTest do
       headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
 
       assert length(headless) < length(interactive)
+    end
+
+    test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do
+      default = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
+      refute Aiur.TailscaleFunnel in modules(default)
+
+      enabled =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: true,
+          tailscale_funnel?: true
+        )
+
+      enabled_modules = modules(enabled)
+
+      dashboard_index = Enum.find_index(enabled_modules, &(&1 == Aiur.HttpServer))
+      funnel_index = Enum.find_index(enabled_modules, &(&1 == Aiur.TailscaleFunnel))
+
+      assert is_integer(dashboard_index)
+      assert is_integer(funnel_index)
+      assert dashboard_index < funnel_index
+
+      without_dashboard =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: false,
+          tailscale_funnel?: true
+        )
+
+      refute Aiur.TailscaleFunnel in modules(without_dashboard)
     end
 
     test "Executor recording is armed on every run, with or without --executor" do
@@ -631,8 +698,6 @@ defmodule Aiur.ApplicationTest do
       """)
 
       on_exit(fn ->
-        File.rm_rf!(tmp)
-
         case original_path do
           nil -> Application.delete_env(:aiur, :workflow_file_path)
           value -> Application.put_env(:aiur, :workflow_file_path, value)
@@ -642,6 +707,8 @@ defmodule Aiur.ApplicationTest do
           :unset -> :persistent_term.erase(enabled_key)
           value -> :persistent_term.put(enabled_key, value)
         end
+
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       Application.put_env(:aiur, :workflow_file_path, config_path)

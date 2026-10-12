@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.Dependency do
   @moduledoc "A native dependency endpoint or an explicitly nonfetchable external reference."
 
-  alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, TrackerIdentity}
+  alias Aiur.{Bounded, BuildOrder.Diagnostic, TrackerIdentity}
 
   @type t :: %__MODULE__{
           kind: :native | :external | :unknown,

@@ -9,10 +9,10 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
   alias Aiur.Claude.Config
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
+  alias Aiur.ProcessTree
 
   @ready_prompt "❯"
   @ready_poll_ms 200
@@ -136,7 +136,7 @@ defmodule Aiur.Claude.Repl.Launcher do
       ctx.tmux,
       ctx.window_name,
       command,
-      telemetry_env ++ AgentEnvironment.shell_startup_env()
+      telemetry_env ++ Keyword.get(ctx.opts, :env, []) ++ AgentEnvironment.shell_startup_env()
     )
   end
 
@@ -145,7 +145,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
     provider =
       if is_integer(os_pid) and os_pid > 0 do
-        %{root_pid: os_pid, descendant_pids: RemoteControl.process_tree(os_pid)}
+        %{root_pid: os_pid, descendant_pids: ProcessTree.process_tree(os_pid)}
         |> maybe_put_process_group(process_group_id)
       else
         %{}
@@ -187,14 +187,14 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   defp process_group(%{opts: opts}, os_pid) do
     opts
-    |> Keyword.get(:process_group_fun, &RemoteControl.process_group_for_pid/1)
+    |> Keyword.get(:process_group_fun, &ProcessTree.process_group_for_pid/1)
     |> then(& &1.(os_pid))
   end
 
   defp process_identity(%{opts: opts}, os_pid) do
     result =
       opts
-      |> Keyword.get(:process_identity_fun, &RemoteControl.process_identity/1)
+      |> Keyword.get(:process_identity_fun, &ProcessTree.process_identity/1)
       |> then(& &1.(os_pid))
 
     case result do
@@ -299,6 +299,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       started_at: ctx.started_at,
       projects_dir: Keyword.get(ctx.opts, :projects_dir),
       model: ctx.model,
+      account_name: Keyword.get(ctx.opts, :account_name),
+      account_selection_reason: Keyword.get(ctx.opts, :account_selection_reason),
       remote_control: ctx.rc?,
       rc_name: ctx.rc_name,
       session_url: session_url,

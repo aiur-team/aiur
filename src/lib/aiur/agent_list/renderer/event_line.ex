@@ -142,6 +142,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   def describe_event(_kind, _subject_id, _source_id, _suffix, _body), do: {"", ""}
 
   @spec cross_receive_verb(String.t()) :: String.t()
+  def cross_receive_verb("branch.force-push"), do: "force-pushed"
   def cross_receive_verb("branch.push"), do: "pushed"
   def cross_receive_verb("pr.opened"), do: "opened a PR"
   def cross_receive_verb("pr.merged"), do: "merged a PR"

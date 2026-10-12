@@ -11,6 +11,7 @@ defmodule Aiur.CodingAgent.Providers.Muse do
       adapter: Aiur.Muse.CodingAgent,
       transcript: Aiur.Muse.Transcript,
       family: "muse",
+      accounts: %{kind: :unsupported, multi: :unsupported, supported: false, reason: "Muse uses one native login and does not expose isolated profiles."},
       configurable: true,
       config_validator: &MuseBackend.validate/1,
       init_order: 5,

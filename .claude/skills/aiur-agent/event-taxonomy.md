@@ -52,7 +52,8 @@ see `emit-and-subscribe.md` for the full automatic set.
 
 | Topic | What it means |
 |-------|---------------|
-| `ticket.<id>.branch.push` | Someone pushed to an Aiur ticket branch (legacy or readable); the payload carries the actual ref. |
+| `ticket.<id>.branch.push` | Someone pushed to an Aiur ticket branch (legacy or readable); the payload carries the actual ref and `previous_sha` (nil for a new ref). |
+| `ticket.<id>.branch.force-push` | Subscribed ticket history was rewritten; compare verdict includes previous SHA (auto for declared blockers). |
 | `system.<branch>.branch.push` | Push to the repo's base branch (auto — you don't need to subscribe explicitly) |
 | `ticket.<id>.pr.opened` | A PR was opened for this ticket |
 | `ticket.<id>.pr.merged` | A PR for this ticket was merged |

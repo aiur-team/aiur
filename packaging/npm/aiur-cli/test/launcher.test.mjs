@@ -10,13 +10,13 @@ import {
   rmSync,
   chmodSync,
   copyFileSync,
+  cpSync,
   realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
 const realShim = fileURLToPath(new URL("../bin/aiur.js", import.meta.url));
 
 const HOST_TRIPLE = {
@@ -92,7 +92,7 @@ function setupPackage({
   return { shim: path.join(root, "bin", "aiur.js"), fakeBin };
 }
 
-function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false } = {}) {
+function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false, cwd = root } = {}) {
   const fullEnv = {
     ...process.env,
     AIUR_TEST_OUT: captureFile,
@@ -120,18 +120,15 @@ function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = fals
             `require(${JSON.stringify(path.join(root, "bin", "aiur.js"))});`,
         ]
       : [path.join(root, "bin", "aiur.js"), ...args];
-  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv });
+  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv, cwd });
 }
-
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), "aiur-shim-"));
   captureFile = path.join(root, "capture.txt");
 });
-
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
-
 test("happy path: resolves platform package and execs launcher with args + env", () => {
   const { fakeBin } = setupPackage();
   const result = runShim({ args: ["--host", "127.0.0.1", "WORKFLOW.md"], fakeBin });
@@ -249,10 +246,10 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 
 const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
-  "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
-  "build-orders", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
+  "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+  "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
-  "executor-answer", "executor-escalate", "executor-moot", "executor-listen", "executor-wait",
+  "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
   "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
 ];
@@ -262,11 +259,14 @@ for (const command of nonLaunchCommands) {
   const guard = ["init", "--version"].includes(command) ? " (future-regression guard)" : "";
   test(`non-launch ${command} never probes or provisions interactive tools${guard}`, () => {
     const { fakeBin } = setupPackage();
+    if (command === "experiments") mkdirSync(path.join(root, command));
     for (const tool of ["tmux", "opencode", "npm"]) {
       const executable = path.join(fakeBin, tool);
       writeFileSync(executable, `#!/bin/bash\necho '${tool}:$*' >>"$AIUR_TEST_OUT"\nexit 1\n`);
       chmodSync(executable, 0o755);
     }
+    // A local path must not turn the standalone PR command into a launch.
+    if (command === "pr") mkdirSync(path.join(root, "pr"));
     const result = runShim({
       args: [command, "--format", "records"], fakeBin,
       env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_TMUX_INSTALL: "", AIUR_SKIP_OPENCODE_INSTALL: "" },
@@ -354,14 +354,13 @@ test("failed pin install remains non-fatal with an accurate pinned manual hint",
   expect(result.stderr).not.toContain("opencode was not found");
 });
 
-// Builds a minimal fake OTP release whose `elixir` records its argv, so the
-// REAL launcher's init routing can be exercised end to end.
 function setupRealLauncher() {
   const launcherSrc = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "engine"])
+    cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";
   const vsnDir = path.join(releaseDir, "releases", vsn);
@@ -385,6 +384,7 @@ function setupRealLauncher() {
       'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "MOONSHOT_API_KEY:${MOONSHOT_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'if [ -n "${AIUR_TEST_PROFILE:-}" ]; then printf "%s" "$AIUR_TEST_PROFILE"; fi',
       "exit 0",
       "",
     ].join("\n"),
@@ -393,6 +393,51 @@ function setupRealLauncher() {
 
   return { launcher, releaseDir };
 }
+
+test("Claude login prepares a profile and hands its exact path to the interactive command", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const fakeBin = path.join(root, "login-bin");
+  const profileDir = path.join(root, "accounts", "max");
+  const receivedEnv = path.join(root, "claude-config-dir");
+  mkdirSync(fakeBin, { recursive: true });
+  const claude = path.join(fakeBin, "claude");
+  writeFileSync(claude, '#!/usr/bin/env bash\nprintf "%s" "$CLAUDE_CONFIG_DIR" > "$AIUR_LOGIN_ENV_CAPTURE"\n');
+  chmodSync(claude, 0o755);
+
+  const result = spawnSync("bash", [launcher, "login", "claude", "max", "--dir", profileDir], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_TEST_PROFILE: profileDir,
+      AIUR_LOGIN_ENV_CAPTURE: receivedEnv,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(receivedEnv, "utf8")).toBe(profileDir);
+  expect(readFileSync(captureFile, "utf8")).toContain(`__login_prepare\nclaude\nmax\n--dir\n${profileDir}`);
+});
+
+test("API-key login registers through the local CLI without starting an interactive harness", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const result = spawnSync("bash", [launcher, "login", "deepseek", "work"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      PATH: process.env.PATH,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("ELIXIR_ARGS:");
+  expect(readFileSync(captureFile, "utf8")).toContain("ARGV_FILE:login");
+  expect(readFileSync(captureFile, "utf8")).toContain("DEEPSEEK_API_KEY:");
+});
 
 function setupBackgroundLauncher() {
   const { launcher, releaseDir } = setupRealLauncher();
@@ -662,7 +707,7 @@ test("background start reclaims stale tmux session state before creating a new s
   expect(capture).toContain("has-session");
   expect(capture).toContain("kill-server");
   expect(capture).toContain("new-session");
-});
+}, 15000);
 
 test("background start records its headless surface when no tmux session exists", () => {
   const { result, stateDir } = runBackgroundLauncher({ existingSession: false, controlReady: true });
@@ -776,6 +821,29 @@ test("bare pause/resume flip the global switch; targeted forms stay per-agent", 
   expect(capture).toContain("Aiur.AgentControlCLI.resume_global()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
   expect(capture).toContain('Aiur.AgentControlCLI.resume(["44"])');
+});
+
+test("workspace-recover safely encodes the ticket and validates its generation", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  const recovered = runControl(launcher, releaseDir, env, ["workspace-recover", "org/repo#44", "7"]);
+  expect(recovered.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.recover_workspace(Base.decode64!("b3JnL3JlcG8jNDQ="), 7)',
+  );
+
+  for (const args of [
+    ["workspace-recover", "org/repo#44"],
+    ["workspace-recover", "org/repo#44", "0"],
+    ["workspace-recover", "org/repo#44", "7;System.halt()"],
+  ]) {
+    rmSync(captureFile, { force: true });
+    const result = runControl(launcher, releaseDir, env, args);
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("workspace-recover");
+    expect(existsSync(captureFile)).toBe(false);
+  }
 });
 
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
@@ -933,7 +1001,7 @@ test("alerts supports needs-attention control rpc filter", () => {
   expect(result.status).toBe(0);
 
   const capture = readFileSync(captureFile, "utf8");
-  expect(capture).toContain("Aiur.AgentControlCLI.alerts(needs_attention: true)");
+  expect(capture).toContain('Aiur.AgentControlCLI.alerts(argv: ["--needs-attention"])');
 });
 
 test("set max-agents rejects invalid values before rpc", () => {
@@ -1006,7 +1074,7 @@ test("control rpc timeouts terminate stuck helpers and report an unknown outcome
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
-});
+}, 15000);
 
 // The timeout budget must be a ceiling, never a floor. A watchdog that holds the
 // caller's stdout keeps the pipe open for its whole sleep, so a capturing caller

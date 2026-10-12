@@ -19,6 +19,8 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   #     zero — the bound is delivery latency (#2313), not the `0` cadence.
   use ExUnit.Case, async: false
 
+  import Aiur.TestSupport, only: [receive_barrier: 1]
+
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
@@ -29,13 +31,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   @delivery_staleness_ms 300_000
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   # #2309/#2399, new model: an on-demand catalog (`planning: 0`) buys the boot
@@ -63,20 +59,20 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
     # success scheduling is independently suppressed under the event-sourced
     # model; the timer assertion alone cannot distinguish removal of this
     # on-demand branch.
-    :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, [{:_, [], [{:return_trace}]}], [:local])
+    :erlang.trace_pattern({GraphProjection.Schedule, :no_schedule?, 3}, [{:_, [], [{:return_trace}]}], [:local])
     :erlang.trace(projection, true, [:call])
 
     on_exit(fn ->
-      :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, false, [:local])
+      :erlang.trace_pattern({GraphProjection.Schedule, :no_schedule?, 3}, false, [:local])
     end)
 
     Agent.update(authority, &%{&1 | generation: 2})
     assert %Snapshot{data: %Catalog{}} = GraphProjection.catalog(projection)
 
-    assert_receive {:trace, ^projection, :return_from, {GraphProjection, :no_schedule?, 3}, true}, 1000
+    assert_receive {:trace, ^projection, :return_from, {GraphProjection.Schedule, :no_schedule?, 3}, true}, 1000
 
     :erlang.trace(projection, false, [:call])
-    :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, false, [:local])
+    :erlang.trace_pattern({GraphProjection.Schedule, :no_schedule?, 3}, false, [:local])
 
     assert :sys.get_state(projection).active_configuration_generation == 2
     assert catalog_entry(projection).timer == nil
@@ -92,9 +88,8 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
     reader = await_reader(:catalog)
     finish(reader, {:error, :transport})
 
-    # Synchronous barrier: the catalog call queues behind the reader-result
-    # message, so once it answers the failure handler has run.
-    GraphProjection.catalog(projection)
+    # The failure broadcast confirms the reader result was processed.
+    receive_barrier({:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog, health: %{failure: :transport}}}})
 
     state = :sys.get_state(projection)
     # The failed read kept a retry deadline...

@@ -22,6 +22,11 @@ source.
   the same JSON. An Executor never needs to know NDJSON record shapes or which
   of the four instance dirs is live.
 
+GitHub `pr.opened` anchors use `created_at`, then the event timestamp.
+`pr.merged` uses `merged_at`, then `closed_at`, then the event timestamp.
+Regenerate existing summaries with `analytics/reduce --all`, supplying the original
+`--github-events` inputs if used, to pick up fixes.
+
 ## Outputs — per-repo state node
 
 Materialized outputs live in the per-repo state node (`RepoBase.repo_path/1`,
@@ -31,6 +36,8 @@ Materialized outputs live in the per-repo state node (`RepoBase.repo_path/1`,
 ~/.aiur/repo/<owner>/<name>/
 ├── analytics/
 │   ├── runs/<boot-id>/run-summary.json     # one reduced dataset per boot
+│   ├── repo-timeline.ndjson                # commits, main-red boundaries and tags
+│   ├── facts-pending.json                  # durable terminal-ticket capture queue
 │   └── flakes.ndjson                       # reserved (flake-report; blocked)
 └── builds/<slug>/build-summary.json        # rollup across every boot touching a member
 ```
@@ -40,6 +47,22 @@ application writer (`reduce --build <slug>` / the daemon's summary writer).
 Build-order packs still load from the in-repo `.aiur/build_orders/*.json`
 (`planning_source.ex`); the state-node `builds/<slug>/build-order.json` remains
 Executor-placed.
+
+PR facts are captured at merge or terminal ticket observation as body-free `pr_facts`
+lifecycle points, including ready/review/approval times, review counts/classes,
+size, merge SHA and epic. Both reducers carry these fields into ticket summaries.
+`FactsCapture.capture/1` queues historical terminal tickets for backfill.
+The completion journal retains 10,000 recent trigger keys (two per merged ticket);
+evicted backfills may capture again.
+
+`repo-timeline.ndjson` follows `schema/repo-timeline.v1.json`. The daemon reads
+base-branch history and tags at boot and hourly, deduplicating rows across boots.
+Pending CI rollups leave red intervals unchanged; revert messages are classified
+in memory and never stored. Non-ticket merges have `ticket: null`. GitHub
+budget holds defer capture; three failed PR reads record unavailable coverage.
+Other timeline failures back off exponentially from one minute to one hour.
+Unresolvable revert targets stay null; unsupported or missing tags are skipped.
+`observability.capture_github_facts: false` disables both GitHub capture paths.
 
 ## Tools
 
@@ -101,3 +124,35 @@ so a regression in the reducer fails the build rather than passing silently.
 - **Schema discipline.** `run-summary.v1.json` and `flake-report.v1.json` are
   the contracts. Bump a schema file (new version) rather than mutating a
   released one in place.
+
+## Statistics core
+
+`analytics.stats` supplies experiment primitives without a runtime dependency:
+Hyndman-Fan type-7 descriptives, Mann-Whitney U, Hodges-Lehmann/Moses shift
+intervals, Cliff's delta, permutation and BCa bootstrap inference, Fisher exact,
+Newcombe proportion differences, and conditional exact Poisson rate ratios.
+Rank shifts and Cliff's delta use B minus A; count differences and rate ratios
+use group 1 versus group 2. Inference results name their method. U uses exact
+integer DP without ties up to `n1*n2 = 2500`, then a tie/continuity-corrected
+normal approximation. Moses intervals follow the same cutoff; normal intervals
+are approximate, and insufficient samples for the requested coverage give
+unbounded endpoints. `min_achievable_p` assumes untied observations.
+
+Sampling uses our PCG32 stream; `seed_from(*strings)` hashes length-framed UTF-8
+parts with SHA256 (documented byte order in `stats/rng.py`). Permutation callers
+supply a null-centered contrast; two-sided p counts absolute extremeness with
+`(b+1)/(m+1)`. Bootstrap draws each group independently, optionally within fixed
+strata, and shares draws across all supplied statistics. Degenerate jackknives
+fall back to percentile intervals. Bootstrap `mc_se` is the Monte Carlo error
+of the bootstrap mean, not uncertainty in interval endpoints.
+
+The committed reference fixture in `tests/fixtures/stats/goldens.json` was
+produced independently by `generate_goldens.py` with Python 3.12, NumPy 2.1.3,
+SciPy 1.14.1, statsmodels 0.14.4 and R 4.5.0. To regenerate deliberately, install
+those reference tools in a separate environment and run
+`python analytics/tests/fixtures/stats/generate_goldens.py`. CI reads the JSON
+using only stdlib unittest; it never runs the generator. Exact p-values are
+checked to `1e-9`, special functions to `1e-10` relative error, and bootstrap
+endpoints to 2% of the fixture's pooled range (20,000 PCG draws versus 100,000
+independent reference draws). R confidence goldens use achievable coverages;
+R warns and reduces coverage when a requested small-sample interval is impossible.

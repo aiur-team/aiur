@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
@@ -30,7 +29,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
   def note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
-    detail = Orchestrator.connectivity_detail(reason)
+    detail = connectivity_detail(reason)
 
     if classification == :unclassified do
       # F2 of #2429: a reason this classifier does not recognize is itself a
@@ -362,15 +361,23 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @spec ensure_tracker_preflight(State.t()) :: {:ok, State.t()} | {:error, term(), State.t()}
   def ensure_tracker_preflight(%State{} = state) do
+    case tracker_preflight() do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  @spec tracker_preflight() :: :ok | {:error, term()}
+  def tracker_preflight do
     case Config.validate!() do
       :ok ->
         case Config.tracker_kind() do
-          "github" -> ensure_github_auth_preflight(state)
-          _ -> {:ok, state}
+          "github" -> GitHubTracker.ensure_auth_preflight()
+          _ -> :ok
         end
 
       {:error, reason} ->
-        {:error, reason, state}
+        {:error, reason}
     end
   end
 
@@ -379,12 +386,6 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # requests an hour at idle. The memo behind it is dropped the moment GitHub
   # answers a call unauthenticated, so a revoked token still lands here as the
   # normal preflight diagnostic on the next cycle.
-  defp ensure_github_auth_preflight(%State{} = state) do
-    case GitHubTracker.ensure_auth_preflight() do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:error, reason, state}
-    end
-  end
 
   @spec log_tracker_preflight_error(term()) :: :ok
   def log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
@@ -438,4 +439,15 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       _ -> "tracker"
     end
   end
+
+  @doc false
+  @spec connectivity_detail(term()) :: map()
+  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
+
+  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
+
+  def connectivity_detail({:github_api_status, status}) when is_integer(status),
+    do: %{status: status}
+
+  def connectivity_detail(_reason), do: %{}
 end

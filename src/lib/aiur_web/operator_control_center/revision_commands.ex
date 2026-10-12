@@ -5,7 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.DecisionStore
+  alias Aiur.Commands
   alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.DecisionCommands
   alias Phoenix.LiveView.Socket
@@ -154,13 +154,13 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   end
 
   defp safe_revise(decision_id, payload) do
-    DecisionStore.revise(decision_id, payload, [actor: DecisionCommands.actor()], decision_store())
+    Commands.revise(decision_id, payload, [actor: DecisionCommands.actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
 
   defp safe_handle_follow_up(decision_id, action_id, detail) do
-    DecisionStore.handle_revision_follow_up(
+    Commands.handle_revision_follow_up(
       decision_id,
       action_id,
       [actor: DecisionCommands.actor(), detail: detail],
@@ -280,5 +280,5 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   defp follow_up_detail(form) when is_map(form), do: form |> Map.get("detail") |> trim_string()
   defp follow_up_detail(_form), do: ""
 
-  defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
+  defp decision_store, do: Endpoint.config(:decision_store) || Commands.default_store()
 end

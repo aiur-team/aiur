@@ -8,7 +8,8 @@ defmodule AiurWeb.BuildOrder.RouteState do
   catalog).
   """
 
-  alias Aiur.BuildOrder.{Bounded, Catalog, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
 
@@ -302,6 +303,7 @@ defmodule AiurWeb.BuildOrder.RouteState do
     cond do
       not same_repository?(current.repository, incoming.repository) -> {:ok, incoming}
       newer_generation?(incoming.generation, current.generation) -> {:ok, incoming}
+      same_generation?(incoming.generation, current.generation) and overlay_changed?(current, incoming) -> {:ok, incoming}
       same_generation?(incoming.generation, current.generation) -> {:ok, %{current | health: incoming.health}}
       true -> :ignored
     end
@@ -314,6 +316,9 @@ defmodule AiurWeb.BuildOrder.RouteState do
       newer_generation?(incoming.generation, current.generation) ->
         {:ok, :generation, incoming}
 
+      same_generation?(incoming.generation, current.generation) and overlay_changed?(current, incoming) ->
+        {:ok, :generation, incoming}
+
       same_generation?(incoming.generation, current.generation) ->
         {:ok, :health, %{current | health: incoming.health}}
 
@@ -321,6 +326,10 @@ defmodule AiurWeb.BuildOrder.RouteState do
         :ignored
     end
   end
+
+  # Local pack publication/removal can change structure between provider generations.
+  defp overlay_changed?(current, %Snapshot{pack_overlay?: true} = incoming), do: current.data != incoming.data
+  defp overlay_changed?(_current, _incoming), do: false
 
   defp selected_snapshot_for_state?(%Snapshot{scope: {:selected, identity}, repository: repository}, state) do
     same_identity?(identity, state.selected_identity) and same_repository?(identity, repository)

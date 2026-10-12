@@ -270,6 +270,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ ~s(aria-disabled="false")
   end
 
+  test "renders the selected account on a unit row" do
+    html = render(view([Map.put(row(), :account, "max")]))
+    assert html =~ ~s(class="u-pill u-account">max</span>)
+  end
+
   test "renders resume for an applied-paused unit" do
     row = put_in(row(), [:runtime, :work_state], :paused)
     html = render_controls([row], %{}, true)
@@ -431,6 +436,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       requested_model: "gpt-5.6-terra",
       resolved_model: "gpt-5.6",
       effort: :high,
+      account: nil,
       complexity: 3,
       build_lane: "L2",
       reasons: %{

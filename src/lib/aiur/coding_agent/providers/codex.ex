@@ -12,6 +12,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       adapter: Aiur.Codex.CodingAgent,
       transcript: Aiur.Codex.Transcript,
       family: "codex",
+      accounts: %{kind: :profile, multi: :available, usage: :codex_probe, supported: true},
       default: true,
       rate_limit_fallback: "claude",
       rate_limit_fallback_target: false,

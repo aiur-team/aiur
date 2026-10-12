@@ -9,7 +9,7 @@ defmodule Aiur.Opencode.ChatCompletions.InputIdentityTest do
 
   setup do
     token = "input-parts-#{System.unique_integer([:positive])}"
-    :ok = TokenRegistry.put(token, 93, 1)
+    :ok = TokenRegistry.put(token, 93, 1, [])
 
     connection =
       conn(:post, "/v1/chat/completions")

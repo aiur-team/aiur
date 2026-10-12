@@ -48,8 +48,6 @@ defmodule Aiur.ProcessReaper do
 
   require Logger
 
-  alias Aiur.Claude.RemoteControl
-
   @type kind :: :agent | :serve
   @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()}
 
@@ -70,7 +68,7 @@ defmodule Aiur.ProcessReaper do
     * `:comm` — substring expected in `/proc/<pid>/cmdline`; guards against
       pid reuse. Pane refs need no guard.
     * `:ticket` / `:backend` — non-sensitive actor attribution for runtime
-      observers such as debug telemetry.
+      observers such as run telemetry.
     * `:worker_host` / `:remote` — identifies roots that execute remotely and
       therefore cannot be sampled from the daemon host.
 
@@ -286,10 +284,19 @@ defmodule Aiur.ProcessReaper do
 
   defp default_killers do
     %{
-      kill_tree: &RemoteControl.graceful_kill_tree/1,
-      kill_pane: &Aiur.Tmux.kill_pane/1,
+      kill_tree: &Aiur.ProcessTree.graceful_kill_tree/1,
+      kill_pane: &kill_pane/1,
       cmdline_reader: &read_cmdline/1
     }
+  end
+
+  # The pane killer belongs to the TUI above this module, so the composition
+  # root supplies it; a build without the TUI never registers a pane.
+  defp kill_pane(pane_id) do
+    case Application.get_env(:aiur, :process_reaper_pane_killer) do
+      {module, function} -> apply(module, function, [pane_id])
+      nil -> :ok
+    end
   end
 
   defp kill_entry({{:os_pid, pid}, kind, meta}, killers) do

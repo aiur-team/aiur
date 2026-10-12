@@ -66,10 +66,19 @@ defmodule Aiur.Webhooks.ModeTable do
   """
   @spec transport(String.t()) :: DeliveryMode.transport()
   def transport(repo) do
-    with_table(:polling, fn table ->
+    case mode(repo) do
+      nil -> :polling
+      mode -> DeliveryMode.transport(mode)
+    end
+  end
+
+  @doc "Returns the full recorded delivery mode, or nil when unrecorded or not running."
+  @spec mode(String.t()) :: DeliveryMode.t() | nil
+  def mode(repo) do
+    with_table(nil, fn table ->
       case :ets.lookup(table, normalize(repo)) do
-        [{_repo, mode}] -> DeliveryMode.transport(mode)
-        _unrecorded -> :polling
+        [{_repo, mode}] -> mode
+        _unrecorded -> nil
       end
     end)
   end

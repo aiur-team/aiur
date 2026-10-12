@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
   alias Aiur.{GitHub.Client, GitHub.DispatchAuthorization, GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+  alias Aiur.Orchestrator.{IssueSync, State}
 
   # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
   # run: it answers `304` to anything carrying a validator — its ETag tracks the
@@ -280,6 +281,61 @@ defmodule Aiur.GitHub.IssuesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "complete paginated polls record all labels with no extra requests" do
+      alias Aiur.GitHub.OpenIssueSnapshot
+      OpenIssueSnapshot.reset()
+      on_exit(fn -> OpenIssueSnapshot.reset() end)
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
+      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
+      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+      parent = self()
+      base_url = "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+      second_url = base_url <> "&page=2"
+
+      issue = fn number ->
+        %{"number" => number, "title" => "Open issue", "labels" => [%{"name" => "AGENT:QUEUED"}, %{"name" => "sym:done"}], "updated_at" => "2026-10-06T00:00:00Z"}
+      end
+
+      request_fun = fn request ->
+        send(parent, {:list_request, request.url})
+
+        cond do
+          Map.has_key?(request, :etag) -> {:ok, %{status: 304, headers: []}}
+          request.url == base_url -> {:ok, %{status: 200, headers: [{"etag", "page-one"}, {"link", "<#{second_url}>; rel=\"next\""}], body: [issue.(7)]}}
+          request.url == second_url -> {:ok, %{status: 200, headers: [{"etag", "page-two"}], body: [issue.(8)]}}
+          true -> flunk("unexpected request: #{request.url}")
+        end
+      end
+
+      expected = Map.new(["7", "8"], &{&1, %{labels: ["agent:queued", "sym:done"], updated_at: ~U[2026-10-06 00:00:00Z]}})
+      assert {:ok, []} = Issues.fetch_candidate_issues(request_fun: request_fun)
+      assert_received {:open_issues_recorded, first_time}
+      assert {:ok, ^expected, ^first_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert_received {:list_request, ^base_url}
+      assert_received {:list_request, ^second_url}
+      refute_received {:list_request, _}
+      assert {:ok, [], cache} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+      assert_received {:open_issues_recorded, _}
+      assert_received {:list_request, ^base_url}
+      assert_received {:list_request, ^second_url}
+      refute_received {:list_request, _}
+      assert {:ok, [], _} = Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+      assert_received {:open_issues_recorded, cached_time}
+      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert_received {:list_request, ^base_url}
+      assert_received {:list_request, ^second_url}
+      refute_received {:list_request, _}
+
+      failed_page = fn request ->
+        if request.url == base_url, do: request_fun.(request), else: {:error, :timeout}
+      end
+
+      assert {:error, _} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: failed_page)
+      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      refute_received {:open_issues_recorded, _}
+    end
+
     test "pinned test scope skips out-of-scope provenance before dispatch authorization" do
       previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
       on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
@@ -442,6 +498,74 @@ defmodule Aiur.GitHub.IssuesTest do
       assert Enum.map(issues, & &1.id) == ["42", "44"]
 
       assert Agent.get(list_step, & &1) == 3
+    end
+
+    test "fresh non-dispatchable states survive repeated polls and next-poll zero-label healing" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["todo", "in-progress"]
+      )
+
+      for target <- ~w(ci-wait human-review error) do
+        number = System.unique_integer([:positive])
+        identifier = to_string(number)
+        previous = %Issue{id: identifier, identifier: identifier, state: "in-progress", state_labels: ["in-progress"]}
+        state = %State{last_polled_issues: %{identifier => previous}}
+        {:ok, reads} = Agent.start_link(fn -> 0 end)
+
+        request_fun = fn request ->
+          # Neither label-evidence polls nor their synchronization need a timeline or by-id read.
+          assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+          step = Agent.get_and_update(reads, &{&1, &1 + 1})
+          labels = if step < 2, do: [%{"name" => "sym:#{target}"}], else: []
+
+          {:ok,
+           %{
+             status: 200,
+             headers: [{"etag", "#{target}-#{step}"}],
+             body: [%{"number" => number, "title" => "Fresh lifecycle evidence", "state" => "open", "labels" => labels}]
+           }}
+        end
+
+        sync = fn state, issues ->
+          IssueSync.sync_polled_issue_state(
+            state,
+            issues,
+            fn ids -> flunk("unexpected per-issue fetch: #{inspect(ids)}") end,
+            fn _, _ -> :ok end,
+            MapSet.new(["done"]),
+            fn _ -> :ok end,
+            fn _, _ -> :ok end
+          )
+        end
+
+        assert {:ok, [fresh] = issues, cache} = Client.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+        assert fresh.state == target
+        refute fresh.dispatch_authorized?
+        state = sync.(state, issues)
+        assert state.last_polled_issues[identifier].state == target
+
+        assert {:ok, [fresh] = issues, cache} = Client.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+        assert fresh.state == target
+        state = sync.(state, issues)
+        assert state.last_polled_issues[identifier].state == target
+
+        assert {:ok, [missing], _cache} = Client.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+        assert missing.state_labels == []
+        parent = self()
+
+        {_, [healed]} =
+          IssueSync.reconcile_contradictory_state_labels(state, [missing], fn id, restored ->
+            send(parent, {:heal, id, restored})
+            :ok
+          end)
+
+        assert_received {:heal, ^identifier, ^target}
+        assert healed.state_labels == [target]
+        assert Agent.get(reads, & &1) == 3
+      end
     end
 
     test "the conditional path surfaces degenerate tickets for repair but excludes pull requests" do
@@ -674,7 +798,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, %Issue{blocked_by: blockers}} =
                Issues.hydrate_blocked_by(issue, request_fun: request_fun)
 
-      assert blockers == [
+      assert Enum.map(blockers, &Map.delete(&1, :observed_at_ms)) == [
                %{
                  id: "3",
                  identifier: "3",
@@ -709,7 +833,7 @@ defmodule Aiur.GitHub.IssuesTest do
 
       # The configured terminal set has no "closed" entry — the gate must still
       # let the ticket through, or a closed GitHub blocker strands its blockee.
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+      refute DispatchPolicy.todo_issue_held_by_dependency?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     # Regression for #2550 / #2552, from the aiur-team/architecture-docs run:
@@ -738,7 +862,7 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint(closed))
 
       assert blocker.state == "Closed"
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+      refute DispatchPolicy.todo_issue_held_by_dependency?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "a dependency edge deleted on GitHub clears the gate without an explicit forget (#2552)" do
@@ -754,7 +878,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, %Issue{blocked_by: []} = hydrated} =
                Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint([]))
 
-      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+      refute DispatchPolicy.todo_issue_held_by_dependency?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "an open blocker with no agent state label hydrates as unknown (fail-closed at the gate)" do
@@ -994,13 +1118,13 @@ defmodule Aiur.GitHub.IssuesTest do
       candidates = [repo_local, Path.join([dir, "repo", ".aiurconfig"]), global, Path.join([dir, "home", ".aiurconfig"])]
       assert Workflow.resolve_config_path(candidates) == repo_local
 
-      Workflow.set_workflow_file_path(repo_local)
       :persistent_term.put(@origin_cache_key, "acme/widgets")
+      Workflow.set_workflow_file_path(repo_local)
 
       on_exit(fn ->
-        :persistent_term.erase(@origin_cache_key)
         Workflow.set_workflow_file_path(previous_path)
-        File.rm_rf!(dir)
+        :persistent_term.erase(@origin_cache_key)
+        Aiur.TestCleanup.rm_rf!(dir)
       end)
 
       issue = %{"number" => 20, "node_id" => "I_kwDOIssue20", "labels" => []}
@@ -1067,6 +1191,21 @@ defmodule Aiur.GitHub.IssuesTest do
       issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
       assert issue.paused == true
       assert issue.state == "in-progress"
+    end
+
+    test "queued marker is not a state label" do
+      for prefix <- ["agent", "aiur"] do
+        gh = %{"number" => 19, "title" => "Queued", "state" => "open", "labels" => [%{"name" => "#{prefix}:todo"}, %{"name" => " #{String.upcase(prefix)}:QUEUED "}]}
+        issue = Issues.normalize_issue(gh, "owner", "repo", prefix)
+        assert issue.state_labels == ["todo"]
+        assert issue.state == "todo"
+        assert issue.queued == true
+        assert Aiur.Issue.queued?(issue)
+        refute Issues.normalize_issue(%{gh | "labels" => [%{"name" => "other:queued"}]}, "owner", "repo", prefix).queued
+      end
+
+      refute Aiur.Issue.queued?(%Aiur.Issue{})
+      refute Aiur.Issue.queued?(nil)
     end
 
     test "marks parked issues and keeps the marker out of workflow state selection" do

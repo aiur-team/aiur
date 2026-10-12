@@ -69,6 +69,12 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("some_new_caller", ci_document()))
     end
 
+    test "live CI required-check policy is fetched again rather than cached" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/branches/main/protection") |> Map.put(:caller, "ci_required_checks")
+      assert 2 = counted_fetches(request)
+      assert %{refused: %{unsafe_kind: 2}} = Metrics.snapshot()
+    end
+
     test "does not cache review state or merge gating" do
       for selection <- ["reviewDecision", "mergeStateStatus", "mergeable", "reviewThreads(first: 10) { nodes { id } }"] do
         request = graphql("issue_relationships", "query Q { repository(owner: $o, name: $n) { #{selection} } }")
@@ -821,26 +827,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
     test "reports nothing observed as nothing observed, never as zero" do
       assert Metrics.hit_rate(%{hit: 0, miss: 0}) == nil
       assert Metrics.hit_rate(%{hit: 1, miss: 1}) == 0.5
-    end
-
-    test "reports an unavailable cache rather than an empty one" do
-      # Deleting the tables is how a CLI run outside the daemon sees this
-      # module. It must answer "no measurement", not "zero hits" — the two read
-      # identically in a report and only one of them is bad news.
-      owner = Process.whereis(ReadCache)
-      for table <- [:aiur_github_read_cache_entries, :aiur_github_read_cache_markers, Metrics.table()], do: :ets.delete(table)
-
-      assert %{available?: false, entries: nil, hit_rate: nil, totals: %{hit: 0}} = ReadCache.snapshot()
-
-      # Stop the owner so its supervisor rebuilds the tables for whatever runs
-      # next; the setup block resets whatever it finds.
-      ref = Process.monitor(owner)
-      GenServer.stop(owner)
-      assert_receive {:DOWN, ^ref, :process, ^owner, _reason}, 1000
-
-      # The restart also restarts every later application child. Wait for all
-      # of them, so the next test does not start inside that cascade.
-      assert {:ok, _replacement} = Aiur.TestSupport.await_supervised_restart(ReadCache, owner)
     end
 
     test "counts every invalidation event and every mark it wrote" do

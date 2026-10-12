@@ -108,10 +108,26 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
         ])
 
       grid = BuildOrderGridModel.build(model, nil)
-      assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
+      assert grid.overall_completion == %{progress: 80, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
       assert hd(grid.columns).core?
       assert hd(grid.columns).completion.progress_resolution == :partial
       assert hd(grid.waves).completion.progress_resolution == :partial
+    end
+
+    test "wave and lane progress includes the weight of open members without readings" do
+      nodes =
+        Enum.map(1..41, fn i ->
+          node(i, "T#{i}", "plan-graph", 0, complexity: 2, status: if(i <= 12, do: :status_completed, else: :status_ready))
+        end)
+
+      grid = BuildOrderGridModel.build(model(nodes), nil)
+
+      for completion <- [grid.overall_completion, hd(grid.waves).completion, hd(grid.columns).completion] do
+        assert completion.progress == 29
+        assert completion.progress_resolution == :partial
+        assert completion.progress_resolved_count == 12
+        assert completion.member_count == 41
+      end
     end
 
     test "a wave and epic whose members are all terminal report resolved" do

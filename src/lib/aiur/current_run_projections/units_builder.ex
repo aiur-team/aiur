@@ -2,7 +2,7 @@ defmodule Aiur.CurrentRunProjections.UnitsBuilder do
   @moduledoc false
 
   alias Aiur.CurrentRunProjections.WeightFacts
-  alias AiurWeb.OperatorControlCenter.UnitsRow
+  alias Aiur.Projections.UnitsRow
 
   @spec build(map(), map(), map(), map(), (map() -> map())) :: map()
   def build(sources, availability, retained_weights, membership, snapshot_fun) do

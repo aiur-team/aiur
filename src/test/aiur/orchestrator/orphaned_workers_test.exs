@@ -5,15 +5,11 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   alias Aiur.Orchestrator.{Lifecycle, OrphanedWorkers, State}
   alias Aiur.Workspace.Ownership
 
-  # #2705: an Orchestrator crash leaves its runner tasks (and their workspace
-  # leases) alive under `:rest_for_one`. The restarted Orchestrator must stop
-  # them and redispatch the ticket, not refuse it as a live session forever.
+  # #2705: after a crash, stop orphaned lease-holding runners and redispatch their ticket.
   test "a restarted Orchestrator stops the runner its predecessor left holding a lease and redispatches the ticket" do
-    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("restart")
+    %{issue: %Issue{id: issue_id, identifier: identifier} = issue} = prepare_workflow!("restart", "Todo")
     name = Module.concat(__MODULE__, "Restart#{System.unique_integer([:positive])}")
-
-    # The initial poll dispatches the in-progress ticket to a real runner that
-    # parks on the failing before_run hook while holding its lease.
+    # The initial poll's runner parks on the failing before_run hook while holding its lease.
     start_supervised!(Supervisor.child_spec({Orchestrator, name: name}, restart: :permanent))
     first = Process.whereis(name)
 
@@ -21,9 +17,9 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     kill_on_exit(orphan)
     {:ok, orphan_lease} = Ownership.current(identifier)
     orphan_ref = Process.monitor(orphan)
-
-    # Kill the Orchestrator. The test supervisor restarts it from the same
-    # child spec, as `Aiur.Supervisor` does after a crash.
+    # The tracker claim survives the crash; the staged redispatch must not wait out orphan recovery grace.
+    Application.put_env(:aiur, :memory_tracker_issues, [%{issue | state: "In Progress", labels: ["agent:in-progress"]}])
+    # Restart completion waits for init cleanup; process registration alone is too early.
     Process.exit(first, :kill)
     second = await_restart(name, first)
 
@@ -39,7 +35,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert {:ok, %{generation: generation}} = Ownership.current(identifier)
     assert generation != orphan_lease.generation
 
-    assert live_session_alerts(identifier) == 0
+    assert live_session_alerts(identifier) == []
   end
 
   test "a runner that reports to a live Orchestrator without a running entry is stopped and redispatched" do
@@ -72,7 +68,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     kill_on_exit(runner)
     assert runner != orphan
 
-    assert live_session_alerts(identifier) == 0
+    assert live_session_alerts(identifier) == []
   end
 
   test "a runner that reports to another live process is left running" do
@@ -99,7 +95,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   end
 
   test "a tracked runner survives repeated ticks on the same lease generation" do
-    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("tracked")
+    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("tracked", "Todo")
     orchestrator = start_supervised!({Orchestrator, []})
 
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
@@ -397,10 +393,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   defp unique_name(label), do: Module.concat(__MODULE__, "#{label}#{System.unique_integer([:positive])}")
 
   defp await_generation_released(identifier, generation) do
-    assert eventually(
-             fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end,
-             15_000
-           )
+    assert eventually(fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end, 15_000)
   end
 
   defp claim_in_process(identifier, holder) do
@@ -447,10 +440,10 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       {:ok, contents} ->
         contents
         |> String.split("\n", trim: true)
-        |> Enum.count(&(Jason.decode!(&1)["topic"] == topic))
+        |> Enum.filter(&(Jason.decode!(&1)["topic"] == topic))
 
       {:error, _missing} ->
-        0
+        []
     end
   end
 
@@ -463,7 +456,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
              15_000
            )
 
-    Process.whereis(name)
+    Process.whereis(name) |> tap(fn pid -> :sys.get_state(pid, 15_000) end)
   end
 
   defp eventually(fun, timeout_ms) do
@@ -485,7 +478,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     end
   end
 
-  defp prepare_workflow!(name) do
+  defp prepare_workflow!(name, state \\ "In Progress") do
     test_root = Aiur.TestSupport.tmp_root!("orphaned-workers-#{name}")
     workspace_root = Path.join(test_root, "workspaces")
     identifier = "ORPH-#{System.unique_integer([:positive])}"
@@ -494,12 +487,12 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       id: "issue-#{identifier}",
       identifier: identifier,
       title: "Orphaned runner",
-      state: "In Progress",
-      labels: ["agent:in-progress"]
+      state: state,
+      labels: ["agent:" <> String.replace(String.downcase(state), " ", "-")]
     }
 
     File.mkdir_p!(test_root)
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     # A failing before_run hook parks the runner in a paused provisioning
     # state that holds its workspace lease until something stops it.

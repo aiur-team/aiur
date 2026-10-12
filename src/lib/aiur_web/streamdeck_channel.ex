@@ -1,9 +1,8 @@
 defmodule AiurWeb.StreamdeckChannel do
   @moduledoc false
-
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentControlCLI, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
@@ -27,16 +26,17 @@ defmodule AiurWeb.StreamdeckChannel do
           }
         } = socket
       ) do
-    :ok = AgentPubSub.subscribe_running()
-    :ok = AgentPubSub.subscribe_status()
+    Process.flag(:message_queue_data, :off_heap)
+    latch = :atomics.new(1, [])
+    :ok = AiurWeb.StreamdeckFleetUpdates.subscribe(latch)
     :ok = ProviderMeterEvents.subscribe_observed()
-    :ok = DecisionPubSub.subscribe()
+    :ok = Commands.subscribe()
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil)}
+    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -75,6 +75,7 @@ defmodule AiurWeb.StreamdeckChannel do
   live agent offers Pause. See `handle_in("control", %{"action" => "implement"})`
   below for why it goes through the CLI's own queue path.
   """
+
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
     result =
@@ -231,7 +232,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot() |> Map.put("grid", StreamdeckProjection.grid()))
+    push(socket, "snapshot", StreamdeckProjection.snapshot())
     {:noreply, socket}
   end
 
@@ -242,26 +243,8 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
-  def handle_info({:running_changed, summaries}, socket) when is_list(summaries) do
-    push(
-      socket,
-      "fleet",
-      StreamdeckProjection.fleet()
-      |> Map.put("agents", StreamdeckProjection.fleet_agents(summaries))
-      |> Map.put("grid", StreamdeckProjection.grid())
-    )
-
-    {:noreply, socket}
-  end
-
-  # `agents:status` carries agent-list pane visibility (for example
-  # `:pane_opened`), not the fleet status named by this channel's public
-  # contract. Translate it to a fresh fleet projection instead of leaking the
-  # implementation detail to devices.
-  def handle_info({:status_changed, %{identifier: _identifier, status: _status}}, socket) do
-    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put("grid", StreamdeckProjection.grid()))
-    {:noreply, socket}
-  end
+  def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+  def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
 
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
     push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))
@@ -302,18 +285,18 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_transcript, kind, text}, %{assigns: %{voice_session: %{id: session}}} = socket)
+  def handle_info({:voice_transcript, kind, text}, %{assigns: %{voice_session: %{id: session}}} = socket)
       when kind in [:partial, :final] and is_binary(text) do
     push(socket, "voice", %{"session" => session, "kind" => Atom.to_string(kind), "text" => text})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_error, reason}, %{assigns: %{voice_session: %{id: session}}} = socket) do
+  def handle_info({:voice_error, %{message: reason}}, %{assigns: %{voice_session: %{id: session}}} = socket) do
     push(socket, "voice_error", %{"session" => session, "reason" => reason_text(reason)})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_closed}, %{assigns: %{voice_session: %{id: session, ref: ref}}} = socket) do
+  def handle_info({:voice_closed}, %{assigns: %{voice_session: %{id: session, ref: ref}}} = socket) do
     Process.demonitor(ref, [:flush])
     push(socket, "voice_closed", %{"session" => session})
     {:noreply, assign(socket, :voice_session, nil)}
@@ -390,9 +373,9 @@ defmodule AiurWeb.StreamdeckChannel do
 
   defp drain_voice_messages do
     receive do
-      {:elevenlabs_transcript, _kind, _text} -> drain_voice_messages()
-      {:elevenlabs_error, _reason} -> drain_voice_messages()
-      {:elevenlabs_closed} -> drain_voice_messages()
+      {:voice_transcript, _kind, _text} -> drain_voice_messages()
+      {:voice_error, _error} -> drain_voice_messages()
+      {:voice_closed} -> drain_voice_messages()
     after
       0 -> :ok
     end
@@ -570,7 +553,7 @@ defmodule AiurWeb.StreamdeckChannel do
     # go through `Aiur.DecisionStore.answer/5` with the server passed as the
     # fourth argument, exactly as the dashboard's decision commands do. Calling
     # `store.answer/4` would `apply/3` a pid as a module and fail.
-    case Aiur.DecisionStore.answer(decision_id, answer, [actor: actor], store) do
+    case Commands.answer(decision_id, answer, [actor: actor], store) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
     end
@@ -605,5 +588,5 @@ defmodule AiurWeb.StreamdeckChannel do
   defp build_answer_payload(_payload), do: {:error, :invalid_answer}
 
   defp command_store(_socket), do: command_store()
-  defp command_store, do: Endpoint.config(:decision_store) || Aiur.DecisionStore
+  defp command_store, do: Endpoint.config(:decision_store) || Commands.default_store()
 end

@@ -2,6 +2,8 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
+High-rate snapshot notifications on Home, Units, Commands, Build Orders, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+
 ## Open the GUI
 
 | Launch condition | GUI result |
@@ -27,8 +29,9 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Units** | `/` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
-| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. | `aiur analytics` |
-| **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
+| **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
+| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. The page opens with a loading message while telemetry is analyzed in the background; concurrent cold loads share one retained-summary scan. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. A notice identifies periods with analytics capture disabled. | `aiur analytics` |
+| **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
@@ -36,7 +39,19 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/decisions` and `/decisions/:decision_id` | Redirect permanently to the `/commands` equivalents. |
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
 
+On narrow screens, scroll within the **Build queue** table to see prerequisites, ranks and attentions.
+
 The operator-facing UI and CLI call these records **Commands**.
+
+Open the settings cog in the sticky top bar to pause or resume all agents, change the theme, or switch between Gruvbox (the default) and the aiur palette. Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “All agents paused” chip appears only when pause is confirmed.
+
+The theme follows your operating system until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
+
+Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
+
+The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts). Each line shows the percentage used, a bar, and the reset time next to a recycle icon. Freshness and observation age are in the line's tooltip. A missing reading shows `unknown`, not zero.
+
+The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
 Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
 
@@ -50,7 +65,22 @@ GUI data tables sort by their meaningful column headings. The first click sorts 
 
 The fleet table's **Context** column shows each agent's observed context occupancy when its provider reports it. If the provider reports used tokens without a window size, the table says **unknown capacity**; an absent observation shows **—**.
 
+Fleet and capacity facts show their observation age, including fresh data. Tracker rows and retry failures retain their source ages; unknown observations say `age unavailable`. Retry rows identify `since daemon start <UTC time>` because retry state resets on restart. These observations come from the same status read model as `aiur status` and `aiur agents`.
+
+A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github#who-aiur-trusts).
+
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
+
+The temporary, unlinked `/build` route previews the build timeline loading shell.
+It requires dashboard authentication; the production data source is not wired yet.
+
+Its links retain view, span, feature focus, filters and ticket selection in
+`view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
+`live`, `trees` and `ticket`. Invalid values are removed.
+
+Legacy Units
+parameters (`v`, `scope`, `conditions`) at this preview route become agent-state
+or ticket-state presets. The hook bridge replaces the current history entry.
 
 ## The pages
 
@@ -63,22 +93,41 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 
+### Read a Build Order program
+
+Normal releases include discovered state-node planning packs on `/build-orders`
+and `/build-orders/:root_number`. Pack members without GitHub issues appear as
+drafts; promoted members use live issue state when available.
+
+Pack workstreams name the epic columns, and pack phases name the rows, including
+phase zero.
+Click an epic heading to collapse or expand its cards; counts remain visible.
+External gates appear in an expandable list above the graph.
+
+A bounded GitHub catalog preview reports how many members were read out of the
+reported total when truncated. The selected GitHub read also remains bounded;
+an installed planning pack supplies its full membership. Missing live membership
+or ticket status remains explicit even when the plan is readable.
+
+Open a draft card to read its local document. Descriptions longer than 4,000
+bytes show a sanitized preview and a **Full document** link to the authenticated
+pack document, or the issue for promoted tickets. Documents are read-only.
+
 ### Read fleet and build pressure
 
 Analytics records fleet and build-gate whole-host sources alongside daemon process
 telemetry. The pressure chart shows occupied agents, configured/max/effective
 agent capacity, active and queued builds, and the oldest live build wait.
 
-Its source state strip and timestamped data table distinguish current, stale,
-degraded, partial, and empty observations. The table additionally reports the
-binding admission signal and the measured load against its threshold, so a growing
-build queue with load far below threshold reads as build-gate-saturated rather
-than host-saturated.
+Its source strip and timestamped table distinguish current, stale, degraded,
+partial and empty observations. Load stays diagnostic. Dispatch uses CPU PSI when
+available; status names its threshold or load fallback. A growing build queue
+shows verification throttling; build occupancy does not hold dispatch.
 
 A gap means the source was not current enough to support that value; it is never
 silently plotted as zero. Build-queue wait is the oldest waiter still live at the
 sample time, not a completed-build latency. These measurements expose when the
-build gate is the fleet constraint; they do not automatically change the agent cap.
+build gate limits verification; they do not automatically change the agent cap.
 
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
@@ -126,3 +175,11 @@ The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_T
 An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
+
+The Analytics ticket timeline marks the earliest PR-open time. Open PRs appear in review; merged, rework, and paused states take precedence.
+
+Retained Analytics charts use at most 180 evenly spaced resource observations per actor, including the first and last. Chart detail is sampled; headline CPU totals and resource peaks use the full retained profiles.
+
+Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
+
+Retained summaries that exceed the read budget also report unavailable.

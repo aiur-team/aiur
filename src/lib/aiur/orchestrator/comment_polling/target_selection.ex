@@ -34,7 +34,8 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   # `ReworkGate.verify_rework_attempt/4`'s per-head bound. All three are
   # edge-triggered on a review's own identity, so re-reading `/reviews` for a
   # rework ticket cannot re-route the same review, and a new one wakes it once.
-  @comment_poll_review_states [@human_review_state, @merging_state, @rework_state]
+  # Reviews can reject work before CI completes, including an idle ci-wait ticket.
+  @comment_poll_review_states [@human_review_state, @merging_state, @rework_state, "ci-wait"]
 
   @doc false
   @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()

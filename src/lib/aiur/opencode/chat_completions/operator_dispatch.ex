@@ -16,9 +16,10 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   @spec dispatch_user_text(map(), Plug.Conn.t(), String.t(), String.t()) :: Plug.Conn.t()
   def dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- TurnRequest.validate_body(raw_text),
-         {:ok, conn} <- Caller.authorize(conn) do
+         {:ok, conn} <- Caller.authorize(conn, identifier) do
       route_turn(conn, identifier, sanitized, Map.get(body, "stream", true), TurnRequest.last_user_message_id(body))
     else
+      {:error, :forbidden} -> Sse.json(conn, 403, Caller.forbidden_body())
       {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
       {:error, :body_too_large} -> Sse.json(conn, 400, %{error: "body too large"})
       {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})

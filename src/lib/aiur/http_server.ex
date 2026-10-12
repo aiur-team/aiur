@@ -5,7 +5,7 @@ defmodule Aiur.HttpServer do
 
   require Logger
 
-  alias Aiur.{Config, DecisionApi, DecisionStore, Orchestrator}
+  alias Aiur.{Commands, Config, Orchestrator}
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -67,8 +67,9 @@ defmodule Aiur.HttpServer do
       snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
       dashboard_writable: dashboard_writable,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
-      decision_api: Keyword.get(opts, :decision_api, DecisionApi),
-      decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+      dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
+      decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
+      decision_store: Keyword.get(opts, :decision_store, Commands.default_store()),
       decision_policy: Keyword.get(opts, :decision_policy),
       secret_key_base: secret_key_base()
     ]
@@ -78,6 +79,8 @@ defmodule Aiur.HttpServer do
       |> Application.get_env(Endpoint, [])
       |> Keyword.merge(endpoint_opts)
 
+    # Mirrored outside the endpoint config so the capability report reads it without a web dependency.
+    Application.put_env(:aiur, :dashboard_pages, endpoint_opts[:dashboard_pages])
     Application.put_env(:aiur, Endpoint, endpoint_config)
   end
 

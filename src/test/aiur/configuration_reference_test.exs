@@ -28,7 +28,8 @@ defmodule Aiur.ConfigurationReferenceTest do
     {"decisions", Schema.Decisions},
     {"server", Schema.Server},
     {"opencode", Schema.Opencode},
-    {"build_order", Schema.BuildOrder}
+    {"build_order", Schema.BuildOrder},
+    {"build_queue", Schema.BuildQueue}
   ]
 
   # These rows describe defaults resolved outside the schema struct, such as
@@ -48,6 +49,7 @@ defmodule Aiur.ConfigurationReferenceTest do
     agent.rate_limit_primary
     alerts.alerts_file
     server.host
+    build_queue.observation_max_age_seconds
     build_order.ticket_detail_freshness_ms
     build_order.graph_catalog_refresh_ms
     build_order.graph_catalog_labels_refresh_ms
@@ -97,6 +99,22 @@ defmodule Aiur.ConfigurationReferenceTest do
     end
   end
 
+  test "rtk documentation assigns host hook ownership to the operator" do
+    row =
+      @configuration_reference
+      |> String.split("\n")
+      |> Enum.find(&String.starts_with?(&1, "| `agent.rtk.enabled` |"))
+
+    assert is_binary(row)
+    assert row =~ "does not install, enable, or disable rtk's hook"
+    assert row =~ "does not enforce this setting at agent dispatch"
+    assert row =~ "A host-wide rtk hook applies to every agent regardless of this setting"
+    assert row =~ "but cannot disable the hook"
+    assert row =~ "At daemon startup Aiur also checks the host hook, independent of this setting"
+    assert row =~ ~s(`exclude_commands = ["gh"]`)
+    refute row =~ "Aiur refuses to admit rtk"
+  end
+
   defp documented_row_count(key) do
     ~r/^\| `#{Regex.escape(key)}` \|/m
     |> Regex.scan(@configuration_reference)
@@ -127,6 +145,9 @@ defmodule Aiur.ConfigurationReferenceTest do
 
       Regex.match?(~r/^-?\d+\.\d+$/, value) ->
         String.to_float(value)
+
+      String.starts_with?(value, "`[") and String.ends_with?(value, "]`") ->
+        value |> String.trim("`") |> Jason.decode!()
 
       String.starts_with?(value, "`") and String.ends_with?(value, "`") ->
         value

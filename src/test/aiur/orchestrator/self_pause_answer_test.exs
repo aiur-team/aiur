@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
         state
         | dispatcher: fn decision, opts ->
             result = DecisionDispatch.dispatch(decision, opts)
-            send(parent, {:answer_queued, result})
+            send(parent, {:answer_queued, decision.decision_id, result})
             result
           end
       }
@@ -176,6 +176,45 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
       refute Enum.any?(messages, &match?({:agent_queue_updated, _, _, true}, &1))
       assert %{action: :pause} = ControlLifecycle.current_pending(:sys.get_state(ctx.orchestrator).control_lifecycle, issue.id)
     end
+  end
+
+  test "an unrelated failed dispatch cannot satisfy the answer receipt barrier", ctx do
+    {old_issue, _worker} = install_worker(ctx.orchestrator)
+    old_decision = request_decision(old_issue)
+    {issue, worker} = install_worker(ctx.orchestrator)
+    decision = request_decision(issue)
+    parent = self()
+    store = Process.whereis(DecisionStore)
+    dispatcher = :sys.get_state(store).dispatcher
+
+    :sys.replace_state(store, fn state ->
+      %{
+        state
+        | dispatcher: fn dispatched, opts ->
+            result = dispatcher.(dispatched, opts)
+            if dispatched.decision_id == old_decision.decision_id, do: send(parent, :unrelated_dispatch_finished)
+            result
+          end
+      }
+    end)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               old_decision.decision_id,
+               %{"idempotency_key" => old_decision.decision_id, "expected_version" => old_decision.version, "custom_response" => "Old answer"},
+               actor: %{kind: :executor, id: "executor"}
+             )
+
+    # The completion fences the old receipt without consuming it.
+    receive_barrier(:unrelated_dispatch_finished)
+    pause(ctx.orchestrator, issue, :paused)
+    answer(decision)
+    send(worker, :run)
+    receive_barrier({:first_input, text})
+    assert text =~ "Continue with the accepted contract"
+    assert_working(ctx.orchestrator, issue)
+    old_id = old_decision.decision_id
+    receive_barrier({:answer_queued, ^old_id, {:error, :no_running_agent}})
   end
 
   # A pause request that expires unacknowledged leaves a working worker. A
@@ -344,7 +383,8 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
                actor: %{kind: :executor, id: "executor"}
              )
 
-    receive_barrier({:answer_queued, result})
+    decision_id = decision.decision_id
+    receive_barrier({:answer_queued, ^decision_id, result})
     assert {:ok, _} = result
   end
 

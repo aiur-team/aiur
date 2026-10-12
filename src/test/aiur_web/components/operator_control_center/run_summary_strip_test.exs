@@ -69,7 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     # Token glyphs and the spend figure were removed (operator directive); the
     # model rows now show only the provider + usage bars.
-    assert html =~ "40% · resets in 30m"
+    assert html =~ ~s(<span class="rs-pc">40%</span>)
     refute html =~ "rs-token-ic"
     refute html =~ "rs-spend"
     refute html =~ "Tokens"
@@ -223,11 +223,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         run: %{state: :loading},
         usage: %{state: :locked},
         meters: %{state: :locked, cards: []},
+        configured_providers: MapSet.new([:codex, :claude]),
         now: @now
       })
 
-    # App-server providers always render; keyless OpenAI-compatible providers
-    # are omitted entirely.
+    # Routed app-server providers render; keyless OpenAI-compatible providers are omitted.
     assert html =~ "Codex"
     assert html =~ "Claude"
     refute html =~ "Kimi"
@@ -554,7 +554,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         refute html =~ "Local concurrency"
         refute html =~ "reset unavailable"
         [_before_provider, provider_html] = String.split(html, "DeepSeek", parts: 2)
-        assert length(Regex.scan(~r/<div class="rs-limit">/, provider_html)) == 1
+        assert length(Regex.scan(~r/<div class="rs-ln"/, provider_html)) == 1
       end)
     end)
   end
@@ -594,7 +594,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$49.05 · 1.9% used"
+      assert html =~ ~s(<span class="rs-pc">2%</span>) and html =~ ~s(<b class="rs-usd">$49.05</b>)
       # The bar renders the measured spend percentage itself (1.9% used), not an
       # empty 0%: the probe attaches `used_percent` without a separate `meter`
       # key, and the strip reads it directly.
@@ -636,7 +636,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$0 · 100% used"
+      assert html =~ ~s(<b class="rs-usd">$0.00</b>)
       assert html =~ ~s(class="is-critical" style="width:100.0%")
     end)
   end
@@ -719,7 +719,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$49.05 · 1.9% used"
+      assert html =~ ~s(<span class="rs-pc">2%</span>) and html =~ ~s(<b class="rs-usd">$49.05</b>)
       refute html =~ "stale"
     end)
   end
@@ -856,7 +856,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      [before_name, after_name] = String.split(html, "DeepSeek", parts: 2)
+      [before_name, after_name] = String.split(html, ~s(<span class="rs-name">DeepSeek), parts: 2)
 
       assert before_name =~ ~s(<img class="rs-logo" src=)
       refute after_name =~ "rs-spend"
@@ -972,6 +972,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
             run: %{state: :loading},
             usage: %{state: :ready, providers: %{}},
             meters: meters_view() |> Map.put(:cards, [card(:codex), card(:claude), card(:deepseek), card(:kimi)]),
+            configured_providers: MapSet.new([:codex, :claude]),
             now: @now
           })
 
@@ -1191,18 +1192,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
             now: @now
           })
 
-        # Model windows render the percent form.
-        assert html =~ "40% · resets in 30m"
-        assert html =~ "62% · resets in 30m"
-        assert html =~ "0% · resets in 30m"
-        # GitHub keeps its own remaining/limit and reset in its pane.
+        # Model lines read percent, bar, then the reset time beside the recycle
+        # icon (#3751); GitHub keeps its own remaining/limit and reset.
+        for percent <- ["40%", "62%", "0%"], do: assert(html =~ ~s(<span class="rs-pc">#{percent}</span>))
         assert html =~ "3750/5000 left · resets in 30m"
-
         [_, models_html] = String.split(html, "rs-models", parts: 2)
-        # The #2085 label removal is reverted: a label sits above every model
-        # bar (the window name, or "Limits" for a row with no live windows).
-        assert models_html =~ ~s(<span class="rs-limit-label">Session</span>)
-        assert models_html =~ ~s(<span class="rs-limit-label">Limits</span>)
+        # No window label and no filler row: Kimi, with nothing observed, reads unknown.
+        refute models_html =~ "rs-limit-label" or models_html =~ "resets in"
+        assert models_html =~ ~s(<span class="rs-no">unknown</span>)
         # The SPEND label is deleted from the model rows; the amount keeps its
         # accessible name on the containing stat.
         refute models_html =~ ~s(<span class="rs-stat-label">Spend</span>)
@@ -1260,10 +1257,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           })
 
         # DeepSeek is a real, fresh zero-consumed reading.
-        assert html =~ "0% · resets in 30m"
+        assert html =~ ~s(<span class="rs-pc">0%</span>)
 
         # Claude's window renders its percentage without a stale qualifier.
-        assert html =~ "62% · resets in 30m"
+        assert html =~ ~s(<span class="rs-pc">62%</span>)
         refute html =~ "stale"
 
         # Kimi reported nothing at all, which is neither healthy nor a zero; its
@@ -1305,7 +1302,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "40% · resets in 30m"
+      assert html =~ ~s(<span class="rs-pc">40%</span>)
       refute html =~ "stale"
       refute html =~ "partial"
     end
@@ -1332,7 +1329,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "40% · resets in 30m"
+    assert html =~ ~s(<span class="rs-pc">40%</span>)
     refute html =~ "stale"
   end
 

@@ -80,6 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
               <span class="bo-catalog-icon" aria-label={catalog_icon_label(entry.icon)}>{catalog_icon(entry.icon)}</span>
               <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="bo-catalog-link">{entry.title}</.link>
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
+              <p :if={AiurWeb.BuildOrder.Truncation.notice(entry)} role="status">{AiurWeb.BuildOrder.Truncation.notice(entry)}</p>
             </td>
             <td class="bo-catalog-progress-cell" data-sort-value={progress.percent || ""}>
               <.catalog_progress progress={progress} />

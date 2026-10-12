@@ -33,7 +33,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     File.mkdir_p!(workspace)
     File.write!(binary, fake_app_server(Path.join(root, "codex.trace")))
     File.chmod!(binary, 0o755)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "codex",
@@ -120,7 +120,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     }
 
     state = %Orchestrator.State{running: %{issue.id => entry}, max_concurrent_agents: 6}
-    assert waiting_reason(entry) == :waiting_for_human
+    assert waiting_reason(entry) == :paused
     assert {:noreply, working} = Orchestrator.handle_info({:worker_control_state, issue.id, :working}, state)
     refute Map.has_key?(working.running[issue.id], :paused_reason)
     assert waiting_reason(working.running[issue.id]) == :active

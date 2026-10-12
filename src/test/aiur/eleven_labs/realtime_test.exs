@@ -30,25 +30,23 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
     @impl true
     def connect(url, headers) do
-      send(observer(), {:transport_connect, url, headers})
-      {:ok, self()}
+      # GenServer records its starter even when the session has a different owner.
+      [observer | _] = Process.get(:"$ancestors")
+      send(observer, {:transport_connect, url, headers})
+      {:ok, observer}
     end
 
     @impl true
     def send_text(conn, text) do
-      send(observer(), {:transport_send, text})
+      send(conn, {:transport_send, text})
       {:ok, conn}
     end
 
     @impl true
-    def close(_conn) do
-      if observer = observer(), do: send(observer, :transport_close)
+    def close(conn) do
+      send(conn, :transport_close)
       :ok
     end
-
-    # The transport runs inside the session process, so it reaches the test
-    # through a registered name rather than a closure.
-    defp observer, do: Process.whereis(:realtime_test_observer)
   end
 
   defmodule FailingTransport do
@@ -74,24 +72,26 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
     @behaviour Aiur.ElevenLabs.Realtime.Transport
 
     @impl true
-    def connect(url, headers) do
-      send(Process.whereis(:realtime_test_observer), {:transport_connect, url, headers})
-      {:ok, self()}
-    end
+    def connect(url, headers), do: FakeTransport.connect(url, headers)
 
     @impl true
     def send_text(_conn, _text), do: {:error, :closed}
 
     @impl true
-    def close(_conn) do
-      send(Process.whereis(:realtime_test_observer), :transport_close)
-      :ok
-    end
+    def close(conn), do: FakeTransport.close(conn)
   end
 
-  setup do
-    Process.register(self(), :realtime_test_observer)
-    :ok
+  test "transport observation works while the former shared name is occupied" do
+    observer = start_supervised!({Agent, fn -> :unused end})
+    true = Process.register(observer, :realtime_test_observer)
+
+    for transport <- [FakeTransport, FailingSendTransport] do
+      session = ready_session(transport: transport)
+      Realtime.stop(session)
+      assert_receive :transport_close, 1000
+    end
+
+    assert Process.whereis(:realtime_test_observer) == observer
   end
 
   describe "the credential" do
@@ -136,8 +136,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
           # The connection failure is described generically, because the
           # underlying error can embed the request headers.
-          assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}, 1000
-          assert_receive {:elevenlabs_closed}, 1000
+          assert_receive {:voice_error, %{message: "Speech-to-text connection failed"}}, 1000
+          assert_receive {:voice_closed}, 1000
           # The connect failure is immediate, so the session may already be gone
           # by the time the monitor is set; either way it does not linger.
           assert_receive {:DOWN, ^ref, :process, ^session, reason}, 1000
@@ -150,7 +150,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
     test "an absent or blank key is reported as unconfigured rather than as a failure" do
       assert {:error, :unconfigured} = Realtime.start(owner: self(), api_key_fun: &__MODULE__.no_api_key/0)
       assert {:error, :unconfigured} = Realtime.start(owner: self(), api_key_fun: &__MODULE__.blank_api_key/0)
-      refute_receive {:elevenlabs_error, _reason}, 20
+      refute_receive {:voice_error, _error}, 20
     end
   end
 
@@ -183,25 +183,25 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       session = ready_session()
 
       frame(session, %{"message_type" => "partial_transcript", "text" => "ship the"})
-      assert_receive {:elevenlabs_transcript, :partial, "ship the"}, 1000
+      assert_receive {:voice_transcript, :partial, "ship the"}, 1000
 
       # Despite its name, `final_transcript` is still revisable. Treating it as
       # final duplicates phrases in the operator's outgoing message.
       frame(session, %{"message_type" => "final_transcript", "text" => "ship the fix"})
-      assert_receive {:elevenlabs_transcript, :partial, "ship the fix"}, 1000
+      assert_receive {:voice_transcript, :partial, "ship the fix"}, 1000
 
       frame(session, %{"message_type" => "committed_transcript", "text" => "ship the fix"})
-      assert_receive {:elevenlabs_transcript, :final, "ship the fix"}, 1000
+      assert_receive {:voice_transcript, :final, "ship the fix"}, 1000
     end
 
     test "a malformed frame is ignored rather than ending a working session" do
       session = ready_session()
 
       send(session, {:elevenlabs_transport, :text, "{not json"})
-      refute_receive {:elevenlabs_closed}, 20
+      refute_receive {:voice_closed}, 20
 
       frame(session, %{"message_type" => "partial_transcript", "text" => "still here"})
-      assert_receive {:elevenlabs_transcript, :partial, "still here"}, 1000
+      assert_receive {:voice_transcript, :partial, "still here"}, 1000
     end
   end
 
@@ -226,9 +226,22 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
         session = ready_session()
         frame(session, %{"message_type" => type, "error" => detail})
 
-        assert_receive {:elevenlabs_error, ^reason}, 1000
-        assert_receive {:elevenlabs_closed}, 1000
+        assert_receive {:voice_error, %{message: ^reason}}, 1000
+        assert_receive {:voice_closed}, 1000
         assert_receive :transport_close, 1000
+      end
+    end
+
+    test "error frames carry the contract code, and an unclassified one stays cause-neutral" do
+      for {type, code} <- [
+            {"auth_error", :provider_auth},
+            {"quota_exceeded", :provider_quota},
+            {"rate_limited", :provider_error}
+          ] do
+        session = ready_session()
+        frame(session, %{"message_type" => type, "error" => "raw"})
+
+        assert_receive {:voice_error, %{code: ^code}}, 1000
       end
     end
 
@@ -237,9 +250,9 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       send(session, {:elevenlabs_transport, :error, %{headers: [{"xi-api-key", @api_key}]}})
 
-      assert_receive {:elevenlabs_error, reason}, 1000
+      assert_receive {:voice_error, %{message: reason}}, 1000
       refute reason =~ @api_key
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_closed}, 1000
     end
 
     test "a failed audio send ends the session instead of silently dropping speech" do
@@ -247,8 +260,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       Realtime.push(session, "AAAA")
 
-      assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}, 1000
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_error, %{message: "Speech-to-text connection failed"}}, 1000
+      assert_receive {:voice_closed}, 1000
       assert_receive :transport_close, 1000
     end
 
@@ -257,8 +270,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       Realtime.commit(session)
 
-      assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}, 1000
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_error, %{message: "Speech-to-text connection failed"}}, 1000
+      assert_receive {:voice_closed}, 1000
       assert_receive :transport_close, 1000
     end
 
@@ -267,8 +280,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       send(session, {:elevenlabs_transport, :closed})
 
-      assert_receive {:elevenlabs_closed}, 1000
-      refute_received {:elevenlabs_error, _reason}
+      assert_receive {:voice_closed}, 1000
+      refute_received {:voice_error, _error}
     end
   end
 
@@ -295,8 +308,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       frame(session, %{"message_type" => "committed_transcript", "text" => "the tail"})
 
-      assert_receive {:elevenlabs_transcript, :final, "the tail"}, 1000
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_transcript, :final, "the tail"}, 1000
+      assert_receive {:voice_closed}, 1000
     end
 
     test "closes on the deadline when the settled transcript never arrives" do
@@ -308,7 +321,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       # Driven by hand: the deadline is a message, not an elapsed interval.
       send(session, :flush_deadline)
 
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_closed}, 1000
       assert_receive :transport_close, 1000
     end
 
@@ -326,7 +339,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       Realtime.push(session, "AAAA")
 
       Realtime.commit(session)
-      refute_receive {:elevenlabs_closed}, 20
+      refute_receive {:voice_closed}, 20
       refute_receive {:transport_send, _frame}, 20
 
       frame(session, %{"message_type" => "session_started"})
@@ -346,8 +359,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       send(session, :ready_deadline)
 
-      assert_receive {:elevenlabs_error, "Speech-to-text session did not become ready"}, 1000
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_error, %{message: "Speech-to-text session did not become ready"}}, 1000
+      assert_receive {:voice_closed}, 1000
       assert_receive :transport_close, 1000
     end
 
@@ -357,8 +370,8 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       Realtime.push(session, "AAAAA")
 
-      assert_receive {:elevenlabs_error, "Speech-to-text session did not become ready"}, 1000
-      assert_receive {:elevenlabs_closed}, 1000
+      assert_receive {:voice_error, %{message: "Speech-to-text session did not become ready"}}, 1000
+      assert_receive {:voice_closed}, 1000
       assert_receive :transport_close, 1000
     end
   end

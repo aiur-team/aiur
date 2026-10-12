@@ -1,0 +1,358 @@
+path,release_lines,package,frozen_owner,frozen_disposition,confidence
+src/priv/static/dashboard.css,10294,BROWSER,Dashboard and browser static assets,split,medium
+docs/build-order/build-order.json,7822,BO_PUBLISH,Build Order design and generated artifacts,regenerate,low
+src/test/aiur/orchestrator_deactivate_test.exs,7653,LIFECYCLE_STATUS,Ticket lifecycle and dispatch tests,split,medium
+src/test/aiur_web/live/dashboard_live_test.exs,6604,WEB,Web UI and dashboard tests,split,medium
+src/priv/static/vendor/elk/0.11.1/elk-worker.min.js,6312,LAYOUT,Vendored ELK browser dependency,remove,low
+src/test/aiur/agent_github_guard_test.exs,5762,GH_GUARD,GitHub access and guard tests,split,medium
+src/test/aiur/orchestrator_status_test.exs,4941,LIFECYCLE_STATUS,Ticket lifecycle and dispatch tests,split,medium
+src/test/aiur/decision_store_test.exs,4866,DECISIONS,Decision persistence and API tests,split,medium
+src/lib/aiur/decision_store.ex,4826,DECISIONS,Decision persistence and API,split,medium
+src/test/aiur_engine_test.exs,4362,CLI,Aiur CLI/integration tests,split,medium
+packaging/npm/aiur-cli/libexec/aiur-engine.sh,4224,CLI,npm CLI packaging,split,medium
+src/test/aiur/agent_control_cli_test.exs,4125,CLI,Agent control CLI tests,split,medium
+src/test/aiur/core_test.exs,4025,TEST_HARNESS,Aiur core/integration tests,split,medium
+src/test/aiur/workspace_and_config_test.exs,3641,WORKSPACE,Workspace lifecycle tests,split,medium
+docs/build-order/prototype/Aiur Operator Control Center.2026-07-13-refresh.html,3515,BO_DESIGN,Build Order design and generated artifacts,remove,low
+docs/build-order/EXECUTOR-HANDOFF.md,3426,BO_DESIGN,Build Order design and generated artifacts,split,medium
+src/priv/github_quota_guard.sh,3403,GH_GUARD,Runtime launcher and guard scripts,split,medium
+docs/build-order/prototype/Aiur Operator Control Center.html,3369,BO_DESIGN,Build Order design and generated artifacts,remove,low
+src/lib/aiur/agent_control_cli.ex,3362,CLI,Agent control CLI,split,medium
+src/test/aiur/build_gate_test.exs,3231,BUILD_GATE,Build gate tests,split,medium
+src/test/aiur/orchestrator/dispatcher_test.exs,3197,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+src/test/aiur/orchestrator/issue_sync_test.exs,3032,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+packages/streamdeck/package-lock.json,3028,DECK_PKG,Stream Deck package,regenerate,low
+src/lib/aiur_web/live/dashboard_live.ex,2903,WEB,Web UI / live,split,medium
+src/lib/aiur/orchestrator/dispatcher.ex,2670,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/browser/fixture_server.exs,2639,BROWSER,Browser fixture and test harness,split,medium
+src/lib/aiur/orchestrator/pause_resume.ex,2471,LIFECYCLE_STATUS,Ticket lifecycle and dispatch,split,medium
+src/lib/aiur/orchestrator/issue_sync.ex,2295,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+SPEC.md,2292,DOCS,Product specification,split,medium
+src/test/aiur/github_client_test.exs,2252,GH_GUARD,GitHub access and guard tests,split,medium
+src/test/aiur/init_test.exs,2233,CONFIG,Initialization tests,split,medium
+src/lib/aiur/github/resource_store.ex,2191,GH_ACCESS,GitHub access,split,medium
+.claude/skills/ce-babysit-pr/scripts/pr-snapshot,2096,CE,Vendored CE skill / ce-babysit-pr,split,medium
+src/test/scripts_aiurdev_test.exs,2048,CLI,Aiur CLI/integration tests,split,medium
+src/test/aiur/agent_runner/tool_executor_test.exs,1966,AGENT_TURN,Agent Runner tests,split,medium
+src/test/aiur/github/resource_store_test.exs,1950,GH_ACCESS,Github tests,split,medium
+src/priv/build_gate.bash,1912,BUILD_GATE,Runtime launcher and guard scripts,split,medium
+src/test/aiur/extensions_test.exs,1880,TEST_HARNESS,Aiur core/integration tests,split,medium
+.claude/skills/aiur-build/scripts/publication/publication_operator.py,1867,BO_PUBLISH,Aiur operator skills,split,medium
+src/test/aiur_web/live/build_order_live_test.exs,1866,BO_RUNTIME,Web UI and dashboard tests,split,medium
+docs/build-order/AGENT-CHAT.md,1854,BO_DESIGN,Build Order design and generated artifacts,split,medium
+src/lib/aiur/build_order/graph_projection.ex,1825,BO_RUNTIME,Build Order,split,medium
+src/test/aiur_web/live/streamdeck_live_test.exs,1804,DECK_WEB,Web UI and dashboard tests,split,medium
+src/lib/aiur_web/live/streamdeck_live.ex,1799,DECK_WEB,Web UI / live,split,medium
+src/test/aiur/build_order/github_graph_test.exs,1781,BO_RUNTIME,Build Order tests,split,medium
+src/test/aiur/orchestrator/retry_engine_test.exs,1781,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+src/test/aiur/orchestrator_ci_lifecycle_test.exs,1733,LIFECYCLE_STATUS,Ticket lifecycle and dispatch tests,split,medium
+docs/plans/2026-05-24-001-feat-event-system-foundation-plan.md,1716,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/orchestrator/ci_lifecycle.ex,1708,LIFECYCLE_STATUS,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/github/ci_readiness_test.exs,1680,GH_ACCESS,Github tests,split,medium
+src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs,1667,WEB,Web UI and dashboard tests,split,medium
+src/test/support/test_support.exs,1661,TEST_HARNESS,Aiur CLI/integration tests,split,medium
+website/package-lock.json,1657,SITE,Marketing website,regenerate,low
+src/priv/build_orders/croptracker-demo.json,1611,BO_PUBLISH,Build Order fixture data,regenerate,medium
+src/test/aiur/repo_base_test.exs,1599,WORKSPACE,Repository checkout tests,split,medium
+src/lib/aiur/orchestrator/comment_wake.ex,1584,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/events/github_comments_poller_test.exs,1570,EVENTS,Events tests,split,medium
+src/test/aiur/orchestrator/comment_wake_test.exs,1553,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+src/test/aiur_web/operator_control_center_components_test.exs,1550,WEB,Web UI and dashboard tests,split,medium
+src/lib/aiur/orchestrator/retry_engine.ex,1548,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/lib/aiur/repo_base.ex,1539,WORKSPACE,Repository checkout,split,medium
+src/test/aiur/events/github_webhook/deposit_test.exs,1530,EVENTS,Events tests,split,medium
+src/lib/aiur/orchestrator/status_report.ex,1483,LIFECYCLE_STATUS,Ticket lifecycle and dispatch,split,medium
+src/lib/aiur/config.ex,1462,CONFIG,Configuration,split,medium
+src/test/aiur/github/read_cache_test.exs,1437,GH_ACCESS,Github tests,split,medium
+src/test/aiur/build_order/graph_projection_test.exs,1433,BO_RUNTIME,Build Order tests,split,medium
+src/test/aiur/app_server_test.exs,1402,AGENT_TURN,Aiur core/integration tests,split,medium
+src/test/aiur/alerts_test.exs,1388,EVENTS,Alerts tests,split,medium
+src/lib/aiur/github/quota.ex,1380,GH_ACCESS,GitHub access,split,medium
+packages/streamdeck/test/controller.test.ts,1369,DECK_PKG,Stream Deck package,split,medium
+src/test/aiur/github/issues_test.exs,1367,GH_TRUST,Github tests,split,medium
+src/test/aiur/current_run_projections_test.exs,1355,LIFECYCLE_STATUS,Current-run membership tests,split,medium
+src/test/aiur/claude/repl_agent_test.exs,1352,CLAUDE,Claude tests,split,medium
+src/test/aiur/build_order/ticket_detail_coordinator_test.exs,1339,BO_RUNTIME,Build Order tests,split,medium
+src/test/aiur_web/streamdeck_channel_test.exs,1332,DECK_WEB,Web UI and dashboard tests,split,medium
+src/browser/tests/streamdeck-emulator.browser.spec.mjs,1311,DECK_WEB,Browser UI / tests,split,medium
+src/lib/aiur/run_telemetry/dataset.ex,1264,TELEMETRY,Run telemetry,split,medium
+src/test/aiur/agent_list/renderer_test.exs,1257,OPENCODE,Aiur core/integration tests,split,medium
+.claude/skills/aiur-run/SKILL.md,1254,SKILLS,Aiur operator skills,split,medium
+src/test/aiur/github/budget_test.exs,1252,GH_ACCESS,Github tests,split,medium
+src/lib/aiur/github/issues.ex,1248,GH_TRUST,GitHub access,split,medium
+src/test/aiur/workspace/ownership_test.exs,1243,WORKSPACE,Workspace tests,split,medium
+src/test/aiur/events/github_ci_poller_test.exs,1227,EVENTS,Events tests,split,medium
+src/test/fixtures/analytics/builds/test-build/build-summary.json,1227,ANALYTICS,Test fixture data,regenerate,medium
+src/lib/aiur/orchestrator/dispatch_policy.ex,1213,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/browser/tests/layout-worker.browser.spec.mjs,1185,LAYOUT,Browser UI / tests,split,medium
+src/lib/aiur/coding_agent.ex,1179,AGENT_CORE,Aiur core / coding agent,split,medium
+src/test/aiur/regression/orchestrator_blocking_http_test.exs,1168,LIFECYCLE_DISPATCH,Regression tests,split,medium
+src/lib/aiur/orchestrator/operator_messages.ex,1167,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/aiur_web/live/analytics_live_test.exs,1154,WEB,Web UI and dashboard tests,split,medium
+src/lib/aiur/github/ci_readiness.ex,1149,GH_ACCESS,GitHub access,split,medium
+packages/streamdeck/src/art/segments.ts,1135,DECK_PKG,Stream Deck package,split,medium
+src/lib/aiur/agent_runner/session_lifecycle.ex,1124,AGENT_TURN,Agent runtime,split,medium
+.claude/skills/ce-riffrec-feedback-analysis/scripts/analyze_riffrec_zip.py,1122,CE,Vendored CE skill / ce-riffrec-feedback-analysis,split,medium
+.claude/skills/ce-sweep/scripts/analyze_riffrec_zip.py,1122,CE,Vendored CE skill / ce-sweep,split,medium
+packages/streamdeck/test/art/segments.test.ts,1119,DECK_PKG,Stream Deck package,split,medium
+docs/build-order/scripts/tests/test_publication_operator.py,1111,BO_PUBLISH,Build Order publication tooling,split,medium
+packages/streamdeck/src/controller.ts,1102,DECK_PKG,Stream Deck package,split,medium
+src/lib/aiur_web/operator_control_center/analytics/presenter.ex,1101,WEB,Web UI / operator_control_center / analytics,split,medium
+src/lib/aiur/github/config.ex,1090,GH_TRUST,GitHub access,split,medium
+src/lib/aiur/orchestrator/push_routing.ex,1087,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/live_conversation_test.exs,1071,OPENCODE,Aiur core/integration tests,split,medium
+src/test/aiur_web/build_order/planning_source_test.exs,1066,BO_RUNTIME,Web UI and dashboard tests,split,medium
+src/test/aiur/agent_runner/session_lifecycle_test.exs,1058,AGENT_TURN,Agent Runner tests,split,medium
+src/lib/aiur/decision_event.ex,1057,DECISIONS,Decision persistence and API,split,medium
+src/lib/aiur/orchestrator/comment_polling.ex,1057,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/orchestrator/reconciler_test.exs,1057,LIFECYCLE_STATUS,Orchestrator tests,split,medium
+src/lib/aiur/issue_log.ex,1049,LIFECYCLE_STATUS,Aiur core / issue log,split,medium
+src/lib/aiur_web/build_order_presenter.ex,1046,BO_RUNTIME,Web UI / presenters and channels,split,medium
+src/test/fixtures/analytics/runs/boot-a/run-summary.json,1042,ANALYTICS,Test fixture data,regenerate,medium
+src/test/aiur/orchestrator/dispatch_policy_test.exs,1041,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+src/lib/aiur/decision_projection.ex,1039,DECISIONS,Decision persistence and API,split,medium
+src/test/aiur/decision_projection_test.exs,1036,DECISIONS,Decision persistence and API tests,split,medium
+src/lib/aiur/orchestrator/state.ex,1033,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+.claude/skills/ce-code-review/scripts/peer-job-runner.py,1030,CE,Vendored CE skill / ce-code-review,split,medium
+.claude/skills/ce-doc-review/scripts/peer-job-runner.py,1030,CE,Vendored CE skill / ce-doc-review,split,medium
+.claude/skills/ce-pov/scripts/peer-job-runner.py,1030,CE,Vendored CE skill / ce-pov,split,medium
+src/test/aiur/coding_agent_test.exs,1026,AGENT_CORE,Aiur core/integration tests,split,medium
+src/priv/build_gate_holder.py,1025,BUILD_GATE,Runtime launcher and guard scripts,split,medium
+src/test/aiur/orchestrator_control_routing_test.exs,1012,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch tests,split,medium
+src/test/aiur/dynamic_tool_test.exs,1004,CODEX,Aiur core/integration tests,split,medium
+src/lib/aiur/orchestrator.ex,1003,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/agent_runner/queue_drain_test.exs,1003,AGENT_TURN,Agent Runner tests,split,medium
+src/test/aiur/events/github_webhook_test.exs,1002,EVENTS,Events tests,split,medium
+src/test/aiur/github/quota_test.exs,1002,GH_ACCESS,Github tests,split,medium
+docs/plans/2026-06-12-002-fix-chat-control-lifecycle-ux-plan.md,998,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/regression/engine_control_test.exs,997,CLI,Regression tests,split,medium
+src/lib/aiur/events/github_webhook/deposit.ex,991,EVENTS,Event delivery,split,medium
+src/test/aiur/codex/turn_loop_test.exs,987,CODEX,Codex tests,split,medium
+analytics/lib/analytics/reduce.py,979,ANALYTICS,Offline analytics tooling,split,medium
+packaging/npm/aiur-cli/test/launcher.test.mjs,976,CLI,npm CLI packaging,split,medium
+src/test/aiur/events/github_webhook_equivalence_test.exs,976,EVENTS,Events tests,split,medium
+src/lib/aiur/opencode/attach_pool.ex,969,OPENCODE,Opencode backend,split,medium
+src/test/aiur/decision_api_test.exs,967,DECISIONS,Decision persistence and API tests,split,medium
+src/docs/plans/2026-05-19-001-feat-opencode-pane-chat-plan.md,964,HIST_PRODUCT,Historical product design docs,split,low
+docs/build-order/scripts/tests/test_publication_rendering.py,961,BO_PUBLISH,Build Order publication tooling,split,medium
+src/lib/aiur/github/pull_requests.ex,954,GH_ACCESS,GitHub access,split,medium
+src/lib/aiur/orchestrator/control_lifecycle.ex,950,LIFECYCLE_STATUS,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/agent_environment_test.exs,947,AGENT_CORE,Aiur core/integration tests,split,medium
+src/test/manual/executor_control_center_docs_fixture.exs,946,BROWSER,Aiur CLI/integration tests,split,medium
+src/test/aiur/config/schema_test.exs,944,CONFIG,Config tests,split,medium
+scripts/aiurdev,937,CLI,Developer launcher,split,medium
+src/test/aiur/run_telemetry/writer_test.exs,935,TELEMETRY,Run Telemetry tests,split,medium
+src/lib/aiur_web/build_order/planning_source.ex,933,BO_RUNTIME,Web UI / build_order,split,medium
+src/test/aiur/open_ai_compat/coding_agent_test.exs,933,AGENT_CORE,Aiur core/integration tests,split,medium
+src/docs/plans/2026-05-20-001-feat-opencode-prewarm-and-history-injection-plan.md,920,HIST_PRODUCT,Historical product design docs,split,low
+src/priv/github_budget.py,919,GH_GUARD,Runtime launcher and guard scripts,split,medium
+src/test/aiur/github/config_test.exs,918,GH_TRUST,Github tests,split,medium
+src/test/aiur/build_order/pack_status_test.exs,917,BO_RUNTIME,Build Order tests,split,medium
+src/test/aiur/github/dispatch_authorization_test.exs,916,GH_TRUST,Github tests,split,medium
+src/lib/aiur/github/budget.ex,915,GH_ACCESS,GitHub access,split,medium
+src/lib/aiur/agent_runner/tool_executor.ex,908,AGENT_TURN,Agent runtime,split,medium
+.claude/skills/aiur-run/scripts/executor-retrospective.sh,901,SKILLS,Aiur operator skills,split,medium
+src/test/aiur/build_order/ticket_detail_test.exs,900,BO_RUNTIME,Build Order tests,split,medium
+src/browser/tests/units.browser.spec.mjs,872,BROWSER,Browser UI / tests,split,medium
+src/lib/aiur/events/github_comments_poller.ex,863,EVENTS,Event delivery,split,medium
+src/lib/aiur/github/transport.ex,860,GH_ACCESS,GitHub access,split,medium
+docs/plans/2026-07-12-004-feat-supervisor-decision-api-plan.md,859,HIST_CE,Historical CE planning docs,split,low
+src/README.md,854,DOCS,Repository support,split,medium
+website/docs-app/reference/configuration.md,853,DOCS,Operator documentation,split,medium
+src/lib/aiur/orchestrator/reconciler.ex,845,LIFECYCLE_STATUS,Ticket lifecycle and dispatch,split,medium
+docs/plans/2026-07-12-001-feat-decision-domain-persistence-plan.md,842,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/aiur_agent_skill_test.exs,842,SKILLS,Aiur core/integration tests,split,medium
+src/lib/aiur/run_telemetry/sampler.ex,841,TELEMETRY,Run telemetry,split,medium
+src/lib/aiur/events/github_webhook/normalizer.ex,837,EVENTS,Event delivery,split,medium
+src/test/aiur/regression/workspace_lifecycle_test.exs,834,WORKSPACE,Regression tests,split,medium
+src/lib/aiur/test_reset.ex,832,TEST_HARNESS,Aiur core / test reset,split,medium
+docs/plans/2026-07-06-001-refactor-production-readiness-planning-spike-plan.md,828,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/model_discovery.ex,827,AGENT_CORE,Model discovery,split,medium
+src/test/aiur/application_test.exs,825,APP_BOOT,Aiur core/integration tests,split,medium
+src/lib/aiur/agent_runner/queue_drain.ex,824,AGENT_TURN,Agent runtime,split,medium
+src/test/aiur/claude/telemetry_test.exs,821,CLAUDE,Claude tests,split,medium
+src/lib/aiur/workspace/ownership/guardian.ex,819,WORKSPACE,Workspace lifecycle,split,medium
+src/lib/aiur/opencode/session_writer.ex,817,OPENCODE,Opencode backend,split,medium
+.claude/skills/ce-plan/SKILL.md,816,CE,Vendored CE skill / ce-plan,split,medium
+src/lib/aiur/events/github_ci_poller.ex,816,EVENTS,Event delivery,split,medium
+website/src/styles.css,815,SITE,Marketing website,split,medium
+.claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh,811,SKILLS,Aiur operator skills,split,medium
+docs/brainstorms/2026-05-24-aiur-event-publishing-subscriptions-requirements.md,810,HIST_CE,Historical CE planning docs,split,low
+docs/plans/2026-07-12-003-feat-decision-answer-delivery-plan.md,809,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/decision_query_test.exs,809,DECISIONS,Decision persistence and API tests,split,medium
+src/test/aiur/claude/coding_agent_test.exs,808,CLAUDE,Claude tests,split,medium
+src/test/aiur/github/mutation_write_through_test.exs,807,GH_ACCESS,Github tests,split,medium
+.claude/skills/ce-doc-review/scripts/cross-model-doc-review.sh,806,CE,Vendored CE skill / ce-doc-review,split,medium
+.claude/skills/aiur-build/scripts/publication/publication_rendering.py,805,BO_PUBLISH,Aiur operator skills,split,medium
+src/test/aiur/agent_runner_test.exs,804,AGENT_TURN,Agent runtime tests,split,medium
+src/test/aiur/live_e2e_test.exs,802,OPENCODE,Aiur core/integration tests,split,medium
+docs/build-order/scripts/publication_rendering.py,798,BO_PUBLISH,Build Order publication tooling,split,medium
+src/lib/aiur/build_gate.ex,797,BUILD_GATE,Build gate,split,medium
+.claude/skills/ce-sweep/scripts/sweep-state.py,793,CE,Vendored CE skill / ce-sweep,split,medium
+src/lib/aiur_web/build_order/ticket_context_presenter.ex,793,BO_RUNTIME,Web UI / build_order,split,medium
+src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex,791,WEB,Web UI / components / operator_control_center,split,medium
+src/test/aiur/regression/github_ingestion_test.exs,790,GH_ACCESS,Regression tests,split,medium
+src/test/aiur/current_run_membership_store_test.exs,785,LIFECYCLE_STATUS,Current-run membership tests,split,medium
+src/test/aiur/run_telemetry/dataset_test.exs,773,TELEMETRY,Run Telemetry tests,split,medium
+.claude/skills/aiur-build/scripts/publication/publication_live_graph.py,770,BO_PUBLISH,Aiur operator skills,split,medium
+docs/build-order/scripts/publication_live_graph.py,770,BO_PUBLISH,Build Order publication tooling,split,medium
+src/test/aiur/orchestrator/rate_limit_fallback_test.exs,767,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+src/test/aiur/regression/orchestrator_lifecycle_test.exs,767,LIFECYCLE_DISPATCH,Regression tests,split,medium
+src/test/aiur/decision_revision_store_test.exs,766,DECISIONS,Decision persistence and API tests,split,medium
+docs/build-order/scripts/execution_amendment.py,764,BO_PUBLISH,Build Order publication tooling,split,medium
+src/test/aiur/codex/account_generation_test.exs,760,CODEX,Codex tests,split,medium
+.claude/skills/ce-compound/SKILL.md,755,CE,Vendored CE skill / ce-compound,split,medium
+src/test/aiur/agent_log_test.exs,753,AGENT_CORE,Aiur core/integration tests,split,medium
+.github/workflows/ci.yml,750,CI,CI/release workflows,split,medium
+src/lib/aiur/alerts.ex,746,EVENTS,Alerts,split,medium
+src/lib/aiur/workspace/provisioner.ex,743,WORKSPACE,Workspace lifecycle,split,medium
+website/docs-app/apis/github.md,742,DOCS,Operator documentation,split,medium
+.claude/skills/ce-code-review/scripts/cross-model-adversarial-review.sh,737,CE,Vendored CE skill / ce-code-review,split,medium
+packages/streamdeck/src/main.ts,734,DECK_PKG,Stream Deck package,split,medium
+src/test/aiur/orchestrator/lifetime_dispatch_budget_test.exs,732,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
+src/test/aiur/events/github_firehose_test.exs,730,EVENTS,Events tests,split,medium
+docs/plans/2026-06-15-002-feat-init-wizard-rework-plan.md,729,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/events/subscription_store.ex,729,EVENTS,Event delivery,split,medium
+src/priv/build_orders/aiur-build-order.json,729,BO_PUBLISH,Build Order fixture data,regenerate,low
+.claude/skills/ce-pov/scripts/cross-model-pov.sh,728,CE,Vendored CE skill / ce-pov,split,medium
+src/test/aiur/events/webhook_poll_reconciliation_test.exs,727,EVENTS,Events tests,split,medium
+src/lib/aiur/claude/remote_control.ex,726,CLAUDE,Claude backend,split,medium
+src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex,718,TELEMETRY,Web UI / operator_control_center,split,medium
+src/lib/aiur_web/live/analytics_live.ex,714,WEB,Web UI / live,split,medium
+docs/build-order/plan-preview.html,712,BO_DESIGN,Build Order design and generated artifacts,remove,low
+src/test/aiur/provider_meter_probe_test.exs,699,TELEMETRY,Aiur core/integration tests,split,medium
+src/lib/aiur/github/dispatch_authorization.ex,695,GH_TRUST,GitHub access,split,medium
+src/docs/plans/2026-05-31-002-feat-aiur-init-onboarding-plan.md,692,HIST_PRODUCT,Historical product design docs,split,low
+src/lib/aiur/live_conversation.ex,691,OPENCODE,Aiur core / live conversation,split,medium
+website/src/dashboard.ts,688,SITE,Marketing website,split,medium
+src/lib/aiur/agent_runner.ex,685,AGENT_TURN,Agent runtime,split,medium
+src/test/aiur/github/auth_preflight_test.exs,684,GH_TRUST,Github tests,split,medium
+src/test/aiur_web/presenter_test.exs,684,WEB,Web UI and dashboard tests,split,medium
+.claude/skills/ce-compound-refresh/SKILL.md,679,CE,Vendored CE skill / ce-compound-refresh,split,medium
+docs/plans/2026-05-24-003-feat-dashboard-events-panel-and-security-plan.md,676,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/agent_runner/message_handler.ex,671,AGENT_TURN,Agent runtime,split,medium
+.claude/skills/ce-optimize/SKILL.md,667,CE,Vendored CE skill / ce-optimize,split,medium
+src/lib/aiur/claude/telemetry.ex,666,CLAUDE,Claude backend,split,medium
+src/lib/aiur_web/operator_control_center/analytics/charts.ex,666,WEB,Web UI / operator_control_center / analytics,split,medium
+.claude/skills/aiur-meta/scripts/capture-dashboard.mjs,664,SKILLS,Aiur operator skills,split,medium
+docs/design/streamdeck/streamdeck.design.js,663,DECK_DESIGN,Design assets,split,medium
+src/test/aiur/provider_account_generation_test.exs,663,TELEMETRY,Aiur core/integration tests,split,medium
+.claude/skills/aiur-run/references/executor.md,662,SKILLS,Aiur operator skills,split,medium
+src/lib/aiur/codeowners.ex,657,GH_TRUST,Aiur core / codeowners,split,medium
+website/docs-app/concepts/ticket-lifecycle.md,657,DOCS,Operator documentation,split,medium
+docs/build-order/scripts/execution_amendment_live.py,656,BO_PUBLISH,Build Order publication tooling,split,medium
+src/docs/plans/2026-05-21-001-feat-pane-lifecycle-and-background-attach-plan.md,656,HIST_PRODUCT,Historical product design docs,split,low
+src/test/aiur/github/comment_poll_batch_test.exs,652,GH_ACCESS,Github tests,split,medium
+src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md,650,HIST_PRODUCT,Historical product design docs,split,low
+src/lib/aiur/orchestrator/rate_limit_fallback.ex,650,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/test/aiur/env_test.exs,645,CONFIG,Aiur core/integration tests,split,medium
+src/lib/aiur/agent_environment.ex,643,AGENT_CORE,Aiur core / agent environment,split,medium
+src/lib/aiur/usage_envelope.ex,640,TELEMETRY,Usage accounting,split,medium
+AGENTS.md,639,DOCS,Repository operating instructions,split,medium
+docs/plans/2026-06-22-001-feat-repo-agnostic-prewarm-plan.md,639,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur_web/build_order_presenter_test.exs,639,BO_RUNTIME,Web UI and dashboard tests,split,medium
+src/lib/aiur_web/streamdeck_logs.ex,637,DECK_WEB,Web UI / presenters and channels,split,medium
+.claude/skills/ce-brainstorm/references/html-rendering.md,634,CE,Vendored CE skill / ce-brainstorm,split,medium
+.claude/skills/ce-ideate/references/html-rendering.md,634,CE,Vendored CE skill / ce-ideate,split,medium
+.claude/skills/ce-plan/references/html-rendering.md,634,CE,Vendored CE skill / ce-plan,split,medium
+src/test/aiur/github/ci_poll_batch_test.exs,634,GH_ACCESS,Github tests,split,medium
+src/test/aiur/claude/remote_control_test.exs,633,CLAUDE,Claude tests,split,medium
+docs/plans/2026-07-12-003-feat-operator-control-center-ui-plan.md,632,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/run_telemetry/writer.ex,628,TELEMETRY,Run telemetry,split,medium
+src/lib/aiur/build_order/ticket_history_provider.ex,627,BO_RUNTIME,Build Order,split,medium
+.codex/skills/land/land_watch.py,621,SKILLS,Codex skill helper,split,medium
+src/lib/aiur/usage/grouped_scopes.ex,621,TELEMETRY,Usage accounting,split,medium
+src/lib/aiur/executor_wake_inbox.ex,619,EVENTS,Aiur core / executor wake inbox,split,medium
+src/lib/aiur/run_telemetry/dashboard.ex,619,TELEMETRY,Run telemetry,split,medium
+src/lib/aiur/opencode/slot.ex,617,OPENCODE,Opencode backend,split,medium
+docs/plans/2026-07-15-002-feat-canonical-usage-ledger-plan.md,616,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/github/view_state_sweep_test.exs,616,GH_ACCESS,Github tests,split,medium
+src/lib/aiur/cli.ex,609,CLI,Aiur core / cli,split,medium
+src/lib/aiur_web/streamdeck_channel.ex,609,DECK_WEB,Web UI / presenters and channels,split,medium
+src/priv/static/streamdeck-emulator-hook.js,606,DECK_WEB,Dashboard and browser static assets,split,medium
+.claude/skills/aiur-build/scripts/publication/publication_receipt_authority.py,605,BO_PUBLISH,Aiur operator skills,split,medium
+docs/build-order/scripts/publication_receipt_authority.py,605,BO_PUBLISH,Build Order publication tooling,split,medium
+src/lib/aiur/ticket_activity/projection.ex,605,LIFECYCLE_STATUS,Ticket activity,split,medium
+src/lib/aiur.ex,600,APP_BOOT,Repository support,split,medium
+src/lib/aiur/linear/client.ex,599,LINEAR,Linear adapter,split,medium
+src/lib/aiur/agent_queue_store.ex,597,AGENT_TURN,Agent queue,split,medium
+src/test/aiur_web/operator_control_center/units_row_test.exs,597,WEB,Web UI and dashboard tests,split,medium
+packages/streamdeck/src/rasterizer.ts,595,DECK_PKG,Stream Deck package,split,medium
+src/lib/aiur/github/comment_poll_batch.ex,595,GH_ACCESS,GitHub access,split,medium
+src/lib/aiur_web/presenter.ex,595,WEB,Web UI / presenters and channels,split,medium
+src/test/aiur/decision_withdrawal_test.exs,594,DECISIONS,Decision persistence and API tests,split,medium
+website/docs-app/bun.lock,593,DOCS,Operator documentation,regenerate,low
+src/lib/aiur/agent_runner/turn_loop.ex,591,AGENT_TURN,Agent runtime,split,medium
+src/test/aiur/build_order/shared_resource_store_test.exs,588,BO_RUNTIME,Build Order tests,split,medium
+packages/streamdeck/src/channel.ts,587,DECK_PKG,Stream Deck package,split,medium
+src/test/aiur/codex/approvals_test.exs,585,CODEX,Codex tests,split,medium
+.github/workflows/release-npm.yml,583,CI,CI/release workflows,split,medium
+src/test/aiur/events/subscription_store_test.exs,582,EVENTS,Events tests,split,medium
+docs/plans/2026-07-12-003-feat-decision-revisions-plan.md,579,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/cli_test.exs,578,CLI,Aiur core/integration tests,split,medium
+src/lib/aiur/agent_process_log.ex,576,AGENT_CORE,Aiur core / agent process log,split,medium
+.claude/skills/ce-compound/scripts/session-history/extract-skeleton.py,575,CE,Vendored CE skill / ce-compound,split,medium
+src/test/aiur/app_server/adapter_test.exs,574,AGENT_TURN,Aiur core/integration tests,split,medium
+docs/plans/2026-07-11-003-refactor-orchestrator-dispatch-lifecycle-extraction-plan.md,572,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/decision_attention_test.exs,572,DECISIONS,Decision persistence and API tests,split,medium
+src/lib/aiur/tmux.ex,571,OPENCODE,Terminal session,split,medium
+docs/plans/2026-06-08-002-feat-repl-dual-chat-driver-plan.md,567,HIST_CE,Historical CE planning docs,split,low
+src/test/aiur/build_order/ticket_history_provider_test.exs,566,BO_RUNTIME,Build Order tests,split,medium
+src/test/aiur_web/streamdeck_logs_test.exs,565,DECK_WEB,Web UI and dashboard tests,split,medium
+src/test/aiur/model_discovery_test.exs,564,AGENT_CORE,Model discovery tests,split,medium
+src/test/aiur/github/resource_fetch_test.exs,563,GH_ACCESS,Github tests,split,medium
+src/test/aiur/usage_ledger/recovery_test.exs,561,TELEMETRY,Aiur core/integration tests,split,medium
+docs/build-order/scripts/capture_progress_estimates.py,560,BO_PUBLISH,Build Order publication tooling,split,medium
+src/test/aiur/opencode/session_writer_test.exs,560,OPENCODE,Opencode tests,split,medium
+src/lib/aiur/recent_merge.ex,558,LIFECYCLE_STATUS,Aiur core / recent merge,split,medium
+src/lib/aiur/run_telemetry/lifecycle.ex,557,TELEMETRY,Run telemetry,split,medium
+src/lib/aiur/github/read_cache.ex,555,GH_ACCESS,GitHub access,split,medium
+src/test/aiur/usage/price_table_test.exs,553,TELEMETRY,Aiur core/integration tests,split,medium
+src/docs/opencode-pane-brainstorm.md,551,HIST_PRODUCT,Historical product design docs,split,medium
+packages/streamdeck/test/dial.test.ts,549,DECK_PKG,Stream Deck package,split,medium
+docs/plans/2026-05-22-001-feat-shared-prewarm-opencode-plan.md,547,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/orchestrator/snapshot_store.ex,546,LIFECYCLE_STATUS,Ticket lifecycle and dispatch,split,medium
+docs/plans/2026-05-27-001-feat-subscriptions-and-inbox-plan.md,545,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/github/read_cache/policy.ex,545,GH_ACCESS,GitHub access,split,medium
+src/test/aiur/agent_list/app_test.exs,545,OPENCODE,Aiur core/integration tests,split,medium
+src/lib/aiur/github/auth_preflight.ex,544,GH_TRUST,GitHub access,split,medium
+docs/plans/2026-07-11-006-feat-daemon-run-telemetry-plan.md,542,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/workflow_store.ex,542,LIFECYCLE_STATUS,Aiur core / workflow store,split,medium
+.claude/skills/ce-code-review/SKILL.md,541,CE,Vendored CE skill / ce-code-review,split,medium
+src/lib/aiur/agent_github_guard.ex,541,GH_GUARD,GitHub access and guard,split,medium
+src/lib/aiur/decision_history.ex,540,DECISIONS,Decision persistence and API,split,medium
+src/lib/aiur_web/streamdeck_projection.ex,540,DECK_WEB,Web UI / presenters and channels,split,medium
+src/lib/aiur/events/publisher.ex,539,EVENTS,Event delivery,split,medium
+src/priv/static/conversation-voice-controller.js,539,BROWSER,Dashboard and browser static assets,split,medium
+src/test/aiur/agent_runner/message_handler_test.exs,539,AGENT_TURN,Agent Runner tests,split,medium
+src/test/aiur/agent_queue_test.exs,538,AGENT_TURN,Agent queue tests,split,medium
+src/test/aiur/test_reset_test.exs,537,TEST_HARNESS,Aiur core/integration tests,split,medium
+src/test/aiur/pane_manager_test.exs,535,OPENCODE,Aiur core/integration tests,split,medium
+src/lib/aiur/claude/coding_agent.ex,534,CLAUDE,Claude backend,split,medium
+src/test/aiur/orchestrator/status_report_test.exs,533,LIFECYCLE_STATUS,NEW,split,provisional
+src/lib/aiur/progress_retention.ex,532,LIFECYCLE_STATUS,Aiur core / progress retention,split,medium
+src/test/aiur/orchestrator/merged_ticket_reconciler_test.exs,532,LIFECYCLE_STATUS,Orchestrator tests,split,medium
+src/test/aiur/opencode/slot_policy_test.exs,527,OPENCODE,Opencode tests,split,medium
+src/test/aiur/orchestrator/auto_resume_test.exs,527,LIFECYCLE_STATUS,Orchestrator tests,split,medium
+src/lib/aiur/orchestrator/comment_polling/target_selection.ex,526,LIFECYCLE_DISPATCH,Ticket lifecycle and dispatch,split,medium
+src/lib/aiur/executor_events.ex,525,EVENTS,Event delivery,split,medium
+src/test/aiur/open_ticket_source_test.exs,524,LIFECYCLE_STATUS,Aiur core/integration tests,split,medium
+src/test/aiur/github/issue_state_test.exs,523,GH_TRUST,Github tests,split,medium
+src/test/aiur/orchestrator/orphaned_workers_test.exs,523,LIFECYCLE_STATUS,Orchestrator tests,split,medium
+src/test/aiur/orchestrator/rework_requeue_test.exs,522,LIFECYCLE_STATUS,Orchestrator tests,split,medium
+analytics/lib/analytics/render.py,521,ANALYTICS,Offline analytics tooling,split,medium
+docs/plans/2026-07-15-002-feat-financial-data-authentication-plan.md,521,HIST_CE,Historical CE planning docs,split,low
+docs/plans/2026-05-28-001-feat-deactivated-state-plan.md,520,HIST_CE,Historical CE planning docs,split,low
+docs/plans/2026-07-13-003-feat-github-planning-graph-plan.md,518,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/build_order/pack_status.ex,515,BO_RUNTIME,Build Order,split,medium
+src/test/aiur_web/components/operator_control_center/units_table_test.exs,513,WEB,NEW,split,provisional
+src/test/aiur/agent_runner/provider_lifecycle_test.exs,511,AGENT_TURN,Agent Runner tests,split,medium
+docs/plans/2026-07-13-003-feat-applied-unit-controls-plan.md,510,HIST_CE,Historical CE planning docs,split,low
+src/lib/aiur/codex/event_humanizer.ex,510,CODEX,Codex backend,split,medium
+src/test/aiur/coordination_tasks_test.exs,510,LIFECYCLE_STATUS,Aiur core/integration tests,split,medium
+src/lib/aiur/open_ticket_source.ex,509,LIFECYCLE_STATUS,Aiur core / open ticket source,split,medium
+src/priv/github_push_guard.sh,509,GH_GUARD,Runtime launcher and guard scripts,split,medium
+src/browser/layout/aiur-layout-worker.js,507,LAYOUT,Browser UI / layout,split,medium
+src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js,507,LAYOUT,Vendored ELK browser dependency,remove,medium
+src/test/aiur_web/github_webhook_test.exs,504,EVENTS,Web UI and dashboard tests,split,medium
+src/lib/aiur/webhooks/mode_registry.ex,502,EVENTS,Webhook transport,split,medium

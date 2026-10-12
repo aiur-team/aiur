@@ -1,0 +1,163 @@
+{
+  "build_js_sha256": "b1a13092f3c4947dd0c1d8ff1e1db28b14432ae78b0b7bd72fe76006743d157e",
+  "cases": [
+    {
+      "query": "",
+      "canonical": "",
+      "design_output": ""
+    },
+    {
+      "query": "view=gantt",
+      "canonical": "view=gantt",
+      "design_output": "view=gantt"
+    },
+    {
+      "query": "view=list",
+      "canonical": "view=list",
+      "design_output": "view=list"
+    },
+    {
+      "query": "trees=1",
+      "canonical": "trees=1",
+      "design_output": "trees=1"
+    },
+    {
+      "query": "live=min",
+      "canonical": "live=min",
+      "design_output": "live=min"
+    },
+    {
+      "query": "span=7",
+      "canonical": "span=7",
+      "design_output": "span=7"
+    },
+    {
+      "query": "feature=f-docs",
+      "canonical": "feature=f-docs",
+      "design_output": "feature=f-docs"
+    },
+    {
+      "query": "feature=f-docs&fmode=compact",
+      "canonical": "feature=f-docs&fmode=compact",
+      "design_output": "feature=f-docs&fmode=compact"
+    },
+    {
+      "query": "epic=bugs,docs",
+      "canonical": "epic=bugs,docs",
+      "design_output": "epic=bugs,docs"
+    },
+    {
+      "query": "model=claude",
+      "canonical": "model=claude",
+      "design_output": "model=claude"
+    },
+    {
+      "query": "tstate=in+progress,queued",
+      "canonical": "tstate=in+progress,queued",
+      "design_output": "tstate=in+progress,queued"
+    },
+    {
+      "query": "astate=paused,parked",
+      "canonical": "astate=paused,parked",
+      "design_output": "astate=paused,parked"
+    },
+    {
+      "query": "ticket=2748",
+      "canonical": "ticket=2748",
+      "design_output": "ticket=2748"
+    },
+    {
+      "query": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
+      "canonical": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
+      "design_output": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+    },
+    {
+      "query": "astate=bogus,,active,active",
+      "canonical": "astate=active",
+      "design_output": "astate=bogus,,active,active",
+      "differs": "Invalid/empty list values and duplicates are dropped."
+    },
+    {
+      "query": "model=none",
+      "canonical": "",
+      "design_output": "model=none",
+      "differs": "The design has no none model option."
+    },
+    {
+      "query": "models=7&example=dense",
+      "canonical": "",
+      "design_output": "models=7&example=dense",
+      "differs": "Demo parameters are dropped."
+    },
+    {
+      "query": "unknown=x",
+      "canonical": "",
+      "design_output": "unknown=x",
+      "differs": "Unknown keys are dropped."
+    },
+    {
+      "query": "span=7&view=gantt",
+      "canonical": "view=gantt&span=7",
+      "design_output": "span=7&view=gantt",
+      "differs": "Key order is fixed."
+    },
+    {
+      "query": "view=list&view=gantt",
+      "canonical": "view=gantt",
+      "design_output": "view=list",
+      "differs": "Plug keeps the last duplicate key; the design reads the first."
+    },
+    {
+      "query": "span=7.0",
+      "canonical": "",
+      "design_output": "span=7",
+      "differs": "Only complete integer span strings are accepted."
+    },
+    {
+      "query": "span=+7",
+      "canonical": "",
+      "design_output": "span=7",
+      "differs": "Leading whitespace accepted by JavaScript coercion is rejected."
+    },
+    {
+      "query": "span=0x7",
+      "canonical": "",
+      "design_output": "span=7",
+      "differs": "Hexadecimal JavaScript coercion is rejected."
+    },
+    {
+      "query": "ticket=AIUR-12",
+      "canonical": "",
+      "design_output": "ticket=AIUR-12",
+      "differs": "Ticket ids must be positive decimal digits."
+    },
+    {
+      "query": "ticket=007",
+      "canonical": "ticket=7",
+      "design_output": "ticket=007",
+      "differs": "Leading zeros in ticket ids are canonicalized."
+    },
+    {
+      "query": "feature=%3Cscript%3E",
+      "canonical": "",
+      "design_output": "feature=%3Cscript%3E",
+      "differs": "Feature slugs are shape-checked."
+    },
+    {
+      "query": "v=1&conditions=alert",
+      "canonical": "astate=error,retries,command",
+      "design_output": "v=1&conditions=alert",
+      "differs": "Legacy Units keys map to home presets."
+    },
+    {
+      "query": "zoom=2&density=compact",
+      "canonical": "",
+      "design_output": ""
+    },
+    {
+      "query": "view=graph&span=1&fmode=compact",
+      "canonical": "",
+      "design_output": ""
+    }
+  ]
+}

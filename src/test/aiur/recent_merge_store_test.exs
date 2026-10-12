@@ -7,7 +7,7 @@ defmodule Aiur.RecentMergeStoreTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-recent-merges")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir}
   end
 
@@ -276,7 +276,7 @@ defmodule Aiur.RecentMergeStoreTest do
     append_fun = fn path, record ->
       case Agent.get(append_mode, & &1) do
         :fail -> {:error, :disk_full}
-        :ok -> Aiur.DecisionLog.append(path, record)
+        :ok -> Aiur.Journal.append(path, record)
       end
     end
 

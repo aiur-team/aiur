@@ -51,12 +51,49 @@ defmodule Aiur.Codex.StartupFailureTest do
     assert StartupFailure.safe_excerpt(output) == "fatal: startup refused"
   end
 
+  test "secret keyword split by ANSI is redacted" do
+    excerpt = StartupFailure.safe_excerpt("fatal: to\e[0mken=abc123")
+    assert excerpt == "[redacted sensitive output]"
+    refute excerpt =~ "abc123"
+  end
+
   test "diagnostics redact a spaced API key label" do
     secret = "abc123"
     excerpt = StartupFailure.safe_excerpt("fatal: API key #{secret} was rejected")
 
     assert excerpt == "[redacted sensitive output]"
     refute excerpt =~ secret
+  end
+
+  test "file keeps the last 50 records" do
+    for n <- 1..60 do
+      StartupFailure.record("bounded-startup", "attempt-#{n}", 23, "failure #{n}")
+    end
+
+    path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.bounded-startup.startup-failures.ndjson")
+    records = path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    assert Enum.map(records, & &1["attempt_id"]) == Enum.map(11..60, &"attempt-#{&1}")
+    assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
+  end
+
+  test "failed pruning preserves old records and still appends the newest" do
+    path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.failed-prune.startup-failures.ndjson")
+    File.mkdir_p!(Path.dirname(path))
+    previous = Enum.map_join(1..50, "", &~s({"attempt_id":"attempt-#{&1}"}\n))
+    File.write!(path, previous)
+    directory = Path.dirname(path)
+    mode = Bitwise.band(File.stat!(directory).mode, 0o777)
+    File.chmod!(directory, 0o500)
+
+    try do
+      log = ExUnit.CaptureLog.capture_log(fn -> StartupFailure.record("failed-prune", "newest", 23, "startup refused") end)
+      assert log =~ "Could not prune startup failures"
+      body = File.read!(path)
+      assert String.starts_with?(body, previous)
+      assert List.last(String.split(body, "\n", trim: true)) |> Jason.decode!() |> Map.fetch!("attempt_id") == "newest"
+    after
+      File.chmod!(directory, mode)
+    end
   end
 
   test "diagnostic file is private before the first and subsequent append" do

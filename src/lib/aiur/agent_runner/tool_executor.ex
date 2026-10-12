@@ -1,31 +1,20 @@
 defmodule Aiur.AgentRunner.ToolExecutor do
   @moduledoc """
   Binds dynamic tool execution to an agent issue and worker context.
-
   The executor namespaces alerts and events, manages subscriptions, and keeps
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
   require Logger
 
-  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
 
-  alias Aiur.{
-    Alerts,
-    Boot,
-    CodingAgent,
-    CoordinationTasks,
-    DecisionAttention,
-    DecisionStore,
-    EventPublicationLog,
-    Issue,
-    Tracker
-  }
+  alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.Orchestrator
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
 
@@ -68,20 +57,19 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
       unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
-      # The tracker writer behind `aiur_set_ticket_state` (#2805). It goes
-      # through the same `Tracker.update_issue_state/2` the daemon uses, which
-      # re-reads the issue and makes the target the sole `agent:*` state label —
+      # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &Tracker.update_issue_state/2)
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool)),
+      ci_wait_pr_fetcher: Keyword.get(opts, :ci_wait_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
     }
 
     event_handlers = %{
-      decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
-      decision_lifecycle_recorder: Keyword.get(opts, :decision_lifecycle_recorder, &DecisionStore.agent_lifecycle/3),
-      attention_enricher: Keyword.get(opts, :attention_enricher, &DecisionStore.enrich_attention/2),
-      attention_opener: Keyword.get(opts, :attention_opener, &DecisionAttention.open_with_decision/6),
-      attention_resolver: Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/2)
+      decision_requester: Keyword.get(opts, :decision_requester, &Commands.request/2),
+      decision_lifecycle_recorder: Keyword.get(opts, :decision_lifecycle_recorder, &Commands.agent_lifecycle/3),
+      attention_enricher: Keyword.get(opts, :attention_enricher, &Commands.enrich_attention/2),
+      attention_opener: Keyword.get(opts, :attention_opener, &Commands.open_attention_with_decision/6),
+      attention_resolver: Keyword.get(opts, :attention_resolver, &Commands.resolve_attention/2)
     }
 
     event_context = %{
@@ -137,6 +125,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         unblocker: fn blocker_number ->
           unblock_for_issue(issue, blocker_number, coordination)
         end,
+        epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
         ticket_state_setter: fn state_name ->
           set_ticket_state_for_issue(issue, state_name, coordination)
         end
@@ -196,11 +185,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp write_ticket_state(coordination, issue_id, state_name) do
-    case coordination.set_ticket_state.(issue_id, state_name) do
-      :ok -> {:ok, %{state: state_name, issue: issue_id}}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
-    end
+    CiWaitTransition.write(coordination, issue_id, state_name)
   end
 
   defp tracker_issue_id(issue) do
@@ -604,7 +589,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source, provenance: provenance)
 
       slug when is_binary(slug) ->
-        case DecisionAttention.correlation(issue, slug) do
+        case Commands.attention_correlation(issue, slug) do
           {:ok, correlation} ->
             payload =
               request_payload
@@ -672,7 +657,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
              |> Map.new(fn {key, value} -> {Atom.to_string(key), stringify_lifecycle_value(value)} end)}
 
           {:error, reason} ->
-            {:error, {:decision_lifecycle_rejected, reason}}
+            DecisionLifecycleFailureAlert.recording_failed(issue, payload, name, reason)
         end
     end
   end

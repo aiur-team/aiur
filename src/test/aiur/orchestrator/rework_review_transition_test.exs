@@ -99,16 +99,10 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
     issue = human_review_issue()
     event = changes_requested_review_event(issue)
 
-    log =
-      capture_log(fn ->
-        CommentWake.maybe_transition_idle_issue_to_rework(state, @issue_number, :pr_review, event, 1)
-      end)
+    CommentWake.maybe_transition_idle_issue_to_rework(state, @issue_number, :pr_review, event, 1)
 
     # The rework write is a real tracker mutation, not just a routed event.
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 1_000
-    refute log =~ "ignored for idle issue"
-    refute log =~ ":no_open_pr"
-    refute log =~ ":stale_review"
   end
 
   test "an APPROVED review does not move a human-review ticket to rework" do

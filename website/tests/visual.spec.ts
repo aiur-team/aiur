@@ -109,7 +109,14 @@ for (const theme of themes) {
           await expect(element).toBeVisible()
           await element.scrollIntoViewIfNeeded()
           await settle(page)
+          // Fixed navigation overlaps tall element clips at scroll-dependent offsets.
+          if (name === 'features') await page.addStyleTag({ content: '.topbar { visibility: hidden !important; }' })
           await expect(element).toHaveScreenshot(`element-${name}-${suffix}.png`, { mask: screenshotMask(page) })
+          if (name === 'features' && viewport.name === 'mobile') {
+            await page.evaluate(() => window.scrollBy(0, 40))
+            await settle(page)
+            await expect(element).toHaveScreenshot(`element-${name}-${suffix}.png`, { mask: screenshotMask(page), maxDiffPixelRatio: 0, maxDiffPixels: 0 })
+          }
         })
       }
     })

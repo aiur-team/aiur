@@ -3,7 +3,8 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CommandScan, State}
+  alias Aiur.Orchestrator.{CommandScan, State, TrackerTasks}
+  import ExUnit.CaptureLog
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -14,6 +15,57 @@ defmodule Aiur.Orchestrator.CommandScanTest do
     )
 
     :ok
+  end
+
+  test "a command scan timeout preserves the cursor and owner state" do
+    owner = self()
+    state = %{base_state() | snapshot_key: self(), github_command_scan_since: "2024-01-01T00:00:00Z"}
+
+    pending =
+      CommandScan.scan_pr_commands(state,
+        command_scan_review_comment_fetcher: fn _ ->
+          send(owner, {:scan_started, self()})
+          receive do: (:release -> {:ok, []})
+        end,
+        command_scan_issue_comment_fetcher: fn _ -> {:ok, []} end
+      )
+
+    receive_barrier({:scan_started, worker})
+    [ref] = Map.keys(pending.tracker_tasks)
+
+    log =
+      capture_log(fn ->
+        next = TrackerTasks.timeout(pending, ref)
+        assert next.github_command_scan_since == state.github_command_scan_since
+        assert next.github_comment_etags == state.github_comment_etags
+        assert next.tracker_tasks == %{}
+      end)
+
+    refute Process.alive?(worker)
+    assert log =~ "PR command scan task failed"
+  end
+
+  test "a crashed command scan leaves the owner able to process its next task" do
+    state = %{base_state() | snapshot_key: self()}
+
+    pending =
+      CommandScan.scan_pr_commands(state,
+        command_scan_review_comment_fetcher: fn _ -> exit(:controlled_scan_crash) end,
+        command_scan_issue_comment_fetcher: fn _ -> {:ok, []} end
+      )
+
+    [ref] = Map.keys(pending.tracker_tasks)
+    receive_barrier({:DOWN, ^ref, :process, _pid, reason})
+
+    log =
+      capture_log(fn ->
+        {:handled, next} = TrackerTasks.down(pending, ref, reason)
+        assert next.github_command_scan_since == state.github_command_scan_since
+        assert next.github_comment_etags == state.github_comment_etags
+        assert next.tracker_tasks == %{}
+      end)
+
+    assert log =~ "PR command scan task failed"
   end
 
   defp base_state do

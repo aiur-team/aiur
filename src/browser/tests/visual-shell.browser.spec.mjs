@@ -26,17 +26,17 @@ for (const theme of THEMES) {
             const mask = getMaskConfig(page)
             await expect(page).toHaveScreenshot(`${prefix}-shell.png`, { mask })
             for (const [name, selector] of [
-              ['header', 'header.topbar'],
-              ['nav', state === 'mobile' ? '.shell-nav-mobile' : state === 'collapsed' ? '#nav-toggle' : 'aside.shell-sidebar'],
-              ['context', '.route-context']
+              ['header', 'header.ax-top'],
+              ['nav', 'aside.sidenav'],
+              ['context', '#ax-title']
             ]) {
               const element = page.locator(selector)
               await expect(element).toBeVisible()
               await expect(element).toHaveScreenshot(`${prefix}-${name}.png`, { mask })
             }
             if (state === 'collapsed') {
-              await expect(page.locator('.shell-nav-sidebar')).not.toBeVisible()
-              await expect(page.locator('#nav-toggle')).toBeVisible()
+              expect(await page.locator('.snav-label').first().evaluate(node => getComputedStyle(node).clipPath)).toBe('inset(50%)')
+              await expect(page.locator('#ax-drag')).toBeVisible()
             }
           })
         }
@@ -69,7 +69,7 @@ for (const theme of THEMES) {
   test(`keyboard focus ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await openVisualRoute(page, { theme, route: '/' })
-    const item = page.locator('.shell-nav-sidebar .shell-nav-item').first()
+    const item = page.locator('.sidenav .snav').first()
     // Traverse the actual tab order so :focus-visible is exercised.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await page.keyboard.press('Tab')
@@ -89,12 +89,14 @@ for (const theme of THEMES) {
 test('CSS nav padding mutation fails sidebar screenshot comparison', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openVisualRoute(page, { theme: 'light', route: '/build-orders' })
-  const sidebar = page.locator('aside.shell-sidebar')
-  const navItem = sidebar.locator('.shell-nav-item').first()
+  const sidebar = page.locator('aside.sidenav')
+  const navItem = sidebar.locator('.snav').first()
   await expect(sidebar).toBeVisible()
   await expect(sidebar).toHaveScreenshot('proof-sidebar.png', { maxDiffPixels: 0, maxDiffPixelRatio: 0 })
+  // Refresh only the unmodified baseline; otherwise update mode records the intentional mutation.
+  if (test.info().config.updateSnapshots !== 'none') return
   const before = await navItem.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))
-  await page.addStyleTag({ content: '.shell-nav-item{padding-left:calc(0.72rem + 2px)!important}' })
+  await page.addStyleTag({ content: `.sidenav .snav{padding-left:${before + 2}px!important}` })
   const after = await navItem.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))
   expect(after - before).toBeCloseTo(2, 1)
   let mismatch

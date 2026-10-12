@@ -174,14 +174,14 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :waiting_for_supervisor
     end
 
-    test "an agent-requested pause with no explanatory tracker state waits for a human" do
+    test "an agent-requested pause without a blocking Command is only paused" do
       assert WaitingReason.for_running(%{
                tracker_state: "in-progress",
                pause_reason: :agent_pause_request,
                work_state: :paused,
                stale_for_seconds: 5,
                stall_timeout_seconds: 3600
-             }) == :waiting_for_human
+             }) == :paused
     end
 
     test "a GitHub budget hold is transient rather than human-required" do

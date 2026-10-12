@@ -28,12 +28,7 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
   defp at(seconds), do: DateTime.add(~U[2026-08-09 12:00:00Z], seconds, :second)
 
   defp ensure_pubsub! do
-    unless Process.whereis(Aiur.PubSub) do
-      {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   describe "mode is per repo" do

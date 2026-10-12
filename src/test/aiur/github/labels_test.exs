@@ -35,6 +35,15 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.marker_suffix?("rate-limit-fallback")
     end
 
+    test "label_set/2 seeds the queued marker" do
+      assert "aiur:queued" in Labels.label_set("aiur", ["claude"])
+      assert "aiur:queued" in Labels.marker_labels("aiur")
+      assert Labels.queued_labels("aiur") == ["aiur:queued"]
+      assert Labels.marker_suffix?(" QUEUED ")
+      refute "aiur:queued" in Labels.state_labels("aiur")
+      assert Labels.describe("aiur:queued") == "in the build queue; not yet ready"
+    end
+
     test "parked is a marker, not a dispatch state" do
       assert Labels.parked_labels("agent") == ["agent:parked"]
       # marker_suffix?/1 takes the bare suffix, not a full `prefix:suffix`

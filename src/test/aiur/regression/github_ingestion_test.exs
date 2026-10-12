@@ -47,10 +47,10 @@ defmodule Aiur.Regression.GithubIngestionTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      # Tolerant rm_rf: matches the `File.rm_rf/1` teardown convention in
+      # Tolerant rm_rf: matches the `Aiur.TestCleanup.rm_rf!/1` teardown convention in
       # `Aiur.TestSupport`; the dir is unique per test so a rare leftover is
       # harmless.
-      File.rm_rf(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
 
     :ok
@@ -551,7 +551,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       :sys.get_state(pid)
 
       assert_receive {:published, "ticket.77.branch.push", payload_77, opts_77}, 2000
-      assert payload_77 == %{source: :system, ref: "refs/heads/aiur/77", sha: "sha2", actor: nil, commits: [], repo: repo}
+      assert payload_77 == %{source: :system, ref: "refs/heads/aiur/77", sha: "sha2", previous_sha: "sha1", actor: nil, commits: [], repo: repo}
       assert opts_77[:issue_number] == "77"
 
       assert_receive {:published, "ticket.88.branch.push", _, _}, 2000

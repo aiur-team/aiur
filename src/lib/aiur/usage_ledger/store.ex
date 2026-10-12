@@ -5,7 +5,7 @@ defmodule Aiur.UsageLedger.Store do
 
   @behaviour Aiur.UsageLedger
 
-  alias Aiur.{Config, DecisionLog, Fs, UsageEnvelope}
+  alias Aiur.{Config, Fs, Journal, UsageEnvelope}
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery, RetiredFloor}
 
   @max_scan_limit 10_000
@@ -72,7 +72,7 @@ defmodule Aiur.UsageLedger.Store do
     {:ok,
      Map.merge(state, %{
        records: :queue.from_list(state.records),
-       append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+       append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
        checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.overwrite_encoded/2),
        checkpoint_encode_fun: Keyword.get(opts, :checkpoint_encode_fun, &Checkpoint.encode/2),
        publish_fun: Keyword.get(opts, :publish_fun, fn _acknowledgement -> :ok end),

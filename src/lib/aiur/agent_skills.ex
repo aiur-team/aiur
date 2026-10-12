@@ -54,9 +54,9 @@ defmodule Aiur.AgentSkills do
   @compound_engineering_manifest_file Path.join(@skills_root, "compound-engineering.skills")
   @compound_engineering_license_file Path.join(@skills_root, "compound-engineering.LICENSE")
 
-  @external_resource @compound_engineering_version_file
-  @external_resource @compound_engineering_manifest_file
-  @external_resource @compound_engineering_license_file
+  @external_resource Path.relative_to(@compound_engineering_version_file, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@compound_engineering_manifest_file, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@compound_engineering_license_file, File.cwd!(), force: true)
 
   @compound_engineering_version @compound_engineering_version_file |> File.read!() |> String.trim()
   @compound_engineering_skills @compound_engineering_manifest_file |> File.read!() |> String.split(~r/\s+/, trim: true)
@@ -78,7 +78,7 @@ defmodule Aiur.AgentSkills do
     |> Enum.uniq()
     |> Enum.filter(&File.regular?/1)
 
-  for path <- bundled_paths, do: @external_resource(path)
+  for path <- bundled_paths, do: @external_resource(Path.relative_to(path, File.cwd!(), force: true))
 
   @bundled_files for path <- bundled_paths, do: {Path.relative_to(path, @skills_root), File.read!(path)}
 

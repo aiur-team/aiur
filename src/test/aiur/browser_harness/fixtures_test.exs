@@ -1,7 +1,24 @@
 defmodule Aiur.BrowserHarness.FixturesTest do
   use ExUnit.Case, async: true
+  require Phoenix.LiveViewTest
 
-  alias Aiur.BrowserHarness.Fixtures
+  alias Aiur.BrowserHarness.{BuildQueueFixture, Fixtures}
+  alias AiurWeb.BuildQueue.Panel
+
+  test "build queue fixture renders all item states and evidence" do
+    view = BuildQueueFixture.view("running")
+    html = Phoenix.LiveViewTest.render_component(&Panel.panel/1, view: view, now: DateTime.utc_now())
+
+    for state <- ~w(waiting ready promoted promoted_unauthorized claimed held overridden failed_prerequisite completed cancelled removed) do
+      assert html =~ ~s(data-item-state="#{state}")
+    end
+
+    assert html =~ "12s ago"
+    assert html =~ "Waiting for completion"
+    assert html =~ "3 open downstream"
+    assert html =~ "Queue promotion needs operator attention"
+    assert html =~ "Queue prerequisite recovered"
+  end
 
   test "builds each supported graph size with deterministic identities and exact counts" do
     for size <- [0, 1, 20, 50, 100] do

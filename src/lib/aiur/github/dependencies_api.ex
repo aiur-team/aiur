@@ -157,7 +157,7 @@ defmodule Aiur.GitHub.DependenciesApi do
         retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
 
         if not is_nil(key),
-          do: ResourceStore.put_resource(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
+          do: ResourceStore.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
 
         {:ok, body}
 

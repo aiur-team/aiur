@@ -49,6 +49,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
     %{
       id: :streamdeck,
       label: "Streamdeck+",
+      nav_label: "Streamdeck",
       icon: "◉",
       description: "Stream Deck + control surface",
       path: "/streamdeck",

@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.Transport do
 
   Moving the socket to a worker means the caller waits on a message it can
   abandon. On deadline the worker is killed, which closes the socket with it,
-  and the caller gets `{:error, :fetch_deadline_exceeded}` instead of wedging.
+  and the caller gets `{:error, {:aiur, :unknown, :fetch_deadline_exceeded}}` instead of wedging.
   Quota preflight/observe stay on the caller so accounting order is unchanged.
   Local budget admission has its own bound and completes before the HTTP
   deadline starts, so broker process startup and SQLite work cannot consume the
@@ -34,7 +34,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
-  alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.{QueueCost, Quota}
   alias Aiur.GitHub.ReadCache
 
   require Logger
@@ -115,10 +115,10 @@ defmodule Aiur.GitHub.Transport do
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
   def default_request_fun(%{token: token} = req) when is_binary(token) do
-    req |> CredentialSelector.assign() |> do_request()
+    req |> QueueCost.tag() |> CredentialSelector.assign() |> do_request()
   end
 
-  def default_request_fun(req), do: do_request(req)
+  def default_request_fun(req), do: req |> QueueCost.tag() |> do_request()
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
@@ -218,7 +218,7 @@ defmodule Aiur.GitHub.Transport do
   @doc """
   Runs `request_fun` on a throwaway process so the caller never owns the socket.
 
-  Returns `{:error, :fetch_deadline_exceeded}` when the request does not finish
+  Returns `{:error, {:aiur, :unknown, :fetch_deadline_exceeded}}` when the request does not finish
   inside the deadline; the process is killed, so the socket is released rather
   than leaked. Exceptions and exits raised inside it are re-raised on the caller
   so error handling upstream is unchanged.
@@ -328,7 +328,7 @@ defmodule Aiur.GitHub.Transport do
     after
       remaining_deadline_ms(deadline_at_ms) ->
         stop_request_guardian(guardian, guardian_ref)
-        {:error, :fetch_deadline_exceeded}
+        {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
     end
   end
 
@@ -347,7 +347,7 @@ defmodule Aiur.GitHub.Transport do
         remaining_deadline_ms(deadline_at_ms) ->
           Process.unlink(guardian)
           stop_request_guardian(guardian, guardian_ref)
-          {:error, :fetch_deadline_exceeded}
+          {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
       end
     end
   end
@@ -437,21 +437,15 @@ defmodule Aiur.GitHub.Transport do
         "#{inspect(Map.get(request, :method))} #{inspect(Map.get(request, :url))}"
     )
 
-    {:error, :fetch_deadline_exceeded}
+    {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
   end
 
   # The per-attempt `receive_timeout` bounds one socket read; Req retries, so
   # the deadline must cover the whole request including retries. It is a
   # backstop against a wedge, not the primary latency bound.
   #
-  # A read issued *by the Orchestrator* is bounded far tighter. The Orchestrator
-  # still calls GitHub inline from its poll cycle (`Dispatcher.run_poll_cycle/1`),
-  # and while it waits for this reply it answers nothing — agent completions and
-  # `aiur message`/`pause`/`resume`, which still route through its mailbox, wait
-  # with it. The general 60s backstop is twelve times the CLI's 5s control budget,
-  # so that wait is capped nearer the budget instead. It is not the budget itself:
-  # killing a read that is legitimately retrying through a secondary rate limit
-  # would stop dispatch entirely, so it allows one retry cycle above it (#1837).
+  # Preserve the tighter deadline for any direct orchestrator request. Poll and
+  # control I/O now runs outside that owner, using the ordinary request deadline.
   @spec request_deadline_ms(map()) :: pos_integer()
   def request_deadline_ms(request) do
     case Application.get_env(:aiur, :github_request_deadline_ms) do
@@ -679,8 +673,8 @@ defmodule Aiur.GitHub.Transport do
     request = put_caller(%{method: :get, url: url, token: token}, opts)
 
     case request_fun.(request) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        {:ok, body}
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        with {:ok, list, _etag} <- single_page_list(body, response, nil), do: {:ok, list}
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}

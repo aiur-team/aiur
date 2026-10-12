@@ -172,6 +172,16 @@ defmodule Aiur.GitHub.IssueState do
       :error ->
         :ok
 
+      {:ok, :none} ->
+        # This precondition concerns labels; closed issues still reach the closed-write guard.
+        actual = current_state(Map.delete(issue_body, "state"), prefix)
+
+        if actual == nil do
+          :ok
+        else
+          {:error, {:stale_issue_state, :none, actual}}
+        end
+
       {:ok, expected_state} when is_binary(expected_state) ->
         expected = StatePolicy.normalize_state(expected_state)
         actual = current_state(issue_body, prefix)

@@ -1,15 +1,24 @@
 defmodule Aiur.Orchestrator.HumanReview do
   @moduledoc """
   Owns orchestrator HumanReview behavior.
-  All functions execute inside the orchestrator GenServer process.
+  Remote tracker work executes outside the orchestrator GenServer process.
   """
 
   require Logger
-
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State}
+  alias Aiur.Issue
+
+  alias Aiur.Orchestrator.{
+    AgentTeardown,
+    DispatchPolicy,
+    LifecycleFence,
+    Reconciler,
+    ReworkGate,
+    State,
+    TicketTransition,
+    TrackerTasks
+  }
+
   alias Aiur.RunTelemetry.Lifecycle
 
   @doc false
@@ -30,7 +39,25 @@ defmodule Aiur.Orchestrator.HumanReview do
   @spec maybe_deactivate_human_review_issue(State.t(), Issue.t(), keyword()) :: State.t()
   def maybe_deactivate_human_review_issue(%State{} = state, %Issue{} = issue, opts)
       when is_list(opts) do
-    case verify_human_review_ready(issue) do
+    entry = Map.get(state.running, issue.id)
+
+    TrackerTasks.run(
+      state,
+      {:human_review_verify, issue.id},
+      fn -> verify_human_review_ready(issue) end,
+      fn current, result ->
+        if TrackerTasks.same_runner?(Map.get(current.running, issue.id), entry) and
+             not LifecycleFence.handoff_blocked?(current, issue) do
+          apply_verification(current, issue, opts, result)
+        else
+          current
+        end
+      end
+    )
+  end
+
+  defp apply_verification(state, issue, opts, result) do
+    case result do
       :ok ->
         Lifecycle.record(
           issue.identifier,
@@ -81,7 +108,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   end
 
   defp verify_human_review_ready_with_tracker(issue_id) do
-    if Tracker.adapter() == GitHubTracker do
+    if Aiur.CodeHost.available?() do
       client = github_client_module()
 
       if function_exported?(client, :verify_human_review_ready, 1) do
@@ -104,7 +131,25 @@ defmodule Aiur.Orchestrator.HumanReview do
     # the ticket in a state nothing selects (#2075). With an open PR the revert
     # is the real "reviewer asked for changes" signal; without one the honest
     # restore is `todo` (make it dispatchable again, no verdict).
-    case ReworkGate.open_pr(issue_key, rework_opts) do
+    entry = Map.get(state.running, issue.id)
+
+    TrackerTasks.run(
+      state,
+      {:human_review_pr, issue.id},
+      fn -> ReworkGate.open_pr(issue_key, rework_opts) end,
+      fn current, result ->
+        if TrackerTasks.same_runner?(Map.get(current.running, issue.id), entry) and
+             not LifecycleFence.handoff_blocked?(current, issue) do
+          apply_rejection(current, issue, issue_key, rework_opts, reason, result)
+        else
+          current
+        end
+      end
+    )
+  end
+
+  defp apply_rejection(state, issue, issue_key, rework_opts, reason, result) do
+    case result do
       {:ok, %{} = pr} ->
         # #2422 bound: the same head must not be reverted into `agent:rework`
         # indefinitely. A human-review revert already means unresolved review
@@ -139,9 +184,15 @@ defmodule Aiur.Orchestrator.HumanReview do
          ) do
       {:ok, state} ->
         state
-        |> revert_human_review_state(issue, issue_key, "rework", "reverting to rework", fn reverted ->
-          State.bump_rework_attempt(reverted, to_string(issue_key), head_sha)
-        end)
+        |> revert_human_review_state(
+          issue,
+          issue_key,
+          "rework",
+          "reverting to rework",
+          fn reverted ->
+            State.bump_rework_attempt(reverted, to_string(issue_key), head_sha)
+          end
+        )
 
       {:skip, bound_reason, state} ->
         Logger.warning("human-review rework revert stopped by rework-attempt bound: #{State.issue_context(issue)} reason=#{inspect(bound_reason)}")
@@ -157,22 +208,66 @@ defmodule Aiur.Orchestrator.HumanReview do
     end
   end
 
-  defp revert_human_review_state(%State{} = state, %Issue{} = issue, issue_key, target_state, log_label, on_success \\ nil) do
+  defp revert_human_review_state(
+         %State{} = state,
+         %Issue{} = issue,
+         issue_key,
+         target_state,
+         log_label,
+         on_success \\ nil
+       ) do
     Logger.warning("human-review transition rejected; #{log_label}: #{State.issue_context(issue)}")
 
-    case Tracker.update_issue_state(to_string(issue_key), target_state) do
-      :ok ->
-        state = Reconciler.maybe_reactivate_or_refresh(state, %{issue | state: target_state})
-        if is_function(on_success, 1), do: on_success.(state), else: state
+    entry = Map.get(state.running, issue.id)
 
-      {:error, update_reason} ->
-        Logger.warning("human-review #{log_label} failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}")
-
-        state
-    end
+    TrackerTasks.run(
+      state,
+      {:human_review_write, issue.id},
+      fn -> write_human_review_revert({issue, issue_key, target_state}) end,
+      fn arg1, arg2 ->
+        apply_human_review_revert(
+          arg1,
+          arg2,
+          {entry, issue, log_label, on_success, target_state}
+        )
+      end
+    )
   end
 
   defp github_client_module do
     Application.get_env(:aiur, :github_client_module, GitHubClient)
+  end
+
+  defp write_human_review_revert({issue, issue_key, target_state}) do
+    TicketTransition.write_state(to_string(issue_key), target_state, writer: :human_review, expected_state: issue.state)
+  end
+
+  defp apply_human_review_revert(
+         current,
+         :ok,
+         {entry, issue, _log_label, on_success, target_state}
+       ) do
+    if TrackerTasks.same_runner?(Map.get(current.running, issue.id), entry) and
+         not LifecycleFence.handoff_blocked?(current, issue) do
+      current = Reconciler.maybe_reactivate_or_refresh(current, %{issue | state: target_state})
+
+      if is_function(on_success, 1) do
+        on_success.(current)
+      else
+        current
+      end
+    else
+      current
+    end
+  end
+
+  defp apply_human_review_revert(
+         current,
+         {:error, update_reason},
+         {_entry, issue, log_label, _on_success, _target_state}
+       ) do
+    Logger.warning("human-review #{log_label} failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}")
+
+    current
   end
 end

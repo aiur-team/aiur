@@ -2,11 +2,26 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentPubSub, AlertFeed, Issue}
-  alias Aiur.GitHub.{DispatchAuthorization, ReadCache}
+  alias Aiur.GitHub.{DispatchAuthorization, Issues, ReadCache}
 
   setup do
     DispatchAuthorization.clear_cache()
     :ok
+  end
+
+  test "queued + todo is not contradictory" do
+    issue =
+      Issues.normalize_issue(
+        %{"number" => 42, "title" => "Queued", "state" => "open", "labels" => [%{"name" => "agent:todo"}, %{"name" => "agent:queued"}]},
+        "owner",
+        "repo",
+        "agent"
+      )
+
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+    authorized = authorize_with_events(issue, events, ["trusted"])
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
   end
 
   # Regression: an allowlisted creator used to short-circuit authorization with

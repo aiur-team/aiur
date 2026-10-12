@@ -10,7 +10,7 @@ defmodule Aiur.Alerts do
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.Signal
 
   # Built-in OS system sounds keyed by alert category. macOS ships AIFF clips in
   # the system sounds folder; Linux desktops ship freedesktop OGA themes, with a
@@ -119,21 +119,19 @@ defmodule Aiur.Alerts do
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
 
   defp do_emit(topic, override_message, opts) do
-    if repeat_resolution?(topic) do
+    # Durable callers retain their latch until publication succeeds, even if the ledger already records a resolution.
+    if not Keyword.get(opts, :durable, false) and repeat_resolution?(topic) do
       :ok
     else
       emit_alert(topic, override_message, opts)
     end
   end
 
-  # A `.resolved` alert reports the firing → cleared transition. Emitting it
-  # again while the condition has stayed clear reports a state as if it were a
-  # transition, and a poller doing so every cycle buries every record an
+  # Repeating `.resolved` while a condition stays clear reports a state as a transition and buries records an
   # Executor would act on. The check is against the durable ledger rather than
   # caller-held state, so an emitter that loses its in-memory latch — a restart,
   # a fresh CLI process — still cannot replay a transition that already landed.
-  # Reads with the same default options `write_alert_ledger_entry/3` appends
-  # under, so the gate can never consult a ledger the emit would not land in.
+  # Reads and writes use the same ledger options, so the gate checks the ledger the emit writes.
   # Fails open: an unreadable ledger must not swallow a real transition.
   defp repeat_resolution?(topic) do
     AlertFeed.duplicate_resolution?(topic)
@@ -149,7 +147,7 @@ defmodule Aiur.Alerts do
     # alert entry. Subscribers to the topic bus see every alert-emitted
     # event, regardless of whether the Executor-facing sound/badge fires.
     metadata = alert_metadata(message, opts)
-    publish_to_exchange(topic, message, metadata, opts)
+    unless Keyword.get(opts, :durable, false), do: publish_to_exchange(topic, message, metadata, opts)
 
     with {:ok, message} <- present_string(message, :missing_message) do
       settings = alert_settings()
@@ -188,15 +186,25 @@ defmodule Aiur.Alerts do
         raw: Jason.encode!(payload)
       }
 
-      AgentEventLog.write(workspace, worker_host, alert_event)
-      write_alert_ledger_entry(alert_event, workspace, worker_host)
-      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts)
-
-      maybe_play_sound(selected_sound, settings, opts)
-      broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
-      ObservabilityPubSub.broadcast_update()
-      :ok
+      with :ok <- persist_alert(alert_event, workspace, worker_host, opts),
+           :ok <- publish_durable(topic, message, metadata, opts) do
+        AgentEventLog.write(workspace, worker_host, alert_event)
+        maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts)
+        maybe_play_sound(selected_sound, settings, opts)
+        broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
+        Signal.refresh()
+        :ok
+      end
     end
+  end
+
+  defp persist_alert(alert_event, workspace, worker_host, opts) do
+    result = write_alert_ledger_entry(alert_event, workspace, worker_host)
+    if Keyword.get(opts, :durable, false), do: result, else: :ok
+  end
+
+  defp publish_durable(topic, message, metadata, opts) do
+    if Keyword.get(opts, :durable, false), do: publish_to_exchange(topic, message, metadata, opts), else: :ok
   end
 
   defp alert_metadata(message, opts) do
@@ -304,24 +312,32 @@ defmodule Aiur.Alerts do
       }
       |> Map.merge(Keyword.get(opts, :exchange_payload, %{}))
 
+    payload = if Keyword.get(opts, :refs_only, false), do: Keyword.get(opts, :exchange_payload, %{}), else: payload
+
     Publisher.publish(topic, payload,
       issue_number: issue_number_for(opts),
+      bypass_contamination: Keyword.get(opts, :bypass_contamination, false),
       identity: Keyword.get(opts, :observation_identity),
+      resource: Keyword.get(opts, :resource),
+      resource_version: Keyword.get(opts, :resource_version),
+      resource_source: Keyword.get(opts, :resource_source, :poll),
       observation_source: Keyword.get(opts, :observation_source),
       observation_provenance: Keyword.get(opts, :observation_provenance),
       occurred_at: Keyword.get(opts, :occurred_at)
     )
-
-    :ok
+    |> publication_result(opts)
   rescue
-    # Publisher GenServer may not be running during early-boot or test
-    # configurations — never block the alert pipeline on its absence.
-    _ -> :ok
+    # Ordinary alerts stay best-effort during early boot; durable callers need the failure to retry.
+    error -> publication_result({:error, {:publish_failed, error}}, opts)
   catch
-    # A missing IdGenerator makes Publisher.publish/3 exit through its
-    # GenServer call. Alerts must still reach the local feed in that failure
-    # mode; otherwise the liveness signal itself disappears with the worker.
-    :exit, _reason -> :ok
+    :exit, reason -> publication_result({:error, {:publish_failed, reason}}, opts)
+  end
+
+  defp publication_result({:ok, _id, _subscribers}, _opts), do: :ok
+  defp publication_result(:deduped, _opts), do: :ok
+
+  defp publication_result(result, opts) do
+    if Keyword.get(opts, :durable, false), do: {:error, {:publication_failed, result}}, else: :ok
   end
 
   defp issue_number_for(opts) do

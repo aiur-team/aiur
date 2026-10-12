@@ -88,9 +88,13 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
            {:ok, blockers} <- current_blockers(edges, {owner, repo}, open_issues, max_age_ms) do
         {:ok, blockers}
       else
-        :stale -> read_blockers(issue_number, owner, repo, opts)
+        :stale -> read_or_miss(issue_number, owner, repo, opts)
       end
     end
+  end
+
+  defp read_or_miss(issue_number, owner, repo, opts) do
+    if Keyword.get(opts, :cache_only, false), do: {:error, :cache_miss}, else: read_blockers(issue_number, owner, repo, opts)
   end
 
   defp current_blockers(edges, {owner, repo} = tracker_repo, open_issues, max_age_ms) when is_list(edges) do

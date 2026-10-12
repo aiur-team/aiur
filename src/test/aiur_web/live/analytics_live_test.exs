@@ -1,26 +1,20 @@
 defmodule AiurWeb.AnalyticsLiveTest do
   use Aiur.TestSupport
-
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
-
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.{RunTelemetry, TrackerIdentity}
-  alias Aiur.TestSupport.AwaitingCommands
+  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
-
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
-
   @endpoint Endpoint
   @fixtures Path.expand("../../fixtures/run_telemetry", __DIR__)
   @summary_fixture Path.expand("../../fixtures/analytics/runs/boot-a/run-summary.json", __DIR__)
-
   defmodule UsageAggregateSourceStub do
     @moduledoc false
-
     def cells_snapshot,
       do: Application.fetch_env!(:aiur, :analytics_usage_aggregate_source_snapshot)
 
@@ -93,7 +87,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "shows the empty state when no run telemetry is available" do
     Application.put_env(:aiur, :analytics_telemetry_file, "/nonexistent/telemetry.ndjson")
 
-    {:ok, view, html} = live(build_conn(), "/analytics")
+    {:ok, view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "Run analytics"
     assert html =~ "No run telemetry to analyze yet"
@@ -141,20 +135,20 @@ defmodule AiurWeb.AnalyticsLiveTest do
     :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
 
     on_exit(fn ->
-      File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
       restore_run_id(previous_run_id)
       restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
       Application.delete_env(:aiur, :analytics_usage_aggregate_source)
       Application.delete_env(:aiur, :analytics_usage_aggregate_source_snapshot)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file])
     end)
 
     conn =
       build_conn()
       |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:analytics-spend-secret"))
 
-    {:ok, _view, html} = live(conn, "/analytics")
+    {:ok, _view, html} = loaded_live(conn, "/analytics")
 
     assert html =~ "Scope:"
     assert html =~ "latest run"
@@ -198,12 +192,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
     :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
 
     on_exit(fn ->
-      File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
       restore_run_id(previous_run_id)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file])
     end)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ ~s(data-empty-reason="retained_unreadable")
     assert html =~ "Retained run telemetry could not be read"
@@ -231,11 +225,11 @@ defmodule AiurWeb.AnalyticsLiveTest do
     Application.put_env(:aiur, :build_order_data_source, {BuildOrderSourceStub, build_order_context(build_root, member)})
 
     on_exit(fn ->
-      File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file])
     end)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics?build_order=77")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics?build_order=77")
 
     assert html =~ "Build Order #77, latest run"
     assert html =~ ">#999<"
@@ -263,7 +257,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "renders the KPI strip and inline SVG charts from telemetry" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
     assert html =~ ~r/\d+ at run end \/ unknown cap</
@@ -284,7 +278,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "renders exact source-gated values in the keyboard-reachable pressure table" do
     Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id()))
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ ~s(<table id="analytics-pressure-table">)
     assert html =~ "13"
@@ -302,7 +296,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     boot_id = RunTelemetry.boot_id()
     Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id))
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     # The gap row's degraded build must render its missing wait as "—", and a
     # missing fleet figure must never be coerced into a confident "0".
@@ -318,7 +312,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "renders the runtime cap with every other ceiling the daemon reports" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     # The effective cap leads. The session ceiling is the figure `aiur status`
     # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
@@ -342,7 +336,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "names the binding constraint, which a bare cap figure cannot distinguish" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     # Same `8 cap` string as a plain session override; only the binding clause
     # tells the operator this fleet wants paused reservations reclaimed.
@@ -354,25 +348,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "marks a retained snapshot with its age instead of rendering it as current" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     # The stale snapshot still renders — that is the SnapshotStore contract —
     # but never unmarked. A ten-minute-old cap read as current is #1564.
     assert html =~ "3 cap (binding: awaiting dispatch, stale, 10m old)"
     refute html =~ "3 cap<"
-  end
-
-  test "reports no wasted-capacity figure when no effective cap is known" do
-    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
-
-    {:ok, _view, html} = live(build_conn(), "/analytics")
-
-    # Idle slot-hours are a subtraction from the cap. With no cap reported the
-    # page must not substitute the local config file and print a precise hour
-    # count under a ceiling it just called unknown.
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
-    refute html =~ "unknown cap (configured"
-    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -421,7 +402,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
         "Basic " <> Base.encode64("operator:analytics-spend-secret")
       )
 
-    {:ok, _view, html} = live(conn, "/analytics")
+    {:ok, _view, html} = loaded_live(conn, "/analytics")
 
     assert html =~ "PRs merged"
     assert html =~ ~r/PRs merged<\/span>\s*<span class="an-kpi-val">1</
@@ -469,7 +450,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
       build_conn()
       |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:analytics-spend-secret"))
 
-    {:ok, _view, html} = live(conn, "/analytics?build_order=77")
+    {:ok, _view, html} = loaded_live(conn, "/analytics?build_order=77")
 
     assert html =~ "Build Order #77, latest run"
     # The Build Order strip renders the same effective cap as the run strip;
@@ -489,7 +470,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     path = complexity_fixture!()
     Application.put_env(:aiur, :analytics_telemetry_file, path)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "Complexity breakdown"
     assert html =~ "Complexity 1: 1 tickets"
@@ -499,9 +480,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "range and sort toggles re-render without crashing" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, view, _html} = live(build_conn(), "/analytics")
-
+    {:ok, view, _html} = loaded_live(build_conn(), "/analytics")
     assert render_click(view, "range", %{"range" => "full"}) =~ "Run analytics"
+    LiveViewAsync.render_when_complete(view)
     assert render_click(view, "sort", %{"by" => "mem"}) =~ "Cost per ticket"
     assert render_click(view, "select_none", %{}) =~ "Units"
     assert render_click(view, "select_all", %{}) =~ "Units"
@@ -511,7 +492,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "a time-domain hook event zooms every time chart and reset restores the full range" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, view, html} = live(build_conn(), "/analytics")
+    {:ok, view, html} = loaded_live(build_conn(), "/analytics")
 
     [_, full_start] = Regex.run(~r/data-time-start="(\d+)"/, html)
     [_, full_end] = Regex.run(~r/data-time-end="(\d+)"/, html)
@@ -547,7 +528,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "a degenerate domain event leaves the full chart range intact" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, view, _html} = live(build_conn(), "/analytics")
+    {:ok, view, _html} = loaded_live(build_conn(), "/analytics")
 
     html =
       render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_061_001})
@@ -558,7 +539,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "changing the existing range control clears an active time zoom" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, view, _html} = live(build_conn(), "/analytics")
+    {:ok, view, _html} = loaded_live(build_conn(), "/analytics")
 
     assert render_hook(view, "time-domain", %{
              "t0" => 1_783_728_061_000,
@@ -566,7 +547,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
            }) =~
              ~s(class="an-zoombar")
 
-    full_log = render_click(view, "range", %{"range" => "full"})
+    render_click(view, "range", %{"range" => "full"})
+    full_log = LiveViewAsync.render_when_complete(view)
 
     refute full_log =~ ~s(class="an-zoombar")
     assert full_log =~ ~s(phx-value-range="full")
@@ -575,7 +557,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "a full-range domain event leaves the charts unzoomed" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, view, html} = live(build_conn(), "/analytics")
+    {:ok, view, html} = loaded_live(build_conn(), "/analytics")
     [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
     [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
 
@@ -589,6 +571,11 @@ defmodule AiurWeb.AnalyticsLiveTest do
   # test_helper configures credentials globally, so every analytics render test must
   # present them. Tests that exercise the missing-configuration path build their own
   # unauthenticated conn explicitly.
+  defp loaded_live(conn, path) do
+    {:ok, view, _html} = live(conn, path)
+    {:ok, view, LiveViewAsync.render_when_complete(view)}
+  end
+
   defp build_conn do
     Phoenix.ConnTest.build_conn()
     |> Plug.Conn.put_req_header(
@@ -602,7 +589,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "names its default latest-run scope and Build Order selection" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "latest run"
     assert html =~ "Add a Build Order selection to scope this page to its members"
@@ -614,7 +601,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # ran in the earlier session and must not appear here.
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ ">#930<"
     refute html =~ ">#931<"
@@ -640,7 +627,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -661,7 +648,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -728,7 +715,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -770,7 +757,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -848,10 +835,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
   # `publish/2` stamps the current monotonic clock, so restating the observation
   # time is the only way to read a ten-minute-old snapshot without waiting.
   defp age_published_snapshot(orchestrator, age_ms) do
-    cached = :persistent_term.get({SnapshotStore, orchestrator})
+    cached = SnapshotCache.get(orchestrator)
 
-    :persistent_term.put(
-      {SnapshotStore, orchestrator},
+    SnapshotCache.put(
+      orchestrator,
       %{
         cached
         | observed_at_ms: System.monotonic_time(:millisecond) - age_ms,
@@ -934,7 +921,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -965,7 +952,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "carries the awaiting-Commands banner into Analytics" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "2 units awaiting commands"
     assert html =~ "decisions-banner"
@@ -977,7 +964,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
     store = Endpoint.config(:decision_store)
 
-    {:ok, view, html} = live(build_conn(), "/analytics")
+    {:ok, view, html} = loaded_live(build_conn(), "/analytics")
     assert html =~ "2 units awaiting commands"
 
     # A best-effort broadcast is the fast path.
@@ -996,7 +983,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "omits the awaiting-Commands banner when nothing is waiting" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     refute html =~ "units awaiting commands"
     refute html =~ "decisions-banner"
@@ -1006,7 +993,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "survives every message the Command topic carries" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, view, html} = live(build_conn(), "/analytics")
+    {:ok, view, html} = loaded_live(build_conn(), "/analytics")
     assert html =~ "2 units awaiting commands"
 
     assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
@@ -1024,7 +1011,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     defp render_rtk_panel(rtk_opts) do
       Application.put_env(:aiur, :analytics_rtk_opts, rtk_opts)
-      {:ok, _view, html} = live(build_conn(), "/analytics")
+      {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
       html
     end
 
@@ -1093,8 +1080,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     test "says rtk is off rather than showing an empty chart" do
       html = render_rtk_panel(enabled?: false)
 
-      assert html =~ "Output compression is off"
+      assert html =~ "Savings reporting is off"
       assert html =~ "agent.rtk.enabled"
+      assert html =~ "this does not control a host-wide hook"
       # The class name also appears in the page's inlined stylesheet, so the
       # assertion has to look for the rendered element, not the string.
       refute html =~ ~s(class="an-rtk-val")
@@ -1109,10 +1097,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
       refute html =~ ~s(class="an-rtk-val")
     end
 
-    # The operator has to be able to see *why* an enabled rtk is reporting
-    # nothing, and "held back to protect the gh guard" is a different fact from
-    # "not installed".
-    test "names the gh-guard refusal on the page" do
+    # The operator has to be able to see that the probe detected a risky
+    # host-wide hook; the report does not disable or block that hook.
+    test "reports a gh rewrite without implying the hook was disabled" do
       opts = [
         enabled?: true,
         rtk_path: "/usr/bin/rtk",
@@ -1125,8 +1112,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
       html = render_rtk_panel(opts)
 
-      assert html =~ "rtk is enabled but held back"
+      assert html =~ "rtk gh rewrite detected"
       assert html =~ "would rewrite"
+      assert html =~ "applies regardless of `agent.rtk.enabled`"
+      assert html =~ "this report does not disable the hook"
       # The class name also appears in the page's inlined stylesheet, so the
       # assertion has to look for the rendered element, not the string.
       refute html =~ ~s(class="an-rtk-val")

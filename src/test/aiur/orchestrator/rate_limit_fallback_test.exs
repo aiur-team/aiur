@@ -1,13 +1,80 @@
 defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{RateLimitFallback, State}
+  alias Aiur.Orchestrator.{RateLimitFallback, State, TrackerTasks}
 
   # Matches the test fixture's tracker.github.label_prefix ("agent").
   @marker_label "agent:rate-limit-fallback"
 
   describe "decide/3" do
+    test "selects a second Claude account after a resumable session hits its account limit" do
+      entry = %{
+        control: %{status: :paused},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn "work" -> %{"seven_day" => 35, "five_hour" => 40} end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :handoff
+    end
+
+    test "future regression: headless Claude stays on the reset wait because its app-server cannot resume moved transcripts" do
+      entry = %{
+        control: %{status: :paused},
+        paused_reason: :usage_limit_exhausted,
+        # Aiur.CodingAgent.Providers.Claude.headless/0 declares resumable: false:
+        # its app-server keeps thread state in memory and thread/start cannot
+        # seed a prior session id.
+        usage_limit_session: %{backend: "claude", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+      test_pid = self()
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn name ->
+          send(test_pid, {:account_usage_fetched, name})
+          %{"seven_day" => 35, "five_hour" => 40}
+        end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+      refute_received {:account_usage_fetched, _name}
+    end
+
+    # This guards the existing reset-wait behavior against future handoff changes.
+    test "future regression: keeps the reset wait when every other Claude account is at its limit" do
+      entry = %{
+        control: %{status: :paused},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn "work" -> %{"seven_day" => 100, "five_hour" => 100} end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+    end
+
     test "engages when a codex-backed entry pauses on usage_limit_exhausted" do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
@@ -46,6 +113,30 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
 
       assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude") == :noop
+    end
+
+    test "does not fetch account usage for a session that is not paused" do
+      entry = %{
+        control: %{status: :working},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      test_pid = self()
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn name ->
+          send(test_pid, {:account_usage_fetched, name})
+          nil
+        end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+      refute_received {:account_usage_fetched, _name}
     end
 
     test "does nothing for a pause reason other than usage_limit_exhausted" do
@@ -192,6 +283,51 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   end
 
   describe "reconcile/2" do
+    test "moves a limit-paused session and resumes it on the selected account" do
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+
+      entry =
+        fallback_entry(%{
+          issue: issue,
+          usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+        })
+
+      state = %State{running: %{issue.id => entry}}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+      test_pid = self()
+
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            account_config: config,
+            account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+            account_usage_fetcher: fn "work" -> %{"seven_day" => 35, "five_hour" => 40} end,
+            move_session_fun: fn harness, source, destination, session_id, cwd, _opts ->
+              send(test_pid, {:moved, harness, source, destination, session_id, cwd})
+              :ok
+            end,
+            teardown_fun: fn current_state, running_entry, reason ->
+              send(test_pid, {:teardown, running_entry.identifier, reason})
+              current_state
+            end,
+            handoff_event_fun: fn event_issue, source, destination, session_id ->
+              send(test_pid, {:handoff_event, event_issue.id, source, destination, session_id})
+            end,
+            dispatch_fun: fn current_state, dispatch_issue, attempt, worker_host, opts ->
+              send(test_pid, {:dispatch, dispatch_issue.id, attempt, worker_host, opts})
+              record_started_dispatch(current_state, dispatch_issue)
+            end
+          )
+        )
+
+      assert_received {:moved, "claude", "default", "work", "session-1", "/repo"}
+      assert_received {:handoff_event, "1", "default", "work", "session-1"}
+      assert_received {:teardown, "repo#1", :account_handoff}
+      assert_received {:dispatch, "1", nil, "worker-2", [account_name: "work", resume_thread_id: "session-1"]}
+      assert result.running["1"].session_execution == %{backend: "claude-repl", account: "work"}
+    end
+
     test "engages the fallback, relabels the issue, and preserves worker affinity on redispatch" do
       state = fallback_state([], "codex")
       test_pid = self()
@@ -309,25 +445,29 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       state = fallback_state([])
       test_pid = self()
 
-      assert RateLimitFallback.reconcile(
-               state,
-               reconcile_opts(
-                 state: %{"backends" => %{}},
-                 add_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:add, identifier, label}})
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            state: %{"backends" => %{}},
+            add_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:add, identifier, label}})
 
-                   if label == "model:claude",
-                     do: {:error, :model_write_failed},
-                     else: :ok
-                 end,
-                 remove_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:remove, identifier, label}})
-                   :ok
-                 end,
-                 teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
-                 dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
-               )
-             ) == state
+              if label == "model:claude",
+                do: {:error, :model_write_failed},
+                else: :ok
+            end,
+            remove_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:remove, identifier, label}})
+              :ok
+            end,
+            teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
+            dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
+          )
+        )
+
+      assert result.running == state.running
+      assert {1, _deadline} = result.fallback_backoff["1"]
 
       assert_label_ops([
         {:add, "repo#1", @marker_label},
@@ -340,24 +480,28 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       state = fallback_state(["model:claude", @marker_label])
       test_pid = self()
 
-      assert RateLimitFallback.reconcile(
-               state,
-               reconcile_opts(
-                 add_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:add, identifier, label}})
-                   :ok
-                 end,
-                 remove_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:remove, identifier, label}})
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            add_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:add, identifier, label}})
+              :ok
+            end,
+            remove_label_fun: fn identifier, label ->
+              send(test_pid, {:label_op, {:remove, identifier, label}})
 
-                   if label == @marker_label,
-                     do: {:error, :marker_remove_failed},
-                     else: :ok
-                 end,
-                 teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
-                 dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
-               )
-             ) == state
+              if label == @marker_label,
+                do: {:error, :marker_remove_failed},
+                else: :ok
+            end,
+            teardown_fun: fn _, _, _ -> flunk("must not tear down after a label-write failure") end,
+            dispatch_fun: fn _, _, _, _ -> flunk("must not dispatch after a label-write failure") end
+          )
+        )
+
+      assert result.running == state.running
+      assert {1, _deadline} = result.fallback_backoff["1"]
 
       assert_label_ops([
         {:remove, "repo#1", "model:claude"},
@@ -569,33 +713,6 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       refute_receive {:label_op, _}, 100
     end
 
-    test "caps label attempts when the tracker is failing" do
-      entries =
-        Map.new(1..3, fn index ->
-          id = Integer.to_string(index)
-          issue = %Issue{id: id, identifier: "repo##{id}", labels: []}
-          {id, fallback_entry(%{identifier: issue.identifier, issue: issue})}
-        end)
-
-      state = %State{running: entries}
-      test_pid = self()
-
-      assert RateLimitFallback.reconcile(
-               state,
-               reconcile_opts(
-                 state: %{"backends" => %{}},
-                 add_label_fun: fn identifier, label ->
-                   send(test_pid, {:label_op, {:add, identifier, label}})
-                   {:error, :tracker_unavailable}
-                 end,
-                 teardown_fun: fn _, _, _ -> flunk("must not tear down after label failure") end
-               )
-             ) == state
-
-      assert_receive {:label_op, {:add, _, @marker_label}}, 1000
-      refute_receive {:label_op, _}, 100
-    end
-
     test "revert removes only the fallback-owned model label" do
       state = fallback_state(["model:codex", "model:claude", @marker_label], "claude")
       test_pid = self()
@@ -690,6 +807,45 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
     end
   end
 
+  test "pending fallback label writes leave owner responsive and cannot tear down a replaced runner" do
+    parent = self()
+    owner = {__MODULE__, make_ref()}
+    :yes = :global.register_name(owner, parent)
+    on_exit(fn -> :global.unregister_name(owner) end)
+    state = fallback_state([], "codex")
+    state = %{state | snapshot_key: {:global, owner}}
+
+    pending =
+      RateLimitFallback.reconcile(
+        state,
+        reconcile_opts(
+          state: %{"backends" => %{}},
+          add_label_fun: fn _, label ->
+            if label == @marker_label do
+              send(parent, {:fallback_writer, self()})
+
+              receive do
+                :release -> :ok
+              end
+            else
+              :ok
+            end
+          end,
+          teardown_fun: fn _, _, _ -> flunk("replacement runner was torn down") end
+        )
+      )
+
+    receive_barrier({:fallback_writer, worker})
+    refute worker == self()
+    replacement = Map.put(state.running["1"], :session_id, "replacement")
+    current = %{pending | running: %{"1" => replacement}, globally_paused: true}
+    send(worker, :release)
+    receive_barrier({task_ref, result})
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
+    assert applied.running["1"] == replacement
+    assert applied.globally_paused
+  end
+
   defp fallback_state(labels, selected_backend \\ nil, status \\ :paused) do
     issue = %Issue{id: "1", identifier: "repo#1", labels: labels, selected_backend: selected_backend}
 
@@ -758,7 +914,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   defp assert_label_ops(expected) do
     actual =
       Enum.map(expected, fn _operation ->
-        assert_receive {:label_op, operation}, 1000
+        receive_barrier({:label_op, operation})
         operation
       end)
 

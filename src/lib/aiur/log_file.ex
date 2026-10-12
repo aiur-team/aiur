@@ -6,7 +6,8 @@ defmodule Aiur.LogFile do
   `<logs-root>/log/aiur.log` when `--logs-root` is passed). The handler
   is `:logger_std_h` with `type: :file`, so `tail -F` works directly.
 
-  No rotation. For a developer/Executor CLI this is the right call: the
+  Test runs rotate at 4 MiB with one archive. Otherwise no rotation.
+  For a developer/Executor CLI this is the right call: the
   rotation slots produced by `:logger_disk_log_h` made the file hard to
   follow live, and disk fill is a foot-gun to be managed externally if it
   ever becomes a concern.
@@ -54,7 +55,19 @@ defmodule Aiur.LogFile do
       end
     end
 
+    record_session_owner()
     :ok
+  end
+
+  defp record_session_owner do
+    key = System.get_env("AIUR_INSTANCE_KEY")
+    log_file = Application.get_env(:aiur, :log_file)
+
+    if Application.get_env(:aiur, :env) != :test and is_binary(key) and key != "" and is_binary(log_file) do
+      root = log_file |> Path.expand() |> Path.dirname() |> Path.dirname()
+      File.mkdir_p!(root)
+      File.write!(Path.join(root, ".aiur-owner"), "#{key}\n#{:os.getpid()}\n")
+    end
   end
 
   defp resolve_default_root do
@@ -216,16 +229,19 @@ defmodule Aiur.LogFile do
   end
 
   defp file_handler_config(path) do
+    rotation = if Application.get_env(:aiur, :env) == :test, do: %{max_no_bytes: 4 * 1024 * 1024, max_no_files: 1, compress_on_rotate: false}, else: %{}
+
     %{
       level: :all,
       formatter: {:logger_formatter, %{single_line: true}},
-      config: %{
-        file: String.to_charlist(path),
-        type: :file,
-        # Sync to disk frequently so `tail -F` sees output without the
-        # default ~1s buffer.
-        filesync_repeat_interval: 200
-      }
+      config:
+        Map.merge(rotation, %{
+          file: String.to_charlist(path),
+          type: :file,
+          # Sync to disk frequently so `tail -F` sees output without the
+          # default ~1s buffer.
+          filesync_repeat_interval: 200
+        })
     }
   end
 end

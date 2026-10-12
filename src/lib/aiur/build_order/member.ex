@@ -1,7 +1,8 @@
 defmodule Aiur.BuildOrder.Member do
   @moduledoc "A member record that retains metadata warnings without dropping the member."
 
-  alias Aiur.BuildOrder.{Activity, Bounded, Dependency, Diagnostic, Lifecycle, Metadata}
+  alias Aiur.Bounded
+  alias Aiur.BuildOrder.{Activity, Dependency, Diagnostic, Lifecycle, Metadata}
   alias Aiur.TrackerIdentity
 
   @type t :: %__MODULE__{

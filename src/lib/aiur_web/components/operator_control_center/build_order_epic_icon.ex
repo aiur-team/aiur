@@ -64,20 +64,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   @generic_color "#9aa0ac"
 
-  @lane_labels %{
-    "plan-graph" => "Plan graph",
-    "runtime" => "Runtime",
-    "dashboard-ui" => "Dashboard UI",
-    "accounting" => "Accounting",
-    "platform" => "Platform",
-    "adhoc" => "Ad Hoc",
-    "core" => "Core",
-    "web" => "Web",
-    "data" => "Data",
-    "api" => "API",
-    "billing" => "Billing"
-  }
-
   attr(:lane, :any, required: true)
   attr(:class, :any, default: nil)
   attr(:colored, :boolean, default: false)
@@ -104,11 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   @doc "Human-readable epic label for a build lane."
   @spec label(term()) :: String.t()
-  def label(lane) when is_binary(lane) do
-    Map.get(@lane_labels, lane) || lane |> String.replace("-", " ") |> capitalize_words()
-  end
-
-  def label(_lane), do: "Unassigned"
+  defdelegate label(lane), to: Aiur.BuildOrder.Metadata, as: :lane_label
 
   @doc "Ordered list of the planning epics (excludes the Ad Hoc overlay lane)."
   @spec planning_lanes() :: [String.t()]
@@ -120,10 +102,4 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   end
 
   defp svg_for(_lane), do: Map.fetch!(@svgs, @generic_icon)
-
-  defp capitalize_words(text) do
-    text
-    |> String.split(" ")
-    |> Enum.map_join(" ", &String.capitalize/1)
-  end
 end

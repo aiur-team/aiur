@@ -16,13 +16,13 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
 
-    ticket = %{identifier: "42", title: "Canonical metrics", url: nil}
+    ticket = %{identifier: Integer.to_string(System.unique_integer([:positive])), title: "Canonical metrics", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
     %{store: store, ticket: ticket, source: source}
   end
 
   test "correlates OCC-2 reminders without duplicating its adapter", context do
-    topic = "ticket.42.agent.attention.operator-decision"
+    topic = "ticket.#{context.ticket.identifier}.agent.attention.operator-decision"
 
     opts = [
       ticket: context.ticket,

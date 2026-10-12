@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   # `:persistent_term`, which is process-global.
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.Cadence
+  alias Aiur.BuildOrder.{Cadence, Settings}
   alias Aiur.Config.Schema
   alias Aiur.PollCadence
 
@@ -119,10 +119,10 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   describe "ticket_detail_freshness_ms stays on the base interval" do
     test "it does not move when the fleet goes idle" do
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
-      busy = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      busy = Settings.build_order_ticket_detail_coordinator_options()[:freshness_ms]
 
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
-      idle = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      idle = Settings.build_order_ticket_detail_coordinator_options()[:freshness_ms]
 
       assert idle == busy
     end
@@ -133,7 +133,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     test "the boot path derives the base value, not the 300000 ceiling" do
       PollCadence.forget_effective_interval_ms()
 
-      freshness = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      freshness = Settings.build_order_ticket_detail_coordinator_options()[:freshness_ms]
 
       assert freshness == Cadence.derive_ms(PollCadence.base_interval_ms()).ticket_detail_freshness_ms
       refute freshness == 300_000
@@ -145,23 +145,23 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     test "the projection's catalog option follows the published effective interval" do
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
 
-      idle_options = Aiur.Config.build_order_graph_projection_options()
+      idle_options = Settings.build_order_graph_projection_options()
       assert idle_options[:catalog_refresh_ms] == @idle_interval_ms
 
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
 
-      busy_options = Aiur.Config.build_order_graph_projection_options()
+      busy_options = Settings.build_order_graph_projection_options()
       assert busy_options[:catalog_refresh_ms] == @base_interval_ms
     end
 
     test "the labelled catalog option follows it too" do
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
 
-      assert Aiur.Config.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 3_000_000
+      assert Settings.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 3_000_000
 
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
 
-      assert Aiur.Config.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 600_000
+      assert Settings.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 600_000
     end
   end
 

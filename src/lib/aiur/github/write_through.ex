@@ -173,7 +173,7 @@ defmodule Aiur.GitHub.WriteThrough do
            key when not is_nil(key) <- ResourceStore.key(:issue_labels, owner, repo, issue_number) do
         issue_key = ResourceStore.key(:issue, owner, repo, issue_number)
 
-        ResourceStore.put_resource(key, labels,
+        ResourceStore.deposit_unless_older(key, labels,
           source: source(opts),
           version: held_issue_version(issue_key)
         )
@@ -230,7 +230,7 @@ defmodule Aiur.GitHub.WriteThrough do
         # A mark with no version suppresses on identity alone, which would
         # swallow the resource's next genuine change for the whole retention
         # window.
-        ResourceStore.put_resource(ResourceStore.key(type, owner, repo, id), data,
+        ResourceStore.deposit_unless_older(ResourceStore.key(type, owner, repo, id), data,
           source: source(opts),
           version: version,
           processed: is_binary(version)

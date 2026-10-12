@@ -14,8 +14,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   graph above it (`BuildOrderGridModel.member_completion/1` folded with
   `BuildOrderGridModel.aggregate/1`): accepted lifecycle completion first, then
   a fresh or last-known worker reading at face value, and otherwise unresolved.
-  Unresolved members reduce the row's coverage (`:partial`) instead of counting
-  as 0%, and the row's `last_known` marker says how many members are carried by
+  Unresolved members keep denominator weight and reduce coverage (`:partial`),
+  giving a lower bound. The row's `last_known` marker says how many members are carried by
   retained readings and how old the oldest is, so retained work is neither
   erased into 0% nor mistaken for current. The row renders through
   `ProgressRenderer`, the same boundary every other completion surface uses.
@@ -23,8 +23,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   use Phoenix.Component
 
+  alias Aiur.Bounded
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
-  alias Aiur.BuildOrder.{Bounded, Metadata, ProgressRenderer}
+  alias Aiur.BuildOrder.{Metadata, ProgressRenderer}
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Group, Node}

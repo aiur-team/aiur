@@ -132,6 +132,10 @@ defmodule Aiur.AgentEventFeed do
 
   def topic_label(_topic), do: "Event"
 
+  @doc "The complete direction badge vocabulary produced by transcript and bus events."
+  @spec directions() :: [String.t()]
+  def directions, do: ~w(EMIT CONSUME AGENT SYSTEM INFO)
+
   @doc """
   Maps every persisted transcript role to one of the five Stream Deck badges.
 

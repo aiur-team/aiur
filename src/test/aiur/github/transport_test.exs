@@ -252,6 +252,14 @@ defmodule Aiur.GitHub.TransportTest do
     end
   end
 
+  test "fetch_json_list refuses a next link" do
+    request_fun = fn _ ->
+      {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"Link", ~s(<https://api.github.com/x?page=2>; rel="next")}]}}
+    end
+
+    assert {:error, :pagination_unexpected} = Transport.fetch_json_list(request_fun, "token", "https://api.github.com/x")
+  end
+
   test "fetches JSON lists and classifies failures" do
     ok = fn %{method: :get, url: "https://example.test", token: "token"} ->
       {:ok, %{status: 200, body: [%{"name" => "file"}]}}

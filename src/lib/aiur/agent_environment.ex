@@ -3,10 +3,10 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, Shell}
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
@@ -29,7 +29,7 @@ defmodule Aiur.AgentEnvironment do
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
   @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
-  @provider_api_key_pattern ~r/_API_KEY\z/
+  @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
   # as the bot account and carry its `GITHUB_TOKEN` PAT; the App installation is
   # deliberately a different login (see `AgentGitHubGuard`), and it is the
@@ -142,7 +142,7 @@ defmodule Aiur.AgentEnvironment do
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -246,7 +246,7 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
     [hex, mix, npm_cache] = package_cache_paths(opts)
-    state_path = repo_url(opts) |> RepoBase.repo_path()
+    state_path = repo_url(opts) |> Paths.repo_state_path()
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
     real_gh = AgentGitHubGuard.real_gh()
@@ -345,9 +345,8 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
         scratch_env(workspace) ++
-        Enum.map(mix_scheduler_env(), fn {name, value} ->
-          {String.to_charlist(name), String.to_charlist(value)}
-        end) ++
+        __MODULE__.GitIdentity.port_env(opts) ++
+        Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
         port_startup_env
 
@@ -403,7 +402,7 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env_export_prefix(workspace, opts) when is_binary(workspace) do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
-    state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
+    state_path = Path.join("~", Paths.repo_state_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
@@ -423,7 +422,7 @@ defmodule Aiur.AgentEnvironment do
         variable = Atom.to_string(name)
 
         [
-          Remote.remote_shell_assign(variable, path),
+          Shell.remote_assign(variable, path),
           "export #{variable}"
         ]
         |> Enum.join("\n")
@@ -450,6 +449,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_GITHUB_CREDENTIAL_FILE=\"$HOME/${AIUR_GITHUB_CREDENTIAL_FILE#\\~/}\"\nexport AIUR_GITHUB_CREDENTIAL_FILE\n" <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       publication_credential_export(opts) <>
+      __MODULE__.GitIdentity.export_prefix(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
       "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
@@ -500,7 +500,7 @@ defmodule Aiur.AgentEnvironment do
   defp format_build_gate_exports(workspace, build_gate_env) do
     [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
     |> Enum.map_join("", fn {name, value} ->
-      "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
+      "#{Shell.remote_assign(name, value)}\nexport #{name}\n"
     end)
   end
 
@@ -562,9 +562,9 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec package_cache_paths(keyword()) :: [Path.t()]
   def package_cache_paths(opts \\ []) do
-    root = repo_url(opts) |> RepoBase.repo_path()
+    root = repo_url(opts) |> Paths.repo_state_path()
 
-    RepoBase.cache_sidecar_paths(root)
+    Paths.repo_cache_sidecar_paths(root)
   end
 
   # `false` unsets the variable for the child, which is what a non-GitHub
@@ -606,9 +606,9 @@ defmodule Aiur.AgentEnvironment do
   # transmit a stable, home-relative state-node identity rather than the
   # daemon host's absolute cache path.
   defp remote_sidecar_paths(opts) do
-    root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
+    root = Path.join("~", Paths.repo_state_relative_path(repo_url(opts)))
 
-    root |> RepoBase.cache_sidecar_paths() |> List.to_tuple()
+    root |> Paths.repo_cache_sidecar_paths() |> List.to_tuple()
   end
 
   @doc """

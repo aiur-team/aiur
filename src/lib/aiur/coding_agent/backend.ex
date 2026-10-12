@@ -104,6 +104,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:usage) => map(),
           optional(:meter_identity_policy) => :account | :host_unverified,
           optional(:account_generation) => map(),
+          optional(:accounts) => %{optional(atom()) => term()},
           optional(:default) => boolean(),
           optional(:rate_limit_fallback) => CodingAgent.backend(),
           optional(:configurable) => boolean(),

@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           key: term(),
           identity: term() | nil,
           lane: String.t(),
-          phase: pos_integer() | :unphased,
+          phase: non_neg_integer() | :unphased,
           complexity: pos_integer() | nil,
           title: String.t(),
           completion: completion(),
@@ -120,8 +120,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   @doc """
   Complexity-weighted completion over cards carrying `completion` and
   `complexity`: a resolved card contributes its progress fraction at its
-  complexity weight (1 when unknown); unresolved cards reduce coverage, so the
-  aggregate becomes `:partial` instead of silently counting them as 0%.
+  complexity weight (1 when unknown). All cards contribute denominator weight;
+  unresolved cards reduce coverage and make the result a partial lower bound.
   """
   @spec aggregate([%{completion: completion(), complexity: pos_integer() | nil}]) :: completion()
   def aggregate(cards) when is_list(cards), do: aggregate_completion(cards)
@@ -257,8 +257,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # Complexity-weighted completion per wave, over CORE cards only. A merged card
   # contributes its full weight; an in-flight card contributes its progress
-  # fraction. Unknown cards reduce coverage, so the aggregate becomes partial
-  # instead of discarding the progress that did resolve.
+  # fraction. Unknown cards keep their denominator weight and reduce coverage, so the
+  # aggregate reports a partial lower bound on the entire wave.
   # Weight is the card's complexity (points), defaulting to 1 when complexity is
   # unknown.
   defp wave_completion(core_cards) do
@@ -274,11 +274,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp aggregate_completion(cards) do
     {member_count, resolved_count, weight, done} =
       Enum.reduce(cards, {0, 0, 0, 0.0}, fn card, {member_count, resolved_count, weight, done} ->
+        card_weight = card.complexity || 1
+
         if get_in(card, [:completion, :progress_resolution]) == :resolved do
-          card_weight = card.complexity || 1
           {member_count + 1, resolved_count + 1, weight + card_weight, done + card_weight * completion_fraction(card)}
         else
-          {member_count + 1, resolved_count, weight, done}
+          {member_count + 1, resolved_count, weight + card_weight, done}
         end
       end)
 
@@ -424,7 +425,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp lane(lane) when is_binary(lane) and lane != "", do: lane
   defp lane(_lane), do: "unassigned"
 
-  defp phase(phase) when is_integer(phase) and phase > 0, do: phase
+  defp phase(phase) when is_integer(phase) and phase >= 0, do: phase
   defp phase(_phase), do: :unphased
 
   defp identifier(%{identifier: identifier}) when is_binary(identifier) and identifier != "",

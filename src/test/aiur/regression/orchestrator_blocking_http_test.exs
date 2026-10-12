@@ -105,7 +105,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       runner = spawn(fn -> send(test_pid, {:request_finished, hanging_request(url)}) end)
       on_exit(fn -> if Process.alive?(runner), do: Process.exit(runner, :kill) end)
 
-      assert_receive {:request_finished, {:error, :fetch_deadline_exceeded}}, 2_000
+      assert_receive {:request_finished, {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}}, 2_000
     end
 
     test "a pre-ready deadline reaps the request guardian and its waiting worker" do
@@ -113,7 +113,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       {caller, guardian, worker} = block_request_guardian_at(:before_ready)
 
-      assert_receive {:request_finished, ^caller, {:error, :fetch_deadline_exceeded}}, 2_000
+      assert_receive {:request_finished, ^caller, {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}}, 2_000
       wait_until(fn -> not Process.alive?(guardian) end)
       wait_until(fn -> not Process.alive?(worker) end)
     end
@@ -123,7 +123,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       {caller, guardian, worker} = block_request_guardian_at(:before_ack)
 
-      assert_receive {:request_finished, ^caller, {:error, :fetch_deadline_exceeded}}, 2_000
+      assert_receive {:request_finished, ^caller, {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}}, 2_000
       wait_until(fn -> not Process.alive?(guardian) end)
       wait_until(fn -> not Process.alive?(worker) end)
     end
@@ -288,7 +288,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       # cannot be answered — that failure is reported at the RPC, not as a
       # status-read timeout.
       refute output =~ "timed out while reading agent status"
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+      assert output =~ "outcome unknown for resume #44"
+      refute output =~ "failed to resume"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
@@ -691,7 +692,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn ->
       restore_application_env(:github_budget_enabled?, previous_enabled)
       restore_application_env(:github_budget_dir, previous_dir)
-      File.rm_rf(budget_dir)
+      Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     assert %{inflight: %{}} = Budget.snapshot("locked-orchestrator-token")
@@ -715,7 +716,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
     assert_receive {:locked_budget_result, {:error, :github_budget_broker_timeout}}, 2_000
-    assert answers?(pid)
+    wait_until(fn -> answers?(pid) end)
     close_port(lock)
   end
 
@@ -741,7 +742,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn ->
       restore_application_env(:github_budget_enabled?, previous_enabled)
       restore_application_env(:github_budget_dir, previous_dir)
-      File.rm_rf(budget_dir)
+      Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     # Subscribe before the request exists, so the release signal cannot be

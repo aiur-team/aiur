@@ -15,14 +15,14 @@ defmodule Aiur.DecisionStoreTest do
     DecisionEvent,
     DecisionExpiry,
     DecisionHistory,
-    DecisionLog,
     DecisionProjection,
     DecisionPubSub,
     DecisionStore,
     DecisionValidation,
     ExecutorCommandAttention,
     ExecutorCommandCLI,
-    Issue
+    Issue,
+    Journal
   }
 
   alias Aiur.DecisionEvent.Unrecognized
@@ -42,6 +42,7 @@ defmodule Aiur.DecisionStoreTest do
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
 
   setup do
+    :ok = Aiur.TestSupport.ensure_id_generator_running()
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-store")
     Application.put_env(:aiur, :decision_state_dir, dir)
@@ -52,7 +53,7 @@ defmodule Aiur.DecisionStoreTest do
         value -> Application.put_env(:aiur, :decision_state_dir, value)
       end
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir}
@@ -99,10 +100,6 @@ defmodule Aiur.DecisionStoreTest do
     first_dir = Path.join(dir, "first")
     second_dir = Path.join(dir, "second")
 
-    if Process.whereis(IdGenerator) == nil do
-      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :decision_store_test_id_generator)
-    end
-
     {:ok, first} =
       start_supervised(
         {
@@ -147,10 +144,6 @@ defmodule Aiur.DecisionStoreTest do
     second_dir = Path.join(dir, "named-second")
     first_name = Module.concat(__MODULE__, FirstCustomStore)
     second_name = Module.concat(__MODULE__, SecondCustomStore)
-
-    if Process.whereis(IdGenerator) == nil do
-      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :custom_decision_store_test_id_generator)
-    end
 
     {:ok, first} =
       start_supervised(
@@ -2531,10 +2524,6 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   test "answering an escalated Command clears its operator attention", %{dir: dir} do
-    unless Process.whereis(IdGenerator) do
-      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-escalation-event-id.json"), batch_size: 50})
-    end
-
     previous_log_file = Application.get_env(:aiur, :log_file)
     log_root = Path.join(dir, "executor-escalation-log")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
@@ -2577,10 +2566,6 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   test "serializes Executor escalation before a concurrent answer", %{dir: dir} do
-    unless Process.whereis(IdGenerator) do
-      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-serialize-event-id.json"), batch_size: 50})
-    end
-
     parent = self()
 
     opener = fn _decision, _executor_id, _reason ->
@@ -3292,7 +3277,7 @@ defmodule Aiur.DecisionStoreTest do
 
       payload = %{"idempotency_key" => "repair-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, %{status: :accepted}} = answer(pid, decision.decision_id, payload)
-      assert {:repair, _reason} = DecisionStore.health(pid)
+      assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
       refute_receive :unexpected_dispatch, 100
     end
 
@@ -4449,7 +4434,7 @@ defmodule Aiur.DecisionStoreTest do
         "content_hash" => "hash-this-build-cannot-recompute"
       }
 
-      :ok = DecisionLog.append(path, future_event)
+      :ok = Journal.append(path, future_event)
 
       pid2 = start_store!(dir, dispatch_delay_ms: 60_000)
 
@@ -4477,7 +4462,7 @@ defmodule Aiur.DecisionStoreTest do
       pid3 = start_store!(dir, dispatch_delay_ms: 60_000)
       assert DecisionStore.health(pid3) == :writable
 
-      assert {:ok, records, nil} = DecisionLog.replay(path, &DecisionProjection.decode_record/1)
+      assert {:ok, records, nil} = Journal.replay(path, &DecisionProjection.decode_record/1)
 
       assert [%Unrecognized{event_type: "some_future_event", event_id: "evt-from-a-newer-build"} = retained] =
                Enum.filter(records, &match?(%Unrecognized{}, &1))
@@ -4521,7 +4506,7 @@ defmodule Aiur.DecisionStoreTest do
             override
           )
 
-        :ok = DecisionLog.append(Path.join(case_dir, "decisions.ndjson"), record)
+        :ok = Journal.append(Path.join(case_dir, "decisions.ndjson"), record)
 
         pid2 = start_store!(case_dir)
         assert {:corrupt, 2, _reason} = DecisionStore.health(pid2), "#{label} must stay fail-closed"
@@ -4544,7 +4529,7 @@ defmodule Aiur.DecisionStoreTest do
           run_id: "run-replay-test"
         )
 
-      :ok = DecisionLog.append(Path.join(dir, "decisions.ndjson"), DecisionEvent.to_json_safe(invalid))
+      :ok = Journal.append(Path.join(dir, "decisions.ndjson"), DecisionEvent.to_json_safe(invalid))
       File.write!(Path.join(dir, "decisions.ndjson"), "not json at all\n", [:append])
 
       pid2 = start_store!(dir)
@@ -4585,7 +4570,7 @@ defmodule Aiur.DecisionStoreTest do
         end)
 
       assert log =~ "aiur_decision_store phase=projection_repair_failed"
-      assert {:repair, _reason} = DecisionStore.health(pid)
+      assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
     end
   end
 
@@ -4649,10 +4634,6 @@ defmodule Aiur.DecisionStoreTest do
     end
 
     test "retries a failed requested notification from the canonical Decision", %{dir: dir} do
-      unless Process.whereis(IdGenerator) do
-        start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-request-retry-event-id.json"), batch_size: 50})
-      end
-
       parent = self()
 
       publisher = fn decision ->

@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.PriorityControlTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State, TrackerTasks}
 
   test "prioritizing persists priority:1 and updates the dispatch snapshot" do
     state = state_for(issue(labels: ["agent:todo", "priority:3"], priority: 3))
@@ -118,6 +119,43 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
 
     assert {:reply, {:error, :unknown_issue}, ^state} =
              PriorityControl.prioritize_agent_call(state, "missing", add_label_fun: fn _, _ -> flunk("unexpected tracker call") end)
+  end
+
+  test "a pending priority write replies after completion and preserves current issue fields" do
+    parent = self()
+    reply_ref = make_ref()
+    initial = issue(labels: ["agent:todo"], priority: nil)
+    state = state_for(initial)
+
+    assert {:noreply, pending} =
+             PriorityControl.prioritize_agent_call(state, "1577",
+               from: {parent, reply_ref},
+               add_label_fun: fn _, _ ->
+                 send(parent, {:priority_writer, self()})
+
+                 receive do
+                   :release -> :ok
+                 end
+               end,
+               notify_dashboard_fun: fn _ -> :ok end
+             )
+
+    receive_barrier({:priority_writer, worker})
+
+    assert {:reply, {:error, :priority_change_in_progress}, ^pending} =
+             PriorityControl.deprioritize_agent_call(pending, "1577", from: {parent, make_ref()})
+
+    refute worker == self()
+    refute_received {^reply_ref, _}
+    refreshed = %{initial | title: "Updated title", state: "rework", labels: ["agent:rework", "model:claude"]}
+    current = %{pending | last_polled_issues: %{initial.id => refreshed}, running: %{initial.id => %{identifier: initial.identifier, issue: refreshed}}}
+    send(worker, :release)
+    receive_barrier({task_ref, result})
+    {:handled, applied} = TrackerTasks.result(current, task_ref, result)
+    receive_barrier({^reply_ref, {:ok, :prioritized}})
+    assert applied.last_polled_issues[initial.id].title == "Updated title"
+    assert applied.last_polled_issues[initial.id].state == "rework"
+    assert applied.running[initial.id].issue.labels == ["agent:rework", "model:claude", "priority:1"]
   end
 
   defp state_for(issue) do

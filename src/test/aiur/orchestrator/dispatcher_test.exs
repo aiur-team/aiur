@@ -9,8 +9,169 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
   alias Aiur.ModelAvailability
-  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
+  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth, TrackerTasks}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
+
+  test "successful validation clears a previous decline in both execution modes" do
+    parent = self()
+    candidate = %{issue("decline-cleared") | selected_backend: "codex"}
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+    resolution = "ticket.#{candidate.id}.agent.attention.dispatch-declined.resolved"
+
+    for owner <- [nil, self()] do
+      state = %State{snapshot_key: owner, max_concurrent_agents: 4, effective_concurrent_agents: 4}
+
+      declined =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn _ -> {:error, :controlled_failure} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end
+        )
+
+      declined = apply_test_dispatch_result(declined, owner)
+      assert declined.dispatch_declines[candidate.id] == :tracker_revalidation_failed
+      attention = String.replace_suffix(resolution, ".resolved", "")
+      receive_barrier({:alert, %{name: ^attention, needs_attention: true}})
+
+      pending =
+        Dispatcher.dispatch_issue(declined, candidate, nil, nil,
+          issue_fetcher: fn _ -> {:ok, [candidate]} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end,
+          runner: fn dispatched, _, _ ->
+            send(parent, {:started, dispatched.id})
+            :ok
+          end
+        )
+
+      applied = apply_test_dispatch_result(pending, owner)
+
+      receive_barrier({:started, id})
+      assert id == candidate.id
+      assert Map.has_key?(applied.running, candidate.id)
+      refute Map.has_key?(applied.dispatch_declines, candidate.id)
+      receive_barrier({:alert, %{name: ^resolution, needs_attention: false}})
+    end
+  end
+
+  defp apply_test_dispatch_result(pending, nil), do: pending
+
+  defp apply_test_dispatch_result(pending, _owner) do
+    receive_barrier({ref, result})
+    {:handled, applied} = TrackerTasks.result(pending, ref, result)
+    applied
+  end
+
+  test "a held candidate validation chain prevents another poll cycle" do
+    parent = self()
+    candidate = issue("held-chain")
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), effective_concurrent_agents: 4}, [candidate],
+        issue_fetcher: fn _ ->
+          send(parent, {:held_dispatch, self()})
+          receive do: (:release -> {:error, :controlled_failure})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    receive_barrier({:held_dispatch, worker})
+    assert {:noreply, waiting} = Dispatcher.run_poll_cycle(pending)
+    assert waiting.tracker_tasks == pending.tracker_tasks
+    refute TrackerTasks.running?(waiting, :dispatch_poll)
+    assert is_reference(waiting.tick_timer_ref)
+    Process.cancel_timer(waiting.tick_timer_ref)
+    send(worker, :release)
+    receive_barrier({ref, result})
+    assert {:handled, final} = TrackerTasks.result(waiting, ref, result)
+    assert final.tracker_tasks == %{}
+  end
+
+  test "async candidate validation keeps dispatch priority order across slow reads" do
+    owner = self()
+    high = %Aiur.Issue{id: "async-high", identifier: "ASYNC-HIGH", title: "high", state: "Todo", priority: 1}
+    low = %Aiur.Issue{id: "async-low", identifier: "ASYNC-LOW", title: "low", state: "Todo", priority: 3}
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), effective_concurrent_agents: 4}, [low, high],
+        issue_fetcher: fn [id] ->
+          send(owner, {:validation_started, id, self()})
+          receive do: (:release -> {:error, :controlled_failure})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    receive_barrier({:validation_started, "async-high", high_worker})
+    assert TrackerTasks.running?(pending, {:dispatch, high.id})
+    refute TrackerTasks.running?(pending, {:dispatch, low.id})
+    send(high_worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(pending, ref, result)
+    receive_barrier({:validation_started, "async-low", low_worker})
+    send(low_worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(next, ref, result)
+    assert next.tracker_tasks == %{}
+  end
+
+  test "a delayed dispatch revalidation respects a newly applied global pause" do
+    owner = self()
+    issue = %Aiur.Issue{id: "async-pause", identifier: "ASYNC-PAUSE", title: "pause", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+        issue_fetcher: fn _ ->
+          send(owner, {:validation_started, self()})
+          receive do: (:release -> {:ok, [issue]})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end,
+        runner: fn _, _, _ -> flunk("dispatch started during global pause") end
+      )
+
+    receive_barrier({:validation_started, worker})
+    send(worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
+    assert next.running == %{}
+    assert next.globally_paused
+    assert next.tracker_tasks == %{}
+  end
+
+  test "failed async dispatch invokes the retry completion after removing its job" do
+    owner = self()
+    issue = %Aiur.Issue{id: "async-failure", identifier: "ASYNC-FAILURE", title: "failure", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, 2, nil,
+        issue_fetcher: fn _ -> {:error, :controlled_failure} end,
+        blocked_by_hydrator: fn value -> {:ok, value} end,
+        dispatch_result_fun: fn current ->
+          refute TrackerTasks.issue_pending?(current, issue.id)
+          send(owner, :completion_applied)
+          %{current | globally_paused: true}
+        end
+      )
+
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(pending, ref, result)
+    receive_barrier(:completion_applied)
+    assert next.globally_paused
+  end
+
+  test "async revalidation records ordinary skips without tracker error attention" do
+    issue = %Aiur.Issue{id: "async-missing", identifier: "ASYNC-MISSING", title: "missing", state: "Todo"}
+
+    for {response, reason} <- [{[], :missing_after_revalidation}, {[%{issue | paused: true}], {:stale_after_revalidation, :paused}}] do
+      pending =
+        Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+          issue_fetcher: fn _ -> {:ok, response} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end
+        )
+
+      receive_barrier({ref, result})
+      {:handled, next} = TrackerTasks.result(pending, ref, result)
+      assert next.dispatch_declines[issue.id] == reason
+      assert next.observed_error_alerts == MapSet.new()
+    end
+  end
 
   defmodule CandidateFetchFailureLinearClient do
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
@@ -83,6 +244,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       restore_app_env(:loadavg_source_override, previous_loadavg)
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
+      Application.delete_env(:aiur, :background_cpu_source_override)
       restore_app_env(:build_gate_status_override, previous_build_status)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
       restore_app_env(:ci_readiness_check_fun, previous_ci_readiness_check_fun)
@@ -281,7 +443,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
-  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+  test "the first candidate poll holds orphaned claims during recovery grace" do
     restore_workflow_file_after_test()
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
 
@@ -304,9 +466,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         max_concurrent_agents: 1
       })
 
-    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}, 1000
-    assert next.startup_claim_reconciliation_complete?
-    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute_received {:memory_tracker_state_update, ^candidate_identifier, _target}
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "in-progress"
     refute next.initial_dispatch_cycle
   end
 
@@ -337,6 +499,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   test "a successful candidate poll starts the DecisionStore outage alert dwell" do
+    store = Process.whereis(Aiur.DecisionStore)
+    original_health = :sys.get_state(store).health
+    :sys.replace_state(store, &%{&1 | health: {:unavailable, :test}})
+    on_exit(fn -> :sys.replace_state(store, &%{&1 | health: original_health}) end)
+
     candidate = issue("decision-store-outage")
 
     state = %State{
@@ -632,21 +799,19 @@ defmodule Aiur.Orchestrator.DispatcherTest do
              ) == :dispatch
     end
 
-    test "an answer recorded after a blocking run stops resumes its in-progress claim within one poll (#2713, #2818)" do
+    test "an answered absent worker releases a stale decision hold within one poll (#3516)" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4, tracker_active_states: ["todo", "in-progress"])
       restore_workflow_file_after_test()
       test_pid = self()
       ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
       candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "in-progress", selected_backend: "codex"}
 
-      # `worker` is true while a worker runs the ticket. The fake dispatcher
-      # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
-      # then, and reports each answer the worker receives.
+      # The fake dispatcher refuses delivery until the runner starts a worker.
       worker = start_supervised!({Agent, fn -> false end})
 
       dispatcher = fn decision, _opts ->
         if Agent.get(worker, & &1) do
-          send(test_pid, {:worker_received, decision.decision_id})
+          send(test_pid, {:worker_received, decision.decision_id, decision.active_action_id, decision.answer.selected_option_id})
           {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
         else
           send(test_pid, {:no_worker, decision.decision_id})
@@ -671,12 +836,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       poll = fn state ->
-        {:ok, ids} = Aiur.DecisionStore.blocked_ticket_ids(store)
-
-        Dispatcher.choose_issues(%{state | blocked_ticket_ids: ids}, [candidate],
+        Dispatcher.dispatch_or_hold(state, [candidate], fn -> :ready end,
+          admission_probes_fun: contended_probes(0, nil),
           issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
           blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
-          runner: fn dispatched, _recipient, _opts -> send(test_pid, {:agent_runner_run, dispatched.id}) end,
+          runner: fn dispatched, _recipient, _opts ->
+            Agent.update(worker, fn _running -> true end)
+            send(test_pid, {:agent_runner_run, dispatched.id})
+          end,
           decision_store: store
         )
       end
@@ -694,13 +861,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       id = decision.decision_id
 
-      # The run that filed the Command has ended, and the ticket is held.
-      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4})
+      assert {:ok, cached_holds} = Aiur.DecisionStore.blocked_ticket_ids(store)
+      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4, blocked_ticket_ids: cached_holds})
       assert held.dispatch_declines[ticket_id] == :blocked_on_decision
       refute Map.has_key?(held.running, ticket_id)
 
-      # The answer arrives a minute later, when no worker runs the ticket: the
-      # first delivery and the whole retry ladder fail.
       assert {:ok, %{status: :accepted}} =
                Aiur.DecisionStore.answer(
                  id,
@@ -712,21 +877,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       for _attempt <- 1..4, do: assert_receive({:no_worker, ^id}, 1_000)
       refute_receive {:no_worker, ^id}, 100
 
-      # One poll dispatches the ticket, and its new worker receives the answer once.
       resumed = poll.(held)
       assert_receive {:agent_runner_run, ^ticket_id}, 1_000
       assert Map.has_key?(resumed.running, ticket_id)
       refute Map.has_key?(resumed.dispatch_declines, ticket_id)
 
-      # The spawn posts the redelivery to the Orchestrator (this process) and
-      # does not reach the store during the poll. The Orchestrator handles it
-      # next, with the new running entry in its state.
       assert_received {:deliver_pending_answers, ^ticket_id, ^store} = message
       refute_received {:no_worker, ^id}
-      Agent.update(worker, fn _running -> true end)
       assert :ok = Dispatcher.handle_pending_answer_delivery(message)
-      assert_receive {:worker_received, ^id}, 1_000
-      refute_receive {:worker_received, ^id}, 300
+      assert {:ok, answered} = Aiur.DecisionStore.get(id, store)
+      action_id = answered.active_action_id
+      assert_receive {:worker_received, ^id, ^action_id, "b"}, 1_000
+      refute_receive {:worker_received, ^id, ^action_id, "b"}, 300
     end
 
     test "a slow poll does not time out the redelivery to the worker it spawned (#2713)" do
@@ -1588,6 +1750,72 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   # average is over `max_load_average * schedulers` — routine while the fleet
   # ramps — the very cycle that should start work returned an empty `running`
   # map with a `%{signal: :load}` `capacity_hold` and no CPU evidence behind it.
+  describe "startup sample freshness (#3521)" do
+    test "boot with ready candidates cannot widen on a frozen load sample" do
+      ready = for id <- 1..16, do: issue("frozen-#{id}")
+      probes = contended_probes(0.0, %{total: 1_100, idle: 600, nice: 0, runnable: 1}).()
+      probes = %{probes | target: 1.0} |> Map.put(:sampled_at_ms, 1_000)
+      initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1, poll_interval_ms: 1_000}
+
+      result =
+        Enum.reduce([1_000, 1_500, 2_001, 10_000], initial, fn now, state ->
+          Dispatcher.maybe_choose_under_load(state, ready, &consume_available_slots/2, admission_probes_fun: fn -> probes end, now_ms: now)
+        end)
+
+      assert map_size(result.running) == 1
+      assert result.effective_concurrent_agents == 1
+
+      refreshed = Dispatcher.maybe_choose_under_load(result, ready, &consume_available_slots/2, admission_probes_fun: fn -> %{probes | sampled_at_ms: 11_000} end, now_ms: 11_000)
+      assert map_size(refreshed.running) == 2
+    end
+
+    test "a sample already older than one period cannot widen the boot envelope" do
+      probes = contended_probes(0.0, :unavailable).() |> Map.put(:target, 1.0) |> Map.put(:sampled_at_ms, 0)
+      state = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1, poll_interval_ms: 1_000}
+      result = Dispatcher.maybe_choose_under_load(state, [issue("stale-boot")], &consume_available_slots/2, admission_probes_fun: fn -> probes end, now_ms: 1_001)
+      assert result.effective_concurrent_agents == 1
+      assert map_size(result.running) == 1
+    end
+
+    test "candidate authorization stops while the mailbox is deep" do
+      for _ <- 1..100, do: send(self(), :backlog_3521)
+      parent = self()
+      state = %State{max_concurrent_agents: 16, effective_concurrent_agents: 16}
+
+      result =
+        Dispatcher.choose_issues(state, [issue("backlogged")],
+          issue_fetcher: fn _ ->
+            send(parent, :unexpected_authorization_3521)
+            {:ok, []}
+          end
+        )
+
+      for _ <- 1..100 do
+        receive do
+          :backlog_3521 -> :ok
+        end
+      end
+
+      assert result.running == %{}
+      refute_received :unexpected_authorization_3521
+    end
+
+    test "candidate authorization stops when a batch sample expires" do
+      parent = self()
+      state = %State{max_concurrent_agents: 16, effective_concurrent_agents: 16, poll_interval_ms: 1_000}
+      state = put_in(state.load_envelope_state[:sampled_at_ms], System.monotonic_time(:millisecond) - 1_001)
+
+      Dispatcher.choose_issues(state, [issue("expired-batch")],
+        issue_fetcher: fn _ ->
+          send(parent, :unexpected_authorization_3521)
+          {:ok, []}
+        end
+      )
+
+      refute_received :unexpected_authorization_3521
+    end
+  end
+
   describe "ramp-from-zero admission (#2089)" do
     setup do
       # A load average far over the ceiling, with a valid CPU snapshot whose
@@ -1764,123 +1992,6 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert alerted.capacity_starvation.since_ms == %{"load" => 1_000}
       assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
       assert event["reason"] =~ "load gate"
-    end
-
-    # `admission_gate/1` can bind on gates that have no standalone probe. Without
-    # recording the binding signal, a fleet held by one of them reports zero
-    # constraints and `sync_capacity_starvation_alert/3` clears starvation
-    # instead of alerting — the fleet is stuck and nothing says so.
-    test "a build-queue hold still records a constraint and starves" do
-      Publisher.set_tracked_fn(fn _ -> true end)
-      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
-
-      on_exit(fn ->
-        Publisher.set_tracked_fn(fn _ -> true end)
-        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      end)
-
-      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 2)
-      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
-      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
-
-      Application.put_env(:aiur, :build_gate_status_override, fn ->
-        %{enabled?: true, capacity: 2, active: 2, queued: 1}
-      end)
-
-      ready = issue("build-queued")
-
-      sample = fn state ->
-        state
-        |> Map.put(:dispatch_capacity_constraints, [])
-        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
-      end
-
-      held =
-        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
-        |> sample.()
-        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
-
-      assert Enum.any?(held.dispatch_capacity_constraints, &(&1.kind == :build_queue))
-
-      alerted =
-        held
-        |> sample.()
-        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
-
-      assert alerted.capacity_starvation.alerted == ["build-queue"]
-      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
-      assert event["reason"] =~ "build-queue gate"
-    end
-
-    test "keeps a persistent build-queue age while a higher-priority memory gate oscillates" do
-      Publisher.set_tracked_fn(fn _ -> true end)
-      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
-
-      on_exit(fn ->
-        Publisher.set_tracked_fn(fn _ -> true end)
-        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      end)
-
-      write_workflow_file!(Workflow.workflow_file_path(),
-        max_concurrent_builds: 2,
-        min_free_memory_mb: 2_048
-      )
-
-      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
-      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
-
-      # The build queue stays saturated for the whole window; memory drops out
-      # and recovers around it. Memory outranks build in `admission_gate/1`, so
-      # before every failing gate was sampled independently the build-queue
-      # identity vanished from the constraint set on the memory ticks and its
-      # age restarted — suppressing the alert for as long as memory oscillated.
-      Application.put_env(:aiur, :build_gate_status_override, fn ->
-        %{enabled?: true, capacity: 2, active: 2, queued: 1}
-      end)
-
-      {:ok, memory_samples} =
-        Agent.start_link(fn ->
-          ["MemAvailable: 4096000 kB\n", "MemAvailable: 1048576 kB\n", "MemAvailable: 4096000 kB\n"]
-        end)
-
-      Application.put_env(:aiur, :meminfo_source_override, fn ->
-        Agent.get_and_update(memory_samples, fn [sample | rest] -> {{:ok, sample}, rest} end)
-      end)
-
-      ready = issue("build-starved")
-
-      sample = fn state ->
-        state
-        |> Map.put(:dispatch_capacity_constraints, [])
-        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
-      end
-
-      held =
-        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
-        |> sample.()
-        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
-
-      assert Enum.any?(held.dispatch_capacity_constraints, &(&1.kind == :build_queue))
-
-      masked =
-        held
-        |> sample.()
-        |> IssueSync.sync_capacity_starvation_alert([ready], 30_000)
-
-      # Memory is binding on this tick, but the build queue must still be
-      # recorded so its age survives.
-      assert Enum.any?(masked.dispatch_capacity_constraints, &(&1.kind == :memory))
-      assert Enum.any?(masked.dispatch_capacity_constraints, &(&1.kind == :build_queue))
-      assert masked.capacity_starvation.since_ms["build-queue"] == 1_000
-
-      alerted =
-        masked
-        |> sample.()
-        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
-
-      assert "build-queue" in alerted.capacity_starvation.alerted
-      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
-      assert event["reason"] =~ "build-queue gate"
     end
 
     # #2447: a daemon restart deliberately starts the dispatch envelope at one
@@ -2158,7 +2269,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert_received {:capacity_telemetry, :capacity_resumed, %{"signal" => "memory"}}
     end
 
-    test "a saturated build gate defers dispatch and reports :build as the limiting reason" do
+    test "a saturated build gate leaves dispatch available" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 2)
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
       Application.put_env(:aiur, :build_gate_status_override, fn -> %{enabled?: true, capacity: 2, active: 2, queued: 1} end)
@@ -2174,9 +2285,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           capacity_opts(test_pid, 1_000)
         )
 
-      assert %{signal: :build, threshold: 2} = held.capacity_hold
-      assert map_size(held.running) == 0
-      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
+      assert held.capacity_hold == nil
+      assert map_size(held.running) > 0
+      refute_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
     end
 
     # #2089: an unmeasurable CPU window cannot keep a load hold alive. The hold
@@ -2301,14 +2412,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
       test_pid = self()
-      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4, load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, overload_samples: 2}}
 
       held =
         Dispatcher.maybe_choose_under_load(
           state,
           Enum.map(1..2, &issue("queued-#{&1}")),
           &consume_available_slots/2,
-          capacity_opts(test_pid, 1_000)
+          Keyword.delete(capacity_opts(test_pid, 1_000), :now_ms)
         )
 
       assert %{signal: :envelope, measured: 2, threshold: 8} = held.capacity_hold
@@ -2329,18 +2440,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           state,
           [issue("queued")],
           &consume_available_slots/2,
-          capacity_opts(test_pid, 1_000)
+          Keyword.delete(capacity_opts(test_pid, 1_000), :now_ms)
         )
 
       assert recovered.capacity_hold == nil
       assert map_size(recovered.running) == 1
     end
 
-    test "niced runnable load neither hard-holds dispatch nor pins the adaptive envelope" do
+    test "niced runnable load does not hard-hold but cannot widen above target" do
       test_pid = self()
 
-      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
-      current_cpu = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
+      current_cpu = %{total: 1_200, idle: 620, nice: 240, background: %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200}, runnable: 74}
 
       state = %State{
         max_concurrent_agents: 8,
@@ -2379,8 +2490,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       assert_received :dispatched
-      assert %{signal: :envelope, measured: 7, threshold: 8} = recovered.capacity_hold
-      assert recovered.effective_concurrent_agents == 7
+      assert %{signal: :envelope, measured: 4, threshold: 8} = recovered.capacity_hold
+      assert recovered.effective_concurrent_agents == 4
     end
 
     test "hard load admission samples CPU when the adaptive envelope is disabled" do
@@ -2398,13 +2509,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       schedulers = System.schedulers_online()
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{schedulers * 9.0} 1.0 1.0 1/1 1\n"} end)
 
-      Application.put_env(:aiur, :proc_stat_source_override, fn ->
-        {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"}
-      end)
-
+      Application.put_env(:aiur, :proc_stat_source_override, fn -> {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"} end)
+      Application.put_env(:aiur, :background_cpu_source_override, fn -> %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200} end)
       Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
-      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
 
       state = %State{
         max_concurrent_agents: 8,
@@ -2528,7 +2637,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert held.dispatch_capacity_sample == %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
+      assert %{load: 0.7, gate_signal: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16} = held.dispatch_capacity_sample
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000
@@ -2822,7 +2931,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
+        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: [], global_pause: %{globally_paused: false}}, %{status: :fresh}})
       end)
 
     assert output =~ ~r/binding: tracker preflight, reason=shared_budget \(core\) held=\d+s/
@@ -2854,7 +2963,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
+        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: [], global_pause: %{globally_paused: false}}, %{status: :fresh}})
       end)
 
     assert output =~ "binding: dispatch selection, reasons=[:tracker_revalidation_failed] candidates=1"
@@ -2935,6 +3044,102 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "captures a first rework head asynchronously before starting the runner" do
+      test_pid = self()
+      issue = %Issue{id: "rework-first", identifier: "repo#rework-first", state: "rework"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:rework_runner_started, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      fetcher = fn identifier ->
+        send(test_pid, {:rework_head_lookup_started, identifier, self()})
+
+        receive do
+          :finish_lookup -> {:ok, %{"head" => %{"sha" => "captured-head"}}}
+        end
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          1,
+          nil,
+          runner: runner,
+          rework_head_fetcher: fetcher
+        )
+
+      assert next_state.running[issue.id].rework_head_sha == :pending
+      assert_receive {:rework_head_lookup_started, "repo#rework-first", lookup_pid}, 1000
+      refute_receive {:rework_runner_started, _, _, _}, 20
+      send(lookup_pid, :finish_lookup)
+
+      assert_receive {:worker_runtime_info, issue_id, %{rework_head_sha: "captured-head"}}, 1000
+      assert issue_id == issue.id
+
+      assert_receive {:rework_runner_started, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "captured-head"
+
+      assert {:noreply, captured_state} =
+               State.handle_worker_runtime_info(
+                 next_state,
+                 issue.id,
+                 %{rework_head_sha: "captured-head"}
+               )
+
+      assert captured_state.running[issue.id].rework_head_sha == "captured-head"
+    end
+
+    test "preserves the original rework head on retry dispatch" do
+      test_pid = self()
+      issue = %Issue{id: "rework-retry", identifier: "repo#rework-retry", state: "rework"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:rework_retry_runner, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          2,
+          nil,
+          runner: runner,
+          rework_head_sha: "head-before-first-attempt"
+        )
+
+      assert_receive {:rework_retry_runner, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "head-before-first-attempt"
+      assert next_state.running[issue.id].rework_head_sha == "head-before-first-attempt"
+    end
+
+    test "captures a baseline PR head for a first active-state run" do
+      test_pid = self()
+      issue = %Issue{id: "active-first", identifier: "repo#active-first", state: "in-progress"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:active_first_runner, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          1,
+          nil,
+          runner: runner,
+          rework_head_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "existing-head"}}} end
+        )
+
+      assert_receive {:active_first_runner, ^issue, _recipient, runner_opts}, 1000
+      assert Keyword.fetch!(runner_opts, :rework_head_sha) == "existing-head"
+      assert next_state.running[issue.id].rework_head_sha in [:pending, "existing-head"]
+    end
+
     test "carries the current fallback fence rather than a stale redispatch snapshot" do
       issue = %Issue{id: "fallback-retry", identifier: "repo#fallback-retry", state: "todo", selected_backend: "claude"}
 

@@ -7,6 +7,8 @@ defmodule Aiur.MixProject do
       version: "0.0.9",
       elixir: "~> 1.19",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      # Test builds are copied from the prewarm base into each workspace.
+      elixirc_options: if(Mix.env() == :test, do: [check_cwd: false], else: []),
       start_permanent: Mix.env() == :prod,
       test_coverage: [
         summary: [
@@ -130,7 +132,13 @@ defmodule Aiur.MixProject do
       ],
       test_ignore_filters: [
         "test/support/snapshot_support.exs",
-        "test/support/test_support.exs"
+        "test/support/test_support.exs",
+        "test/support/test_support/workflow_yaml_sections.exs",
+        "test/support/test_support/workflow_yaml.exs",
+        "test/support/test_support/runtime_children.exs",
+        "test/support/test_support/processes.exs",
+        "test/support/test_support/workflow_files.exs",
+        "test/support/test_reset_support.ex"
       ],
       dialyzer: [
         plt_add_apps: [:mix],
@@ -151,13 +159,13 @@ defmodule Aiur.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:bandit, "~> 1.12"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},
+      {:ex_json_schema, "~> 0.11", only: :test},
       {:phoenix, "~> 1.8.9"},
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
@@ -174,6 +182,7 @@ defmodule Aiur.MixProject do
       {:ecto, "~> 3.13.6"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
+      {:voice_converse, path: "../packages/elixir/voice_converse"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}

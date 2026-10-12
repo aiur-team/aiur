@@ -228,12 +228,15 @@ issue number in that member's `ticket` field, and freezes the document. **After
 promotion, edits go to the ticket, never the doc.** This transfer of authority
 is the anti-duplication rule.
 
-Apply the configured lifecycle todo label (`agent:todo` in the standard
-workflow) in that same creation request for every executable member. The Build
-Order root carries only its `build-order` container label, and any separately
-promoted `Epic:` container remains explicitly undispatched. Never create a
-member and add its dispatch label afterward: publication is incomplete unless
-the create response already represents dispatchable work.
+Check `aiur queue show` before creation. With the queue enabled, create executable
+members with open prerequisites with `agent:queued`; members with none receive
+the configured lifecycle todo label (`agent:todo` in the standard workflow).
+Then adopt the root with `aiur queue add --build-order <root>` and verify it with
+`aiur queue show`. If status is disabled, use `agent:todo` for every executable
+member and retain native blockers; other unavailable statuses need recovery.
+The Build Order root carries only `build-order`; `Epic:` containers remain
+undispatched. Never create first and label second: include the waiting marker
+or dispatch label in the same creation request.
 
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated

@@ -440,7 +440,7 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
     # unique_integer values are reused across VM boots (see test_helper.exs), so
     # a leaked dir from a previous run can collide with a fresh one and the store
     # would load stale convergence state. Always clean the dir up.
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     dir
   end
 end

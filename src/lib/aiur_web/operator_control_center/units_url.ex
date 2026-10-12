@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsURL do
   Versioned, canonical query state for the renderer-independent Units policy.
   """
 
-  alias AiurWeb.OperatorControlCenter.UnitsPolicy
+  alias Aiur.Projections.UnitsPolicy
 
   @version "1"
 

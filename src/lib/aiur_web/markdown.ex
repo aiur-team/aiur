@@ -3,7 +3,7 @@ defmodule AiurWeb.Markdown do
   Minimal, dependency-free Markdown renderer for bounded, already-sanitized
   ticket and pull-request description text.
 
-  The source has already passed `Aiur.BuildOrder.TicketDetail.Sanitizer`, which
+  The source has already passed `Aiur.DisplaySanitizer`, which
   redacts credentials and local paths while preserving Markdown source. This
   renderer detects block structure on the raw source, then HTML-escapes every
   content run before emitting any tag, converting a small block and inline

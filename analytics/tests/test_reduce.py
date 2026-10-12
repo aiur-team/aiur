@@ -16,6 +16,27 @@ BUILD_ORDER = FIXTURES / "build-order.json"
 
 
 class ReduceFilesTest(unittest.TestCase):
+    def test_pr_timing_matches_elixir_shared_fixture(self):
+        fixture = FIXTURES / "pr-timing"
+        events = json.loads((fixture / "github-events.json").read_text())
+        dataset = reducer.reduce_files([fixture / "telemetry.ndjson"], {"github_events": events})
+        expected = {
+            "live": ("00:01:00", "00:04:00"),
+            "enriched": ("00:01:00", "00:04:00"),
+            "reconciled": ("00:02:00", "00:05:00"),
+            "fallback": ("00:02:00", "00:05:00"),
+            "event-only": (None, "00:06:00"),
+            "open": ("00:03:00", None),
+        }
+        for ticket, milestones in expected.items():
+            with self.subTest(ticket=ticket):
+                intervals = dataset["tickets"][ticket]["intervals"]
+                for phase, time in zip(("pr_opened", "pr_merged"), milestones):
+                    starts = [iv["start_ms"] for iv in intervals if iv["phase"] == phase]
+                    actual = min(starts) if starts else None
+                    expected_ms = reducer._parse_timestamp("2026-10-09T" + time + "Z") if time else None
+                    self.assertEqual(actual, int(expected_ms.timestamp() * 1000) if time else None)
+
     def test_preserves_fleet_build_pressure_and_source_evidence(self):
         metrics = {
             "fleet_agents_occupied": 13,

@@ -42,7 +42,7 @@ check_workflow() {
   local path="$1"
   local quarantine_job
   local run_defaults
-  quarantine_job="$(sed -n '/^  quarantine:$/,/^  test:$/p' "$path")"
+  quarantine_job="$(sed -n '/^  quarantine:$/,/^  analytics:$/p' "$path")"
 
   if [[ -z "$quarantine_job" ]]; then
     violation "workflow $path has no quarantine job to guard"

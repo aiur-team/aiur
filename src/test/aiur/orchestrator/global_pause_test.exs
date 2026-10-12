@@ -65,12 +65,12 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       Application.put_env(:aiur, :log_file, run_one_log)
 
       on_exit(fn ->
-        File.rm_rf(state_dir)
-        File.rm_rf(run_one_root)
-        File.rm_rf(run_two_root)
         restore_application_env(:global_pause_store_path, previous_store)
         restore_application_env(:decision_state_dir, previous_decision_dir)
         restore_application_env(:log_file, previous_log_file)
+        Aiur.TestCleanup.rm_rf!(state_dir)
+        Aiur.TestCleanup.rm_rf!(run_one_root)
+        Aiur.TestCleanup.rm_rf!(run_two_root)
       end)
 
       first_path = GlobalPauseStore.path_for()
@@ -267,7 +267,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       state = base_state(globally_paused: true, running: %{id => paused_entry(id, :global_pause)})
 
       assert {:reply, {:error, :globally_paused}, ^state} =
-               PauseResume.resume_issue_call(state, id)
+               PauseResume.tracker_control_call(state, :resume, id)
 
       assert {:reply, {:error, :globally_paused}, ^state} =
                PauseResume.request_control_call(state, id, :resume, 7)

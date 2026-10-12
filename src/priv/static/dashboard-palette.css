@@ -1,0 +1,86 @@
+/* Design build.css:1028; attention/blocking retain product names. */
+html[data-palette="gruvbox"] {
+  --bg: #18191a;
+  --bg-2: #232526;
+  --surface: #282828;
+  --surface-2: #32302f;
+  --surface-3: #3c3836;
+  --fg: #ebdbb2;
+  --muted: #bdae93;
+  /* AA hold: design #928374, pending Kevin (S-19) */
+  --faint: #a19487;
+  --line: rgba(235, 219, 178, 0.11);
+  --line-strong: rgba(235, 219, 178, 0.2);
+  --hairline: rgba(235, 219, 178, 0.07);
+  --pill-bd: rgba(235, 219, 178, 0.14);
+  --pill-bg: rgba(235, 219, 178, 0.04);
+  --accent: #83a598;
+  --accent-ink: #a6c4b8;
+  --accent-soft: rgba(131, 165, 152, 0.16);
+  --accent-line: rgba(131, 165, 152, 0.38);
+  --attention: #fabd2f;
+  --attention-ink: #fad276;
+  --attention-soft: rgba(250, 189, 47, 0.14);
+  --attention-line: rgba(250, 189, 47, 0.36);
+  --blocking: #fb4934;
+  --blocking-ink: #fd8b7d;
+  --blocking-soft: rgba(251, 73, 52, 0.14);
+  --blocking-line: rgba(251, 73, 52, 0.4);
+  --good: #b8bb26;
+  --good-ink: #cfd26a;
+  --good-soft: rgba(184, 187, 38, 0.15);
+  --good-line: rgba(184, 187, 38, 0.36);
+  --super: #d3869b;
+  --super-ink: #e3aab9;
+  --super-soft: rgba(211, 134, 155, 0.15);
+  --super-line: rgba(211, 134, 155, 0.36);
+}
+
+html[data-palette="gruvbox"][data-theme="light"] {
+  --bg: #f1eee6;
+  --bg-2: #f8f6f0;
+  --surface: #fdfcf9;
+  --surface-2: #f3f0e8;
+  --surface-3: #e8e3d7;
+  --fg: #3c3836;
+  --muted: #665c54;
+  /* AA hold: design #928374, pending Kevin (S-19) */
+  --faint: #7b6e61;
+  --line: rgba(60, 56, 54, 0.10);
+  --line-strong: rgba(60, 56, 54, 0.18);
+  --hairline: rgba(60, 56, 54, 0.06);
+  --pill-bd: rgba(60, 56, 54, 0.14);
+  --pill-bg: rgba(60, 56, 54, 0.04);
+  --accent: #458588;
+  --accent-ink: #076678;
+  --accent-soft: rgba(69, 133, 136, 0.12);
+  --accent-line: rgba(69, 133, 136, 0.34);
+  --attention: #d79921;
+  /* AA hold: design #b57614, pending Kevin (S-19) */
+  --attention-ink: #8b5a0f;
+  --attention-soft: rgba(215, 153, 33, 0.14);
+  --attention-line: rgba(215, 153, 33, 0.36);
+  --blocking: #cc241d;
+  --blocking-ink: #9d0006;
+  --blocking-soft: rgba(204, 36, 29, 0.1);
+  --blocking-line: rgba(204, 36, 29, 0.34);
+  --good: #98971a;
+  --good-ink: #79740e;
+  --good-soft: rgba(152, 151, 26, 0.14);
+  --good-line: rgba(152, 151, 26, 0.36);
+  --super: #b16286;
+  --super-ink: #8f3f71;
+  --super-soft: rgba(177, 98, 134, 0.12);
+  --super-line: rgba(177, 98, 134, 0.32);
+}
+
+html[data-palette="gruvbox"] body {
+  background:
+    radial-gradient(1400px 700px at 82% -10%, color-mix(in srgb, var(--accent) 13%, transparent) 0%, transparent 62%),
+    radial-gradient(1200px 800px at 8% 105%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 3%, var(--bg)), var(--bg) 60%);
+  background-attachment: fixed;
+}
+
+html[data-palette="gruvbox"][data-theme="light"] body { background: radial-gradient(1400px 700px at 82% -10%, color-mix(in srgb, var(--accent) 7%, transparent) 0%, transparent 62%), var(--bg) !important; background-attachment: fixed !important; }
+

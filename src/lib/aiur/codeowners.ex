@@ -4,7 +4,7 @@ defmodule Aiur.Codeowners do
   """
 
   alias Aiur.GitHub
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.GitHub.{ChangedPaths, CodeOwners, CodeownersFile, CodeownersPattern, Comments, Teams}
   alias Aiur.GitHub.Transport
 
   @type owner_entry :: %{
@@ -117,23 +117,7 @@ defmodule Aiur.Codeowners do
       agent_login?(commenter, Map.get(context, :agent_logins, [])) ->
         false
 
-      # SECURITY INVARIANT — never trust everyone. This used to return `true`,
-      # which made EVERY commenter authoritative in any repository without a
-      # CODEOWNERS file: an outsider's comment on a public repo was accepted as
-      # a trusted instruction to the agent.
-      #
-      # Degraded mode has exactly one owner, `Aiur.GitHub.CodeOwners`, which
-      # resolves `bot_account` + `trusted_accounts` (falling back to the repo
-      # owner when neither is configured) and alerts the Executor. Delegating
-      # there rather than answering `false` outright matters: a flat `false`
-      # would silently drop every comment — including the operator's own — from
-      # the agent digest and make review threads permanently unresolvable, so
-      # the fail-closed gate would present as a hang with no alert.
-      #
-      # When that process is not running (test harnesses, early boot) there is
-      # no trust source to consult, and the answer is `false`. Do not
-      # reintroduce a local fallback here: two modules disagreeing about who is
-      # trusted is how this became exploitable in the first place.
+      # Missing rules delegate to the single comment-trust authority.
       Map.get(context, :codeowners_present) == false ->
         degraded_mode_trusted?(commenter, Map.get(context, :trust_server, CodeOwners))
 
@@ -162,15 +146,20 @@ defmodule Aiur.Codeowners do
   def ownership_for_path(path, opts \\ []) when is_binary(path) do
     codeowners = read_codeowners(opts)
 
-    if codeowners.present? do
-      entries_result =
-        codeowners.rules
-        |> matching_rule(path)
-        |> entries_for_rule(path, opts)
+    cond do
+      codeowners[:error] ->
+        {:error, codeowners.error}
 
-      ownership_context(entries_result)
-    else
-      %{codeowners_present: false, owners: [], entries: []}
+      codeowners.present? ->
+        entries_result =
+          codeowners.rules
+          |> matching_rule(path)
+          |> entries_for_rule(path, opts)
+
+        ownership_context(entries_result)
+
+      true ->
+        %{codeowners_present: false, owners: [], entries: []}
     end
   end
 
@@ -181,12 +170,17 @@ defmodule Aiur.Codeowners do
   def ownership_for_paths(paths, opts \\ []) when is_list(paths) do
     codeowners = read_codeowners(opts)
 
-    if codeowners.present? do
-      paths
-      |> collect_entries(fn path -> codeowners.rules |> matching_rule(path) |> entries_for_rule(path, opts) end)
-      |> ownership_context()
-    else
-      %{codeowners_present: false, owners: [], entries: []}
+    cond do
+      codeowners[:error] ->
+        {:error, codeowners.error}
+
+      codeowners.present? ->
+        paths
+        |> collect_entries(fn path -> codeowners.rules |> matching_rule(path) |> entries_for_rule(path, opts) end)
+        |> ownership_context()
+
+      true ->
+        %{codeowners_present: false, owners: [], entries: []}
     end
   end
 
@@ -197,12 +191,17 @@ defmodule Aiur.Codeowners do
   def repo_ownership(opts \\ []) do
     codeowners = read_codeowners(opts)
 
-    if codeowners.present? do
-      codeowners.rules
-      |> collect_entries(fn rule -> entries_for_rule(rule, nil, opts) end)
-      |> ownership_context()
-    else
-      %{codeowners_present: false, owners: [], entries: []}
+    cond do
+      codeowners[:error] ->
+        {:error, codeowners.error}
+
+      codeowners.present? ->
+        codeowners.rules
+        |> collect_entries(fn rule -> entries_for_rule(rule, nil, opts) end)
+        |> ownership_context()
+
+      true ->
+        %{codeowners_present: false, owners: [], entries: []}
     end
   end
 
@@ -273,9 +272,6 @@ defmodule Aiur.Codeowners do
     end
   end
 
-  # Defers to the one module that owns degraded-mode trust. Mirrors
-  # `Aiur.Events.Sanitizer.author_trusted?/1`: absent process means no trust
-  # source, which means no trust.
   defp degraded_mode_trusted?(commenter, server) do
     if is_pid(server) or Process.whereis(server) do
       CodeOwners.allowed?(commenter, server)
@@ -286,10 +282,7 @@ defmodule Aiur.Codeowners do
     :exit, _reason -> false
   end
 
-  # Both multi-lookup ownership paths accumulate entries and must abandon the
-  # whole context the moment one lookup cannot answer: an owner set that is
-  # merely unknown must never be reported as a smaller owner set. Shared so that
-  # halt-on-first-error rule is written once rather than per caller.
+  # Any failed lookup makes the whole ownership context unknown.
   defp collect_entries(items, lookup) do
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
       case lookup.(item) do
@@ -302,18 +295,15 @@ defmodule Aiur.Codeowners do
   defp with_agent_logins({:error, _reason} = error, _opts), do: error
   defp with_agent_logins(context, opts), do: Map.put(context, :agent_logins, Keyword.get(opts, :agent_logins, []))
 
-  # A file that parses to no rules — most commonly the comments-only placeholder
-  # `aiur init` writes when the operator declines to name an owner — grants
-  # ownership to nobody. Treating it as "present" would fail closed while
-  # reporting "author is not a CODEOWNER for the relevant paths", which sends
-  # the next reader hunting for a rule that does not exist. It is the degraded
-  # case, so say so.
+  # Missing or empty rules use shared trust; malformed or unreadable rules are unknown.
   defp read_codeowners(opts) do
     with full_path when is_binary(full_path) <- file_path(opts),
-         [_ | _] = rules <- parse_file!(full_path) do
+         {:ok, rules} <- CodeownersFile.read(full_path) do
       %{present?: true, rules: rules}
     else
-      _absent_or_empty -> %{present?: false, rules: []}
+      nil -> %{present?: false, rules: []}
+      {:error, reason} when reason in [:missing, :empty] -> %{present?: false, rules: []}
+      {:error, reason} -> %{present?: false, rules: [], error: reason}
     end
   end
 
@@ -337,48 +327,9 @@ defmodule Aiur.Codeowners do
     File.dir?(Path.join(path, ".git")) or File.regular?(Path.join(path, ".git"))
   end
 
-  defp parse_file!(path) do
-    path
-    |> File.read!()
-    |> String.split(~r/\R/, trim: true)
-    |> Enum.flat_map(&parse_line/1)
-  end
-
-  defp parse_line(line) do
-    trimmed = String.trim(line)
-
-    cond do
-      trimmed == "" -> []
-      String.starts_with?(trimmed, "#") -> []
-      true -> line_tokens(trimmed) |> rule_from_tokens()
-    end
-  end
-
-  defp line_tokens(line) do
-    line
-    |> String.split(~r/\s+/, trim: true)
-    |> Enum.take_while(&(not String.starts_with?(&1, "#")))
-  end
-
-  defp rule_from_tokens([pattern | owners]) do
-    if valid_pattern?(pattern) and owners != [] do
-      [%{pattern: pattern, owners: owners}]
-    else
-      []
-    end
-  end
-
-  defp rule_from_tokens(_tokens), do: []
-
-  defp valid_pattern?(pattern) do
-    not String.starts_with?(pattern, "!") and not String.contains?(pattern, "[")
-  end
-
   defp matching_rule(rules, path) do
-    normalized_path = normalize_path(path)
-
     rules
-    |> Enum.filter(&pattern_matches?(&1.pattern, normalized_path))
+    |> Enum.filter(&CodeownersPattern.matches?(&1.pattern, path))
     |> List.last()
   end
 
@@ -407,52 +358,11 @@ defmodule Aiur.Codeowners do
   defp usernames_for_owner(owner, _opts), do: {:ok, [normalize_login(owner)]}
 
   defp team_members(org, team_slug, opts) do
-    cache_key = {__MODULE__, :team_members, String.downcase(org), String.downcase(team_slug)}
-
-    case Process.get(cache_key) do
-      nil ->
-        case fetch_team_members(org, team_slug, opts) do
-          {:ok, members} ->
-            Process.put(cache_key, members)
-            {:ok, members}
-
-          {:error, _reason} = error ->
-            error
-        end
-
-      members ->
-        {:ok, members}
-    end
-  end
-
-  # #2298 item 7: this is a second, unpaginated copy of `Teams.fetch_team_members/3`
-  # (memoized only in the process dictionary). It is kept separate because its
-  # error contract differs (`:quota_hold` / `{:github_api_status, _}`), but it
-  # now declares its caller so the read is attributed rather than folded into an
-  # endpoint shape.
-  defp fetch_team_members(org, team_slug, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-    token = Keyword.get_lazy(opts, :token, &GitHub.Config.token/0)
-    url = "#{@base_url}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
-
-    case request_fun.(%{method: :get, url: url, token: token, caller: "codeowners_team_members"}) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        logins =
-          body
-          |> Enum.map(&Map.get(&1, "login"))
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&normalize_login/1)
-
-        {:ok, logins}
-
-      {:ok, %{status: status}} ->
-        normalize_ownership_error({:github_api_status, status})
-
-      {:error, reason} ->
-        {:error, {:github_api_request, reason}}
-
-      _invalid_response ->
-        {:error, {:github_api_request, :invalid_response}}
+    case Teams.fetch_team_members(org, team_slug, opts) do
+      {:ok, members} -> {:ok, Enum.map(members, &normalize_login/1)}
+      {:error, {:github, :rate_limited, _}} -> {:error, :quota_hold}
+      {:error, {:github, _cause, %{status: status}}} -> normalize_ownership_error({:github_api_status, status})
+      {:error, reason} -> {:error, {:github_api_request, reason}}
     end
   end
 
@@ -470,33 +380,27 @@ defmodule Aiur.Codeowners do
   defp normalize_ownership_error({:github_api_status, status}), do: {:error, {:github_api_status, status}}
   defp normalize_ownership_error(reason), do: {:error, reason}
 
-  # #2298 item 7: a second, unpaginated copy of `PullRequests.fetch_pull_request_changed_paths/2`.
-  # Kept separate because it returns a bare list (the canonical returns `{:ok, _}`)
-  # and reads an explicit `:repo`/`:token` from opts; the caller is declared so the
-  # spend is attributed.
   defp fetch_pr_changed_paths(pr_number, opts) do
     with {:ok, {owner, repo}} <- parse_repo(opts),
-         token when is_binary(token) <- Keyword.get_lazy(opts, :token, &GitHub.Config.token/0) do
+         {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
 
-      case request_fun.(%{method: :get, url: url, token: token, caller: "codeowners_pr_files"}) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          body
-          |> Enum.map(&Map.get(&1, "filename"))
-          |> Enum.reject(&is_nil/1)
+      case Comments.fetch_repo_comment_stream(request_fun, token, url, [], caller: "codeowners_pr_files") do
+        {:ok, files} ->
+          decoded_paths(ChangedPaths.decode(files))
 
-        {:ok, %{status: status}} ->
-          {:error, {:github_api_status, status}}
+        {:error, {:github, :rate_limited, _}} ->
+          {:error, :quota_hold}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, reason}
       end
-    else
-      nil -> {:error, :missing_github_token}
-      error -> error
     end
   end
+
+  defp decoded_paths({:ok, paths}), do: paths
+  defp decoded_paths(error), do: error
 
   defp parse_repo(opts) do
     repo_string = Keyword.get_lazy(opts, :repo, &GitHub.Config.repo/0)
@@ -511,68 +415,6 @@ defmodule Aiur.Codeowners do
           _ -> {:error, {:invalid_github_repo, repo_string}}
         end
     end
-  end
-
-  defp pattern_matches?(pattern, path) do
-    pattern = String.trim(pattern)
-
-    cond do
-      pattern == "*" ->
-        path != ""
-
-      String.ends_with?(pattern, "/") ->
-        directory_pattern_matches?(pattern, path)
-
-      String.starts_with?(pattern, "/") ->
-        pattern
-        |> String.trim_leading("/")
-        |> glob_match?(path)
-
-      String.contains?(pattern, "/") ->
-        glob_match?(pattern, path)
-
-      true ->
-        glob_match?(pattern, Path.basename(path))
-    end
-  end
-
-  defp directory_pattern_matches?(pattern, path) do
-    directory =
-      pattern
-      |> String.trim_leading("/")
-      |> String.trim_trailing("/")
-
-    path == directory or String.starts_with?(path, directory <> "/")
-  end
-
-  defp glob_match?(pattern, path) do
-    pattern
-    |> glob_regex()
-    |> Regex.match?(path)
-  end
-
-  defp glob_regex(pattern) do
-    pattern =
-      pattern
-      |> String.graphemes()
-      |> glob_regex_parts([])
-      |> Enum.reverse()
-      |> IO.iodata_to_binary()
-
-    Regex.compile!("^" <> pattern <> "$")
-  end
-
-  defp glob_regex_parts([], acc), do: acc
-  defp glob_regex_parts(["*", "*" | rest], acc), do: glob_regex_parts(rest, [".*" | acc])
-  defp glob_regex_parts(["*" | rest], acc), do: glob_regex_parts(rest, ["[^/]*" | acc])
-  defp glob_regex_parts(["?" | rest], acc), do: glob_regex_parts(rest, ["[^/]" | acc])
-  defp glob_regex_parts([char | rest], acc), do: glob_regex_parts(rest, [Regex.escape(char) | acc])
-
-  defp normalize_path(path) do
-    path
-    |> String.trim()
-    |> String.trim_leading("./")
-    |> String.trim_leading("/")
   end
 
   defp uniq_entries(entries) do

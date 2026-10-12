@@ -82,6 +82,30 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         </div>
       </dl>
 
+      <p :if={@card.summary_label} class="provider-meter-coverage">{@card.summary_label}</p>
+
+      <div :if={@card.account_usage} class="provider-meter-account-usage">
+        <div class="provider-meter-account-usage-header">
+          <span class="provider-meter-account-count">×{@card.account_usage.count}</span>
+          <span :if={is_number(@card.account_usage.total_percent)}>
+            Weekly · worst of {@card.account_usage.count} accounts: {@card.account_usage.total_percent}%
+          </span>
+          <span :if={!is_number(@card.account_usage.total_percent)}>Weekly · worst of {@card.account_usage.count} accounts: unknown</span>
+        </div>
+        <div :for={account <- @card.account_usage.accounts} class="provider-meter-account-bar" title={account_usage_title(account)}>
+          <b>{account.name}</b>
+          <div class="provider-meter-account-segment" role="progressbar" aria-label={"#{account.name} weekly usage"} aria-valuemin="0" aria-valuemax="100" aria-valuenow={account.percent}>
+            <span :if={is_number(account.percent)} class="provider-meter-account-fill" style={"width: #{account.percent}%"}></span>
+          </div>
+        </div>
+        <ul class="provider-meter-account-labels">
+          <li :for={account <- @card.account_usage.accounts}>
+            <b>{account.name}</b>: {account_percent(account.percent)} · {account.freshness}
+            <span :if={account.age_seconds}>({account.age_seconds}s old)</span>
+          </li>
+        </ul>
+      </div>
+
       <p :if={@card.state == :loading} class="provider-meter-state empty-state">
         Loading account meters…
       </p>
@@ -108,8 +132,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         <p>The provider account meters cannot be read right now.</p>
       </div>
 
-      <ul :if={@card.windows != []} class="provider-meter-windows">
-        <.window :for={window <- @card.windows} window={window} time_zone={@time_zone} />
+      <ul :if={visible_windows(@card.windows, @card.account_usage) != []} class="provider-meter-windows">
+        <.window :for={window <- visible_windows(@card.windows, @card.account_usage)} window={window} time_zone={@time_zone} />
       </ul>
     </article>
     """
@@ -184,6 +208,21 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
   end
 
   defp window_meter_aria_label(%{name: name}), do: "#{name} usage"
+
+  defp account_usage_title(account) do
+    percent = account_percent(account.percent)
+    age = if account.age_seconds, do: "#{account.age_seconds}s old", else: "age unknown"
+    "#{account.name}: #{percent}, #{account.freshness}, #{age}"
+  end
+
+  defp account_percent(value) when is_number(value), do: "#{value}%"
+  defp account_percent(_value), do: "unknown"
+
+  defp visible_windows(windows, nil), do: windows
+
+  defp visible_windows(windows, _account_usage) do
+    Enum.reject(windows, &String.starts_with?(&1.limit_id, "seven_day"))
+  end
 
   attr(:value, :any, default: nil)
   attr(:class, :string, default: nil)

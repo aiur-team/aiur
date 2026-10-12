@@ -1,7 +1,7 @@
 defmodule Aiur.UsageLedger.Recovery do
   @moduledoc false
 
-  alias Aiur.{Config, DecisionLog, Fs}
+  alias Aiur.{Config, Fs, Journal}
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor}
 
   @default_limits %{
@@ -121,7 +121,7 @@ defmodule Aiur.UsageLedger.Recovery do
   end
 
   defp replay(path, limits, tail_status) do
-    case DecisionLog.replay(path, &Record.decode/1,
+    case Journal.replay(path, &Record.decode/1,
            max_file_bytes: limits.max_segment_bytes,
            max_record_bytes: limits.max_record_bytes,
            repair_torn_tail: false

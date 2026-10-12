@@ -18,6 +18,9 @@ defmodule AiurWeb.BuildOrderLive do
     UsageRuntime
   }
 
+  alias AiurWeb.BuildQueue.Panel, as: QueuePanel
+  alias AiurWeb.BuildQueue.Runtime, as: QueueRuntime
+
   alias AiurWeb.FinancialData
   alias AiurWeb.Presenter
 
@@ -48,11 +51,13 @@ defmodule AiurWeb.BuildOrderLive do
     socket =
       socket
       |> AwaitingCommands.mount(connected)
+      |> QueueRuntime.mount()
       |> assign(:route_state, route_state)
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
       |> UsageRuntime.initialize()
       |> AnalyticsRuntime.initialize()
+      |> assign(:collapsed_epics, [])
       |> assign(:time_domain, nil)
       |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
@@ -84,6 +89,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> SourceRuntime.assign_model()
       |> UsageRuntime.sync_scope()
       |> AnalyticsRuntime.sync_scope()
+      |> assign(:collapsed_epics, [])
       |> assign(:time_domain, nil)
 
     {:noreply, socket}
@@ -114,7 +120,7 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info(:build_order_ui_tick, socket) do
     schedule_ui_tick()
-    {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick()}
+    {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick() |> QueueRuntime.tick()}
   end
 
   def handle_info({:ticket_activity_changed, _payload}, socket),
@@ -144,9 +150,16 @@ defmodule AiurWeb.BuildOrderLive do
       when event in [:ticket_detail_coordinator_reset, :ticket_history_reset],
       do: {:noreply, ContextRuntime.refresh(socket)}
 
+  def handle_info({event, _payload}, socket) when event in [:build_queue_changed, :build_progress_changed],
+    do: {:noreply, QueueRuntime.schedule(socket)}
+
+  def handle_info(:refresh_build_queue, socket), do: {:noreply, QueueRuntime.refresh(socket)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_async(:build_queue_view, result, socket), do: {:noreply, QueueRuntime.complete(socket, result)}
+
   def handle_async(:build_order_sources, {:ok, {token, sources}}, socket) do
     {:noreply, SourceRuntime.complete_reload(socket, token, sources)}
   end
@@ -168,6 +181,23 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_async({:build_order_analytics, key}, {:exit, _reason}, socket) do
     {:noreply, AnalyticsRuntime.failed(socket, key)}
+  end
+
+  @impl true
+  def handle_event("toggle-build-order-epic", %{"lane" => lane}, socket) do
+    nodes =
+      case socket.assigns.model do
+        %{nodes: nodes} -> nodes
+        _loading -> []
+      end
+
+    if Enum.any?(nodes, &(&1.plan.lane == lane)) do
+      lanes = socket.assigns.collapsed_epics
+      lanes = if lane in lanes, do: List.delete(lanes, lane), else: [lane | lanes]
+      {:noreply, assign(socket, :collapsed_epics, lanes)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -258,6 +288,7 @@ defmodule AiurWeb.BuildOrderLive do
         data-build-order-root={RouteState.root_identifier(@route_state)}
         data-build-order-catalog-state={BuildOrderCatalog.catalog_state(RouteState.catalog_snapshot(@route_state))}
       >
+        <QueuePanel.panel :if={RouteState.route(@route_state) == :catalog} view={@queue_view} now={@now} />
         <BuildOrderCatalog.build_order_catalog
           :if={RouteState.route(@route_state) == :catalog}
           route_state={@route_state}
@@ -266,6 +297,7 @@ defmodule AiurWeb.BuildOrderLive do
         <BuildOrderSelected.build_order_selected
           :if={RouteState.route(@route_state) == :selected}
           route_state={@route_state}
+          collapsed_epics={@collapsed_epics}
           model={@model}
           adhoc={@adhoc_overlay}
           now={@now}

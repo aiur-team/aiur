@@ -1,13 +1,13 @@
 defmodule Aiur.Orchestrator.Reconciler do
   @moduledoc """
   Per-poll reconciliation of running entries against refreshed tracker states.
-  All functions execute inside the orchestrator GenServer process.
+  Tracker reads run in tasks; their results reconcile the current runtime.
   """
 
   require Logger
 
-  alias Aiur.{Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
-  alias Aiur.Orchestrator
+  alias Aiur.{Alerts, CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
+  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, Parking, PushRouting, RuntimeWatchdog}
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
@@ -15,7 +15,8 @@ defmodule Aiur.Orchestrator.Reconciler do
     MembershipLifecycle,
     PauseResume,
     RateLimitFallback,
-    State
+    State,
+    TrackerTasks
   }
 
   # A before_run hook failure parks the agent alive in
@@ -28,10 +29,10 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
-    state = Orchestrator.reconcile_runtime_health(state)
-    state = Orchestrator.reconcile_stalled_running_issues(state)
-    state = Orchestrator.reconcile_overrunning_agents(state)
-    state = Orchestrator.reconcile_pending_auto_resumes(state)
+    state = state |> LifecycleFenceExpiry.reconcile() |> RuntimeWatchdog.reconcile_runtime_health()
+    state = RuntimeWatchdog.reconcile_stalled_running_issues(state)
+    state = RuntimeWatchdog.reconcile_overrunning_agents(state)
+    state = PushRouting.reconcile_pending_auto_resumes(state)
     RateLimitFallback.reconcile(state)
   end
 
@@ -98,10 +99,30 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp refresh_running_issue_ids(state, [], _context, _fetch_fun), do: prune_running_issue_cache(state)
 
   defp refresh_running_issue_ids(state, issue_ids, context, fetch_fun) do
-    case apply_fetch_fun(fetch_fun, issue_ids, state.running_issue_cache) do
+    inputs = Map.new(issue_ids, &{&1, issue_input(state, &1)})
+    cache = state.running_issue_cache
+
+    TrackerTasks.run(state, :running_issue_refresh, fn -> apply_fetch_fun(fetch_fun, issue_ids, cache) end, fn current, result ->
+      eligible_ids = Enum.filter(issue_ids, &(issue_input(current, &1) == inputs[&1]))
+      apply_running_refresh(current, eligible_ids, context, result)
+    end)
+  end
+
+  @doc false
+  @spec issue_input(State.t(), String.t()) :: tuple()
+  def issue_input(state, issue_id) do
+    entry = Map.get(state.running, issue_id)
+    runtime = if is_map(entry), do: Map.take(entry, [:pid, :ref, :control, :lifecycle_fence, :issue]), else: entry
+    {runtime, Map.get(state.last_polled_issues, issue_id), Map.get(state.retry_attempts, issue_id), MapSet.member?(state.claimed, issue_id)}
+  end
+
+  defp apply_running_refresh(state, issue_ids, context, result) do
+    case result do
       {:ok, issues, cache} ->
+        issues = Enum.filter(issues, &(&1.id in issue_ids))
+
         state
-        |> put_running_issue_cache(cache)
+        |> merge_running_issue_cache(cache, issue_ids)
         |> reconcile_refreshed_running_issues(issues)
         |> reconcile_missing_running_issue_ids(issue_ids, issues)
         |> prune_running_issue_cache()
@@ -113,7 +134,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         log_refresh_failure(state, issue_ids, context, reason)
 
         state
-        |> put_running_issue_cache(cache)
+        |> merge_running_issue_cache(cache, issue_ids)
         |> prune_running_issue_cache()
 
       {:error, reason} ->
@@ -144,8 +165,10 @@ defmodule Aiur.Orchestrator.Reconciler do
     )
   end
 
-  defp put_running_issue_cache(state, nil), do: state
-  defp put_running_issue_cache(state, cache) when is_map(cache), do: %{state | running_issue_cache: cache}
+  defp merge_running_issue_cache(state, nil, _issue_ids), do: state
+
+  defp merge_running_issue_cache(state, cache, issue_ids) when is_map(cache),
+    do: %{state | running_issue_cache: Map.merge(state.running_issue_cache, Map.take(cache, issue_ids))}
 
   defp prune_running_issue_cache(%State{running_issue_cache: cache} = state) when map_size(cache) == 0, do: state
 
@@ -489,7 +512,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp mark_divergence_checked(state, _issue_id, nil), do: state
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do
-    if safely_set_terminal_verification_pending(issue.tracker_identity, false) == :ok do
+    if CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, issue.tracker_identity, false) in [:ok, :skipped] do
       Orchestrator.terminate_running_issue(state, issue.id, true)
     else
       mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
@@ -651,28 +674,13 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   defp mark_membership_unavailable(state, mark_reconciled_fun, identity) do
-    _ = safely_set_terminal_verification_pending(identity, true)
+    _ = CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, identity, true)
     _ = mark_reconciled_fun.(:unavailable)
     state
   rescue
     _error -> state
   catch
     _kind, _reason -> state
-  end
-
-  defp safely_set_terminal_verification_pending(identity, pending?) do
-    if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do
-      case CurrentRunMembership.set_terminal_verification_pending(identity, pending?) do
-        :ok -> :ok
-        _ -> :error
-      end
-    else
-      :ok
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
@@ -689,7 +697,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         PauseResume.replace_completed_issue(state, running_entry, issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
-        reactivate_deactivated_issue(state, running_entry, issue)
+        Parking.reconcile_deactivated(state, running_entry, issue, &refresh_running_entry_issue/3, &reactivate_deactivated_issue/3)
 
       %{control: %{status: :paused}, paused_reason: :before_run_failure} = running_entry ->
         resume_before_run_failure(state, running_entry, issue)
@@ -716,7 +724,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
     state =
       if pause_reason == :ci_wait,
-        do: Orchestrator.cancel_ci_wait_rewake(state, issue.id),
+        do: CiLifecycle.cancel_ci_wait_rewake(state, issue.id),
         else: state
 
     case Orchestrator.resume_paused_issue(state, new_entry, false) do

@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.ProviderHealth do
 
   @type state :: :healthy | :stale | :unavailable | :structurally_invalid
   @type t :: %__MODULE__{
-          generation: pos_integer() | :unknown,
+          generation: non_neg_integer() | :unknown,
           state: state(),
           complete?: boolean(),
           refreshing?: boolean(),
@@ -45,12 +45,12 @@ defmodule Aiur.BuildOrder.ProviderHealth do
 
   @spec usable?(term()) :: boolean()
   def usable?(%__MODULE__{generation: generation, state: :healthy, complete?: true})
-      when is_integer(generation) and generation > 0,
+      when is_integer(generation) and generation >= 0,
       do: true
 
   def usable?(_health), do: false
 
-  defp normalize_generation(value) when is_integer(value) and value > 0, do: value
+  defp normalize_generation(value) when is_integer(value) and value >= 0, do: value
   defp normalize_generation(_value), do: :unknown
   defp normalize_state(state) when state in [:healthy, :stale, :unavailable, :structurally_invalid], do: state
   defp normalize_state(_state), do: :unavailable

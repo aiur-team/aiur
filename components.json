@@ -1,0 +1,319 @@
+{
+  "manifest_version": 1,
+  "seams": [
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/optimistic_guard_effects.ex"
+      ],
+      "reason": "#3761 serialize guard attentions through the optional queue facade; disabled queues use journaled transient publication"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.ExperimentsCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "#3806 control RPC delegates experiments commands to the optional component facade"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildOrder.Features",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/telemetry_cohort.ex"
+      ],
+      "reason": "#3794 bounded fail-open feature owner lookup for dispatch telemetry"
+    },
+    {
+      "from": "executor-attention",
+      "to_module": "Aiur.GitHub.Issues",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/alerts/stale_not_closed.ex"
+      ],
+      "reason": "#3943: stale merge alert reconciliation reads authoritative GitHub issue closure and done labels"
+    },
+    {
+      "from": "executor-attention",
+      "to_module": "Aiur.Orchestrator.Dispatcher",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/alert_feed/backfill.ex"
+      ],
+      "reason": "#3943: boot alert reconciliation checks whether the active tracker is GitHub"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Alerts.StaleNotClosed",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/comment_wake.ex"
+      ],
+      "reason": "#3943: successful done transitions resolve earlier false merge alerts"
+    },
+    {
+      "from": "harness-adapters",
+      "to_module": "Aiur.Accounts",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/coding_agent/headroom_dispatch.ex"
+      ],
+      "reason": "#3960: headroom dispatch lists the machine's accounts and their capability"
+    },
+    {
+      "from": "harness-adapters",
+      "to_module": "Aiur.Accounts.*",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/coding_agent/headroom_dispatch.ex"
+      ],
+      "reason": "#3960: headroom dispatch ranks candidates with the pure Accounts.Headroom selector over polled UsageReadings"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.GitHub.IssueState",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/merge_transition.ex"
+      ],
+      "reason": "#3778: merge outcome classification reuses GitHub closed-state and marker-label policy"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.GitHub.Transport",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/merge_attribution.ex"
+      ],
+      "reason": "#3777: merge tracker task resolves missing GitHub merger attribution through the governed transport"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/blocker_propagation.ex"
+      ],
+      "reason": "#3820: read optional queue membership and effective optimistic triggers; absent queues disable the default"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue.Hints",
+      "kind": "reference",
+      "reason": "MP-E1 X-1: neutral rank and hold reads in DispatchPolicy"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue.ClaimProbe",
+      "kind": "behaviour",
+      "reason": "MP-E1 X-1: orchestration implements the claim-probe port"
+    },
+    {
+      "from": "build-queue",
+      "to_module": "Aiur.BuildOrder",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/build_queue/sources/build_order.ex",
+        "src/lib/aiur/build_queue_cli.ex",
+        "src/lib/aiur_web/build_queue/copy.ex"
+      ],
+      "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"
+    },
+    {
+      "from": "build-queue",
+      "to_module": "Aiur.BuildOrder.*",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/build_queue/sources/build_order.ex",
+        "src/lib/aiur/build_queue_cli.ex",
+        "src/lib/aiur_web/build_queue/copy.ex"
+      ],
+      "reason": "MP-E1 RC-11: only source adapter in build_queue/; CLI and web copy use ProgressRenderer outside it"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue.ClaimProbe",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/build_queue_claim_probe.ex"
+      ],
+      "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"
+    },
+    {
+      "from": "pr-lifecycle",
+      "to_module": "Aiur.Orchestrator.TicketTransition",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/pr_lifecycle/rework_requeue.ex"
+      ],
+      "allow_forbidden": true,
+      "reason": "MP-R1-C9-T06 RC-20: U2 keeps requeue decisions in the worker and routes writes through its single lifecycle owner (#3570)"
+    },
+    {
+      "from": "build-queue",
+      "to_module": "Aiur.Orchestrator.TicketTransition",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/build_queue/write_protocol.ex"
+      ],
+      "allow_forbidden": true,
+      "reason": "#3306 lifecycle-write owner: #3259 preserves the exact sanctioned scan exception"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Workspace.HostLock",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/blocker_propagation.ex",
+        "src/lib/aiur/orchestrator/restack_scheduler.ex"
+      ],
+      "reason": "#3771: host lock handoff for idle dependent workspace mutation"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Workspace.Restack",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/blocker_propagation.ex",
+        "src/lib/aiur/orchestrator/restack_scheduler.ex"
+      ],
+      "reason": "#3771: workspace-owned Git plumbing for idle dependent restacks"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Stacking.StackBaseEvidence",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/blocker_propagation.ex",
+        "src/lib/aiur/orchestrator/merge_order_audit.ex",
+        "src/lib/aiur/orchestrator/restack_scheduler.ex"
+      ],
+      "reason": "#3771: GitHub-only restack scheduling consumes locally held direct blocker evidence"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Stacking.MergeOrder",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/merge_order_audit.ex"
+      ],
+      "reason": "#3772: merge-order audit reuses the pure blocker-containment verdict"
+    },
+    {
+      "from": "github",
+      "to_module": "Aiur.BuildOrder.History",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/github/tracker.ex"
+      ],
+      "allow_forbidden": true,
+      "reason": "MP-E8-C4-T04 (#3123): nonblocking start journal is a no-op without the optional history store"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildOrder.History",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/dispatcher.ex"
+      ],
+      "allow_forbidden": true,
+      "reason": "MP-E8-C4-T04 (#3123): nonblocking start journal is a no-op without the optional history store"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.MainWatch",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur.ex",
+        "src/lib/aiur/agent_control_cli.ex",
+        "src/lib/aiur/merge_policy_cli.ex"
+      ],
+      "reason": "#3881: control RPC exposes optional watcher state and inherited-failure queries; absent watcher returns unknown"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHub.Transport",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/pr_merge/record.ex"
+      ],
+      "reason": "#3880: daemon independently verifies the claimed merge through the governed GitHub read transport"
+    }
+  ],
+  "ports": [
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Listener.DeliveryTarget",
+      "kind": "behaviour",
+      "reason": "RC-36: orchestration implements listener delivery; listener-modes must not depend on orchestration"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Commands.DeliveryTarget",
+      "kind": "behaviour",
+      "reason": "CR-C8-3: orchestration implements Command delivery; activation belongs to MP-R1-C8-T02"
+    },
+    {
+      "from": "web-shell",
+      "to_module": "AiurWeb.Sockets.*",
+      "kind": "reference",
+      "reason": "RC-39: downward composition of optional component sockets"
+    }
+  ],
+  "component_files": [
+    "components/accounting.json",
+    "components/agent-runner.json",
+    "components/agent-sandbox.json",
+    "components/aiur-contracts.json",
+    "components/aiur-style.json",
+    "components/build-orders.json",
+    "components/build-queue.json",
+    "components/commands.json",
+    "components/config.json",
+    "components/control-cli.json",
+    "components/conversations.json",
+    "components/dashboard-ui.json",
+    "components/docs-site.json",
+    "components/event-bus.json",
+    "components/executor-attention.json",
+    "components/experiments.json",
+    "components/github-listeners.json",
+    "components/github.json",
+    "components/harness-adapters.json",
+    "components/identity.json",
+    "components/init.json",
+    "components/kernel.json",
+    "components/launcher.json",
+    "components/linear.json",
+    "components/listener-modes.json",
+    "components/listener-spec.json",
+    "components/machine-gateway.json",
+    "components/mobile-app.json",
+    "components/notification-policy.json",
+    "components/orchestration.json",
+    "components/pairing-discovery.json",
+    "components/pr-lifecycle.json",
+    "components/projections.json",
+    "components/push-relay.json",
+    "components/relay-service.json",
+    "components/signal.json",
+    "components/skills.json",
+    "components/streamdeck-server.json",
+    "components/streamdeck-sidecar.json",
+    "components/telemetry.json",
+    "components/ticket-context.json",
+    "components/tracker.json",
+    "components/tui.json",
+    "components/voice-conversation-core.json",
+    "components/voice-conversation.json",
+    "components/voice-stt.json",
+    "components/watch-apps.json",
+    "components/web-kit.json",
+    "components/web-shell.json",
+    "components/workspace.json"
+  ]
+}

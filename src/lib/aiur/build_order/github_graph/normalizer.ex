@@ -27,6 +27,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
       created_at: created_at,
       updated_at: updated_at,
       member_count: metrics.member_count,
+      member_read_count: member_read_count(node),
+      github_member_count: metrics.member_count,
       epic_count: metrics.epic_count,
       phase_count: metrics.phase_count,
       progress: metrics.progress,
@@ -43,6 +45,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
       updated_diagnostic
     ])
     |> validate_root_label()
+  end
+
+  defp member_read_count(node) do
+    case Connection.parse(Map.get(node, "subIssues")) do
+      {:ok, members, _total, _page_info} -> length(members)
+      _unavailable -> nil
+    end
   end
 
   @spec member(map(), {String.t(), String.t()}, RootSummary.t()) :: Member.t()

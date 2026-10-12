@@ -19,8 +19,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Config, Orchestrator, PollCadence}
-  alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
+  alias Aiur.{AgentChat, CodingAgent, Config, Conversation.History, Orchestrator, PollCadence}
 
   alias AiurWeb.{
     Endpoint,
@@ -123,10 +122,7 @@ defmodule AiurWeb.StreamdeckLive do
 
     socket =
       if connected?(socket) do
-        :ok = AgentPubSub.subscribe_running()
-        :ok = AgentPubSub.subscribe_status()
-        :ok = ProviderMeterEvents.subscribe_observed()
-        maybe_subscribe_fixture_fleet()
+        socket = AiurWeb.RefreshSubscriptions.fleet(socket, &maybe_subscribe_fixture_fleet/0)
 
         socket
         |> replace_transcript_relay(nil, socket.assigns.selected_identifier)
@@ -968,7 +964,7 @@ defmodule AiurWeb.StreamdeckLive do
     %{
       kind: :provider,
       provider: provider,
-      label: descriptor.label,
+      label: Enum.join(Enum.filter([descriptor.label, StreamdeckStrip.summary_label(meter)], &is_binary/1), " · "),
       logo: descriptor.logo,
       observed?: observed_provider?(meter),
       meters: [provider_meter("session", "Session", meter), provider_meter("weekly", "Weekly", meter)]
@@ -1458,12 +1454,12 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_event_feed(identifier) do
     transcript =
-      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+      case History.transcript(identifier, %{"limit" => 50}) do
         {:ok, %{events: events}} -> events
         _ -> []
       end
 
-    %{events: AgentEventFeed.bus_events(identifier), transcript: transcript}
+    %{events: History.bus_events(identifier), transcript: transcript}
   end
 
   # The emulator's injected feed function predates the bus/transcript split and

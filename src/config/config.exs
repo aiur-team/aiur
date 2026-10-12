@@ -2,6 +2,68 @@ import Config
 
 config :aiur, env: config_env()
 
+config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+
+config :aiur, :signal, alert_sink: Aiur.Alerts
+
+# The agent sandbox sits below the TUI and the orchestrator, so it reaches both
+# through these names instead of referencing them.
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux, :kill_pane}
+config :aiur, :pause_containment_result_target, Aiur.Orchestrator
+
+config :aiur, :turn_sandbox_root_contributors, [
+  Aiur.AgentEnvironment.SandboxRoots,
+  Aiur.GitHub.Budget.SandboxRoots,
+  Aiur.BuildGate.SandboxRoots
+]
+
+config :aiur, :tracker_adapters, %{
+  "github" => Aiur.GitHub.Tracker,
+  "linear" => Aiur.Linear.Tracker,
+  "memory" => Aiur.Memory.Tracker
+}
+
+config :aiur, :tracker_fallback_kind, "linear"
+
+config :aiur, :env_startup_checks, [Aiur.Commands]
+config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
+
+config :aiur, :experiment_metric_packs, []
+
+config :aiur, :capability_providers, [
+  Aiur.Capabilities.IdentityProvider,
+  Aiur.Capabilities.MergePolicyProvider,
+  Aiur.BuildQueue.CapabilityProvider,
+  Aiur.Experiments.CapabilityProvider,
+  Aiur.HttpServer.CapabilityProvider,
+  Aiur.Orchestrator.CapabilityProvider,
+  Aiur.Commands,
+  Aiur.Tracker.CapabilityProvider,
+  Aiur.Executor.CapabilityProvider,
+  Aiur.BuildOrder.CapabilityProvider,
+  Aiur.ElevenLabs.CapabilityProvider,
+  AiurWeb.StreamdeckCapabilityProvider,
+  Aiur.Webhooks.CapabilityProvider,
+  Aiur.Claude.RemoteControl.CapabilityProvider,
+  Aiur.ProviderMeterProjection.CapabilityProvider,
+  Aiur.LiveConversation.CapabilityProvider
+]
+
+config :aiur, :project_identity_source, Aiur.Tracker
+
+config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
+
+# Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :config_semantic_checks,
+  exclusive: [
+    Aiur.Tracker.SemanticCheck.MissingKind,
+    Aiur.Tracker.SemanticCheck.UnsupportedKind,
+    Aiur.CodingAgent.SemanticCheck.Dispatchable,
+    Aiur.Tracker.SemanticCheck.Settings,
+    Aiur.Claude.Config.SemanticCheck
+  ],
+  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
+
 config :phoenix, :json_library, Jason
 
 config :aiur, AiurWeb.Endpoint,
@@ -17,6 +79,10 @@ config :aiur, AiurWeb.Endpoint,
   check_origin: false,
   server: false
 
+# Composition: orchestration implements the Commands delivery port, so the
+# commands component never references orchestration itself.
+config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
+
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time
 # with AIUR_BUILD_ORDER_DEMO=1. Remove this block + priv/build_orders to delete.
@@ -25,6 +91,11 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  # Install before app boot: accidental tracker/provider calls must never dial
+  # public hosts. Tests opt in per request with a fake :plug/:adapter, or
+  # adapter: Req.Finch for explicitly tagged live-provider checks.
+  config :req, :default_options, adapter: Aiur.TestHTTPGuard
+
   # Library code must never register real pids/panes into the reaper during
   # unit tests — a draining sweep would kill live host processes. Reaper
   # tests force-enable this against their own dedicated instances.
@@ -64,6 +135,8 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  config :aiur, :build_order_root_import_enabled?, false
+  config :aiur, :build_history_backfill_enabled?, false
 
   # The shared app must not replace the singleton BranchRefStore with real
   # remote refs while tests are exercising it with synthetic refs. Ticker
@@ -88,6 +161,15 @@ if config_env() == :test do
   # overrides (Aiur.TestSupport, subscription_store_test) still win;
   # test_helper.exs verifies this value and removes the directory in
   # after_suite.
+  Code.require_file("../test/support/test_log_tmp.exs", __DIR__)
+  {test_uid, 0} = System.cmd("id", ["-u"])
+  Aiur.TestLogTmp.sweep!(System.tmp_dir!(), test_uid |> String.trim() |> String.to_integer())
+
+  # Isolated HOME/XDG roots must not become fresh tool-download caches per VM.
+  System.put_env("MISE_AUTO_INSTALL", "0")
+  System.put_env("MISE_OFFLINE", "1")
+  System.put_env("npm_config_offline", "true")
+
   test_log_root =
     Path.join(
       System.tmp_dir!(),
@@ -138,6 +220,7 @@ if config_env() == :test do
   # Durable runtime state (event-ID counter, subscriptions, session handles,
   # alert ledger; #2722) survives a restart by design, so it needs the same
   # per-VM isolation. Aiur.TestSupport gives each case its own root.
+  config :aiur, :machine_state_dir, Path.join(test_log_root, "machine")
   config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 

@@ -54,7 +54,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycle do
              agent_ids,
              state.slot_index,
              state.generation,
-             display_opt
+             Keyword.put(display_opt, :attached_identifiers, MapSet.to_list(Map.get(state, :attached_identifiers, MapSet.new())))
            ),
          {:ok, server_pid, base_url} <- start_serve_with_retry(state, server_module) do
       Logger.info("opencode_slot phase=serve_ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} slot=#{state.slot_index} base_url=#{base_url}")

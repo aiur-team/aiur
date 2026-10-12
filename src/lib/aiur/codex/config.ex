@@ -13,7 +13,6 @@ defmodule Aiur.Codex.Config do
   # preserves the prior fail-closed default — only `never` auto-approves
   # (see `auto_approve_requests` in coding_agent.ex), so any other variant
   # surfaces approval requests instead of silently running them headlessly.
-  @valid_approval_policies ~w(untrusted on-failure on-request granular never)
   @default_approval_policy "untrusted"
   @default_thread_sandbox "workspace-write"
 
@@ -73,23 +72,11 @@ defmodule Aiur.Codex.Config do
 
   @doc false
   @spec validate_approval_policy(term()) :: {:ok, String.t()} | {:error, String.t()}
-  def validate_approval_policy(value) when is_binary(value) do
-    case String.trim(value) do
-      trimmed when trimmed in @valid_approval_policies -> {:ok, trimmed}
-      _ -> {:error, invalid_approval_policy(value)}
-    end
-  end
-
-  def validate_approval_policy(value), do: {:error, invalid_approval_policy(value)}
+  defdelegate validate_approval_policy(value), to: Aiur.Config.Schema.Codex
 
   @doc false
   @spec valid_policies() :: [String.t()]
-  def valid_policies, do: @valid_approval_policies
-
-  defp invalid_approval_policy(value) do
-    "Invalid codex.approval_policy #{inspect(value)} — must be one of: " <>
-      Enum.join(@valid_approval_policies, ", ")
-  end
+  defdelegate valid_policies(), to: Aiur.Config.Schema.Codex
 
   defp resolve_thread_sandbox do
     case section_value("thread_sandbox") do

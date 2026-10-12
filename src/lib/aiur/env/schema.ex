@@ -183,11 +183,14 @@ defmodule Aiur.Env.Schema do
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
     {"AIUR_ERLANG_COOKIE", type: :secret, group: :runtime, purpose: "BEAM distribution cookie; launcher generates one if unset.", fetch: "openssl rand -hex 32"},
     {"AIUR_INSTANCE_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance key hashing the project root; set by the launcher."},
+    {"AIUR_RELEASE_NODE", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance daemon node name used by CLI control calls; set by the launcher."},
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},
     {"AIUR_SESSION_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Session tempfile path; set by the launcher."},
     {"AIUR_WORKSPACE_ROOT_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the workspace root from."},
     {"AIUR_ALERT_LEDGER_PATH_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the alert ledger path from."},
+    {"AIUR_AGENT_BIN", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent executable marker; operator merge commands refuse when present."},
+    {"AIUR_PR_MERGE_ENGINE", type: :path, validate: false, example: false, group: :runtime, purpose: "Launcher engine used for credential-free PR merge outcome RPC."},
     {"AIUR_ARGV_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File carrying the CLI argv; set by the launcher shim."},
     {"AIUR_CLI_VERSION", type: :string, validate: false, example: false, group: :runtime, purpose: "Installed CLI package version; set by the launcher."},
     {"AIUR_DEV_TEST_TICKET_IDS", type: :string, validate: false, example: false, group: :runtime, purpose: "Pinned ticket IDs passed from the dev test launcher to the daemon."},
@@ -199,6 +202,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_AGENT_IR_SANDBOX", type: :boolean, validate: false, example: false, group: :runtime, purpose: "Test-reset guard inside an agent IR sandbox."},
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},
+    {"AIUR_REAL_GIT", type: :path, validate: false, example: false, group: :runtime, purpose: "Real git binary behind the agent git shim; idle dependent restacks run it directly."},
 
     # --- Development and debugging ---
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},
@@ -214,6 +218,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_REGISTRY_URL", type: :string, validate: false, example: false, group: :dev, purpose: "Upgrade registry endpoint override (tests and mirrors)."},
 
     # --- Ambient (read, not operator-configured) ---
+    {"USER", type: :string, validate: false, example: false, group: :ambient, purpose: "OS user identity recorded as the actor for operator workspace recovery audits."},
     {"PATH", type: :path, validate: false, example: false, group: :ambient, purpose: "Executable search path inherited by child processes."},
     {"HOME", type: :path, validate: false, example: false, group: :ambient, purpose: "Home directory for user-scoped state."},
     {"COLUMNS", type: :integer, validate: false, example: false, group: :ambient, default: 80, purpose: "Terminal width for the agent list renderer."},

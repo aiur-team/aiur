@@ -1,17 +1,22 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
-
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.ControlCLI.{CiWait, DispatchAccount, Reasons}
   alias Aiur.ProviderMeters.CLI
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.{
+    AccountsCLI,
     AgentChat,
     AlertFeed,
     AnalyticsCLI,
-    Asks,
     BuildGate,
     BuildOrdersCLI,
+    Commands,
     CommandsCLI,
     Config,
+    ExecutorAttention,
+    ExecutorBindings,
     ExecutorCommandCLI,
     ExecutorEvents,
     ExecutorListener,
@@ -28,37 +33,38 @@ defmodule Aiur.AgentControlCLI do
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
-  alias Aiur.SystemLoad
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, OptimisticSlots, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
-  # One age shape wherever a stale surface appears — reuse #1814's renderer
-  # rather than adding a second one for the CLI.
+  alias Aiur.WorkflowStore.ReloadRejection
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
-  @exit_marker "__AIUR_CONTROL_EXIT__:"
-  @error_marker "__AIUR_CONTROL_ERROR__:"
+  import Aiur.ControlCLI.Protocol,
+    only: [
+      application_started?: 0,
+      control_error: 1,
+      control_query_exit_code: 1,
+      control_query_timeout: 3,
+      error_marker: 0,
+      exit_marker: 1,
+      guarded: 2,
+      not_running_message: 0,
+      orchestrator_liveness: 0,
+      report_control_query_failure: 3
+    ]
+
   @status_timeout_ms 5_000
-  # `set max-agents` is a synchronous orchestrator write: if the orchestrator is
-  # wedged in a GitHub-bound poll (the post-restart initial poll or a slow
-  # reconciliation), the write queues behind it and can appear hung for up to the
-  # 5s control-call budget. When the mailbox backlog is deep enough to mean real
-  # contention, say so up front so the operator sees progress instead of silence
-  # (#2137). A healthy idle orchestrator holds only a handful of queued messages
-  # (pubsub, timers), so this fires only under genuine load.
+  # A deep orchestrator mailbox means `set max-agents` queues behind real contention; say so up front (#2137).
   @orchestrator_busy_mailbox_threshold 20
-  # Leave the launcher watchdog room to receive and render the daemon's explicit
-  # timeout result instead of racing it at the shared 10-second edge. Eight
+  # Leave room to render the daemon timeout before the shared 10-second watchdog edge. Eight
   # seconds was not enough: RPC BEAM startup costs ~2s, so a saturated snapshot
   # measured 10335ms and lost the race — the launcher killed it at 10s and the
   # operator got a truncated fleet listing plus exit 124 instead of one honest
   # "agents query timed out after 8s" line (#1684).
   @agents_timeout_ms 6_000
-
   # `{:ok, :resumed}` from the orchestrator means a resume control request was
   # *enqueued* for the agent, not that the agent left the paused state (see
   # `Aiur.Orchestrator.PauseResume.send_resume_control_message/3`). Printing
@@ -67,9 +73,7 @@ defmodule Aiur.AgentControlCLI do
   # the agent's own control status leaving `:paused` before claiming it, and
   # report an unconfirmed request as a failure rather than as success.
   #
-  # One invocation shares a single confirmation budget across every queued
-  # resume, so `resume --all` over a large fleet still fits inside the
-  # launcher's 10s control-RPC timeout.
+  # Share one confirmation budget across resume --all to fit the launcher's 10s RPC timeout.
   @resume_confirm_timeout_ms 4_000
   @resume_confirm_poll_ms 100
 
@@ -89,10 +93,9 @@ defmodule Aiur.AgentControlCLI do
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
-  # `aiur watch` remembers the last board it reported (per-row signature) in a
-  # node-local persistent term so `--changes` can print only state-level deltas
-  # across one-shot RPC invocations. Updated at Executor cadence (minutes), so
-  # the persistent_term churn is negligible.
+  # `aiur watch` remembers the last board it reported (per-row signature) in a node-local persistent term so
+  # `--changes` can print only state-level deltas across one-shot RPC invocations. Updated at Executor cadence
+  # (minutes), so the persistent_term churn is negligible.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
@@ -113,8 +116,7 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  # The shared shape of every fleet-reading control query: read the view, say so
-  # if it is stale, print the global-pause banner, then render.
+  # Fleet queries render the pause banner, observation age and shared rows.
   defp with_fleet_view(query, opts, timeout_ms, render) do
     case fleet_view(opts, timeout_ms, fleet_rows?: true) do
       {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
@@ -130,11 +132,14 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
-    print_snapshot_freshness(freshness)
-
     case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
-      :ok -> render.(snapshot, statuses)
-      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+      :ok ->
+        print_snapshot_freshness(freshness)
+        StatusObservation.print_groups(snapshot)
+        render.(snapshot, statuses)
+
+      {:error, error} ->
+        report_control_query_failure(error, query, timeout_ms)
     end
   end
 
@@ -169,9 +174,6 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  # A stale fleet view that looks current is worse than the timeout it replaces.
-  # When the read model is serving last-known-good data, say so and say how old,
-  # in the shape #1814 established.
   defp print_snapshot_freshness(%{status: :stale} = freshness) do
     IO.puts(
       "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
@@ -179,23 +181,28 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
-  defp print_snapshot_freshness(_freshness), do: :ok
+  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
 
   defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
   defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
   defp stale_snapshot_reason(:orchestrator_unavailable), do: " (the orchestrator is unavailable)"
   defp stale_snapshot_reason(_reason), do: ""
 
+  @spec main_watch_state() :: map()
+  defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
+  @spec main_watch_inherited?(String.t(), String.t()) :: :inherited | :not_inherited | :unknown
+  defdelegate main_watch_inherited?(check, merge_base), to: Aiur.MainWatch, as: :inherited?
+
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     print_executor_wake_status()
+    Commands.print_projection_status()
     print_codeowners_trust()
-
+    ReloadRejection.print_status()
+    Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
 
-    # Count from the rows that are actually printed. Counting the unfiltered
-    # `statuses` let `RELEASED CLAIMS n` claim releases whose rows were hidden,
-    # so the headline and the table disagreed (#1475).
+    # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
     released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))
@@ -204,12 +211,14 @@ defmodule Aiur.AgentControlCLI do
       Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     print_status_table(visible_statuses)
+    CiWait.print(snapshot)
 
     if released_claims > 0 do
       recovery = if automatic_reclaims == released_claims, do: "automatic re-claim pending", else: "operator recovery required for some claims"
       IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
     end
 
+    SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
 
@@ -282,7 +291,7 @@ defmodule Aiur.AgentControlCLI do
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running ++ retry_rows(snapshot))
+          print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -293,9 +302,6 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
-
-  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
-  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -336,13 +342,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    guarded("alerts", fn ->
-      opts
-      |> AlertFeed.list()
-      |> Enum.each(&IO.puts(Jason.encode!(&1)))
-
-      exit_marker(0)
-    end)
+    guarded("alerts", fn -> opts |> Aiur.AlertsCLI.run() |> exit_marker() end)
   end
 
   @spec commands(keyword()) :: :ok
@@ -370,429 +370,59 @@ defmodule Aiur.AgentControlCLI do
     UnitsCLI.run(opts) |> exit_marker()
   end
 
+  @spec epic(keyword()) :: :ok
+  def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)
+
   @spec build_orders(keyword()) :: :ok
-  def build_orders(opts \\ []) do
-    guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
-  end
+  def build_orders(opts \\ []), do: guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
+
+  @spec queue(keyword()) :: :ok
+  def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
 
   @spec analytics(keyword()) :: :ok
-  def analytics(opts \\ []) do
-    guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
-  end
+  def analytics(opts \\ []), do: guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
 
   @spec github_cost(keyword()) :: :ok
-  def github_cost(opts \\ []) do
-    guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
-  end
+  def github_cost(opts \\ []), do: guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
+
+  @spec experiments(keyword()) :: :ok
+  def experiments(opts \\ []), do: guarded("experiments", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.ExperimentsCLI.run() |> exit_marker() end)
+
+  @spec capabilities(keyword()) :: :ok
+  def capabilities(opts \\ []), do: guarded("capabilities", fn -> Aiur.CapabilitiesCLI.run(opts) |> exit_marker() end)
 
   @spec github_usage(keyword()) :: :ok
-  def github_usage(opts \\ []) do
-    guarded("github-usage", fn -> GitHubUsageCLI.run(opts) |> exit_marker() end)
-  end
+  def github_usage(opts \\ []), do: guarded("github-usage", fn -> GitHubUsageCLI.run(opts) |> exit_marker() end)
 
-  @spec executor_emit(String.t(), String.t()) :: :ok
-  def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do
-    case Jason.decode(payload_json) do
-      {:ok, %{} = payload} ->
-        case ExecutorEvents.publish(topic, payload, source: :executor_cli) do
-          {:ok, id, _subscribers} ->
-            IO.puts(Jason.encode!(%{id: id, topic: topic}))
-            exit_marker(0)
+  defdelegate executor_emit(topic, payload_json), to: ExecutorAttention.CLI
+  defdelegate executor_subscribe(topic), to: ExecutorAttention.CLI
+  defdelegate executor_unsubscribe(topic), to: ExecutorAttention.CLI
+  defdelegate executor_subscriptions(), to: ExecutorAttention.CLI
+  defdelegate executor_listen(), to: ExecutorAttention.CLI
+  defdelegate executor_listen(opts), to: ExecutorAttention.CLI
+  defdelegate executor_wait(), to: ExecutorAttention.CLI
+  defdelegate executor_wait(opts), to: ExecutorAttention.CLI
+  defdelegate executor_fast_forward(wake_id), to: ExecutorAttention.CLI
+  defdelegate executor_fast_forward(wake_id, opts), to: ExecutorAttention.CLI
+  defdelegate executor_roster(), to: ExecutorAttention.CLI
+  defdelegate executor_roster(opts), to: ExecutorAttention.CLI
+  defdelegate executor_claim(), to: ExecutorAttention.CLI
+  defdelegate executor_claim(opts), to: ExecutorAttention.CLI
+  defdelegate executor_release(), to: ExecutorAttention.CLI
+  defdelegate executor_release(opts), to: ExecutorAttention.CLI
+  defdelegate executor_revoke(owner_id), to: ExecutorAttention.CLI
+  defdelegate executor_revoke(owner_id, opts), to: ExecutorAttention.CLI
 
-          {:error, reason} ->
-            IO.puts(:stderr, "aiur: executor event rejected (#{format_reason(reason)})")
-            exit_marker(1)
-        end
+  @spec executor_listen_validate(String.t()) :: no_return()
+  def executor_listen_validate(topic) do
+    case ExecutorEvents.validate_binding_topic(topic) do
+      :ok ->
+        exit_marker(0)
 
-      _ ->
-        IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+      {:error, reason} ->
+        IO.puts(error_marker() <> "aiur: listen topic rejected (#{inspect(reason)}); allowed bindings: #{Enum.join(ExecutorBindings.patterns(), ", ")}")
         exit_marker(64)
     end
-  end
-
-  @spec executor_subscribe(String.t()) :: :ok
-  def executor_subscribe(topic) when is_binary(topic) do
-    executor_subscription_result(ExecutorEvents.subscribe(topic), "subscribed", topic)
-  end
-
-  @spec executor_unsubscribe(String.t()) :: :ok
-  def executor_unsubscribe(topic) when is_binary(topic) do
-    executor_subscription_result(ExecutorEvents.unsubscribe(topic), "unsubscribed", topic)
-  end
-
-  @spec executor_subscriptions() :: :ok
-  def executor_subscriptions do
-    ExecutorEvents.subscriptions() |> Enum.each(&IO.puts/1)
-    exit_marker(0)
-  end
-
-  @spec executor_listen(keyword()) :: no_return()
-  def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
-
-  @doc """
-  Waits for Executor wake records, auto-claiming the stream when nobody holds
-  it.
-
-  There is no detection of "is this an agent" anywhere in this path — the caller
-  simply claims. A caller that gets the claim is the owner and acknowledges, so
-  the shared cursor advances exactly once per record. A caller refused by a
-  live, renewing owner reads the same records as a read-only observer and never
-  advances the cursor, so two consumers cannot split the stream between them.
-
-  ## Outcomes
-
-  Exit `0` covers both delivery and a quiet timeout: a wait that ends with no
-  wake consumed nothing and lost nothing, so it is a successful empty result,
-  not a failure (#2600). Every nonzero exit names the stage that failed —
-  `claim`, `wait` or `acknowledge` — on stderr, and in `--json` mode as a
-  `status: "error"` envelope. Exit `69` is reserved for contention on the shared
-  claim, which is retryable and reports the retry bounds already spent; exit `1`
-  is a daemon or store failure, which is not.
-  """
-  @spec executor_wait(keyword()) :: :ok
-  def executor_wait(opts \\ []) do
-    timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
-    json? = Keyword.get(opts, :json, false)
-    consumer_id = Claims.resolve_consumer_id(opts)
-
-    case executor_wait_role(consumer_id) do
-      {:ok, role, holder} -> executor_wait_as(consumer_id, role, holder, timeout_ms, json?)
-      {:error, reason} -> executor_wait_failure(:claim, executor_wait_detail(reason), reason, :unknown, json?)
-    end
-  end
-
-  defp executor_wait_as(consumer_id, role, holder, timeout_ms, json?) do
-    announce_executor_peers(consumer_id, holder)
-
-    # A quiet wait can outlast a lease, and an owner that silently expired
-    # mid-wait would be refused its own acknowledgement and re-read the same
-    # records forever. Renew from a helper process for as long as the wait runs.
-    renewer = start_lease_renewer(consumer_id)
-
-    try do
-      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?, timeout_ms)
-    after
-      stop_lease_renewer(renewer)
-    end
-  end
-
-  # A refusal by a live owner is a supported outcome and reads as an observer.
-  # Anything else means the claim store could not be arbitrated at all, and
-  # waiting under it would print records nobody can acknowledge — the silent
-  # no-progress loop #2600 reported. Fail with the stage instead.
-  defp executor_wait_role(consumer_id) do
-    case Claims.claim(consumer_id) do
-      {:ok, _entry} ->
-        {:ok, :owner, nil}
-
-      {:error, {:held_by, owner}} ->
-        _ = Claims.observe(consumer_id)
-        {:ok, :observer, owner}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp start_lease_renewer(consumer_id) do
-    interval = max(div(Claims.lease_ttl_ms(), 3), 1_000)
-    spawn_link(fn -> renew_lease_forever(consumer_id, interval) end)
-  end
-
-  defp renew_lease_forever(consumer_id, interval) do
-    Process.sleep(interval)
-    _ = Claims.renew(consumer_id)
-    renew_lease_forever(consumer_id, interval)
-  end
-
-  defp stop_lease_renewer(pid) do
-    Process.unlink(pid)
-    Process.exit(pid, :kill)
-    :ok
-  end
-
-  # The batch is printed before it is acknowledged, deliberately. The reverse
-  # order would advance the cursor while the records were still only inside the
-  # control RPC's buffered stdout, which the launcher discards outright when its
-  # own budget expires — turning a benign redelivery into permanent, silent wake
-  # loss. Losing a wake is the worse failure, so the ordering stays; what changes
-  # is that a refused acknowledgement is now a diagnosed nonzero exit naming the
-  # stage and the ids, instead of an exit 0 that read as a successful consume.
-  defp executor_wait_result({:ok, records}, consumer_id, role, json?, _timeout_ms) do
-    print_executor_wakes(records, json?, role)
-
-    case acknowledge_executor_wakes(records, consumer_id, role) do
-      :ok ->
-        exit_marker(0)
-
-      {:error, reason} ->
-        executor_wait_failure(
-          :acknowledge,
-          unacknowledged_detail(records, reason),
-          reason,
-          role,
-          json?,
-          %{"unconsumed_wake_ids" => Enum.map(records, & &1["wake_id"])}
-        )
-    end
-  end
-
-  # A quiet wait consumed nothing and lost nothing. Reporting that as a failure
-  # gave the caller an exit code with no diagnostic behind it, which is how a
-  # perfectly healthy idle wait came to look like a broken daemon (#2600).
-  defp executor_wait_result(:timeout, _consumer_id, role, json?, timeout_ms) do
-    print_executor_quiet(role, json?, timeout_ms)
-    exit_marker(0)
-  end
-
-  defp executor_wait_result({:error, reason}, _consumer_id, role, json?, _timeout_ms) do
-    executor_wait_failure(:wait, executor_wait_detail(reason), reason, role, json?)
-  end
-
-  defp print_executor_quiet(role, true, timeout_ms),
-    do: IO.puts(Jason.encode!(%{"status" => "timeout", "role" => role, "records" => [], "timeout_ms" => timeout_ms}))
-
-  defp print_executor_quiet(role, false, timeout_ms),
-    do: IO.puts("NO-WAKES role=#{role} timeout_ms=#{timeout_ms} nothing pending, nothing consumed")
-
-  defp executor_wait_failure(stage, detail, reason, role, json?, extra \\ %{}) do
-    control_error("aiur: executor-wait failed at the #{stage} stage - #{detail}")
-
-    if json? do
-      IO.puts(
-        Jason.encode!(
-          Map.merge(
-            %{"status" => "error", "stage" => to_string(stage), "role" => role, "records" => [], "detail" => detail},
-            extra
-          )
-        )
-      )
-    end
-
-    exit_marker(executor_wait_exit_code(reason))
-  end
-
-  # Contention on the shared claim is the one nonzero outcome a caller may retry
-  # unchanged, so it gets its own code. Everything else is a daemon or store
-  # failure that retrying will only repeat.
-  defp executor_wait_exit_code({:executor_claims_lock_timeout, _lock}), do: 69
-  defp executor_wait_exit_code({:not_owner, _owner}), do: 69
-  defp executor_wait_exit_code(_reason), do: 1
-
-  defp unacknowledged_detail(records, reason) do
-    ids = records |> Enum.map(& &1["wake_id"]) |> Enum.reject(&is_nil/1)
-
-    range =
-      case ids do
-        [] -> "#{length(records)} wakes"
-        ids -> "#{length(records)} wakes (ids #{Enum.min(ids)}-#{Enum.max(ids)})"
-      end
-
-    "#{executor_wait_detail(reason)}; #{range} were NOT consumed, the cursor did not advance, " <>
-      "and they will be delivered again"
-  end
-
-  defp executor_wait_detail({:executor_claims_lock_timeout, lock}) do
-    %{timeout_ms: timeout_ms, retry_interval_ms: interval_ms, stale_after_seconds: stale_after_seconds} =
-      Claims.lock_retry_budget()
-
-    "wake-stream lock contention: #{lock} was still held after retrying every #{interval_ms}ms for #{timeout_ms}ms " <>
-      "(a lock older than #{stale_after_seconds}s is broken as stale). Nothing was consumed, so this is safe to retry"
-  end
-
-  defp executor_wait_detail({:executor_claims_lock_unavailable, lock, reason}) do
-    "claims store unavailable: the lock #{lock} could not be created (#{format_reason(reason)}). " <>
-      "This is a store failure, not contention, and retrying will repeat it"
-  end
-
-  defp executor_wait_detail({:executor_claims_unavailable, message}),
-    do: "claims store write failed (#{message}). This is a store failure, not contention"
-
-  defp executor_wait_detail({:not_owner, owner}) do
-    "cursor-write contention: the wake stream claim is now held by #{(owner && owner["id"]) || "nobody"}, " <>
-      "so this consumer can only read as an observer until that claim is released or revoked"
-  end
-
-  defp executor_wait_detail(reason), do: "executor wake inbox unavailable (#{format_reason(reason)})"
-
-  @doc "Fast-forwards the owner cursor through an externally covered durable wake id."
-  @spec executor_fast_forward(pos_integer(), keyword()) :: :ok
-  def executor_fast_forward(wake_id, opts \\ []) when is_integer(wake_id) and wake_id > 0 do
-    consumer_id = Claims.resolve_consumer_id(opts)
-
-    case Claims.claim(consumer_id) do
-      {:ok, _entry} ->
-        executor_fast_forward_result(ExecutorWakeInbox.fast_forward_as(consumer_id, wake_id))
-
-      {:error, {:held_by, owner}} ->
-        executor_fast_forward_observer(owner)
-
-      {:error, reason} ->
-        control_error("aiur: could not claim the wake stream (#{format_reason(reason)}); fast-forward refused and the cursor did not advance")
-        exit_marker(1)
-    end
-  end
-
-  defp executor_fast_forward_result({:ok, result}) do
-    IO.puts(
-      "FAST-FORWARDED from=#{result.from} through=#{result.through} " <>
-        "acknowledged=#{result.acknowledged_count} pending=#{result.pending_count}"
-    )
-
-    exit_marker(0)
-  end
-
-  defp executor_fast_forward_result({:error, {:beyond_latest_wake, latest}}) do
-    control_error("aiur: cannot fast-forward beyond latest durable wake #{latest}")
-    exit_marker(1)
-  end
-
-  defp executor_fast_forward_result({:error, {:wake_not_found, wake_id}}) do
-    control_error("aiur: wake #{wake_id} is not present in the durable inbox")
-    exit_marker(1)
-  end
-
-  defp executor_fast_forward_result({:error, reason}) do
-    control_error("aiur: executor fast-forward failed (#{format_reason(reason)}); the cursor did not advance")
-    exit_marker(1)
-  end
-
-  defp executor_fast_forward_observer(owner) do
-    owner_id = (owner && owner["id"]) || "another consumer"
-    control_error("aiur: wake stream is held by #{owner_id}; fast-forward refused and the cursor did not advance")
-    exit_marker(1)
-  end
-
-  # An observer deliberately does not advance the shared cursor; only an owner's
-  # acknowledgement does. A failed owner acknowledgement is never swallowed: it
-  # means the cursor did not move and the same records come back on the next
-  # wait, which otherwise reads as a working consumer looping.
-  defp acknowledge_executor_wakes(_records, _consumer_id, :observer), do: :ok
-
-  defp acknowledge_executor_wakes(records, consumer_id, :owner),
-    do: ExecutorWakeInbox.acknowledge_as(consumer_id, records)
-
-  # An agent that finds a peer tells the operator, unprompted, with the evidence
-  # rather than a verdict. A healthy peer is reported plainly; multiple
-  # executors are a supported configuration, not a fault.
-  defp announce_executor_peers(consumer_id, holder) do
-    peers =
-      Roster.build(record?: false).executors
-      |> Enum.reject(&(&1.id == consumer_id or &1.state == :expired))
-
-    Enum.each(peers, fn peer -> IO.puts("PEER " <> Roster.describe_line(peer)) end)
-
-    if holder do
-      IO.puts("PEER-OWNER #{holder["id"]} holds the wake stream; reading as observer. Revoke is an operator decision.")
-    end
-  end
-
-  @doc "Prints the Executor roster with the liveness evidence behind each state."
-  @spec executor_roster(keyword()) :: :ok
-  def executor_roster(opts \\ []) do
-    roster = Roster.build(Keyword.take(opts, [:now, :stall_after_ms]))
-
-    if Keyword.get(opts, :json, false) do
-      IO.puts(Jason.encode!(roster))
-    else
-      IO.puts("CURSOR #{roster.cursor} PENDING #{roster.pending_count}")
-
-      case roster.executors do
-        [] -> IO.puts("EXECUTORS none")
-        executors -> Enum.each(executors, &IO.puts(Roster.describe_line(&1)))
-      end
-    end
-
-    exit_marker(0)
-  end
-
-  @doc "Claims the wake stream, or refuses and names the live owner holding it."
-  @spec executor_claim(keyword()) :: :ok
-  def executor_claim(opts \\ []) do
-    consumer_id = Claims.resolve_consumer_id(opts)
-
-    case Claims.claim(consumer_id) do
-      {:ok, entry} ->
-        IO.puts("CLAIMED #{entry["id"]} lease_expires_at=#{entry["lease_expires_at"]}")
-        exit_marker(0)
-
-      {:error, {:held_by, owner}} ->
-        control_error(
-          "aiur: wake stream is held by #{owner["id"]} (host=#{owner["host"]} pid=#{owner["pid"]} " <>
-            "last_renewed_at=#{owner["last_renewed_at"]}); it is live and renewing, so takeover needs an explicit " <>
-            "`aiur executor-revoke #{owner["id"]}` from the operator"
-        )
-
-        exit_marker(1)
-
-      {:error, reason} ->
-        control_error("aiur: executor claim failed (#{format_reason(reason)})")
-        exit_marker(1)
-    end
-  end
-
-  @doc "Releases this consumer's claim so the stream is immediately free."
-  @spec executor_release(keyword()) :: :ok
-  def executor_release(opts \\ []) do
-    consumer_id = Claims.resolve_consumer_id(opts)
-
-    case Claims.release(consumer_id) do
-      :ok ->
-        IO.puts("RELEASED #{consumer_id}")
-        exit_marker(0)
-
-      {:error, reason} ->
-        control_error("aiur: executor release failed (#{format_reason(reason)})")
-        exit_marker(1)
-    end
-  end
-
-  @doc """
-  Explicit operator revoke of a named live owner.
-
-  Deliberately requires the owner's id: an agent recommends a revoke from the
-  roster evidence, the operator decides. Nothing revokes a live peer implicitly.
-  """
-  @spec executor_revoke(String.t(), keyword()) :: :ok
-  def executor_revoke(owner_id, opts \\ []) when is_binary(owner_id) do
-    case Claims.revoke(owner_id, Keyword.take(opts, [:now])) do
-      {:ok, entry} ->
-        IO.puts("REVOKED #{entry["id"]}")
-        exit_marker(0)
-
-      {:error, :no_owner} ->
-        control_error("aiur: no live owner holds the wake stream")
-        exit_marker(1)
-
-      {:error, :not_owner} ->
-        control_error("aiur: #{owner_id} is not the live owner of the wake stream")
-        exit_marker(1)
-
-      {:error, reason} ->
-        control_error("aiur: executor revoke failed (#{format_reason(reason)})")
-        exit_marker(1)
-    end
-  end
-
-  defp print_executor_wakes(records, true, role),
-    do: IO.puts(Jason.encode!(%{"status" => "woken", "role" => role, "records" => records}))
-
-  defp print_executor_wakes(records, false, role) do
-    Enum.each(records, fn record ->
-      ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
-      observation = if record["observation"] == "initial_sync", do: " observation=initial_sync", else: ""
-      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}#{observation}")
-    end)
-  end
-
-  defp executor_subscription_result(:ok, action, topic) do
-    IO.puts("#{action} #{topic}")
-    exit_marker(0)
-  end
-
-  defp executor_subscription_result({:error, reason}, _action, _topic) do
-    IO.puts(:stderr, "aiur: executor subscription rejected (#{format_reason(reason)})")
-    exit_marker(1)
   end
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set
@@ -812,7 +442,7 @@ defmodule Aiur.AgentControlCLI do
         exit_marker(0)
 
       {:error, reason} ->
-        control_error("aiur: failed to set max-agents (#{format_reason(reason)}#{set_max_agents_timeout_detail(reason)})")
+        control_error("aiur: failed to set max-agents (#{Reasons.format_reason(reason)}#{set_max_agents_timeout_detail(reason)})")
         exit_marker(control_query_exit_code(reason))
     end
   end
@@ -880,7 +510,7 @@ defmodule Aiur.AgentControlCLI do
                 |> maybe_request_todo_refresh(deps)
 
               {:error, reason} ->
-                IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+                IO.puts(:stderr, "aiur: unable to queue tickets (#{Reasons.format_reason(reason)})")
                 todo_result(failures: 1)
             end
 
@@ -892,7 +522,7 @@ defmodule Aiur.AgentControlCLI do
           1
 
         {:error, reason} ->
-          IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+          IO.puts(:stderr, "aiur: unable to queue tickets (#{Reasons.format_reason(reason)})")
           IO.puts("queued 0 ticket(s); cleared 0 other(s)")
           1
       end
@@ -989,7 +619,7 @@ defmodule Aiur.AgentControlCLI do
     case deps.fetch_issue.(issue_id) do
       {:ok, [issue | _]} -> queue_fetched_todo_issue(issue_id, issue, result, config, deps)
       {:ok, []} -> todo_failure(result, issue_id, "not found")
-      {:error, reason} -> todo_failure(result, issue_id, format_reason(reason))
+      {:error, reason} -> todo_failure(result, issue_id, Reasons.format_reason(reason))
     end
   end
 
@@ -1027,7 +657,7 @@ defmodule Aiur.AgentControlCLI do
         todo_failure(
           result,
           issue_id,
-          "failed to add #{config.queue_label}: #{format_reason(reason)}"
+          "failed to add #{config.queue_label}: #{Reasons.format_reason(reason)}"
         )
     end
   end
@@ -1083,7 +713,7 @@ defmodule Aiur.AgentControlCLI do
         |> clear_other_todos(result, config, deps, budget)
 
       {:error, reason} ->
-        IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{format_reason(reason)})")
+        IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{Reasons.format_reason(reason)})")
         Map.update!(result, :failures, &(&1 + 1))
     end
   end
@@ -1139,7 +769,7 @@ defmodule Aiur.AgentControlCLI do
       {:error, {:github, :rate_limited, _detail} = reason} ->
         IO.puts(
           :stderr,
-          "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}"
+          "✗ ##{issue_id} failed to clear #{config.queue_label}: #{Reasons.format_reason(reason)}"
         )
 
         result = Map.update!(result, :failures, &(&1 + 1))
@@ -1159,7 +789,7 @@ defmodule Aiur.AgentControlCLI do
       {:error, reason} ->
         IO.puts(
           :stderr,
-          "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}"
+          "✗ ##{issue_id} failed to clear #{config.queue_label}: #{Reasons.format_reason(reason)}"
         )
 
         {:cont, {Map.update!(result, :failures, &(&1 + 1)), 0}}
@@ -1228,10 +858,10 @@ defmodule Aiur.AgentControlCLI do
     %{
       ensure_started: &ensure_todo_runtime_started/0,
       load_config: &load_todo_config/0,
-      fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
-      fetch_active: &GitHubTracker.fetch_issues_by_states/1,
-      add_label: &GitHubTracker.add_label/2,
-      remove_label: &GitHubTracker.remove_label/2,
+      fetch_issue: fn issue_id -> Tracker.fetch_issue_states_by_ids([issue_id]) end,
+      fetch_active: &Tracker.fetch_issues_by_states/1,
+      add_label: &TicketTransition.write_marker(&1, :add, &2, writer: :cli_todo),
+      remove_label: &TicketTransition.write_marker(&1, :remove, &2, writer: :cli_todo),
       request_refresh: &Orchestrator.note_queued_demand/1,
       now_ms: &monotonic_now_ms/0
     }
@@ -1299,10 +929,10 @@ defmodule Aiur.AgentControlCLI do
 
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
-
-  # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
-  # dispatch latch. Clears the in-memory + durable budget entries so a latched
-  # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
+  @doc "Parks paused tickets without changing their workflow state."
+  @spec park([String.t()]) :: :ok
+  defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
+  # Clear a named ticket's lifetime dispatch-budget latch so it can run again (#1453).
   @spec reset_budget([String.t()]) :: :ok
   def reset_budget(targets) when is_list(targets) do
     guarded("reset-budget", fn ->
@@ -1312,7 +942,7 @@ defmodule Aiur.AgentControlCLI do
         |> Enum.reject(&(&1 == ""))
         |> Enum.map(&reset_budget_one/1)
 
-      exit_marker(if Enum.any?(results, &match?({:error, _}, &1)), do: 1, else: 0)
+      exit_marker(results |> Enum.map(&control_result_exit_code/1) |> Enum.max(fn -> 0 end))
     end)
   end
 
@@ -1325,6 +955,48 @@ defmodule Aiur.AgentControlCLI do
       {:error, reason} ->
         print_failure(:reset_budget, %{identifier: target, issue_id: target}, reason)
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Releases one workspace ownership generation after the daemon verifies
+  independent local provider-exit proof. The caller must name the generation
+  shown by status so a stale recovery command cannot release a replacement.
+  """
+  @spec recover_workspace(String.t(), pos_integer()) :: :ok
+  def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
+    guarded("workspace-recover", fn ->
+      ticket_key = workspace_recovery_ticket_key(ticket)
+      result = Ownership.release_if_held_with_exit_proof(ticket_key, generation)
+      status = %{identifier: ticket, issue_id: ticket}
+
+      report_workspace_recovery(result, ticket, generation, status)
+    end)
+  end
+
+  defp report_workspace_recovery(:ok, ticket, generation, _status) do
+    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+    exit_marker(0)
+  end
+
+  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status) do
+    IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
+    exit_marker(1)
+  end
+
+  defp report_workspace_recovery(result, _ticket, _generation, status) do
+    reason = if result == :not_found, do: :not_found, else: recovery_failure_reason(result)
+    print_failure(:workspace_recover, status, reason)
+    exit_marker(1)
+  end
+
+  defp recovery_failure_reason(:not_held_for_reaping), do: :not_held_for_reaping
+  defp recovery_failure_reason({:error, reason}), do: reason
+
+  defp workspace_recovery_ticket_key(ticket) do
+    case Regex.run(~r/^(?:[^#\/]+\/[^#\/]+#|#)(\d+)$/, ticket) do
+      [_, issue_number] -> issue_number
+      _ -> ticket
     end
   end
 
@@ -1353,7 +1025,7 @@ defmodule Aiur.AgentControlCLI do
         exit_marker(0)
 
       {:error, reason} ->
-        control_error("aiur: failed to #{verb} the daemon (#{format_reason(reason)})")
+        control_error("aiur: failed to #{verb} the daemon (#{Reasons.format_reason(reason)})")
         exit_marker(control_query_exit_code(reason))
     end
   end
@@ -1985,19 +1657,19 @@ defmodule Aiur.AgentControlCLI do
   defp pause_condition(_detail), do: "unknown"
 
   defp control_rejection_detail(%{rejection: %{message: message}}) when is_binary(message), do: message
-  defp control_rejection_detail(%{rejection: %{class: class}}), do: format_reason(class)
+  defp control_rejection_detail(%{rejection: %{class: class}}), do: Reasons.format_reason(class)
   defp control_rejection_detail(_detail), do: "declining rule was not reported"
 
   defp dropped_resume_detail(%{expiry: %{reason: :timeout}}), do: "timeout"
-  defp dropped_resume_detail(%{expiry: %{reason: reason}}), do: format_reason(reason)
+  defp dropped_resume_detail(%{expiry: %{reason: reason}}), do: Reasons.format_reason(reason)
   defp dropped_resume_detail(_detail), do: "drop reason was not reported"
 
-  defp unknown_resume_detail(%{reason: {:status_unreadable, error}}), do: "status unreadable: #{format_reason(error)}"
+  defp unknown_resume_detail(%{reason: {:status_unreadable, error}}), do: "status unreadable: #{Reasons.format_reason(error)}"
 
   defp unknown_resume_detail(%{reason: reason}) when is_atom(reason),
     do: reason |> Atom.to_string() |> String.replace("_", " ")
 
-  defp unknown_resume_detail(%{reason: reason}) when not is_nil(reason), do: format_reason(reason)
+  defp unknown_resume_detail(%{reason: reason}) when not is_nil(reason), do: Reasons.format_reason(reason)
   defp unknown_resume_detail(_detail), do: "no diagnostic was reported"
 
   defp resume_confirm_timeout_ms do
@@ -2039,7 +1711,7 @@ defmodule Aiur.AgentControlCLI do
 
     reason_suffix = if reason, do: " (#{reason})", else: ""
     details_suffix = if details == [], do: "", else: " [#{Enum.join(details, "; ")}]"
-    reason_suffix <> details_suffix
+    reason_suffix <> details_suffix <> WaitingReason.render_wait(status) <> StatusObservation.row_label(status) <> DispatchAccount.suffix(status)
   end
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
@@ -2085,18 +1757,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp blocked_by_detail(_status), do: nil
 
-  # The binding constraint is read ONLY from the daemon's own capacity report.
-  # The local load sample printed above is deliberately NOT merged in here: the
-  # CLI may not run on the daemon's host, and it reads its own config file
-  # rather than the daemon's live config, so a locally re-derived gate can name
-  # a fleet-level cause the daemon never decided (#1610).
-  #
-  # `polling` is threaded in for one honest reason: the "ticket supply" binding
-  # is only claimable when the daemon recently polled and found nothing. While
-  # idle backoff is active (the last successful poll is a full backed-off
-  # interval old) or the candidate snapshot is not fresh (the last fetch
-  # failed), the fleet has not looked recently enough to see work that appeared
-  # — so the line says that instead of blaming ticket supply (#2138).
+  # The binding signal comes from the daemon; the CLI may run on another host.
   defp print_capacity_status(
          %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
          polling
@@ -2104,7 +1765,8 @@ defmodule Aiur.AgentControlCLI do
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and
               is_integer(configured) do
     binding = capacity_binding(capacity, polling)
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})")
+    resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}#{OptimisticSlots.label(capacity)}")
   end
 
   defp print_capacity_status(_capacity, _polling), do: :ok
@@ -2129,8 +1791,8 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
 
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
-
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
 
@@ -2141,9 +1803,7 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
   # Every admission measurement is rendered with the age of the sample it came
-  # from. The figure alone is indistinguishable from a current one, which is how
-  # a `load=24.14` taken minutes earlier sat unnoticed beside a live `LOAD 7.23`
-  # line four times smaller (#2527).
+  # from; otherwise old readings look current beside the live LOAD line (#2527).
   defp capacity_binding_label({:admission, hold}),
     do: admission_detail(hold) <> admission_sample_age(hold)
 
@@ -2181,6 +1841,12 @@ defmodule Aiur.AgentControlCLI do
     do: ", next poll in #{poll_seconds(next_ms)}s"
 
   defp idle_backoff_countdown(_detail), do: ""
+
+  defp admission_detail(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
+    do: "CPU PSI some avg60=#{pressure}% threshold=#{threshold}%"
+
+  defp admission_detail(%{signal: :memory, measured: memory, threshold: threshold}),
+    do: "free memory=#{memory}MB threshold=#{threshold}MB"
 
   defp admission_detail(%{
          signal: :load,
@@ -2286,13 +1952,13 @@ defmodule Aiur.AgentControlCLI do
     suffix =
       case DispatchPolicy.load_gate(load, threshold, schedulers) do
         :hold ->
-          " (local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+          " (local host sample; over fallback load threshold, PSI governs dispatch when available)"
 
         :dispatch ->
           " (local host sample)"
       end
 
-    IO.puts("LOAD #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")
+    IO.puts("LOAD (local fallback diagnostic) #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")
   end
 
   defp print_load_status(_capacity), do: :ok
@@ -2323,6 +1989,15 @@ defmodule Aiur.AgentControlCLI do
       |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
       |> print_delivery_modes()
 
+      exit_marker(0)
+    end)
+  end
+
+  @doc false
+  @spec accounts(boolean(), String.t() | nil) :: :ok
+  def accounts(json, harness \\ nil) do
+    guarded("accounts", fn ->
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
       exit_marker(0)
     end)
   end
@@ -2436,7 +2111,7 @@ defmodule Aiur.AgentControlCLI do
         path = snapshot |> Map.get(:path) |> trust_path()
         accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
         suffix = if path, do: " path=#{path}", else: ""
-        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}#{CodeOwners.status_suffix(snapshot)}")
 
       _ ->
         :ok
@@ -2653,7 +2328,7 @@ defmodule Aiur.AgentControlCLI do
   # post-reconciliation stale claim is the same contradiction and gets the same
   # treatment.
   defp visible_status_row?(%{state: :idle, reason: reason} = status, tracker_states)
-       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting] do
+       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting, :workspace_retained] do
     not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
   end
 
@@ -2717,7 +2392,8 @@ defmodule Aiur.AgentControlCLI do
         " ",
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
-        agents_activity(agent)
+        agents_activity(agent),
+        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
       ])
     end)
   end
@@ -2860,8 +2536,6 @@ defmodule Aiur.AgentControlCLI do
 
   defp format_runtime(_), do: "-"
 
-  # ── aiur watch board ──────────────────────────────────────────────────────
-
   defp watch_row(status) do
     state = watch_state(status)
     age = activity_age_seconds(status)
@@ -2880,7 +2554,9 @@ defmodule Aiur.AgentControlCLI do
       stuck?: stuck?,
       pr_ready?: pr_ready?,
       doing: watch_activity(status),
-      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), stuck?, pr_ready?}
+      waiting: WaitingReason.render_wait(status),
+      signature:
+        {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), Map.take(status[:waiting] || %{}, [:reason, :owner, :cause]), stuck?, pr_ready?}
     }
   end
 
@@ -3013,7 +2689,8 @@ defmodule Aiur.AgentControlCLI do
       " ",
       String.pad_trailing(format_runtime(row.age_seconds), 7),
       " ",
-      watch_doing(row)
+      watch_doing(row),
+      row.waiting
     ]
   end
 
@@ -3093,7 +2770,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp blocking_asks_for_repo(repo) do
-    with {:ok, asks} <- Asks.open(repo), do: {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
+    with {:ok, asks} <- Commands.open_asks(repo), do: {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
   end
 
   defp format_ask_store_error({:invalid_ask_record, _path, line_number, reason}),
@@ -3134,135 +2811,30 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
-  # The old wording said "daemon may be scheduler-saturated". That is a cause,
-  # confidently asserted, that this code has no evidence for — and in #1731 it
-  # was wrong: the run queue was 1, the host was fine, and one process was
-  # head-of-line blocked. A wrong diagnosis printed with confidence is worse
-  # than none; it sends the operator to look at host load.
-  #
-  # So report only what is observable here: which query did not answer, and the
-  # state of the process that owed the answer. `Process.info/2` reads the
-  # target's mailbox and current function without needing it to be scheduled,
-  # which is exactly the measurement an operator would otherwise take by hand.
-  #
-  # "outcome is unknown" is kept verbatim from #1720/#1812: it is a *different*
-  # claim from this one — that the command may or may not have taken effect —
-  # and the operator needs both. This adds the evidence, it does not replace it.
-  defp print_control_query_error(:timeout, query, timeout_ms) do
-    IO.puts(
-      "#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}" <>
-        "; outcome is unknown. #{orchestrator_liveness()}"
+  # A GenServer.call timeout does not cancel a mutation already in the mailbox.
+  defp print_failure(action, status, :timeout) when action in [:resume, :reset_budget] do
+    operation = if action == :resume, do: "resume", else: "reset lifetime dispatch budget for"
+
+    control_error(
+      "aiur: outcome unknown for #{operation} #{display_identifier(status)}: the orchestrator did not answer in time " <>
+        "and may still apply the request. Check the ticket status and log before retrying."
     )
   end
 
-  defp print_control_query_error(:unavailable, query, _timeout_ms) do
-    IO.puts("#{@error_marker}aiur: #{query} query failed because the orchestrator is not running")
-  end
-
-  defp orchestrator_liveness do
-    case Process.whereis(Orchestrator) do
-      nil ->
-        "The orchestrator process is not registered, so the daemon is down or still starting."
-
-      pid ->
-        describe_orchestrator(Process.info(pid, [:message_queue_len, :status, :current_function]))
-    end
-  end
-
-  defp describe_orchestrator(nil), do: "The orchestrator process has exited."
-
-  defp describe_orchestrator(info) do
-    "Orchestrator mailbox=#{Keyword.get(info, :message_queue_len)} status=#{Keyword.get(info, :status)}" <>
-      " in #{format_mfa(Keyword.get(info, :current_function))}. " <>
-      "A large mailbox or a blocked current function means one process is stuck, not that the host is busy."
-  end
-
-  defp format_mfa({module, function, arity}), do: "#{inspect(module)}.#{function}/#{arity}"
-  defp format_mfa(_other), do: "an unknown function"
-
-  defp control_query_exit_code(:timeout), do: 124
-  defp control_query_exit_code(_error), do: 1
-
-  defp report_control_query_failure(error, query, timeout_ms) do
-    print_control_query_error(error, query, timeout_ms)
-    exit_marker(control_query_exit_code(error))
-  end
-
-  # Last-resort guard for the read-only query commands (#1684). An unexpected
-  # raise or process exit inside a command body used to kill the RPC evaluator
-  # outright, and the operator saw a non-zero exit with an empty buffer — the
-  # one failure mode indistinguishable from a healthy idle fleet. Whatever goes
-  # wrong, the command now says what failed in one line and still emits an exit
-  # marker, so the launcher never has to guess.
-  @spec guarded(String.t(), (-> :ok)) :: :ok
-  defp guarded(query, fun) do
-    fun.()
-  rescue
-    error -> report_control_query_crash(query, Exception.message(error))
-  catch
-    :exit, {:timeout, {GenServer, :call, [_server, _request, timeout_ms]}}
-    when is_integer(timeout_ms) ->
-      print_control_query_error(:timeout, query, timeout_ms)
-      exit_marker(control_query_exit_code(:timeout))
-
-    :exit, reason ->
-      report_control_query_crash(query, "process exited: #{inspect(reason)}")
-
-    kind, payload ->
-      report_control_query_crash(query, "#{kind}: #{inspect(payload)}")
-  end
-
-  defp report_control_query_crash(query, detail) do
-    IO.puts("#{@error_marker}aiur: #{query} query failed (#{single_line(detail)})")
-    exit_marker(1)
-  end
-
-  defp single_line(text) do
-    text |> to_string() |> String.replace(~r/\s+/, " ") |> String.trim() |> String.slice(0, 300)
-  end
-
-  defp control_query_timeout(opts, key, default) do
-    case Keyword.get(opts, key, default) do
-      timeout when is_integer(timeout) and timeout > 0 -> timeout
-      _invalid -> default
-    end
-  end
-
-  defp format_timeout_budget(timeout_ms) when rem(timeout_ms, 1_000) == 0,
-    do: "#{div(timeout_ms, 1_000)}s"
-
-  defp format_timeout_budget(timeout_ms), do: "#{timeout_ms}ms"
-
-  defp application_started? do
-    Enum.any?(Application.started_applications(), fn {app, _description, _version} ->
-      app == :aiur
-    end)
-  end
-
-  defp not_running_message do
-    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
-  end
-
   defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do
-    control_error("aiur: failed to resume #{display_identifier(status)}; resume will not hold because agent:paused could not be removed (#{format_reason(reason)})")
+    control_error("aiur: failed to resume #{display_identifier(status)}; resume will not hold because agent:paused could not be removed (#{Reasons.format_reason(reason)})")
   end
 
   defp print_failure(:message, status, reason) do
-    control_error("aiur: failed to message #{display_identifier(status)} (#{format_message_reason(reason)})")
+    control_error("aiur: failed to message #{display_identifier(status)} (#{Reasons.format_message_reason(reason)})")
   end
 
   defp print_failure(:reset_budget, status, reason) do
-    control_error("aiur: failed to reset lifetime dispatch budget for #{display_identifier(status)} (#{format_reason(reason)})")
+    control_error("aiur: failed to reset lifetime dispatch budget for #{display_identifier(status)} (#{Reasons.format_reason(reason)})")
   end
 
   defp print_failure(action, status, reason) do
-    control_error("aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})")
-  end
-
-  defp control_error(message) do
-    message = single_line(message)
-    IO.puts(:stderr, message)
-    IO.puts("#{@error_marker}#{message}")
+    control_error("aiur: failed to #{action} #{display_identifier(status)} (#{Reasons.format_reason(reason)})")
   end
 
   defp target_matches?(status, target) do
@@ -3323,181 +2895,4 @@ defmodule Aiur.AgentControlCLI do
 
   defp result_verb(result),
     do: Map.fetch!(%{resumed: "resumed", started: "started", reactivated: "reactivated"}, result)
-
-  defp format_reason({:stale_tracker_state, reason, details}) do
-    changed_context =
-      case Map.get(details, :changed_fields, []) do
-        [] -> ""
-        fields -> ", changed=#{Enum.join(fields, ",")}"
-      end
-
-    paused_context =
-      if Map.get(details, :cached_paused) != Map.get(details, :tracker_paused) do
-        ", cached_paused=#{details.cached_paused}, tracker_paused=#{details.tracker_paused}"
-      else
-        ""
-      end
-
-    "tracker cache was stale: cached=#{details.cached_state}, tracker=#{details.tracker_state}#{changed_context}#{paused_context}; #{format_reason(reason)}"
-  end
-
-  defp format_reason({:tracker_state_not_resumable, state}),
-    do: "tracker state #{state} is not resumable"
-
-  defp format_reason({:tracker_refresh_failed, reason}),
-    do: "tracker refresh failed: #{format_reason(reason)}"
-
-  defp format_reason({:budget_reset_failed, reason}),
-    do: "durable budget reset failed: #{format_reason(reason)}"
-
-  defp format_reason({:state_restore_failed, reason}),
-    do: "tracker state restore failed: #{format_reason(reason)}"
-
-  defp format_reason({:state_concurrency_limit_reached, state}),
-    do: "state concurrency limit reached for #{state}"
-
-  defp format_reason({:blocked_on_decision, %{decision_ids: [_ | _] = ids}}),
-    do: "ticket is held by open blocking decision #{Enum.join(ids, ", ")}; answer it (see `aiurdev commands`), then resume"
-
-  defp format_reason({:blocked_on_decision, %{store: :unavailable}}),
-    do: "ticket is held because the decision store could not be read, so an open blocking decision cannot be ruled out; retry after the store recovers"
-
-  defp format_reason({:blocked_on_decision, _detail}),
-    do: "ticket is held by an open blocking decision; answer it (see `aiurdev commands`), then resume"
-
-  defp format_reason({:worker_startup_failed, reason}),
-    do: "the agent's worker failed to start (#{inspect(reason, limit: 10, printable_limit: 200)}); resume does not start a second worker, the retry schedule restarts it (see `aiurdev status`)"
-
-  defp format_reason({:not_resumable_control_status, status}),
-    do: "the agent is in control state #{status}, which resume cannot act on"
-
-  defp format_reason({:unmapped_dispatch_decline, reason}),
-    do: "dispatch declined the ticket (#{inspect(reason)}); inspect `aiurdev status` and the daemon log"
-
-  defp format_reason({:control_call_crashed, action, summary}),
-    do: "the orchestrator hit an internal error handling #{action} (#{summary}); the agent registry was kept, see the daemon log"
-
-  # Keep the real fault visible instead of collapsing it to a cause the CLI
-  # has not established (#1634).
-  defp format_reason({:orchestrator_call_failed, reason}),
-    do: "orchestrator call failed: #{inspect(reason)}"
-
-  defp format_reason({:dispatch_failed, :no_worker_capacity}),
-    do: "dispatch failed because no worker capacity is available; retry after a worker slot is free"
-
-  defp format_reason({:dispatch_failed, :state_capacity}),
-    do: "dispatch failed because this ticket state is at capacity; retry after an agent in the same state finishes"
-
-  defp format_reason({:dispatch_failed, :fleet_capacity}),
-    do: "dispatch failed because the fleet is at max concurrent agent capacity; retry after an agent slot is free"
-
-  defp format_reason({:dispatch_failed, :all_backends_usage_limited}),
-    do: "dispatch failed because every configured backend is usage-limited; retry after a provider limit resets"
-
-  defp format_reason({:dispatch_failed, :thrash_circuit_open}),
-    do: "dispatch failed because the restart circuit is open; retry after the restart window resets or run `aiurdev reset-budget <id>`"
-
-  defp format_reason({:dispatch_failed, {:dispatch_declined, reason}}),
-    do: "dispatch was declined (#{inspect(reason)}); retry after the ticket state, labels, or tracker visibility becomes dispatchable"
-
-  defp format_reason({:dispatch_failed, {:worker_start_failed, reason}}),
-    do: "dispatch failed while starting the worker (#{inspect(reason)}); inspect the daemon alert and retry after the worker failure clears"
-
-  defp format_reason({:dispatch_failed, :cause_unknown}),
-    do: "dispatch failed, but the daemon could not determine the cause; inspect `aiurdev alerts` and the daemon log before retrying"
-
-  defp format_reason({:dispatch_failed, reason}),
-    do: "dispatch failed for #{inspect(reason)}, but the daemon could not determine what clears it; inspect `aiurdev alerts` and the daemon log before retrying"
-
-  defp format_reason({:redispatch_deferred, :max_concurrent_agents_reached}),
-    do: "redispatch deferred by max concurrent agent capacity; it clears when an agent slot is free"
-
-  defp format_reason({:redispatch_deferred, :no_worker_capacity}),
-    do: "redispatch deferred because no worker capacity is available; it clears when a worker slot is free"
-
-  defp format_reason({:redispatch_deferred, :preferred_worker_unavailable}),
-    do: "redispatch deferred because the preferred worker is not selectable for this backend; it clears when a compatible worker is available or routing selects a compatible backend"
-
-  defp format_reason({:redispatch_deferred, :thrash_circuit_open}),
-    do: "redispatch deferred by the restart circuit; it clears when the restart window resets or `reset-budget` clears the latch"
-
-  defp format_reason({:redispatch_deferred, {:all_limited, backends}}),
-    do: "redispatch deferred because every fallback backend is usage-limited (#{Enum.join(backends, ", ")}); it clears after a provider limit resets"
-
-  defp format_reason({:redispatch_deferred, {:unknown_backend, backend}}),
-    do: "redispatch deferred because backend #{inspect(backend)} is not configured; it clears after the ticket selects a configured backend"
-
-  defp format_reason({:redispatch_deferred, {:not_dispatchable, reason}}),
-    do: "redispatch deferred because the refreshed ticket is not dispatchable (#{inspect(reason)}); it clears after its state, labels, or blockers become eligible"
-
-  defp format_reason({:redispatch_deferred, :missing_after_revalidation}),
-    do: "redispatch deferred because the ticket disappeared during tracker revalidation; retry after tracker visibility is restored"
-
-  defp format_reason({:redispatch_deferred, {:tracker_revalidation_failed, reason}}),
-    do: "redispatch deferred because tracker revalidation failed (#{inspect(reason)}); it clears after tracker access recovers"
-
-  defp format_reason({:redispatch_deferred, {:worker_start_failed, reason}}),
-    do: "redispatch was admitted but the replacement worker failed to start (#{inspect(reason)}); it clears after the worker startup failure is repaired"
-
-  defp format_reason({:redispatch_deferred, :cause_unknown}),
-    do: "redispatch was admitted but no replacement worker started; the cause and clearing condition could not be determined, so inspect `aiurdev alerts` and the daemon log before retrying"
-
-  defp format_reason({:redispatch_deferred, reason}),
-    do: "redispatch deferred for #{inspect(reason)}; what clears it could not be determined, so inspect `aiurdev alerts` and the daemon log before retrying"
-
-  defp format_reason(reason) do
-    Map.get(
-      %{
-        no_running_agent: "no running agent",
-        agent_finished: "agent finished",
-        max_concurrent_agents_reached: "max concurrent agents reached",
-        below_active_count: "below active agent count",
-        not_resumable: "not resumable",
-        empty_message: "message is empty",
-        message_too_long: "message is too long",
-        invalid_message: "invalid message",
-        unavailable: "orchestrator unavailable",
-        orchestrator_unavailable: "orchestrator unavailable",
-        timeout: "orchestrator timed out",
-        unknown_issue: "unknown issue",
-        tracker_issue_not_found: "tracker issue not found",
-        invalid_tracker_issue: "tracker returned an invalid issue",
-        contradictory_tracker_state_labels: "tracker returned contradictory state labels",
-        not_routable_to_worker: "ticket is not routable to a worker",
-        dispatch_not_authorized: "tracker label provenance does not authorize dispatch",
-        pause_override_still_present: "tracker pause override is still present",
-        ticket_parked: "ticket is parked from fleet dispatch; unpark it, then resume",
-        worker_not_running: "the agent is registered as working but its worker process is gone; the next poll reconciles it, then resume",
-        worker_not_started: "the agent's replacement worker is still starting; retry once it is running",
-        waiting_for_dependencies: "ticket is waiting for dependencies",
-        already_claimed: "ticket is already claimed for dispatch",
-        auto_resume_pending: "ticket already has a scheduled automatic resume",
-        workspace_ownership_waiting: "ticket is waiting for workspace ownership recovery",
-        no_worker_capacity: "no worker capacity",
-        dispatch_retry_scheduled: "dispatch failed and a retry was scheduled",
-        all_model_backends_limited: "all configured model backends are usage-limited",
-        thrash_circuit_open: "dispatch restart circuit is open",
-        dispatch_not_started: "dispatch did not start; inspect the ticket attention feed",
-        lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",
-        dispatch_failed: "dispatch failed"
-      },
-      reason,
-      inspect(reason)
-    )
-  end
-
-  defp format_message_reason(:agent_finished), do: "agent is not accepting messages (agent finished)"
-  defp format_message_reason(:immediate_not_supported), do: "agent is not accepting immediate messages"
-  defp format_message_reason(:interrupt_not_supported), do: "agent is not accepting interrupt messages"
-  defp format_message_reason({:not_queued, :timeout}), do: "the daemon timed out and did not queue it; a retry is safe"
-
-  defp format_message_reason({:message_id_conflict, _item_id}),
-    do: "that --message-id was already used for a different message; use a new id"
-
-  defp format_message_reason(reason), do: format_reason(reason)
-
-  defp exit_marker(code) do
-    IO.puts("#{@exit_marker}#{code}")
-    :ok
-  end
 end

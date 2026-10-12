@@ -106,7 +106,7 @@ defmodule Aiur.AgentEnvironmentTest do
     File.mkdir_p!(release_bin)
     File.write!(Path.join(release_erts_bin, "erl"), "#!/bin/sh\necho poisoned-release-erl\nexit 86\n")
     File.chmod!(Path.join(release_erts_bin, "erl"), 0o755)
-    on_exit(fn -> File.rm_rf!(release_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(release_root) end)
 
     command =
       AgentEnvironment.scrub_shell_command("mise exec -- elixir -e 'IO.puts(:code.lib_dir(:inets)); IO.inspect(Application.ensure_all_started(:inets))'")
@@ -351,12 +351,15 @@ defmodule Aiur.AgentEnvironmentTest do
   # from a file the daemon writes and injects it only into a governed call.
   test "scrub_shell_command clears provider API keys and the raw GitHub credential" do
     command =
-      AgentEnvironment.scrub_shell_command("env | grep -E '^(DEEPSEEK_API_KEY|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN)=' | sort")
+      AgentEnvironment.scrub_shell_command(
+        "env | grep -E '^(DEEPSEEK_API_KEY|DEEPSEEK_API_KEY__WORK|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN)=' | sort"
+      )
 
     {output, 0} =
       System.cmd("bash", ["-lc", command],
         env: [
           {"DEEPSEEK_API_KEY", "deepseek-secret"},
+          {"DEEPSEEK_API_KEY__WORK", "named-deepseek-secret"},
           {"OPENROUTER_API_KEY", "openrouter-secret"},
           {"OPENROUTER_MANAGEMENT_KEY", "management-secret"},
           {"GITHUB_TOKEN", "tracker-token"},
@@ -829,7 +832,7 @@ defmodule Aiur.AgentEnvironmentTest do
     setup do
       workspace = Aiur.TestSupport.tmp_root!("aiur-env-scratch")
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
       {:ok, workspace: workspace}
     end
 

@@ -11,6 +11,7 @@ defmodule Aiur.ExecutorListenerTest do
   alias Aiur.JsonStore
 
   @listener_name Aiur.ExecutorListener.Test
+  @inbox_name Aiur.ExecutorWakeInbox.ListenerTest
 
   setup do
     # The listener reads/writes its durable watermark under the per-test log
@@ -199,26 +200,27 @@ defmodule Aiur.ExecutorListenerTest do
   end
 
   test "non-executor events become wakes without advancing the command watermark" do
-    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_listener()
-
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
     id = System.unique_integer([:positive])
+    ticket = Integer.to_string(System.unique_integer([:positive]))
+    topic = "ticket.#{ticket}.pr.opened"
+    start_listener(inbox: @inbox_name, patterns: [topic], reconcile?: false)
 
-    Exchange.publish("ticket.42.pr.opened", %{
+    Exchange.publish(topic, %{
       id: id,
-      topic: "ticket.42.pr.opened",
+      topic: topic,
       action: "opened",
       pr: %{"number" => 2030, "draft" => false, "head" => %{"sha" => String.duplicate("a", 40)}}
     })
 
-    assert {:ok, wakes} = ExecutorWakeInbox.wait(500)
-    assert Enum.any?(wakes, &(&1["ticket"] == "42" and &1["pr_number"] == 2030))
+    assert {:ok, wakes} = ExecutorWakeInbox.wait(500, @inbox_name)
+    assert Enum.any?(wakes, &(&1["ticket"] == ticket and &1["pr_number"] == 2030))
     assert watermark() == nil
   end
 
   test "system dispatch transitions become identifier-only wakes" do
-    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_listener()
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["system.dispatch.capacity_starved"], reconcile?: false)
 
     Exchange.publish("system.dispatch.capacity_starved", %{
       id: System.unique_integer([:positive]),
@@ -235,7 +237,7 @@ defmodule Aiur.ExecutorListenerTest do
                 "ticket" => nil,
                 "needs_attention" => true
               }
-            ]} = ExecutorWakeInbox.wait(500)
+            ]} = ExecutorWakeInbox.wait(500, @inbox_name)
 
     assert watermark() == nil
   end

@@ -2,7 +2,6 @@ defmodule Aiur do
   @moduledoc """
   Entry point for the Aiur orchestrator.
   """
-
   @doc """
   Start the orchestrator in the current BEAM node.
   """
@@ -22,10 +21,12 @@ defmodule Aiur.Application do
   require Logger
 
   alias Aiur.{AgentGitHubGuard, GitHub.Budget}
+  alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{BlockerProgress, Config}
+  alias Aiur.Identity.Machine
 
   @impl true
   def start(_type, _args) do
@@ -48,6 +49,7 @@ defmodule Aiur.Application do
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    _ = Machine.ensure()
     # Write the initial heartbeat file so the Executor can detect daemon downtime.
     # Best-effort: heartbeat write failure must not crash boot.
     Aiur.DaemonHeartbeat.write!()
@@ -63,6 +65,7 @@ defmodule Aiur.Application do
     _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
     Budget.warn_metering_unavailable()
+    Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -79,6 +82,7 @@ defmodule Aiur.Application do
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,
+          tailscale_funnel?: configured_tailscale_funnel?(settings),
           telemetry?: telemetry?
         )
 
@@ -86,8 +90,8 @@ defmodule Aiur.Application do
       # dependency order, and several of them genuinely depend on the ones
       # before them. `Aiur.PubSub` leads the dependent block because 17 lib
       # modules subscribe to it; six application children hold a live link to it
-      # at boot. Only `Aiur.Webhooks.ModeTable` precedes it — a dependency-free
-      # ETS owner that must not be restarted by anyone else's crash (#2531).
+      # at boot. Only the dependency-free webhook and capability ETS owners precede it;
+      # neither must be restarted by anyone else's crash (#2531).
       #
       # Elixir's `Registry` links every registered process to its partition, and
       # `Phoenix.PubSub.subscribe/2` registers — so each subscribing sibling is
@@ -110,8 +114,9 @@ defmodule Aiur.Application do
       )
       |> tap(fn
         {:ok, _supervisor} ->
+          Machine.announce_degraded()
           start_upgrade_check()
-          start_build_order_funnel_check(not no_dashboard? and Aiur.Config.build_order_funnel_health_check_enabled?(settings))
+          start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
 
         _error ->
           :ok
@@ -155,6 +160,14 @@ defmodule Aiur.Application do
   end
 
   defp start_build_order_funnel_check(false), do: :ok
+
+  @doc false
+  @spec build_order_funnel_health_check_startup?(term(), boolean()) :: boolean()
+  def build_order_funnel_health_check_startup?(settings, no_dashboard?) do
+    not no_dashboard? and
+      Aiur.Config.build_order_funnel_health_check_enabled?(settings) and
+      not match?({:ok, %{server: %{tailscale_funnel: true}}}, settings)
+  end
 
   @doc false
   @spec maybe_validate_environment() :: :ok
@@ -263,6 +276,7 @@ defmodule Aiur.Application do
     interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
+    tailscale_funnel? = Keyword.get_lazy(opts, :tailscale_funnel?, &AiurConfig.server_tailscale_funnel?/0)
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
@@ -302,22 +316,20 @@ defmodule Aiur.Application do
       # `ModeTable`'s boot — `ModeRegistry` restarts in the same cascade and
       # rebuilds `state.repos` from config as configured-*unproven* — so every
       # webhook-backed repo silently fell back to the 30-second polling TTL and
-      # stayed there until a fresh delivery re-proved it. Ordered first, no
-      # sibling's crash can reach it.
+      # stayed there until a fresh delivery re-proved it; siblings cannot reach it.
       #
       # Going first also means a `ModeTable` crash would now restart the whole
       # tree behind it, which is only acceptable because it has no way to crash:
       # `put/2`, `transport/1` and `delete/1` all run in the *caller's* process
       # against a `:public` table, so the server itself exposes no `handle_call`
       # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
-      # Give it a failing callback and this ordering stops being free.
       Aiur.Webhooks.ModeTable,
-      # `Aiur.PubSub.Boot` is `{Phoenix.PubSub, name: Aiur.PubSub}` with one
-      # thing added: it waits for a previous incarnation's registry names to be
-      # released before starting. Without that wait a PubSub crash restarts
-      # into its own still-registered partitions, fails three times inside a
-      # millisecond, and takes this whole supervisor down with it (#2557).
+      Aiur.Capabilities.Table,
+      # `Aiur.PubSub.Boot` wraps `{Phoenix.PubSub, name: Aiur.PubSub}` and waits for a previous incarnation's registry names to be released before starting.
+      # Without that wait, a PubSub crash restarts into its own still-registered partitions, fails three times inside a millisecond,
+      # and takes this whole supervisor down with it (#2557).
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
+      Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
@@ -372,8 +384,8 @@ defmodule Aiur.Application do
       # API key it observes nothing at all, so an unconfigured account costs a
       # boot-time config read and never a request.
       Aiur.ElevenLabs.Quota,
-      {Aiur.BuildOrder.TicketDetailCoordinator, runtime_config?: true},
-      {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
+      Aiur.TicketContext.child_specs(:early, opts),
+      BuildOrders.child_specs(:early, opts),
       Aiur.Events.IdGenerator,
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       Aiur.Events.BranchRefStore,
@@ -381,8 +393,7 @@ defmodule Aiur.Application do
       # the Publisher and before anything that polls or receives, so the first
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
-      # Owns the open-issue listing the dispatch gate reads as its close signal
-      # (#2714). A table owned by a poll writer would die with it.
+      # Owns open-issue close signals (#2714); a poll-writer-owned table would die with it.
       Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
       # Carries store changes into the agents' `gh` answer store, so a fact
@@ -391,6 +402,7 @@ defmodule Aiur.Application do
       Aiur.GitHub.AgentCacheBridge,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
+      Aiur.Capabilities.Monitor,
       # Per-repo delivery mode. Starts before anything that polls or receives
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
@@ -411,8 +423,8 @@ defmodule Aiur.Application do
       # is broadcast before there is anything retaining it.
       Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
-      # Decides when usage is observed: one baseline after boot, then only
-      # while agents are running. Starts after the projection so a baseline
+      # Decides when usage is observed: one baseline after boot, then while a
+      # surface is watched or headroom account selection is on. Starts after the projection so a baseline
       # observation always has somewhere to land.
       Aiur.ProviderMeterRefresh,
       Aiur.UsageLedger,
@@ -427,15 +439,16 @@ defmodule Aiur.Application do
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
-      # Webhook deduplication state must be replayed before any receiver can
-      # admit a delivery.
+      {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
+      Aiur.Orchestrator.OptimisticLedger,
       Aiur.Orchestrator.TrackedSet,
+      Aiur.Orchestrator.SnapshotCache,
       Aiur.Orchestrator.SnapshotStore,
       Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
@@ -446,25 +459,22 @@ defmodule Aiur.Application do
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
       Aiur.TicketActivity,
-      # Claude telemetry owns an independent loopback listener and must be
-      # available before the Orchestrator starts owned Claude workers.
+      # Claude telemetry must be available before the Orchestrator starts owned workers.
       Aiur.Claude.Telemetry,
-      {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
-      {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
-      {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
+      BuildOrders.child_specs(:history, opts),
+      Aiur.TicketContext.child_specs(:late, opts),
+      BuildOrders.child_specs(:late, opts),
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence, now reconciling only the pack-status
-      # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
-      # timer). Starts after its sources so its first tick never races their
-      # boot fill.
-      Aiur.GitHub.ViewStateSweep,
+      # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
+      BuildOrders.child_specs(:view_state_sweep, opts),
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
       maybe_ls_remote_ticker(ls_remote_ticker?),
-      Aiur.Orchestrator.PRHealthScanner,
-      Aiur.Orchestrator.ReworkRequeue,
+      Aiur.PRLifecycle.HealthScanner,
+      Aiur.PRLifecycle.ReworkRequeue,
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
@@ -483,9 +493,7 @@ defmodule Aiur.Application do
       executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
-      if(dashboard?, do: AiurWeb.ControlCenterCache),
-      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
-      if(dashboard?, do: Aiur.HttpServer),
+      dashboard_children(dashboard?, Keyword.get(opts, :dashboard_pages?, true), tailscale_funnel?),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
@@ -493,15 +501,20 @@ defmodule Aiur.Application do
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       # Allowed-contributor intake (#2957) feeds the Executor wake path armed
-      # above, so it runs whenever recording does. It is last in this
-      # `:rest_for_one` list so a restart of it can never cascade into the
-      # dashboard, the Principal, or the opencode supervisors.
-      if(recording?, do: Aiur.AllowedContributors)
+      # above; BuildProgress and its observer run with recording and are
+      # last in this `:rest_for_one` list so their restarts can never cascade
+      # into the dashboard, the Principal, or the opencode supervisors.
+      if(recording?, do: [Aiur.AllowedContributors, BuildOrders.child_specs(:recording, opts)]),
+      BuildOrders.child_specs(:final, opts),
+      if(Aiur.MainWatch.enabled?(), do: Aiur.MainWatch)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children)
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?))
   end
+
+  defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
+  defp configured_tailscale_funnel?(_settings), do: false
 
   defp supervision_health_child(children) do
     {Aiur.SupervisionHealth, supervisor: Aiur.Supervisor, expected_children: children}
@@ -524,6 +537,15 @@ defmodule Aiur.Application do
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
+
+  defp dashboard_children(dashboard?, dashboard_pages?, tailscale_funnel?) do
+    [
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
+      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
+      if(dashboard?, do: {Aiur.HttpServer, dashboard_pages?: dashboard_pages?}),
+      if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel)
+    ]
+  end
 
   @impl true
   def prep_stop(state) do

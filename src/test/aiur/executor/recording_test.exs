@@ -19,11 +19,11 @@ defmodule Aiur.Executor.RecordingTest do
     on_exit(fn ->
       Application.delete_env(:aiur, :executor_state_dir)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
       :ok
     end)
 
-    :ok
+    %{ticket: Integer.to_string(System.unique_integer([:positive]))}
   end
 
   defp start_inbox(opts \\ []) do
@@ -47,19 +47,20 @@ defmodule Aiur.Executor.RecordingTest do
     assert Aiur.Executor.Claims in specs
   end
 
-  test "a run without --executor records PR-lifecycle, CI and attention wakes" do
+  test "a run without --executor records PR-lifecycle, CI and attention wakes", %{ticket: ticket} do
     Application.put_env(:aiur, :executor_mode, false)
     on_exit(fn -> Application.delete_env(:aiur, :executor_mode) end)
 
     start_inbox()
-    start_supervised!({ExecutorListener, name: @listener_name, inbox: @inbox_name, resubscribe_interval_ms: :infinity})
+    start_supervised!({ExecutorListener, name: @listener_name, inbox: @inbox_name, patterns: ["ticket.#{ticket}.#"], reconcile?: false, resubscribe_interval_ms: :infinity})
 
-    publish_operational_events()
+    publish_operational_events(ticket)
 
     records = eventually_pending(3)
 
     # Assert by count, and by which classes actually landed.
     assert length(records) == 3
+    assert Enum.all?(records, &(&1["ticket"] == ticket))
 
     assert Enum.sort(Enum.map(records, & &1["topic_class"])) ==
              ["ticket.agent.attention.review", "ticket.ci.failed", "ticket.pr.opened"]
@@ -72,11 +73,11 @@ defmodule Aiur.Executor.RecordingTest do
     end)
   end
 
-  test "an agent attaching after the run replays what was published before it started" do
+  test "an agent attaching after the run replays what was published before it started", %{ticket: ticket} do
     start_inbox()
-    start_supervised!({ExecutorListener, name: @listener_name, inbox: @inbox_name, resubscribe_interval_ms: :infinity})
+    start_supervised!({ExecutorListener, name: @listener_name, inbox: @inbox_name, patterns: ["ticket.#{ticket}.#"], reconcile?: false, resubscribe_interval_ms: :infinity})
 
-    publish_operational_events()
+    publish_operational_events(ticket)
     _recorded = eventually_pending(3)
 
     # The "late" agent starts only now, and still sees every record written
@@ -88,6 +89,7 @@ defmodule Aiur.Executor.RecordingTest do
 
     late_records = ExecutorWakeInbox.pending(@late_inbox_name)
     assert length(late_records) == 3
+    assert Enum.all?(late_records, &(&1["ticket"] == ticket))
   end
 
   test "records survive a restart: appends land in one durable ledger across boots" do
@@ -178,22 +180,25 @@ defmodule Aiur.Executor.RecordingTest do
     _settled = eventually(fn -> length(ExecutorWakeInbox.pending(@inbox_name)) <= max end)
 
     # The bound is real, not an average, and it holds with no consumer at all.
-    assert length(read_ledger(StatePaths.wakes_path())) <= max
+    ledger = read_ledger(StatePaths.wakes_path())
+    assert length(ledger) <= max
     assert length(ExecutorWakeInbox.pending(@inbox_name)) <= max
 
     # Evicting an unread record loses a wake, so it is never silent: the durable
     # cursor moves past the dropped range instead of leaving a gap a consumer
     # would replay forever.
-    assert ExecutorWakeInbox.cursor(@inbox_name) == max * 4 - max
+    # The trim lands on a low watermark (#4166), so fewer than `max` may be
+    # retained; the cursor still sits exactly below the oldest survivor.
+    assert ExecutorWakeInbox.cursor(@inbox_name) == max * 4 - length(ledger)
   end
 
   # The default claims path already resolves inside this case's state directory.
   defp claims_opts, do: []
 
-  defp publish_operational_events do
-    publish("ticket.42.pr.opened", %{"pr_number" => 7, "action" => "opened", "draft" => false})
-    publish("ticket.42.ci.failed", %{"pr_number" => 7, "head_sha" => String.duplicate("a", 40), "conclusion" => "failure"})
-    publish("ticket.42.agent.attention.review", %{"needs_attention" => true})
+  defp publish_operational_events(ticket) do
+    publish("ticket.#{ticket}.pr.opened", %{"pr_number" => 7, "action" => "opened", "draft" => false})
+    publish("ticket.#{ticket}.ci.failed", %{"pr_number" => 7, "head_sha" => String.duplicate("a", 40), "conclusion" => "failure"})
+    publish("ticket.#{ticket}.agent.attention.review", %{"needs_attention" => true})
   end
 
   defp publish(topic, payload) do

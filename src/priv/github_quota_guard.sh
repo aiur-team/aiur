@@ -1,5 +1,5 @@
 #!/bin/sh
-
+# @aiur-recursion-guard@
 # Fleet guard for agent-launched `gh` calls. The daemon prepends this wrapper's
 # directory to agent PATH and supplies the real executable separately.
 # #1793: a ticket filed without a dispatch disposition is undispatchable and
@@ -580,7 +580,7 @@ fi
 dispatch_disposition() {
   label=$1
   case "$label" in
-    "$dispatch_prefix:todo"|human:todo|needs-triage|build-order|epic) return 0 ;;
+    "$dispatch_prefix:todo"|"$dispatch_prefix:queued"|human:todo|needs-triage|build-order|epic) return 0 ;;
     *) return 1 ;;
   esac
 }

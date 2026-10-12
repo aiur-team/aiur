@@ -2,10 +2,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
   @moduledoc """
   GitHub firehose and comments poll drivers.
 
-  The firehose poll runs inside the orchestrator GenServer process. The comments
-  poll does not: it fans out over every watched target, and the Orchestrator
-  awaiting that fan-out inline is what left it unreadable on an idle host
-  (#1837). `start_async/2` issues it and `apply_async/3` folds the answer in.
+  Firehose and comment polls run in supervised tasks. Their results update
+  only the corresponding cursors and caches in the current owner state.
+  `start_async/2` issues the comment poll and `apply_async/3` folds the answer in.
   `poll_github_comments/2` still does both in one step for callers that want the
   synchronous shape.
   """
@@ -15,7 +14,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.{AlertFeed, Alerts, Config, PollCadence, RunTelemetry}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
 
@@ -39,12 +37,25 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put_new(:etag, state.events_etag)
       |> Keyword.put_new(:last_event_id, state.events_last_id)
 
-    case GithubFirehose.poll(poll_opts) do
+    apply_firehose_result(state, GithubFirehose.poll(poll_opts), opts)
+  end
+
+  @spec start_firehose(State.t(), (State.t() -> State.t()), function()) :: State.t()
+  def start_firehose(state, continue, start_task) do
+    poll_opts = [etag: state.events_etag, last_event_id: state.events_last_id]
+
+    start_task.(state, :dispatch_poll, fn -> GithubFirehose.poll(poll_opts) end, fn current, result ->
+      current |> apply_firehose_result(result, []) |> continue.()
+    end)
+  end
+
+  defp apply_firehose_result(state, result, opts) do
+    case result do
       {:ok, %{etag: etag, last_event_id: last_event_id} = result} ->
         state =
           state
-          |> Orchestrator.note_github_connectivity_success(:firehose)
-          |> Orchestrator.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
+          |> TrackerHealth.note_github_connectivity_success(:firehose)
+          |> TrackerHealth.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
           |> note_recent_merge_persistence_success(Map.get(result, :recent_merge_persistence))
           |> note_firehose_window(result, opts)
 
@@ -57,12 +68,12 @@ defmodule Aiur.Orchestrator.CommentPolling do
         # Preserve cached etag so we retry as If-None-Match next tick; the
         # classified failure feeds the escalation policy so a sustained
         # DNS/auth break surfaces a loud Executor blocker (#617).
-        Orchestrator.note_github_connectivity_failure(state, :firehose, reason)
+        TrackerHealth.note_github_connectivity_failure(state, :firehose, reason)
     end
   end
 
   defp note_recent_merge_persistence_success(state, :ok) do
-    Orchestrator.note_github_connectivity_success(state, :recent_merge_store)
+    TrackerHealth.note_github_connectivity_success(state, :recent_merge_store)
   end
 
   defp note_recent_merge_persistence_success(state, _status), do: state
@@ -160,9 +171,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
     state =
       state
-      |> Orchestrator.note_github_connectivity_success(:firehose)
-      |> Orchestrator.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
-      |> Orchestrator.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
+      |> TrackerHealth.note_github_connectivity_success(:firehose)
+      |> TrackerHealth.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
+      |> TrackerHealth.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
       |> maybe_alert_recent_merge_persistence(reason, retry_limit, opts)
 
     if advance? do
@@ -961,9 +972,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
         state =
           if all_comment_targets_failed?(targets, errors) do
-            Orchestrator.note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
+            TrackerHealth.note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
           else
-            Orchestrator.note_github_connectivity_success(state, :comments)
+            TrackerHealth.note_github_connectivity_success(state, :comments)
           end
 
         %{

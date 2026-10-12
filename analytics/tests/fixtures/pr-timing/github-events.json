@@ -1,0 +1,59 @@
+[
+  {
+    "id": 1,
+    "topic": "ticket.enriched.pr.opened",
+    "timestamp": "2026-10-09T00:06:00Z",
+    "pr": {
+      "created_at": "2026-10-09T00:01:00Z",
+      "merged_at": "2026-10-09T00:04:00Z"
+    },
+    "source": "github"
+  },
+  {
+    "id": 2,
+    "topic": "ticket.enriched.pr.merged",
+    "timestamp": "2026-10-09T00:06:00Z",
+    "pr": {
+      "created_at": "2026-10-09T00:01:00Z",
+      "merged_at": "2026-10-09T00:04:00Z"
+    },
+    "source": "github"
+  },
+  {
+    "id": 3,
+    "topic": "ticket.fallback.pr.opened",
+    "timestamp": "2026-10-09T00:02:00Z",
+    "pr": {
+      "merged_at": "2026-10-09T00:04:00Z"
+    },
+    "source": "github"
+  },
+  {
+    "id": 4,
+    "topic": "ticket.fallback.pr.merged",
+    "timestamp": "2026-10-09T00:06:00Z",
+    "pr": {
+      "created_at": "2026-10-09T00:01:00Z",
+      "closed_at": "2026-10-09T00:05:00Z"
+    },
+    "source": "github"
+  },
+  {
+    "id": 5,
+    "topic": "ticket.event-only.pr.merged",
+    "timestamp": "2026-10-09T00:06:00Z",
+    "pr": {
+      "created_at": "2026-10-09T00:01:00Z"
+    },
+    "source": "github"
+  },
+  {
+    "id": 6,
+    "topic": "ticket.open.pr.opened",
+    "timestamp": "2026-10-09T00:06:00Z",
+    "pr": {
+      "created_at": "2026-10-09T00:03:00Z"
+    },
+    "source": "github"
+  }
+]

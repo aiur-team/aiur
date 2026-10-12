@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
-  alias Aiur.Orchestrator.{CiLifecycle, CommentWake, Lifecycle, PushRouting, State}
+  alias Aiur.Orchestrator.{BlockerPropagation, CiLifecycle, CommentWake, Dispatcher, Lifecycle, MergeOrderAudit, OptimisticGuardEffects, PushRouting, RestackScheduler, State}
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
@@ -17,7 +17,10 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
   defp route_classified(state, {:pr_merged, identifier}, event),
-    do: CommentWake.mark_pr_merged_issue_done(state, identifier, pr_merged_opts(event))
+    do: state |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event)) |> RestackScheduler.merged(identifier, event) |> MergeOrderAudit.merged(identifier, event)
+
+  defp route_classified(state, {:optimistic_blocker_changed, identifier}, _event),
+    do: OptimisticGuardEffects.reconcile(state, force_blocker: identifier)
 
   defp route_classified(state, {:ci_failed, identifier}, _event),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :failed)
@@ -29,11 +32,11 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: PushRouting.maybe_pause_on_request(state, identifier, event)
 
   # Answering a blocking Command releases the dispatch gate in DecisionStore.
-  # Wake the normal poll so it refreshes that gate and reclaims a worker that
+  # Refresh the local gate for control calls, then wake the poll to reclaim a worker that
   # reconciliation stopped while the Command was open. The dispatch poll still
   # applies tracker, capacity, and other open-Command guards.
   defp route_classified(state, {:decision_answered, _identifier}, _event),
-    do: Lifecycle.wake_tick(state)
+    do: state |> Dispatcher.refresh_blocked_ticket_ids() |> Lifecycle.wake_tick()
 
   defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
     cond do
@@ -48,8 +51,11 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
-  defp route_classified(state, {:branch_push, blocker_identifier}, event),
-    do: PushRouting.record_blocker_branch_push(state, blocker_identifier, event)
+  defp route_classified(state, {:branch_push, blocker_identifier}, event) do
+    if Map.get(Map.get(event, :payload, event), :superseded, false),
+      do: state,
+      else: state |> PushRouting.record_blocker_branch_push(blocker_identifier, event) |> BlockerPropagation.pushed(blocker_identifier, event)
+  end
 
   defp route_classified(state, {:system_branch_push, branch}, event),
     do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
@@ -69,10 +75,12 @@ defmodule Aiur.Orchestrator.EventTopics do
   def pr_merged_opts(event) when is_map(event) do
     pr = if is_map(Map.get(event, :pr)), do: Map.get(event, :pr), else: %{}
 
-    [
+    opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
       pr_body: Map.get(pr, "body")
     ]
+
+    if Map.has_key?(pr, "number"), do: Keyword.put(opts, :pr_number, pr["number"]), else: opts
   end
 
   defp provisional_unblock?(event) do
@@ -137,7 +145,7 @@ defmodule Aiur.Orchestrator.EventTopics do
 
   @spec parse_branch_push_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_branch_push_topic(topic) do
-    case Regex.run(~r{\Aticket\.([^.]+)\.branch\.push\z}, topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.branch\.(?:push|force-push)\z}, topic) do
       [_, identifier] -> {:ok, identifier}
       _ -> :nomatch
     end
@@ -166,6 +174,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   @spec classify_event_topic(String.t()) :: {atom(), String.t()} | :nomatch
   def classify_event_topic(topic) do
     with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
+         :nomatch <- tag_topic(:optimistic_blocker_changed, parse_optimistic_blocker_topic(topic)),
          :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
          :nomatch <- tag_topic(:pr_merged, parse_pr_merged_topic(topic)),
          :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
@@ -175,6 +184,14 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
+    end
+  end
+
+  @spec parse_optimistic_blocker_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_optimistic_blocker_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.pr\.(?:closed_unmerged|reopened|opened)\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
     end
   end
 

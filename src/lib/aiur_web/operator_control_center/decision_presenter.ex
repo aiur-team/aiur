@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   display-only summary and never advances either canonical axis.
   """
 
-  alias Aiur.{Decision, DecisionSanitizer}
+  alias Aiur.{Commands, Decision}
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
 
@@ -50,8 +50,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     %{
       decision_id: decision.decision_id,
       version: decision.version,
-      ticket: DecisionSanitizer.ticket(decision.ticket),
-      source: DecisionSanitizer.source(decision.source),
+      ticket: Commands.sanitize_ticket(decision.ticket),
+      source: Commands.sanitize_source(decision.source),
       kind: decision.kind,
       authority: decision.authority,
       urgency: decision.urgency,
@@ -65,7 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       options: Enum.map(decision.options, &option_row/1),
       recommendation: decision.recommendation,
       consequence_of_delay: decision.consequence_of_delay,
-      artifacts: DecisionSanitizer.artifacts(decision.artifacts),
+      artifacts: Commands.sanitize_artifacts(decision.artifacts),
       created_at: decision.created_at,
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
@@ -77,11 +77,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       revisions: Enum.map(decision.revisions, &revision_row(&1, decision.revision_outcomes)),
       revision_result: decision.revision_result,
       superseded?: decision.revision_sequence > 0,
-      dispatch_attempts: Enum.map(decision.dispatch_attempts, &DecisionSanitizer.dispatch_attempt/1),
-      acknowledgement: DecisionSanitizer.lifecycle_fact(decision.acknowledgement),
-      resolution: DecisionSanitizer.lifecycle_fact(decision.resolution),
-      revision_follow_ups: DecisionSanitizer.follow_ups(decision.revision_follow_ups),
-      provenance: DecisionSanitizer.provenance(Map.get(decision, :provenance)),
+      dispatch_attempts: Enum.map(decision.dispatch_attempts, &Commands.sanitize_dispatch_attempt/1),
+      acknowledgement: Commands.sanitize_lifecycle_fact(decision.acknowledgement),
+      resolution: Commands.sanitize_lifecycle_fact(decision.resolution),
+      revision_follow_ups: Commands.sanitize_follow_ups(decision.revision_follow_ups),
+      provenance: Commands.sanitize_provenance(Map.get(decision, :provenance)),
       retryable: retryable?(decision),
       failure_reason: failure_reason(decision),
       lifecycle: lifecycle(decision)
@@ -108,7 +108,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       selected_option_id: answer.selected_option_id,
       custom_response: answer.custom_response,
       rationale: answer.rationale,
-      actor: DecisionSanitizer.actor(answer.actor),
+      actor: Commands.sanitize_actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
       accepted_at: answer.accepted_at
     }

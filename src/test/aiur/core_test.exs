@@ -1,7 +1,10 @@
 defmodule Aiur.CoreTest do
   use Aiur.TestSupport
+  import Aiur.TestSupport.RejectedWorkflow
+  import Aiur.TrackerIoPollBarrier, only: [await_poll_finished: 1]
 
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, LifecycleFence, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
@@ -19,6 +22,11 @@ defmodule Aiur.CoreTest do
     def fetch_issues_by_states(_states), do: {:ok, []}
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
     def hydrate_blocked_by(issue), do: {:ok, issue}
+  end
+
+  defmodule CheckpointNoPollClient do
+    def fetch_issues_by_states(_states, _opts \\ []), do: {:ok, []}
+    def fetch_candidate_issues, do: raise("queue-only checkpoint fixture must not poll the tracker")
   end
 
   defp stop_test_orchestrator(pid) when is_pid(pid) do
@@ -75,14 +83,10 @@ defmodule Aiur.CoreTest do
     assert config.agent.max_concurrent_builds == 4
     assert Config.max_concurrent_builds() == 4
 
-    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
-
-    assert_raise ArgumentError, ~r/interval_seconds/, fn ->
-      Config.settings!().polling.interval_seconds
-    end
-
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
     assert message =~ "polling.interval_seconds"
+    # The rejected reload leaves the last known good config in effect (#3961).
+    assert Config.settings!().polling.interval_seconds == 120
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: 45)
     assert Config.settings!().polling.interval_seconds == 45
@@ -91,16 +95,13 @@ defmodule Aiur.CoreTest do
     assert Config.settings!().max_vertical_panes == 4
     assert Config.max_vertical_panes() == 4
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 0)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 0)
     assert message =~ "max_vertical_panes"
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert message =~ "agent.max_turns"
 
-    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: -1)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: -1)
     assert message =~ "agent.max_concurrent_builds"
 
     write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 0)
@@ -113,8 +114,7 @@ defmodule Aiur.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: "none")
     assert Config.settings!().agent.max_turns == nil
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
     assert message =~ "tracker.active_states"
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -124,12 +124,12 @@ defmodule Aiur.CoreTest do
 
     assert {:error, :missing_linear_project_slug} = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_project_slug: "project",
-      codex_command: ""
-    )
+    assert {:error, {:invalid_workflow_config, message}} =
+             write_rejected_workflow_file!(Workflow.workflow_file_path(),
+               tracker_project_slug: "project",
+               codex_command: ""
+             )
 
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "codex.command"
     assert message =~ "can't be blank"
 
@@ -152,12 +152,10 @@ defmodule Aiur.CoreTest do
 
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: 123)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: 123)
     assert message =~ "codex.approval_policy"
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: 123)
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert {:error, {:invalid_workflow_config, message}} = write_rejected_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: 123)
     assert message =~ "codex.thread_sandbox"
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "123")
@@ -844,7 +842,6 @@ defmodule Aiur.CoreTest do
 
   test "missing running issues stop active agents without cleaning the workspace" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-missing-running-reconcile")
-
     previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
     issue_id = "issue-missing"
     issue_identifier = "MT-557"
@@ -869,7 +866,7 @@ defmodule Aiur.CoreTest do
         stop_test_orchestrator(pid)
       end)
 
-      Process.sleep(50)
+      await_poll_finished(pid)
 
       assert {:ok, workspace} =
                Aiur.PathSafety.canonicalize(Path.join(test_root, issue_identifier))
@@ -897,11 +894,11 @@ defmodule Aiur.CoreTest do
         initial_state
         |> Map.put(:running, %{issue_id => running_entry})
         |> Map.put(:claimed, MapSet.new([issue_id]))
-        |> Map.put(:retry_attempts, %{})
+        |> Map.merge(%{retry_attempts: %{}, poll_cycles_completed: 0})
       end)
 
       send(pid, :tick)
-      Process.sleep(100)
+      await_poll_finished(pid)
       state = :sys.get_state(pid)
 
       refute Map.has_key?(state.running, issue_id)
@@ -1092,7 +1089,7 @@ defmodule Aiur.CoreTest do
     issue_id = "issue-exhausted"
     ref = make_ref()
     orchestrator_name = Module.concat(__MODULE__, :ExhaustedRetryOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
@@ -1121,12 +1118,10 @@ defmodule Aiur.CoreTest do
     log =
       capture_log(fn ->
         send(pid, {:DOWN, ref, :process, self(), {:turn_start_failed, :provider_rejected}})
-        # Synchronous barrier inside the capture window: `:sys.get_state/1`
-        # blocks until the orchestrator has fully handled the :DOWN (and emitted
-        # both its "giving up" warning and the retry_exhausted alert), so the log
-        # is captured deterministically. A bare `Process.sleep/1` raced the
-        # async alert emission under suite load and flaked (#589).
-        :sys.get_state(pid)
+
+        await_orchestrator_state(pid, fn state ->
+          Enum.all?(state.tracker_tasks, fn {_ref, job} -> job.key != {:retry_exhausted, issue_id} end)
+        end)
       end)
 
     state = :sys.get_state(pid)
@@ -1301,7 +1296,7 @@ defmodule Aiur.CoreTest do
       restore_env("GITHUB_TOKEN", previous_github_token)
     end)
 
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
@@ -1325,7 +1320,6 @@ defmodule Aiur.CoreTest do
     end)
 
     send(pid, {:DOWN, ref, :process, self(), :response_timeout})
-    Process.sleep(50)
 
     assert %{attempt: 1, retry_token: retry_token, error: "agent exited: :response_timeout"} =
              :sys.get_state(pid).retry_attempts[issue_id]
@@ -1333,22 +1327,19 @@ defmodule Aiur.CoreTest do
     log =
       capture_log(fn ->
         send(pid, {:retry_issue, issue_id, retry_token})
-        Process.sleep(50)
+        await_orchestrator_state(pid, &(get_in(&1.retry_attempts, [issue_id, :retry_poll_failures]) == 1))
 
         assert %{attempt: 1, retry_poll_failures: 1, retry_token: retry_token} =
                  :sys.get_state(pid).retry_attempts[issue_id]
 
         send(pid, {:retry_issue, issue_id, retry_token})
-        Process.sleep(50)
+        await_orchestrator_state(pid, &(get_in(&1.retry_attempts, [issue_id, :retry_poll_failures]) == 2))
 
         assert %{attempt: 1, retry_poll_failures: 2, retry_token: retry_token} =
                  :sys.get_state(pid).retry_attempts[issue_id]
 
         send(pid, {:retry_issue, issue_id, retry_token})
-        # Barrier: blocks until the third retry (exhaustion path) is fully
-        # handled, so the synchronous `[alert]` log line is emitted before
-        # capture_log flushes — deterministic vs. a fixed sleep.
-        _ = :sys.get_state(pid)
+        await_orchestrator_state(pid, &Map.has_key?(&1.released_claims, issue_id))
       end)
 
     state = :sys.get_state(pid)
@@ -1370,13 +1361,17 @@ defmodule Aiur.CoreTest do
   test "stale retry timer messages do not consume newer retry entries" do
     issue_id = "issue-stale-retry"
     orchestrator_name = Module.concat(__MODULE__, :StaleRetryOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       stop_test_orchestrator(pid)
     end)
 
+    :ok = :sys.suspend(pid)
     initial_state = :sys.get_state(pid)
+    assert is_nil(initial_state.tick_timer_ref)
+    assert is_nil(initial_state.tick_token)
+    refute initial_state.poll_check_in_progress
     current_retry_token = make_ref()
     stale_retry_token = make_ref()
 
@@ -1395,7 +1390,8 @@ defmodule Aiur.CoreTest do
     end)
 
     send(pid, {:retry_issue, issue_id, stale_retry_token})
-    Process.sleep(50)
+    # Hold the message until explicitly released; the state read below is the mailbox barrier.
+    :ok = :sys.resume(pid)
 
     assert %{
              attempt: 2,
@@ -2552,7 +2548,7 @@ defmodule Aiur.CoreTest do
               if [ ! -f "#{port_closed_once}" ]; then
                 touch "#{port_closed_once}"
                 touch "#{port_closed_after_completion}"
-                exit 0
+                exec 0<&-; sleep 1; exit 0 # stdin closes first, so the queued write hits EPIPE (#4017)
               fi
             fi
             ;;
@@ -2657,9 +2653,18 @@ defmodule Aiur.CoreTest do
                  body: "repair from replacement"
                })
 
+      assert_receive {:DOWN, ^old_ref, :process, ^old_worker, _reason}, 15_000
       refute Process.alive?(old_worker)
 
-      replacement = :sys.get_state(orchestrator_pid).running[issue.id]
+      state =
+        await_orchestrator_state(orchestrator_pid, fn state ->
+          case state.running[issue.id] do
+            %{pid: pid} when is_pid(pid) -> pid != old_worker
+            _ -> false
+          end
+        end)
+
+      replacement = state.running[issue.id]
       assert is_pid(replacement.pid)
       assert Process.alive?(replacement.pid)
       assert replacement.pid != old_worker
@@ -2967,20 +2972,32 @@ defmodule Aiur.CoreTest do
         max_turns: 2
       )
 
-      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      previous_client = Application.fetch_env(:aiur, :linear_client_module)
+      Application.put_env(:aiur, :linear_client_module, CheckpointNoPollClient)
 
       on_exit(fn ->
-        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        case previous_client do
+          {:ok, client} -> Application.put_env(:aiur, :linear_client_module, client)
+          :error -> Application.delete_env(:aiur, :linear_client_module)
+        end
       end)
 
+      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
+      # Keep this checkpoint fixture independent of live tracker polling.
+      orchestrator_pid = start_supervised!({Orchestrator, name: orchestrator_name, initial_poll?: false})
+
+      test_pid = self()
+
       :sys.replace_state(orchestrator_pid, fn state ->
-        {queue_store, _item} =
+        {queue_store, item} =
           Aiur.AgentQueue.operator_message("MT-250", "focus on auth first")
           |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
+        send(test_pid, {:checkpoint_queue_item, item.id})
         %{state | queue_store: queue_store}
       end)
+
+      assert_received {:checkpoint_queue_item, request_id}
 
       issue = %Issue{
         id: "issue-checkpoint-queue",
@@ -2997,6 +3014,20 @@ defmodule Aiur.CoreTest do
                  issue,
                  nil,
                  orchestrator: orchestrator_name,
+                 run_turn: fn session, prompt, turn_issue, opts ->
+                   on_message = Keyword.fetch!(opts, :on_message)
+
+                   observe_completion = fn event ->
+                     if event.event == :turn_completed and get_in(event, [:payload, "params", "turn", "id"]) == "turn-checkpoint-main" do
+                       assert {:ok, :pending} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
+                       send(test_pid, :checkpoint_deferred_until_completion)
+                     end
+
+                     on_message.(event)
+                   end
+
+                   Aiur.CodingAgent.run_turn(session, prompt, turn_issue, Keyword.put(opts, :on_message, observe_completion))
+                 end,
                  issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
                )
 
@@ -3013,10 +3044,18 @@ defmodule Aiur.CoreTest do
           |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         end)
 
+      assert_received :checkpoint_deferred_until_completion
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "focus on auth first"
+      assert {:ok, :consumed} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
       assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-250")
+
+      assert Exchange.bindings_for(orchestrator_pid) != []
+      assert :ok = stop_supervised(Orchestrator)
+      assert Process.whereis(orchestrator_name) == nil
+      :sys.get_state(Exchange)
+      assert Exchange.bindings_for(orchestrator_pid) == []
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)

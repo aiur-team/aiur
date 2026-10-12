@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'fs';
+import { buildTokens } from '../src/tokens/build.mjs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -45,7 +46,8 @@ try {
   }
 
   // Concatenate all CSS into main file with LF line endings
-  const cssContent = cssFiles
+  const tokenCss = buildTokens(distDir);
+  const cssContent = tokenCss + cssFiles
     .map(file => {
       const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
       return content.replace(/\r\n/g, '\n');
