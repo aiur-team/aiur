@@ -1,0 +1,98 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 3797,
+        "parent": {
+          "number": 3774
+        },
+        "timelineItems": {
+          "nodes": [],
+          "pageInfo": {
+            "hasNextPage": false
+          }
+        },
+        "id": "issue-3797"
+      },
+      "pullRequests": {
+        "nodes": [
+          {
+            "number": 4010,
+            "headRefName": "aiur/3797-capture-github-pr-facts",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "mergedAt": "2026-10-04T10:00:00Z",
+            "isDraft": false,
+            "additions": 53,
+            "deletions": 7,
+            "changedFiles": 4,
+            "commits": {
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "abc123"
+            },
+            "closingIssuesReferences": {
+              "nodes": [
+                {
+                  "number": 3797,
+                  "id": "issue-3797"
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": false
+              }
+            },
+            "timelineItems": {
+              "nodes": [
+                {
+                  "__typename": "ReadyForReviewEvent",
+                  "createdAt": "2026-10-02T10:00:00Z"
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": false
+              }
+            },
+            "reviews": {
+              "nodes": [
+                {
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-10-03T10:00:00Z",
+                  "body": "",
+                  "author": {
+                    "__typename": "User",
+                    "login": "owner"
+                  }
+                },
+                {
+                  "state": "CHANGES_REQUESTED",
+                  "submittedAt": "2026-10-03T11:00:00Z",
+                  "body": "private review",
+                  "author": {
+                    "__typename": "User",
+                    "login": "someone"
+                  }
+                },
+                {
+                  "state": "APPROVED",
+                  "submittedAt": "2026-10-03T12:00:00Z",
+                  "body": "approved",
+                  "author": {
+                    "__typename": "Bot",
+                    "login": "review-bot"
+                  }
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": false
+              }
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      }
+    }
+  }
+}

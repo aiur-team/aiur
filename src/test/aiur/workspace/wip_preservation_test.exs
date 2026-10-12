@@ -1,11 +1,10 @@
 defmodule Aiur.Workspace.WipPreservationTest do
-  # #2743: a dirty workspace must never lose its uncommitted work to the
-  # stale-leftover recreate (#577) or to a workspace removal.
+  # #2743: stale-leftover recreation (#577) and removal must preserve dirty work.
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{AgentTeardown, WorkspaceCleanup}
-  alias Aiur.Workspace.{Layout, Ownership, Provisioner, Refresh, Remove, WipPreservation}
+  alias Aiur.Workspace.{Context, Layout, Ownership, Provisioner, Refresh, Remove, WipPreservation}
   alias Aiur.Workspace.WipPreservation.Retention
 
   setup do
@@ -21,7 +20,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
   describe "stale-leftover recreate (exit 65)" do
     test "saves every change before the recreate and the artifact restores the tree exactly", %{test_root: test_root} do
       identifier = "WIP-#{System.unique_integer([:positive])}"
-      {workspace, trace_file} = dirty_refresh_fixture!(test_root, identifier)
+      {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier)
       make_everything_dirty!(workspace)
       before = snapshot(workspace)
       subscribe!("ticket.#{identifier}.workspace.wip_preserved")
@@ -29,7 +28,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert :ok = Workspace.run_before_run_hook(workspace, todo_issue(identifier))
 
       # The recreate ran: a fresh clone on the base, with nothing dirty left.
-      assert trace_count(trace_file) == 2
+      assert trace_count(trace_path(trace_root, todo_issue(identifier))) == 2
       assert git!(["-C", workspace, "status", "--porcelain", "--untracked-files=all"]) == ""
       refute snapshot(workspace) == before
 
@@ -55,7 +54,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       state_dir: state_dir
     } do
       identifier = "WIP-FAIL-#{System.unique_integer([:positive])}"
-      {workspace, trace_file} = dirty_refresh_fixture!(test_root, identifier)
+      {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier)
       make_everything_dirty!(workspace)
       before = snapshot(workspace)
       block_state_dir!(state_dir)
@@ -64,7 +63,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert {:error, {:wip_preservation_failed, ^workspace, {:artifact_dir_unwritable, _path, _reason}}} =
                Workspace.run_before_run_hook(workspace, todo_issue(identifier))
 
-      assert trace_count(trace_file) == 1
+      assert trace_count(trace_path(trace_root, todo_issue(identifier))) == 1
       assert snapshot(workspace) == before
       assert git!(["-C", workspace, "status", "--porcelain"]) =~ "README.md"
 
@@ -93,7 +92,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
     test "the next turn input names the artifact and its restore commands", %{test_root: test_root} do
       identifier = "WIP-TURN-#{System.unique_integer([:positive])}"
       codex_trace = Path.join(test_root, "codex.trace")
-      {workspace, _trace_file} = dirty_refresh_fixture!(test_root, identifier, fake_codex_opts!(test_root, codex_trace))
+      {workspace, _trace_root} = dirty_refresh_fixture!(test_root, identifier, fake_codex_opts!(test_root, codex_trace))
       File.write!(Path.join(workspace, "README.md"), "unsaved agent edit\n")
 
       issue = %Issue{id: "issue-#{identifier}", identifier: identifier, title: "WIP turn", state: "todo", labels: ["agent:todo"]}
@@ -129,7 +128,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
     } do
       identifier = "WIP-HOLD-#{System.unique_integer([:positive])}"
       codex_trace = Path.join(test_root, "codex.trace")
-      {workspace, trace_file} = dirty_refresh_fixture!(test_root, identifier, fake_codex_opts!(test_root, codex_trace))
+      {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier, fake_codex_opts!(test_root, codex_trace))
       File.write!(Path.join(workspace, "README.md"), "unsaved agent edit\n")
       block_state_dir!(state_dir)
 
@@ -143,7 +142,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       refute_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 200
 
       assert File.read!(Path.join(workspace, "README.md")) == "unsaved agent edit\n"
-      assert trace_count(trace_file) == 1
+      assert trace_count(trace_path(trace_root, issue)) == 1
       refute File.exists?(codex_trace)
       assert File.read!(Path.join([workspace, "logs", "agent.ndjson"])) =~ "wip_preservation_failed"
 
@@ -275,8 +274,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
   end
 
   describe "untracked names" do
-    # Review of #2744, finding 1: tar's `-t` listing escapes these names, so a
-    # listing check failed every save of such a workspace.
+    # #2744: tar escapes these names in `-t`, so listing checks reject valid saves.
     test "a backslash, a newline, non-ASCII bytes and a leading -- are saved and restored", %{test_root: test_root} do
       workspace = cloned_workspace!(test_root, "ODD-1")
       names = ["back\\slash.txt", "new\nline.txt", "ñame-日本.txt", "--dash.txt", "dir/--nested\\x.txt"]
@@ -335,7 +333,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
     @tag timeout: 60_000
     test "a hung save command times out: the recreate keeps the workspace and holds the ticket", %{test_root: test_root} do
       identifier = "WIP-HANG-#{System.unique_integer([:positive])}"
-      {workspace, trace_file} = dirty_refresh_fixture!(test_root, identifier, workspace_wip: [command_timeout_ms: 500])
+      {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier, workspace_wip: [command_timeout_ms: 500])
       File.write!(Path.join(workspace, "README.md"), "unsaved agent edit\n")
       before = snapshot(workspace)
       fake_git!(test_root, :hang)
@@ -346,7 +344,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
                Workspace.run_before_run_hook(workspace, todo_issue(identifier))
 
       assert System.monotonic_time(:millisecond) - started < 10_000
-      assert trace_count(trace_file) == 1
+      assert trace_count(trace_path(trace_root, todo_issue(identifier))) == 1
       assert snapshot(workspace) == before
     end
 
@@ -386,8 +384,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert [%{"complete" => true}] = manifests(identifier)
     end
 
-    # The cleanup runs in a task, so a reopened ticket can be dispatched while
-    # the save runs. The new run's lease must stop the delete.
+    # The new run's lease must stop task cleanup from deleting a reopened ticket's save.
     test "a terminal cleanup keeps the workspace when a new run claims it during the save", %{test_root: test_root} do
       identifier = "RACE-#{System.unique_integer([:positive])}"
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: Path.join(test_root, "workspaces"))
@@ -734,14 +731,14 @@ defmodule Aiur.Workspace.WipPreservationTest do
     end
   end
 
-  # -- fixtures ---------------------------------------------------------------
-
   defp dirty_refresh_fixture!(test_root, identifier, workflow_opts \\ []) do
     source = committed_repo!(Path.join(test_root, "source"))
     remote = Path.join(test_root, "origin.git")
     workspace_root = Path.join(test_root, "workspaces")
-    trace_file = Path.join(test_root, "before-run.trace")
+    trace_root = Path.join(test_root, "before-run-traces")
     git!(["clone", "--quiet", "--bare", source, remote])
+
+    File.mkdir_p!(trace_root)
 
     write_workflow_file!(
       Workflow.workflow_file_path(),
@@ -757,7 +754,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
         """,
         hook_before_run: """
         PATH="/usr/bin:/bin:$PATH"
-        printf 'attempt\\n' >> #{shell_quote(trace_file)}
+        printf 'attempt\\n' >> #{shell_quote(trace_root)}/"${AIUR_TICKET_BRANCH#aiur/}"
         if [ ! -d .git ]; then
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
           git -C "$PWD" clone --quiet #{shell_quote(remote)} .
@@ -772,11 +769,10 @@ defmodule Aiur.Workspace.WipPreservationTest do
     )
 
     assert {:ok, workspace} = Workspace.create_for_issue(identifier)
-    {workspace, trace_file}
+    {workspace, trace_root}
   end
 
-  # Modified, staged, deleted, staged-new, binary tracked and binary untracked
-  # files, a nested untracked file, an executable bit and an unpushed commit.
+  # Dirty tracked and untracked files, executable bits and unpushed commits.
   defp make_everything_dirty!(workspace) do
     File.write!(Path.join(workspace, "local-only.txt"), "committed but never pushed\n")
     git!(["-C", workspace, "add", "local-only.txt"])
@@ -976,6 +972,9 @@ defmodule Aiur.Workspace.WipPreservationTest do
 
   defp todo_issue(identifier),
     do: %Issue{id: "issue-#{identifier}", identifier: identifier, title: "WIP", state: "todo", labels: ["agent:todo"]}
+
+  defp trace_path(trace_root, issue),
+    do: Path.join(trace_root, String.replace_prefix(Context.build(issue).branch_name, "aiur/", ""))
 
   defp trace_count(path), do: path |> File.read!() |> String.split("\n", trim: true) |> length()
 

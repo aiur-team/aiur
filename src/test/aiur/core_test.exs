@@ -1,6 +1,7 @@
 defmodule Aiur.CoreTest do
   use Aiur.TestSupport
   import Aiur.TestSupport.RejectedWorkflow
+  import Aiur.TrackerIoPollBarrier, only: [await_poll_finished: 1]
 
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
@@ -841,7 +842,6 @@ defmodule Aiur.CoreTest do
 
   test "missing running issues stop active agents without cleaning the workspace" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-missing-running-reconcile")
-
     previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
     issue_id = "issue-missing"
     issue_identifier = "MT-557"
@@ -866,7 +866,7 @@ defmodule Aiur.CoreTest do
         stop_test_orchestrator(pid)
       end)
 
-      Process.sleep(50)
+      await_poll_finished(pid)
 
       assert {:ok, workspace} =
                Aiur.PathSafety.canonicalize(Path.join(test_root, issue_identifier))
@@ -894,11 +894,11 @@ defmodule Aiur.CoreTest do
         initial_state
         |> Map.put(:running, %{issue_id => running_entry})
         |> Map.put(:claimed, MapSet.new([issue_id]))
-        |> Map.put(:retry_attempts, %{})
+        |> Map.merge(%{retry_attempts: %{}, poll_cycles_completed: 0})
       end)
 
       send(pid, :tick)
-      Process.sleep(100)
+      await_poll_finished(pid)
       state = :sys.get_state(pid)
 
       refute Map.has_key?(state.running, issue_id)

@@ -33,6 +33,12 @@ def git(workspace, *args):
     return result.stdout.strip()
 
 
+def disable_git_maintenance(workspace):
+    git(workspace, "config", "gc.auto", "0")
+    git(workspace, "config", "maintenance.auto", "false")
+    git(workspace, "config", "gc.autoDetach", "false")
+
+
 def fixture(root, repo=None, old_base=None, new_base=None):
     root.mkdir(parents=True)
     source = root / "source"
@@ -41,12 +47,15 @@ def fixture(root, repo=None, old_base=None, new_base=None):
         old_base = git(repo.resolve(), "rev-parse", old_base)
         new_base = git(repo.resolve(), "rev-parse", new_base)
         git(root, "init", "--bare", str(source))
+        disable_git_maintenance(source)
         git(source, "fetch", str(repo), f"{old_base}:refs/heads/pre-skills",
             f"{new_base}:refs/heads/main")
         git(root, "clone", "--branch", "pre-skills", str(source), str(workspace))
+        disable_git_maintenance(workspace)
     else:
         source.mkdir()
         git(source, "init", "-b", "main")
+        disable_git_maintenance(source)
         git(source, "config", "user.name", "Skills Regression")
         git(source, "config", "user.email", "skills@example.invalid")
         skill = source / ".claude/skills/aiur-agent/SKILL.md"
@@ -55,6 +64,7 @@ def fixture(root, repo=None, old_base=None, new_base=None):
         git(source, "add", ".claude")
         git(source, "commit", "-m", "Before tracked skills link")
         git(root, "clone", str(source), str(workspace))
+        disable_git_maintenance(workspace)
         (source / ".agents").mkdir()
         (source / ".agents/skills").symlink_to("../.claude/skills")
         git(source, "add", ".agents/skills")

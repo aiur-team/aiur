@@ -494,8 +494,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -1078,8 +1078,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                }
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==
-               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do
@@ -1701,7 +1701,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(first, issue, gone, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}
+      assert_receive {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}, 100
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
 
@@ -1888,7 +1888,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   defp poll_ci(state, issue, result, opts \\ []) do
     next =
       CiLifecycle.poll_github_ci(
-        state,
+        %{state | last_ci_poll_started_at_ms: nil},
         Keyword.merge(
           [
             # Hermetic digest and alert ledger; recovery behavior has its own tests.

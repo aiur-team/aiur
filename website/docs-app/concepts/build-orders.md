@@ -102,6 +102,10 @@ This detection makes no GitHub request. Retained CI and merge facts survive labe
 
 ## Queueing a Build Order
 
+Dispatch starts ready work before optimistic work, then ranks optimistic candidates by open dependent-chain depth and downstream count.
+
+`build_queue.optimistic_slot_share` defaults to 0.5 of the effective agent limit (at least one slot); zero disables optimistic starts. A merged blocker frees share on the next cycle. Existing runners keep their slots.
+
 `aiur queue add --build-order <root> [--queue NAME] [--start-on TRIGGER]` adopts a root and tracks its open members and native prerequisite edges. A member already owned by another queue stays there; adoption reports a refusal for that member. Up to 32 roots can be adopted.
 
 When a start trigger permits work before a blocker PR merges, dispatch binds the blocker’s events before starting the dependent. A fresh prewarmed ticket branch starts at the evaluated blocker SHA for one unmerged blocker. If fetching the head or checking its ancestry fails, checkout uses the base.
@@ -111,6 +115,7 @@ Several blockers start from the configured base. An existing remote ticket branc
 The optimistic-start prompt lists every blocker ref and SHA, requires an ancestry check, and covers cold or remote workspaces where hooks choose the checkout.
 
 With one unmerged blocker, the dependent PR targets its branch; with several, it targets the configured base. The PR stays draft until the blockers merge.
+
 
 Members receive `agent:queued`; readiness and item states follow the [build queue model](/concepts/ticket-lifecycle#build-queue).
 
@@ -202,7 +207,8 @@ Queue faults emit once per cause and subject, then emit `.resolved` when cleared
 | Cause | Opens | Clears |
 | --- | --- | --- |
 | `prerequisite_failed` | Agent error, closed-unmerged PR, not-planned or duplicate closure | No dependent edge still has that cause; unknown evidence retains the latch |
-| `dependency_changed_after_start` | A promoted, claimed ticket becomes unready | Readiness returns or the ticket completes |
+| `dependency_changed_after_start` | A promoted, claimed non-optimistic ticket becomes unready | Readiness returns or the ticket completes |
+| `optimistic_blocker_failed` | An optimistic blocker fails terminally; persistent trouble or integration churn emits info only | Executor unparks/closes the dependent, its ledger record closes, or non-terminal trouble recovers |
 | `promoted_unauthorized` | Dispatch declines authorization (requires a free slot) | Decline clears or ticket is claimed; an unavailable probe retains it |
 | `write_failed` | Five consecutive queue-label write failures | Next successful write |
 | `merged_issue_open` | An `issue_closed` prerequisite PR merged and its issue remains open past grace | Issue closes or no dependent requires `issue_closed` |
@@ -212,6 +218,16 @@ Queue faults emit once per cause and subject, then emit `.resolved` when cleared
 A prerequisite failure names the prerequisite and lists direct dependents before
 transitive dependents. Changing that set does not re-fire; changing the failure
 cause does. Durable latches survive restarts.
+
+For optimistic dependents, terminal blocker failure pauses running work, parks the dependent, and marks its PR draft while keeping its branch and PR. Parked dependents release their fleet slot and their place in the optimistic share.
+
+A closed-unmerged blocker PR has a replacement grace of `build_queue.optimistic_failure_grace_seconds` (600 seconds by default); not-planned/duplicate closure or removal of the dependency edge parks immediately.
+
+This works without an adopted queue. Reopening or replacing the blocker within the grace updates the ledger without parking. Recovery after parking never auto-resumes work: the Executor chooses to wait for a replacement, re-base on the default branch and resume, or close the dependent.
+
+Agent error, pause, parking, or a reset to todo keeps optimistic dependents running; persistent trouble past the grace raises an informational attention. `build_queue.optimistic_churn_attention_threshold` (default 3, 0 disables) raises info after repeated conflicting integrations.
+
+`prerequisite_failed` lists ledgered dependents as already started; `dependency_changed_after_start` is suppressed for ledgered optimistic starts. The guard owns the new attention, so queue readiness alone cannot clear a terminal park.
 
 Ticket topics use `ticket.<id>.queue.attention.<cause>`; input and store faults
 use `system.queue.attention.<cause>`. The store fault uses an in-memory latch:
@@ -247,12 +263,16 @@ Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;
 unknown start, end, and join times remain unknown.
 
+Optimistic dispatches persist their attempt, trigger, blocker PR facts and counters in `optimistic-starts.json` under the repository’s state node. Records survive restarts, close on merge or discard, and remain for 14 days after closure. A ledger failure warns and alerts without stopping dispatch.
+
+Run telemetry joins the `optimistic_start` point to the dispatch using the same attempt ID.
+
 ### Cascading blocker pushes
 
-With `tracker.propagate_blocker_pushes`, an idle dependent incorporates only its direct blocker’s new push. The default enables this for members of queues with optimistic start triggers (`pr_opened`, `pr_ci_green`, `pr_approved`); an explicit boolean overrides it. 
+With `tracker.propagate_blocker_pushes`, an idle dependent incorporates only its direct blocker’s new push. The default enables this for members of queues with optimistic start triggers (`pr_opened`, `pr_ci_green`, `pr_approved`); an explicit boolean overrides it.
 
-In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. Every blocker history rewrite dispatches agent rework (`upstream_rewrite`); the daemon never rebases draft or reviewed dependents. 
+In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. Every blocker history rewrite dispatches agent rework (`upstream_rewrite`); the daemon never rebases draft or reviewed dependents.
 
-A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes. 
+A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes.
 
 Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.
