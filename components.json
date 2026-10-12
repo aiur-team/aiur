@@ -2,6 +2,15 @@
   "manifest_version": 1,
   "seams": [
     {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/optimistic_guard_effects.ex"
+      ],
+      "reason": "#3761 serialize guard attentions through the optional queue facade; disabled queues use journaled transient publication"
+    },
+    {
       "from": "control-cli",
       "to_module": "Aiur.ExperimentsCLI",
       "kind": "reference",
@@ -224,6 +233,15 @@
         "src/lib/aiur/merge_policy_cli.ex"
       ],
       "reason": "#3881: control RPC exposes optional watcher state and inherited-failure queries; absent watcher returns unknown"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHub.Transport",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/pr_merge/record.ex"
+      ],
+      "reason": "#3880: daemon independently verifies the claimed merge through the governed GitHub read transport"
     }
   ],
   "ports": [

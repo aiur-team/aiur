@@ -189,6 +189,8 @@ defmodule Aiur.Env.Schema do
     {"AIUR_SESSION_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Session tempfile path; set by the launcher."},
     {"AIUR_WORKSPACE_ROOT_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the workspace root from."},
     {"AIUR_ALERT_LEDGER_PATH_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the alert ledger path from."},
+    {"AIUR_AGENT_BIN", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent executable marker; operator merge commands refuse when present."},
+    {"AIUR_PR_MERGE_ENGINE", type: :path, validate: false, example: false, group: :runtime, purpose: "Launcher engine used for credential-free PR merge outcome RPC."},
     {"AIUR_ARGV_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File carrying the CLI argv; set by the launcher shim."},
     {"AIUR_CLI_VERSION", type: :string, validate: false, example: false, group: :runtime, purpose: "Installed CLI package version; set by the launcher."},
     {"AIUR_DEV_TEST_TICKET_IDS", type: :string, validate: false, example: false, group: :runtime, purpose: "Pinned ticket IDs passed from the dev test launcher to the daemon."},

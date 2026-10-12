@@ -4,6 +4,7 @@ defmodule Aiur.BuildQueue.Server do
   require Logger
 
   alias Aiur.BuildQueue.{
+    Attention,
     AttentionActions,
     AttentionHealth,
     Bookkeeping,
@@ -85,6 +86,24 @@ defmodule Aiur.BuildQueue.Server do
   @impl true
   def handle_call(:read_model, _from, state), do: {:reply, ReadModel.build(state), state}
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
+
+  def handle_call({:optimistic_attention, action, id, payload}, _from, state) when action in [:open, :resolve] do
+    cause = if payload[:action] == :none, do: {:optimistic_blocker_failed, if(payload[:cause] == :churn, do: :churn, else: :trouble)}, else: :optimistic_blocker_failed
+
+    result =
+      case action do
+        :open ->
+          Attention.open(cause, id, payload, store: state.store)
+
+        :resolve ->
+          resolve_optimistic_attention(id, state.store)
+      end
+
+    case state.store.load() do
+      {:ok, document} -> {:reply, result, %{state | document: document}}
+      {:error, reason} -> {:reply, {:error, reason}, AttentionHealth.store(%{state | status: :store_unavailable})}
+    end
+  end
 
   def handle_call(:show, _from, state) do
     model = Map.take(state, [:status, :phase, :freshness, :projections, :actions, :reconciles, :sources])
@@ -198,6 +217,15 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   def handle_call({:release, _target}, _from, state), do: {:reply, {:error, state.status}, state}
+
+  defp resolve_optimistic_attention(id, store) do
+    Enum.reduce_while([:optimistic_blocker_failed, {:optimistic_blocker_failed, :trouble}, {:optimistic_blocker_failed, :churn}], :ok, fn key, _ ->
+      case Attention.resolve(key, id, store) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
 
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
