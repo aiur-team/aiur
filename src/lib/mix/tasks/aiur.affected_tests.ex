@@ -65,6 +65,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
 
   @doc false
+  @spec changed_files(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def changed_files(root, base) do
     case System.get_env("AIUR_CI_CHANGED_PATHS_B64") do
       nil ->
