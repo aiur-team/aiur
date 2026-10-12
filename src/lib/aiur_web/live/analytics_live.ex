@@ -3,15 +3,14 @@ defmodule AiurWeb.AnalyticsLive do
   Authenticated, read-only LiveView for latest-run utilization. It derives every
   chart from the durable `Aiur.RunTelemetry` stream via the analytics
   `Presenter`, and renders them as inline SVG inside the Operator Control Center
-  shell. Legend, sort, and time-range interactions are plain LiveView events —
-  no client-side charting.
+  shell. Legend, sort, and time-range interactions are plain LiveView events — no client-side charting.
   """
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
-
-  alias Aiur.{PollCadence, UsageAggregate}
+  require Logger
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
+  alias Aiur.UsageAggregate
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   alias AiurWeb.OperatorControlCenter.{
@@ -23,9 +22,10 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Runtime, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
+  # Matches the CLI: telemetry within this window is "just now", older telemetry shows elapsed age.
   @source_fresh_ms 30_000
 
   @impl true
@@ -59,8 +59,49 @@ defmodule AiurWeb.AnalyticsLive do
   def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
 
   @impl true
-  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
+  def handle_async(:analytics_model, {:ok, {result, rtk}}, socket) do
+    now = DateTime.utc_now()
+    socket = assign(socket, :rtk, rtk)
+
+    socket =
+      case result do
+        {:ok, model} ->
+          domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
+
+          socket
+          |> assign(
+            model: model,
+            provider_spend: provider_spend(socket, model.source_boot_id),
+            selected: MapSet.new(model.actors, & &1.key),
+            unavailable: nil,
+            source: source_info(model, now),
+            now: now
+          )
+          |> assign_time_domain(domain)
+
+        {:unavailable, reason} ->
+          assign(socket,
+            model: nil,
+            chart_model: nil,
+            provider_spend: %{state: :unavailable},
+            time_domain: nil,
+            selected: MapSet.new(),
+            source: nil,
+            unavailable: reason,
+            now: now
+          )
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async(:analytics_model, {:exit, reason}, socket) do
+    Logger.warning("Analytics loading failed: #{inspect(reason)}")
+    handle_async(:analytics_model, {:ok, {{:unavailable, :error}, %{state: :absent, title: "Compression unavailable", message: "Analytics loading failed."}}}, socket)
+  end
+
   @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
   @impl true
@@ -125,7 +166,8 @@ defmodule AiurWeb.AnalyticsLive do
         <p :if={!@capture_enabled?} id="analytics-capture-off" role="status" class="an-empty">
           Analytics capture is off (observability.telemetry_enabled: false). Experiments will have no data for this period.
         </p>
-        <div :if={@unavailable} class="an-empty" data-empty-reason={@unavailable}>
+        <p :if={@unavailable == :loading} role="status" class="an-empty">Loading run analytics…</p>
+        <div :if={@unavailable && @unavailable != :loading} class="an-empty" data-empty-reason={@unavailable}>
           <div :if={@unavailable == :no_telemetry}>
             <p><b>No run telemetry to analyze yet.</b></p>
             <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
@@ -345,53 +387,8 @@ defmodule AiurWeb.AnalyticsLive do
     """
   end
 
-  defp load_model(socket) do
-    now = DateTime.utc_now()
-
-    # The Full-log range spans every boot: the current boot stays a live bounded
-    # tail read and prior boots come from materialized run summaries (falling
-    # back to a full parse before the first materialization).
-    session = if socket.assigns.range == :full, do: :cross, else: :current
-
-    opts =
-      [
-        range: socket.assigns.range,
-        session: session,
-        telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file),
-        orchestrator: AiurWeb.Endpoint.config(:orchestrator) || Aiur.Orchestrator,
-        snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.Endpoint.config(:snapshot_timeout_ms) || 15_000)
-      ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
-
-    socket = assign(socket, :rtk, rtk_panel())
-
-    case Presenter.load(opts) do
-      {:ok, model} ->
-        domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
-
-        socket
-        |> assign(
-          model: model,
-          provider_spend: provider_spend(socket, model.source_boot_id),
-          selected: MapSet.new(model.actors, & &1.key),
-          unavailable: nil,
-          source: source_info(model, now),
-          now: now
-        )
-        |> assign_time_domain(domain)
-
-      {:unavailable, reason} ->
-        assign(socket,
-          model: nil,
-          chart_model: nil,
-          provider_spend: %{state: :unavailable},
-          time_domain: nil,
-          selected: MapSet.new(),
-          source: nil,
-          unavailable: reason,
-          now: now
-        )
-    end
-  end
+  defp load_model(socket),
+    do: Runtime.load(socket, ScopeResolver.telemetry_opts(socket.assigns.analytics_scope), &rtk_panel/0)
 
   # The rtk panel reports a measurement rtk itself took, so every way that
   # measurement can be missing is spelled out in words. A percentage is

@@ -250,7 +250,9 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({:running_changed, _summaries}, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> refresh_grid()}
+  def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
+
+  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
 
   def handle_info({:status_changed, %{identifier: _identifier}}, socket) do
     {:noreply, refresh_grid(socket)}

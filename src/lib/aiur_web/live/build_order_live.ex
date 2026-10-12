@@ -129,9 +129,10 @@ defmodule AiurWeb.BuildOrderLive do
   def handle_info({:running_changed, _summaries}, socket),
     do:
       socket
-      |> DashboardShell.refresh_pause()
       |> SourceRuntime.schedule_reload()
       |> then(&{:noreply, &1})
+
+  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
 
   def handle_info({:build_order_adhoc_updated, _snapshot}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}

@@ -15,13 +15,27 @@ defmodule Aiur.CI.FailureDigest do
 
   @spec build(String.t(), keyword()) :: {:ok, t()} | {:error, term()}
   def build(sha, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, ci} <- PullRequests.fetch_commit_ci_status(sha, opts) do
+    with {:ok, ci} <- PullRequests.fetch_commit_ci_status(sha, opts) do
+      build_from_ci(sha, ci, opts)
+    end
+  end
+
+  @spec build_from_ci(String.t(), map(), keyword()) :: {:ok, t()} | {:error, term()}
+  def build_from_ci(sha, ci, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo() do
+      ci = watched_ci(ci, opts)
       runs = ci.check_runs |> Enum.filter(&(&1["status"] == "completed" and &1["conclusion"] in @failed)) |> Enum.sort_by(& &1["id"])
       key = evidence_key(owner, repo, sha, ci)
       evidence = if runs == [], do: %{"annotations" => [], "known" => []}, else: evidence(key, runs, sha, opts)
       issues = if runs == [], do: {:ok, []}, else: FailureEvidence.flake_issues(opts)
       {:ok, digest(runs, ci.commit_status, evidence, issues)}
+    end
+  end
+
+  defp watched_ci(ci, opts) do
+    case Keyword.fetch(opts, :check_suite_ids) do
+      {:ok, ids} -> %{ci | check_runs: Enum.filter(ci.check_runs, &(get_in(&1, ["check_suite", "id"]) in ids)), commit_status: %{"statuses" => []}}
+      :error -> ci
     end
   end
 

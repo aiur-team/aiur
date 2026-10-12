@@ -82,7 +82,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   def normalize(event_type, payload, opts) when is_binary(event_type) and is_map(payload) do
     with {:ok, repo} <- tracked_repo(payload, opts) do
-      normalize_event(event_type, payload, repo)
+      normalize_event(event_type, payload, repo, opts)
     end
   rescue
     error -> {:error, {:normalizer_exception, Exception.message(error)}}
@@ -157,6 +157,18 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # Mirrors GithubCommentsPoller.publish_issue_comment/3 and
   # publish_pr_issue_comment/4, including the Agent Workpad filter.
   # ---------------------------------------------------------------------------
+
+  defp normalize_event(event_type, payload, repo, opts) when event_type in ["check_suite", "check_run"] do
+    case normalize_event(event_type, payload, repo) do
+      {:drop, {:unresolved_ticket, _, "completed"}} ->
+        ReconcileHints.main_check_reconcile(Map.fetch!(payload, event_type), event_type, opts)
+
+      result ->
+        result
+    end
+  end
+
+  defp normalize_event(event_type, payload, repo, _opts), do: normalize_event(event_type, payload, repo)
 
   defp normalize_event("issue_comment", payload, repo) when is_map(payload) do
     action = Map.get(payload, "action")

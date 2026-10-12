@@ -4,19 +4,17 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
   alias Phoenix.LiveView.Socket
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [connected?: 1]
-
   alias Aiur.{AgentPubSub, Orchestrator}
   alias Aiur.Orchestrator.{GlobalPause, SnapshotStore}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.{Endpoint, RefreshRelay}
 
   @spec mount(Socket.t()) :: Socket.t()
   def mount(socket) do
-    if connected?(socket) do
-      AgentPubSub.subscribe_running()
-    end
-
     socket
+    |> RefreshRelay.mount(
+      &AgentPubSub.subscribe_fleet_invalidation/0,
+      [:fleet_changed]
+    )
     |> assign(:globally_paused, pause_state())
     |> assign(:writable, Endpoint.config(:dashboard_writable) == true)
     |> assign(:global_pause_error, nil)
@@ -34,17 +32,10 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
     end
   end
 
-  @spec shell_state(boolean() | nil, boolean(), String.t() | nil) :: map()
-  def shell_state(paused, writable, error),
-    do: %{globally_paused: paused, writable: writable, global_pause_error: error}
-
   @spec handle_info(term(), Socket.t()) :: {:noreply, Socket.t()}
   def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh(socket)}
   def handle_info(:fleet_changed, socket), do: {:noreply, refresh(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
-
-  @spec handle_event(term(), term(), Socket.t()) :: {:noreply, Socket.t()}
-  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, toggle(socket)}
 
   defp do_toggle(socket) do
     target = not socket.assigns.globally_paused
@@ -55,8 +46,11 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
         |> assign(:globally_paused, target)
         |> assign(:global_pause_error, nil)
 
-      {:error, _reason} ->
-        assign(socket, :global_pause_error, "Global pause could not be confirmed. Refresh the page before retrying.")
+      {:error, {:global_pause_persistence_failed, _reason}} ->
+        assign(socket, :global_pause_error, "Global pause was not changed because its state could not be persisted. The daemon remains in its previous state; check the daemon log and retry.")
+
+      {:error, reason} ->
+        assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
     end
   end
 

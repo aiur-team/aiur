@@ -95,7 +95,7 @@ and refuse direct REST or GraphQL issue creation that bypasses the checked label
 flags. The aiur-build publication validator separately refuses a Build Order
 whose executable members are projected undispatched. Use
 `gh issue create --label ...`; keep `gh issue list --search 'no:label'` as the
-independent safety-net audit before treating a queue as empty.
+independent safety-net audit before treating a queue as empty. An `optimistic_blocker_failed` wake names the dependent, blocker, cause, and action. Choose: wait for a replacement blocker, re-base the dependent on the default branch and resume it, or close it. Aiur keeps the branch and PR; recovery never auto-resumes parked work. Info with action `none` means work keeps running.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected

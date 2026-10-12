@@ -67,8 +67,26 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
 
     assert {:ok, _} = GlobalPause.set_global_pause(true)
 
+    Process.sleep(600)
     assert render(view) =~ "Resume all agents"
     assert has_element?(view, "#ax-pause[aria-checked=true]")
+  end
+
+  test "coalesces a pause invalidation burst into one snapshot read" do
+    {:ok, view, _html} = live(authorized_conn(), "/analytics")
+    :erlang.trace_pattern({SnapshotStore, :read, 2}, true, [:global])
+    :erlang.trace(view.pid, true, [:call])
+
+    try do
+      for _ <- 1..20, do: Aiur.AgentPubSub.broadcast_fleet_refresh()
+
+      assert_receive {:trace, pid, :call, {SnapshotStore, :read, _args}}, 2_000
+      assert pid == view.pid
+      refute_receive {:trace, ^pid, :call, {SnapshotStore, :read, _args}}, 100
+    after
+      :erlang.trace(view.pid, false, [:call])
+      :erlang.trace_pattern({SnapshotStore, :read, 2}, false, [:global])
+    end
   end
 
   test "read-only mode disables the shell toggle and ignores forged events" do
@@ -85,8 +103,24 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
 
   test "stale orchestrator snapshots render unknown and keep pause disabled" do
     orchestrator = Aiur.Orchestrator
+    previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+    Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 1)
+    on_exit(fn -> restore(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
+
     :ok = SnapshotStore.publish(orchestrator, %{globally_paused: true})
-    reconfigure_endpoint(:orchestrator, self())
+    Process.sleep(5)
+
+    {:ok, view, html} = live(authorized_conn(), "/analytics")
+
+    assert html =~ "Pause state unknown"
+    assert has_element?(view, "#ax-pause[disabled]")
+    refute has_element?(view, "#ax-pause[aria-checked]")
+  end
+
+  test "an unavailable orchestrator snapshot renders unknown and keeps pause disabled" do
+    previous_orchestrator = Endpoint.config(:orchestrator)
+    reconfigure_endpoint(:orchestrator, :missing_orchestrator)
+    on_exit(fn -> Application.put_env(:aiur, Endpoint, put_endpoint_config(:orchestrator, previous_orchestrator)) end)
 
     {:ok, view, html} = live(authorized_conn(), "/analytics")
 

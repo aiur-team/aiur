@@ -58,7 +58,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>
-        <span class={["ax-paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">All agents paused</span>
+        <span class={["ax-paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
       <div class="app-layout">
         <aside class="sidenav">
