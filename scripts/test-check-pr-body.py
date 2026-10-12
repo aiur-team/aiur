@@ -16,6 +16,52 @@ spec.loader.exec_module(gate)
 
 
 class PrBodyGateTests(unittest.TestCase):
+    def test_worker_skill_example_matches_repository_template(self):
+        root = Path(__file__).resolve().parent.parent
+        skill = (root / '.claude/skills/aiur-agent/dev-loop.md').read_text()
+        template = (root / '.github/pull_request_template.md').read_text()
+        example = skill.split('```markdown\n', 1)[1].split('\n```', 1)[0]
+
+        for heading in [
+            '#### Context', '#### TL;DR', '#### Summary', '#### Alternatives',
+            '#### Complexity routing', '#### Docs', '## Local tests',
+        ]:
+            self.assertIn(heading, example)
+            self.assertIn(heading, template)
+
+        self.assertIn('update `Tested head:` to the new full head SHA', skill)
+        self.assertIn('scripts/check-pr-body.py', skill)
+        self.assertNotIn('Do not include complexity-routing explanations', skill)
+
+        body = example.replace('Closes #<!-- issue number -->', 'Closes #4345')
+        body = body.replace('<!-- Why is this change needed? -->', 'Keep worker guidance aligned with CI.')
+        body = body.replace('*<!-- Short description of the change -->*', '*Align PR guidance with the required gate.*')
+        body = body.replace('<!-- High-level change -->', 'Update the worker PR body instructions.')
+        body = body.replace('<!-- Alternatives considered and why not -->', 'Keep the template as the single source of truth.')
+        body = body.replace('<!-- complexity:N or untagged -> treated as complexity:3 -->', 'complexity:3')
+        body = body.replace('<!-- Skills and model/provider path when relevant -->', 'ce-work')
+        body = body.replace('<!-- Why this route fit -->', 'The contained documentation and test change fits this route.')
+        body = body.replace('<!-- Whether the recommendation was followed or changed -->', 'Followed the recommendation.')
+        body = body.replace('- [ ] Docs updated in this PR — name the pages\n- [ ] Docs not required', '- [ ] Docs not required')
+        body = body.replace('<!-- all / partial / none; at least the configured mode -->', 'partial')
+        body = body.replace('<!-- full 40-character pushed SHA; update after every push -->', 'a' * 40)
+        body = body.replace('<!-- base ref @ full 40-character SHA -->', 'main @ ' + 'b' * 40)
+        body = body.replace('<!-- why these tests cover the change -->', 'The integration test exercises this example with the shared checker.')
+        body = body.replace('<!-- exact command -->', 'python3 scripts/test-check-pr-body.py')
+        body = body.replace('<!-- actual result -->', 'passed')
+
+        with tempfile.TemporaryDirectory(prefix='pr-body-skill-') as scratch:
+            body_path = Path(scratch) / 'body.md'
+            body_path.write_text(body)
+            result = subprocess.run([
+                'elixir', '-r', str(root / 'src/lib/aiur/local_test_evidence.ex'),
+                '-r', str(root / 'src/lib/mix/tasks/pr_body.check.ex'),
+                '-e', 'Mix.start(); Mix.Tasks.PrBody.Check.run(System.argv())',
+                '--', '--file', str(body_path), '--policy', 'partial', '--head', 'a' * 40,
+            ], cwd=root, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('PR body format OK', result.stdout)
+
     def test_both_sides_of_rollout_and_initial_unlanded_gate(self):
         cutoff = gate.timestamp('2026-10-11T12:00:00Z')
         for created, expected in [
