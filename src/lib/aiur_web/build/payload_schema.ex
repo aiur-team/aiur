@@ -34,9 +34,12 @@ defmodule AiurWeb.Build.PayloadSchema do
       "override" => nullable(object(%{"hours" => :number, "reason" => :string, "by" => nullable(:string), "at" => nullable(:integer)})),
       "added" => :boolean,
       "deps" => list(:id),
+      "children" => list(:id),
+      "dep_states" => {:dictionary, enum(~w(cleared blocking terminal_unsatisfied unknown))},
+      "deps_missing" => nullable(:nonnegative),
       "wave" => nullable(:integer),
       "qpos" => nullable(:nonnegative),
-      "cue" => nullable(object(cue())),
+      "cue" => nullable(object(cue(), ["unknown"])),
       "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed))}))
     }
   end
@@ -80,7 +83,15 @@ defmodule AiurWeb.Build.PayloadSchema do
   @spec usage(String.t()) :: map() | nil
   def usage("locked"), do: %{"state" => {:literal, "locked"}, "accessible_name" => :string, "authentication_path" => :string, "reason" => :string}
   def usage("unavailable"), do: %{"state" => {:literal, "unavailable"}, "observed_at" => nullable(:integer), "reason" => :string}
-  def usage("authorized"), do: %{"state" => {:literal, "authorized"}, "observed_at" => nullable(:integer), "apis" => list(object(provider())), "providers" => list(object(provider()))}
+
+  def usage("authorized"),
+    do: %{
+      "state" => {:literal, "authorized"},
+      "observed_at" => nullable(:integer),
+      "apis" => list(object(provider(), ~w(lines icon stale observed_at note))),
+      "providers" => list(object(provider(), ~w(lines icon stale observed_at note)))
+    }
+
   def usage(_state), do: nil
 
   defp feature_stats do
@@ -110,11 +121,17 @@ defmodule AiurWeb.Build.PayloadSchema do
       "session" => nullable(object(window())),
       "weekly" => nullable(object(window())),
       "credits" => nullable(object(%{"pct" => nullable({:range, 0, 100}), "left" => :string, "tip" => list({:pair, :string})})),
-      "none" => :boolean
+      "none" => :boolean,
+      "lines" => nullable(list(object(line()))),
+      "icon" => nullable({:literal, "github"}),
+      "stale" => :boolean,
+      "observed_at" => nullable(:integer),
+      "note" => nullable(:string)
     }
   end
 
-  defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => :string}
+  defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => nullable(:string)}
+  defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
   defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 
   defp epic,
@@ -143,7 +160,8 @@ defmodule AiurWeb.Build.PayloadSchema do
       "wait" => nullable(:nonnegative),
       "waitAny" => :boolean,
       "failed" => nullable(object(%{"by" => :positive, "blocks" => list(:positive)})),
-      "blockedChain" => :boolean
+      "blockedChain" => :boolean,
+      "unknown" => :boolean
     }
 
   defp object(fields, optional \\ []), do: {:object, fields, optional}

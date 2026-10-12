@@ -28,8 +28,8 @@ defmodule Aiur.BuildPriorityTest do
 
     on_exit(fn ->
       File.chmod(lock, 0o755)
-      File.rm_rf!(lock)
-      File.rm_rf!(gate)
+      Aiur.TestCleanup.rm_rf!(lock)
+      Aiur.TestCleanup.rm_rf!(gate)
     end)
 
     {output, status} =
@@ -47,7 +47,7 @@ defmodule Aiur.BuildPriorityTest do
   test "admitted commands and nested leases inherit priority once and preserve exit status" do
     root = Path.join(System.tmp_dir!(), "build-priority-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     executable = Path.join(root, "mix")
 
     File.write!(executable, """
@@ -70,7 +70,7 @@ defmodule Aiur.BuildPriorityTest do
 
       on_exit(fn ->
         File.chmod(lock, 0o755)
-        File.rm_rf!(lock)
+        Aiur.TestCleanup.rm_rf!(lock)
       end)
 
       env = BuildGate.shell_env(gate_dir: gate, lock_dir: lock, slots: 1, stagger_seconds: 0, min_free_memory_mb: nil, nice: adjustment)

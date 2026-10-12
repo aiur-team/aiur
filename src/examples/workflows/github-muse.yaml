@@ -28,7 +28,7 @@ tracker:
     # allowed_contributors:
     #   users: [583231]
     #   orgs: [{id: 9919, login: github}]
-    # Required for human-only merge attribution. Keep machine identities out.
+    # Human-only attribution and planned aiur pr merge identity allowlist.
     human_mergers:
       - your-github-login
     # Optional: trusted human Executor logins whose GitHub comments reach
@@ -57,6 +57,23 @@ tracker:
     agent_core_limit_per_hour: 250
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait
+#   local_tests: partial           # all | partial | none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+#     red_fallback_minutes: 0      # off; 60 waits for CI after main is red for one hour (MP4)
+
 build_order:
   # Three settings are intentionally absent — graph_catalog_refresh_ms,
   # graph_catalog_labels_refresh_ms and ticket_detail_freshness_ms. They derive
@@ -86,7 +103,10 @@ observability:
   # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
   # build_order_funnel_health_check: true
   # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # capture_tags: {variant: B}
+  # capture_label_prefixes: ["experiment:", "cohort:", "feature:"]
   # telemetry_enabled: true
+  # capture_github_facts: true
   # Retain useful cross-session telemetry without splitting an individual boot.
   telemetry_retention_max_bytes: 67108864
   telemetry_retention_max_age_days: 30
@@ -121,6 +141,11 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # ci_recovery_enabled: true             # false disables automatic CI reruns
+  # ci_recovery_max_per_poll: 5
+  # ci_recovery_max_per_hour: 20
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
   # account_selection: balance
@@ -157,11 +182,28 @@ agent:
       approval_mode: onRequest
 prompt_file: github-muse.prompt.md
 
-# Build queue (GitHub only; defaults shown).
+# Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:
+#   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
+#   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes
 #   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
 #   merged_open_grace_seconds: 600      # 60..86400 seconds
+#   optimistic_failure_grace_seconds: 600 # Replacement grace, 60..86400 seconds
+#   optimistic_churn_attention_threshold: 3 # Conflicts, 0 disables (0..50)
+
+# Experiment specs and audit history are stored under the repo state node.
+# experiments:
+#   enabled: true
+#   default_min_samples: 15
+#   default_before_days: 14
+#   pack_dirs: [".aiur/experiments/packs"]
+#   disabled_packs: []
+#   script_timeout_ms: 60000
+#   checkpoint_interval_ms: 3600000
+#   max_snapshot_observations: 50000

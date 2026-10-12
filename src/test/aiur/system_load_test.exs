@@ -18,6 +18,11 @@ defmodule Aiur.SystemLoadTest do
       assert SystemLoad.avg1() == 24.0
     end
 
+    test "parses sysctl load on hosts without Linux PSI" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "{ 24.00 12.00 8.00 }\n"} end)
+      assert SystemLoad.avg1() == 24.0
+    end
+
     test "parses a low load line without a trailing newline" do
       Application.put_env(:aiur, :loadavg_source_override, fn ->
         {:ok, "0.89 0.49 0.37 2/1939 1"}

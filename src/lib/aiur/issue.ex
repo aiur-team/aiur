@@ -5,6 +5,8 @@ defmodule Aiur.Issue do
 
   alias Aiur.TrackerIdentity
 
+  # The normalized tracker record keeps dispatch context alongside issue facts.
+  # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :id,
     :identifier,
@@ -20,6 +22,10 @@ defmodule Aiur.Issue do
     :pr_head_ref,
     :selected_backend,
     :selected_model,
+    # The account a headroom dispatch chose for `selected_backend` (#3960), and
+    # the scores behind that choice. Both stay nil under other policies.
+    :selected_account,
+    :dispatch_selection,
     :creator_login,
     # Numeric GitHub id and account type of the issue creator, from the
     # authenticated API response. Identity for allowed-contributor intake is
@@ -31,6 +37,7 @@ defmodule Aiur.Issue do
     # as "yes" (fail closed).
     :created_via_app?,
     :dispatch_revision,
+    :optimistic_start,
     paused: false,
     # GitHub ingestion resolves this before an issue can reach dispatch. Other
     # tracker backends retain the safe compatibility default.
@@ -78,11 +85,14 @@ defmodule Aiur.Issue do
           # dispatch that picked a route would have shown as bare `openrouter`
           # and re-resolved some other model at session start.
           selected_model: String.t() | nil,
+          selected_account: String.t() | nil,
+          dispatch_selection: map() | nil,
           creator_login: String.t() | nil,
           creator_id: pos_integer() | nil,
           creator_type: String.t() | nil,
           created_via_app?: boolean() | nil,
           dispatch_revision: String.t() | nil,
+          optimistic_start: Aiur.OptimisticStart.t() | nil,
           paused: boolean(),
           dispatch_authorized?: boolean(),
           dispatch_authorization: :authorized | :denied | :deferred,
@@ -107,6 +117,9 @@ defmodule Aiur.Issue do
   @spec parked?(t()) :: boolean()
   def parked?(%__MODULE__{parked: parked}), do: parked == true
   def parked?(_issue), do: false
+
+  @spec parked?(t(), map()) :: boolean()
+  def parked?(issue, running_entry), do: parked?(issue) or Map.get(running_entry, :operator_parked) == true
 
   @doc "Returns whether the issue carries the build-queue marker."
   @spec queued?(t()) :: boolean()

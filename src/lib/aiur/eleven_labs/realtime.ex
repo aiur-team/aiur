@@ -40,12 +40,14 @@ defmodule Aiur.ElevenLabs.Realtime do
 
   ## Messages to the owner
 
-    * `{:elevenlabs_transcript, :partial | :final, text}`
-    * `{:elevenlabs_error, reason_binary}`
-    * `{:elevenlabs_closed}`
+    * `{:voice_transcript, :partial | :final, text}`
+    * `{:voice_error, %{code: atom, message: binary}}`
+    * `{:voice_closed}`
   """
 
   use GenServer
+
+  @behaviour Aiur.Voice.Transcriber
 
   alias Aiur.Config
   alias Aiur.ElevenLabs.Realtime.MintTransport
@@ -83,6 +85,7 @@ defmodule Aiur.ElevenLabs.Realtime do
   @typedoc "Arranges for `:flush_deadline` to reach the calling process after `delay_ms`."
   @type scheduler :: (pos_integer() -> any())
 
+  @impl Aiur.Voice.Transcriber
   @doc """
   Start a session unlinked. The caller is expected to monitor it: a provider
   fault must be able to end the session without ending the surface that opened
@@ -95,6 +98,7 @@ defmodule Aiur.ElevenLabs.Realtime do
   @spec start_link(keyword()) :: GenServer.on_start() | {:error, :unconfigured}
   def start_link(opts), do: boot(&GenServer.start_link/3, opts)
 
+  @impl Aiur.Voice.Transcriber
   @doc "Relay one base64 PCM frame verbatim. Nothing is decoded or re-encoded here."
   @spec push(GenServer.server(), String.t()) :: :ok
   def push(server, audio_base64) when is_binary(audio_base64) do
@@ -103,6 +107,7 @@ defmodule Aiur.ElevenLabs.Realtime do
     :exit, _reason -> :ok
   end
 
+  @impl Aiur.Voice.Transcriber
   @doc "Seal the utterance with the documented empty-chunk commit flush, then close."
   @spec commit(GenServer.server()) :: :ok
   def commit(server) do
@@ -111,6 +116,7 @@ defmodule Aiur.ElevenLabs.Realtime do
     :exit, _reason -> :ok
   end
 
+  @impl Aiur.Voice.Transcriber
   @doc "Close a session immediately without committing the current utterance."
   @spec stop(GenServer.server()) :: :ok
   def stop(server) do
@@ -272,7 +278,7 @@ defmodule Aiur.ElevenLabs.Realtime do
   end
 
   defp handle_message(%{"message_type" => type} = message, state) when type in @final_types do
-    notify(state, {:elevenlabs_transcript, :final, text(message)})
+    notify(state, {:voice_transcript, :final, text(message)})
 
     # The settled utterance we were waiting for after the commit flush; closing
     # before it arrived is what clipped the last words.
@@ -280,12 +286,12 @@ defmodule Aiur.ElevenLabs.Realtime do
   end
 
   defp handle_message(%{"message_type" => type} = message, state) when type in @partial_types do
-    notify(state, {:elevenlabs_transcript, :partial, text(message)})
+    notify(state, {:voice_transcript, :partial, text(message)})
     {:noreply, state}
   end
 
   defp handle_message(%{"message_type" => type} = message, state) when type in @error_types do
-    fail(state, describe_failure(type, Map.get(message, "error")))
+    fail(state, describe_failure(type, Map.get(message, "error")), failure_code(type))
   end
 
   defp handle_message(_message, state), do: {:noreply, state}
@@ -367,19 +373,19 @@ defmodule Aiur.ElevenLabs.Realtime do
   end
 
   # Seal before notifying, never after. The channel above reacts to
-  # `{:elevenlabs_error, …}` by stopping this session, and a session still
+  # `{:voice_error, …}` by stopping this session, and a session still
   # holding an open connection would answer that by flushing a commit frame on a
   # connection that has just failed.
-  defp fail(state, reason) do
+  defp fail(state, reason, code \\ :provider_error) do
     close_transport(state)
-    notify(state, {:elevenlabs_error, reason})
-    notify(state, {:elevenlabs_closed})
+    notify(state, {:voice_error, %{code: code, message: reason}})
+    notify(state, {:voice_closed})
     {:stop, :normal, state}
   end
 
   defp finish(state) do
     close_transport(state)
-    notify(state, {:elevenlabs_closed})
+    notify(state, {:voice_closed})
     {:stop, :normal, state}
   end
 
@@ -407,6 +413,12 @@ defmodule Aiur.ElevenLabs.Realtime do
   defp describe_failure("session_time_limit_exceeded", _detail), do: "ElevenLabs session time limit reached"
   defp describe_failure(_type, detail) when is_binary(detail) and detail != "", do: detail
   defp describe_failure(_type, _detail), do: "Speech-to-text failed"
+
+  # Only the causes the provider names outright get a specific code; everything
+  # else stays cause-neutral rather than being relabelled as auth or quota.
+  defp failure_code("auth_error"), do: :provider_auth
+  defp failure_code("quota_exceeded"), do: :provider_quota
+  defp failure_code(_type), do: :provider_error
 
   defp default_scheduler(delay_ms), do: Process.send_after(self(), :flush_deadline, delay_ms)
   defp default_ready_scheduler(delay_ms), do: Process.send_after(self(), :ready_deadline, delay_ms)

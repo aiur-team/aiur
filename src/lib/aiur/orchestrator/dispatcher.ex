@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{ReworkGate, TrackerTasks}
+  alias Aiur.Orchestrator.{OptimisticDispatch, OptimisticSlots, PausedCandidatePoll, QueueSetSlots, ReworkGate, TelemetryCohort, TrackerTasks}
 
   alias Aiur.Orchestrator.{
     AutoResume,
@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Lifecycle,
     MergedTicketReconciler,
     PrAnchored,
+    PressureAdmission,
     Reconciler,
     RetryEngine,
     Slots,
@@ -89,10 +90,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Lifecycle.schedule_tick(schedule.delay_ms)
       |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
-      # Counted AFTER the schedule is computed so the first cycle after a
-      # restart schedules at the base interval: a freshly started daemon has
-      # observed no idleness, so the idle backoff may only apply from the
-      # second scheduling decision onward (#2138).
+      # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
       # The GitHub poll floor is measured from here, so an event that pulls
       # the next tick forward cannot land it closer than the floor allows.
@@ -120,24 +118,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
     |> maybe_warn_ci_readiness()
     |> TrackedSet.refresh()
-    |> CommentPolling.start_firehose(&after_firehose/1)
+    |> CommentPolling.start_firehose(&after_firehose/1, &TrackerTasks.start/4)
   end
 
   defp after_firehose(state) do
     state
     |> CommentPolling.start_async()
     |> CiLifecycle.start_poll(fn current ->
-      current |> refresh_blocked_ticket_ids() |> start_candidate_poll()
+      current |> refresh_blocked_ticket_ids() |> start_candidate_poll(&default_candidate_fetch/1)
     end)
   end
 
-  defp start_candidate_poll(%State{globally_paused: true} = state),
-    do: state |> dispatch_candidate_poll() |> finish_poll_cycle()
+  @doc false
+  @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
+  def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
+    do: PausedCandidatePoll.start(state, fetch_fun, &note_candidate_fetch_success/2, &mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
 
-  defp start_candidate_poll(state) do
+  def start_candidate_poll(%State{} = state, fetch_fun) do
     cache = candidate_list_cache(state)
 
-    TrackerTasks.start(state, :dispatch_poll, fn -> default_candidate_fetch(cache) end, fn current, result ->
+    TrackerTasks.start(state, :dispatch_poll, fn -> fetch_fun.(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &apply_candidate_result(&1, result))
       |> finish_poll_cycle()
@@ -239,8 +239,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
 
-        # The poll just refreshed `last_polled_issues`, so this generation can
-        # replace a retained snapshot from a prior same-name orchestrator.
         state = %{state | snapshot_ready?: true}
 
         # Publish all rows, including claims still within the recovery grace period.
@@ -546,8 +544,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   @doc false
-  @spec fetch_candidate_issues(State.t(), keyword()) ::
-          {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
+  @spec fetch_candidate_issues(State.t(), keyword()) :: {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
   def fetch_candidate_issues(state, opts \\ [])
 
   def fetch_candidate_issues(%State{globally_paused: true} = state, _opts), do: {:paused, state}
@@ -567,7 +564,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp apply_candidate_result(state, result) do
     case result do
       {:ok, issues, updated_cache} ->
-        state = state |> put_candidate_list_cache(updated_cache) |> note_candidate_fetch_success()
+        state = note_candidate_fetch_success(state, updated_cache)
         {:ok, issues, state}
 
       {:error, reason} ->
@@ -575,8 +572,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp note_candidate_fetch_success(%State{} = state) do
-    state = %{state | candidate_snapshot_fresh?: true}
+  defp note_candidate_fetch_success(%State{} = state, cache) do
+    state = %{put_candidate_list_cache(state, cache) | candidate_snapshot_fresh?: true}
 
     if Config.tracker_kind() == "github" do
       TrackerHealth.note_github_connectivity_success(state, :candidates)
@@ -951,24 +948,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
     sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
     sample_id = Map.get(probes, :sample_id, sampled_at_ms)
     fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    previous_signal = Map.get(state.load_envelope_state, :signal)
     overload_samples = Map.get(state.load_envelope_state, :overload_samples, 0)
     consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
     consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
+    {envelope_value, envelope_target, envelope_schedulers} = PressureAdmission.envelope_signal(probes)
 
     state =
-      DispatchPolicy.update_load_envelope(
-        state,
-        if(fresh?, do: probes.load, else: :unavailable),
-        probes.target,
-        probes.schedulers,
-        now_ms,
-        probes.cpu_snapshot,
-        queued_demand?
-      )
-      |> maybe_record_load_envelope_constraint(Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers)
+      PressureAdmission.update(state, probes, now_ms, queued_demand?, fresh?)
+      |> maybe_record_load_envelope_constraint(envelope_value, envelope_target, envelope_schedulers)
 
-    state = if fresh?, do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
+    # Reusing a sample neither confirms nor interrupts sustained overload.
+    state = if fresh? or previous_signal != state.load_envelope_state[:signal], do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
     state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
     state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
@@ -990,7 +982,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, Aiur.SystemLoad.gate_signal(probes.load, probes.cpu_headroom, probes.schedulers), probes.target, probes.schedulers, queued_demand?),
+            envelope_hold(state, envelope_value, envelope_target, envelope_schedulers, queued_demand?),
             now_ms,
             opts
           )
@@ -1007,39 +999,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # the whole board; the auto-resume mirror treats the pending ticket itself as
   # the demand) and is injected at the gate.
   defp admission_probes do
-    hard_threshold = Config.max_load_average()
-    target = Config.target_load_average()
-    run_queue_threshold = Config.run_queue_threshold()
     memory_threshold_mb = Config.min_free_memory_mb()
-    schedulers = System.schedulers_online()
+    sample = Aiur.SystemLoad.sample(&PressureAdmission.sample/0)
 
-    sample =
-      Aiur.SystemLoad.sample(fn ->
-        %{
-          load: DispatchPolicy.read_load(hard_threshold, target),
-          cpu_snapshot: DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
-        }
-      end)
-
-    cpu_snapshot = sample.cpu_snapshot
-
-    %{
+    Map.merge(sample, %{
       memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
       memory_threshold_mb: memory_threshold_mb,
       fd_sample: DispatchPolicy.read_file_descriptors(),
-      runnable: runnable_from(cpu_snapshot),
-      run_queue_threshold: run_queue_threshold,
-      schedulers: schedulers,
-      load: sample.load,
-      sampled_at_ms: sample.sampled_at_ms,
-      sample_id: sample.sample_id,
-      load_threshold: hard_threshold,
-      build_status: DispatchPolicy.read_build_status(),
+      runnable: runnable_from(sample.cpu_snapshot),
+      run_queue_threshold: Map.get(sample, :run_queue_threshold, Config.run_queue_threshold()),
+      schedulers: System.schedulers_online(),
+      load_threshold: Map.get(sample, :load_threshold, Config.max_load_average()),
+      target: Map.get(sample, :target, Config.target_load_average()),
       provider_backends: DispatchPolicy.read_provider_backends(),
-      github_quota: DispatchPolicy.read_github_quota(),
-      cpu_snapshot: cpu_snapshot,
-      target: target
-    }
+      github_quota: DispatchPolicy.read_github_quota()
+    })
   end
 
   @doc false
@@ -1088,7 +1062,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states, Map.values(state.last_polled_issues)), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
@@ -1139,16 +1113,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  # `:unauthorized` is in this list because it is the one decline an operator
-  # cannot otherwise see. A dispatch-authorization read that is *deferred* (a
-  # local GitHub budget hold, a rate limit, a transport fault on the timeline
-  # fetch) leaves `dispatch_authorized?: false` with a `Logger.warning` and
-  # nothing else, and the catch-all clause below then actively cleared any
-  # prior decline. A ticket relabelled `agent:rework` while the core budget is
-  # held therefore sat out poll after poll with free slots, no alert, and no
-  # row on the status board — the operator saw only silence. Recording the
-  # decline makes the hold legible; it does not change whether the ticket
-  # dispatches.
+  defp maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
+    do: record_dispatch_decline(state, issue, reason, QueueSetSlots.waiting_reason(reason, issue.id, state), false)
+
+  # Deferred authorization reads must remain visible instead of clearing the prior hold.
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
        when reason in [
               :state_capacity,
@@ -1266,23 +1234,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   # A todo ticket held by an open dependency cannot dispatch whatever its
   # refreshed state says, so the dependency gate runs first and a held ticket
-  # spends no `issue_by_id` refresh and no `dispatch_authorization` read. Before
-  # #2714 every held dependent paid both on every pass, which was a third of a
-  # daemon's core spend on its own.
+  # spends no `issue_by_id` refresh and no `dispatch_authorization` read (#2714).
   #
   # Only a definite hold short-circuits. A failed or odd hydration, an issue
   # with no dependency hold, and an issue also held on a blocking Command
   # (whose decline reason takes precedence) all take the ordinary path, which
   # refreshes the issue and runs every gate again, fail-closed as before. The
-  # gate needs the candidate to be `todo`, and the candidate's state is the
-  # latest tracker poll's.
+  # candidate must be `todo` in the latest tracker poll.
   defp held_by_dependency_before_refresh(blocked_ids, %Issue{} = issue, opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
-         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+         true <- DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
@@ -1389,21 +1354,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+    if DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
       Logger.info(
         "Skipping dispatch; #{State.issue_context(hydrated)} " <>
           DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
       )
 
-      # Record the decline instead of only logging it. A ticket held here sits in
-      # "awaiting-dispatch" for as long as its blocker is open, and with nothing
-      # in `dispatch_declines` the status board and alert feed showed no reason at
-      # all — the operator saw an idle fleet and a stuck ticket with no link
-      # between them (#2545). Non-attention (info): a blocked ticket is normal
-      # dependency ordering, not a fault.
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
-      do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+      if OptimisticSlots.available?(hydrated, state, terminal_states) do
+        do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+      else
+        maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
+      end
     end
   end
 
@@ -1504,7 +1467,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
-    case CodingAgent.select_for_dispatch(issue) do
+    with {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+      state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
+      dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
+    else
+      {:error, reason} ->
+        emit_dispatch_attempt_decline(state, issue, reason, false)
+
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           state
@@ -1518,11 +1488,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
           %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}
         end
-
-      {:ok, selected_issue} ->
-        state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
-
-        dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
     end
   end
 
@@ -1664,7 +1629,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # spawn_issue_on_worker_host, means a tripped attempt pays no workspace
   # clone cost. The breaker resets when the window lapses, so the issue
   # gets another window on the next poll tick.
-  #
   # The window counter is the loop-frequency guard and counts every dispatch
   # attempt. The lifetime counter is the structural-stuck latch and counts
   # only dispatches that actually survived provisioning (see
@@ -2200,12 +2164,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
-  defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
-    Logger.info(
-      "aiur_perf build_hold surface=dispatch active=#{inspect(Map.get(measured, :active))} " <>
-        "queued=#{inspect(Map.get(measured, :queued))} capacity=#{inspect(capacity)}"
-    )
-  end
+  defp log_admission_hold(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
+    do: Logger.info("aiur_perf cpu_pressure_hold avg60=#{pressure} threshold=#{threshold}")
 
   defp log_admission_hold(%{signal: :envelope, measured: effective, threshold: static}) do
     Logger.info("aiur_perf envelope_hold effective=#{effective} static=#{static}")
@@ -2247,28 +2207,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       probes.memory_threshold_mb
     )
     |> maybe_record_fd_constraint(DispatchPolicy.fd_gate(probes.fd_sample), probes.fd_sample)
-    |> maybe_record_load_constraint(
-      DispatchPolicy.load_admission_reason(
-        probes.load,
-        probes.load_threshold,
-        probes.schedulers,
-        Map.get(probes, :cpu_headroom, :unavailable)
-      ),
-      probes
-    )
-    |> maybe_record_run_queue_constraint(
-      DispatchPolicy.run_queue_admission_reason(
-        probes.runnable,
-        probes.schedulers,
-        probes.run_queue_threshold,
-        Map.get(probes, :cpu_headroom, :unavailable)
-      ),
-      probes
-    )
-    |> maybe_record_build_constraint(
-      DispatchPolicy.build_gate(probes.build_status),
-      probes.build_status
-    )
+    |> record_cpu_constraints(probes)
     |> maybe_record_provider_constraint(
       DispatchPolicy.provider_gate(probes.provider_backends, Map.get(probes, :provider_gate_opts, [])),
       probes.provider_backends
@@ -2276,39 +2215,27 @@ defmodule Aiur.Orchestrator.Dispatcher do
     |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))
   end
 
+  defp record_cpu_constraints(state, probes) do
+    Enum.reduce(PressureAdmission.constraints(probes), state, fn gate, current -> maybe_record_load_constraint(current, gate, probes) end)
+  end
+
   defp record_capacity_sample(%State{} = state, probes) do
     %{
       state
-      | dispatch_capacity_sample: %{
-          load: probes.load,
-          load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
-          load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
-          gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
-          load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
-          load_threshold: probes.load_threshold,
-          target: probes.target,
-          schedulers: probes.schedulers,
-          observed_at: StatusObservation.sample_observed_at(probes)
-        }
+      | dispatch_capacity_sample:
+          Map.merge(PressureAdmission.status_sample(probes), %{
+            load: probes.load,
+            load_discount_reason: Aiur.SystemLoad.discount_reason(Map.get(probes, :cpu_headroom, :unavailable)),
+            load_daemon_nice: Aiur.SystemLoad.daemon_nice(Map.get(probes, :cpu_headroom, :unavailable)),
+            gate_signal: Aiur.SystemLoad.gate_signal(probes.load, Map.get(probes, :cpu_headroom, :unavailable), probes.schedulers),
+            load_sampled_at_ms: Map.get(probes, :sampled_at_ms),
+            load_threshold: probes.load_threshold,
+            target: probes.target,
+            schedulers: probes.schedulers,
+            observed_at: StatusObservation.sample_observed_at(probes)
+          })
     }
   end
-
-  defp maybe_record_run_queue_constraint(state, {:hold, reason}, probes) do
-    record_capacity_constraint(
-      state,
-      :run_queue,
-      "runnable=#{inspect(probes.runnable)} threshold=#{inspect(probes.run_queue_threshold)} " <>
-        "schedulers=#{probes.schedulers} " <>
-        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
-    )
-  end
-
-  defp maybe_record_run_queue_constraint(state, _gate, _probes), do: state
-
-  defp maybe_record_build_constraint(state, :hold, status),
-    do: record_capacity_constraint(state, :build_queue, "build=#{inspect(status)}")
-
-  defp maybe_record_build_constraint(state, _gate, _status), do: state
 
   defp maybe_record_provider_constraint(state, :hold, backends),
     do: record_capacity_constraint(state, :provider, ModelAvailability.provider_freshness_detail(backends))
@@ -2336,10 +2263,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp record_fallback_binding_constraint(%State{} = state, _reason), do: state
 
-  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
-  # different condition from the prewarm hold that records the `:build`
-  # constraint kind; keep them distinct so an alert never misattributes one.
-  defp binding_constraint_kind(:build), do: :build_queue
   defp binding_constraint_kind(signal), do: signal
 
   defp maybe_record_memory_constraint(state, :hold, available_memory_mb, threshold_mb) do
@@ -2357,13 +2280,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_record_fd_constraint(state, _gate, _sample), do: state
 
-  defp maybe_record_load_constraint(state, {:hold, reason}, probes) do
-    record_capacity_constraint(
-      state,
-      :load,
-      "load=#{inspect(probes.load)} threshold=#{probes.load_threshold} schedulers=#{probes.schedulers} " <>
-        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
-    )
+  defp maybe_record_load_constraint(state, {:hold, reason}, _probes) do
+    record_capacity_constraint(state, reason.signal, "measured=#{inspect(reason.measured)} threshold=#{inspect(reason.threshold)}")
   end
 
   defp maybe_record_load_constraint(state, _gate, _probes), do: state
@@ -2462,7 +2380,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          not was_claimed? and
          MapSet.member?(next_state.claimed, issue.id) do
       delay_ms = index * 1_000
-      worker_host = Orchestrator.running_worker_host(next_state, issue.id)
+      worker_host = State.WorkerHost.running_worker_host(next_state, issue.id)
       topic = "ticket.#{issue.identifier}.issue.label.added.agent.todo"
       Process.send_after(self(), {:emit_system_alert, topic, issue, worker_host}, delay_ms)
       index + 1
@@ -2650,19 +2568,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
     lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    optimistic_blockers = if issue.optimistic_start, do: Enum.map(issue.optimistic_start.blockers, & &1.identifier), else: []
 
     if TelemetryLifecycle.enabled?() do
-      TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
+      TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
+        dispatch_selection: issue.dispatch_selection && issue.dispatch_selection.summary,
         worker_host: worker_host,
         remote: is_binary(worker_host),
-        retry_attempt: RetryEngine.normalize_retry_attempt(attempt)
+        retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
+        optimistic_blockers: optimistic_blockers,
+        optimistic_start: issue.optimistic_start,
+        start_mode: OptimisticSlots.start_mode(optimistic_blockers)
       })
     end
 
-    supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
-    rework_head_sha = supplied_rework_head_sha || :pending
+    OptimisticDispatch.record(issue, lifecycle_attempt_id, optimistic_blockers)
+    rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
 
     runner_context = %{
       attempt: attempt,
@@ -2685,6 +2608,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
             ref: ref,
             identifier: issue.identifier,
             issue: issue,
+            optimistic_blockers: optimistic_blockers,
+            optimistic_start: issue.optimistic_start,
+            start_mode: OptimisticSlots.start_mode(optimistic_blockers),
             worker_host: worker_host,
             workspace_path: nil,
             session_id: nil,

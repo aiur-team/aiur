@@ -18,13 +18,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorSanitizationTest do
   end
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   test "publishes structured credential-sanitized detail without the raw provider body" do

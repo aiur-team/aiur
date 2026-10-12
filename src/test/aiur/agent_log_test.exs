@@ -747,7 +747,7 @@ defmodule Aiur.AgentLogTest do
   defp tmp_workspace do
     path = Aiur.TestSupport.tmp_root!("aiur-agent-log")
     File.mkdir_p!(path)
-    on_exit(fn -> File.rm_rf!(path) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
     path
   end
 end

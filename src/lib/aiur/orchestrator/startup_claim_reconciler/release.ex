@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   @moduledoc false
 
   alias Aiur.{Alerts, Config, Issue, Tracker}
-  alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator.{DispatchPolicy, ReviewFindings, ReworkGate, TicketTransition}
+  alias Aiur.GitHub.Client
+  alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation
 
   @spec run(Issue.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | {:defer, term()}
@@ -34,19 +34,35 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
     with true <- Observation.lease_free?(issue, opts),
          :ok <- update.(issue.identifier, target, issue.state) do
-      comment(issue, target, opts)
+      comment(issue, target, Keyword.get(opts, :release_note, ""), opts)
       {:ok, target}
     else
       false ->
         {:defer, :workspace_owned}
 
-      {:error, {:stale_review_base, _}} = error ->
+      {:error, {:stale_review_base, %{pr_number: number}} = reason} ->
         if DispatchPolicy.state_slug(target) == "human-review",
-          do: write_release(issue, lifecycle_state_name("rework", opts), opts),
-          else: error
+          do: stale_review_base_release(issue, number, reason, opts),
+          else: {:error, reason}
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp stale_review_base_release(issue, number, reason, opts) do
+    approved_at_head = Keyword.get(opts, :approved_at_head_fetcher, &Client.pull_request_approved_at_head?/1)
+
+    case approved_at_head.(number) do
+      {:ok, true} ->
+        {:defer, reason}
+
+      {:ok, false} ->
+        note = "No review asked for a change: this PR is behind its base and conflicts with or touches files changed there. Integrate the base, push, and hand it back."
+        write_release(issue, lifecycle_state_name("rework", opts), Keyword.put(opts, :release_note, note))
+
+      {:error, _approval_read_failed} ->
+        {:defer, reason}
     end
   end
 
@@ -61,22 +77,43 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp pr_target(pr, opts) do
-    fetch = Keyword.get(opts, :pr_fetcher, &GitHubClient.fetch_open_pull_request/1)
+    fetch = Keyword.get(opts, :pr_fetcher, &Client.fetch_open_pull_request/1)
 
     case fetch.(Map.fetch!(pr, "number")) do
-      {:ok, %{"mergeable" => false}} -> {:ok, "rework"}
-      {:ok, %{"mergeable" => true} = current} -> review_target(current, opts)
+      {:ok, %{} = current} -> mergeability_target(current, opts)
       {:ok, nil} -> {:error, :pull_request_changed}
       {:ok, _unknown} -> {:error, :mergeability_unknown}
       {:error, _reason} = error -> error
     end
   end
 
+  defp mergeability_target(%{"mergeable" => false, "number" => number} = pr, opts) do
+    fetch = Keyword.get(opts, :mergeability_fetcher, &Client.pull_request_mergeability/1)
+
+    case fetch.(number) do
+      {:ok, "CONFLICTING"} -> {:ok, "rework"}
+      {:ok, "MERGEABLE"} -> review_target(pr, opts)
+      {:ok, "UNKNOWN"} -> {:error, :mergeability_unknown}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp mergeability_target(%{"mergeable" => true} = pr, opts), do: review_target(pr, opts)
+  defp mergeability_target(_pr, _opts), do: {:error, :mergeability_unknown}
+
   defp review_target(pr, opts) do
     case ReworkGate.open_pull_request_rework_verdict(pr, opts) do
-      {:ok, :rework} -> {:ok, "rework"}
-      {:skip, :no_unresolved_review_threads} -> body_review_target(pr, opts)
-      {:error, _reason} = error -> error
+      {:ok, :rework} ->
+        case ReworkGate.approved_and_queued?(pr, opts) do
+          {:ok, true} -> body_review_target(pr, opts)
+          _not_approved_and_queued -> {:ok, "rework"}
+        end
+
+      {:skip, :no_unresolved_review_threads} ->
+        body_review_target(pr, opts)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -85,21 +122,10 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
     with {:ok, reviews} <- fetch.(Map.fetch!(pr, "number")) do
       # Only a trusted verdict on this head is current; old CHANGES_REQUESTED is sticky.
-      findings? = reviews |> latest_reviews() |> Enum.any?(&current_finding?(&1, get_in(pr, ["head", "sha"])))
+      head = get_in(pr, ["head", "sha"])
+      findings? = is_binary(head) and reviews |> ReworkGate.blocking_reviews() |> Enum.any?(&(&1["commit_id"] == head))
       {:ok, if(findings?, do: "rework", else: "human-review")}
     end
-  end
-
-  defp latest_reviews(reviews) do
-    reviews
-    |> Enum.filter(&(&1["state"] in ~w(APPROVED CHANGES_REQUESTED DISMISSED) or ReviewFindings.blocking_body?(&1["body"])))
-    |> Enum.group_by(&get_in(&1, ["user", "login"]))
-    |> Enum.map(fn {_author, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
-  end
-
-  defp current_finding?(review, head) do
-    is_binary(head) and review[:authoritative] == true and review["commit_id"] == head and
-      (review["state"] == "CHANGES_REQUESTED" or (review["state"] == "COMMENTED" and ReviewFindings.blocking_body?(review["body"])))
   end
 
   defp guarded_update(identifier, target, expected), do: TicketTransition.write_state(identifier, target, writer: :startup_claim_reconciler, expected_state: expected)
@@ -108,9 +134,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     opts |> Keyword.get_lazy(:active_states, &Config.active_states/0) |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))
   end
 
-  defp comment(issue, target, opts) do
+  defp comment(issue, target, note, opts) do
     post = Keyword.get(opts, :create_comment_fun, &Tracker.create_comment/2)
-    body = "Released orphaned in-progress claim to #{target}: no live worker or workspace lease owned this ticket throughout the recovery grace period."
+    body = "Released orphaned in-progress claim to #{target}: no live worker or workspace lease owned this ticket throughout the recovery grace period." <> note
 
     case post.(issue.identifier, body) do
       :ok -> :ok

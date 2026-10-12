@@ -59,12 +59,12 @@ defmodule AiurWeb.VoiceChannelTest do
     end
 
     def handle_call({:transcript, kind, text}, _from, state) do
-      send(state.channel, {:elevenlabs_transcript, kind, text})
+      send(state.channel, {:voice_transcript, kind, text})
       {:reply, :ok, state}
     end
 
     def handle_call({:error, reason}, _from, state) do
-      send(state.channel, {:elevenlabs_error, reason})
+      send(state.channel, {:voice_error, %{code: :provider_error, message: reason}})
       {:reply, :ok, state}
     end
 
@@ -204,7 +204,7 @@ defmodule AiurWeb.VoiceChannelTest do
   test "conversation mode streams an agent reply as browser PCM" do
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:conversation")
-    send(joined.channel_pid, {:elevenlabs_closed})
+    send(joined.channel_pid, {:voice_closed})
     assert_push("stopped", %{})
 
     push(joined, "speak", %{"text" => "Agent reply"})
@@ -230,7 +230,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:conversation")
-    send(joined.channel_pid, {:elevenlabs_closed})
+    send(joined.channel_pid, {:voice_closed})
     assert_push("stopped", %{})
 
     push(joined, "speak", %{"text" => "Agent reply"})
@@ -264,7 +264,7 @@ defmodule AiurWeb.VoiceChannelTest do
       for index <- 1..3 do
         {socket, _client} = voice_socket()
         assert {:ok, _reply, channel} = subscribe_and_join(socket, "voice:conversation")
-        send(channel.channel_pid, {:elevenlabs_closed})
+        send(channel.channel_pid, {:voice_closed})
         assert_push("stopped", %{})
         {index, channel}
       end
@@ -302,7 +302,7 @@ defmodule AiurWeb.VoiceChannelTest do
     assert {:error, %{reason: reason}} = subscribe_and_join(third_socket, "voice:conversation")
     assert reason =~ "Too many dashboard dictation sessions"
 
-    send(first.channel_pid, {:elevenlabs_closed})
+    send(first.channel_pid, {:voice_closed})
     assert_push("stopped", %{})
 
     assert {:ok, _reply, _third} = subscribe_and_join(third_socket, "voice:conversation")
@@ -463,8 +463,8 @@ defmodule AiurWeb.VoiceChannelTest do
 
       pid =
         spawn(fn ->
-          send(socket.channel_pid, {:elevenlabs_audio, :chunk, <<1, 2, 3, 4>>})
-          send(socket.channel_pid, {:elevenlabs_audio, :done})
+          send(socket.channel_pid, {:voice_audio, :chunk, <<1, 2, 3, 4>>})
+          send(socket.channel_pid, {:voice_audio, :done})
         end)
 
       {:ok, pid}

@@ -54,7 +54,7 @@ defmodule Aiur.AppServer.Interrupts do
 
   @spec interrupt_turn(module(), map(), String.t()) :: {:ok, integer()} | {:error, term()}
   def interrupt_turn(backend, %{port: port, thread_id: thread_id}, turn_id)
-      when is_port(port) and is_binary(thread_id) and is_binary(turn_id) do
+      when (is_port(port) or is_pid(port)) and is_binary(thread_id) and is_binary(turn_id) do
     request_id = :erlang.unique_integer([:positive])
 
     frame = %{
