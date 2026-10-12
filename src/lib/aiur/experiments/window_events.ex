@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.WindowEvents do
   @moduledoc "Deterministic confounder evidence, frozen as immutable NDJSON snapshots."
   alias Aiur.Experiments.{Paths, Persistence, Reader}
   alias Aiur.Experiments.Sources.Common
-  alias Aiur.Experiments.WindowEvents.{GitHub, Local}
+  alias Aiur.Experiments.WindowEvents.{GitHub, Limits, Local}
 
   @spec collect(map(), keyword()) :: map()
   def collect(experiment, opts \\ []) do
@@ -11,8 +11,9 @@ defmodule Aiur.Experiments.WindowEvents do
     starts = Enum.map(windows, & &1.start)
     stops = Enum.map(windows, & &1.end)
     range = %{start: starts |> Enum.min(DateTime) |> DateTime.add(-86_400) |> DateTime.to_iso8601(), end: stops |> Enum.max(DateTime) |> DateTime.to_iso8601()}
+    scope_hash = request_hash(experiment)
     sources = sources(experiment)
-    {local, local_missing} = Local.collect(Keyword.put(opts, :range_start, range.start))
+    {local, local_missing} = Local.collect(opts |> Keyword.put(:range_start, range.start) |> Keyword.put(:range_end, range.end))
     {github, github_missing} = GitHub.collect(Keyword.get(opts, :repo, Paths.repo()), sources, range, opts)
 
     events =
@@ -26,7 +27,17 @@ defmodule Aiur.Experiments.WindowEvents do
         end
       end)
 
-    snapshot = %{"schema_version" => 1, "request_hash" => request_hash(experiment), "events" => events, "incomplete_sources" => Enum.uniq(local_missing ++ github_missing) |> Enum.sort()}
+    {events, capped_sources} = Limits.events(events)
+
+    snapshot = %{
+      "schema_version" => 1,
+      "request_hash" => scope_hash,
+      "events" => events,
+      "collected_at" => DateTime.to_iso8601(now),
+      "range" => Map.new(range, fn {key, value} -> {to_string(key), value} end),
+      "incomplete_sources" => Enum.uniq(local_missing ++ github_missing ++ capped_sources) |> Enum.sort()
+    }
+
     Map.put(snapshot, "snapshot_hash", snapshot_hash(snapshot))
   end
 
@@ -75,17 +86,31 @@ defmodule Aiur.Experiments.WindowEvents do
 
   defp write_snapshot(id, data) do
     with {:ok, names} <- File.ls(Paths.experiment(id)) do
-      n = names |> Enum.filter(&Regex.match?(~r/^events-\d+\.ndjson$/, &1)) |> Enum.map(&number/1) |> Enum.max(fn -> 0 end) |> Kernel.+(1)
-      data = Map.put(data, "snapshot", "events-#{n}.ndjson")
-      header = Map.delete(data, "events")
-      bytes = Enum.map([header | data["events"]], &[canonical(&1), "\n"])
+      snapshots = Enum.filter(names, &Regex.match?(~r/^events-\d+\.ndjson$/, &1))
+      if Limits.snapshots_available?(length(snapshots)), do: persist_snapshot(id, data, snapshots), else: {:error, :events_snapshot_limit}
+    end
+  end
+
+  defp persist_snapshot(id, data, names) do
+    n = names |> Enum.map(&number/1) |> Enum.max(fn -> 0 end) |> Kernel.+(1)
+    data = Map.put(data, "snapshot", "events-#{n}.ndjson")
+    bytes = Enum.map([Map.delete(data, "events") | data["events"]], &[canonical(&1), "\n"])
+
+    if :erlang.iolist_size(bytes) <= Limits.max_bytes() do
       with :ok <- Aiur.Fs.atomic_write(Paths.file(id, data["snapshot"]), bytes, fsync: true, mode: 0o600), do: {:ok, data}
+    else
+      {:error, :events_snapshot_too_large}
     end
   end
 
   defp read_snapshot(path) do
-    with {:ok, body} <- File.read(path) do
+    with {:ok, %{size: size}} <- File.stat(path),
+         true <- size <= Limits.max_bytes(),
+         {:ok, body} <- File.read(path) do
       body |> String.split("\n", trim: true) |> Enum.map(&Jason.decode/1) |> decode_snapshot()
+    else
+      false -> {:error, :events_snapshot_too_large}
+      error -> error
     end
   end
 
@@ -140,11 +165,14 @@ defmodule Aiur.Experiments.WindowEvents do
     }
   end
 
+  @spec encoded_size(term()) :: non_neg_integer()
+  def encoded_size(value), do: :erlang.iolist_size(canonical(value))
+
   @spec hash(term()) :: String.t()
   def hash(value), do: :crypto.hash(:sha256, canonical(value)) |> Base.encode16(case: :lower)
 
   defp snapshot_hash(data) do
-    header = Map.drop(data, ~w(events snapshot snapshot_hash))
+    header = Map.drop(data, ~w(events snapshot snapshot_hash collected_at))
     lines = Enum.map([header | data["events"]], &[canonical(&1), "\n"])
     :crypto.hash(:sha256, lines) |> Base.encode16(case: :lower)
   end

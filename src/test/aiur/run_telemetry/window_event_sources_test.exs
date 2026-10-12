@@ -35,6 +35,7 @@ defmodule Aiur.RunTelemetry.WindowEventSourcesTest do
 
       if req.method == :get do
         assert URI.decode_query(URI.parse(req.url).query)["branch"] == "trunk"
+        assert URI.decode_query(URI.parse(req.url).query)["created"] == @range.start <> ".." <> @range.end
       else
         if req.body["query"] =~ "ExperimentWindowPulls", do: assert(req.body["variables"]["query"] =~ "base:trunk merged:2026-10-08T00:00:00Z..2026-10-11T00:00:00Z")
       end

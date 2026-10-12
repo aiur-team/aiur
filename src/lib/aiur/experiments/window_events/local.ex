@@ -2,6 +2,7 @@ defmodule Aiur.Experiments.WindowEvents.Local do
   @moduledoc false
   alias Aiur.Experiments.Sources.Common
   alias Aiur.Experiments.WindowEvents
+  alias Aiur.Experiments.WindowEvents.Alerts
 
   @spec collect(keyword()) :: {[map()], [String.t()]}
   def collect(opts) do
@@ -10,7 +11,7 @@ defmodule Aiur.Experiments.WindowEvents.Local do
     missing = if starts_late?(records, opts[:range_start]), do: ["telemetry" | missing], else: missing
     contexts = Enum.filter(records, &(&1["kind"] == "run_context"))
     samples = Enum.filter(records, &(is_integer(get_in(&1, ["attributes", "fleet_agents_max"])) and is_integer(get_in(&1, ["attributes", "fleet_agents_effective"]))))
-    {alerts, alerts_missing} = alerts(opts)
+    {alerts, alerts_missing} = Alerts.collect(opts)
 
     absent =
       for {field, kind} <- [{"aiur_vsn", "version_change"}, {"config_hash", "config_change"}],
@@ -92,36 +93,4 @@ defmodule Aiur.Experiments.WindowEvents.Local do
 
   defp caps(row), do: {row["attributes"]["fleet_agents_max"], row["attributes"]["fleet_agents_effective"]}
   defp seconds(first, last), do: DateTime.diff(Common.timestamp(last["timestamp"]), Common.timestamp(first["timestamp"]))
-
-  defp alerts(opts) do
-    paths = Keyword.get_lazy(opts, :alert_files, fn -> Aiur.AlertLedger.paths() end)
-
-    Enum.reduce(paths, {[], []}, fn path, {rows, missing} ->
-      with {:ok, body} <- File.read(path), {:ok, alerts} <- decode_alerts(body) do
-        {rows ++ alerts, missing}
-      else
-        _error -> {rows, ["alerts" | missing]}
-      end
-    end)
-  end
-
-  defp decode_alerts(body) do
-    Enum.reduce_while(String.split(body, "\n", trim: true), {:ok, []}, fn line, {:ok, rows} ->
-      case Jason.decode(line) do
-        {:ok, alert} when is_map(alert) -> {:cont, {:ok, rows ++ alert_event(alert)}}
-        _invalid -> {:halt, {:error, :invalid_alerts}}
-      end
-    end)
-  end
-
-  defp alert_event(%{"severity" => "critical", "timestamp" => at} = alert) do
-    if Common.timestamp(at) do
-      key = alert["event_id"] || WindowEvents.hash(Map.take(alert, ~w(timestamp topic source_ticket_id message)))
-      [WindowEvents.event("incident", "alerts", key, at, title: alert["message"], attrs: Map.take(alert, ~w(topic source_ticket_id severity)))]
-    else
-      []
-    end
-  end
-
-  defp alert_event(_alert), do: []
 end

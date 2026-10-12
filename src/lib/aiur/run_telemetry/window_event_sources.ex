@@ -104,7 +104,7 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
   end
 
   defp runs(request, token, repo, branch, range, page \\ 1, rows \\ []) do
-    params = URI.encode_query(%{branch: branch, created: "<=" <> range.end, per_page: 100, page: page})
+    params = URI.encode_query(%{branch: branch, created: range.start <> ".." <> range.end, per_page: 100, page: page})
     req = %{method: :get, url: Transport.base_url() <> "/repos/#{repo}/actions/runs?" <> params, token: token, caller: "experiment_window_events"}
 
     case request.(req) do

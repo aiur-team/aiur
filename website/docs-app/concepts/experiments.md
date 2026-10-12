@@ -369,3 +369,16 @@ selection, `main_red` is incomplete. An unresolved red span has null `to`.
 
 Events carry `before`, `after`, `between`, `margin`, or `observation` for an A/B
 observation window.
+
+Collection runs in a supervised task with a two-minute timeout. Headers expose
+`collected_at` and the collected `range` in human and JSON output. Open windows
+remain frozen at that horizon until `--refresh`; collection time does not enter
+the input hash, while the observed range does.
+
+Each snapshot keeps at most 5,000 events and 4 MiB, marking capped sources
+incomplete. An experiment permits 32 immutable event snapshots; further refreshes
+are refused rather than deleting evidence pinned by reports. Existing oversized
+snapshots are retained but refused by the bounded reader.
+
+Alert collection streams at most 8 MiB and keeps at most 5,000 critical records.
+Oversized lines (over 256 KiB), partial reads and caps mark alerts incomplete.

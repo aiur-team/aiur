@@ -799,6 +799,15 @@ The path scope and webhook signature are independent locks:
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
+
+## Experiment window evidence
+
+`aiur experiments events` reads merges, releases, tags, incidents and Actions through telemetry's quota-accounted transport as `experiment_window_events`. Errors and page caps mark GitHub incomplete; frozen reads are local until refresh or window/source changes.
+
+Each of five sources permits ten pages: at most 40 GraphQL page requests and 10 REST page requests, before transport retries. GraphQL points depend on the query; `rateLimit.cost` supplies the actual charge.
+
+Measured on aiur-team/aiur, 2026-10-12, with a 48-hour merge/Actions range: eight GraphQL pages cost 12 points (176 merges, nine releases and 137 tags across repository history, zero incidents); four REST pages returned 311 runs. This read-only census used the shipped query shapes; no saving is claimed.
+
 ## Operator PR merge command
 
 `aiur pr merge` uses the operator's stored `gh` credential in its standalone process; it never sends that credential to the daemon. Its direct GitHub reads are outside the agent guard ledger. No quota saving is claimed.
@@ -811,13 +820,3 @@ A merge-queue rule routes the pinned head through GraphQL enqueueing; it never a
 
 The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
 
-
-## Experiment window evidence
-
-`aiur experiments events` reads merged PRs, releases, tags, incident-labelled
-issues and base-branch Actions runs on demand through telemetry's facade and
-`Aiur.GitHub.Transport`, attributed to `experiment_window_events`.
-
-GraphQL connections and Actions pages are capped at ten pages; source errors and page
-limits retain usable rows and mark GitHub incomplete. A frozen snapshot requires
-no GitHub reads until `--refresh` or a window/source-setting change.
