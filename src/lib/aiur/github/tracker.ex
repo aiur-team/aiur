@@ -261,6 +261,15 @@ defmodule Aiur.GitHub.Tracker do
     client_module().fetch_open_pull_requests_for_branch(issue_id)
   end
 
+  @impl Aiur.Tracker.CodeHost
+  defdelegate optimistic_blocker(value, number), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate park_pull_request(value), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate comment_optimistic_park(dependent, blocker, cause), to: Aiur.GitHub.OptimisticFailure
+
   @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)

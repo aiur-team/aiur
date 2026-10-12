@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.Persistence do
   @moduledoc false
 
-  alias Aiur.Experiments.{Journal, Paths, Reader, Schema}
+  alias Aiur.Experiments.{Journal, Paths, Reader, Schema, SnapshotPersistence}
 
   @spec write_json(Path.t(), map()) :: :ok | {:error, term()}
   def write_json(path, value), do: Aiur.Fs.atomic_write(path, Jason.encode!(value, pretty: true) <> "\n", fsync: true, mode: 0o600)
@@ -116,6 +116,10 @@ defmodule Aiur.Experiments.Persistence do
 
   @spec recover_one(String.t()) :: :ok | {:error, term()}
   def recover_one(id) do
+    with :ok <- SnapshotPersistence.recover(id), do: recover_spec(id)
+  end
+
+  defp recover_spec(id) do
     case Reader.json(Paths.file(id, "pending.json")) do
       {:error, :not_found} ->
         :ok
