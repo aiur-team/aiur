@@ -8,7 +8,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   @spec current_poll_labels() :: map()
   def current_poll_labels do
     case Orchestrator.dashboard_snapshot() do
-      {status, snapshot, _freshness} when status in [:current, :stale] ->
+      {:current, snapshot, _freshness} ->
         [:running, :retrying, :idle]
         |> Enum.flat_map(&Map.get(snapshot, &1, []))
         |> Enum.reduce(%{}, &put_live_labels/2)

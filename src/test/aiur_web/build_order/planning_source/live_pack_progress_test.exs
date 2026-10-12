@@ -6,7 +6,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgressTest do
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrder.PlanningSource.LivePackProgress
 
-  test "reads poll labels without waiting for an unresponsive Orchestrator mailbox" do
+  test "uses current poll labels without waiting on the mailbox and drops stale labels" do
     path = Application.fetch_env!(:aiur, :build_order_planning_pack)
     File.write!(path, @canonical_pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
@@ -61,5 +61,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgressTest do
 
     assert {:ok, {%{^key => ["agent:rework"]}, [["agent:rework"], ["build-lane:dashboard-ui", "phase:3", "complexity:2"]]}} =
              Task.yield(task, 2_000) || Task.shutdown(task, :brutal_kill)
+
+    previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+    Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 1)
+
+    on_exit(fn ->
+      if is_nil(previous_ceiling),
+        do: Application.delete_env(:aiur, :snapshot_stale_age_ceiling_ms),
+        else: Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, previous_ceiling)
+    end)
+
+    Process.sleep(2)
+
+    assert {:stale, _, %{status: :stale}} = Aiur.Orchestrator.dashboard_snapshot()
+    assert LivePackProgress.current_poll_labels() == %{}
   end
 end
