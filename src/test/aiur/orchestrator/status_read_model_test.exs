@@ -70,8 +70,15 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
     assert snapshot.observations.per_ticket.observed_at == DateTime.to_iso8601(fresh_ticket)
     assert snapshot.observations.per_ticket.age_ms >= 15_000
+    assert snapshot.observations.per_ticket.oldest_ticket_id == "old"
+    assert snapshot.observations.per_ticket.oldest_observed_at == DateTime.to_iso8601(old_ticket)
+    assert snapshot.observations.per_ticket.oldest_age_ms >= 300_000
     assert snapshot.ticket_observations["old"] == old_ticket
     assert snapshot.ticket_observations["fresh"] == fresh_ticket
+    refreshed = StatusObservation.refresh(snapshot, DateTime.add(now, 120, :second))
+    assert refreshed.observations.per_ticket.oldest_age_ms == 420_000
+    output = capture_io(fn -> StatusObservation.print_groups(refreshed) end)
+    assert output =~ "PER_TICKET OBSERVATION 135s old; oldest retained #old 420s old"
   end
 
   test "successful tracker observations survive failed cycles and paused idle rows retain their age" do
@@ -92,6 +99,7 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     on_exit(fn -> SnapshotStore.forget(server) end)
     :ok = SnapshotStore.publish(server, snapshot, input)
     payload = Presenter.state_payload(server, 5_000)
+    # Guard the presenter contract; the aggregate-age regression is asserted above.
     assert [idle_payload] = payload.idle
     assert idle_payload.observed_at == idle.observed_at
     assert idle_payload.age_ms >= 60_000
@@ -177,7 +185,7 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
   test "missing observations and unavailable snapshots cannot masquerade as zero age or capacity" do
     snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{}))
     assert snapshot.observations.dispatch == %{observed_at: nil, age_ms: nil}
-    assert snapshot.observations.per_ticket == %{observed_at: nil, age_ms: nil}
+    assert snapshot.observations.per_ticket == %{observed_at: nil, age_ms: nil, oldest_ticket_id: nil, oldest_observed_at: nil, oldest_age_ms: nil}
     assert StatusObservation.label(snapshot.observations.dispatch) == "age unavailable"
     assert StatusObservation.label(%{observed_at: "invalid", age_ms: nil}) == "age unavailable"
     assert StatusObservation.observation("invalid", DateTime.utc_now()) == %{observed_at: nil, age_ms: nil}
