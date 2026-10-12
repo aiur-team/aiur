@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ class PrBodyGateTests(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         skill = (root / '.claude/skills/aiur-agent/dev-loop.md').read_text()
         template = (root / '.github/pull_request_template.md').read_text()
+        section = skill.split('## PR description shape\n', 1)[1].split('\n## ', 1)[0]
         self.assertIn('from `.github/pull_request_template.md`', skill)
         self.assertIn('`#### Complexity routing`', skill)
         self.assertIn('the strict `## Local tests` evidence block', skill)
@@ -28,6 +30,12 @@ class PrBodyGateTests(unittest.TestCase):
         self.assertIn('update `Tested head:` to the new full head SHA', skill)
         self.assertIn('scripts/check-pr-body.py', skill)
         self.assertNotIn('Do not include complexity-routing explanations', skill)
+
+        examples = re.findall(r'```(?:\w+)?\n(.*?)\n```', section, re.DOTALL)
+        for example in examples:
+            if re.match(r'(?:Closes|Fixes|Resolves|Refs) #', example):
+                result = self.check_body(root, example, 'a' * 40)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
         body = template.replace('Closes #<!-- issue number; use Fixes or Resolves if you prefer; list multiple as `Closes #43, #46` -->', 'Closes #4345')
         body = body.replace('<!-- Why is this change needed? Length <= 240 chars -->', 'Keep worker guidance aligned with CI.')
@@ -52,14 +60,20 @@ class PrBodyGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='pr-body-skill-') as scratch:
             body_path = Path(scratch) / 'body.md'
             body_path.write_text(body)
-            result = subprocess.run([
+            result = self.check_body(root, body_path.read_text(), 'a' * 40, body_path)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('PR body format OK', result.stdout)
+
+    def check_body(self, root, body, head, body_path=None):
+        with tempfile.TemporaryDirectory(prefix='pr-body-example-') as scratch:
+            path = body_path or Path(scratch) / 'body.md'
+            path.write_text(body)
+            return subprocess.run([
                 'elixir', '-r', str(root / 'src/lib/aiur/local_test_evidence.ex'),
                 '-r', str(root / 'src/lib/mix/tasks/pr_body.check.ex'),
                 '-e', 'Mix.start(); Mix.Tasks.PrBody.Check.run(System.argv())',
-                '--', '--file', str(body_path), '--policy', 'partial', '--head', 'a' * 40,
+                '--', '--file', str(path), '--policy', 'partial', '--head', head,
             ], cwd=root, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn('PR body format OK', result.stdout)
 
     def test_both_sides_of_rollout_and_initial_unlanded_gate(self):
         cutoff = gate.timestamp('2026-10-11T12:00:00Z')
