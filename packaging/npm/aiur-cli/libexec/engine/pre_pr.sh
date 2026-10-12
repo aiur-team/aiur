@@ -88,7 +88,11 @@ cmd_pre_pr() {
         results+=("NOTE full suite recommended ($(jq -r '.reason' <<<"$affected")); runs in merge queue")
         while IFS= read -r edited; do
           [ -n "$edited" ] || continue
-          while IFS= read -r reader_test; do test_files+=("$reader_test"); done < <(rg -l --glob '*_test.exs' --fixed-strings -- "$edited" src/test || true)
+          while IFS= read -r reader_test; do
+            if rg -n --fixed-strings -- "$edited" "$reader_test" | rg -q 'Path\.(expand|join)|File\.read|System\.cmd'; then
+              test_files+=("$reader_test")
+            fi
+          done < <(rg -l --glob '*_test.exs' --fixed-strings -- "$edited" src/test || true)
         done < <(git diff --name-only "$base_sha...HEAD")
         mapfile -t test_files < <(printf '%s\n' "${test_files[@]}" | sort -u | awk 'NF')
         if [ "${#test_files[@]}" -eq 0 ]; then

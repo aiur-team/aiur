@@ -40,6 +40,8 @@ defmodule AiurEnginePrePrTest do
       "assert File.read!(\"src/lib/changed.ex\")\n"
     )
 
+    File.write!(Path.join(repo, "src/test/changed_mention_test.exs"), "# src/lib/changed.ex\n")
+
     git!(repo, ["add", "."])
     git!(repo, ["commit", "-m", "change source"])
 
@@ -50,6 +52,7 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "NOTE full suite recommended (fixture requires full suite); runs in merge queue"
     assert output =~ "PASS reader tests"
     assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
+    refute File.read!(Path.join(fixture, "reader-tests")) =~ "changed_mention_test.exs"
     refute File.exists?(Path.join(fixture, "make-ci-ran"))
     assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
     temp_dirs = fixture |> then(&Path.join(&1, "test-tmpdirs")) |> File.read!() |> String.split("\n", trim: true)
