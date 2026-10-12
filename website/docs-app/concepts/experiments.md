@@ -42,12 +42,13 @@ creation return the existing experiment.
 The state node at `~/.aiur/repo/<owner>/<repo>/experiments/<id>/` holds
 `spec.json`, append-only `journal.ndjson`, `annotations.ndjson` and `report/`.
 The root `index.json` is a rebuildable cache. One daemon process serializes
-writes; reads access the files directly. Evaluation runs separately, with one
+writes; reads access the files directly. Corrupt specs appear as unreadable
+rows without hiding other experiments.
+
+Evaluation runs separately, with one
 job at a time and a two-minute deadline. Concurrent evaluations return
 `evaluation_busy`; retry after the current job finishes. Amendments remain
 available, but invalidate any prepared evidence based on the old spec.
-Corrupt specs appear as unreadable
-rows without hiding other experiments.
 
 Files carry `schema_version`. Readers upgrade the previous version; specs from
 a newer version remain readable and all edits are refused. `registered_at`
