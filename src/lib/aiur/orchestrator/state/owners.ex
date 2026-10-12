@@ -124,6 +124,7 @@ defmodule Aiur.Orchestrator.State.Owners do
   @members %{
     core: [
       Aiur.Orchestrator.BlockerPropagation,
+      Aiur.Orchestrator.Parking,
       Aiur.Orchestrator,
       Aiur.Orchestrator.IssueSync,
       Aiur.Orchestrator.TrackerHealth,
@@ -144,6 +145,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     lifecycle: [
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,
+      Aiur.Orchestrator.Parking,
       Aiur.Orchestrator.RetryEngine,
       Aiur.Orchestrator.Reconciler,
       Aiur.Orchestrator.AgentTeardown,
@@ -155,6 +157,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     control: [Aiur.Orchestrator.PauseResume, Aiur.Orchestrator.GlobalPause, Aiur.Orchestrator.ControlLifecycle],
     pr_lifecycle: [
       Aiur.Orchestrator.CiLifecycle,
+      Aiur.Orchestrator.DraftAlertLifecycle,
       Aiur.Orchestrator.CommentWake,
       Aiur.Orchestrator.ReworkGate,
       Aiur.Orchestrator.PRHealthScanner,

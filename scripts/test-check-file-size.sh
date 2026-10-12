@@ -13,7 +13,7 @@ import tempfile
 source = Path(sys.argv[1])
 checker = source / 'scripts/check-file-size.py'
 workflow = (source / '.github/workflows/ci.yml').read_text()
-job = workflow.split('  workflow-security:', 1)[1].split('  merge-ruleset-drift:', 1)[0]
+job = workflow.split('  workflow-security:', 1)[1].split('  build:', 1)[0]
 assert 'docs_only' not in job
 assert 'fetch-depth: 0' in job
 assert 'run: bash scripts/test-check-file-size.sh' in job
