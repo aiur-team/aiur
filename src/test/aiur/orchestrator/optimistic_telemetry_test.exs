@@ -53,6 +53,12 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     assert_received {:point, %{outcome: "conflict", event_key: conflict_key}, _}
     assert_received {:point, %{outcome: "clean", event_key: clean_key}, _}
     assert conflict_key != clean_key
+    assert :ok = OptimisticLedger.record_integration("10", "12", sha, false, true)
+    assert {:ok, corrected} = OptimisticLedger.get("10")
+    assert corrected["counters"]["integrations_clean"] == 2
+    assert corrected["counters"]["non_ff_pushes"] == 1
+    assert_received {:point, %{outcome: "clean", non_ff: true, event_key: corrected_key}, _}
+    assert corrected_key != clean_key
     refute_received {:point, _, _}
   end
 

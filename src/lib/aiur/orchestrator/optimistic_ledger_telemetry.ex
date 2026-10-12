@@ -55,7 +55,7 @@ defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
         blocker: evidence["blocker"],
         outcome: if(evidence["conflict"], do: :conflict, else: :clean),
         non_ff: evidence["non_ff"],
-        operation_id: if(evidence["conflict"], do: "conflict", else: "clean"),
+        operation_id: "#{if(evidence["conflict"], do: "conflict", else: "clean")}:#{evidence["non_ff"]}",
         source_id: "integration:#{evidence["blocker"]}:#{evidence["sha"]}"
       })
     end
