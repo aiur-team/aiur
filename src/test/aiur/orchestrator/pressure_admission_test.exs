@@ -99,18 +99,6 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
     assert disabled.effective_concurrent_agents == 20
   end
 
-  test "pressure peak respects the demonstrated safe level and avoids settling at one" do
-    initial = %State{max_concurrent_agents: 20, effective_concurrent_agents: 4, running: Map.new(1..4, &{Integer.to_string(&1), %{}})}
-    warmed = Enum.reduce(1..5, initial, fn i, current -> update(current, 7.9, i * 60_000) end)
-    assert warmed.effective_concurrent_agents == 9
-    assert warmed.load_envelope_state.safe_level == 4
-
-    pressured = Enum.scan(1..12, warmed, fn i, current -> update(current, 78.0, (i + 5) * 60_000) end)
-
-    assert Enum.map(pressured, & &1.effective_concurrent_agents) == [9, 9, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4]
-    assert_in_delta Enum.sum(Enum.map(pressured, & &1.effective_concurrent_agents)) / length(pressured), 59 / 12, 0.01
-  end
-
   test "switching between PSI and fallback never combines overload streaks" do
     state = %State{max_concurrent_agents: 20, effective_concurrent_agents: 20}
     two = state |> update(11.0, 60_000) |> update(11.0, 120_000)

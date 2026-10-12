@@ -53,6 +53,18 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     assert dispatch(overloaded, 9, 7.99).effective_concurrent_agents == 7
   end
 
+  test "pressure peak respects the demonstrated safe level and avoids settling at one" do
+    initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 4, running: Map.new(1..4, &{Integer.to_string(&1), %{}})}
+    warmed = Enum.reduce(1..5, initial, fn i, current -> dispatch(current, i, 7.9) end)
+    assert warmed.effective_concurrent_agents == 9
+    assert warmed.load_envelope_state.safe_level == 4
+
+    pressured = Enum.scan(6..17, warmed, fn i, current -> dispatch(current, i, 78.0) end)
+
+    assert Enum.map(pressured, & &1.effective_concurrent_agents) == [9, 9, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+    assert_in_delta Enum.sum(Enum.map(pressured, & &1.effective_concurrent_agents)) / length(pressured), 59 / 12, 0.01
+  end
+
   defp dispatch(state, id, pressure) do
     now = id * 120_000
 
