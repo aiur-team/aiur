@@ -25,7 +25,6 @@ defmodule Aiur.BuildOrder.History.Edges do
       end)
 
     by_ticket = Map.new(by_ticket, fn {number, projection} -> {number, %{projection | deps: sorted_ids(projection.deps), children: sorted_ids(projection.children)}} end)
-    edges = Enum.sort_by(edges, &{&1.blocked, String.downcase(&1.blocker.owner), String.downcase(&1.blocker.repository), &1.blocker.number})
     {:ok, %{edges: edges, by_ticket: Map.put(by_ticket, :complete?, health.complete?)}}
   end
 
