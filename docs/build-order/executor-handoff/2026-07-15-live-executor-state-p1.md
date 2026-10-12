@@ -11,8 +11,8 @@ consolidation gate complete after applying DEC-015's ownership overlay while
 leaving the materialized ticket phases and preview on different schedules.
 The operator stopped the run. Aiur and every direct worker were terminated;
 execution could not restart until
-[`12-current-execution-waves.md`](12-current-execution-waves.md) and
-[`execution-waves.json`](execution-waves.json) form an exact 54-ticket W1–W7
+[`12-current-execution-waves.md`](../12-current-execution-waves.md) and
+[`execution-waves.json`](../execution-waves.json) form an exact 54-ticket W1–W7
 partition, every GitHub member carries exactly the matching `phase:<wave>`
 label, and the preview renders that same partition with no legacy-history
 view. Native blocker edges remain the readiness authority. That gate passed in
@@ -206,7 +206,7 @@ anything else:
   below; review prose alone is not proof.
 - **Readiness is native plus binding amendments.** The verified W1–W7 labels and
   native `blockedBy` edges are the scheduling authority, but
-  [`11-execution-amendment.md`](11-execution-amendment.md) carries binding
+  [`11-execution-amendment.md`](../11-execution-amendment.md) carries binding
   non-native serialization/gate constraints. In particular, do not resume
   DASH-029/#1133 until DASH-026 is complete and GATE-004 preserves Claude's exact
   decimal before JavaScript float conversion. DASH-009, DASH-012, and DASH-026

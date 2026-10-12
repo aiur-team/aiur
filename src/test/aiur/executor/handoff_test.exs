@@ -67,7 +67,7 @@ defmodule Aiur.Executor.HandoffTest do
     seeded = File.read!(RepoBase.handoff_path(repo))
     assert String.starts_with?(seeded, "## New-machine handoff")
     assert seeded =~ "###"
-    refute seeded =~ "## Archive index"
+    refute seeded =~ "## Archived checkpoints"
     refute seeded =~ "executor-handoff/"
   end
 
