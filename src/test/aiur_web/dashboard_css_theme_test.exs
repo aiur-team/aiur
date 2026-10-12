@@ -143,7 +143,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
 
   test "dashboard progress bars match the Stream Deck progress contract" do
     contract =
-      Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)
+      Path.expand("../../priv/streamdeck/key-face-contract.json", __DIR__)
       |> File.read!()
       |> Jason.decode!()
 
