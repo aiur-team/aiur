@@ -58,10 +58,9 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
 
   test "park resume and merged outcome carry the persisted attempt and head start" do
     assert :ok = OptimisticLedger.update_blocker("10", "12", %{merged_at_ms: 10_800_100, failed_cause: "pr_closed_unmerged"})
-    assert :ok = OptimisticLedger.bump("10", :parks, 1)
-    assert :ok = OptimisticLedger.set_status("10", :parked, 200)
-    assert :ok = OptimisticLedger.set_status("10", :parked, 200)
-    assert :ok = OptimisticLedger.set_status("10", :running, 300)
+    assert :ok = OptimisticLedger.begin_park("10", "12", :pr_closed_unmerged, 200)
+    assert :ok = OptimisticLedger.begin_park("10", "12", :pr_closed_unmerged, 200)
+    assert :ok = OptimisticLedger.resume_park("10", 300)
     assert :ok = OptimisticLedger.close("10", :merged, 10_900_100)
     assert :ok = OptimisticLedger.close("10", :merged, 10_900_100)
     assert_received {:point, %{event: "optimistic_park", blocker: "12", cause: "pr_closed_unmerged"}, [timestamp: ~U[1970-01-01 00:00:00.200Z]]}
