@@ -11,7 +11,7 @@ Issue #4268 extends the ordering from merged PR #4257. No dashboard changes or n
 
 Persist a nonnegative queue rank. New list and adopted queues append after the greatest existing rank. Missing ranks in version 1 stores migrate by creation time, preserving file order for ties. Expose rank in the read model for the sibling CLI work.
 
-Publish queue membership and reconciliation state alongside existing ETS dispatch hints. Keep the existing ready/optimistic/held tiers; within each tier, ranked mode prefers set rank and list position. `none` preserves the existing candidate order. Unqueued work retains ordinary ordering after ranked queue members.
+Publish queue membership and reconciliation state alongside existing ETS dispatch hints. Keep the existing ready/optimistic/held tiers; ranked mode prefers set rank, then list position for ready work and deepest-first order for optimistic work. `none` is the default and preserves the existing candidate order; this repository opts into `ranked`. Unqueued work retains ordinary ordering after ranked queue members.
 
 Admission checks count sets with started unfinished members, including review and CI waits, plus newly admitted runtime claims. Held sets never consume the set cap. A new set may start only below `max_active_sets`. Reserve slots apply to spill past the earliest unfinished unheld set. Unknown readiness in an earlier set blocks spill and names the uncertainty. Existing runners are never preempted.
 
@@ -24,7 +24,7 @@ Carry the named set-order decline through status waiting descriptors and the exi
 
 ## Risks and verification
 
-A stale hint must never be interpreted as an empty set; age the snapshot at consumption as well as handling unknown projections. A cap must count review waits rather than only running processes. Recheck at serialized admission so a batch cannot exceed limits. Preserve hint row formats for existing consumers.
+When a cap or reserve is configured, a stale hint must never be interpreted as an empty set; age the snapshot at consumption as well as handling unknown projections. A cap must count review waits rather than only running processes. Recheck at serialized admission so a batch cannot exceed limits. Preserve hint row formats for existing consumers.
 
 Run focused tests and the affected-test selector, compile, format, lint, structural and config-doc gates. Mutation-check new tests in an isolated worktree. Full CI is the handoff gate; manual sandbox runs are forbidden from agent workspaces.
 

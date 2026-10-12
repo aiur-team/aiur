@@ -5,19 +5,20 @@ defmodule Aiur.Orchestrator.QueueSetSlots do
   alias Aiur.Config
   alias Aiur.Orchestrator.{OptimisticSlots, Slots, State}
 
-  @spec sort_key(String.t()) :: tuple()
-  def sort_key(id) do
+  @spec ordering() :: map()
+  def ordering do
     snapshot = Hints.sets()
 
     if Config.settings!().build_queue.set_order == "ranked" and snapshot do
-      case snapshot.members[id] do
-        nil -> {1, 0, 0}
-        member -> {0, Enum.find(snapshot.sets, &(&1.id == member.set_id)).rank, member.position}
-      end
+      ranks = Map.new(snapshot.sets, &{&1.id, &1.rank})
+      for {id, member} <- snapshot.members, Map.has_key?(ranks, member.set_id), into: %{}, do: {id, {0, ranks[member.set_id], member.position}}
     else
-      {0, 0, 0}
+      %{}
     end
   end
+
+  @spec sort_key(String.t(), map()) :: tuple()
+  def sort_key(id, ordering), do: Map.get(ordering, id, {1, 0, 0})
 
   @spec reason(String.t(), State.t()) :: String.t() | nil
   def reason(id, state) do
@@ -47,7 +48,7 @@ defmodule Aiur.Orchestrator.QueueSetSlots do
     earliest = List.first(earlier)
 
     cond do
-      settings.set_order == "ranked" and unknown ->
+      settings.set_order == "ranked" and (settings.max_active_sets != nil or settings.spill_reserve_slots > 0) and unknown ->
         message(current, unknown, "readiness unknown; may have ready work")
 
       active_limit?(settings.max_active_sets, active, current.id) ->

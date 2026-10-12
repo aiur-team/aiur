@@ -7,7 +7,7 @@ defmodule Aiur.Config.Schema.BuildQueue do
   @primary_key false
 
   embedded_schema do
-    field(:set_order, :string, default: "ranked")
+    field(:set_order, :string, default: "none")
     field(:max_active_sets, :integer, default: nil)
     field(:spill_reserve_slots, :integer, default: 0)
     field(:enabled, :boolean, default: true)

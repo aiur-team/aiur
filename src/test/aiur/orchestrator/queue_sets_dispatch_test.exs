@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   import ExUnit.CaptureIO
   alias Aiur.{AgentControlCLI, Issue}
   alias Aiur.BuildQueue.{Hints, Model, Reconcile}
-  alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, Slots, State, StatusReport, TrackerTasks}
+  alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, QueueSetSlots, Slots, State, StatusReport, TrackerTasks}
 
   setup do
     path = Workflow.workflow_file_path()
@@ -55,6 +55,35 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert MapSet.new(Map.keys(final.running)) == MapSet.new(Enum.take(expected, 6), & &1.id)
   end
 
+  test "absent set config preserves ordinary dispatch order for the same queue store" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file!(path, tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent", max_concurrent_agents: 6)
+    Aiur.WorkflowStore.force_reload()
+    {document, issues, projections} = fixture()
+    publish(document, projections)
+    ordered = DispatchCandidates.order(issues, DispatchPolicy.terminal_state_set())
+    assert Enum.map(Enum.take(ordered, 6), & &1.id) == ~w(3 8 4 9 10 5)
+    assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(10 3 4 5 8 9)
+  end
+
+  test "unlimited ranked spill admits later sets despite unknown earlier readiness" do
+    {document, issues, projections} = fixture()
+    projections = Enum.map(projections, &if(&1.issue_id in ~w(1 2), do: %{&1 | state: :unknown}, else: &1))
+    publish(document, projections)
+    final = dispatch(Enum.drop(issues, 2))
+    assert Enum.sort(Map.keys(final.running)) == ~w(3 4 5 6 7 8)
+    assert Slots.available_slots(final) == 0
+  end
+
+  test "members of a missing set use ordinary ordering without crashing dispatch" do
+    {document, issues, projections} = fixture()
+    publish(document, projections)
+    snapshot = Hints.sets()
+    Hints.publish_sets(%{snapshot | sets: Enum.reject(snapshot.sets, &(&1.rank == 0))})
+    assert QueueSetSlots.sort_key("1", QueueSetSlots.ordering()) == {1, 0, 0}
+    assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(3 4 5 6 7 8)
+  end
+
   test "review waits keep a started unfinished set active after all its runners exit" do
     configure(max_active_sets: 1)
     {document, issues, projections} = fixture()
@@ -80,7 +109,8 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert reason =~ "spill reserve 1 slots"
   end
 
-  test "unknown earlier readiness blocks spill even with zero reserve and says it may have ready work" do
+  test "unknown earlier readiness blocks limited spill and says it may have ready work" do
+    configure(max_active_sets: 1)
     {document, issues, projections} = fixture()
     projections = Enum.map(projections, &if(&1.issue_id == "1", do: %{&1 | state: :unknown}, else: &1))
     publish(document, projections)
