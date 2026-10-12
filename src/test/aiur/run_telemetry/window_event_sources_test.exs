@@ -1,0 +1,70 @@
+defmodule Aiur.RunTelemetry.WindowEventSourcesTest do
+  use ExUnit.Case, async: false
+  alias Aiur.RunTelemetry
+  @range %{start: "2026-10-08T00:00:00Z", end: "2026-10-11T00:00:00Z"}
+  @sources %{"base_branch" => "trunk", "required_workflows" => ["CI"], "incident_labels" => ["incident", "outage"]}
+
+  test "GitHub reads carry quota attribution and requested base and dates, with independent partial results" do
+    parent = self()
+
+    request = fn req ->
+      send(parent, {:request, req})
+
+      cond do
+        req.method == :get ->
+          {:error, :offline}
+
+        req.body["query"] =~ "ExperimentWindowPulls" ->
+          {:ok, %{status: 200, body: %{"data" => %{"search" => %{"nodes" => [%{"number" => 42}], "pageInfo" => %{"hasNextPage" => false}, "issueCount" => 1}}}}}
+
+        req.body["query"] =~ "ExperimentWindowIncidents" ->
+          {:ok, %{status: 200, body: %{"data" => %{"search" => %{"nodes" => [], "pageInfo" => %{"hasNextPage" => false}, "issueCount" => 0}}}}}
+
+        true ->
+          key = if req.body["query"] =~ "ExperimentWindowReleases", do: "releases", else: "refs"
+          {:ok, %{status: 200, body: %{"data" => %{"repository" => %{key => %{"nodes" => [], "pageInfo" => %{"hasNextPage" => false}}}}}}}
+      end
+    end
+
+    {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, request_fun: request)
+    assert data["pulls"] == [%{"number" => 42}]
+
+    for _ <- 1..5 do
+      assert_receive {:request, req}, 1_000
+      assert req.caller == "experiment_window_events"
+
+      if req.method == :get do
+        assert URI.decode_query(URI.parse(req.url).query)["branch"] == "trunk"
+      else
+        if req.body["query"] =~ "ExperimentWindowPulls", do: assert(req.body["variables"]["query"] =~ "base:trunk merged:2026-10-08T00:00:00Z..2026-10-11T00:00:00Z")
+      end
+    end
+  end
+
+  test "page limit returns retained rows and explicitly incomplete coverage" do
+    request = fn req ->
+      if req.method == :get do
+        {:ok, %{status: 200, body: %{"workflow_runs" => [%{"id" => 1}], "total_count" => 2000}}}
+      else
+        {:error, :offline}
+      end
+    end
+
+    {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, request_fun: request)
+    assert length(data["runs"]) == 10
+  end
+
+  test "raw boot heads supplement summaries and malformed streams report missing coverage" do
+    root = Path.join(System.tmp_dir!(), "window-records-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    raw = Path.join(root, "telemetry.ndjson")
+    summary = Path.join(root, "run-summary.json")
+    boot = %{"kind" => "restart", "boot_id" => "new", "timestamp" => "2026-10-09T04:00:00Z", "attributes" => %{"event" => "daemon_restart"}}
+    old = %{boot | "boot_id" => "old", "timestamp" => "2026-10-09T01:00:00Z"}
+    File.write!(raw, Jason.encode!(boot) <> "\n{bad\n")
+    File.write!(summary, Jason.encode!(%{"records" => [old], "restarts" => [old]}))
+    {rows, ["telemetry"]} = RunTelemetry.window_records(telemetry_files: [raw], summary_files: [summary])
+    assert Enum.sort(Enum.map(rows, & &1["boot_id"])) == ["new", "old"]
+  end
+end

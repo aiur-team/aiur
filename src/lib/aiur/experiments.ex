@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store, WindowEvents}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -58,6 +58,27 @@ defmodule Aiur.Experiments do
 
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(id), do: Reader.fetch(id)
+
+  @spec events(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def events(id, opts \\ []) do
+    with {:ok, spec, read_only?} <- Reader.spec(id) do
+      cached_events(WindowEvents.snapshot(spec), id, spec, read_only?, opts)
+    end
+  end
+
+  defp cached_events({:ok, snapshot}, id, spec, read_only?, opts) do
+    if opts[:refresh], do: collect_events(id, spec, read_only?, opts), else: {:ok, snapshot}
+  end
+
+  defp cached_events({:error, :not_found}, id, spec, read_only?, opts), do: collect_events(id, spec, read_only?, opts)
+  defp cached_events(error, _id, _spec, _read_only?, _opts), do: error
+
+  defp collect_events(_id, _spec, true, _opts), do: {:error, :store_read_only}
+
+  defp collect_events(id, spec, false, opts) do
+    snapshot = WindowEvents.collect(spec, opts)
+    mutate({:events_snapshot, id, snapshot, Keyword.get(opts, :refresh, false)})
+  end
 
   @spec create(map(), keyword()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def create(attrs, opts \\ []), do: mutate({:create, attrs, opts})
