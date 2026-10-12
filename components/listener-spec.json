@@ -1,0 +1,20 @@
+{
+  "id": "listener-spec",
+  "name": "Listener-mode spec package shared with Khala: JSON spec and golden fixtures (MP-E7, MP-Q1/E7-D1; RC-36). `status: planned`, `added_by: MP-E7`",
+  "layer": 5,
+  "kind": "optional",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}

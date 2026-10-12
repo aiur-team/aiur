@@ -20,6 +20,7 @@ Label read/create failures stop startup before agents start and explain the requ
 | Ticket branches | Validated refs and commits; subscribed known-ref changes trigger async compare (`per_page=1`, caller `ticket_branch_rewrite`) | `behind`/`diverged` or 404 emits `ticket.N.branch.force-push` (404: `previous_missing`). Errors/holds log and count `[:aiur, :events, :branch_rewrite, :error]`; new/unsubscribed refs skip compare. |
 | Comments and reviews | Trusted issue comments, PR comments, reviews, and unresolved threads | Wakes the correct agent for operator direction or rework. |
 | CI | Terminal checks while a ticket is in `agent:ci-wait` or `agent:human-review` | Returns passed work for human review and failed work for repair. |
+| Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits | Detects failures through check webhooks, base pushes and polling; retains state across restarts. |
 | Repository events | Default-branch pushes and opened or merged pull requests | Refreshes work whose base or review state changed. |
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
@@ -46,14 +47,9 @@ The PR review poll keeps its own per-ticket cursor, seeded from that ticket's fi
 
 Review submissions are polled during `agent:ci-wait` as well as `agent:human-review`, so trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews can route either state to `agent:rework` without waiting for CI to finish, including body-only reviews without inline threads.
 
-Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
-`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
-fix requested “before merge”. Clean summaries such as “No blockers; waiting on
-CI” or “All blockers resolved” do not route to rework.
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`, `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or fix requested “before merge”. Clean summaries such as “No blockers; waiting on CI” or “All blockers resolved” do not route to rework.
 
-Failed CI in `agent:human-review` routes to rework when that head already passed
-CI or the head changed. An inherited failure on a dismissed head remains held;
-the existing test-only one-poll retry still applies.
+Failed CI in `agent:human-review` routes to rework when that head already passed CI or the head changed. An inherited failure on a dismissed head remains held; the existing test-only one-poll retry still applies.
 
 This does not recover reviews that an older daemon already skipped before this cursor existed.
 
@@ -112,7 +108,7 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Issues | Read and write |
 | Pull requests | Read and write |
 | Checks | Read (CI failure annotations) |
-| Actions | Read and write when using automatic reruns (cancelled runs and failed jobs) |
+| Actions | Read for main-watch workflow attribution; write for canary and automatic reruns (cancelled runs and failed jobs). |
 | Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
@@ -185,10 +181,7 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 ## Poll cadence
 
-The cadence is per-state-class since #2309: each poll loop resolves its interval
-by naming the class it serves, and `polling.intervals` overrides
-`polling.interval_seconds` for one class while every unlisted class falls back
-to the scalar.
+The cadence is per-state-class since #2309: each poll loop resolves its interval by naming the class it serves, and `polling.intervals` overrides `polling.interval_seconds` for one class while every unlisted class falls back to the scalar.
 
 Poll spend still scales inversely with a class's interval, so
 `polling.interval_seconds` defaults to 120 — and the class that moves the most
@@ -214,8 +207,7 @@ GraphQL spend is the one to widen, not the cheap tracker poll.
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
-Comments, review submissions, and watch-target discovery are read over
-conditional REST with `If-None-Match`. An unchanged answer returns `304`, which
+Comments, review submissions, and watch-target discovery are read over conditional REST with `If-None-Match`. An unchanged answer returns `304`, which
 does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
@@ -715,7 +707,7 @@ mergeability; those observations permit disjoint paths. A matching head's `CONFL
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
-Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
+Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 
@@ -764,6 +756,14 @@ Such a write still records the marker of the snapshot it was applied to, rather 
 A label write also corrects the labels on the issue Aiur already holds, and does so as one indivisible step. Reading the issue, changing it, and writing it back as separate steps would let a delivery that landed in between be overwritten by the older copy — including its `open` or `closed` state.
 
 A write that fails records nothing.
+
+Main watch debounces base Actions deliveries for two seconds. At the default 120-second cadence, an unchanged completed census costs two Core reads: `main_watch_commits` and `main_watch_runs`. Fingerprints reuse completed checks until a run changes; pagination coverage uses run and commit dates, allowing merge-queue commits without push runs.
+
+A cold 20-SHA green census costs 42 reads; one changed SHA costs four; startup adds one permission probe. These are transport-test counts, not live measurements. Each reconciliation caps all transport calls at 64, including evidence, suspects and reruns; exhausted or incomplete reads retain known state and mark it unavailable.
+
+Failure events carry tests, flake classifications and suspects. Evidence uses existing CI callers; associations use `main_watch_suspects`, permissions `main_watch_permissions`, and reruns `main_watch_canary`. Actions write is cached until daemon restart; permission changes require a restart.
+
+An idle completed head or any active watched run suppresses canaries; an eligible cancellation without write permission raises one persisted attention. Status distinguishes a running, unavailable or absent watcher and shows retained SHA and completed-run age after errors or poll crashes.
 
 ## Optional webhook
 

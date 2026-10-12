@@ -59,6 +59,7 @@ defmodule Aiur.BuildQueue.PlannerFixture do
   defp provenance(input, :claimed), do: update_observation(input, labels: ~w(agent:queued agent:in-progress))
   defp provenance(input, :external), do: update_item(input, promoted_at: @time)
   defp apply_action({:dequeue, id}, input), do: %{input | items: Enum.reject(input.items, &(&1.issue_id == id))}
+  defp apply_action({:unmark, id}, input), do: input |> update_observation(labels: List.delete(input.observations[id].labels, "agent:queued")) |> intent(:unmark, outcome: :ok)
   defp apply_action({:mark_override, _id}, input), do: update_item(input, override: :manual_promotion)
   defp apply_action({:mark_external_hold, _id}, input), do: update_item(input, hold: :external)
   defp apply_action({:promote, _id}, input), do: input |> promoted() |> intent(:promote)

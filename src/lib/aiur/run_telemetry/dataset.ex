@@ -291,7 +291,11 @@ defmodule Aiur.RunTelemetry.Dataset do
   # The point events the writer re-emits after a segment roll (see
   # `Aiur.RunTelemetry.Writer`). Their identity is the event key, so the
   # original and its carried replica collapse to one point.
-  @carried_point_events ~w(dispatch pr_opened pr_merged)
+  @carried_point_events ~w(
+    dispatch
+    pr_opened
+    pr_merged
+  )
 
   defp carried_point_event?(%{attributes: %{"event" => event, "boundary" => "point"}}),
     do: event in @carried_point_events
