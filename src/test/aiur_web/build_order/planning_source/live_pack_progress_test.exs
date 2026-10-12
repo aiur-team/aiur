@@ -1,11 +1,16 @@
 defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgressTest do
-  use ExUnit.Case, async: false
+  use AiurWeb.BuildOrder.PlanningSourceCase
 
   alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrder.PlanningSource.LivePackProgress
 
   test "reads poll labels without waiting for an unresponsive Orchestrator mailbox" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    File.write!(path, @canonical_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
     {:ok, identity} =
       TrackerIdentity.from_github(
         %{"number" => 4101, "node_id" => "I_live_4101"},
@@ -34,8 +39,27 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgressTest do
         do: Process.register(original, Aiur.Orchestrator)
     end)
 
-    task = Task.async(fn -> LivePackProgress.current_poll_labels() end)
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      %{
+        generation: 9,
+        health: :healthy,
+        freshness: %{status: :fresh},
+        members: [%{identity: identity, lifecycle: :queued}],
+        labels_by_identity: %{TrackerIdentity.github_key(identity) => ["agent:rework"]}
+      }
+    end)
+
     key = TrackerIdentity.github_key(identity)
-    assert {:ok, %{^key => ["agent:rework"]}} = Task.yield(task, 2_000)
+
+    task =
+      Task.async(fn ->
+        poll_labels = LivePackProgress.current_poll_labels()
+        [root] = PlanningSource.catalog().data.entries
+        {:ok, snapshot} = PlanningSource.demand(root.identity)
+        {poll_labels, Enum.map(snapshot.data.members, & &1.labels)}
+      end)
+
+    assert {:ok, {%{^key => ["agent:rework"]}, [["agent:rework"], ["build-lane:dashboard-ui", "phase:3", "complexity:2"]]}} =
+             Task.yield(task, 2_000) || Task.shutdown(task, :brutal_kill)
   end
 end

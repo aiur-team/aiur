@@ -5,6 +5,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator
 
+  @spec current_poll_labels() :: map()
   def current_poll_labels do
     case Orchestrator.dashboard_snapshot() do
       {status, snapshot, _freshness} when status in [:current, :stale] ->
