@@ -13,6 +13,7 @@ export function initScrollCue(el: HTMLElement, { hideAfter = 60, hideWhen }: Scr
   update();
   const instance = {
     destroy() {
+      if (instances.get(el) !== instance) return;
       window.removeEventListener('scroll', update);
       instances.delete(el);
     },

@@ -8,6 +8,8 @@ export function initScrollCue(el, { hideAfter = 60, hideWhen } = {}) {
     update();
     const instance = {
         destroy() {
+            if (instances.get(el) !== instance)
+                return;
             window.removeEventListener('scroll', update);
             instances.delete(el);
         },
