@@ -50,7 +50,9 @@ defmodule Aiur.BuildQueue.ReadModel do
     items = for projection <- context.state.projections, Map.has_key?(members, projection.issue_id), do: item(members[projection.issue_id], projection, context)
     missing = for member <- Map.values(members), not Enum.any?(items, &(&1.number == String.to_integer(member.issue_id))), do: unknown_item(member, context)
     items = items ++ Enum.sort_by(missing, & &1.position)
-    progress = if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: Progress.summary(items)
+
+    progress =
+      if queue.kind == :build_order, do: context.build_orders[queue.root].progress, else: Progress.summary(items, Progress.available?() and not Map.get(context.state, :progress_unavailable, false))
 
     %{
       queue_id: queue.id,
