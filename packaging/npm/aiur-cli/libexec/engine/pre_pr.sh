@@ -29,7 +29,7 @@ cmd_pre_pr() {
     -u AIUR_AGENT_BIN -u AIUR_AGENT_QUOTA_STATE_PATH -u AIUR_AGENT_TMPFILE
     -u AIUR_ALERT_LEDGER_PATH_FILE -u AIUR_REPO_STATE_PATH -u AIUR_SESSION_TMPFILE
     -u AIUR_WORKSPACE_ROOT_FILE -u AIUR_TMUX_CONF -u AIUR_TMUX_SESSION -u AIUR_TMUX_SOCKET
-    "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=/tmp"
+    "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=$temp_dir"
     "PATH=$test_path"
   )
   if ! git fetch origin "$base_ref" >"$temp_dir/fetch.log" 2>&1; then
@@ -85,7 +85,19 @@ cmd_pre_pr() {
     fi
     case "$selection" in
       full)
-        run_gate "full test suite (affected-test selector fallback: $(jq -r '.reason' <<<"$affected"))" "${test_env[@]}" bash -c 'cd src && mise exec -- make ci'
+        results+=("NOTE full suite recommended ($(jq -r '.reason' <<<"$affected")); runs in merge queue")
+        while IFS= read -r edited; do
+          [ -n "$edited" ] || continue
+          while IFS= read -r reader_test; do test_files+=("$reader_test"); done < <(rg -l --glob '*_test.exs' --fixed-strings -- "${edited##*/}" src/test || true)
+        done < <(git diff --name-only "$base_sha...HEAD")
+        mapfile -t test_files < <(printf '%s\n' "${test_files[@]}" | sort -u | awk 'NF')
+        if [ "${#test_files[@]}" -eq 0 ]; then
+          results+=("PASS reader tests (no test names an edited file)")
+        else
+          local -a mix_paths=()
+          for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
+          run_gate "reader tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+        fi
         ;;
       scoped)
         while IFS= read -r test_path; do test_files+=("$test_path"); done < <(jq -r '.tests[]' <<<"$affected")
@@ -127,9 +139,9 @@ pre_pr_report() {
   printf 'Merged main SHA: %s\n' "$base_sha"
   printf 'Result: %s\n' "$status"
   for line in "${results[@]}"; do printf '%s\n' "$line"; done
+  printf '%s\n' '--- end aiur pre-pr result ---'
   for log in "${failures[@]}"; do
     printf '%s\n' '--- failed gate output ---'
     cat "$log"
   done
-  printf '%s\n' '--- end aiur pre-pr result ---'
 }

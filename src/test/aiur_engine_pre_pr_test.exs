@@ -27,21 +27,37 @@ defmodule AiurEnginePrePrTest do
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
 
-  test "a failing gate is named and full-suite selector fallback is executed" do
+  test "full-suite fallback is reported and matching reader tests run" do
     fixture = fixture("gate")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
+    File.mkdir_p!(Path.join(repo, "src/lib"))
+    File.mkdir_p!(Path.join(repo, "src/test"))
+    File.write!(Path.join(repo, "src/lib/changed.ex"), "defmodule Changed do end\n")
+
+    File.write!(
+      Path.join(repo, "src/test/changed_reader_test.exs"),
+      "assert File.read!(\"src/lib/changed.ex\")\n"
+    )
+
+    git!(repo, ["add", "."])
+    git!(repo, ["commit", "-m", "change source"])
 
     {output, status} = run_pre_pr(fixture, repo)
 
     assert status == 1
     assert output =~ "FAIL mix format --check-formatted"
-    assert output =~ "PASS full test suite (affected-test selector fallback: fixture requires full suite)"
-    assert File.read!(Path.join(fixture, "make-ci-ran")) == "yes\n"
+    assert output =~ "NOTE full suite recommended (fixture requires full suite); runs in merge queue"
+    assert output =~ "PASS reader tests"
+    assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
+    refute File.exists?(Path.join(fixture, "make-ci-ran"))
     assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
+    temp_dirs = fixture |> then(&Path.join(&1, "test-tmpdirs")) |> File.read!() |> String.split("\n", trim: true)
+    assert length(temp_dirs) == 2
+    assert Enum.all?(temp_dirs, &String.starts_with?(&1, Path.join(fixture, "aiur-pre-pr.")))
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
-    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
+    assert :binary.match(output, "--- end aiur pre-pr result ---") < :binary.match(output, "format failure")
     refute File.exists?(Path.join(fixture, "home/.aiur"))
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
@@ -76,14 +92,16 @@ defmodule AiurEnginePrePrTest do
     mise = """
     #!/usr/bin/env bash
     case "$*" in
-      *"mix test"*|*"make ci"*)
+      *"mix test"*)
         if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
         echo clean >> "#{root}/test-env"
+        echo "$TMPDIR" >> "#{root}/test-tmpdirs"
+        case "$*" in *changed_reader_test.exs*) echo "$*" > "#{root}/reader-tests" ;; esac
         ;;
     esac
     case "$*" in
       *"mix aiur.affected_tests"*) echo '{"status":"full","reason":"fixture requires full suite"}' ;;
-      *"make ci"*) echo yes > "#{root}/make-ci-ran" ;;
+      *"make ci"*) echo yes > "#{root}/make-ci-ran"; exit 88 ;;
       *"mix format"*) echo 'format failure'; exit 13 ;;
       *) exit 0 ;;
     esac

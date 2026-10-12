@@ -152,10 +152,10 @@ blocking finding is the only enforcement they have.
 
 ## The loop
 
-Before opening or updating a PR, run `aiur pre-pr` (or `aiurdev pre-pr`) from
-the branch checkout. Paste its complete result block into the PR body; it
-records the merged `origin/main` SHA and each gate result. It never pushes and
-refuses a dirty checkout.
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the merged `origin/main` SHA and each gate result.
+It never pushes and refuses a dirty checkout.
 
 **Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
 Elixir examples apply only to Aiur's core; other repositories use their documented commands.
