@@ -51,7 +51,7 @@ cmd_pre_pr() {
   run_gate "check-file-size" python3 scripts/check-file-size.py --base "$base_sha"
   run_gate "check-config-docs" python3 scripts/check-config-docs.py
   run_gate "check-hot-list-format" python3 scripts/check-hot-list-format.py
-  run_gate "architectural guard tests" env HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
+  run_gate "architectural guard tests" env -u AIUR_AGENT_WORKSPACE HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
 
   if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mise exec -- mix aiur.affected_tests "origin/$base_ref" --json)"; then
     results+=("FAIL affected tests selection")
@@ -69,7 +69,7 @@ cmd_pre_pr() {
     fi
     case "$selection" in
       full)
-        run_gate "full test suite (affected-test selector fallback: $(jq -r '.reason' <<<"$affected"))" env HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- make ci'
+        run_gate "full test suite (affected-test selector fallback: $(jq -r '.reason' <<<"$affected"))" env -u AIUR_AGENT_WORKSPACE HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- make ci'
         ;;
       scoped)
         while IFS= read -r test_path; do test_files+=("$test_path"); done < <(jq -r '.tests[]' <<<"$affected")
@@ -78,7 +78,7 @@ cmd_pre_pr() {
         else
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
-          run_gate "affected tests" env HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          run_gate "affected tests" env -u AIUR_AGENT_WORKSPACE HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
         fi
         ;;
       invalid) ;;

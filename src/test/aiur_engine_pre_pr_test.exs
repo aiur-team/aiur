@@ -36,6 +36,7 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "FAIL mix format --check-formatted"
     assert output =~ "PASS full test suite (affected-test selector fallback: fixture requires full suite)"
     assert File.read!(Path.join(fixture, "make-ci-ran")) == "yes\n"
+    assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
     refute File.exists?(Path.join(fixture, "home/.aiur"))
@@ -70,6 +71,12 @@ defmodule AiurEnginePrePrTest do
   defp write_fake_tools(bin, root) do
     mise = """
     #!/usr/bin/env bash
+    case "$*" in
+      *"mix test"*|*"make ci"*)
+        if [ "${AIUR_AGENT_WORKSPACE+x}" = x ]; then echo leaked > "#{root}/test-env"; exit 79; fi
+        echo clean >> "#{root}/test-env"
+        ;;
+    esac
     case "$*" in
       *"mix aiur.affected_tests"*) echo '{"status":"full","reason":"fixture requires full suite"}' ;;
       *"make ci"*) echo yes > "#{root}/make-ci-ran" ;;
