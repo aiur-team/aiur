@@ -40,9 +40,7 @@ A head whose check runs all finished with at least one cancelled is missing CI, 
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
-Draft PRs remain pending even when their fast gate is green. Completed work must be marked ready before CI wait so `ready_for_review` can start the full suite.
-
-Aiur refuses an agent's transition to `agent:ci-wait` while the ticket's open PR is a draft. If a PR is observed still in draft during CI wait, `ticket.<id>.pr.draft_ci_wait` raises a needs-attention alert after `agent.ci_wait_rewake_minutes`; it resolves when the PR is ready or the ticket leaves CI wait. `aiur status` labels this pending state `draft_pr`.
+Draft PRs remain pending after the fast gate; mark them ready before CI wait to start the full suite. Aiur refuses `ci-wait` for drafts. If one remains in CI wait for `agent.ci_wait_rewake_minutes`, `ticket.<id>.pr.draft_ci_wait` raises attention and resolves when ready or outside CI wait; `aiur status` shows `draft_pr`.
 
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
