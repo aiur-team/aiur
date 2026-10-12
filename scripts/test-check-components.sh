@@ -72,7 +72,9 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             assert message in output, f'{name}: missing {message!r}: {output}'
         if format:
             content = (root / 'components.json').read_bytes()
-            assert json.loads(content) == dict(manifest, components=sorted(components, key=lambda c: (c['layer'], c['id'])))
+            sys.path.insert(0, str(repo / 'scripts'))
+            from components.manifest import canonical
+            assert json.loads(content) == canonical(dict(manifest, components=sorted(components, key=lambda c: (c['layer'], c['id']))))
             subprocess.run(args, env=env, check=True, capture_output=True)
             assert (root / 'components.json').read_bytes() == content, f'{name}: formatting not idempotent'
         print(f'PASS: {name}')
@@ -297,7 +299,9 @@ else:
 
     def use_experiments_contract(root):
         manifest = json.loads((root / 'components.json').read_text())
-        shipped = next(c for c in json.loads((repo / 'components.json').read_text())['components'] if c['id'] == 'experiments')
+        sys.path.insert(0, str(repo / 'scripts'))
+        from components.manifest import read_manifest
+        shipped = next(c for c in read_manifest(repo)['components'] if c['id'] == 'experiments')
         manifest['components'][0]['forbid'] = shipped['forbid']
         (root / 'components.json').write_text(json.dumps(manifest))
 

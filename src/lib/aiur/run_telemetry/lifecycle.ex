@@ -13,18 +13,66 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   alias Aiur.RunTelemetry.Lifecycle.BackendOperations
 
   @events ~w(
-    dispatch optimistic_start prewarm workspace_setup workspace_ownership agent_spinup implement build_test
-    pr_opened pr_merged review_pause comment_received rework_start
-    agent_pause agent_resume
+    dispatch
+    optimistic_start
+    prewarm
+    workspace_setup
+    workspace_ownership
+    agent_spinup
+    implement
+    build_test
+    pr_opened
+    pr_merged
+    review_pause
+    comment_received
+    rework_start
+    agent_pause
+    agent_resume
   )
-  @boundaries ~w(start end point)
+  @boundaries ~w(
+    start
+    end
+    point
+  )
   # Headroom dispatch summary (#3960): dispatch_selection holds the chosen backend/account and every alternative's score.
   @metadata_fields ~w(
-    outcome cause operation_id command_class duration_status source source_id actor
-    pr_number comment_id review_thread_id author_trusted source_timestamp worker_host backend
-    prewarm_outcome reason_class exit_status turn_number remote retry_attempt
-    workspace_owner workspace_generation workspace_phase optimistic_blockers optimistic_start complexity dispatch_selection
-    model effort feature epic tags blockers start_mode start_trigger blocker_prs
+    outcome
+    cause
+    operation_id
+    command_class
+    duration_status
+    source
+    source_id
+    actor
+    pr_number
+    comment_id
+    review_thread_id
+    author_trusted
+    source_timestamp
+    worker_host
+    backend
+    prewarm_outcome
+    reason_class
+    exit_status
+    turn_number
+    remote
+    retry_attempt
+    workspace_owner
+    workspace_generation
+    workspace_phase
+    optimistic_blockers
+    optimistic_start
+    complexity
+    dispatch_selection
+    model
+    effort
+    feature
+    epic
+    tags
+    blockers
+    start_mode
+    start_trigger
+    blocker_prs
   )a
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()

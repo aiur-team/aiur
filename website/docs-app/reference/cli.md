@@ -59,7 +59,9 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`. `--debug` additionally enables debug-level messages. The default background root is `~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
 
-`aiur status` prints `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age and red start date. Unavailable retains last-known CI. `CI WAIT` lists tickets, PRs, recovery and failing checks. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
+`aiur status` shows `optimistic n/cap` and prints `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age and red start date. Unavailable retains last-known CI.
+
+`CI WAIT` lists tickets, PRs, recovery and failing checks, including tickets without workers. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
 
 `aiur status` shows degraded CODEOWNERS trust with cause and age ([GitHub trust](/apis/github#who-aiur-trusts)). With ready work and free slots, it names preflight holds, stale polling, `awaiting dispatch`, or empty-cycle reasons and age. Prewarm holds keep their cause; unexplained empty cycles report `unknown`.
 
@@ -493,8 +495,6 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 `aiur pr merge <N> --reviewed-sha <full-sha>` uses a stored, allowlisted human `gh` identity without a daemon; agents and Apps refuse. `--dry-run` writes nothing. `--approve-body-file <file>` posts pinned approval and reruns the gates; self-review refuses. Repeatable `--inherited <check>` requires watcher verification, currently unavailable.
 
-Gates cover head, draft, approval, requested changes, CI, conflicts, attribution and merge-result prechecks (ten minutes each). The checkout and PR branch stay unchanged. `ci: wait` is the only accepted mode; all required checks must pass. See [merge policy](/reference/merge-policy) for pending evidence, watcher and full-CI conditions.
+Gates cover head, draft, approval, requested changes, CI, conflicts, attribution and merge-result prechecks (ten minutes each); the checkout and PR branch stay unchanged. Only `ci: wait` is accepted and all required checks must pass; see [merge policy](/reference/merge-policy). Unknown branch rules refuse. Other bases use pinned squash merge.
 
-A merge-queue rule reports `ENQUEUED` and records that state; it never merges directly or bypasses the queue. Rerun the pinned command after GitHub merges to record the observed outcome. Unknown branch rules refuse. Other bases use pinned squash merge.
-
-Exit codes: `0` merged, enqueued, observed merged or dry run; `2` policy refusal; `1` tool/network error. Records and failure logs: `~/.aiur/logs/pr-merge/`. Only observed merges notify `system.pr.merged`, independently verified by the daemon. Ledger or notification failures warn without retrying the merge.
+A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub merges to record the result. Exit codes: `0` merged, enqueued, observed merged or dry run; `2` policy refusal; `1` tool/network error. Records, logs: `~/.aiur/logs/pr-merge/`. Only observed merges notify `system.pr.merged`, daemon-verified. Ledger/notification failures only warn.
