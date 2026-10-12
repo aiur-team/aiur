@@ -2,9 +2,9 @@ defmodule Aiur.BuildQueue.SetSummary do
   @moduledoc "Set counts and admission state from reconciled item evidence."
   @terminal [:completed, :cancelled, :removed]
 
-  @spec decorate([map()]) :: [map()]
-  def decorate(queues) do
-    queues = queues |> Enum.sort_by(&{&1.set_rank, &1.queue_id}) |> Enum.map(&counts/1)
+  @spec decorate([map()], [String.t()]) :: [map()]
+  def decorate(queues, unavailable) do
+    queues = queues |> Enum.sort_by(&{&1.set_rank, &1.queue_id}) |> Enum.map(&counts(&1, unavailable))
     next = Enum.find(queues, &eligible?/1)
 
     Enum.map(queues, fn queue ->
@@ -13,9 +13,9 @@ defmodule Aiur.BuildQueue.SetSummary do
     end)
   end
 
-  defp counts(queue) do
+  defp counts(queue, unavailable) do
     counts =
-      if Enum.any?(queue.items, &(&1.state == :unknown)) do
+      if queue.queue_id in unavailable or Enum.any?(queue.items, &(&1.state == :unknown)) do
         %{ready: nil, started: nil, done: nil}
       else
         %{ready: Enum.count(queue.items, &ready?/1), started: Enum.count(queue.items, &(&1.state == :claimed)), done: Enum.count(queue.items, &(&1.state in @terminal))}
@@ -32,9 +32,9 @@ defmodule Aiur.BuildQueue.SetSummary do
   defp state(queue, next) do
     cond do
       Enum.any?(queue.items, &(&1.state == :claimed)) -> {:active, nil}
-      Enum.all?(queue.items, &(&1.state in @terminal)) -> {:done, nil}
       queue.held -> {:waiting, "held"}
       queue.counts.ready == nil -> {:waiting, "readiness unknown"}
+      Enum.all?(queue.items, &(&1.state in @terminal)) -> {:done, nil}
       next && queue.queue_id == next.queue_id -> {:next, nil}
       true -> {:waiting, waiting_reason(queue, next)}
     end
