@@ -17,8 +17,10 @@ defmodule Aiur.CapabilitiesNotificationsTest do
   setup do
     start_supervised!(%{id: Provider, start: {Agent, :start_link, [fn -> :available end, [name: Provider]]}})
     table = String.to_atom("capability_notifications_#{System.unique_integer([:positive])}")
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
     start_supervised!({Table, table: table, name: nil})
-    Phoenix.PubSub.subscribe(Aiur.PubSub, "capabilities")
+    Phoenix.PubSub.subscribe(pubsub, "capabilities")
     owner = self()
 
     publish = fn topic, payload, opts ->
@@ -26,7 +28,7 @@ defmodule Aiur.CapabilitiesNotificationsTest do
       {:ok, 1, 0}
     end
 
-    %{opts: [table: table, providers: [Provider], name: nil, tick_ms: 60_000, publish_fun: publish]}
+    %{opts: [table: table, providers: [Provider], name: nil, pubsub: pubsub, tick_ms: 60_000, publish_fun: publish]}
   end
 
   test "publishes once per revision change with only revision and boot ID after storing the report", %{opts: opts} do

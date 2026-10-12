@@ -260,7 +260,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     setup_lifecycle(ctx)
 
     poll = fn state, result ->
-      CiLifecycle.poll_github_ci(state, ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [ctx.issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [result], errors: []}} end])
+      CiLifecycle.poll_github_ci(past_ci_cadence(state), ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [ctx.issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [result], errors: []}} end])
     end
 
     state = poll.(empty_orchestrator_state(), ctx.result)
@@ -396,8 +396,11 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
   end
 
   defp lifecycle_poll(state, ctx, issue) do
-    CiLifecycle.poll_github_ci(state, ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [ctx.result], errors: []}} end])
+    CiLifecycle.poll_github_ci(past_ci_cadence(state), ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [ctx.result], errors: []}} end])
   end
+
+  # A running Orchestrator can publish the :ci cadence at any moment; these polls are separate ticks (#4360).
+  defp past_ci_cadence(state), do: %{state | last_ci_poll_started_at_ms: nil}
 
   defp setup_lifecycle(ctx) do
     previous = Application.get_env(:aiur, :github_client_module)

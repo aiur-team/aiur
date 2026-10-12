@@ -1888,7 +1888,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   defp poll_ci(state, issue, result, opts \\ []) do
     next =
       CiLifecycle.poll_github_ci(
-        state,
+        %{state | last_ci_poll_started_at_ms: nil},
         Keyword.merge(
           [
             # Hermetic digest and alert ledger; recovery behavior has its own tests.

@@ -61,7 +61,8 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
   end
 
   defp poll_ci(state, issue, result, emitter, now_ms) do
-    CiLifecycle.poll_github_ci(state,
+    # Each call is a separate tick; a published :ci cadence must not skip it (#4360).
+    CiLifecycle.poll_github_ci(%{state | last_ci_poll_started_at_ms: nil},
       ci_failure_digest: fn _, _ -> {:ok, %Aiur.CI.FailureDigest{}} end,
       parked_ready_alert_loader: fn -> MapSet.new() end,
       draft_stall_alert_loader: fn -> MapSet.new() end,
