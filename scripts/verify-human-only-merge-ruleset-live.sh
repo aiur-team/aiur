@@ -75,15 +75,19 @@ expected_do_not_enforce="$(jq -c '
   [.rules[] | select(.type == "required_status_checks") | .parameters.do_not_enforce_on_create][0]
 ' "$declaration")"
 
+# ponytail: accept the exact legacy full gate during rollout; remove after every open PR has ci gate.
+legacy_checks="$(cat "$root/docs/security/ci-legacy-required-checks.json")"
 if ! jq -e \
   --argjson expected_checks "$expected_checks" \
+  --argjson legacy_checks "$legacy_checks" \
   --argjson expected_strict "$expected_strict" \
   --argjson expected_do_not_enforce "$expected_do_not_enforce" '
   [.rules[] | select(.type == "required_status_checks") | .parameters] |
   length == 1 and
   .[0].do_not_enforce_on_create == $expected_do_not_enforce and
   .[0].strict_required_status_checks_policy == $expected_strict and
-  (.[0].required_status_checks | map(.context) | sort) == ($expected_checks | sort) and
+  ((.[0].required_status_checks | map(.context) | sort) == ($expected_checks | sort) or
+   (.[0].required_status_checks | map(.context) | sort) == ($legacy_checks | sort)) and
   (.[0].required_status_checks | all(.integration_id == 15368))
 ' >/dev/null <<<"$ruleset"; then
   echo "ruleset must require every blocking GitHub Actions status check from the declaration" >&2

@@ -133,10 +133,11 @@ defmodule Aiur.ApplicationTest do
       Aiur.LauncherWatchdog,
       Aiur.Opencode.PaneSupervisor
     ]
-
-    @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
-
-    # Agent backends kept in headless mode plus core infra both modes need.
+    @dashboard [
+      AiurWeb.ControlCenterCache,
+      AiurWeb.FinancialData.Supervisor,
+      Aiur.HttpServer
+    ]
     @always [
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,
@@ -168,7 +169,6 @@ defmodule Aiur.ApplicationTest do
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
     ]
-
     defp modules(specs) do
       Enum.map(specs, fn
         mod when is_atom(mod) -> mod

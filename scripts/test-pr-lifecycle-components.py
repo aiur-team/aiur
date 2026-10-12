@@ -8,7 +8,8 @@ import subprocess
 import tempfile
 
 REPO = Path(__file__).resolve().parent.parent
-MANIFEST = json.loads((REPO / 'components.json').read_text())
+from components.manifest import read_manifest
+MANIFEST = read_manifest(REPO)
 
 
 def check(name, source_component, source, expected, message):

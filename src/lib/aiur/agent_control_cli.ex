@@ -35,7 +35,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, StatusObservation, StatusReason, TicketTransition, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, OptimisticSlots, StatusObservation, StatusReason, TicketTransition, WaitingReason}
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   alias Aiur.WorkflowStore.ReloadRejection
@@ -59,14 +59,12 @@ defmodule Aiur.AgentControlCLI do
   @status_timeout_ms 5_000
   # A deep orchestrator mailbox means `set max-agents` queues behind real contention; say so up front (#2137).
   @orchestrator_busy_mailbox_threshold 20
-  # Leave the launcher watchdog room to receive and render the daemon's explicit
-  # timeout result instead of racing it at the shared 10-second edge. Eight
+  # Leave room to render the daemon timeout before the shared 10-second watchdog edge. Eight
   # seconds was not enough: RPC BEAM startup costs ~2s, so a saturated snapshot
   # measured 10335ms and lost the race — the launcher killed it at 10s and the
   # operator got a truncated fleet listing plus exit 124 instead of one honest
   # "agents query timed out after 8s" line (#1684).
   @agents_timeout_ms 6_000
-
   # `{:ok, :resumed}` from the orchestrator means a resume control request was
   # *enqueued* for the agent, not that the agent left the paused state (see
   # `Aiur.Orchestrator.PauseResume.send_resume_control_message/3`). Printing
@@ -75,9 +73,7 @@ defmodule Aiur.AgentControlCLI do
   # the agent's own control status leaving `:paused` before claiming it, and
   # report an unconfirmed request as a failure rather than as success.
   #
-  # One invocation shares a single confirmation budget across every queued
-  # resume, so `resume --all` over a large fleet still fits inside the
-  # launcher's 10s control-RPC timeout.
+  # Share one confirmation budget across resume --all to fit the launcher's 10s RPC timeout.
   @resume_confirm_timeout_ms 4_000
   @resume_confirm_poll_ms 100
 
@@ -178,7 +174,6 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  # Render retained freshness and current age with the same vocabulary.
   defp print_snapshot_freshness(%{status: :stale} = freshness) do
     IO.puts(
       "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
@@ -192,6 +187,11 @@ defmodule Aiur.AgentControlCLI do
   defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
   defp stale_snapshot_reason(:orchestrator_unavailable), do: " (the orchestrator is unavailable)"
   defp stale_snapshot_reason(_reason), do: ""
+
+  @spec main_watch_state() :: map()
+  defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
+  @spec main_watch_inherited?(String.t(), String.t()) :: :inherited | :not_inherited | :unknown
+  defdelegate main_watch_inherited?(check, merge_base), to: Aiur.MainWatch, as: :inherited?
 
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
@@ -929,10 +929,10 @@ defmodule Aiur.AgentControlCLI do
 
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
-
-  # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
-  # dispatch latch. Clears the in-memory + durable budget entries so a latched
-  # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
+  @doc "Parks paused tickets without changing their workflow state."
+  @spec park([String.t()]) :: :ok
+  defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
+  # Clear a named ticket's lifetime dispatch-budget latch so it can run again (#1453).
   @spec reset_budget([String.t()]) :: :ok
   def reset_budget(targets) when is_list(targets) do
     guarded("reset-budget", fn ->
@@ -1766,7 +1766,7 @@ defmodule Aiur.AgentControlCLI do
               is_integer(configured) do
     binding = capacity_binding(capacity, polling)
     resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}")
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}#{OptimisticSlots.label(capacity)}")
   end
 
   defp print_capacity_status(_capacity, _polling), do: :ok
