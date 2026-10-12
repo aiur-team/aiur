@@ -75,6 +75,14 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     refute_received {:point, _, _}
   end
 
+  test "park records its triggering blocker rather than an older blocker failure" do
+    attrs = %{attempt_id: "multi", start_trigger: :pr_opened, started_at_ms: 300, blockers: [%{"id" => "12", "failed_cause" => "agent_error"}, %{"id" => "13"}]}
+    assert :ok = OptimisticLedger.record_start("10", attrs)
+    assert :ok = OptimisticLedger.begin_park("10", "13", :pr_closed_unmerged, 400)
+    assert_received {:point, %{event: "optimistic_park", blocker: "13", cause: "pr_closed_unmerged"}, _}
+    refute_received {:point, _, _}
+  end
+
   test "a restarted attempt preserves redo and the original optimistic start" do
     assert :ok = OptimisticLedger.bump("10", :parks, 1)
     assert :ok = OptimisticLedger.record_start("10", %{attempt_id: "retry", start_trigger: :pr_opened, started_at_ms: 500, blockers: [%{"id" => "12", "merged_at_ms" => 1000}]})

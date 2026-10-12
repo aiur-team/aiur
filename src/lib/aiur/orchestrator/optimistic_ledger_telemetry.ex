@@ -20,8 +20,8 @@ defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
 
     cond do
       row["status"] == "parked" and old["status"] != "parked" ->
-        blocker = Enum.find(row["blockers"], &(&1["park_cause"] != nil or &1["failed_cause"] != nil)) || %{}
-        emit(row, :optimistic_park, %{blocker: blocker["id"], cause: blocker["park_cause"] || blocker["failed_cause"]}, row["status_changed_at_ms"])
+        blocker = Enum.find(row["blockers"], &(&1["park_cause"] != nil)) || %{}
+        emit(row, :optimistic_park, %{blocker: blocker["id"], cause: blocker["park_cause"]}, row["status_changed_at_ms"])
 
       row["status"] == "running" and old["status"] == "parked" ->
         emit(row, :optimistic_resume, %{}, row["status_changed_at_ms"])
