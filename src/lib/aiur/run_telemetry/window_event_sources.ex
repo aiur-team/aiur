@@ -87,17 +87,17 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
          %{"nodes" => nodes, "pageInfo" => info} when is_list(nodes) <- get_in(body, ["data" | path]) do
       rows = rows ++ nodes
       count = get_in(body, ["data" | path])["issueCount"] || 0
-      next_page(request, token, query, variables, path, rows, seen, info, count)
+      next_page(request, token, query, variables, path, rows, seen, Map.put(info, "issueCount", count))
     else
       _error -> if rows == [], do: {:error, :github_unavailable}, else: {:partial, rows}
     end
   end
 
-  defp next_page(request, token, query, variables, path, rows, seen, info, count) do
+  defp next_page(request, token, query, variables, path, rows, seen, info) do
     cursor = info["endCursor"]
 
     cond do
-      info["hasNextPage"] == false -> if count > 1000, do: {:partial, rows}, else: {:ok, rows}
+      info["hasNextPage"] == false -> if info["issueCount"] > 1000, do: {:partial, rows}, else: {:ok, rows}
       length(seen) >= 9 or is_nil(cursor) or cursor in seen -> {:partial, rows}
       true -> pages(request, token, query, Map.put(variables, "cursor", cursor), path, rows, [cursor | seen])
     end

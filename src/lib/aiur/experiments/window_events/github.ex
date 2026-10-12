@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.WindowEvents.GitHub do
   @moduledoc false
-  alias Aiur.Experiments.WindowEvents
   alias Aiur.Experiments.Sources.Common
+  alias Aiur.Experiments.WindowEvents
 
   @spec collect(String.t(), map(), map(), keyword()) :: {[map()], [String.t()]}
   def collect(repo, sources, range, opts) do

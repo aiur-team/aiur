@@ -27,7 +27,7 @@ defmodule Aiur.Experiments.WindowEvents do
       end)
 
     snapshot = %{"schema_version" => 1, "request_hash" => request_hash(experiment), "events" => events, "incomplete_sources" => Enum.uniq(local_missing ++ github_missing) |> Enum.sort()}
-    Map.put(snapshot, "snapshot_hash", hash(snapshot))
+    Map.put(snapshot, "snapshot_hash", snapshot_hash(snapshot))
   end
 
   @spec request_hash(map()) :: String.t()
@@ -93,7 +93,7 @@ defmodule Aiur.Experiments.WindowEvents do
     events = for {:ok, row} <- rows, is_map(row), do: row
     data = Map.put(header, "events", events)
     payload = Map.drop(data, ~w(snapshot snapshot_hash))
-    if length(events) == length(rows) and hash(payload) == data["snapshot_hash"], do: {:ok, data}, else: {:error, :invalid_events_snapshot}
+    if length(events) == length(rows) and snapshot_hash(payload) == data["snapshot_hash"], do: {:ok, data}, else: {:error, :invalid_events_snapshot}
   end
 
   defp decode_snapshot(_invalid), do: {:error, :invalid_events_snapshot}
@@ -142,6 +142,12 @@ defmodule Aiur.Experiments.WindowEvents do
 
   @spec hash(term()) :: String.t()
   def hash(value), do: :crypto.hash(:sha256, canonical(value)) |> Base.encode16(case: :lower)
+
+  defp snapshot_hash(data) do
+    header = Map.drop(data, ~w(events snapshot snapshot_hash))
+    lines = Enum.map([header | data["events"]], &[canonical(&1), "\n"])
+    :crypto.hash(:sha256, lines) |> Base.encode16(case: :lower)
+  end
 
   defp canonical(value) when is_map(value) do
     entries = value |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {key, item} -> [Jason.encode!(key), ":", canonical(item)] end)
