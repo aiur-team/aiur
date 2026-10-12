@@ -47,10 +47,10 @@
     "kernel",
     "orchestration",
     "projections",
+    "signal",
     "tracker",
     "web-kit",
-    "workspace",
-    "signal"
+    "workspace"
   ],
   "optional": [
     "build-queue",

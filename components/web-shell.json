@@ -23,8 +23,8 @@
     "config",
     "identity",
     "projections",
-    "web-kit",
-    "signal"
+    "signal",
+    "web-kit"
   ],
   "optional": [
     "build-orders",

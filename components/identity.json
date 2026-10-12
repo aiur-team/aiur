@@ -22,8 +22,8 @@
     "config",
     "event-bus",
     "kernel",
-    "web-kit",
-    "signal"
+    "signal",
+    "web-kit"
   ],
   "optional": [],
   "owns": {

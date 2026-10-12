@@ -17,8 +17,8 @@
     "agent-sandbox",
     "config",
     "kernel",
-    "tracker",
-    "signal"
+    "signal",
+    "tracker"
   ],
   "optional": [],
   "owns": {
