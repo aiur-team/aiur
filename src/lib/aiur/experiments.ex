@@ -63,13 +63,17 @@ defmodule Aiur.Experiments do
   def create(attrs, opts \\ []), do: mutate({:create, attrs, opts})
 
   @spec freeze(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
-  def freeze(id, window \\ nil, opts \\ []), do: mutate({:freeze, id, window, opts})
+  def freeze(id, window \\ nil, opts \\ []) do
+    if Paths.valid_id?(id), do: mutate({:freeze, id, window, opts}), else: {:error, :not_found}
+  end
 
   @spec arms(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def arms(id, opts \\ []), do: Arms.read(id, opts)
 
   @spec export_analysis_input(String.t()) :: {:ok, map()} | {:error, term()}
-  def export_analysis_input(id), do: mutate({:export_analysis_input, id})
+  def export_analysis_input(id) do
+    if Paths.valid_id?(id), do: mutate({:export_analysis_input, id}), else: {:error, :not_found}
+  end
 
   @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def checkpoint(id, now), do: mutate({:checkpoint, id, now})

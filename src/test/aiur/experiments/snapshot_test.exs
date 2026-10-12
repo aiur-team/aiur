@@ -173,4 +173,12 @@ defmodule Aiur.Experiments.SnapshotTest do
     assert Experiments.arms(spec.id) == {:error, :tampered}
     assert Experiments.freeze(spec.id, "before", reason: "replace deleted") == {:error, :tampered}
   end
+
+  test "invalid experiment ids are refused without terminating the writer" do
+    assert Experiments.freeze("../escape") == {:error, :not_found}
+    assert Experiments.export_analysis_input("../escape") == {:error, :not_found}
+    assert {:ok, spec} = Experiments.create(attrs())
+    assert {:ok, %{snapshots: [snapshot]}} = Experiments.fetch(spec.id)
+    assert snapshot["observation_count"] == 2
+  end
 end
