@@ -2,8 +2,8 @@ defmodule Aiur.BuildOrder.History.EdgesTest do
   use ExUnit.Case, async: true
   alias Aiur.BuildOrder.History.{Edges, Row}
   alias Aiur.BuildOrder.{Lifecycle, ProviderHealth}
-  alias AiurWeb.Build.Payload
   alias Aiur.TestSupport.BuildHome.FixtureSource
+  alias AiurWeb.Build.Payload
   @repo %{owner: "aiur-team", repository: "aiur"}
   @fixtures Path.expand("../../../fixtures/build_home", __DIR__)
 
