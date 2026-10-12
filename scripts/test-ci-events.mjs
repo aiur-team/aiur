@@ -29,6 +29,8 @@ for (const event of ['merge_group', 'workflow_dispatch', 'pull_request']) {
   assert.ok(!selectedFull.includes('affected-tests'));
 }
 assert.ok(jobs.get('ci-gate').includes('if: ${{ always() }}'), 'aggregate must run after failed dependencies');
+assert.ok(jobs.get('changes').includes('affected_paths_b64: ${{ steps.classify.outputs.affected_paths_b64 }}'));
+assert.ok(jobs.get('affected-tests').includes('AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}'));
 for (const job of [...fullJobs.filter((job) => job !== 'quarantine'), ...fastJobs.filter((job) => job !== 'ci-gate')]) {
   assert.ok(jobs.get('ci-gate').includes(job), `gate needs ${job}`);
 }
@@ -51,7 +53,10 @@ for (const [event, full, required] of [
     for (const result of ['failure', 'skipped', 'cancelled', '']) {
       const run = gate(event, full, job, result);
       assert.notEqual(run.status, 0, `${event} rejects ${job}=${result}`);
-      assert.ok(run.stderr.includes(`CI gate failed: ${job}`), run.stderr);
+      const cancelledAffected = event === 'pull_request' && !full && job === 'affected-tests' && result === 'cancelled';
+      assert.ok(run.stderr.includes(cancelledAffected
+        ? 'CI gate failed: affected tests (cancelled; possible timeout)'
+        : `CI gate failed: ${job}`), run.stderr);
     }
   }
 }

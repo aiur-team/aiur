@@ -23,6 +23,34 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
   end
 end
 
+defmodule Mix.Tasks.Aiur.AffectedTests.ChangedPathsTest do
+  use ExUnit.Case, async: false
+
+  alias Mix.Tasks.Aiur.AffectedTests
+
+  test "uses the classifier's changed paths even when the checkout has extra base changes" do
+    paths = ["src/test/aiur/one_test.exs"]
+    System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64(Jason.encode!(paths)))
+
+    try do
+      assert AffectedTests.changed_files("/not-a-repository", "stale-base-sha") == {:ok, paths}
+    after
+      System.delete_env("AIUR_CI_CHANGED_PATHS_B64")
+    end
+  end
+
+  test "rejects malformed classifier changed paths" do
+    System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64("{}"))
+
+    try do
+      assert {:error, "AIUR_CI_CHANGED_PATHS_B64 must encode a JSON array of paths"} =
+               AffectedTests.changed_files("/not-a-repository", "stale-base-sha")
+    after
+      System.delete_env("AIUR_CI_CHANGED_PATHS_B64")
+    end
+  end
+end
+
 # Env-mutation tests require async: false to avoid races on the process-global
 # AIUR_BASE_BRANCH env var.
 defmodule Mix.Tasks.Aiur.AffectedTests.DefaultOriginTest do

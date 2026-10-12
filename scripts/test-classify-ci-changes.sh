@@ -41,7 +41,7 @@ classify() {
   EVENT_NAME="$1" TEST_DRAFT="$2" TEST_FILES="$3" TEST_LABELS="${4:-[]}" REPO=o/r PR_NUMBER=7 \
     GITHUB_OUTPUT="$test_dir/out" GITHUB_STEP_SUMMARY="$test_dir/summary" \
     PATH="$test_dir/bin:$PATH" bash "$root/scripts/classify-ci-changes.sh" || return $?
-  sort "$test_dir/out" | paste -sd' ' -
+  grep -E '^(full_ci|docs_only)=' "$test_dir/out" | sort | paste -sd' ' -
 }
 expect() {
   local want="$1" got; shift
@@ -71,6 +71,9 @@ TEST_BIGPATCH=true expect 'docs_only=false full_ci=false' pull_request false '[]
 TEST_LEGACY=true expect 'docs_only=true full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
 TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
 TEST_FILE_CAP=true expect 'docs_only=false full_ci=true' pull_request false '[]'
+classify pull_request false '[{"filename":"src/test/aiur/config_test.exs"},{"filename":"src/lib/aiur/config.ex"}]' >/dev/null
+expected_paths="$(printf '["src/lib/aiur/config.ex","src/test/aiur/config_test.exs"]' | base64 -w0)"
+grep -Fxq "affected_paths_b64=$expected_paths" "$test_dir/out"
 if PATH="$test_dir/failbin:$PATH" classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' >/dev/null; then
   echo 'selector failure must not publish a fast classification' >&2
   exit 1

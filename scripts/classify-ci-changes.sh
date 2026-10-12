@@ -30,4 +30,14 @@ if grep -qx 'full_ci=false' "$scratch/classification" && ! grep -qx 'docs_only=t
     *) echo "unsupported affected selection: $selection" >&2; exit 1 ;;
   esac
 fi
+if grep -qx 'full_ci=false' "$scratch/classification"; then
+  paths_b64="$(jq -cj '[.[] | .filename, (.previous_filename | select(. != null))] | unique' "$scratch/files.json" | base64 -w0)"
+  if (( ${#paths_b64} > 900000 )); then
+    sed -i 's/^full_ci=.*/full_ci=true/' "$scratch/classification"
+    paths_b64=''
+  fi
+  echo "affected_paths_b64=$paths_b64" >> "$GITHUB_OUTPUT"
+else
+  echo 'affected_paths_b64=' >> "$GITHUB_OUTPUT"
+fi
 cat "$scratch/classification" | tee -a "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"

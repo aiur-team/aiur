@@ -64,11 +64,24 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
 
   defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
 
-  defp changed_files(root, base) do
-    with {:ok, committed} <- git(root, ["diff", "--name-only", base, "--"]),
-         {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
-         {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
-      {:ok, Enum.uniq(committed ++ working ++ untracked)}
+  @doc false
+  def changed_files(root, base) do
+    case System.get_env("AIUR_CI_CHANGED_PATHS_B64") do
+      nil ->
+        with {:ok, committed} <- git(root, ["diff", "--name-only", base, "--"]),
+             {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
+             {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
+          {:ok, Enum.uniq(committed ++ working ++ untracked)}
+        end
+
+      encoded ->
+        with {:ok, json} <- Base.decode64(encoded),
+             {:ok, paths} <- Jason.decode(json),
+             true <- is_list(paths) and Enum.all?(paths, &is_binary/1) do
+          {:ok, Enum.uniq(paths)}
+        else
+          _ -> {:error, "AIUR_CI_CHANGED_PATHS_B64 must encode a JSON array of paths"}
+        end
     end
   end
 
