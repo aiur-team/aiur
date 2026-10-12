@@ -3,12 +3,17 @@ defmodule Aiur.OptimisticStart.DispatchIntegrationTest do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.Orchestrator.{AutoSubscriptions, Dispatcher, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, Dispatcher, OptimisticLedger, State}
   alias Aiur.StartTrigger.ProgressStore
 
   @sha String.duplicate("a", 40)
 
   setup do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, OptimisticLedger)
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, OptimisticLedger) end)
+    ledger_root = Aiur.TestSupport.tmp_root!("optimistic-dispatch-ledger")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(ledger_root) end)
+    start_supervised!({OptimisticLedger, path: Path.join(ledger_root, "starts.json")})
     :ets.new(Hints.table_name(), [:named_table, :set])
     :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
     blocker = to_string(System.unique_integer([:positive]))

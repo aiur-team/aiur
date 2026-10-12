@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Ordering, Planner, PRObserver, Settings, Withdrawal}
+  alias Aiur.BuildQueue.{ClaimProbe, Hints, Model.Observation, NativeObserver, Observer, Ordering, Planner, PRObserver, Sets, Settings, Withdrawal}
 
   alias Aiur.StartTrigger.ProgressStore
 
@@ -37,6 +37,7 @@ defmodule Aiur.BuildQueue.Reconcile do
       label_prefix: state.settings.tracker.github.label_prefix,
       observation_max_age_ms: Settings.observation_max_age_ms(state.settings),
       withdrawal_holds: state.holds,
+      optimistic_dependents: optimistic_dependents(state.claim_probe),
       source_verdicts: Map.get(state, :source_verdicts, %{}),
       merged_open_grace_ms: state.settings.build_queue.merged_open_grace_seconds * 1000
     ]
@@ -47,6 +48,13 @@ defmodule Aiur.BuildQueue.Reconcile do
     {input, begins} = Withdrawal.prepare(input, state.claim_probe)
     {projections, actions} = Planner.plan(input)
     {projections, begins ++ actions, input.observations, cache, Keyword.fetch!(input.opts, :withdrawal_holds), published, input.edges}
+  end
+
+  defp optimistic_dependents(probe) do
+    case ClaimProbe.optimistic_records(probe) do
+      {:ok, records} -> MapSet.new(records, & &1["ticket"])
+      {:error, _} -> MapSet.new()
+    end
   end
 
   defp enrich_prerequisites(input, state, cache) do
@@ -68,8 +76,8 @@ defmodule Aiur.BuildQueue.Reconcile do
     ProgressStore.watch(Enum.uniq(ids), :pr_approved, observation_max_age_ms: Settings.observation_max_age_ms(state.settings))
   end
 
-  @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map(), Aiur.Config.Schema.t()) :: true
-  def write_hints(projections, holds, document, settings \\ Aiur.Config.settings!()) do
+  @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map(), Aiur.Config.Schema.t(), map() | nil) :: true
+  def write_hints(projections, holds, document, settings \\ Aiur.Config.settings!(), observations \\ nil) do
     held_queues = for queue <- document.queues, queue.held, do: queue.id
     persisted = for item <- document.items, item.hold != nil or item.queue_id in held_queues, do: item.issue_id
     holds = MapSet.union(holds, MapSet.new(persisted))
@@ -86,7 +94,7 @@ defmodule Aiur.BuildQueue.Reconcile do
     :ets.insert(Hints.table_name(), rows)
     retained = MapSet.new(rows, &elem(&1, 0))
     for row <- :ets.tab2list(Hints.table_name()), not MapSet.member?(retained, elem(row, 0)), do: :ets.delete(Hints.table_name(), elem(row, 0))
-    true
+    Hints.publish_sets(Sets.snapshot(document, projections, settings, observations))
   end
 
   defp critical_ranks(projections, document) do
