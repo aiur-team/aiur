@@ -22,9 +22,14 @@ defmodule Aiur.Experiments.Journal do
 
   @spec append(Path.t(), map()) :: :ok | {:error, term()}
   def append(path, entry) do
-    with :ok <- writable(path),
-         {:ok, _rows} <- replay(path, true) do
-      Aiur.Journal.append(path, entry)
+    append_many(path, [entry])
+  end
+
+  @spec append_many(Path.t(), [map()]) :: :ok | {:error, term()}
+  def append_many(path, entries) do
+    with {:ok, rows} <- replay(path, true),
+         :ok <- Enum.reduce_while(rows, :ok, &check_version/2) do
+      Aiur.Journal.append_many(path, entries)
     end
   end
 

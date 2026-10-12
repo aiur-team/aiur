@@ -25,7 +25,7 @@ defmodule Aiur.ExperimentsCLITest do
         }
       ]
 
-    def observations(_ids, _window, _context), do: %{}
+    def observations(_ids, window, _context), do: %{"start" => {%{state: :captured}, [%{unit_id: "fixture-1", value: 12, at: window.start}]}}
   end
 
   setup do
@@ -48,6 +48,7 @@ defmodule Aiur.ExperimentsCLITest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
     if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
     start_supervised!(Aiur.Experiments.Store)
     :ok
@@ -129,16 +130,48 @@ defmodule Aiur.ExperimentsCLITest do
     assert get_in(Jason.decode!(output), ["design", "change", "time"]) == "2026-10-09T00:00:00Z"
   end
 
-  test "create warns honestly that a baseline was not frozen" do
-    warning =
-      capture_io(:stderr, fn ->
-        capture_io(fn ->
-          assert ExperimentsCLI.run(verb: :create, argv: ["--title", "warning", "--line", "manual:warning@2026-10-09T00:00:00Z", "--metric", "delivery/start"]) == 0
-        end)
-      end)
-
-    assert warning == "baseline not frozen: freeze is not available in this build\n"
+  test "create freezes the baseline and reports its window, count and coverage" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("frozen")) == 0 end)
+    assert output =~ "froze before window 2026-09-25T00:00:00Z..2026-10-09T00:00:00Z: 1 observations"
+    assert output =~ ~s|coverage delivery/start={"state":"captured"} (n=1)|
+    {:ok, [row]} = Experiments.list()
+    assert Enum.map(Experiments.journal(row.id), & &1["kind"]) == ["created", "frozen"]
+    {:ok, detail} = Experiments.fetch(row.id)
+    assert [%{"window_name" => "before", "observation_count" => 1, "revision" => 1}] = detail.snapshots
+    shown = capture_io(fn -> assert ExperimentsCLI.run(verb: :show, argv: [row.id]) == 0 end)
+    assert shown =~ "1 observations"
+    assert shown =~ "(n=1)"
   end
+
+  test "no-freeze opts out and explicit freeze requires a reason for revisions" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("optout") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+    refute Map.has_key?(spec, "frozen_snapshot")
+    assert {:ok, %{snapshots: []}} = Experiments.fetch(spec["id"])
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec["id"], "--json"]) == 0 end)
+    assert Jason.decode!(output)["observation_count"] == 1
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec["id"]]) == 1 end) =~ "revision r1 already exists; --reason is required"
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec["id"], "--reason", "new evidence", "--json"]) == 0 end)
+    assert Jason.decode!(output)["revision"] == 2
+    assert {:ok, %{snapshots: snapshots}} = Experiments.fetch(spec["id"])
+    assert Enum.map(snapshots, & &1["revision"]) == [1, 2]
+  end
+
+  test "freeze rejects a window absent from an A/B design as invalid usage" do
+    attrs = %{
+      title: "ab",
+      design: %{kind: "ab", cohorts: [%{id: "a", label: "A", where: %{attr: "backend", op: "eq", value: "a"}}, %{id: "b", label: "B", where: %{attr: "backend", op: "eq", value: "b"}}], control: "a"},
+      metrics: [%{ref: "delivery/start"}]
+    }
+
+    assert {:ok, spec} = Experiments.create(attrs, freeze: false)
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec.id, "--window", "before"]) == 64 end) =~ "--window before|after|observation"
+    assert {:ok, %{snapshots: []}} = Experiments.fetch(spec.id)
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec.id, "--json"]) == 0 end)
+    assert Jason.decode!(output)["window_name"] == "observation"
+  end
+
+  defp quick_args(title), do: ["--title", title, "--line", "manual:#{title}@2026-10-09T00:00:00Z", "--metric", "delivery/start"]
 
   test "control RPC transports errors and creation notices using protocol markers" do
     missing = capture_io(fn -> assert Aiur.AgentControlCLI.experiments(verb: :show, argv: ["missing"]) == :ok end)
@@ -150,9 +183,11 @@ defmodule Aiur.ExperimentsCLITest do
     assert usage =~ "__AIUR_CONTROL_ERROR__:aiur: experiments expects"
     assert usage =~ "__AIUR_CONTROL_EXIT__:64"
     created = capture_io(fn -> Aiur.AgentControlCLI.experiments(verb: :create, argv: ["--title", "rpc", "--line", "manual:rpc@2026-10-09T00:00:00Z", "--metric", "delivery/start", "--json"]) end)
-    assert created =~ "__AIUR_CONTROL_ERROR__:baseline not frozen: freeze is not available in this build"
+    refute created =~ "__AIUR_CONTROL_ERROR__"
     assert created =~ "__AIUR_CONTROL_EXIT__:0"
     [json | _markers] = String.split(created, "\n", trim: true)
     assert Jason.decode!(json)["title"] == "rpc"
+    assert Jason.decode!(json)["frozen_snapshot"]["observation_count"] == 1
+    assert Jason.decode!(json)["frozen_snapshot"]["metrics"]["delivery/start"]["coverage"] == %{"state" => "captured"}
   end
 end

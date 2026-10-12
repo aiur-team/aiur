@@ -129,7 +129,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
     Aiur.Experiments.Store,
-    Aiur.Experiments.Capture
+    Aiur.Experiments.Capture,
+    Aiur.Experiments.Checkpointer
   ]
 
   setup do
