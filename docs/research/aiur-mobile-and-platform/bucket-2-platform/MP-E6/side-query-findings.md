@@ -17,7 +17,7 @@ below**: they include the parent session's own accumulated cost.
 | SQ-1 isolation (Claude) | **Pass.** Parent jsonl md5 identical before/after 4 forks (idle parent) and 5 forks (360k parent); worktree `git status` + `svc.py` hash unchanged. Fork answered from parent memory ("I never checked that callers really retry" was a statement made only in the parent's turn). Each fork writes its own new session jsonl. | `claude -p --resume <id> --fork-session --permission-mode plan --allowedTools=Read,Grep,Glob --disallowedTools "Bash Edit Write"` | 9 |
 | SQ-3 read-only (Claude) | **Pass.** Asked to append to `svc.py` and `touch pwned`: refused, no change, no `pwned`. Costly (35k fresh cache write, 8 s) because plan mode makes the model try to write a plan file. | same flags + write prompt | 1 |
 | SQ-6 mid-turn (Claude) | **Pass with a caveat.** Forked 15 s into a parent turn running `sleep 45`: both finished, parent printed `parent-done`, 0 unparseable jsonl lines, last line parsed at fork time. Caveat: the fork saw the in-flight tool call as stopped and answered "the parent session is idle" — the answer must not be read as parent state. | background parent + fork | 1 |
-| SQ-2 speed (Claude) | **Pass at ~45k context** (below). **Pass at ~360k warm** (below). The ticket's 150k point was not hit: the filler tokenised at about 360k, not 150k. Cold cache measured only by the first big fork. | see table | 3 + 5 + 1 |
+| SQ-2 speed (Claude) | **Pass at ~45k, 157.8k and ~360k contexts.** At 157.8k, the first fork took 8.9 s and warm repeated forks took 3.3–4.9 s. At 360k, a cold-ish first fork took 18.9 s. | see tables | 3 + 5 + 1 |
 | SQ-5 cost (Claude) | **Per-fork cost is the fork total minus the parent's last total.** At 45k, warm cost was USD 0.17/query. At 157.8k, the first fork cost USD 0.596; repeated identical questions cost USD 0.031 each. A different question with a warm parent cost USD 0.033 without `--disallowedTools`, or USD 0.591 with it. At 360k, first fork cost USD 1.408. | `--output-format json`; compare cumulative parent and fork usage | 3 + 5 + 1 |
 | SQ-4 Codex | **Pass: fork inherits parent history.** A parent-only fact was returned with `excludeTurns` true and false (ephemeral fork requires true). Writes were refused under read-only sandboxing; parent rollout was unchanged. | app-server JSON-RPC: `thread/start`, `turn/start`, `thread/fork`, `turn/start` | 7 |
 | SQ-7 `history_copy` | **Unverified — not run.** No OpenAI-compatible provider key was available. | | 0 |
@@ -37,8 +37,6 @@ figures subtract the parent's last total.
 | ~45k | cold (first fork) | 3.6 s | 0.329 | 0 / 45k |
 | ~360k | warm | 2.2–2.4 s (4 runs) | 1.585 | 357k / 3.7k |
 | ~360k | cold-ish (first fork) | 18.9 s | 2.942 | 9k / 352k |
-| ~158k | warm, no `--disallowedTools`, new question | 3.4 s | 0.033 | 156.0k / 3.7k |
-| ~158k | warm, `--disallowedTools`, new question | 4.0 s | 0.591 | 11.0k / 146.8k |
 
 The harness also reports `duration_api_ms` of 33–50 s on the large fork; I did not
 reconcile it with `duration_ms`, so treat the latency figures as `duration_ms` only.
@@ -92,50 +90,6 @@ that cannot read a cache pays about USD 4 per million context tokens; one that c
 USD 0.1–0.2 per million. Not measured: a fork without `--disallowedTools` when the parent has
 been idle past the cache lifetime (expected to cost the same as the cache-miss rows), and what
 the cache lifetime is.
-
-## Follow-up results (MP-E6-C10-T03b)
-
-Run 2026-10-10, same host and versions (Claude Code 2.1.296; codex-cli 0.160.0).
-The 41 follow-up queries brought the total to 56 of 60. Test parents only.
-
-The Claude `total_cost_usd` and `duration_api_ms` fields are cumulative across the parent
-session. Per-fork costs above subtract the parent's prior total. `--disallowedTools` changes
-the request prefix and forces a cache miss for a new question; without it, a warm parent
-cache can be reused.
-
-Codex's `excludeTurns` controls whether the response includes prior turns, not whether fork
-context inherits them. An ephemeral fork requires `excludeTurns: true`. Persistent forks
-write their own rollout; the ephemeral fork wrote none; the parent rollout stayed unchanged.
-
-Plan mode without `--disallowedTools` declined the attempted write but did not record a
-permission denial and wrote a plan file, so hard enforcement is **unverified**. Permission-only
-forks denied Edit and Bash in the tested environment; settings that allow Bash are **unverified**.
-
-| SQ | Result | Method | Runs |
-| --- | --- | --- | --- |
-| SQ-2 / SQ-5 at 157.8k | First fork 8.9 s / USD 0.596; five repeated-question forks 3.3–4.9 s / USD 0.031 each. New question with warm parent: USD 0.033 without `--disallowedTools`, USD 0.591 with it. | Parent measured at 157.8k; compare cumulative totals | 6 + 1 |
-| SQ-4 Codex context | Parent-only fact returned for ephemeral/persistent forks with `excludeTurns` true and persistent fork with it false. Input 17,740 tokens vs parent 15,350. | app-server JSON-RPC | 3 (+3 discarded runs) |
-| Mid-turn Codex | Fork during parent `sleep 40`; fork returned parent-only fact and parent completed normally. | app-server JSON-RPC | 2 |
-| `/talk` shapes | Interactive Claude and Codex parents between edits passed. Not a real `/talk` skill session. Forks described active work as interrupted/stopped. | Claude process fork; separate Codex app-server | 3 |
-| SQ-8 | Replay agreed with native fork on 16/20 scored points. Only 36 transcript entries, so >40-entry truncation is **unverified**. | 10 forks + 10 replays | 20 |
-| SQ-7 | **Unverified — not run**, no provider key. | | 0 |
-| `aiur-claude` | `thread/fork` exists, but lacks read-only/non-persistent controls and was not run. | Source inspection | 0 |
-
-### Per-fork cost (Claude, parent cost removed)
-
-| Parent context | Fork flags | Question | Cache read / created | `duration_ms` | USD per fork |
-| --- | --- | --- | --- | --- | --- |
-| ~45k | plan + `--disallowedTools` | first fork | 0 / 45k | 3.6 s | 0.183 |
-| ~45k | plan + `--disallowedTools` | repeated | 41.6k / 3.7k | 2.6–3.5 s | 0.021 |
-| ~49k | plan + `--disallowedTools` | new each time (11 runs) | 12.6k / 36.0k (1 run recorded) | 2.1–3.6 s | 0.146–0.148 |
-| ~49k, parent warm | plan, no `--disallowedTools` | new | 48.6k / 1.8k | 2.9 s | 0.014 |
-| ~49k, parent warm | `--allowedTools` only | new (3 runs) | 48.6k / 0.1k | 1.6–2.2 s | 0.006–0.007 |
-| ~158k | plan + `--disallowedTools` | first fork | 9.2k / 148.6k | 8.9 s | 0.596 |
-| ~158k | plan + `--disallowedTools` | repeated (5 runs) | 154.1k / 3.7k | 3.3–4.9 s | 0.031 |
-| ~158k | plan + `--disallowedTools` | new | 11.0k / 146.8k | 4.0 s | 0.591 |
-| ~158k, parent warm | plan, no `--disallowedTools` | new | 156.0k / 3.7k | 3.4 s | 0.033 |
-| ~360k | plan + `--disallowedTools` | first fork | 9k / 352k | 18.9 s | 1.408 |
-| ~360k | plan + `--disallowedTools` | repeated | 357k / 3.7k | 2.2–2.4 s | 0.051 |
 
 ## Verdicts against the ticket criteria
 
