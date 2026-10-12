@@ -6,7 +6,7 @@ defmodule Aiur.Experiments.TelemetryReaderTest do
   setup do
     path = Path.join(System.tmp_dir!(), "telemetry-reader-#{System.unique_integer([:positive])}")
     File.mkdir_p!(path)
-    on_exit(fn -> File.rm_rf!(path) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
     %{path: path}
   end
 
