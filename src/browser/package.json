@@ -17,7 +17,7 @@
     "test:shell-width": "node scripts/run-browser-tests.mjs tests/shell-content-width.browser.spec.mjs",
     "test:command-history": "node scripts/run-browser-tests.mjs tests/command-history.browser.spec.mjs",
     "test:build-queue": "node scripts/run-browser-tests.mjs tests/build-queue.browser.spec.mjs",
-    "test:build-order": "node scripts/run-browser-tests.mjs tests/build-order-route.browser.spec.mjs",
+    "test:build-order": "node scripts/run-browser-tests.mjs tests/build-order-route.browser.spec.mjs tests/optimistic-analytics.browser.spec.mjs",
     "test:interaction": "node scripts/run-browser-tests.mjs tests/build-order-interaction.browser.spec.mjs",
     "test:time-brush": "node scripts/run-browser-tests.mjs tests/time-brush.browser.spec.mjs",
     "test:performance": "node scripts/run-browser-tests.mjs tests/build-order-performance.browser.spec.mjs",

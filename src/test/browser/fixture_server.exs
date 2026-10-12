@@ -8,7 +8,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support build_order_source meters_live
+      support build_order_source meters_live optimistic_control
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -53,6 +53,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/optimistic-control/:mode", Aiur.BrowserHarness.OptimisticControl, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
