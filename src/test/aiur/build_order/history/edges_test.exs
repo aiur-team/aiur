@@ -36,6 +36,10 @@ defmodule Aiur.BuildOrder.History.EdgesTest do
     assert payload == %{deps: ["10"], children: [], dep_states: %{"10" => "blocking"}, deps_missing: 2}
     refute Jason.encode!(payload) =~ "private-owner"
     refute Map.has_key?(result.by_ticket, 999)
+    mixed = %{ref(10) | owner: "Aiur-Team", repository: "AIUR"}
+    native = build([row(10, :open), row(12, :open, :none, [mixed])])
+    assert Edges.to_payload(native.by_ticket, 12).dep_states == %{"10" => "blocking"}
+    assert Edges.to_payload(native.by_ticket, 10).children == ["12"]
   end
 
   test "incomplete stores keep every state and missing count unknown" do
