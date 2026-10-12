@@ -172,7 +172,7 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted. Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
-A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote. Aiur saves local work first; see [Saved uncommitted work](#saved-uncommitted-work). Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
+A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote; Aiur saves local work first ([Saved uncommitted work](#saved-uncommitted-work)), and under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
 | Development refresh evidence | Result |
 | --- | --- |
@@ -397,7 +397,7 @@ A claim is a lease with a 10-minute TTL. An `--executor` run registers and renew
 
 ### Executor roster states
 
-A stalled consumer still holds a claim and still renews its lease, so a presence-based list reports it as fine. `aiur executor-roster` derives state from evidence, never from presence.
+A stalled consumer still holds a claim and still renews its lease, so a presence-based list reports it as fine; `aiur executor-roster` derives state from evidence, never from presence.
 
 | State | Meaning |
 | --- | --- |

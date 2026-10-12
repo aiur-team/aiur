@@ -162,7 +162,7 @@ defmodule Aiur.BuildQueueCLITest do
     [queue] = model.queues
     legacy_edges = [%{number: 12, verdict: :satisfied, source: :native}, %{number: 13, verdict: :pending, source: :native}]
     legacy_items = Enum.map(queue.items, &%{&1 | prerequisites: legacy_edges})
-    legacy_queue = queue |> Map.drop([:start_trigger, :start_trigger_source, :set_rank, :counts, :state, :waiting_reason]) |> Map.put(:items, legacy_items)
+    legacy_queue = queue |> Map.drop([:start_trigger, :start_trigger_source, :set_rank]) |> Map.put(:state, :next) |> Map.put(:items, legacy_items)
     legacy_model = %{model | queues: [legacy_queue]}
 
     output = capture_io(fn -> assert BuildQueueCLI.run(server: read_server(legacy_model)) == 0 end)

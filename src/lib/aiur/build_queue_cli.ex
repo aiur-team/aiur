@@ -57,7 +57,7 @@ defmodule Aiur.BuildQueueCLI do
   defp print_model(envelope) do
     IO.puts("build queue  #{envelope["status"]}  captured #{envelope["snapshot"]["captured_at"]}")
     envelope["sources"] |> Enum.sort() |> Enum.each(fn {name, source} -> IO.puts("#{name}  observed #{source["observed_at"] || "unknown"}  #{freshness(source)}#{reasons(source)}") end)
-    next = Enum.find(envelope["queues"], &(&1["state"] == "next"))
+    next = Enum.find(envelope["queues"], &(is_integer(&1["set_rank"]) and &1["state"] == "next"))
     if next, do: IO.puts("NEXT  #{next["name"]}  rank #{next["set_rank"]}")
     Enum.each(envelope["queues"], &print_queue/1)
   end
