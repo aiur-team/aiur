@@ -3,7 +3,7 @@ defmodule Aiur.ExperimentsCLI do
   alias Aiur.{Experiments, JSONSafe}
 
   @switches [status: :string, kind: :string, json: :boolean, spec_json: :string, draft: :boolean, no_freeze: :boolean, title: :string, line: :string, metric: :keep, hypothesis: :string]
-  @allowed %{list: [:status, :kind, :json], show: [:json], create: [:spec_json, :draft, :no_freeze, :json, :title, :line, :metric, :hypothesis]}
+  @allowed %{metrics: [:json], list: [:status, :kind, :json], show: [:json], create: [:spec_json, :draft, :no_freeze, :json, :title, :line, :metric, :hypothesis]}
 
   @spec run(keyword()) :: 0 | 1 | 64
   def run(opts \\ []) do
@@ -22,7 +22,14 @@ defmodule Aiur.ExperimentsCLI do
     if flags[:status] in [nil, "draft", "active", "concluded", "abandoned"] and flags[:kind] in [nil, "before_after", "ab"], do: result(Experiments.list(filters), flags, :list), else: usage(flags)
   end
 
-  defp dispatch(:show, flags, [id]), do: result(Experiments.fetch(id), flags, {:show, id})
+  defp dispatch(:metrics, flags, []), do: result({:ok, Experiments.metric_catalog()}, flags, :metrics)
+
+  defp dispatch(:show, flags, [id]) do
+    case Experiments.fetch(id) do
+      {:ok, data} -> result({:ok, Map.put(data, :pack_problems, Experiments.metric_catalog().problems)}, flags, {:show, id})
+      error -> result(error, flags, {:show, id})
+    end
+  end
 
   defp dispatch(:create, flags, []) do
     case attributes(flags) do
@@ -116,7 +123,10 @@ defmodule Aiur.ExperimentsCLI do
 
   defp usage(opts) do
     error_fun = Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))
-    error_fun.("aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]")
+
+    error_fun.(
+      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]"
+    )
 
     64
   end

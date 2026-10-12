@@ -2,13 +2,48 @@ defmodule Aiur.ExperimentsCLITest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
+  alias Aiur.Experiments.Paths
+
+  defmodule FixturePack do
+    @behaviour Aiur.Experiments.MetricPack
+    def id, do: "delivery"
+    def version, do: 1
+
+    def metrics,
+      do: [
+        %Aiur.Experiments.Metric{
+          id: "start",
+          pack: id(),
+          label: "Fixture",
+          unit: "ms",
+          unit_of_analysis: "ticket",
+          kind: "duration",
+          better: "lower",
+          default_direction: "decrease",
+          group: "Fixture",
+          requires: []
+        }
+      ]
+
+    def observations(_ids, _window, _context), do: %{}
+  end
 
   setup do
+    previous_packs = Application.get_env(:aiur, :experiment_metric_packs)
+    Application.put_env(:aiur, :experiment_metric_packs, [FixturePack])
+
+    on_exit(fn ->
+      if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
+    end)
+
     root = Path.join(System.tmp_dir!(), "experiments-cli-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :experiments_dir)
+    previous_base = Application.get_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
     Application.put_env(:aiur, :experiments_dir, root)
 
     on_exit(fn ->
+      if previous_base, do: Application.put_env(:aiur, :repo_base_root, previous_base), else: Application.delete_env(:aiur, :repo_base_root)
       if previous, do: Application.put_env(:aiur, :experiments_dir, previous), else: Application.delete_env(:aiur, :experiments_dir)
       Aiur.TestCleanup.rm_rf!(root)
     end)
@@ -16,6 +51,26 @@ defmodule Aiur.ExperimentsCLITest do
     if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
     start_supervised!(Aiur.Experiments.Store)
     :ok
+  end
+
+  test "metrics JSON lists registered definitions" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :metrics, argv: ["--json"]) == 0 end)
+    assert Jason.decode!(output)["metrics"]["delivery/start"]["unit"] == "ms"
+    assert Jason.decode!(output)["problems"] == []
+  end
+
+  test "malformed packs are reported by metrics and show without hiding registered metrics" do
+    base = Aiur.RepoBase.base_path(Paths.repo())
+    packs = Path.join(base, ".aiur/experiments/packs")
+    File.mkdir_p!(packs)
+    File.write!(Path.join(packs, "bad.json"), "{")
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :metrics, argv: ["--json"]) == 0 end)
+    assert [%{"file" => file}] = Jason.decode!(output)["problems"]
+    assert file == Path.join(packs, "bad.json")
+    assert Jason.decode!(output)["metrics"]["delivery/start"]["unit"] == "ms"
+    {:ok, spec} = Experiments.create(%{title: "pack issue", design: %{kind: "before_after", change: %{type: "manual", ref: "test", time: "2026-10-09T00:00:00Z"}}, metrics: [%{ref: "delivery/start"}]})
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :show, argv: [spec.id, "--json"]) == 0 end)
+    assert [%{"file" => ^file}] = Jason.decode!(output)["pack_problems"]
   end
 
   test "quick create persists its metric, returns facade JSON and appears in list and show" do
@@ -35,7 +90,7 @@ defmodule Aiur.ExperimentsCLITest do
     assert [%{"id" => id}] = Jason.decode!(output)
     assert id == spec["id"]
     output = capture_io(fn -> assert ExperimentsCLI.run(verb: :show, argv: [id, "--json"]) == 0 end)
-    assert Jason.decode!(output) == Aiur.JSONSafe.normalize(detail)
+    assert Jason.decode!(output) == Aiur.JSONSafe.normalize(Map.put(detail, :pack_problems, []))
   end
 
   test "invalid imported specs print every validation error and missing IDs are refused" do
