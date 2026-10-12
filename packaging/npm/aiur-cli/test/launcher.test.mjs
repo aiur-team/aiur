@@ -129,8 +129,8 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 
 const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
-  "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
-  "build-orders", "queue", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
+  "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+  "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
   "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
@@ -142,11 +142,14 @@ for (const command of nonLaunchCommands) {
   const guard = ["init", "--version"].includes(command) ? " (future-regression guard)" : "";
   test(`non-launch ${command} never probes or provisions interactive tools${guard}`, () => {
     const { fakeBin } = setupPackage();
+    if (command === "experiments") mkdirSync(path.join(root, command));
     for (const tool of ["tmux", "opencode", "npm"]) {
       const executable = path.join(fakeBin, tool);
       writeFileSync(executable, `#!/bin/bash\necho '${tool}:$*' >>"$AIUR_TEST_OUT"\nexit 1\n`);
       chmodSync(executable, 0o755);
     }
+    // A local path must not turn the standalone PR command into a launch.
+    if (command === "pr") mkdirSync(path.join(root, "pr"));
     const result = runShim({
       args: [command, "--format", "records"], fakeBin,
       env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_TMUX_INSTALL: "", AIUR_SKIP_OPENCODE_INSTALL: "" },

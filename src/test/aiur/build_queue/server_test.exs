@@ -296,6 +296,25 @@ defmodule Aiur.BuildQueue.ServerTest do
     assert GenServer.call(pid, :status) == :writes_paused
   end
 
+  test "queue answers calls during scheduled retry wait and rechecks before writing" do
+    fixture()
+    snapshot(["1", "2", "3"])
+    update(:result, {:error, :unavailable})
+    pid = server()
+    assert_received {:scheduled, ^pid, :tick, 60_000}
+    assert_received {:scheduled, ^pid, initial, 2_000}
+    send(pid, initial)
+    assert GenServer.call(pid, :status, 500) == :running
+    assert_received {:scheduled, ^pid, :retry_writes, 1_000}
+    assert Enum.map(Agent.get(Boundary, & &1.calls), &elem(&1, 0)) == [{:promote, "1"}]
+    assert {:ok, %{reconciles: 1}} = GenServer.call(pid, :show, 500)
+    update(:result, :ok)
+    snapshot(["1", "2", "3"], ["agent:queued", "agent:in-progress"])
+    send(pid, :retry_writes)
+    assert GenServer.call(pid, :status) == :running
+    assert Enum.map(Agent.get(Boundary, & &1.calls), &elem(&1, 0)) == [{:promote, "1"}]
+  end
+
   defp server(opts \\ []) do
     owner = self()
 

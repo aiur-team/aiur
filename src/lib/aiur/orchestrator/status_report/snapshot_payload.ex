@@ -39,6 +39,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     idle = idle_snapshot(state, now_ms, activity_by_identity)
 
     %{
+      ci_wait:
+        state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end) |> Enum.map(fn {target, ci} -> Map.put(ci, :identifier, target) end),
       running: running,
       retrying: retrying,
       idle: idle,

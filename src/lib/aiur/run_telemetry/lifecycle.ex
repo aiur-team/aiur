@@ -9,44 +9,92 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.Cohort
   alias Aiur.RunTelemetry.Lifecycle.BackendOperations
 
   @events ~w(
-    dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
-    pr_opened pr_merged review_pause comment_received rework_start
-    agent_pause agent_resume
+    dispatch
+    optimistic_start
+    prewarm
+    workspace_setup
+    workspace_ownership
+    agent_spinup
+    implement
+    build_test
+    pr_opened
+    pr_merged
+    pr_facts
+    review_pause
+    comment_received
+    rework_start
+    agent_pause
+    agent_resume
   )
-  @boundaries ~w(start end point)
-  @metadata_fields [
-    :outcome,
-    :cause,
-    :operation_id,
-    :command_class,
-    :duration_status,
-    :source,
-    :source_id,
-    :actor,
-    :pr_number,
-    :comment_id,
-    :review_thread_id,
-    :author_trusted,
-    :source_timestamp,
-    :worker_host,
-    :backend,
-    :prewarm_outcome,
-    :reason_class,
-    :exit_status,
-    :turn_number,
-    :remote,
-    :retry_attempt,
-    :workspace_owner,
-    :workspace_generation,
-    :workspace_phase,
-    :optimistic_blockers,
-    :complexity,
-    # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
-    :dispatch_selection
-  ]
+  @boundaries ~w(
+    start
+    end
+    point
+  )
+  # Headroom dispatch summary (#3960): dispatch_selection holds the chosen backend/account and every alternative's score.
+  @metadata_fields ~w(
+    outcome
+    cause
+    operation_id
+    command_class
+    duration_status
+    source
+    source_id
+    actor
+    pr_number
+    comment_id
+    review_thread_id
+    author_trusted
+    source_timestamp
+    worker_host
+    backend
+    prewarm_outcome
+    reason_class
+    exit_status
+    turn_number
+    remote
+    retry_attempt
+    workspace_owner
+    workspace_generation
+    workspace_phase
+    optimistic_blockers
+    optimistic_start
+    complexity
+    dispatch_selection
+    model
+    effort
+    feature
+    epic
+    tags
+    blockers
+    start_mode
+    start_trigger
+    blocker_prs
+    coverage
+    pr_created_at
+    pr_ready_at
+    first_review_at
+    first_review_state
+    first_approval_at
+    merged_at
+    review_count
+    commented_count
+    changes_requested_count
+    approval_count
+    dismissed_count
+    reviewers_distinct
+    reviewer_classes
+    additions
+    deletions
+    changed_files
+    commit_count
+    merge_commit_sha
+  )a
+
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
   def new_attempt_id(ticket) when is_binary(ticket) do
@@ -89,6 +137,17 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   def record(_ticket, _attempt_id, _event, _boundary, _metadata, _opts), do: :ok
+
+  @doc false
+  @spec terminal_capture(Aiur.TrackerIdentity.t(), atom()) :: :ok
+  defdelegate terminal_capture(identity, lifecycle), to: Aiur.RunTelemetry.FactsCapture, as: :terminal
+
+  @doc false
+  @spec facts_attributes(String.t(), map()) :: map()
+  def facts_attributes(ticket, facts) do
+    source_id = {Map.get(facts, :pr_number) || Map.get(facts, "pr_number"), Map.get(facts, :merged_at) || Map.get(facts, "merged_at"), Map.get(facts, :coverage) || Map.get(facts, "coverage")}
+    attributes(ticket, nil, "pr_facts", "point", Map.put(facts, :source_id, event_key(source_id)))
+  end
 
   @doc false
   @spec reason_class(term()) :: String.t()
@@ -173,14 +232,29 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> Enum.flat_map(fn {key, value} ->
       atom_key = metadata_key(key)
 
-      if atom_key in @metadata_fields and not is_nil(value) do
-        [{atom_key, normalize_metadata_value(value)}]
+      if atom_key in @metadata_fields and (not is_nil(value) or atom_key in [:model, :effort, :feature, :epic]) do
+        [{atom_key, normalize_field(atom_key, value)}]
       else
         []
       end
     end)
     |> Map.new()
   end
+
+  defp normalize_field(:blocker_prs, values) when is_list(values), do: Enum.map(values, &if(is_integer(&1), do: &1, else: nil))
+
+  defp normalize_field(:optimistic_start, %{blockers: blockers, primary: primary, pr_base: base, started_at: started_at}) do
+    %{
+      blockers: Enum.map(blockers, &Map.take(&1, [:identifier, :pr_number, :ref, :sha])),
+      primary: primary,
+      pr_base: Cohort.normalize_metadata_value(:pr_base, base),
+      started_at: Cohort.normalize_metadata_value(:started_at, started_at)
+    }
+  end
+
+  defp normalize_field(:reviewer_classes, value) when is_list(value), do: Enum.filter(value, &(&1 in ["trusted", "bot", "other"]))
+
+  defp normalize_field(key, value), do: Cohort.normalize_metadata_value(key, value)
 
   defp metadata_key(key) when is_atom(key), do: key
 
@@ -189,12 +263,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp metadata_key(_key), do: nil
-  defp normalize_metadata_value(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
-  defp normalize_metadata_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp normalize_metadata_value(value) when is_boolean(value), do: value
-  defp normalize_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_metadata_value(value) when is_binary(value) or is_number(value), do: value
-  defp normalize_metadata_value(_value), do: "unknown"
 
   defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(value) when is_binary(value), do: value

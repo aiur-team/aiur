@@ -28,10 +28,13 @@ config :aiur, :tracker_fallback_kind, "linear"
 config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
+config :aiur, :experiment_metric_packs, []
+
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
   Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
+  Aiur.Experiments.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
   Aiur.Commands,

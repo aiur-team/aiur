@@ -88,7 +88,7 @@ export function setupPackage({
   return { shim: path.join(root, "bin", "aiur.js"), fakeBin };
 }
 
-export function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false } = {}) {
+export function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false, cwd = root } = {}) {
   const fullEnv = {
     ...process.env,
     AIUR_TEST_OUT: captureFile,
@@ -116,7 +116,7 @@ export function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY
             `require(${JSON.stringify(path.join(root, "bin", "aiur.js"))});`,
         ]
       : [path.join(root, "bin", "aiur.js"), ...args];
-  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv });
+  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv, cwd });
 }
 
 
@@ -125,7 +125,7 @@ export function setupRealLauncher() {
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "engine"])
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "engine"])
     cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";

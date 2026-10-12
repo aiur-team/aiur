@@ -1,9 +1,7 @@
 # Configuration reference
-Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels.
-Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
+Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
-Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory.
-Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
+Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 ## Environment variables
 
@@ -32,8 +30,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 
 ## executor takeover alerts
 
-Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
-watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
+Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
 - `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
   first raises the advisory once its convergence age reaches this value.
@@ -42,16 +39,12 @@ watch actionable section. The alerts are advisory takeover prompts — they neve
   A value of `0` disables repeats (first alert only); `0` on the first threshold
   disables the feature. Negative or non-integer values are rejected.
 
-**Convergence age** is `now − min(first_observed_active_work_at,
-open_pr_created_at)`:
+**Convergence age** is `now − min(first_observed_active_work_at, open_pr_created_at)`:
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon
-  state, set once the first time the monitor observes the ticket as nonterminal
-  and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon
-  restart never resets it.
+  state, set once the first time the monitor observes the ticket as nonterminal and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon restart never resets it.
 - `open_pr_created_at` is the creation time of the ticket's open PR (a floor,
-  so an already-open PR is never hidden by a freshly installed or restarted
-  monitor).
+  so an already-open PR is never hidden by a freshly installed or restarted monitor).
 
 The alert carries actionable evidence.
 
@@ -246,6 +239,9 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
+| `agent.ci_recovery_enabled` | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
+| `agent.ci_recovery_max_per_poll` | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
+| `agent.ci_recovery_max_per_hour` | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
 | `agent.max_cpu_pressure` | float or nil | 20.0 | Linux CPU PSI `some avg60` ceiling in percent (greater than 0, at most 100). Holds new dispatch above the ceiling; null disables it. Independent of scheduler count; avg10 is diagnostic and does not gate dispatch. |
 | `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. Halves capacity after 3 fresh above-target samples, subject to the decrease cooldown; ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
 | `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
@@ -374,10 +370,7 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 
 Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
 
-Local Muse sessions retain a native session handle across Aiur restarts. Aiur
-starts a fresh session only when Muse explicitly reports that the stored session
-was not found. Other resume errors, including a busy session, timeout, or
-mismatched session identity, remain failures to preserve conversation continuity.
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures to preserve conversation continuity.
 
 Remote workers and Claude Remote Control are unsupported for Muse.
 
@@ -413,10 +406,7 @@ Build admission covers direct `mix compile`, `mix test`, `mix lint`, `mix credo`
 
 Reviewer worktrees run `<repo>/scripts/build-gate mise exec -- mix lint` from `src/`. Set the fleet's `AIUR_BUILD_GATE_DIR` and `AIUR_BUILD_GATE_SLOTS` (required) and copy its other `AIUR_BUILD_*` and `AIUR_MIN_FREE_MEMORY_MB` values. The command holds one `review` lease shown in `aiur status`, keeps its exit status, and fails closed.
 
-Malformed compounds and command strings that could hide a Mix build fail with status
-`125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
-canonicalized, but deliberately invoking a separate real executable by absolute,
-relative, or symlinked path bypasses the entrypoint and is not admitted.
+Malformed compounds and command strings that could hide a Mix build fail with status `125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are canonicalized, but deliberately invoking a separate real executable by absolute, relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
 Fleet admission uses CPU PSI and configured reserves. Load is the PSI-unavailable fallback; missing reserve measurements fail open.
@@ -447,8 +437,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 ## agent.codex
 
-Codex settings belong under `agent.codex`; a legacy root-level `codex:` section
-is rejected with a migration hint rather than silently falling back to defaults.
+Codex settings belong under `agent.codex`; a legacy root-level `codex:` section is rejected with a migration hint rather than silently falling back to defaults.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -464,14 +453,9 @@ is rejected with a migration hint rather than silently falling back to defaults.
 
 ## Model discovery
 
-Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers
-release models faster than that list is edited, so for OpenAI-compatible backends aiur
-also asks the provider's own catalogue endpoint which models it currently serves, and
-caches the answer.
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers release models faster than that list is edited, so for OpenAI-compatible backends aiur also asks the provider's own catalogue endpoint which models it currently serves, and caches the answer.
 
-Discovery **extends** the curated list without replacing registry-owned effort vocabularies,
-capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins
-when an ID collides.
+Discovery **extends** the curated list without replacing registry-owned effort vocabularies, capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins when an ID collides.
 
 | Backend | Endpoint | Credential | Returns |
 | --- | --- | --- | --- |
@@ -479,8 +463,7 @@ when an ID collides.
 | `deepseek` | `GET https://api.deepseek.com/models` | `DEEPSEEK_API_KEY` | identifiers only |
 | `kimi` | `GET https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` | identifiers only |
 
-`codex` and `claude` are not listed: they answer `model/list` over their own CLI
-transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
+`codex` and `claude` are not listed: they answer `model/list` over their own CLI transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
 plus `anthropic-version`) has an adapter for operators who point an OpenAI-compatible
 backend straight at it; it returns identifiers and display names, no pricing.
 
@@ -675,15 +658,15 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | `observability.build_order_funnel_health_check` | boolean | false | Opts into one bounded startup check of the local Build Order endpoint and configured Tailscale Funnel HTTPS 443 target. Leave disabled when Funnel serves another purpose. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
+| `observability.capture_tags` | map | `%{}` | Static cohort tags; at most 20 string pairs, 64 characters per key/value. |
+| `observability.capture_label_prefixes` | list | `["experiment:", "cohort:", "feature:"]` | Label prefixes captured at dispatch; at most 20. |
 | `observability.telemetry_enabled` | boolean | true | Master analytics capture switch; restart to apply. Disabled boots append a local `analytics/capture-gaps.ndjson` marker and `/analytics` shows a capture-off notice. |
 | `observability.capture_github_facts` | boolean | true | Enables analytics GitHub fact and repo-timeline reads when the master capture switch is on. |
 | `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry bytes. |
 | `observability.telemetry_retention_max_age_days` | integer | 30 | Maximum retained telemetry age. |
 | `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Bytes between retention-prune checks. |
 
-`dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`.
-
-A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
+`dashboard_writable` controls authorization, not authentication. Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before use. A loopback listener can bind without them but rejects every dashboard request until both are set. A listener beyond loopback refuses to start without both.
 
 When `observability.build_order_funnel_health_check` is enabled, Aiur checks the configured dashboard bind address at `/build-orders/1` and reads `tailscale funnel status --json` once after dashboard startup. Both command timeouts are five seconds, and timed-out Tailscale processes are terminated.
 
@@ -749,20 +732,37 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
 
-## build_queue
+## experiments
+The daemon owns [experiment](../concepts/experiments) writes through control RPC.
 
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `experiments.enabled` | boolean | true | Start the experiment store. Disabled stores refuse writes. |
+| `experiments.default_min_samples` | integer | 15 | Minimum samples per arm; positive. |
+| `experiments.default_before_days` | integer | 14 | Default baseline window in days; positive. |
+| `experiments.pack_dirs` | string list | [".aiur/experiments/packs"] | Consumer metric pack directories, relative to the base checkout; reserved for metric packs. |
+| `experiments.disabled_packs` | string list | [] | Pack IDs to disable; reserved for metric packs. |
+| `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
+| `experiments.checkpoint_interval_ms` | integer | 3600000 | Observation checkpoint interval in milliseconds; positive, reserved for snapshot capture. |
+| `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
+## build_queue
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
+| `build_queue.set_order` | string | `none` | `none` preserves ordinary candidate ordering. Opt into `ranked` to prefer queue sets by persisted rank (creation order by default); ready members follow list position, while optimistic members retain deepest-first ordering within each set. Ready work always precedes optimistic work. With a cap or reserve configured, earlier unknown or stale readiness blocks ranked spill because it may have ready work. Held sets remain stopped. |
+| `build_queue.max_active_sets` | integer or null | nil | Maximum sets with started, unfinished members (including CI/review waits); minimum 1. Null lets capacity decide. Held sets do not consume this cap; existing runners are never preempted. |
+| `build_queue.spill_reserve_slots` | integer | 0 | Slots kept free for the earliest unfinished, unheld set before admitting later-set work; minimum 0. Reserve applies even while that set waits on review. Set-policy waits appear as `queue_set_order` in status and queue show. |
+| `build_queue.optimistic_slot_share` | float | 0.5 | Fleet-wide optimistic share, 0..1. Zero disables optimistic dispatch; otherwise the cap is max(1, floor(share × effective agent limit)). Ready work starts first; merged blockers free share on the next cycle. Running agents are never preempted. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
 | `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. A non-empty queue whose open-issue snapshot is older than this lists open issues itself, at most once per this age. |
 | `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for an `issue_closed` queue prerequisite whose PR merged but issue remains open; 60..86400. |
+| `build_queue.optimistic_failure_grace_seconds` | integer | 600 | Seconds to wait for a reopened or replacement blocker PR before parking optimistic dependents; 60..86400. |
+| `build_queue.optimistic_churn_attention_threshold` | integer | 3 | Conflicting integrations before an informational attention; 0 disables, 0..50. Never pauses work. |
 ## build_order
-
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |

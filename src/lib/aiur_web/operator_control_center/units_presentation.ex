@@ -46,15 +46,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   same snapshot is.
   """
   @spec age_label(term()) :: String.t()
-  def age_label(age_seconds) when is_integer(age_seconds) and age_seconds >= 0 do
-    cond do
-      age_seconds < 60 -> "#{age_seconds}s"
-      age_seconds < 3_600 -> "#{div(age_seconds, 60)}m #{rem(age_seconds, 60)}s"
-      true -> "#{div(age_seconds, 3_600)}h #{div(rem(age_seconds, 3_600), 60)}m"
-    end
-  end
-
-  def age_label(_age_seconds), do: "unknown age"
+  defdelegate age_label(age_seconds), to: Aiur.Protocol.ObservationAge, as: :short_label
 
   @spec latest_text(map()) :: String.t()
   def latest_text(%{reasons: %{resume: %{outcome: :declined} = outcome}}),
