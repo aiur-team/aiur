@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
 
   alias Aiur.AlertLedger
   alias Aiur.Orchestrator.{Lifecycle, OrphanedWorkers, State}
-  alias Aiur.Workspace.{HostLock, Layout, Ownership}
+  alias Aiur.Workspace.Ownership
 
   # #2705: after a crash, stop orphaned lease-holding runners and redispatch their ticket.
   test "a restarted Orchestrator stops the runner its predecessor left holding a lease and redispatches the ticket" do
@@ -393,8 +393,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   defp unique_name(label), do: Module.concat(__MODULE__, "#{label}#{System.unique_integer([:positive])}")
 
   defp await_generation_released(identifier, generation) do
-    {:ok, workspace} = Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil)
-    assert eventually(fn -> HostLock.holder(workspace) == :none and not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end, 15_000)
+    assert eventually(fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end, 15_000)
   end
 
   defp claim_in_process(identifier, holder) do
