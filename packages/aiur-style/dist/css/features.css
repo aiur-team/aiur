@@ -23,6 +23,7 @@
     letter-spacing: 0.2em;
     color: var(--aiur-color-muted);
   }
+  .aiur-feature__title, .aiur-feature__body { margin: 0; }
   .aiur-feature__title {
     font-family: var(--aiur-font-body);
     font-weight: 600;
