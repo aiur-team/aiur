@@ -3,14 +3,21 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy}
+  alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy, QueueSetSlots}
   alias Aiur.StartTrigger.CriticalPath
 
   @spec order([Issue.t()], MapSet.t(), [Issue.t()]) :: [Issue.t()]
   def order(issues, terminal_states, polled \\ []) do
     groups = issues |> DispatchPolicy.sort_issues_for_dispatch() |> Enum.group_by(&tier(&1, terminal_states))
     optimistic = optimistic_order(Map.get(groups, :optimistic, []), polled ++ issues, terminal_states)
-    Map.get(groups, :ready, []) ++ optimistic ++ Map.get(groups, :held, [])
+
+    ordering = QueueSetSlots.ordering()
+
+    Enum.sort_by(Map.get(groups, :ready, []), &QueueSetSlots.sort_key(&1.id, ordering)) ++
+      Enum.sort_by(optimistic, fn issue ->
+        {member, rank, _position} = QueueSetSlots.sort_key(issue.id, ordering)
+        {member, rank}
+      end) ++ Map.get(groups, :held, [])
   end
 
   defp optimistic_order([], _issues, _terminal), do: []

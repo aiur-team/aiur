@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   """
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Commands, Config, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
-  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, OptimisticSlots}
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, OptimisticSlots, QueueSetSlots}
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, TicketTransition}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
@@ -2349,9 +2349,9 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_decline_reason(:workspace_ownership_waiting, _issue, _state, _opts), do: :workspace_ownership_waiting
   def resume_decline_reason(:claimed_without_runtime, _issue, _state, _opts), do: :already_claimed
 
-  def resume_decline_reason(:state_capacity, issue, _state, _opts),
-    do: {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(issue.state)}
+  def resume_decline_reason(:state_capacity, issue, _state, _opts), do: {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(issue.state)}
 
+  def resume_decline_reason(:queue_set_order, issue, state, _opts), do: QueueSetSlots.waiting(issue.id, state)
   def resume_decline_reason(:optimistic_share, _issue, state, _opts), do: {:optimistic_share, OptimisticSlots.status(state)}
   def resume_decline_reason(:worker_capacity, _issue, _state, _opts), do: :no_worker_capacity
   def resume_decline_reason(:fleet_capacity, _issue, _state, _opts), do: :max_concurrent_agents_reached
