@@ -559,24 +559,24 @@ defmodule Aiur.GitHub.Budget do
       :timeout
     else
       caller = self()
-      result_ref = make_ref()
+      result_ref = Process.alias()
 
       {guardian, guardian_ref} =
         spawn_monitor(fn ->
           result = owned_port_command(caller, executable, args, deadline_at)
-          send(caller, {result_ref, self(), result})
+          send(result_ref, {result_ref, self(), result})
         end)
 
       receive do
         {^result_ref, ^guardian, result} ->
-          Process.demonitor(guardian_ref, [:flush])
+          Process.unalias(result_ref) && Process.demonitor(guardian_ref, [:flush])
           result
 
         {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
           {:error, reason}
       after
         remaining_ms ->
-          Process.exit(guardian, :kill)
+          Process.unalias(result_ref) && Process.demonitor(guardian_ref, [:flush])
           :timeout
       end
     end

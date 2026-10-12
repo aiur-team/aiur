@@ -206,7 +206,7 @@ defmodule Aiur.GitHub.BudgetTest do
     assert elapsed_ms >= 250
     assert elapsed_ms < 1_000
     broker_pid = broker_pid_path |> File.read!() |> String.trim()
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
 
     close_port(lock)
   end
@@ -1234,11 +1234,8 @@ defmodule Aiur.GitHub.BudgetTest do
     end
   end
 
-  # The window is generous (3s at 10ms a tick) because every caller waits on
-  # broker-subprocess lifecycle — spawning, or reaping after a deadline kill —
-  # and each `ps`/`File` probe is itself a subprocess that can stall under the
-  # four-way parallel coverage load that this file's flakes were filed against
-  # (#2286).
+  defp assert_process_exits(pid), do: assert({_, 0} = System.cmd("timeout", ["3s", "bash", "-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.01; done", "_", pid], stderr_to_stdout: true))
+
   defp wait_until(predicate, attempts \\ 300) do
     cond do
       predicate.() -> :ok
