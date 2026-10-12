@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
 
   alias Aiur.AlertLedger
   alias Aiur.Orchestrator.{Lifecycle, OrphanedWorkers, State}
-  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.{HostLock, Layout, Ownership}
 
   # #2705: an Orchestrator crash leaves its runner tasks (and their workspace
   # leases) alive under `:rest_for_one`. The restarted Orchestrator must stop
@@ -29,6 +29,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 15_000
     refute orphan in Task.Supervisor.children(Aiur.TaskSupervisor)
     await_generation_released(identifier, orphan_lease.generation)
+    await_host_lock_released(identifier)
 
     # One poll after the release redispatches the ticket onto a fresh lease.
     _ = Orchestrator.request_refresh(second)
@@ -38,7 +39,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert {:ok, %{generation: generation}} = Ownership.current(identifier)
     assert generation != orphan_lease.generation
 
-    assert live_session_alerts(identifier) == 0
+    assert live_session_alerts(identifier) == []
   end
 
   test "a runner that reports to a live Orchestrator without a running entry is stopped and redispatched" do
@@ -71,7 +72,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     kill_on_exit(runner)
     assert runner != orphan
 
-    assert live_session_alerts(identifier) == 0
+    assert live_session_alerts(identifier) == []
   end
 
   test "a runner that reports to another live process is left running" do
@@ -402,6 +403,11 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
            )
   end
 
+  defp await_host_lock_released(identifier) do
+    {:ok, workspace} = Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil)
+    assert eventually(fn -> HostLock.holder(workspace) == :none end, 15_000)
+  end
+
   defp claim_in_process(identifier, holder) do
     parent = self()
 
@@ -446,7 +452,8 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       {:ok, contents} ->
         contents
         |> String.split("\n", trim: true)
-        |> Enum.count(&(Jason.decode!(&1)["topic"] == topic))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["topic"] == topic))
 
       {:error, _missing} ->
         0
@@ -462,7 +469,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
              15_000
            )
 
-    Process.whereis(name) |> tap(&:sys.get_state/1)
+    Process.whereis(name) |> tap(fn pid -> :sys.get_state(pid, 15_000) end)
   end
 
   defp eventually(fun, timeout_ms) do
