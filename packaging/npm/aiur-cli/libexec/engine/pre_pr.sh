@@ -1,7 +1,7 @@
 # Merge the integration branch, then report every cheap gate in one final block.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json
+  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required
   local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
@@ -10,6 +10,13 @@ cmd_pre_pr() {
   fi
   cd "$root"
   [ -z "$(git status --porcelain)" ] || { echo "pre-pr requires a clean working tree (commit or stash changes first)" >&2; exit 1; }
+  for required in jq rg; do
+    if ! command -v "$required" >/dev/null 2>&1; then
+      results+=("FAIL required command: $required")
+      pre_pr_report "unknown" FAIL
+      return 1
+    fi
+  done
   base_ref="${AIUR_BASE_BRANCH:-main}"
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-pre-pr.XXXXXX")"
   printf -v cleanup_command 'rm -rf -- %q' "$temp_dir"
@@ -85,14 +92,15 @@ cmd_pre_pr() {
     fi
     case "$selection" in
       full)
+        full_suite_recommended=1
         results+=("NOTE full suite recommended ($(jq -r '.reason' <<<"$affected")); runs in merge queue")
         while IFS= read -r edited; do
           [ -n "$edited" ] || continue
           while IFS= read -r reader_test; do
-            if rg -n --fixed-strings -- "$edited" "$reader_test" | rg -q 'Path\.(expand|join)|File\.read|System\.cmd'; then
+            if rg -n --fixed-strings -e "$edited" -e "${edited##*/}" "$reader_test" | rg -q 'Path\.(expand|join)|File\.read|System\.cmd'; then
               test_files+=("$reader_test")
             fi
-          done < <(rg -l --glob '*_test.exs' --fixed-strings -- "$edited" src/test || true)
+          done < <(rg -l --glob '*_test.exs' --fixed-strings -e "$edited" -e "${edited##*/}" src/test || true)
         done < <(git diff --name-only "$base_sha...HEAD")
         mapfile -t test_files < <(printf '%s\n' "${test_files[@]}" | sort -u | awk 'NF')
         if [ "${#test_files[@]}" -eq 0 ]; then
@@ -101,6 +109,7 @@ cmd_pre_pr() {
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
           run_gate "reader tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          report_unedited_test_failures "$base_sha"
         fi
         ;;
       scoped)
@@ -111,6 +120,7 @@ cmd_pre_pr() {
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
           run_gate "affected tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          report_unedited_test_failures "$base_sha"
         fi
         ;;
       invalid) ;;
@@ -141,11 +151,30 @@ pre_pr_report() {
   if [ "$result" = PASS ] || [ "$result" = 0 ]; then status=PASS; fi
   printf '%s\n' '--- aiur pre-pr result (paste into the PR body) ---'
   printf 'Merged main SHA: %s\n' "$base_sha"
-  printf 'Result: %s\n' "$status"
+  if [ "$status" = PASS ] && [ "${full_suite_recommended:-0}" -eq 1 ]; then
+    printf '%s\n' 'Result: PASS (full suite not run)'
+  else
+    printf 'Result: %s\n' "$status"
+  fi
+  printf '%s\n' 'Not run: Credo and specs (make lint), dialyzer, full suite'
   for line in "${results[@]}"; do printf '%s\n' "$line"; done
   printf '%s\n' '--- end aiur pre-pr result ---'
   for log in "${failures[@]}"; do
     printf '%s\n' '--- failed gate output ---'
     cat "$log"
   done
+}
+
+report_unedited_test_failures() {
+  local base_sha="$1" result_index test_file
+  local -a failing_files=() unedited_files=()
+  result_index=$((${#results[@]} - 1))
+  [[ "${results[$result_index]}" == FAIL\ *tests ]] || return 0
+  mapfile -t failing_files < <(sed -nE 's/.*(test\/[^[:space:]]+\.exs):[0-9]+.*/src\/\1/p' "${failures[-1]}" | sort -u)
+  for test_file in "${failing_files[@]}"; do
+    if git diff --quiet "$base_sha...HEAD" -- "$test_file"; then unedited_files+=("$test_file"); fi
+  done
+  if [ "${#unedited_files[@]}" -gt 0 ]; then
+    results+=("NOTE failing test files not edited by this branch: ${unedited_files[*]}")
+  fi
 }

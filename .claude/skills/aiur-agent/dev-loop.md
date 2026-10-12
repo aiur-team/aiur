@@ -158,7 +158,7 @@ into the PR body; it records the merged `origin/main` SHA and each gate result.
 It never pushes and refuses a dirty checkout.
 
 **Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
-Elixir examples apply only to Aiur's core; other repositories use their documented commands.
+The Elixir examples below apply only to Aiur's Elixir core.
 
 1. Implement
 2. Add / update / run tests
