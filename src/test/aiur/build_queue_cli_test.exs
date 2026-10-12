@@ -83,6 +83,12 @@ defmodule Aiur.BuildQueueCLITest do
     assert output =~ "ready unknown / started unknown / done unknown"
     refute output =~ "0%"
     refute output =~ "0 downstream"
+    empty_state = state()
+    empty_state = %{empty_state | document: %{empty_state.document | items: [], edges: []}}
+    empty_model = ReadModel.build(empty_state)
+    assert hd(empty_model.queues).counts == %{ready: nil, started: nil, done: nil}
+    output = capture_io(fn -> BuildQueueCLI.run(server: read_server(empty_model, :empty_unknown)) end)
+    assert output =~ "ready unknown / started unknown / done unknown"
   end
 
   test "items follow planner start order, and a stale observation hides held projections" do
