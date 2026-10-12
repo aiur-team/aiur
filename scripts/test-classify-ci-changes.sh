@@ -68,7 +68,8 @@ for event in push merge_group workflow_dispatch; do
   expect 'docs_only=false full_ci=true' "$event" true '[]'
 done
 TEST_BIGPATCH=true expect 'docs_only=false full_ci=false' pull_request false '[]'
-TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
+TEST_LEGACY=true expect 'docs_only=true full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
+TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
 TEST_FILE_CAP=true expect 'docs_only=false full_ci=true' pull_request false '[]'
 if PATH="$test_dir/failbin:$PATH" classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' >/dev/null; then
   echo 'selector failure must not publish a fast classification' >&2

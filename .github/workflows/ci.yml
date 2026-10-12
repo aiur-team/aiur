@@ -6,9 +6,7 @@ on:
   merge_group:
   push:
     branches: [v2]
-  # Manual re-run path: lets an operator (or an agent) trigger CI on a branch
-  # head directly when the pull_request synchronize path is not creating runs
-  # (#2397). Checks attach to the head commit either way.
+  # Manual head checks when pull_request synchronize does not create runs (#2397).
   workflow_dispatch:
 # Initial PR runs supersede each other; queue groups and reruns stay independent.
 concurrency:
@@ -268,18 +266,13 @@ jobs:
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
-          # `Aiur.TestSupport.tmp_root!/1` follows `System.tmp_dir!/0`, which
-          # otherwise selects quota-mounted `/tmp` on hosted runners. Keep
-          # per-test SQLite broker state under this job's private runner temp
-          # root instead; `df` free space does not reflect an EDQUOT limit.
+          # Put per-test SQLite state in private runner temp, avoiding quota-mounted
+          # /tmp; df free space does not reflect EDQUOT limits.
           TMPDIR: ${{ runner.temp }}
-        # Capture the full log for the known-flaky reporter below, but write it
-        # to a file instead of piping through `tee`: tests that leave orphaned
-        # background processes (opencode/sleep CLI harnesses) hold the pipe's
-        # write end open, so `tee` never sees EOF and the step hangs until the
-        # job dies as a non-informative cancelled red (#2397). A file redirect
-        # lets those orphans inherit the file FD harmlessly while the step
-        # completes the moment `make` exits.
+        # Capture the full log in a file: orphaned opencode/sleep processes hold
+        # tee pipes open, hanging the step until a cancelled red (#2397).
+        # Orphans inherit the file FD harmlessly, allowing completion when make
+        # exits; the known-flaky reporter below can still read the log.
         #
         # The bound lives here, in the step, not on the job. A job-level
         # timeout cancels the job and a cancelled job skips every remaining
@@ -709,10 +702,14 @@ jobs:
       run:
         working-directory: src
     steps:
-      - name: Checkout PR merge with the base
+      - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
       - name: Run architectural guards
@@ -739,6 +736,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Require the event's selected jobs
         env:
           EVENT_NAME: ${{ github.event_name }}
