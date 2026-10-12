@@ -37,15 +37,15 @@ Each CI poll reads the base branch's active rules and classic branch protection 
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-A head whose check runs all finished with at least one cancelled is missing CI, not failed CI. The poll re-runs the latest cancelled run per workflow once per head (caller `ci_cancelled_rerun`, pending reason `ci_cancelled`) instead of waking a worker. Without `Actions: Read and write` GitHub refuses the call; Aiur logs it and the head stays pending.
+A head whose check runs all finished with at least one cancelled is missing CI, not failed CI. It stays pending for operator action; Aiur never reruns a cancelled run. In `ci-wait`, the skipped rerun produces one neutral attention per ticket.
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
-Draft PRs remain pending after the fast gate; mark them ready before CI wait to start the full suite. Agent hand-offs to `ci-wait` and `human-review` refuse drafts after one conditional open-PR read through the governed client and per-cycle cache. A pending draft observed while already in human review stays there instead of being moved to `ci-wait`. If a draft remains in CI wait for `agent.ci_wait_rewake_minutes`, `ticket.<id>.pr.draft_ci_wait` raises attention and resolves when ready or outside CI wait; `aiur status` shows `draft_pr`.
+Draft PRs remain pending after the fast gate; mark them ready before CI wait to start the full suite. Hand-offs to `ci-wait` and `human-review` refuse drafts using one conditional `fetch_open_pull_request_for_branch` read through the governed client and per-cycle cache. A pending draft already in human review stays there, not in `ci-wait`.
 
-The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
+After `agent.ci_wait_rewake_minutes`, a draft in CI wait raises `ticket.<id>.pr.draft_ci_wait`; it resolves when ready or outside CI wait. `aiur status` shows `draft_pr`.
 
-Review submissions are polled during `agent:ci-wait` as well as `agent:human-review`, so trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews can route either state to `agent:rework` without waiting for CI to finish, including body-only reviews without inline threads.
+Review polling keeps a per-ticket cursor seeded from its first cutoff; issue comments cannot advance it, and disabled or failed reads retain it. Polls in `agent:ci-wait` and `agent:human-review` route trusted `CHANGES_REQUESTED` and blocking `COMMENTED` reviews to `agent:rework`, including body-only reviews.
 
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`, `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or fix requested “before merge”. Clean summaries such as “No blockers; waiting on CI” or “All blockers resolved” do not route to rework.
 
@@ -108,7 +108,7 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Issues | Read and write |
 | Pull requests | Read and write |
 | Checks | Read (CI failure annotations) |
-| Actions | Read for main-watch workflow attribution; write for canary and automatic reruns (cancelled runs and failed jobs). |
+| Actions | Read for main-watch workflow attribution; write for canary and automatic failed-job reruns. |
 | Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
@@ -400,18 +400,14 @@ As the table above says, it is expected. It counts anything sharing the
 credential that this process did not issue: a shell `gh` call, a script minting
 its own installation token, another Aiur instance.
 
-A monitoring loop sampling the API on the same credential *is itself*
-unattributed spend, so an investigation can widen the gap it is measuring.
-Baseline with the fleet quiet and your own tooling stopped.
+A monitoring loop sampling the API on the same credential *is itself* unattributed spend, so an investigation can widen the gap it is measuring. Baseline with the fleet quiet and your own tooling stopped.
 
 **Agent `gh` calls do not bill the daemon's credential.**
 
 Agents hold the bot PAT; the daemon under App auth holds an installation token.
 Separate budgets, separate windows.
 
-An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and
-never spends the App pool. Agent activity correlating with App-pool spend means
-something else scales with the fleet.
+An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and never spends the App pool. Agent activity correlating with App-pool spend means something else scales with the fleet.
 
 Related: a low read-cache hit rate is not automatically a defect. See
 [Shared agent reads](#shared-agent-reads) for what the cache refuses on purpose
@@ -729,7 +725,11 @@ Build queue writes use `build_queue_label_post` / `build_queue_label_delete`; gu
 
 Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. See [request costs](/concepts/build-orders#queue-cost); no saving is claimed.
 
-CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), head/queue evidence, PR changed paths and Actions run attempts (`ci_recovery` caller). Fully annotated tests outside the diff and known flakes get one failed-job rerun per head; there is no fleet or hourly cap.
+CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), head/queue evidence, PR changed paths and Actions run attempts (`ci_recovery` caller). Fully annotated tests outside the diff and known flakes can get one failed-job rerun per head.
+
+Cancelled Actions runs are never rerun; draft PRs and PRs with changes requested get one neutral attention per ticket.
+
+Automatic reruns default on and are bounded by `agent.ci_recovery_max_per_poll` (5) and `agent.ci_recovery_max_per_hour` (20); `agent.ci_recovery_enabled: false` disables them. The hourly limit is shared across tickets and survives daemon restarts.
 
 Attempts are journaled before writes; queued PRs are left alone. Recovery does not update the base. A run GET returning 403/404 or a denied rerun POST raises one attention and permits the normal failed/rework handoff instead of holding CI wait.
 
