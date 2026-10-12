@@ -1,46 +1,119 @@
-# Merge the integration branch locally and run cheap PR gates on that snapshot.
+# Merge the integration branch, then report every cheap gate in one final block.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local base_ref base_sha result=0 name
-  base_ref="${AIUR_BASE_BRANCH:-main}"
-  if [ -n "$(git status --porcelain)" ]; then echo "pre-pr: FAIL clean working tree required (commit or stash changes first)"; exit 1; fi
-  if ! git fetch origin "$base_ref"; then echo "pre-pr: FAIL fetch origin/$base_ref"; exit 1; fi
-  base_sha="$(git rev-parse "FETCH_HEAD^{commit}")"
-  echo "pre-pr: merging origin/$base_ref $base_sha"
-  if ! git merge --no-edit "$base_sha"; then
-    local files
-    files="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
-    git merge --abort >/dev/null 2>&1 || true
-    echo "pre-pr: FAIL merge conflict: ${files:-unknown files}"
-    exit 1
+  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config affected selection pr_json
+  local -a results=() failures=() test_files=()
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
+  if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
+    echo "aiur pre-pr is for Aiur source checkouts; this repository does not contain the Aiur gates." >&2
+    exit 64
   fi
-  echo "pre-pr: merged main SHA $base_sha (local merge commit $(git rev-parse HEAD))"
+  cd "$root"
+  [ -z "$(git status --porcelain)" ] || { echo "pre-pr requires a clean working tree (commit or stash changes first)" >&2; exit 1; }
+  base_ref="${AIUR_BASE_BRANCH:-main}"
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-pre-pr.XXXXXX")"
+  trap 'rm -rf "$temp_dir"' EXIT
+  test_home="$temp_dir/home"
+  test_config="$temp_dir/config"
+  mkdir -p "$test_home" "$test_config"
+  if ! git fetch origin "$base_ref" >"$temp_dir/fetch.log" 2>&1; then
+    results+=("FAIL fetch origin/$base_ref")
+    failures+=("$temp_dir/fetch.log")
+    pre_pr_report "unknown" FAIL
+    return 1
+  fi
+  base_sha="$(git rev-parse "FETCH_HEAD^{commit}")"
+  if ! merge_output="$(git merge --no-edit "$base_sha" 2>&1)"; then
+    local conflict_files
+    conflict_files="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+    git merge --abort >/dev/null 2>&1 || true
+    results+=("FAIL merge conflict: ${conflict_files:-unknown files}")
+    pre_pr_report "$base_sha" FAIL
+    return 1
+  fi
+  results+=("PASS merge origin/$base_ref ($(git rev-parse --short HEAD))")
+
   run_gate() {
     name="$1"; shift
-    if "$@"; then echo "pre-pr: PASS $name"; else echo "pre-pr: FAIL $name"; result=1; fi
+    gate_log="$temp_dir/gate-${#results[@]}.log"
+    if "$@" >"$gate_log" 2>&1; then
+      results+=("PASS $name")
+    else
+      results+=("FAIL $name")
+      failures+=("$gate_log")
+      result=1
+    fi
   }
-  run_gate "mix format --check-formatted" bash -c 'cd src && mix format --check-formatted'
-  run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mix compile --warnings-as-errors'
+
+  run_gate "mix format --check-formatted" bash -c 'cd src && mise exec -- mix format --check-formatted'
+  run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mise exec -- mix compile --warnings-as-errors'
   run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$base_sha"
   run_gate "check-file-size" python3 scripts/check-file-size.py --base "$base_sha"
   run_gate "check-config-docs" python3 scripts/check-config-docs.py
-  run_gate "architectural guard tests" bash -c 'cd src && mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
-  local affected
-  if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mix aiur.affected_tests "origin/$base_ref" 2>&1)"; then
-    echo "pre-pr: FAIL affected tests selection: $affected"
+  run_gate "check-hot-list-format" python3 scripts/check-hot-list-format.py
+  run_gate "architectural guard tests" env HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
+
+  if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mise exec -- mix aiur.affected_tests "origin/$base_ref" --json)"; then
+    results+=("FAIL affected tests selection")
+    printf '%s\n' "$affected" >"$temp_dir/affected-selection.log"
+    failures+=("$temp_dir/affected-selection.log")
     result=1
-  elif [[ "$affected" == *"no affected test files detected"* ]]; then
-    echo "pre-pr: PASS affected tests (none selected)"
   else
-    affected="$(printf '%s\n' "$affected" | sed -n 's/^cd src && mise exec -- mix test --max-cases 4 //p' | tail -1)"
-    if [ -n "$affected" ]; then
-      read -r -a test_paths <<<"$affected"
-      run_gate "affected tests" bash -c 'cd src && mix test --max-cases 4 "$@"' _ "${test_paths[@]}"
-    else
-      echo "pre-pr: FAIL affected tests selection returned no command"
+    if ! selection="$(jq -er '.status' <<<"$affected" 2>"$temp_dir/selector-json.log")"; then
+      results+=("FAIL affected tests selection (invalid JSON)")
+      printf '%s\n' "$affected" >"$temp_dir/affected-selection.log"
+      cat "$temp_dir/selector-json.log" >>"$temp_dir/affected-selection.log"
+      failures+=("$temp_dir/affected-selection.log")
       result=1
+      selection=invalid
     fi
+    case "$selection" in
+      full)
+        run_gate "full test suite (affected-test selector fallback: $(jq -r '.reason' <<<"$affected"))" env HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- make ci'
+        ;;
+      scoped)
+        while IFS= read -r test_path; do test_files+=("$test_path"); done < <(jq -r '.tests[]' <<<"$affected")
+        if [ "${#test_files[@]}" -eq 0 ]; then
+          results+=("PASS affected tests (no test files selected)")
+        else
+          local -a mix_paths=()
+          for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
+          run_gate "affected tests" env HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+        fi
+        ;;
+      invalid) ;;
+      *)
+        results+=("FAIL affected tests selection (invalid selector response)")
+        printf '%s\n' "$affected" >"$temp_dir/affected-selection.log"
+        failures+=("$temp_dir/affected-selection.log")
+        result=1
+        ;;
+    esac
   fi
-  echo "pre-pr: result $([ "$result" -eq 0 ] && echo PASS || echo FAIL); merged main SHA $base_sha"
+
+  if command -v gh >/dev/null && pr_json="$(gh pr view --json createdAt,body,headRefOid --jq '{created_at: .createdAt, body: .body, head: {sha: .headRefOid}}' 2>"$temp_dir/gh-pr.log")"; then
+    printf '%s\n' "$pr_json" >"$temp_dir/pr.json"
+    run_gate "check-pr-body" python3 scripts/check-pr-body.py --pr-json "$temp_dir/pr.json" --base "$base_sha"
+  elif [ -s "$temp_dir/gh-pr.log" ]; then
+    results+=("SKIP check-pr-body (could not read PR with gh)")
+  else
+    results+=("SKIP check-pr-body (no PR for this branch)")
+  fi
+
+  pre_pr_report "$base_sha" "$result"
   return "$result"
+}
+
+pre_pr_report() {
+  local base_sha="$1" result="$2" line log status=FAIL
+  if [ "$result" = PASS ] || [ "$result" = 0 ]; then status=PASS; fi
+  printf '%s\n' '--- aiur pre-pr result (paste into the PR body) ---'
+  printf 'Merged main SHA: %s\n' "$base_sha"
+  printf 'Result: %s\n' "$status"
+  for line in "${results[@]}"; do printf '%s\n' "$line"; done
+  for log in "${failures[@]}"; do
+    printf '%s\n' '--- failed gate output ---'
+    cat "$log"
+  done
+  printf '%s\n' '--- end aiur pre-pr result ---'
 }

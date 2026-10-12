@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   references deleted from individual source diff hunks, so root-level sibling
   tests are not hidden by topic-directory selections.
 
-      mix aiur.affected_tests [base_ref]
+      mix aiur.affected_tests [base_ref] [--json]
 
   Prints a root-runnable `cd src && mise exec -- mix test ...` line, or advises
   running the full `make ci` suite when the change cannot be scoped safely.
@@ -30,19 +30,25 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   @impl Mix.Task
   def run(args) do
     root = repo_root()
+    json? = "--json" in args
+    args = Enum.reject(args, &(&1 == "--json"))
 
     with {:ok, base} <- requested_or_default_base(root, args),
          {:ok, changed} <- changed_files(root, base),
          {:ok, dependents} <- xref_dependents(root, changed),
          {:ok, references} <- deleted_reference_tests(root, base) do
-      changed
-      |> Aiur.AffectedTests.select(base_dir: root, dependent_sources: dependents, reference_tests: references)
-      |> command()
-      |> Enum.each(fn line -> Mix.shell().info(line) end)
+      selection = Aiur.AffectedTests.select(changed, base_dir: root, dependent_sources: dependents, reference_tests: references)
+      lines = if json?, do: [selection_json(selection)], else: command(selection)
+      Enum.each(lines, &print_line/1)
     else
       {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
     end
   end
+
+  @doc false
+  @spec selection_json({:full, String.t()} | {:scoped, [String.t()]}) :: String.t()
+  def selection_json({:full, reason}), do: Jason.encode!(%{status: "full", reason: reason})
+  def selection_json({:scoped, tests}), do: Jason.encode!(%{status: "scoped", tests: tests})
 
   @doc false
   @spec command({:full, String.t()} | {:scoped, [String.t()]}) :: [String.t()]
@@ -63,6 +69,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+
+  defp print_line(line), do: Mix.shell().info(line)
 
   defp changed_files(root, base) do
     with {:ok, committed} <- git(root, ["diff", "--name-only", base, "--"]),

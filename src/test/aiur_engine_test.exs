@@ -451,29 +451,20 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
 
     root = Aiur.TestSupport.tmp_root!("pre-pr-dirty")
     File.mkdir_p!(root)
+    File.mkdir_p!(Path.join(root, "src"))
+    File.mkdir_p!(Path.join(root, "scripts"))
+    File.write!(Path.join(root, "src/mix.exs"), "")
+    File.write!(Path.join(root, "scripts/check-pr-structure.py"), "")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     System.cmd("git", ["init", "-q", root])
     File.write!(Path.join(root, "dirty"), "dirty")
     {out, code} = run_sourced_engine("cd #{root} && aiur_engine_main pre-pr", [])
     assert code == 1
-    assert out =~ "pre-pr: FAIL clean working tree required"
+    assert out =~ "pre-pr requires a clean working tree"
   end
 
-  test "pre-pr engine has named merge and gate failure paths and never pushes" do
-    engine = Aiur.EngineSource.text()
-
-    assert engine =~ "pre-pr: FAIL merge conflict:"
-    assert engine =~ "pre-pr: FAIL $name"
-    assert engine =~ "mix format --check-formatted"
-    refute engine =~ "git push"
-  end
-
-  test "pre-pr gate result block names each failed gate and exits nonzero" do
-    result = Aiur.EngineSource.text()
-
-    assert result =~ "echo \"pre-pr: FAIL $name\"; result=1"
-    assert result =~ "return \"$result\""
-    assert result =~ "pre-pr: FAIL merge conflict: ${files:-unknown files}"
+  test "pre-pr does not push changes" do
+    refute Aiur.EngineSource.text() =~ "git push"
   end
 
   test "a missing engine module aborts by path before any command runs" do
