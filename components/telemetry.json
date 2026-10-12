@@ -29,7 +29,10 @@
     "kernel",
     "signal"
   ],
-  "optional": [],
+  "optional": [
+    "github",
+    "github-listeners"
+  ],
   "owns": {
     "config": [
       "debug",
