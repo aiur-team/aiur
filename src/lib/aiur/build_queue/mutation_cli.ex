@@ -35,26 +35,29 @@ defmodule Aiur.BuildQueue.MutationCLI do
     ids = Keyword.get(opts, :ids, [])
     queue = opts[:queue]
     valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and (is_nil(queue) or (is_binary(queue) and String.trim(queue) != ""))
-    valid = valid and (not Keyword.has_key?(opts, :rank) or (is_binary(queue) and position?(opts[:rank])))
+    valid = valid and valid_rank?(opts)
     valid = valid and valid_options?(opts) and valid_command?(opts[:verb], ids, opts)
     if valid, do: :ok, else: {:error, :invalid_arguments}
   end
 
   defp valid_options?(opts) do
-    allowed =
-      case opts[:verb] do
-        :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank]
-        :order -> [:queue, :to]
-        :set -> [:queue, :start_on]
-        :recover -> [:force]
-        :clear -> [:remove_markers, :yes]
-        :remove -> [:ids]
-        :reorder -> [:ids, :to]
-        verb when verb in [:hold, :release] -> [:ids, :queue]
-        _ -> []
-      end
+    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+  end
 
-    Enum.all?(Keyword.keys(opts), &(&1 in (allowed ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+  defp valid_rank?(opts), do: not Keyword.has_key?(opts, :rank) or (is_binary(opts[:queue]) and position?(opts[:rank]))
+  defp allowed_options(:order), do: [:queue, :to]
+
+  defp allowed_options(verb) do
+    case verb do
+      :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank]
+      :set -> [:queue, :start_on]
+      :recover -> [:force]
+      :clear -> [:remove_markers, :yes]
+      :remove -> [:ids]
+      :reorder -> [:ids, :to]
+      verb when verb in [:hold, :release] -> [:ids, :queue]
+      _ -> []
+    end
   end
 
   defp valid_command?(:add, ids, opts) do

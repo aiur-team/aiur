@@ -73,6 +73,16 @@ defmodule Aiur.BuildQueueCLI do
   defp print_queue(queue) do
     IO.puts("#{queue["name"]}  #{progress(queue["progress"])}#{if queue["held"], do: "  held", else: ""}")
 
+    print_summary(queue)
+    if queue["start_trigger"], do: IO.puts("  start on #{queue["start_trigger"]}#{if queue["start_trigger_source"] == "config", do: " (default)", else: ""}")
+    IO.puts("  pos  ticket  state  waiting on  rank")
+
+    Enum.each(queue["items"], fn item ->
+      IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{item_waiting(item)}  #{rank(item)}#{attention(item)}")
+    end)
+  end
+
+  defp print_summary(queue) do
     if is_integer(queue["set_rank"]) and queue["counts"] do
       counts = queue["counts"]
 
@@ -80,13 +90,6 @@ defmodule Aiur.BuildQueueCLI do
         "  set rank #{queue["set_rank"]}  #{queue["state"]}  held #{queue["held"]}  ready #{counts["ready"] || "unknown"} / started #{counts["started"] || "unknown"} / done #{counts["done"] || "unknown"}#{if queue["waiting_reason"], do: "  #{queue["waiting_reason"]}"}"
       )
     end
-
-    if queue["start_trigger"], do: IO.puts("  start on #{queue["start_trigger"]}#{if queue["start_trigger_source"] == "config", do: " (default)", else: ""}")
-    IO.puts("  pos  ticket  state  waiting on  rank")
-
-    Enum.each(queue["items"], fn item ->
-      IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{item_waiting(item)}  #{rank(item)}#{attention(item)}")
-    end)
   end
 
   defp progress(progress) do
