@@ -382,7 +382,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     start_supervised!({ExecutorWakeInbox, opts})
 
     for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
-    Process.sleep(30)
+    assert eventually(fn -> journal_ids(opts) == [1, 2, 3] end)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [1, 2, 3]
     assert :ok = ack_as_owner(records, __MODULE__)
@@ -390,14 +390,14 @@ defmodule Aiur.ExecutorWakeInboxTest do
     # Past the bound the ledger trims to its low watermark (4 of 5): consumed
     # records go first, and no unread record is dropped to keep a consumed one.
     for id <- 4..6, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
-    Process.sleep(30)
+    assert eventually(fn -> journal_ids(opts) == [3, 4, 5, 6] end)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [4, 5, 6]
     assert journal_ids(opts) == [3, 4, 5, 6]
 
     # Four more push the unread set past the bound: the oldest unread go.
     for id <- 7..10, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
-    Process.sleep(30)
+    assert eventually(fn -> journal_ids(opts) == [7, 8, 9, 10] end)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [7, 8, 9, 10]
     assert :ok = ack_as_owner(records, __MODULE__)
