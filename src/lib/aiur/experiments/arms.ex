@@ -107,7 +107,7 @@ defmodule Aiur.Experiments.Arms do
     change = timestamp(spec["design"]["change"]["time"])
     after_start = timestamp(spec["windows"]["after"]["start"])
     finish = timestamp(row["finished_at"])
-    at = if spec["design"]["assign_by"] == "finish", do: finish || timestamp(row["started_at"] || row["at"]), else: timestamp(row["started_at"] || row["at"])
+    at = assignment_time(spec["design"], row, finish)
 
     cond do
       is_nil(at) -> {:excluded, "straddle"}
@@ -116,6 +116,10 @@ defmodule Aiur.Experiments.Arms do
       true -> {:excluded, "straddle"}
     end
   end
+
+  defp assignment_time(%{"assign_by" => "finish"}, row, finish), do: finish || started_at(row)
+  defp assignment_time(_design, row, _finish), do: started_at(row)
+  defp started_at(row), do: timestamp(row["started_at"] || row["at"])
 
   defp before_finished?(_row, nil, _change), do: true
   defp before_finished?(_row, finish, change), do: DateTime.compare(finish, change) != :gt

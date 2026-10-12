@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.SnapshotTest do
   use ExUnit.Case, async: false
   alias Aiur.Experiments
-  alias Aiur.Experiments.{Evidence, Paths, Snapshot, Store}
+  alias Aiur.Experiments.{Evidence, Paths, Reader, Snapshot, Spec, Store, WindowData}
 
   setup do
     root = Path.join(System.tmp_dir!(), "snapshots-#{System.unique_integer([:positive])}")
@@ -105,8 +105,8 @@ defmodule Aiur.Experiments.SnapshotTest do
     {:ok, spec} = Experiments.create(attrs(), freeze: false)
     make_ctx = fn rows -> Map.put(ctx, :evaluate, fn _, _, _ -> %{"app/latency" => %{coverage: %{state: :captured}, observations: rows}} end) end
     rows = for n <- [2, 1], do: %{unit_id: to_string(n), value: n, at: ~U[2026-10-01 01:00:00Z], attrs: %{}}
-    assert {:ok, first} = Aiur.Experiments.WindowData.evaluate(Aiur.Experiments.Spec.to_map(spec), "before", make_ctx.(rows))
-    assert {:ok, second} = Aiur.Experiments.WindowData.evaluate(Aiur.Experiments.Spec.to_map(spec), "before", make_ctx.(Enum.reverse(rows)))
+    assert {:ok, first} = WindowData.evaluate(Spec.to_map(spec), "before", make_ctx.(rows))
+    assert {:ok, second} = WindowData.evaluate(Spec.to_map(spec), "before", make_ctx.(Enum.reverse(rows)))
     assert Evidence.hash(first) == Evidence.hash(second)
     assert Evidence.hash(%{a: 1, b: 2}) == Evidence.hash(%{"b" => 2, "a" => 1})
   end
@@ -147,12 +147,12 @@ defmodule Aiur.Experiments.SnapshotTest do
 
   test "show detects a pack definition changed since the frozen revision", %{ctx: ctx, repo: repo} do
     {:ok, spec} = Experiments.create(attrs())
-    assert {:ok, original} = Aiur.Experiments.Reader.fetch(spec.id, ctx)
+    assert {:ok, original} = Reader.fetch(spec.id, ctx)
     refute original.pack_changed_since_freeze
     path = Path.join(repo, ".aiur/experiments/packs/app.json")
     pack = Jason.decode!(File.read!(path)) |> put_in(["metrics", Access.at(0), "label"], "Changed definition")
     File.write!(path, Jason.encode!(pack))
-    assert {:ok, changed} = Aiur.Experiments.Reader.fetch(spec.id, ctx)
+    assert {:ok, changed} = Reader.fetch(spec.id, ctx)
     assert changed.pack_changed_since_freeze
     assert changed.snapshots == original.snapshots
   end
