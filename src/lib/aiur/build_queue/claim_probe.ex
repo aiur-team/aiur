@@ -6,6 +6,13 @@ defmodule Aiur.BuildQueue.ClaimProbe do
 
   @callback status([String.t()]) :: result()
   @callback notify_demand([String.t()]) :: :ok | :unavailable
+  @callback optimistic_records() :: {:ok, [map()]} | {:error, term()}
+  @optional_callbacks optimistic_records: 0
+
+  @spec optimistic_records(module() | nil) :: {:ok, [map()]} | {:error, term()}
+  def optimistic_records(module \\ impl()) do
+    if module && Code.ensure_loaded?(module) && function_exported?(module, :optimistic_records, 0), do: module.optimistic_records(), else: {:error, :unavailable}
+  end
 
   @spec impl() :: module() | nil
   def impl, do: Application.get_env(:aiur, :build_queue_claim_probe)

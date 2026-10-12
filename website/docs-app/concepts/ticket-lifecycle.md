@@ -177,7 +177,9 @@ Item states are projections, not tracker labels:
 | `cancelled` | Tracker closure is confirmed as not planned. |
 | `removed` | The membership marker was removed. |
 
-If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
+If a promoted item becomes unready, Aiur holds dispatch and checks claims. It withdraws only `agent:todo` from unclaimed items with fresh, known readiness evidence. Unknown evidence retains the hold; claimed non-optimistic work keeps its labels and raises `dependency_changed_after_start` when it becomes unready.
+
+Terminal optimistic blocker failure pauses running dependents, parks them and drafts their PRs; their work is kept. Closed-unmerged PRs get a 600-second replacement grace. Trouble and churn raise info only. The Executor chooses to wait, re-base and resume, or close. Recovery never auto-resumes parked work.
 
 Manual `todo` sets an override. List adds record pre-existing `todo`; fresh unmet prerequisites
 withdraw it only after dispatch is held and unclaimed status is confirmed. A later manual `todo`
@@ -186,12 +188,10 @@ and overrides. Removing `agent:queued` dequeues; writes re-observe races.
 
 Unauthorized detection needs a free dispatch slot; until dispatch can check, the item remains `promoted`. An allowed human must apply the marker or `todo`, or hold the ticket. An unavailable claim probe preserves a recorded decline.
 
-[Queue attentions](/concepts/build-orders#queue-attentions) cover `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`,
-`write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
+[Queue attentions](/concepts/build-orders#queue-attentions) cover `prerequisite_failed`, `dependency_changed_after_start`, `promoted_unauthorized`, `optimistic_blocker_failed`, `write_failed`, `merged_issue_open`, `inputs_unavailable` and `store_unavailable`.
 
 See [Queueing a Build Order](/concepts/build-orders#queueing-a-build-order) and [Downgrading](/concepts/build-orders#downgrading).
-Closed-unmerged prerequisite PR detection is [webhook-only](/concepts/build-orders#closed-prerequisite-pull-requests);
-polling alone leaves the prerequisite pending.
+Ordinary queue closed-unmerged prerequisite PR detection uses [webhook evidence](/concepts/build-orders#closed-prerequisite-pull-requests); the optimistic guard also confirms blocker PR state on poll ticks.
 
 ## The state diagram
 
@@ -558,10 +558,9 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 
 ## Step 5 — PR opened, agent pauses
 
-The agent opens a `Closes #<issue>` **draft** PR. Aiur PRs, draft or ready,
-run fast CI; the aggregate `ci gate` requires the full suite in the merge
-queue or when `merge_policy.full_ci_labels` or `full_ci_paths` force a full run.
-After self-review, the agent marks work ready; `agent:ci-wait` releases the turn and dispatch slot. Main has no `ci` push run.
+The agent opens a `Closes #<issue>` **draft** PR. Aiur PRs, draft or ready, run fast CI; the aggregate `ci gate` requires the full suite in the merge queue or when `merge_policy.full_ci_labels` or `full_ci_paths` force a full run. After self-review, the agent marks work ready; `agent:ci-wait` releases the turn and dispatch slot. Main has no `ci` push run.
+
+Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts already in human review stay there instead of moving to CI wait.
 
 Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
 

@@ -2,10 +2,15 @@ defmodule Aiur.Orchestrator.OptimisticShareDispatchTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, IssueSync, OptimisticSlots, PauseResume, Slots, State, StatusReport, TrackerTasks}
+  alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, IssueSync, OptimisticLedger, OptimisticSlots, PauseResume, Slots, State, StatusReport, TrackerTasks}
   alias Aiur.StartTrigger.ProgressStore
 
   setup do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, OptimisticLedger)
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, OptimisticLedger) end)
+    ledger_root = Aiur.TestSupport.tmp_root!("optimistic-dispatch-ledger")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(ledger_root) end)
+    start_supervised!({OptimisticLedger, path: Path.join(ledger_root, "starts.json")})
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     set_share(0.5)

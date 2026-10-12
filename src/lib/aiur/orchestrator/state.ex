@@ -720,7 +720,7 @@ defmodule Aiur.Orchestrator.State do
   # A provider usage limit belongs here for the same reason: the account, not
   # this agent, is what the fleet waits on, there is no turn in flight, and
   # holding the slot turns one account limit into a fleet-wide dispatch stall.
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
   def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons

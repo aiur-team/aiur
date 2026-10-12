@@ -86,6 +86,10 @@ class LedgerTests(unittest.TestCase):
         record['body'] = 'private prose'
         with self.assertRaises(ValueError):
             ledger_schema.validate(record)
+        del record['body']
+        record['usage'] = {'coverage': 'complete', 'cost_amount': float('nan')}
+        with self.assertRaises(ValueError):
+            ledger_schema.validate(record)
 
     def test_incremental_retention_history_noop_and_truncated_file(self):
         with tempfile.TemporaryDirectory() as directory:

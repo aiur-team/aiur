@@ -1,5 +1,6 @@
 """Validate the ledger's small JSON Schema vocabulary without dependencies."""
 import json
+import math
 from pathlib import Path
 
 SCHEMA = json.loads((Path(__file__).resolve().parents[2] / 'schema/ticket-record.v1.json').read_text())
@@ -16,6 +17,8 @@ def validate(value, schema=None, path='$'):
     expected = schema.get('type')
     if expected and not any(types[t](value) for t in (expected if isinstance(expected, list) else [expected])):
         raise ValueError(path + ': invalid type')
+    if type(value) is float and not math.isfinite(value):
+        raise ValueError(path + ': non-finite number')
     if 'enum' in schema and value not in schema['enum']:
         raise ValueError(path + ': invalid enum')
     if 'minimum' in schema and value is not None and value < schema['minimum']:
