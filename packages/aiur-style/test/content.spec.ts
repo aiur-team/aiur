@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 
 export function registerContentTests() {
 test.describe('Content sections', () => {
-  test.use({ reducedMotion: 'reduce' });
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
 
 for (const theme of ['light', 'dark']) {
   for (const [width, columns] of [[1024, 3], [700, 2], [400, 1]]) {
