@@ -19,6 +19,7 @@
   ],
   "facade_pending": null,
   "requires": [
+    "agent-sandbox",
     "config",
     "event-bus",
     "identity",
@@ -27,6 +28,7 @@
   ],
   "optional": [
     "accounting",
+    "executor-attention",
     "telemetry",
     "tracker"
   ],

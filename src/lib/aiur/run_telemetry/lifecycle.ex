@@ -14,6 +14,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   @events ~w(
     dispatch
+    optimistic_start
     prewarm
     workspace_setup
     workspace_ownership
@@ -70,6 +71,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     tags
     blockers
     start_mode
+    start_trigger
+    blocker_prs
   )a
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
@@ -205,6 +208,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     end)
     |> Map.new()
   end
+
+  defp normalize_field(:blocker_prs, values) when is_list(values), do: Enum.map(values, &if(is_integer(&1), do: &1, else: nil))
 
   defp normalize_field(:optimistic_start, %{blockers: blockers, primary: primary, pr_base: base, started_at: started_at}) do
     %{

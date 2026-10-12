@@ -123,6 +123,8 @@ defmodule Aiur.ApplicationChildOrderTest do
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    # Initial orchestrator dispatch must persist attempts before starting runners.
+    Aiur.Orchestrator.OptimisticLedger => "Load durable attempts before Orchestrator starts its first dispatch",
     Aiur.BuildOrder.History.Feeder => "Subscribe to History before Backfill starts so completion triggers catch-up",
     Aiur.AgentPubSub.FleetRefresh => "Create the subscriber table after PubSub and before channels can register",
     Aiur.Orchestrator.SnapshotCache => "Create the snapshot table before SnapshotStore or SnapshotPublisher can write",
