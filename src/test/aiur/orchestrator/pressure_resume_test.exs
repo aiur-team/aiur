@@ -46,11 +46,11 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     five = dispatch(reused, 5, 2.0)
     assert EnvelopeStore.load(21_600, System.schedulers_online()).safe_level == 6
     overloaded = Enum.reduce(6..8, %{five | effective_concurrent_agents: 8}, &dispatch(&2, &1, 11.0))
-    assert overloaded.effective_concurrent_agents == 4
-    assert EnvelopeStore.load(21_600, System.schedulers_online()).safe_level == 4
+    assert overloaded.effective_concurrent_agents == 6
+    assert EnvelopeStore.load(21_600, System.schedulers_online()).safe_level == 6
     assert overloaded.load_envelope_state.sustained_decrease?
-    assert dispatch(overloaded, 9, 8.0).effective_concurrent_agents == 4
-    assert dispatch(overloaded, 9, 7.99).effective_concurrent_agents == 5
+    assert dispatch(overloaded, 9, 8.0).effective_concurrent_agents == 6
+    assert dispatch(overloaded, 9, 7.99).effective_concurrent_agents == 7
   end
 
   defp dispatch(state, id, pressure) do
