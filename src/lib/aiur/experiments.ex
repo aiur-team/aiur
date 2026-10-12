@@ -1,7 +1,16 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Journal, Paths, Reader, Schema, Store}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store}
+
+  @spec metric_catalog() :: map()
+  def metric_catalog, do: Catalog.load()
+
+  @spec observations([String.t()], map(), map()) :: map()
+  def observations(refs, window, context \\ %{}), do: Evaluator.observations(refs, window, context)
+
+  @spec children(boolean()) :: [module()]
+  def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer], else: [])
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -53,6 +62,22 @@ defmodule Aiur.Experiments do
   @spec create(map(), keyword()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def create(attrs, opts \\ []), do: mutate({:create, attrs, opts})
 
+  @spec freeze(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  def freeze(id, window \\ nil, opts \\ []) do
+    if Paths.valid_id?(id), do: mutate({:freeze, id, window, opts}), else: {:error, :not_found}
+  end
+
+  @spec arms(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def arms(id, opts \\ []), do: Arms.read(id, opts)
+
+  @spec export_analysis_input(String.t()) :: {:ok, map()} | {:error, term()}
+  def export_analysis_input(id) do
+    if Paths.valid_id?(id), do: mutate({:export_analysis_input, id}), else: {:error, :not_found}
+  end
+
+  @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def checkpoint(id, now), do: mutate({:checkpoint, id, now})
+
   @spec amend(String.t(), map(), term()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def amend(id, changes, actor), do: mutate({:amend, id, changes, actor, "amended"})
 
@@ -81,7 +106,7 @@ defmodule Aiur.Experiments do
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, "experiments")
 
   defp mutate(command) do
-    GenServer.call(Store, command, 30_000)
+    GenServer.call(Store, command, 125_000)
   catch
     :exit, {:noproc, _call} -> {:error, Store.startup_failure()}
     :exit, {:timeout, _call} -> {:error, :outcome_unknown}

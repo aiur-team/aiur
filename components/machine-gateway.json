@@ -1,0 +1,23 @@
+{
+  "id": "machine-gateway",
+  "name": "Machine gateway process and the `aiur_machine` store library (MP-N2)",
+  "layer": 3,
+  "kind": "optional",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}

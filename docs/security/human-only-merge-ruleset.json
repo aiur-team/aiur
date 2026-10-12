@@ -24,51 +24,7 @@
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           {
-            "context": "browser harness",
-            "integration_id": 15368
-          },
-          {
-            "context": "build",
-            "integration_id": 15368
-          },
-          {
-            "context": "coverage (1/4)",
-            "integration_id": 15368
-          },
-          {
-            "context": "coverage (2/4)",
-            "integration_id": 15368
-          },
-          {
-            "context": "coverage (3/4)",
-            "integration_id": 15368
-          },
-          {
-            "context": "coverage (4/4)",
-            "integration_id": 15368
-          },
-          {
-            "context": "dialyzer",
-            "integration_id": 15368
-          },
-          {
-            "context": "layout release smoke",
-            "integration_id": 15368
-          },
-          {
-            "context": "lint",
-            "integration_id": 15368
-          },
-          {
-            "context": "streamdeck",
-            "integration_id": 15368
-          },
-          {
-            "context": "test",
-            "integration_id": 15368
-          },
-          {
-            "context": "workflow security",
+            "context": "ci gate",
             "integration_id": 15368
           }
         ],

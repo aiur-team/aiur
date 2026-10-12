@@ -216,6 +216,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     pid = server(projection)
     assert :ok = Aiur.BuildQueue.add(["1"], "list")
     assert {:ok, [{"1", :already_queued}]} = Aiur.BuildQueue.adopt(99)
+    assert Enum.map(get(:document).queues, &{&1.kind, &1.rank}) == [{:list, 0}, {:build_order, 1}]
     assert Enum.count(get(:document).items, &(&1.issue_id == "1")) == 1
     reconcile(pid)
     changed = snapshot([member(1), member(2), member(4)])
