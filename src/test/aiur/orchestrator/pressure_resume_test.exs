@@ -53,25 +53,30 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     assert dispatch(overloaded, 9, 7.99).effective_concurrent_agents == 7
   end
 
-  test "pressure peak respects the demonstrated safe level and avoids settling at one" do
+  test "host pressure trace keeps admitted fleet near the demonstrated safe level" do
     initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 4, running: Map.new(1..4, &{Integer.to_string(&1), %{}})}
-    warmed = Enum.reduce(1..5, initial, fn i, current -> dispatch(current, i, 7.9) end)
+    warm_samples = for i <- 1..5, do: {i, 20.0, 4}
+    warmed = Enum.reduce(warm_samples, initial, fn {i, pressure, occupied}, current -> dispatch(current, i, pressure, occupied: occupied, target: 35.0, threshold: 60.0) end)
     assert warmed.effective_concurrent_agents == 9
     assert warmed.load_envelope_state.safe_level == 4
 
-    pressured = Enum.scan(6..17, warmed, fn i, current -> dispatch(current, i, 78.0) end)
+    trace = Enum.zip(6..17, Enum.zip([78.0, 82.0, 87.0, 78.0, 82.0, 87.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0], [9, 9, 8, 9, 8, 8, 4, 4, 4, 4, 4, 4]))
+    pressured = Enum.scan(trace, warmed, fn {i, {pressure, occupied}}, current -> dispatch(current, i, pressure, occupied: occupied, target: 35.0, threshold: 60.0) end)
 
-    assert Enum.map(pressured, & &1.effective_concurrent_agents) == [9, 9, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4]
-    assert_in_delta Enum.sum(Enum.map(pressured, & &1.effective_concurrent_agents)) / length(pressured), 59 / 12, 0.01
+    admitted_fleet = Enum.map(pressured, &min(&1.effective_concurrent_agents, 16))
+    assert admitted_fleet == [9, 9, 5, 5, 4, 4, 5, 6, 7, 8, 9, 10]
+    assert_in_delta Enum.sum(admitted_fleet) / length(admitted_fleet), 81 / 12, 0.01
   end
 
-  defp dispatch(state, id, pressure) do
+  defp dispatch(state, id, pressure, options \\ []) do
     now = id * 120_000
+    occupied = Keyword.get(options, :occupied)
+    state = if is_integer(occupied), do: %{state | running: Map.new(1..occupied, &{Integer.to_string(&1), %{}})}, else: state
 
     probes = %{
       cpu_pressure: %{avg10: pressure, avg60: pressure},
-      pressure_target: 10.0,
-      pressure_threshold: 20.0,
+      pressure_target: Keyword.get(options, :target, 10.0),
+      pressure_threshold: Keyword.get(options, :threshold, 20.0),
       load: 99.0,
       target: nil,
       load_threshold: nil,
