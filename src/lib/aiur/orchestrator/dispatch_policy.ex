@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{OptimisticSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
 
@@ -180,6 +180,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :claimed_without_runtime
           | :state_capacity
           | :worker_capacity
+          | :optimistic_share
           | :fleet_capacity
 
   # The single list of every reason `dispatch_decision/5` and
@@ -209,6 +210,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :claimed_without_runtime,
     :state_capacity,
     :worker_capacity,
+    :optimistic_share,
     :fleet_capacity
   ]
 
@@ -397,6 +399,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
+      true -> dispatch_capacity_decision(issue, state, terminal_states)
+    end
+  end
+
+  defp dispatch_capacity_decision(issue, state, terminal_states) do
+    cond do
+      not OptimisticSlots.available?(issue, state, terminal_states) -> {:skip, :optimistic_share}
       not state_slots_available?(issue, state) -> {:skip, :state_capacity}
       not Slots.worker_slots_available?(state) -> {:skip, :worker_capacity}
       true -> :dispatch

@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
@@ -233,16 +234,19 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       claim_release_cause: release && release.cause,
       reason:
         idle_reason(waiting_reason, identifier, fn ->
-          idle_status_reason(
-            work_state,
-            pause_reason,
-            prewarm_blocked?,
-            budget,
-            max_dispatches,
-            latch_status,
-            release && release.cause,
-            idle_evidence.auto_resume_retry_in_ms
-          )
+          if waiting_reason == :optimistic_share,
+            do: OptimisticSlots.waiting(state),
+            else:
+              idle_status_reason(
+                work_state,
+                pause_reason,
+                prewarm_blocked?,
+                budget,
+                max_dispatches,
+                latch_status,
+                release && release.cause,
+                idle_evidence.auto_resume_retry_in_ms
+              )
         end),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
@@ -293,6 +297,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           Map.get(issue, :state),
           DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
           open_decision_count,
+          optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
           latched_lifetime: latch_status != :none,
           tracker_paused: Issue.paused?(issue),
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,

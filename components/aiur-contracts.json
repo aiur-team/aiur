@@ -1,0 +1,22 @@
+{
+  "id": "aiur-contracts",
+  "name": "Wire contracts: JSON Schemas and generated TypeScript types for identity and capabilities",
+  "layer": 5,
+  "kind": "required",
+  "paths": [
+    "packages/aiur-contracts/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}
