@@ -58,6 +58,8 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             path.write_text(content)
         if git:
             subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+            for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+                subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
             subprocess.run(['git', '-C', str(root), 'add', '--', *files, *declarations], check=True)
             (root / 'src/lib/untracked.ex').touch()
         import os
@@ -72,7 +74,9 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             assert message in output, f'{name}: missing {message!r}: {output}'
         if format:
             content = (root / 'components.json').read_bytes()
-            assert json.loads(content) == dict(manifest, components=sorted(components, key=lambda c: (c['layer'], c['id'])))
+            sys.path.insert(0, str(repo / 'scripts'))
+            from components.manifest import canonical
+            assert json.loads(content) == canonical(dict(manifest, components=sorted(components, key=lambda c: (c['layer'], c['id']))))
             subprocess.run(args, env=env, check=True, capture_output=True)
             assert (root / 'components.json').read_bytes() == content, f'{name}: formatting not idempotent'
         print(f'PASS: {name}')
@@ -240,7 +244,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '23 sections, 7 fields, 71 env vars, 27 state paths owned once' in result.stdout
+    assert '23 sections, 7 fields, 73 env vars, 27 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -297,7 +301,9 @@ else:
 
     def use_experiments_contract(root):
         manifest = json.loads((root / 'components.json').read_text())
-        shipped = next(c for c in json.loads((repo / 'components.json').read_text())['components'] if c['id'] == 'experiments')
+        sys.path.insert(0, str(repo / 'scripts'))
+        from components.manifest import read_manifest
+        shipped = next(c for c in read_manifest(repo)['components'] if c['id'] == 'experiments')
         manifest['components'][0]['forbid'] = shipped['forbid']
         (root / 'components.json').write_text(json.dumps(manifest))
 
@@ -354,6 +360,8 @@ else:
 
     def committed_fixture(root):
         subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+        for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+            subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
         subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
         subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
                         'commit', '-qm', 'Fixture baseline'], check=True)

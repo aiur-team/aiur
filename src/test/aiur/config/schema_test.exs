@@ -242,6 +242,18 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent CI recovery limits" do
+    test "defaults on with bounded per-poll and hourly reruns, accepts false" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.ci_recovery_enabled
+      assert defaults.agent.ci_recovery_max_per_poll == 5
+      assert defaults.agent.ci_recovery_max_per_hour == 20
+
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"ci_recovery_enabled" => false}})
+      refute configured.agent.ci_recovery_enabled
+    end
+  end
+
   # FI-CFG-005: StringOrMap cast rejects non-string, non-map values
   describe "max_turns uncapped aliases" do
     test "max_turns 'none' resolves to nil (uncapped)" do

@@ -33,6 +33,6 @@ defmodule Aiur.Orchestrator.DispatchCohortTest do
     receive_barrier({:started, "cohort-dispatch"})
     assert_received {:record, :lifecycle, attrs}
     assert attrs.event == "dispatch"
-    assert {attrs.backend, attrs.model, attrs.effort, attrs.tags, attrs.blockers, attrs.start_mode} == {"codex", "cohort-model", "high", ["experiment:x"], ["3755"], "normal"}
+    assert {attrs.backend, attrs.model, attrs.effort, attrs.tags, attrs.blockers, attrs.start_mode} == {"codex", "cohort-model", "high", ["experiment:x"], ["3755"], "ready"}
   end
 end

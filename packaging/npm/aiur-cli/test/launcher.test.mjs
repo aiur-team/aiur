@@ -122,16 +122,13 @@ function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = fals
       : [path.join(root, "bin", "aiur.js"), ...args];
   return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv, cwd });
 }
-
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), "aiur-shim-"));
   captureFile = path.join(root, "capture.txt");
 });
-
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
-
 test("happy path: resolves platform package and execs launcher with args + env", () => {
   const { fakeBin } = setupPackage();
   const result = runShim({ args: ["--host", "127.0.0.1", "WORKFLOW.md"], fakeBin });
@@ -249,7 +246,7 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 
 const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
-  "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+  "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
   "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
   "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
@@ -268,7 +265,10 @@ for (const command of nonLaunchCommands) {
       writeFileSync(executable, `#!/bin/bash\necho '${tool}:$*' >>"$AIUR_TEST_OUT"\nexit 1\n`);
       chmodSync(executable, 0o755);
     }
-    const result = runShim({ args: [command, "--format", "records"], fakeBin,
+    // A local path must not turn the standalone PR command into a launch.
+    if (command === "pr") mkdirSync(path.join(root, "pr"));
+    const result = runShim({
+      args: [command, "--format", "records"], fakeBin,
       env: { PATH: `${fakeBin}:/usr/bin:/bin`, AIUR_SKIP_TMUX_INSTALL: "", AIUR_SKIP_OPENCODE_INSTALL: "" },
     });
     expect(result.status).toBe(0);
