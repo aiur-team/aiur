@@ -25,6 +25,23 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @spec set_status(String.t(), atom() | String.t(), integer()) :: :ok | {:error, atom()}
   def set_status(ticket, status, at_ms), do: call({:update, ticket, {:status, to_string(status), at_ms}})
 
+  @spec begin_park(String.t(), String.t(), atom(), integer()) :: :ok | {:error, atom()}
+  def begin_park(ticket, blocker, cause, at_ms), do: call({:update, ticket, {:park, blocker, to_string(cause), at_ms}})
+
+  @spec resume_park(String.t(), integer()) :: :ok | {:error, atom()}
+  def resume_park(ticket, at_ms), do: call({:update, ticket, {:resume_park, at_ms}})
+
+  @spec attention_status(String.t(), boolean()) :: :ok | {:error, atom()}
+  def attention_status(ticket, open?), do: call({:update, ticket, {:attention_status, open?}})
+
+  @spec guard_records() :: {:ok, [map()]} | {:error, :ledger_unavailable}
+  def guard_records do
+    with {:ok, rows} <- records() do
+      latest = rows |> Enum.sort_by(&attempt_order/1, :desc) |> Enum.uniq_by(& &1["ticket"])
+      {:ok, Enum.filter(latest, &(&1["status"] != "closed" or &1["guard_attention_open"] == true))}
+    end
+  end
+
   @spec close(String.t(), atom() | String.t(), integer()) :: :ok | {:error, atom()}
   def close(ticket, outcome, at_ms) do
     call({:update, ticket, {:close, to_string(outcome), at_ms}})
@@ -138,7 +155,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
 
   defp update_attempt(%{"v" => 1, "ticket" => ticket} = row, ticket, operation, current, latest) do
     if row["status"] == "closed" do
-      if row["attempt_id"] == latest and merged_correction?(row, operation), do: update(row, operation), else: row
+      if row["attempt_id"] == latest and (merged_correction?(row, operation) or match?({:attention_status, _}, operation)), do: update(row, operation), else: row
     else
       if match?({:close, _, _}, operation) or row["attempt_id"] == current, do: update(row, operation), else: row
     end
@@ -161,6 +178,33 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
       "blockers",
       &Enum.map(&1, fn blocker -> if blocker["id"] == id, do: Map.merge(blocker, Map.drop(attrs, ["id", "pr_head_sha_at_start", "pr_head_ref_at_start"])), else: blocker end)
     )
+  end
+
+  defp update(row, {:park, blocker, cause, at}) do
+    if row["status"] == "parked" do
+      row
+    else
+      row
+      |> update({:blocker, blocker, %{park_cause: cause, park_complete: false}})
+      |> update({:status, "parked", at})
+      |> update({:bump, "parks", 1})
+    end
+  end
+
+  defp update(%{"status" => "parked"} = row, {:resume_park, at}) do
+    fields = ~w(park_cause park_complete pause_complete park_action label_complete draft_complete comment_complete)
+
+    row
+    |> Map.update!("blockers", &Enum.map(&1, fn blocker -> blocker |> Map.drop(fields) |> Map.put("failure_acknowledged", true) end))
+    |> update({:status, "running", at})
+    |> update({:bump, "resumes_after_park", 1})
+  end
+
+  defp update(row, {:resume_park, _at}), do: row
+
+  defp update(row, {:attention_status, open?}) when is_boolean(open?) do
+    row = Map.put(row, "guard_attention_open", open?)
+    if open?, do: row, else: Map.update!(row, "blockers", &Enum.map(&1, fn blocker -> Map.drop(blocker, ~w(attention_emitted info_attention_emitted)) end))
   end
 
   defp update(row, {:bump, counter, amount}) when counter in @counters and is_integer(amount) and amount >= 0,
