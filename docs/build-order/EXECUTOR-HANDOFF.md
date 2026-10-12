@@ -84,7 +84,7 @@ tmux session `aiur-orangekid-0f62c25cdf-default`.
 - **"Operator Control Center" rename** (was "Dashboard").
 - **Units/Commands/Build Order** card parity: modal deps, header CTAs, Cx badges,
   progress bars, edge legend, filler trims, plain-language state messages.
-- Preview `docs/build-order/plan-preview.html` refreshed (54/54) + served copy
+- Preview [retired plan-preview.html](https://github.com/aiur-team/aiur/blob/1e53d79955739cef9aa4711659b8a8059b7a3d3d/docs/build-order/plan-preview.html) refreshed (54/54) + served copy
   (`/tmp/aiur-pr1064-pack/...`) byte-identical.
 
 ### #1270 — Executor-owned findings ticket (STILL OPEN)
