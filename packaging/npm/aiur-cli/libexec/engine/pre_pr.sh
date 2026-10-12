@@ -1,8 +1,8 @@
 # Merge the integration branch, then report every cheap gate in one final block.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config affected selection pr_json
-  local -a results=() failures=() test_files=()
+  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path affected selection pr_json
+  local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
     echo "aiur pre-pr is for Aiur source checkouts; this repository does not contain the Aiur gates." >&2
@@ -16,6 +16,16 @@ cmd_pre_pr() {
   test_home="$temp_dir/home"
   test_config="$temp_dir/config"
   mkdir -p "$test_home" "$test_config"
+  # Keep fixture repositories and identity tests out of the agent host context.
+  test_path="$PATH"
+  if [ "${AIUR_AGENT_WORKSPACE:-}" = "$root" ] && [ -x "$root/.aiur-runtime/bin/git" ]; then test_path="/usr/bin:/bin:$PATH"; fi
+  test_env=(
+    env -u AIUR_AGENT_WORKSPACE -u AIUR_INSTANCE_KEY -u AIUR_REPO_ROOT
+    -u AIUR_BG_STATE_DIR -u AIUR_COOKIE_FILE -u AIUR_SESSION_PREFIX
+    -u AIUR_PROFILES_FILE -u AIUR_RELEASE_NODE
+    "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=/tmp"
+    "PATH=$test_path"
+  )
   if ! git fetch origin "$base_ref" >"$temp_dir/fetch.log" 2>&1; then
     results+=("FAIL fetch origin/$base_ref")
     failures+=("$temp_dir/fetch.log")
@@ -51,7 +61,7 @@ cmd_pre_pr() {
   run_gate "check-file-size" python3 scripts/check-file-size.py --base "$base_sha"
   run_gate "check-config-docs" python3 scripts/check-config-docs.py
   run_gate "check-hot-list-format" python3 scripts/check-hot-list-format.py
-  run_gate "architectural guard tests" env -u AIUR_AGENT_WORKSPACE HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
+  run_gate "architectural guard tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
 
   if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mise exec -- mix aiur.affected_tests "origin/$base_ref" --json)"; then
     results+=("FAIL affected tests selection")
@@ -69,7 +79,7 @@ cmd_pre_pr() {
     fi
     case "$selection" in
       full)
-        run_gate "full test suite (affected-test selector fallback: $(jq -r '.reason' <<<"$affected"))" env -u AIUR_AGENT_WORKSPACE HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- make ci'
+        run_gate "full test suite (affected-test selector fallback: $(jq -r '.reason' <<<"$affected"))" "${test_env[@]}" bash -c 'cd src && mise exec -- make ci'
         ;;
       scoped)
         while IFS= read -r test_path; do test_files+=("$test_path"); done < <(jq -r '.tests[]' <<<"$affected")
@@ -78,7 +88,7 @@ cmd_pre_pr() {
         else
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
-          run_gate "affected tests" env -u AIUR_AGENT_WORKSPACE HOME="$test_home" XDG_CONFIG_HOME="$test_config" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          run_gate "affected tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
         fi
         ;;
       invalid) ;;
