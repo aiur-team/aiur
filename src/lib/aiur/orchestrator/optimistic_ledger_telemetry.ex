@@ -41,7 +41,7 @@ defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
       redo? = Enum.any?(attempts, &(&1["counters"]["parks"] > 0))
       outcome = if row["outcome"] == "merged" and redo?, do: "merged_after_redo", else: row["outcome"]
       evidence = %{first | "outcome" => outcome}
-      emit(row, :optimistic_outcome, %{outcome: outcome, start_trigger: first["start_trigger"], head_start_ms: head_start(evidence)}, row["closed_at_ms"])
+      emit(row, :optimistic_outcome, %{outcome: outcome, operation_id: outcome, start_trigger: first["start_trigger"], head_start_ms: head_start(evidence)}, row["closed_at_ms"])
     end
   end
 

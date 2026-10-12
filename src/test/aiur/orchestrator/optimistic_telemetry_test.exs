@@ -92,6 +92,16 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     refute_received {:point, _, _}
   end
 
+  test "a merge correction at the same timestamp keeps both outcome identities" do
+    assert :ok = OptimisticLedger.close("10", :discarded, 200)
+    assert :ok = OptimisticLedger.close("10", :merged, 200)
+    assert_received {:point, %{event: "optimistic_outcome", outcome: "discarded", event_key: discarded_key}, _}
+    assert_received {:point, %{event: "optimistic_outcome", outcome: "merged", event_key: merged_key}, _}
+    assert discarded_key != merged_key
+    assert {:ok, row} = OptimisticLedger.get("10")
+    assert row["outcome"] == "merged"
+  end
+
   test "head start floors at zero and missing merge evidence remains unavailable" do
     assert :ok = OptimisticLedger.update_blocker("10", "12", %{merged_at_ms: 50})
     assert :ok = OptimisticLedger.close("10", :merged, 200)
