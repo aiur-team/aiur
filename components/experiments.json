@@ -15,9 +15,9 @@
     "Aiur.Experiments.Observation",
     "Aiur.Experiments.Predicate",
     "Aiur.Experiments.Spec",
-    "Aiur.ExperimentsCLI",
+    "Aiur.Experiments.TelemetryHistory",
     "Aiur.Experiments.TelemetryReader",
-    "Aiur.Experiments.TelemetryHistory"
+    "Aiur.ExperimentsCLI"
   ],
   "facade_pending": null,
   "requires": [
