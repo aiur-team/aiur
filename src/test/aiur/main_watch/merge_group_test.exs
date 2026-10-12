@@ -32,12 +32,14 @@ defmodule Aiur.MainWatch.MergeGroupTest do
         String.contains?(url, "/commits?") ->
           ok([%{"sha" => "landed"}])
 
+        String.contains?(url, "/actions/runs?") and String.contains?(url, "event=push") ->
+          ok(%{"workflow_runs" => []})
+
+        String.contains?(url, "/actions/runs?") and fail? ->
+          {:ok, %{status: 403, body: %{}}}
+
         String.contains?(url, "/actions/runs?") ->
-          case URI.decode_query(URI.parse(url).query)["event"] do
-            "push" -> ok(%{"workflow_runs" => []})
-            "merge_group" when fail? -> {:ok, %{status: 403, body: %{}}}
-            "merge_group" -> ok(%{"workflow_runs" => [Map.merge(queue_run(), override)]})
-          end
+          ok(%{"workflow_runs" => [Map.merge(queue_run(), override)]})
 
         String.contains?(url, "/check-runs?") ->
           ok(%{"check_runs" => [%{"id" => 1, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 7}, "app" => %{"slug" => "github-actions"}}]})
