@@ -81,7 +81,7 @@ defmodule Aiur.BuildQueue.ListMutations do
   defp queue(_, _, _), do: {:error, :invalid_queue}
 
   defp new_queue(document, name, now) do
-    with {:ok, id} <- queue_id(document), do: {:ok, %Queue{id: id, name: name, kind: :list, root: nil, held: false, generation: 0, created_at: now}}
+    with {:ok, id} <- queue_id(document), do: {:ok, %Queue{id: id, name: name, rank: Aiur.BuildQueue.Sets.next_rank(document), kind: :list, root: nil, held: false, generation: 0, created_at: now}}
   end
 
   @spec queue_id(Model.t()) :: {:ok, String.t()} | {:error, :queue_limit}

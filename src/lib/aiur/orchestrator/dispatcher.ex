@@ -1113,8 +1113,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp maybe_emit_dispatch_decline(state, issue, :optimistic_share),
-    do: record_dispatch_decline(state, issue, :optimistic_share, OptimisticSlots.waiting(state), false)
+  defp maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
+    do: record_dispatch_decline(state, issue, reason, Aiur.Orchestrator.QueueSetSlots.waiting_reason(reason, issue.id, state), false)
 
   # Deferred authorization reads must remain visible instead of clearing the prior hold.
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)

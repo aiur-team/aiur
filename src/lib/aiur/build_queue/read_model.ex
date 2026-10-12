@@ -56,6 +56,7 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     %{
       queue_id: queue.id,
+      set_rank: queue.rank,
       kind: queue.kind,
       root: queue.root,
       name: queue.name,

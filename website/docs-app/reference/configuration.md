@@ -3,7 +3,6 @@ Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file
 Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
-
 ## Environment variables
 
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
@@ -16,7 +15,6 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 - **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [GUI](/guide/gui) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
 
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
-
 ## Top-level
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -28,7 +26,6 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
-
 ## executor takeover alerts
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
@@ -755,6 +752,9 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
+| `build_queue.set_order` | string | `ranked` | Prefer queue sets by persisted rank (creation order by default), then list position within ready and optimistic tiers. `none` keeps ordinary candidate ordering. Earlier unknown or stale readiness blocks ranked spill: it may have ready work. Held sets remain stopped. |
+| `build_queue.max_active_sets` | integer or null | null | Maximum sets with started, unfinished members (including CI/review waits); minimum 1. Null lets capacity decide. Held sets do not consume this cap; existing runners are never preempted. |
+| `build_queue.spill_reserve_slots` | integer | 0 | Slots kept free for the earliest unfinished, unheld set before admitting later-set work; minimum 0. Reserve applies even while that set waits on review. Set-policy waits appear as `queue_set_order` in status and queue show. |
 | `build_queue.optimistic_slot_share` | float | 0.5 | Fleet-wide optimistic share, 0..1. Zero disables optimistic dispatch; otherwise the cap is max(1, floor(share × effective agent limit)). Ready work starts first; merged blockers free share on the next cycle. Running agents are never preempted. |
 | `build_queue.enabled` | boolean | true | Enable build queue reconciliation. The server maintains dispatch hints, promotes ready items, and withdraws todo from unclaimed items whose prerequisites change. Disabling the queue removes its server and hints table on the next run. |
 | `build_queue.reconcile_interval_seconds` | integer | 60 | Reconciliation interval in seconds; 10..3600. |

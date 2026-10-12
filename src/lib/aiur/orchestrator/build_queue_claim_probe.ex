@@ -37,6 +37,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
       :claimed
     else
       case Map.get(state.dispatch_declines, id) do
+        :queue_set_order -> {:declined, {:queue_set_order, Aiur.Orchestrator.QueueSetSlots.waiting(id, state)}}
         nil -> :unclaimed
         reason -> {:declined, reason}
       end

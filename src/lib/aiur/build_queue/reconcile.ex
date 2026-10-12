@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Reconcile do
   @moduledoc false
 
-  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Ordering, Planner, PRObserver, Settings, Withdrawal}
+  alias Aiur.BuildQueue.{Hints, Model.Observation, NativeObserver, Observer, Ordering, Planner, PRObserver, Settings, Sets, Withdrawal}
 
   alias Aiur.StartTrigger.ProgressStore
 
@@ -68,8 +68,9 @@ defmodule Aiur.BuildQueue.Reconcile do
     ProgressStore.watch(Enum.uniq(ids), :pr_approved, observation_max_age_ms: Settings.observation_max_age_ms(state.settings))
   end
 
-  @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map(), Aiur.Config.Schema.t()) :: true
-  def write_hints(projections, holds, document, settings \\ Aiur.Config.settings!()) do
+  @spec write_hints([Planner.item_state()], MapSet.t(String.t()), map(), Aiur.Config.Schema.t(), map() | nil) :: true
+  def write_hints(projections, holds, document, settings \\ Aiur.Config.settings!(), observations \\ nil) do
+    Hints.publish_sets(Sets.snapshot(document, projections, settings, observations))
     held_queues = for queue <- document.queues, queue.held, do: queue.id
     persisted = for item <- document.items, item.hold != nil or item.queue_id in held_queues, do: item.issue_id
     holds = MapSet.union(holds, MapSet.new(persisted))

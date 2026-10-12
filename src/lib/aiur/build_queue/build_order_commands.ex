@@ -36,7 +36,18 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
     with :ok <- valid_trigger(trigger),
          {:ok, snapshot} <- BuildOrder.watch(root, state.build_order_projection),
          {:ok, id} <- ListCommands.queue_id(state.document) do
-      queue = %Queue{id: id, name: name, kind: :build_order, root: root, start_trigger: trigger, held: false, generation: 0, created_at: DateTime.from_unix!(state.clock.(), :millisecond)}
+      queue = %Queue{
+        id: id,
+        name: name,
+        rank: Aiur.BuildQueue.Sets.next_rank(state.document),
+        kind: :build_order,
+        root: root,
+        start_trigger: trigger,
+        held: false,
+        generation: 0,
+        created_at: DateTime.from_unix!(state.clock.(), :millisecond)
+      }
+
       document = %{state.document | queues: state.document.queues ++ [queue]}
       {document, actions, sources, verdicts, refusals} = import(document, queue, {:ok, snapshot})
       observations = Reconcile.observations(state)

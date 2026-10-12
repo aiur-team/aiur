@@ -94,6 +94,9 @@ prompt_file: linear-codex.prompt.md
 
 # Build queue is unsupported on Linear; no queue label writes.
 # build_queue:
+#   set_order: ranked                  # ranked (creation order) or none (ordinary dispatch order)
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
 #   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true

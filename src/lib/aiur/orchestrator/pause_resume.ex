@@ -2353,6 +2353,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_decline_reason(:state_capacity, issue, _state, _opts),
     do: {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(issue.state)}
 
+  def resume_decline_reason(:queue_set_order, issue, state, _opts), do: Aiur.Orchestrator.QueueSetSlots.waiting(issue.id, state)
   def resume_decline_reason(:optimistic_share, _issue, state, _opts), do: {:optimistic_share, OptimisticSlots.status(state)}
   def resume_decline_reason(:worker_capacity, _issue, _state, _opts), do: :no_worker_capacity
   def resume_decline_reason(:fleet_capacity, _issue, _state, _opts), do: :max_concurrent_agents_reached
