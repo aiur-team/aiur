@@ -390,8 +390,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     cache = issue_list_cache(state)
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
     baseline = state.ci_lifecycle
+    invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
 
-    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{}), opts) end, fn current, result ->
+    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
       current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
     end)
   end

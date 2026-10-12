@@ -107,6 +107,17 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
     assert :ok = CIRecoveryStore.reserve_reruns(:poll, 1, 2, 20, ctx.opts)
     assert {:error, :poll_limit_reached} = CIRecoveryStore.reserve_reruns(:poll, 2, 2, 20, ctx.opts)
     assert :ok = CIRecoveryStore.reserve_reruns(:poll, 1, 2, 20, ctx.opts)
+
+    assert :ok = CIRecoveryStore.reserve_reruns(:new_poll, 2, 2, 20, ctx.opts)
+    assert {:error, :poll_limit_reached} = CIRecoveryStore.reserve_reruns(:new_poll, 1, 2, 20, ctx.opts)
+
+    hourly_opts =
+      ctx.opts
+      |> Keyword.put(:ci_recovery_path, ctx.opts[:ci_recovery_path] <> ".hourly")
+      |> Keyword.put(:ci_recovery_max_reruns_per_hour, 3)
+
+    assert :ok = CIRecoveryStore.reserve_reruns(:hour_poll, 2, 2, 3, hourly_opts)
+    assert {:error, {:hour_limit_reached, _}} = CIRecoveryStore.reserve_reruns(:other_poll, 2, 2, 3, hourly_opts)
   end
 
   test "automatic reruns can be disabled without recovery reads", ctx do
