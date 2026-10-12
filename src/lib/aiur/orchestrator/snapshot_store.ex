@@ -3,14 +3,14 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   Lock-free dashboard read model for fleet snapshots.
 
   Snapshot projection is coalesced in this process. Readers use
-  `:persistent_term` directly, so neither a busy Orchestrator mailbox nor a
+  ETS directly, so neither a busy Orchestrator mailbox nor a
   SnapshotStore restart can remove the last-known-good fleet view.
   """
 
   use GenServer
   require Logger
 
-  alias Aiur.Orchestrator.{SnapshotPublisher, StatusObservation, StatusReport}
+  alias Aiur.Orchestrator.{SnapshotCache, SnapshotPublisher, StatusObservation, StatusReport}
   alias Aiur.PollCadence
   alias Aiur.Signal
 
@@ -18,10 +18,8 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @global_pause_key {__MODULE__, :global_pause}
   @projection_delay_ms 50
 
-  # Staleness is load-aware: the freshness window derives from the
-  # Orchestrator's own recent publish cadence so a busy-but-publishing
-  # Orchestrator keeps its fleet view `:current` instead of demoting a
-  # near-current snapshot to last-known-good under sustained dispatch.
+  # Derive freshness from recent cadence so a busy publishing Orchestrator
+  # remains current under sustained dispatch.
   @publish_gap_history 4
   @stale_window_margin 2
 
@@ -86,9 +84,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     generation = make_ref()
     :persistent_term.put(generation_key(orchestrator), generation)
     :persistent_term.erase(global_pause_key(orchestrator))
-    # A restarted Orchestrator inherits the prior instance's generation token;
-    # drop its leftover write-model entry so the periodic publisher never casts
-    # the previous instance's fenced input under the new token.
+    # Fence leftover publisher input from the previous Orchestrator generation.
     SnapshotPublisher.clear(orchestrator)
     generation
   end
@@ -98,7 +94,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def discard(orchestrator) do
     :persistent_term.erase(generation_key(orchestrator))
     :persistent_term.erase(global_pause_key(orchestrator))
-    :persistent_term.erase({@cache_key, orchestrator})
+    SnapshotCache.delete(orchestrator)
     :persistent_term.erase({@cache_key, :last_timeout_log, orchestrator})
     SnapshotPublisher.clear(orchestrator)
     :ok
@@ -120,6 +116,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         %{generation: generation, global_pause: global_pause}
       )
 
+      :ok = Aiur.AgentPubSub.broadcast_fleet_refresh()
       :ok = Signal.refresh()
     end
 
@@ -144,6 +141,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     generation = active_generation(orchestrator)
     put_snapshot(orchestrator, generation, snapshot, source_state)
     cache_global_pause(orchestrator, generation, snapshot)
+    :ok = Aiur.AgentPubSub.broadcast_fleet_refresh()
     :ok = Signal.refresh()
     :ok
   end
@@ -159,7 +157,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   """
   @spec forget(GenServer.server()) :: :ok
   def forget(orchestrator) do
-    :persistent_term.erase({@cache_key, orchestrator})
+    SnapshotCache.delete(orchestrator)
     :persistent_term.erase(global_pause_key(orchestrator))
     SnapshotPublisher.clear(orchestrator)
     :ok
@@ -260,6 +258,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot, source_state}}, %{task_ref: ref} = store) do
     if generation == active_generation(orchestrator) do
       put_snapshot(orchestrator, generation, snapshot, source_state)
+      :ok = Aiur.AgentPubSub.broadcast_fleet_refresh()
       :ok = Signal.refresh()
     end
 
@@ -332,8 +331,8 @@ defmodule Aiur.Orchestrator.SnapshotStore do
           []
       end
 
-    :persistent_term.put(
-      {@cache_key, orchestrator},
+    SnapshotCache.put(
+      orchestrator,
       %{
         generation: generation,
         snapshot: snapshot,
@@ -356,7 +355,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     end
   end
 
-  defp cached_snapshot(orchestrator), do: :persistent_term.get({@cache_key, orchestrator}, nil)
+  defp cached_snapshot(orchestrator), do: SnapshotCache.get(orchestrator)
 
   defp cache_global_pause(orchestrator, generation, %{globally_paused: paused} = snapshot)
        when is_boolean(paused) do

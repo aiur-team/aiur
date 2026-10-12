@@ -34,10 +34,13 @@ defmodule Aiur.BuildQueue.Readiness do
     state = if "error" in states, do: "error", else: Enum.find(["done", "merging", "human-review", "rework", "ci-wait"], &(&1 in states))
 
     %Aiur.StartTrigger.Evidence{
+      identifier: observation.issue_id,
+      pr_number: observation.pr_number,
       issue_open?: observation.open?,
       state_reason: observation.state_reason,
       state_label: state,
       pr: observation.pr,
+      stage_reached: observation.stage_reached,
       observed_at_ms: observation.observed_at_ms,
       unavailable_reason: observation.unavailable_reason
     }

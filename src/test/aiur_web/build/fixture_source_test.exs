@@ -32,7 +32,7 @@ defmodule AiurWeb.Build.FixtureSourceTest do
     assert FixtureSource.snapshot(dataset: "unavailable") == {:error, :fixture_unavailable}
     dir = Aiur.TestSupport.tmp_root!("build-home-missing")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     path = Path.join(dir, "live.json")
     assert FixtureSource.snapshot(dataset: "live", dir: dir) == {:error, {:fixture_missing, path}}
     File.write!(path, "bad json")

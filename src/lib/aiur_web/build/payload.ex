@@ -37,7 +37,7 @@ defmodule AiurWeb.Build.Payload do
   | dep_states / deps_missing | state per deps id / missing blocker count or nil |
   | wave / qpos | integer or nil (positive on plan) / nonnegative integer or nil |
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
-  | cue flags | waitAny and blockedChain booleans |
+  | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
   | pr | nil or positive integer num and open/merged/closed state |
 
@@ -59,7 +59,9 @@ defmodule AiurWeb.Build.Payload do
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
   and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
-  milliseconds and string win. Credits require nullable pct, string left and
+  milliseconds and nullable string win. Optional row fields carry lines (tagged
+  windows with tip pairs and nullable hold_until), icon, stale, observed_at and
+  note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
   Repo is nil or a url string; writable is boolean.
@@ -67,7 +69,7 @@ defmodule AiurWeb.Build.Payload do
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts
   before history.from are excluded. Earlier: envelope without now plus rows/history.
-  Error: v/kind/reason (invalid_params/unavailable/read_only/not_found).
+  Error: v/kind/reason (invalid_params/unavailable/read_only/not_found/throttled).
 
   Epoch identifies a LiveView process; generation advances once per diff, twice
   for an index restart. Snapshots do not increment it. Source index_generation

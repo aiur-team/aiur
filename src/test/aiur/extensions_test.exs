@@ -1260,7 +1260,7 @@ defmodule Aiur.ExtensionsTest do
       static_snapshot(workspace_path: log_root)
       |> with_static_units()
 
-    on_exit(fn -> File.rm_rf(log_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(log_root) end)
 
     {:ok, orchestrator_pid} =
       StaticOrchestrator.start_link(
@@ -1344,9 +1344,7 @@ defmodule Aiur.ExtensionsTest do
 
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
-    assert_eventually(fn ->
-      render(view) =~ "Updated unit title"
-    end)
+    assert_eventually(fn -> render(view) =~ "Updated unit title" end, 200)
 
     token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
@@ -1383,9 +1381,7 @@ defmodule Aiur.ExtensionsTest do
 
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
-    assert_eventually(fn ->
-      render(view) =~ "fresh modal update"
-    end)
+    assert_eventually(fn -> render(view) =~ "fresh modal update" end, 200)
 
     closed_html =
       view

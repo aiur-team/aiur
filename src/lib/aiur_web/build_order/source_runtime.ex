@@ -37,7 +37,13 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   @spec connect(Socket.t()) :: Socket.t()
   def connect(socket) do
     _ = Runtime.safe_source_call(socket.assigns.source, :subscribe_catalog, [], :ok)
-    _ = Runtime.safe_source_call(socket.assigns.source, :subscribe_sources, [], :ok)
+
+    socket =
+      AiurWeb.RefreshRelay.mount(
+        socket,
+        fn -> Runtime.safe_source_call(socket.assigns.source, :subscribe_sources, [], :ok) end,
+        [:running_changed, :ticket_activity_changed, :build_order_adhoc_updated, :current_run_membership_changed, :current_run_membership_health_changed, :build_order_pack_status_changed]
+      )
 
     socket
     |> reload_catalog()

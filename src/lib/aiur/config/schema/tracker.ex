@@ -232,6 +232,7 @@ defmodule Aiur.Config.Schema.Tracker do
     field(:kind, :string)
     field(:base_branch, :string)
     field(:restack_after_blocker_merge, :boolean, default: true)
+    field(:propagate_blocker_pushes, :boolean)
     field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
 
     field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
@@ -252,7 +253,7 @@ defmodule Aiur.Config.Schema.Tracker do
     schema
     |> cast(
       attrs,
-      [:kind, :base_branch, :restack_after_blocker_merge, :active_states, :terminal_states, :terminal_fence_grace_seconds],
+      [:kind, :base_branch, :restack_after_blocker_merge, :propagate_blocker_pushes, :active_states, :terminal_states, :terminal_fence_grace_seconds],
       empty_values: []
     )
     |> cast_embed(:github, with: &Github.changeset/2)

@@ -10,10 +10,6 @@ R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade
 R-declared	Aiur.ModelDiscovery	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.PollCadence	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Rtk	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.RunTelemetry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.RunTelemetry.Dataset	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.RunTelemetry.Summaries	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.RunTelemetry.Timeline	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	AiurWeb.GithubWebhook	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-private	Aiur.BuildOrder.AdHocSource.Snapshot	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:141 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers

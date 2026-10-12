@@ -6,9 +6,9 @@ defmodule Aiur.BuildQueue.Attention do
   Pass nil as the subject of a system attention. Store-unavailable attentions
   need the caller's in-memory latch because this API cannot write a broken store.
   """
-  alias Aiur.Alerts
   alias Aiur.BuildQueue.Model.Latch
   alias Aiur.BuildQueue.Store
+  alias Aiur.Signal
 
   @ticket_causes [:prerequisite_failed, :dependency_changed_after_start, :promoted_unauthorized, :write_failed, :merged_issue_open]
   @system_causes [:inputs_unavailable, :store_unavailable]
@@ -77,13 +77,13 @@ defmodule Aiur.BuildQueue.Attention do
   defp kind({:prerequisite_failed, reason}) when reason in [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate], do: :prerequisite_failed
   defp kind(cause), do: cause
 
-  # One Alerts seam; only the local feed gets the human-readable copy.
+  # One signal-port seam; only the local feed gets the human-readable copy.
   defp emit(cause, subject, payload, resolved?) do
     prefix = if subject, do: "ticket.#{subject}", else: "system"
     topic = "#{prefix}.queue.attention.#{cause}" <> if(resolved?, do: ".resolved", else: "")
     message = if resolved?, do: "Queue attention #{cause} cleared#{if subject, do: " for ##{subject}", else: ""}.", else: message(cause, subject, payload)
 
-    Alerts.emit_system(topic,
+    Signal.alert(topic,
       message: message,
       issue: subject,
       needs_attention: not resolved?,

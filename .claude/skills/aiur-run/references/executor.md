@@ -482,8 +482,8 @@ including `build`, `test`, and `workflow security`, with strict status checks
 enabled, and the gate is enforced once that declaration is applied to the live
 ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
 that declaration on every PR and merge, so a regressed gate fails CI visibly.
-The Executor must wait for the required checks and the review conditions before
-merging; never merge a pending, failing, or stale head.
+Before every merge, run `scripts/check-stack-order.sh <pr>` (see `merge-order-gate.md`).
+Wait for required checks and review; never merge a pending, failing, or stale head.
 
 A solo operator cannot merge a branch they authored through the gate
 (issue #1437). This used to bite hardest on the periodic `develop` -> `main`

@@ -79,7 +79,8 @@ defmodule Aiur.Workspace do
              worker_host,
              issue_context.pr_head_ref,
              issue_context.branch_name,
-             lifecycle
+             lifecycle,
+             issue_context.start_point
            ),
          :ok <- Provisioner.ensure_workspace_usable(workspace, worker_host, created?),
          bootstrap? <- Provisioner.bootstrap_required?(workspace, worker_host, created?),

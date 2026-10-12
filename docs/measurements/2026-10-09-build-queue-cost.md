@@ -45,6 +45,8 @@ more than 20 members. These are current links, not deduplicated tickets or
 historical sizes. Empty closed roots stay in the denominator. Neither root size
 nor a successful-promotion count establishes the peak newly ready per reconcile.
 
+This runbook keeps the AC12 acceptance procedure beside the measurement steps it validates.
+
 ## Executor collection
 
 Read [GitHub accounting guidance](../../website/docs-app/apis/github.md#reading-these-numbers-without-fooling-yourself)
@@ -95,6 +97,10 @@ env -u TMUX scripts/aiurdev queue show --queue e2e --json > "$window/queue-added
 env -u TMUX scripts/aiurdev resume
 ```
 
+T2 starts marker-only: queue reconciliation withdraws its pre-existing `agent:todo`
+while T1 is still an unmet prerequisite. Confirm T2 becomes waiting after
+reconciliation, then observe it start only after T1 completes.
+
 Drive the actual TUI as #3082 describes and record T1 completion and T2 starting
 without manual promotion. For the ordinary window, use a real Build Order root
 already chosen by the Executor, record that root number and its start/end state,
@@ -136,7 +142,9 @@ Queue-owned label requests use `build_queue_label_post` and
 `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`.
 Closure reads retain `build_queue_observe`; native dependency reads retain
 `build_queue_blocked_by`. Cached reads produce no HTTP request/ledger row.
-Shared open-list/catalog reads are shared cost, not exclusively queue cost.
+The queue's own stale-snapshot listing (#3946) uses `build_queue_open_issue_list`
+and is queue cost; the counting script below includes it. Other shared
+open-list/catalog reads are shared cost, not exclusively queue cost.
 
 The durable TSV has no header: columns 1–13 are `ts` (Unix seconds), `pid`,
 `consumer`, `caller`, `method`, `host`, `path`, `status`, `resource`, `direction`,
@@ -207,6 +215,26 @@ print({"samples": len(rows),
        "peak_ready_backlog": max((r["ready"] for r in rows), default=None)})
 PY
 ```
+
+## Stalled dispatch poll (#3946)
+
+During the 2026-10-09 acceptance run, after `saturation_sentinel entered
+load1=25.02`, the daemon made no `open_issue_list*` request for ten minutes and
+queue freshness stayed `unknown` for six. A non-empty queue now requests its own
+listing (`build_queue_open_issue_list`) once its snapshot is older than the
+observation age, at most once per observation age and never while the previous
+one is still running. The listing is conditional on its own page cache, so an
+unchanged page answers `304`; that rate is not measured live. The AC12 sequence
+above is unchanged.
+
+`src/test/aiur/build_queue/refresh_test.exs` reproduces the stall
+deterministically: no dispatch poll ever lists, and the queue recovers a fresh
+observation and promotes. It covers a stalled or delayed dispatch poll cycle
+while the daemon still schedules the queue server. It does not cover a host that
+cannot schedule the daemon at all, or a listing that fails or times out; the
+same test's first refresh fails and freshness stays `unknown`. The fix has not
+been measured under real host load, and each refresh is an added read, not a
+saving.
 
 ## Results — pending Executor measurement
 

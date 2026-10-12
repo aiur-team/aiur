@@ -29,6 +29,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     github_connectivity: :core,
     github_poll_delays: :core,
     tracker_tasks: :core,
+    blocker_propagations: :core,
     tracker_observations: :core,
     status_observed_at: :core,
     queued_demand_hints: :core,
@@ -85,6 +86,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     orphaned_agent_reap_count: :lifecycle,
     contradictory_state_label_tickets: :lifecycle,
     contradictory_state_label_alert_active: :lifecycle,
+    terminal_verification_attempts: :lifecycle,
     globally_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
@@ -120,8 +122,25 @@ defmodule Aiur.Orchestrator.State.Owners do
   }
 
   @members %{
-    core: [Aiur.Orchestrator, Aiur.Orchestrator.IssueSync, Aiur.Orchestrator.TrackerHealth, Aiur.Orchestrator.TrackerTasks, Aiur.Orchestrator.SnapshotPublisher, Aiur.Orchestrator.SnapshotStore],
-    dispatch: [Aiur.Orchestrator.Dispatcher, Aiur.Orchestrator.DispatchOutcome, Aiur.Orchestrator.DispatchPolicy, Aiur.Orchestrator.CapacityBinding, Aiur.Orchestrator.Slots],
+    core: [
+      Aiur.Orchestrator.BlockerPropagation,
+      Aiur.Orchestrator,
+      Aiur.Orchestrator.IssueSync,
+      Aiur.Orchestrator.TrackerHealth,
+      Aiur.Orchestrator.TrackerTasks,
+      Aiur.Orchestrator.SnapshotPublisher,
+      Aiur.Orchestrator.SnapshotStore
+    ],
+    dispatch: [
+      Aiur.Orchestrator.Dispatcher,
+      Aiur.Orchestrator.DispatchOutcome,
+      Aiur.Orchestrator.DispatchPolicy,
+      Aiur.Orchestrator.PressureAdmission,
+      Aiur.Orchestrator.LoadEnvelope,
+      Aiur.Orchestrator.EnvelopeResume,
+      Aiur.Orchestrator.CapacityBinding,
+      Aiur.Orchestrator.Slots
+    ],
     lifecycle: [
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,
@@ -142,7 +161,8 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.ReadyForReviewTransitions,
       Aiur.Orchestrator.MergedTicketReconciler,
       Aiur.Orchestrator.ReworkRequeue,
-      Aiur.Orchestrator.RestackScheduler
+      Aiur.Orchestrator.RestackScheduler,
+      Aiur.Orchestrator.MergeOrderAudit
     ],
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],

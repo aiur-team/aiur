@@ -140,7 +140,9 @@ defmodule AiurWeb.ControlCenterCacheTest do
     cold = Task.async(fn -> ControlCenterCache.fetch_event(cache, :cold, :event, loader) end)
     assert_receive {:waiting, pid_a}, 500
     assert_receive {:waiting, pid_b}, 500
-    assert Task.await(warm, 5_100) == %{generation: 1, stale: true}
+    # The retained payload carries its real age so a surface can render it (#3937).
+    assert %{generation: 1, stale: true, stale_age_ms: age_ms} = Task.await(warm, 5_100)
+    assert age_ms in 3_900..5_000
     assert Task.await(cold, 5_100) == %{stale: true, error: {:cache_unavailable, :timeout}}
     assert System.monotonic_time(:millisecond) - started < 5_000
     assert :counters.get(counter, 1) == 2

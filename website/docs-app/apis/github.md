@@ -32,18 +32,15 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
-Each CI poll reads the configured base branch's active rules and classic branch
-protection once for the batch, then requires every required check on the current
-PR head from its configured integration.
+Each CI poll reads the base branch's active rules and classic branch protection once per batch (caller `ci_required_checks`, uncached because they govern a CI verdict), then requires every required check on the current PR head from its configured integration. A failed lookup keeps a green aggregate pending; missing and skipped required checks cannot pass.
 
-A failed required-check lookup keeps a
-green aggregate pending; missing and skipped required checks cannot pass.
-The two reads are attributed to `ci_required_checks` and bypass the shared read
-cache because they govern a CI verdict.
+Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-Draft PRs remain pending even when
-their fast gate is green. Completed work must be marked ready before CI wait so
-`ready_for_review` can start the full suite.
+A head whose check runs all finished with at least one cancelled is missing CI, not failed CI. The poll re-runs the latest cancelled run per workflow once per head (caller `ci_cancelled_rerun`, pending reason `ci_cancelled`) instead of waking a worker. Without `Actions: Read and write` GitHub refuses the call; Aiur logs it and the head stays pending.
+
+The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
+
+Draft PRs remain pending even when their fast gate is green. Completed work must be marked ready before CI wait so `ready_for_review` can start the full suite.
 
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
@@ -114,7 +111,9 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Contents | Read and write |
 | Issues | Read and write |
 | Pull requests | Read and write |
-| Administration, Actions, Secrets, Workflows | Never |
+| Checks | Read (CI failure annotations) |
+| Actions | Read and write when using automatic reruns (cancelled runs and failed jobs) |
+| Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
 
@@ -319,10 +318,7 @@ Dispatch orders candidates with fresh cached native dependency holds after other
 
 <!--@include: ../.vitepress/includes/github-view-state.md-->
 
-The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
-moment a delivery deposits the changed issue; the sweep's only other
-steady-state cost is the single divergence-watermark head page on its own
-cadence, and pack status still reflects an outside change within one sweep.
+The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the moment a delivery deposits the changed issue; the sweep's only other steady-state cost is the single divergence-watermark head page on its own cadence, and pack status still reflects an outside change within one sweep.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
@@ -339,10 +335,10 @@ its SQLite connection and batches queued commands before replying. Shell
 `gh` guards keep the one-shot interface against the same shared database;
 separate daemons never get separate quota ledgers for a shared credential.
 
-A broker deadline is a **local hold**, before a request reaches GitHub.
-Aiur backs off, keeps the ticket claim, and preserves worker attempt counters,
-even when the bounded in-call retries run out. Broker holds do not report lost
-GitHub connectivity.
+A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and
+keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`,
+`:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown
+review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.
@@ -351,7 +347,6 @@ reply delivery. A longer OS or disk stall can exceed this finite margin.
 
 Sustained broker retry pressure still appears as
 `system.github.budget_broker_degraded`; reduce host load or SQLite contention.
-
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
@@ -370,8 +365,7 @@ agent dispatch.
 
 The meters above say how much is left.
 
-`aiur github-cost` says which code path spent it, ranked by points and by points
-per hour, for one budget at a time.
+`aiur github-cost` says which code path spent it, ranked by points and by points per hour, for one budget at a time.
 
 | Column | What it means |
 | --- | --- |
@@ -691,13 +685,9 @@ The wrapper injects the credential only into the real `gh` process it spawns
 for a governed call, for the duration of that call — never into the agent's
 environment and never into the sibling processes the wrapper launches.
 
-So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns
-nothing, and a bare `curl` to `api.github.com` from an agent workspace is
-unauthenticated.
+So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns nothing, and a bare `curl` to `api.github.com` from an agent workspace is unauthenticated.
 
-This is a **policy boundary, not a capability boundary.** Agents run as the
-same OS user as the daemon, so an agent that deliberately goes looking can read
-the credential file, the shared budget database, or the operator keyring.
+This is a **policy boundary, not a capability boundary.** Agents run as the same OS user as the daemon, so an agent that deliberately goes looking can read the credential file, the shared budget database, or the operator keyring.
 
 What the file removes is the raw token from the *environment* of every agent
 process — where a dependency's build script, a `curl` one-liner, or a Node
@@ -716,39 +706,48 @@ Human-review state writes compare the open PR with the configured base. Stale he
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
-A stale head passes when it has no conflicts and no changed-file overlap with
-the base since their merge base. Conflicts or overlap return `stale_review_base`.
-GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability;
-those observations permit disjoint paths. A matching head's `CONFLICTING` verdict
-blocks the write.
+A stale head approved at its current commit, and either in the merge queue or armed for auto-merge, is refused only for a `CONFLICTING` verdict; the file comparisons are skipped because the queue tests the merge. A comment does not move such a queued PR to rework (one GraphQL read, `rework_gate_merge_queue`); a blocking review still does.
+
+Otherwise a stale head passes when it has no conflicts and no changed-file overlap with the base since their merge base.
+Conflicts or overlap return `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating
+mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
 
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
 Comparisons are attributed to `human_review_base_ancestry` and always contact GitHub: base movement can change the verdict without changing the PR. These reads add cost; this change claims no quota saving.
 
-For the next 10 handoffs after rollout, record the tested PR head, observed base
-SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
-separately from harmless stale heads; the earlier 3-of-8 stale-base count is
-context, not an equivalent baseline for this narrower measure.
+For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 
-Idle dependent restacks use delivered blocker PR facts without adding REST reads. The daemon fetches git refs and pushes through the agent credential file, with cached GitHub helpers cleared. It never force-pushes; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
+There is a third path, and it is the cheapest one: a change Aiur makes.
 
-Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)).
+Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
 
-Build queue [closed-unmerged prerequisite detection](/concepts/build-orders#closed-prerequisite-pull-requests) reads delivered PR evidence locally; poll-only mode leaves it pending.
+Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
+
+Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)). A stale queue [lists open issues](/concepts/build-orders#queue-cost) as `build_queue_open_issue_list`.
+
+Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity waits for held PR evidence. No new CI polling or saving is claimed.
 
 Build queue closure reads use caller `build_queue_observe` and the configured observation age. Closed reasons stay in memory until reopen appears in the open listing; errors retry next reconcile. Completed prerequisites release dependents; not-planned closes hold them; duplicate closes stay unknown and request an attention.
 
-Build queue writes are paced by `build_queue.max_writes_per_minute` (default 20). Promotion costs up to three GETs and one label POST; markers and withdrawals cost one request each. Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. No saving is claimed ([cost](/concepts/build-orders#queue-cost)).
+Build queue writes use `build_queue_label_post` / `build_queue_label_delete`; guard GETs use `build_queue_write_observe`. Writes are paced by `build_queue.max_writes_per_minute` (default 20). Retries schedule reconciliation without blocking the queue.
 
-Orphan-claim recovery reads the open PR, its mergeability and current reviews, then makes a guarded add-before-remove state swap, a reason comment and an Executor wake (see [Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Aiur keeps the state GitHub returns for each comment, label, close, base repair, dependency and review-thread write.
+Withdrawal removes only `agent:todo` after holding dispatch and proving it unclaimed; `agent:queued` remains. See [request costs](/concepts/build-orders#queue-cost); no saving is claimed.
 
-The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
+CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), head/queue evidence, PR changed paths and Actions run attempts (`ci_recovery` caller). Fully annotated tests outside the diff and known flakes get one failed-job rerun per head; there is no fleet or hourly cap.
 
-Two consequences:
+Attempts are journaled before writes; queued PRs are left alone. Recovery does not update the base. A run GET returning 403/404 or a denied rerun POST raises one attention and permits the normal failed/rework handoff instead of holding CI wait.
+
+Three failed CI/rework handoffs per PR raise one attention naming tests and hold further rework/fallback wakes. The Executor fixes or reruns the current head until all required checks pass, releasing the hold and resetting the cycle count. Acknowledging the alert alone does not release it.
+
+A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
+
+Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
+
+The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |

@@ -1,4 +1,5 @@
 /**
+ * Openers and captures share one clock, matrix, and allowlist contract.
  * Visual consumers: openParityPair(browser, cell, { dataset }), then
  * expectDesignParity(pair, { name, region: '.bd-now' }); always close the pair.
  * Both references render live; use playwright.design-parity.config.mjs.
@@ -44,13 +45,26 @@ function routeQuery(route, { query = '', ticket }, dataset) {
   return `${url.pathname}${url.search}`
 }
 
-async function prepare(page, phase, side) {
-  if (phase === 'loading' && side === 'design') {
-    await page.clock.install({ time: FIXTURE_META.now })
+async function prepare(page, phase, side, motion = false, pauseAtSelector) {
+  if (motion || (phase === 'loading' && side === 'design')) {
+    await page.clock.install({ time: FIXTURE_META.now - 1000 })
     await page.clock.pauseAt(FIXTURE_META.now)
   }
-  await page.clock.setFixedTime(FIXTURE_META.now)
+  if (!motion) await page.clock.setFixedTime(FIXTURE_META.now)
   await seedRandom(page)
+  if (pauseAtSelector) await page.addInitScript(selector => {
+    // URL-opened modals can finish while readiness waits; pause at their first style flush.
+    const observer = new MutationObserver(() => {
+      const root = document.querySelector(selector)
+      if (!root) return
+      getComputedStyle(root).opacity
+      const animations = root.getAnimations({ subtree: true })
+      if (!animations.length) return
+      animations.forEach(animation => { animation.pause(); animation.currentTime = 0 })
+      observer.disconnect()
+    })
+    observer.observe(document, { childList: true, subtree: true, attributes: true })
+  }, pauseAtSelector)
 }
 
 async function refuseLiveTicket(dataset, ticket) {
@@ -67,7 +81,7 @@ export async function openDesign(page, cell, opts = {}) {
   await verifyDesignSource()
   const route = routeQuery('/Aiur%20Dashboard.html', opts, dataset)
   await refuseLiveTicket(dataset, new URL(route, DESIGN_ORIGIN).searchParams.get('ticket'))
-  await prepare(page, phase, 'design')
+  await prepare(page, phase, 'design', opts.motion, opts.pauseAtSelector)
   await routeDesign(page)
   await page.goto(`${DESIGN_ORIGIN}/blank`)
   await page.evaluate(({ theme, palette }) => {
@@ -77,7 +91,12 @@ export async function openDesign(page, cell, opts = {}) {
   }, cell)
   await page.goto(`${DESIGN_ORIGIN}${route}`)
   if (!await page.locator('.panel[data-panel="build"].is-active').count()) await page.evaluate(() => window.AiurHost.switchTab('build'))
-  await waitParityReady(page, phase)
+  await waitParityReady(page, phase, 'design', opts.motion, opts.pauseAtSelector)
+  if (opts.motion) {
+    const phase = await page.evaluate(() => performance.now() % 16)
+    if (phase) await page.clock.runFor(16 - phase)
+    await page.clock.setSystemTime(FIXTURE_META.now)
+  }
   await assertCellState(page, cell)
   return page
 }
@@ -93,7 +112,7 @@ export async function selectProductDataset(page, dataset) {
 export async function openProduct(page, cell, opts = {}) {
   const { dataset = cell.dataset ?? 'live', phase = 'board', productRoute = '/build' } = opts
   if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown parity phase ${phase}`)
-  await prepare(page, phase, 'product')
+  await prepare(page, phase, 'product', opts.motion, opts.pauseAtSelector)
   const origin = new URL(test.info().project.use.baseURL).origin
   await guardNetwork(page, [origin])
   await selectProductDataset(page, phase === 'loading' ? 'hold' : dataset)
@@ -102,7 +121,13 @@ export async function openProduct(page, cell, opts = {}) {
   if (designTicket) route.searchParams.set('ticket', FIXTURE_META.ids?.[designTicket] ?? designTicket)
   try { await openVisualRoute(page, { theme: cell.theme, palette: cell.palette, route: `${route.pathname}${route.search}`, mode: 'writable' }) }
   catch (error) { checkPage(page); throw new Error(`product target unavailable: socket not connected or route unavailable: ${error.message}`) }
-  await waitParityReady(page, phase, 'product')
+  if (opts.productPending || (opts.productAnchor && !await page.locator(opts.productAnchor).count())) { checkPage(page); return page }
+  await waitParityReady(page, phase, 'product', opts.motion, opts.pauseAtSelector)
+  if (opts.motion) {
+    const phase = await page.evaluate(() => performance.now() % 16)
+    if (phase) await page.clock.runFor(16 - phase)
+    await page.clock.setSystemTime(FIXTURE_META.now)
+  }
   await assertCellState(page, cell)
   return page
 }
@@ -127,10 +152,26 @@ export async function openParityPair(browser, cell, opts = {}) {
   }
 }
 
-export async function captureStable(target, opts) {
+export async function captureStable(target, opts, page) {
   let previous
   for (let attempt = 0; attempt < 10; attempt++) {
-    const png = await target.screenshot(opts)
+    // Locator screenshots scroll into view, disturbing motion under measurement.
+    const shoot = async () => {
+      if (!page) return target.screenshot(opts)
+      const box = await target.boundingBox()
+      if (!box) throw new Error('unreachable screenshot region')
+      const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
+      return page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+    }
+    let png
+    try { png = await shoot() }
+    catch (error) {
+      if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
+      // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
+      console.warn(`captureStable: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
+      await delay(100)
+      png = await shoot()
+    }
     if (previous?.equals(png)) return png
     previous = png
     await delay(100)
@@ -151,28 +192,32 @@ export async function capturePairEvidence(pair) {
   }
 }
 
-export async function expectDesignParity(pair, { name, region, fullPage = false }) {
-  await assertCellState(pair.design, pair.cell)
-  await assertCellState(pair.product, pair.cell)
-  await compareParityPixels(pair, { name, region, fullPage })
+export async function expectDesignParity(pair, { name, region, fullPage = false, preserveAnimations = false }) {
+  const time = preserveAnimations ? await pair.design.evaluate(() => Date.now()) : FIXTURE_META.now
+  await assertCellState(pair.design, pair.cell, time)
+  await assertCellState(pair.product, pair.cell, time)
+  await compareParityPixels(pair, { name, region, fullPage, preserveAnimations })
 }
 
-export async function compareParityPixels(pair, { name, region, fullPage = false }) {
+export async function compareParityPixels(pair, { name, region, fullPage = false, preserveAnimations = false }) {
   const { designMask, productMask } = await applyAllowlist(pair, pair.cell)
   // Hold screenshot animation state once, avoiding cancel/resume repaint drift.
-  for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().forEach(a => Number.isFinite(a.effect?.getComputedTiming().endTime) ? a.finish() : a.cancel()))
+  if (!preserveAnimations) for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().forEach(a => Number.isFinite(a.effect?.getComputedTiming().endTime) ? a.finish() : a.cancel()))
   const design = region ? await one(pair.design, region, 'design') : pair.design
   const product = region ? await one(pair.product, region, 'product') : pair.product
-  const opts = { animations: 'disabled', caret: 'hide', scale: 'device', maskColor: '#ff00ff', ...(region ? {} : { fullPage }) }
+  const opts = { animations: preserveAnimations ? 'allow' : 'disabled', caret: 'hide', scale: 'device', maskColor: '#ff00ff', ...(region ? {} : { fullPage }) }
   await pair.design.bringToFront()
-  const png = await captureStable(design, { ...opts, mask: designMask })
+  const png = await captureStable(design, { ...opts, mask: designMask }, preserveAnimations && region ? pair.design : undefined)
   await pair.product.bringToFront()
   checkPage(pair.design)
   checkPage(pair.product)
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  if (preserveAnimations && region) {
+    const actual = await captureStable(product, { ...opts, mask: productMask }, pair.product)
+    expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  } else await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

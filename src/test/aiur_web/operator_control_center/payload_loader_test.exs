@@ -16,6 +16,9 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         control_center_cache: if(context[:missing_cache], do: :missing_payload_cache, else: cache),
+        # Past the cache's load timeout, so the slow provider still overruns the
+        # whole load; the default budget would degrade only its own surface.
+        control_center_provider_budget_ms: 60_000,
         units_fleet_fun: fn ->
           :counters.add(counter, 1, 1)
           Process.sleep(10_000)

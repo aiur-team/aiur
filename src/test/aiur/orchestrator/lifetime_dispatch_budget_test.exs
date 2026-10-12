@@ -25,11 +25,10 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Application.delete_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :decision_state_dir, Path.join(dir, "stable-state"))
     Application.put_env(:aiur, :log_file, Path.join([dir, "session-one", "aiur.log"]))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(Path.join(dir, "stable-state"))
 
     on_exit(fn ->
-      File.rm_rf!(dir)
-
       if is_nil(previous) do
         Workflow.clear_workflow_file_path()
       else
@@ -668,7 +667,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     # exercises the production routing rather than the no-workspace fallback.
     workspace = Aiur.Workspace.workspace_path_under(Config.workspace_root(), issue.identifier)
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     Dispatcher.persist_lifetime_trip(state, issue, fn _identifier, _target_state -> :ok end)
 

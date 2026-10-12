@@ -13,7 +13,7 @@ defmodule Aiur.BuildOrder.History do
   def child_spec(opts), do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}, shutdown: 10_000}
   @spec apply([Row.event()], keyword()) :: {:ok, map()} | {:error, term()}
   def apply(events, opts \\ []), do: call(opts, {:apply, events, Keyword.get(opts, :checkpoint)})
-  @spec note_start(String.t(), :label | :dispatch, DateTime.t()) :: :ok
+  @spec note_start(String.t() | nil, :label | :dispatch, DateTime.t()) :: :ok
   def note_start(identifier, source, %DateTime{} = at) when is_binary(identifier) and source in [:label, :dispatch] do
     case Integer.parse(identifier) do
       {number, ""} when number > 0 ->
@@ -24,6 +24,9 @@ defmodule Aiur.BuildOrder.History do
         :ok
     end
   end
+
+  # An identifier-less issue (or a non-numeric one) has no history row to stamp.
+  def note_start(_identifier, _source, _at), do: :ok
 
   @impl true
   def handle_cast({:note_start, event}, state) do

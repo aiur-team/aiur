@@ -6,7 +6,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
@@ -141,13 +141,13 @@ defmodule AiurWeb.AnalyticsLiveTest do
     :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
 
     on_exit(fn ->
-      File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
       restore_run_id(previous_run_id)
       restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
       Application.delete_env(:aiur, :analytics_usage_aggregate_source)
       Application.delete_env(:aiur, :analytics_usage_aggregate_source_snapshot)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file])
     end)
 
     conn =
@@ -198,9 +198,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
 
     on_exit(fn ->
-      File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
       restore_run_id(previous_run_id)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file])
     end)
 
     {:ok, _view, html} = live(build_conn(), "/analytics")
@@ -231,8 +231,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     Application.put_env(:aiur, :build_order_data_source, {BuildOrderSourceStub, build_order_context(build_root, member)})
 
     on_exit(fn ->
-      File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
+      Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file])
     end)
 
     {:ok, _view, html} = live(build_conn(), "/analytics?build_order=77")
@@ -627,7 +627,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -648,7 +648,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -715,7 +715,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -757,7 +757,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 
@@ -835,10 +835,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
   # `publish/2` stamps the current monotonic clock, so restating the observation
   # time is the only way to read a ten-minute-old snapshot without waiting.
   defp age_published_snapshot(orchestrator, age_ms) do
-    cached = :persistent_term.get({SnapshotStore, orchestrator})
+    cached = SnapshotCache.get(orchestrator)
 
-    :persistent_term.put(
-      {SnapshotStore, orchestrator},
+    SnapshotCache.put(
+      orchestrator,
       %{
         cached
         | observed_at_ms: System.monotonic_time(:millisecond) - age_ms,
@@ -921,7 +921,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
     path
   end
 

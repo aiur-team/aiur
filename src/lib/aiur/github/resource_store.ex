@@ -284,14 +284,12 @@ defmodule Aiur.GitHub.ResourceStore do
   # duplicate publish, which the publisher's own dedup window already absorbs,
   # and which every other trade-off in this module also chooses over a drop.
   @unversioned_suppression_ms 30 * 60 * 1000
-
   # A single GitHub issue, pull request or comment body is a few kilobytes and
   # GitHub itself caps an issue body at 64 KiB, so nothing legitimate here comes
   # close. A resource that does is not cached at all: an entry that large would
   # be paid for on every checkpoint, and the reader falling back to a fetch is
   # exactly the pre-store behavior.
   @max_data_bytes 256 * 1024
-
   # The closed set of resource identities. Declared here rather than left to
   # whichever module happens to be loaded first, because `decode_key/1` resolves
   # a checkpointed type with `String.to_existing_atom/1` and would otherwise
@@ -310,6 +308,8 @@ defmodule Aiur.GitHub.ResourceStore do
     # deltas. They deliberately exclude strict review/merge verdict fields.
     :pr_review_threads,
     :ci_contexts,
+    :ci_failure_digest,
+    :flake_issues,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,

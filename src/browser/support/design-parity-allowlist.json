@@ -113,5 +113,35 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C2-T01.md#decisions-made-without-the-owner"
     }
+  },
+  {
+    "id": "tkin-reduced-motion",
+    "kind": "motion",
+    "selector": "#tk-modal",
+    "path": "modal.reduce.animation.tkin.*",
+    "property": null,
+    "cells": {},
+    "reason": "Product keeps the global reduced-motion rule; the design animates tkin",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
+    }
+  },
+  {
+    "id": "bd-spin-reduced-motion",
+    "kind": "motion",
+    "selector": ".bd-spin",
+    "path": "loading.spin.reduce.animation.khSpin.*",
+    "property": null,
+    "cells": {},
+    "reason": "Product keeps the global reduced-motion rule; the design keeps its loading spinner running",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
+    }
   }
 ]

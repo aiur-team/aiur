@@ -9,6 +9,23 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   def datasets, do: @files ++ ~w(unavailable hold)
 
+  def configure_usage(:ok) do
+    config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(config, :build_usage_source, __MODULE__))
+  end
+
+  def read(financial, _opts \\ [])
+  def read(:locked, _opts), do: Read.locked_usage()
+
+  def read({:ok, _context}, _opts) do
+    result = if dataset([]) in @files, do: full([]), else: {:error, :fixture_unavailable}
+
+    case result do
+      {:ok, data} -> data["usage"]
+      {:error, _reason} -> %{"state" => "unavailable", "observed_at" => nil, "reason" => "fixture_unavailable"}
+    end
+  end
+
   @impl true
   def subscribe(_opts), do: Phoenix.PubSub.subscribe(Aiur.PubSub, "build-home:fixture")
 

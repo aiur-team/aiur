@@ -95,6 +95,13 @@ defmodule Aiur.Init.ResumeTest do
     assert Resume.agents_from_config(config) == ["claude", "codex"]
   end
 
+  test "list routing values (#3960) provision every route's backend and render every route" do
+    config = %{"agent" => %{"kind" => "claude", "routing" => %{"3" => ["claude:sonnet", "codex:gpt-5.5:high"]}}}
+
+    assert Resume.agents_from_config(config) == ["claude", "codex"]
+    assert Resume.format_routing(%{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => "claude:opus"}) == "3:claude:sonnet|codex:gpt-5.5:high, 4:claude:opus"
+  end
+
   test "routing_backend recovers backend from routing strings" do
     assert Resume.routing_backend("claude:sonnet:high") == "claude"
     assert Resume.routing_backend("codex") == "codex"

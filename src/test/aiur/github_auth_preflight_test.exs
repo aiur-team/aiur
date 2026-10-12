@@ -64,13 +64,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
     end)
 
     orchestrator_name = Module.concat(__MODULE__, :PreflightOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
-
-    on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
-    end)
+    pid = start_supervised!({Orchestrator, name: orchestrator_name, initial_poll?: false})
 
     {event, log} =
       with_log(fn ->

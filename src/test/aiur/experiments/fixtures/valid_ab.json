@@ -1,0 +1,69 @@
+{
+  "valid": true,
+  "spec": {
+    "schema_version": 1,
+    "id": "2026-10-09-smoke",
+    "key": null,
+    "title": "Delivery speed",
+    "hypothesis": "Delivery gets faster",
+    "owner": {
+      "kind": "human",
+      "id": "operator"
+    },
+    "status": "active",
+    "origin": {
+      "kind": "manual",
+      "ref": null
+    },
+    "design": {
+      "kind": "ab",
+      "cohorts": [
+        {
+          "id": "control",
+          "label": "Control",
+          "where": {
+            "attr": "backend",
+            "op": "eq",
+            "value": "claude"
+          }
+        },
+        {
+          "id": "test",
+          "label": "Test",
+          "where": {
+            "attr": "tags.team",
+            "op": "exists"
+          }
+        }
+      ],
+      "control": "control"
+    },
+    "metrics": [
+      {
+        "ref": "delivery-speed/start_to_merge",
+        "direction": "decrease",
+        "primary": true
+      }
+    ],
+    "min_samples": 15,
+    "alpha": 0.05,
+    "power_target": 0.8,
+    "windows": {
+      "observation": {
+        "start": "2026-10-09T00:00:00Z",
+        "end": null
+      }
+    },
+    "filters": {
+      "all": []
+    },
+    "stratify_by": [
+      "complexity"
+    ],
+    "tags": [],
+    "notes": "",
+    "created_at": "2026-10-09T00:00:00Z",
+    "updated_at": "2026-10-09T00:00:00Z",
+    "registered_at": null
+  }
+}

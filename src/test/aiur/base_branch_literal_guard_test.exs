@@ -2,7 +2,10 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
   use ExUnit.Case, async: true
 
   @allowed_main_literals %{
-    "aiur_web/live/streamdeck_live.ex" => [~s(class="sd-key-main")]
+    "aiur_web/live/streamdeck_live.ex" => [~s(class="sd-key-main")],
+    # Policy labels are identifiers, independent of the configured integration branch.
+    "aiur/config/schema/merge_policy.ex" => [~s|field(:fixer_label, :string, default: "main-fix")|, ~s|field(:full_ci_labels, {:array, :string}, default: ["main-fix"])|],
+    "aiur/merge_policy_cli.ex" => [~s(policy.full_ci_labels == ["main-fix"])]
   }
 
   test "production code contains no hardcoded main branch literal" do

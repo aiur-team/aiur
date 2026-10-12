@@ -19,7 +19,7 @@ defmodule Aiur.Executor.RecordingTest do
     on_exit(fn ->
       Application.delete_env(:aiur, :executor_state_dir)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
       :ok
     end)
 
@@ -180,13 +180,16 @@ defmodule Aiur.Executor.RecordingTest do
     _settled = eventually(fn -> length(ExecutorWakeInbox.pending(@inbox_name)) <= max end)
 
     # The bound is real, not an average, and it holds with no consumer at all.
-    assert length(read_ledger(StatePaths.wakes_path())) <= max
+    ledger = read_ledger(StatePaths.wakes_path())
+    assert length(ledger) <= max
     assert length(ExecutorWakeInbox.pending(@inbox_name)) <= max
 
     # Evicting an unread record loses a wake, so it is never silent: the durable
     # cursor moves past the dropped range instead of leaving a gap a consumer
     # would replay forever.
-    assert ExecutorWakeInbox.cursor(@inbox_name) == max * 4 - max
+    # The trim lands on a low watermark (#4166), so fewer than `max` may be
+    # retained; the cursor still sits exactly below the oldest survivor.
+    assert ExecutorWakeInbox.cursor(@inbox_name) == max * 4 - length(ledger)
   end
 
   # The default claims path already resolves inside this case's state directory.

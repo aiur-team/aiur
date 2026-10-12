@@ -6,7 +6,7 @@ defmodule Aiur.Capabilities.Collector do
     build_queue build_queue.build_order_source conversations.read conversations.anchors
     executor.wakes executor.conversation executor.background_agents events.export listener_modes
     voice.stt voice.tts voice.conversation streamdeck webhook_ingress remote_control pairing push
-    runtime.crypto tracker.github tracker.linear accounting.meters)
+    runtime.crypto tracker.github tracker.linear accounting.meters merge_policy)
   @unknown %{state: :unknown, reason: :unknown}
 
   @spec collect(keyword()) :: {map(), MapSet.t()}
@@ -35,7 +35,7 @@ defmodule Aiur.Capabilities.Collector do
   end
 
   defp failed_collection(detail) do
-    entry = %{state: :unknown, reason: :collection_failed, detail: detail}
+    entry = %{state: :unknown, reason: :unknown, detail: detail}
     report = %{machine: nil, instance: nil, repository: nil, executor: nil, capabilities: Map.new(@known_ids, &{&1, entry})}
     {report, MapSet.new([{:collection_failed, detail}])}
   end

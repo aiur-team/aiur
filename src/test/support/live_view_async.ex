@@ -17,4 +17,21 @@ defmodule Aiur.TestSupport.LiveViewAsync do
 
     LiveViewTest.render(view)
   end
+
+  def render_after_refresh(view) do
+    relays = :sys.get_state(view.pid).socket.private.lifecycle.handle_info |> Enum.map(& &1.id) |> Enum.filter(&is_pid/1)
+    deadline = System.monotonic_time(:millisecond) + 5_000
+    for relay <- relays, do: await_refresh(relay, deadline)
+    render_when_complete(view)
+  end
+
+  defp await_refresh(relay, deadline) do
+    state = :sys.get_state(relay)
+
+    if state.waiting? or map_size(state.pending) > 0 do
+      if System.monotonic_time(:millisecond) >= deadline, do: raise("refresh relay did not settle")
+      Process.sleep(20)
+      await_refresh(relay, deadline)
+    end
+  end
 end
