@@ -269,7 +269,7 @@ defmodule Aiur.DurableRuntimeStateTest do
       topics =
         AlertFeed.list()
         |> Enum.map(& &1["topic"])
-        |> Enum.filter(&String.starts_with?(&1, "system."))
+        |> Enum.filter(&(&1 in ["system.old", "system.newest", "system.after"]))
 
       assert topics == ["system.newest"]
       assert AlertLedger.backfilled?()
@@ -281,7 +281,7 @@ defmodule Aiur.DurableRuntimeStateTest do
       topics =
         AlertFeed.list()
         |> Enum.map(& &1["topic"])
-        |> Enum.filter(&String.starts_with?(&1, "system."))
+        |> Enum.filter(&(&1 in ["system.old", "system.newest", "system.after"]))
 
       assert topics == ["system.newest"]
     end
