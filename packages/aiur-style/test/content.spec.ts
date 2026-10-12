@@ -51,8 +51,7 @@ test('auto scroll cue hides past 60px and returns at the threshold', async ({ pa
 test('scroll cue custom condition, initial state, idempotence and cleanup', async ({ page }) => {
   await page.goto('content.html');
   const result = await page.evaluate(async () => {
-    // @ts-expect-error Browser imports the built package module.
-    const { initScrollCue } = await import('/dist/js/scrollcue.js');
+    const { initScrollCue } = await import('../dist/js/scrollcue.js');
     const el = document.createElement('div');
     document.body.append(el);
     let hidden = true;
