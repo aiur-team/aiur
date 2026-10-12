@@ -42,6 +42,8 @@ The agent `git` guard spends one GraphQL read per push of the current branch and
 
 Draft PRs remain pending even when their fast gate is green. Completed work must be marked ready before CI wait so `ready_for_review` can start the full suite.
 
+Aiur refuses an agent's transition to `agent:ci-wait` while the ticket's open PR is a draft. If a PR is observed still in draft during CI wait, `ticket.<id>.pr.draft_ci_wait` raises a needs-attention alert after `agent.ci_wait_rewake_minutes`; it resolves when the PR is ready or the ticket leaves CI wait. `aiur status` labels this pending state `draft_pr`.
+
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
 Review submissions are polled during `agent:ci-wait` as well as `agent:human-review`, so trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews can route either state to `agent:rework` without waiting for CI to finish, including body-only reviews without inline threads.

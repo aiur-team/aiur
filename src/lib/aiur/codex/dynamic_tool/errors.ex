@@ -289,6 +289,15 @@ defmodule Aiur.Codex.DynamicTool.Errors do
       }
     }
 
+  def payload({:draft_pr_cannot_enter_ci_wait, number}),
+    do: %{
+      "error" => %{
+        "reason" => "draft_pr_cannot_enter_ci_wait",
+        "pull_request" => number,
+        "message" => "Mark the draft pull request ready before moving this ticket to ci-wait."
+      }
+    }
+
   def payload(:missing_ticket_state),
     do: %{"error" => %{"message" => "`state` is required."}}
 

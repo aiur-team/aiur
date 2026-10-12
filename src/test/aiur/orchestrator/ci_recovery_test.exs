@@ -279,7 +279,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
 
   test "status names skipped draft checks" do
     output = capture_io(fn -> CiWait.print(%{ci_wait: [%{identifier: "4316", pr_number: 17, decision: :pending, pending_reason: :draft_pull_request, failures: []}]}) end)
-    assert output =~ "CI WAIT 4316 PR #17: draft_pr_checks_skipped"
+    assert output =~ "CI WAIT 4316 PR #17: draft_pr"
   end
 
   test "pending CI observations retain recovery and suppress fallback wakes", ctx do

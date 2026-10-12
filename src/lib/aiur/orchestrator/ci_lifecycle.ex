@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    CiWaitDraftAlert,
     DispatchPolicy,
     HumanReview,
     IssueSync,
@@ -628,7 +629,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
           state
           |> reconcile_draft_stall_alert(issue, result, opts)
-          |> reconcile_ci_wait_draft_alert(issue, result, opts)
+          |> then(&CiWaitDraftAlert.reconcile(&1, issue, result, effective_ci_state(issue) == @ci_wait_state, opts))
           |> reconcile_parked_ready_alert(issue, result, opts)
           |> reconcile_base_repair_invalidation(issue, result)
           |> publish_ready_for_review_transition(issue, result)
@@ -638,57 +639,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       _ ->
         state
-    end
-  end
-
-  defp reconcile_ci_wait_draft_alert(%State{} = state, %Issue{} = issue, result, opts) do
-    target = ci_target_for_issue(issue)
-    active_alerts = Map.get(state.ci_lifecycle, :ci_wait_draft_alerts, MapSet.new())
-    observed? = is_binary(target) and effective_ci_state(issue) == @ci_wait_state and ci_wait_timeout_elapsed?(state, issue.id)
-    reconcile_ci_wait_draft_alert_state(state, issue, result, target, active_alerts, opts, observed?)
-  end
-
-  defp reconcile_ci_wait_draft_alert_state(state, _issue, _result, _target, _active_alerts, _opts, false), do: state
-
-  defp reconcile_ci_wait_draft_alert_state(state, issue, %{pending_reason: :draft_pull_request} = result, target, active_alerts, opts, true) do
-    if MapSet.member?(active_alerts, target), do: state, else: emit_ci_wait_draft_alert(state, issue, result, target, active_alerts, opts)
-  end
-
-  defp reconcile_ci_wait_draft_alert_state(state, issue, _result, target, active_alerts, opts, true) do
-    if MapSet.member?(active_alerts, target), do: resolve_ci_wait_draft_alert(state, issue, target, active_alerts, opts), else: state
-  end
-
-  defp emit_ci_wait_draft_alert(state, issue, result, target, active_alerts, opts) do
-    topic = "ticket.#{target}.pr.draft_ci_wait"
-    message = "PR ##{Map.get(result, :pr_number) || "unknown"} is a draft; CI checks are skipped and this ticket remains in CI wait"
-
-    case alert_emitter(opts).(topic, issue: issue, central: true, message: message, reason: message, needs_attention: true) do
-      :ok -> put_ci_wait_draft_alert(state, MapSet.put(active_alerts, target))
-      {:error, reason} -> log_draft_stall_alert_error(state, topic, reason)
-    end
-  end
-
-  defp resolve_ci_wait_draft_alert(state, issue, target, active_alerts, opts) do
-    topic = "ticket.#{target}.pr.draft_ci_wait.resolved"
-
-    case alert_emitter(opts).(topic,
-           issue: issue,
-           central: true,
-           message: "Ticket #{target} is no longer waiting on draft PR checks",
-           reason: "The PR is ready or no longer visible.",
-           needs_attention: false
-         ) do
-      :ok -> put_ci_wait_draft_alert(state, MapSet.delete(active_alerts, target))
-      {:error, reason} -> log_draft_stall_alert_error(state, topic, reason)
-    end
-  end
-
-  defp put_ci_wait_draft_alert(state, alerts), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_alerts, alerts)}
-
-  defp ci_wait_timeout_elapsed?(state, issue_id) do
-    case Map.get(ci_wait_rewakes(state), issue_id) do
-      %{deadline_ms: deadline_ms} -> System.monotonic_time(:millisecond) >= deadline_ms
-      _ -> false
     end
   end
 
@@ -1105,7 +1055,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     |> maybe_add_draft_pending_reason(result)
   end
 
-  defp maybe_add_draft_pending_reason(projection, %{pending_reason: :draft_pull_request}), do: Map.put(projection, :pending_reason, :draft_pull_request)
+  defp maybe_add_draft_pending_reason(projection, %{pending_reason: reason}) when not is_nil(reason), do: Map.put(projection, :pending_reason, reason)
   defp maybe_add_draft_pending_reason(projection, _result), do: projection
 
   defp projection_value(result, previous, key, default) do
@@ -1454,6 +1404,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> ensure_draft_stall_alerts_seeded(opts)
       |> ensure_parked_ready_alerts_seeded(opts)
       |> resolve_departed_parked_ready_alerts(targets, opts)
+
+    state = CiWaitDraftAlert.resolve_departed(state, targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and

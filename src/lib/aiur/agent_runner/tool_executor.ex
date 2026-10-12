@@ -60,7 +60,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool))
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool)),
+      ci_wait_pr_fetcher: Keyword.get(opts, :ci_wait_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
     }
 
     event_handlers = %{
@@ -184,10 +185,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp write_ticket_state(coordination, issue_id, state_name) do
-    case coordination.set_ticket_state.(issue_id, state_name) do
-      :ok -> {:ok, %{state: state_name, issue: issue_id}}
+    with :ok <- verify_ci_wait_pr(coordination, issue_id, state_name),
+         :ok <- coordination.set_ticket_state.(issue_id, state_name) do
+      {:ok, %{state: state_name, issue: issue_id}}
+    else
       {:error, reason} -> {:error, reason}
       other -> {:error, other}
+    end
+  end
+
+  defp verify_ci_wait_pr(_coordination, _issue_id, state_name) when state_name != "ci-wait", do: :ok
+
+  defp verify_ci_wait_pr(coordination, issue_id, "ci-wait") do
+    if Aiur.CodeHost.available?() do
+      case coordination.ci_wait_pr_fetcher.(issue_id) do
+        {:ok, %{"draft" => true, "number" => number}} -> {:error, {:draft_pr_cannot_enter_ci_wait, number}}
+        {:ok, _pr_or_missing} -> :ok
+        {:error, _reason} -> :ok
+        _other -> :ok
+      end
+    else
+      :ok
     end
   end
 
