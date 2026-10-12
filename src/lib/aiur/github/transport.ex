@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.Transport do
 
   Moving the socket to a worker means the caller waits on a message it can
   abandon. On deadline the worker is killed, which closes the socket with it,
-  and the caller gets `{:error, :fetch_deadline_exceeded}` instead of wedging.
+  and the caller gets `{:error, {:aiur, :unknown, :fetch_deadline_exceeded}}` instead of wedging.
   Quota preflight/observe stay on the caller so accounting order is unchanged.
   Local budget admission has its own bound and completes before the HTTP
   deadline starts, so broker process startup and SQLite work cannot consume the
@@ -218,7 +218,7 @@ defmodule Aiur.GitHub.Transport do
   @doc """
   Runs `request_fun` on a throwaway process so the caller never owns the socket.
 
-  Returns `{:error, :fetch_deadline_exceeded}` when the request does not finish
+  Returns `{:error, {:aiur, :unknown, :fetch_deadline_exceeded}}` when the request does not finish
   inside the deadline; the process is killed, so the socket is released rather
   than leaked. Exceptions and exits raised inside it are re-raised on the caller
   so error handling upstream is unchanged.
@@ -328,7 +328,7 @@ defmodule Aiur.GitHub.Transport do
     after
       remaining_deadline_ms(deadline_at_ms) ->
         stop_request_guardian(guardian, guardian_ref)
-        {:error, :fetch_deadline_exceeded}
+        {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
     end
   end
 
@@ -347,7 +347,7 @@ defmodule Aiur.GitHub.Transport do
         remaining_deadline_ms(deadline_at_ms) ->
           Process.unlink(guardian)
           stop_request_guardian(guardian, guardian_ref)
-          {:error, :fetch_deadline_exceeded}
+          {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
       end
     end
   end
@@ -437,7 +437,7 @@ defmodule Aiur.GitHub.Transport do
         "#{inspect(Map.get(request, :method))} #{inspect(Map.get(request, :url))}"
     )
 
-    {:error, :fetch_deadline_exceeded}
+    {:error, {:aiur, :unknown, :fetch_deadline_exceeded}}
   end
 
   # The per-attempt `receive_timeout` bounds one socket read; Req retries, so

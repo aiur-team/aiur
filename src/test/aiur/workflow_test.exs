@@ -5,6 +5,10 @@ defmodule Aiur.WorkflowTest do
 
   setup do
     previous = Application.get_env(:aiur, :workflow_file_path)
+    dir = Aiur.TestSupport.tmp_root!("aiur-workflow-test")
+    File.mkdir_p!(dir)
+    # Registered first so it runs last, after the env below stops naming `dir`.
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -13,10 +17,6 @@ defmodule Aiur.WorkflowTest do
         Application.put_env(:aiur, :workflow_file_path, previous)
       end
     end)
-
-    dir = Aiur.TestSupport.tmp_root!("aiur-workflow-test")
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
 
     {:ok, dir: dir}
   end

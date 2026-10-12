@@ -55,6 +55,11 @@ Existing oversized files may stay unchanged or shrink; renames and copies to
 new paths must fit the limit. Text becoming binary is rejected. Binary files
 are otherwise skipped, and symlinks are reported without following them.
 Lines are LF bytes plus a non-empty unterminated final line (CRLF counts once).
+The one exception is a tool-written `package-lock.json` or `bun.lock`: it may
+exceed 500 lines only if `npm install --package-lock-only --ignore-scripts`
+(or `bun install --lockfile-only`) regenerates it byte for byte from its
+sibling `package.json`; a hand edit, or a tool or registry the gate cannot
+reach, fails.
 Run `python3 scripts/check-file-size.py --base <commit>` locally; without
 `--base`, it uses the merge base with `origin/main`.
 
@@ -120,7 +125,11 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
   about the whole system, so any other test publishing into that namespace can
   fail it. And never call `self()` inside `on_exit` — the callback runs in a
   different process, so the binding, monitor, or subscription you meant to clean
-  up leaks into later tests.
+  up leaks into later tests. Remove a temp directory in `on_exit` with
+  `Aiur.TestCleanup.rm_rf!/1`, never a bare `File.rm_rf!` or `File.rm_rf`: a live
+  writer makes the bang form fail with "file already exists" and the other one
+  fail silently
+  (`scripts/check-on-exit-rm-rf.py` enforces this; `--fix` rewrites call sites).
 - **Quarantine only while fixing.** Tag a confirmed flaky test with
   `@tag :quarantine`, open or link its repair issue, and leave a short reason
   beside the tag. Ordinary local and required CI runs exclude quarantined
@@ -145,17 +154,25 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
 
 ## CI gate
 
-Draft pull requests run `changes`, `lint`, and `build`. The existing path
-classifier only identifies docs-only changes; it does not select affected tests.
-Mark completed work ready for review **before** entering `agent:ci-wait`.
-`ready_for_review` starts the full suite, as do pushes to ready PRs, merge queue
-candidates, integration-branch pushes, and manual workflow dispatches.
+Pull requests, draft or ready, run the fast set: `changes`, workflow security
+(structure and PR-body gates), `lint` (including warning-free compilation and
+repository guards), affected tests on the merge with the base, and the aggregate
+`ci gate`. Mark completed work ready **before** entering `agent:ci-wait`.
 
-A draft's fast gate does not approve its head for human review. Aiur waits for
-the current head's full required-check set, including the configured check
-integrations; missing or skipped required checks remain pending. Ready docs-only
-PRs retain the existing step shortcuts, which publish successful required checks.
-The merge ruleset declaration and its drift guard remain unchanged.
+Merge groups and manual dispatches run the full set, including coverage, tests,
+Dialyzer, browser harness, release smoke, analytics and Stream Deck checks.
+`merge_policy.full_ci_labels`, `full_ci_paths`, and unsafe affected-test selections
+also force full PR runs. Policy is read from the base commit.
+The `ci` workflow does not run on pushes to `main`; Docker publishing and the
+website workflow still do.
+
+During rollout, the legacy required contexts force full PR CI and remain accepted
+by the verifier. Publish `ci gate` on every open head before changing live rules.
+Require the aggregate `ci gate` check in the merge ruleset, rather than individual
+full-suite jobs: it requires the fast set on PRs and the full set in the queue.
+Event-skipped jobs cannot satisfy the other event's gate. Aiur still requires a
+ready PR and every required check successful on its current head, including
+configured integrations; missing or skipped required checks remain pending.
 
 ## Error handling
 
@@ -314,11 +331,14 @@ cycles are informational, not failures.
 ## Enforcement
 
 Every tracked file under `src/lib/`, `packages/` and `packaging/` must belong
-to one component in `components.json`. Add new source paths and update moved
+to one component indexed by `components.json` in `components/<id>.json`. Add new source paths and update moved
 paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
 toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
 unowned files, equally specific competing owners and stale globs fail the check.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
+Arrays have one member per line; string sets and exemption TSVs stay sorted.
+Workflow security enforces this layout with `scripts/check-hot-list-format.py`.
+Do not use union merges on JSON or sorted/unique exemption lists.
 
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one

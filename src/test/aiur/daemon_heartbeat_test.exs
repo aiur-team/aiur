@@ -22,7 +22,7 @@ defmodule Aiur.DaemonHeartbeatTest do
         Application.put_env(:aiur, :decision_state_dir, previous)
       end
 
-      File.rm_rf!(temp_root)
+      Aiur.TestCleanup.rm_rf!(temp_root)
     end)
 
     :ok

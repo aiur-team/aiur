@@ -7,7 +7,7 @@ defmodule Aiur.CurrentRunMembership.ReadCacheTest do
 
   test "repeated reads sort members once while reconciliation and membership changes stay visible" do
     dir = Aiur.TestSupport.tmp_root!("membership-read-cache")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     owner = start_supervised!({Store, name: nil, state_dir: dir, run_id: "cache-run"})
     identity = %TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "owner", repository: "repo", provider_id: "I-42", identifier: "42", reason: nil}
     now = ~U[2026-10-09 00:00:00Z]

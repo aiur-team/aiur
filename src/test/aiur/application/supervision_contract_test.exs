@@ -32,8 +32,6 @@ defmodule Aiur.Application.SupervisionContractTest do
       """)
 
       on_exit(fn ->
-        File.rm_rf!(tmp)
-
         case original_path do
           nil -> Application.delete_env(:aiur, :workflow_file_path)
           value -> Application.put_env(:aiur, :workflow_file_path, value)
@@ -43,6 +41,8 @@ defmodule Aiur.Application.SupervisionContractTest do
           :unset -> :persistent_term.erase(enabled_key)
           value -> :persistent_term.put(enabled_key, value)
         end
+
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       Application.put_env(:aiur, :workflow_file_path, config_path)

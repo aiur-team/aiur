@@ -4,7 +4,6 @@ defmodule Aiur.CLI do
   """
 
   alias Aiur.{LogFile, Workflow}
-
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @repo "aiur-team/aiur"
   @version Mix.Project.config()[:version]
@@ -63,6 +62,7 @@ defmodule Aiur.CLI do
         }
 
   @spec main([String.t()]) :: :ok | no_return()
+  def main(["pr" | args]), do: Aiur.PrMergeCLI.main(args)
   def main(args), do: args |> evaluate() |> dispatch()
 
   defp dispatch(:ok), do: wait_for_shutdown()

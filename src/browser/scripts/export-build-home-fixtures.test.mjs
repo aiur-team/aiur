@@ -97,6 +97,41 @@ test('API usage literals still in build.js', () => {
     assert.ok(source.includes(`head: "${row.head}", rows: [["${row.rows[0][0]}", "${row.rows[0][1]}"]]`));
   }
 });
+test('GitHub is one icon row with the design core and GraphQL lines, without Search', () => {
+  const { apis } = fixture('live').usage;
+  assert.equal(apis.length, 1);
+  assert.equal(apis[0].name, 'GitHub');
+  assert.equal(apis[0].icon, 'github');
+  assert.equal(apis[0].session, null);
+  assert.equal(apis[0].weekly, null);
+  assert.deepEqual(apis[0].lines, API_ROWS.slice(0, 2).map(a => ({ tag: a.tag, acc: [a.pct],
+    reset_at: 1791408000000 + Number.parseInt(a.reset, 10) * 60000,
+    win: a.win, tip: a.rows, hold_until: null })));
+});
+test('provider logos use LOGOS keys instead of design asset paths', () => {
+  assert.deepEqual(fixture('live').usage.providers.map(p => [p.name, p.logo]),
+    [['Claude', 'claude'], ['Codex', 'codex'], ['Kimi', 'kimi'], ['DeepSeek', 'deepseek']]);
+  const { dataFor, NOW } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW'] });
+  const mapped = mapRawToPayload({ meta: { now: NOW, tz: 'America/Los_Angeles' }, data: dataFor('live'),
+    usage: { models: [{ name: 'Unknown', logo: 'assets/unknown.svg' }, { name: 'Claude', logo: 'claude' }],
+      apis: API_ROWS }, daemon: fixture('live').daemon });
+  assert.deepEqual(mapped.usage.providers.map(p => p.logo), [null, 'claude']);
+});
+test('usage mapper preserves unknown windows and optional observation fields', () => {
+  const { dataFor, NOW } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW'] });
+  const lines = [{ tag: 'session', acc: [null], reset_at: null, win: null,
+    tip: [['Limits', 'not observed']], hold_until: NOW + 60000 }];
+  const provider = { name: 'Unknown', session: { acc: [null], reset: null, win: null },
+    lines, icon: null, stale: true, observed_at: NOW - 1000, note: 'Last known' };
+  const mapped = mapRawToPayload({ meta: { now: NOW, tz: 'America/Los_Angeles' }, data: dataFor('live'),
+    usage: { models: [provider, { name: 'Missing' }], apis: [{ tag: 'core', pct: null }] }, daemon: fixture('live').daemon });
+  assert.deepEqual(mapped.usage.providers[0].session, { acc: [null], reset_at: null, win: null });
+  assert.deepEqual(mapped.usage.providers[0].lines, lines);
+  for (const key of ['icon', 'stale', 'observed_at', 'note']) assert.equal(mapped.usage.providers[0][key], provider[key]);
+  assert.deepEqual(mapped.usage.apis[0].lines[0].acc, [null]);
+  for (const key of ['lines', 'icon', 'observed_at', 'note']) assert.equal(mapped.usage.providers[1][key], null);
+  assert.equal(mapped.usage.providers[1].stale, false);
+});
 test('encode refuses ambiguous values', () => {
   assert.throws(() => encode({ a: { b: NaN } }), /a.b: NaN/);
   assert.throws(() => encode({ a: -Infinity }), /a: -Infinity/);
@@ -178,4 +213,47 @@ test('missing design statistics map to explicit unavailable statistics', () => {
     usage: { models: PSETS[4], apis: API_ROWS }, daemon: fixture('live').daemon });
   assert.equal(mapped.features.pag.stats, null);
   assert.ok(Object.values(mapped.features).every(f => Object.hasOwn(f, 'stats') && f.stats === null));
+});
+
+test('edge fields preserve design children and classify each blocker', () => {
+  const { dataFor } = loadBuildJs({ designDir, expose: ['dataFor'] });
+  for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) {
+    const raw = structuredClone(dataFor(dataset));
+    const payload = fixture(dataset);
+    for (const row of Object.values(payload.sections).flat()) {
+      const design = raw.byId[`AIUR-${row.id}`];
+      assert.deepEqual(row.children, (raw.children[design.id] ?? []).map(id => id.replace('AIUR-', '')));
+      assert.equal(row.deps_missing, 0);
+      assert.deepEqual(row.dep_states, Object.fromEntries(design.deps.map(id => [id.replace('AIUR-', ''),
+        raw.byId[id].status === 'done' ? 'cleared' : raw.byId[id].status === 'failed' ? 'terminal_unsatisfied' : 'blocking'])));
+    }
+  }
+});
+
+test('odd edges are registered outside the design parity datasets', () => {
+  const meta = JSON.parse(files['manifest.json']);
+  assert.deepEqual(meta.datasets, ['live', 'dense', 'newrepo', 'noqueue', 'offline']);
+  assert.deepEqual(meta.extra_datasets, ['odd-edges']);
+  const history = fixture('odd-edges-history');
+  const odd = fixture('odd-edges');
+  assert.equal(history.rows.length, 12);
+  for (const row of Object.values(odd.sections).flat()) {
+    assert.deepEqual({ deps: row.deps, children: row.children, dep_states: row.dep_states, deps_missing: row.deps_missing }, history.expected[row.id]);
+  }
+  assert.equal(history.expected['12'].dep_states['10'], 'terminal_unsatisfied');
+  assert.equal(history.expected['16'].dep_states['10'], 'cleared');
+  assert.equal(history.expected['14'].deps_missing, 1);
+  assert.equal(history.expected['19'].dep_states['18'], 'unknown');
+  assert.deepEqual(history.expected['7'].deps, []);
+});
+
+test('the design and full motion matrices exclude synthetic edge fixtures', async () => {
+  const { PARITY_MATRIX } = await import('../support/design-parity.mjs');
+  const meta = JSON.parse(files['manifest.json']);
+  assert.deepEqual([...new Set(PARITY_MATRIX.map(cell => cell.dataset))], meta.datasets);
+  assert.equal(PARITY_MATRIX.length, 61);
+  const motionGroups = PARITY_MATRIX.filter(cell => !cell.reducedMotion)
+    .flatMap(cell => ['no-preference', 'reduce'].map(reducedMotion => ({ ...cell, reducedMotion })));
+  assert.equal(motionGroups.length, 120);
+  assert.ok(motionGroups.every(cell => !meta.extra_datasets.includes(cell.dataset)));
 });

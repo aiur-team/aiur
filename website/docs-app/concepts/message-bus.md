@@ -51,6 +51,7 @@ Wakes for non-Executor topics that arrive while the Executor listener is down ar
 | --- | --- |
 | `ticket.<id>.branch.push` | A validated ticket branch ref and commit changed. |
 | `system.<branch>.branch.push` | The integration branch moved. |
+| `system.optimistic.ledger_unavailable` | Once-per-boot alert when optimistic-start records cannot be persisted; dispatch continues. |
 | `system.capabilities.changed` | A stored capability report changed; payload contains only `revision` and `boot_id`. Refetch the authenticated report. Published on the first report after boot, never on unchanged ticks; does not wake the Executor. In-node consumers receive `{:capabilities_changed, revision}` on PubSub topic `capabilities`. |
 | `system.queue.<queue_id>.progress` | A queue crossed a progress milestone. |
 | `system.build_order.<root>.progress` | A Build Order crossed a progress milestone. |
@@ -82,6 +83,10 @@ Agents automatically subscribe to events relevant to their ticket, pull request,
 | Own terminal CI | Moves between repair, CI wait, and human review. |
 | Base-branch pushes | Warns when the integration target moves. |
 | Blocker lifecycle and branch pushes | Resumes the dependent ticket on explicit readiness. |
+
+Dispatch also creates the standard blocker subscriptions from hydrated native dependencies before spawning a worker, without posting the dependency again.
+
+They use `blocker:auto` on the dependent and `blockee:auto` on the blocker, just like `aiur_declare_blocker`. An optimistic dispatch declines if binding fails, so the worker cannot start without hearing blocker pushes.
 
 Manual `aiur_subscribe` is for additional watch cases, not for the standard ticket lifecycle.
 

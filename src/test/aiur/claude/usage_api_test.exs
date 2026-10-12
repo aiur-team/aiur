@@ -25,7 +25,7 @@ defmodule Aiur.Claude.UsageApiTest do
       Aiur.TestSupport.tmp_root!("usage_api_test_#{prefix}")
 
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     dir
   end
 

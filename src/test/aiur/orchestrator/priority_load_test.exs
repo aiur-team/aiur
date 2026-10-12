@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
   # Two /proc scans 1_000 host ticks apart; `procs` maps pid => {nice, ticks_before, ticks_after}.
   defp sampled_headroom(daemon_nice, procs, aggregate_nice_delta) do
     root = Path.join(System.tmp_dir!(), "aiur-proc-#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     write = fn index -> Enum.each(procs, fn {pid, {nice, before, after_}} -> write_stat(root, pid, nice, elem({before, after_}, index)) end) end
 
     write.(0)

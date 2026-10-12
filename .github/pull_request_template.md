@@ -32,7 +32,10 @@ Closes #<!-- issue number; use Fixes or Resolves if you prefer; list multiple as
 - [ ] Docs updated in this PR — name the pages <!-- required for: a new or changed config key, a CLI command or flag, an operator-set env var, a new user-facing surface (dashboard page, TUI view, Stream Deck mode, panel), or a change that makes an existing page wrong -->
 - [ ] Docs not required <!-- internal refactor, bug fix restoring already-documented behavior, test-only change, or performance work with no interface change -->
 
-#### Test Plan
+## Local tests
 
-- [ ] `make -C elixir all`
-- [ ] <!-- Additional targeted checks (list below) -->
+Policy: <!-- all / partial / none; at least the configured merge_policy.local_tests mode -->
+Tested head: <!-- full 40-character SHA pushed; update after every push -->
+Base: <!-- base ref @ full SHA -->
+Selection: <!-- why this set covers changed tests, source mirrors, direct callers and deleted names; full suite for shared support/build/dependency/runtime config -->
+- `<!-- exact command -->` -> <!-- actual result, including failures or blockers -->

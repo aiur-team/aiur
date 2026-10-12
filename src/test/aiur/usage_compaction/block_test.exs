@@ -9,7 +9,7 @@ defmodule Aiur.UsageCompaction.BlockTest do
   defp tmp(name) do
     dir = Aiur.TestSupport.tmp_root!("aiur-block")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Path.join(dir, name)
   end
 

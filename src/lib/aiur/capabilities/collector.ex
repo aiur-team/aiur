@@ -6,7 +6,7 @@ defmodule Aiur.Capabilities.Collector do
     build_queue build_queue.build_order_source conversations.read conversations.anchors
     executor.wakes executor.conversation executor.background_agents events.export listener_modes
     voice.stt voice.tts voice.conversation streamdeck webhook_ingress remote_control pairing push
-    runtime.crypto tracker.github tracker.linear accounting.meters)
+    runtime.crypto tracker.github tracker.linear accounting.meters merge_policy)
   @unknown %{state: :unknown, reason: :unknown}
 
   @spec collect(keyword()) :: {map(), MapSet.t()}

@@ -14,9 +14,11 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.Opencode.PaneSupervisor
     ]
 
-    @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
-
-    # Agent backends kept in headless mode plus core infra both modes need.
+    @dashboard [
+      AiurWeb.ControlCenterCache,
+      AiurWeb.FinancialData.Supervisor,
+      Aiur.HttpServer
+    ]
     @always [
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,
