@@ -446,6 +446,36 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     assert sourced -- shipped == []
   end
 
+  test "pre-pr command refuses a dirty checkout and rejects extra arguments" do
+    assert {"aiur: pre-pr does not accept arguments\n", 64} = run_engine(["pre-pr", "--push"], [])
+
+    root = Aiur.TestSupport.tmp_root!("pre-pr-dirty")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    System.cmd("git", ["init", "-q", root])
+    File.write!(Path.join(root, "dirty"), "dirty")
+    {out, code} = run_sourced_engine("cd #{root} && aiur_engine_main pre-pr", [])
+    assert code == 1
+    assert out =~ "pre-pr: FAIL clean working tree required"
+  end
+
+  test "pre-pr engine has named merge and gate failure paths and never pushes" do
+    engine = Aiur.EngineSource.text()
+
+    assert engine =~ "pre-pr: FAIL merge conflict:"
+    assert engine =~ "pre-pr: FAIL $name"
+    assert engine =~ "mix format --check-formatted"
+    refute engine =~ "git push"
+  end
+
+  test "pre-pr gate result block names each failed gate and exits nonzero" do
+    result = Aiur.EngineSource.text()
+
+    assert result =~ "echo \"pre-pr: FAIL $name\"; result=1"
+    assert result =~ "return \"$result\""
+    assert result =~ "pre-pr: FAIL merge conflict: ${files:-unknown files}"
+  end
+
   test "a missing engine module aborts by path before any command runs" do
     root = Aiur.TestSupport.tmp_root!("aiur-engine-modules")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
