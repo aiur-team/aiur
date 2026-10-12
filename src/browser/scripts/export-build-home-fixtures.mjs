@@ -108,7 +108,7 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   });
   files['manifest.json'] = encode({
     schema: 'build-home-payload/1', ids: Object.fromEntries(DATASETS.flatMap(k => Object.values(JSON.parse(files[`${k}.json`]).sections).flat().map(r => [`AIUR-${r.num}`, r.id]))), now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
-    design_etag: ETAG, datasets: [...DATASETS, 'odd-edges'],
+    design_etag: ETAG, datasets: DATASETS, extra_datasets: ['odd-edges'],
     design_sha256: Object.fromEntries(designFiles(designDir).map(f => [f, sha256(readFileSync(join(designDir, f)))])),
     fixture_sha256: Object.fromEntries(Object.entries(files).map(([f, text]) => [f, sha256(text)])),
     utc_offsets_min: [...offsets].sort((a, b) => a - b), node: process.version,

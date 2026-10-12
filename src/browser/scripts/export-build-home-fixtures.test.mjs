@@ -230,8 +230,10 @@ test('edge fields preserve design children and classify each blocker', () => {
   }
 });
 
-test('odd edges are registered with independent history expectations', () => {
-  assert.ok(JSON.parse(files['manifest.json']).datasets.includes('odd-edges'));
+test('odd edges are registered outside the design parity datasets', () => {
+  const meta = JSON.parse(files['manifest.json']);
+  assert.deepEqual(meta.datasets, ['live', 'dense', 'newrepo', 'noqueue', 'offline']);
+  assert.deepEqual(meta.extra_datasets, ['odd-edges']);
   const history = fixture('odd-edges-history');
   const odd = fixture('odd-edges');
   assert.equal(history.rows.length, 12);
@@ -243,4 +245,15 @@ test('odd edges are registered with independent history expectations', () => {
   assert.equal(history.expected['14'].deps_missing, 1);
   assert.equal(history.expected['19'].dep_states['18'], 'unknown');
   assert.deepEqual(history.expected['7'].deps, []);
+});
+
+test('the design and full motion matrices exclude synthetic edge fixtures', async () => {
+  const { PARITY_MATRIX } = await import('../support/design-parity.mjs');
+  const meta = JSON.parse(files['manifest.json']);
+  assert.deepEqual([...new Set(PARITY_MATRIX.map(cell => cell.dataset))], meta.datasets);
+  assert.equal(PARITY_MATRIX.length, 61);
+  const motionGroups = PARITY_MATRIX.filter(cell => !cell.reducedMotion)
+    .flatMap(cell => ['no-preference', 'reduce'].map(reducedMotion => ({ ...cell, reducedMotion })));
+  assert.equal(motionGroups.length, 120);
+  assert.ok(motionGroups.every(cell => !meta.extra_datasets.includes(cell.dataset)));
 });
