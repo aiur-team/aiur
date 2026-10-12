@@ -39,7 +39,7 @@ defmodule Aiur.BuildQueue.MergedOpenTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     boundary = start_supervised!({Agent, fn -> %{now: 10_000, open: true, pr: nil, available: true} end})

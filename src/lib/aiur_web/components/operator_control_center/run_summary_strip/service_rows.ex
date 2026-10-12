@@ -1,11 +1,13 @@
 defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   @moduledoc false
 
-  import AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters, only: [currency_amount: 2, compact_number: 1, format_used_percent: 1, reset_text: 2]
+  import AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters, only: [currency_amount: 2, format_used_percent: 1, reset_text: 2]
 
   # GitHub's two primary budgets, in the order they render. They are separate
   # budgets billed in different units on windows that reset at different times,
   # so every figure on the card belongs to exactly one of them.
+  alias AiurWeb.Build.UsageFacts
+
   @github_resources ~w(core graphql)
   @seconds_per_day 86_400
   @seconds_per_hour 3_600
@@ -37,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   @spec elevenlabs_meta(map(), DateTime.t()) :: String.t()
   def elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
     [
-      "#{compact_number(window.remaining)} left",
+      "#{UsageFacts.compact_number(window.remaining)} left",
       elevenlabs_percent_text(window),
       elevenlabs_reset_text(window.reset_at, now)
     ]
@@ -45,13 +47,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
     |> Enum.join(" · ")
   end
 
-  def elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
+  def elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{UsageFacts.elevenlabs_failure(failure)}"
   def elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
 
   @spec elevenlabs_compact_meta(map(), DateTime.t()) :: String.t()
   def elevenlabs_compact_meta(%{state: :observed, window: %{} = window}, now) do
     [
-      compact_number(window.remaining),
+      UsageFacts.compact_number(window.remaining),
       elevenlabs_percent_text(window) |> compact_percent_text(),
       elevenlabs_compact_reset_text(window.reset_at, now)
     ]
@@ -98,15 +100,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   end
 
   defp elevenlabs_reset_text(_reset, _now), do: "reset unavailable"
-
-  # Named reasons only, and never the credential: a failure line is one of the
-  # places a secret leaks into a screenshot.
-  defp elevenlabs_failure_label(:authentication), do: "the API key was rejected"
-  defp elevenlabs_failure_label(:rate_limited), do: "rate limited by ElevenLabs"
-  defp elevenlabs_failure_label(:provider_error), do: "ElevenLabs returned an error"
-  defp elevenlabs_failure_label(:transport), do: "ElevenLabs could not be reached"
-  defp elevenlabs_failure_label(:malformed), do: "the response could not be read"
-  defp elevenlabs_failure_label(_failure), do: "the quota could not be read"
 
   @spec github_windows(map()) :: [map()]
   def github_windows(%{windows: windows}) when is_map(windows) do

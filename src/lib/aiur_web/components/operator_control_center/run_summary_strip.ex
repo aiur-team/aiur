@@ -25,14 +25,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, meter_class: 3]
 
   alias Aiur.CodingAgent
-  alias Aiur.ModelAvailability
+  alias AiurWeb.Build.UsageFacts
   alias AiurWeb.OperatorControlCenter.ModelProviders
   alias AiurWeb.OperatorControlCenter.ModelsPanel
   alias AiurWeb.OperatorControlCenter.Money
-
-  # The dispatch-limits ledger's buckets, used to find the governing one when a
-  # provider has no live meter observation this boot.
-  @durable_windows ~w(hourly weekly monthly)
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
@@ -267,51 +263,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # a probe session on an exhausted quota). Attach that durable record so the
   # card can render a visibly-stale last-known value instead of an empty one.
   defp put_durable_observation(%{state: :unknown} = card) do
-    case durable_observation(card.provider) do
+    case UsageFacts.durable(card.provider) do
       nil -> card
       observation -> Map.put(card, :durable_observation, observation)
     end
   end
 
   defp put_durable_observation(card), do: card
-
-  # The durable record is keyed by backend family and carries the last used/limit
-  # per window plus an observed timestamp. `ModelAvailability` is a public read
-  # API; the web layer simply never reached it before. The record's windows are
-  # the dispatch buckets (`hourly`/`weekly`/`monthly`); the governing one is the
-  # most-used, which is what limits whether new work may start.
-  defp durable_observation(provider) do
-    with %{"backends" => backends} <- ModelAvailability.load(),
-         %{} = entry when map_size(entry) > 0 <- Map.get(backends, Atom.to_string(provider)),
-         %{percent: percent} <- durable_percent_entry(entry) do
-      %{
-        percent: percent,
-        observed_at: parse_observed_at(Map.get(entry, "observed_at"))
-      }
-    else
-      _ -> nil
-    end
-  end
-
-  defp parse_observed_at(%DateTime{} = value), do: value
-
-  defp parse_observed_at(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _ -> nil
-    end
-  end
-
-  defp parse_observed_at(_value), do: nil
-
-  defp durable_percent_entry(entry) do
-    entry
-    |> Map.take(@durable_windows)
-    |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
-      %{percent: min(round(used / limit * 100), 100)}
-    end)
-    |> Enum.max_by(& &1.percent, fn -> nil end)
-  end
 
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false

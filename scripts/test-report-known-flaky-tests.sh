@@ -71,9 +71,9 @@ output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/sample.log" "$sum
 
 
 assert_contains 'known test annotation contract' \
-  '::error title=aiur-test-failure::known-flake :: Aiur.KnownFlakeFixtureTest :: a listed flake standing in for a quarantine entry' "$output"
+  '::error title=aiur-test-failure,file=src/test/aiur/known_flake_fixture_test.exs,line=585::known-flake :: Aiur.KnownFlakeFixtureTest :: a listed flake standing in for a quarantine entry' "$output"
 assert_contains 'new test annotation contract' \
-  '::error title=aiur-test-failure::new-failure :: Aiur.SomeNewTest :: a genuinely new failure the change broke' "$output"
+  '::error title=aiur-test-failure,file=src/test/aiur/some_new_test.exs,line=10::new-failure :: Aiur.SomeNewTest :: a genuinely new failure the change broke' "$output"
 
 assert_contains 'mixed run counts two known and one new' 'classified known=2 new=1' "$output"
 assert_file_contains 'listed fixture test is classified as a known flake' \

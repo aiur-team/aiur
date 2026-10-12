@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth, TrackerTasks}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
 
   @recent_merge_persistence_retry_limit 3
 
@@ -40,11 +40,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
     apply_firehose_result(state, GithubFirehose.poll(poll_opts), opts)
   end
 
-  @spec start_firehose(State.t(), (State.t() -> State.t())) :: State.t()
-  def start_firehose(state, continue) do
+  @spec start_firehose(State.t(), (State.t() -> State.t()), function()) :: State.t()
+  def start_firehose(state, continue, start_task) do
     poll_opts = [etag: state.events_etag, last_event_id: state.events_last_id]
 
-    TrackerTasks.start(state, :dispatch_poll, fn -> GithubFirehose.poll(poll_opts) end, fn current, result ->
+    start_task.(state, :dispatch_poll, fn -> GithubFirehose.poll(poll_opts) end, fn current, result ->
       current |> apply_firehose_result(result, []) |> continue.()
     end)
   end

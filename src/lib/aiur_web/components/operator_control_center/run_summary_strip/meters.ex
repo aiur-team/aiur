@@ -8,11 +8,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters do
   def currency_amount("USD", amount), do: "$#{amount}"
   def currency_amount(currency, amount), do: "#{amount} #{currency}"
 
-  @spec compact_number(integer()) :: String.t()
-  def compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
-  def compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
-  def compact_number(number) when is_integer(number), do: Integer.to_string(number)
-
   @spec format_used_percent(number()) :: String.t()
   def format_used_percent(percent) when is_number(percent) do
     percent = percent |> max(0) |> min(100)

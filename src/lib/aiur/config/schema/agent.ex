@@ -161,6 +161,9 @@ defmodule Aiur.Config.Schema.Agent do
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
     field(:ci_wait_rewake_minutes, :integer, default: 5)
+    field(:ci_recovery_enabled, :boolean, default: true)
+    field(:ci_recovery_max_per_poll, :integer, default: 5)
+    field(:ci_recovery_max_per_hour, :integer, default: 20)
     # Linux CPU PSI some avg60 percentages; explicit null disables each.
     field(:max_cpu_pressure, :float, default: 20.0)
     field(:target_cpu_pressure, :float, default: 10.0)
@@ -173,6 +176,8 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     field(:synthetic_load_process_cap, :integer)
+    # false = busy-loop-detected and orphaned generators are reported, not killed.
+    field(:synthetic_load_kill_detected, :boolean, default: false)
     # Cap ERTS scheduler threads on agent-spawned Mix BEAMs via
     # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
     # four bounds every agent test shape without relying on prompt compliance.
@@ -254,6 +259,9 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :ci_wait_rewake_minutes,
+        :ci_recovery_enabled,
+        :ci_recovery_max_per_poll,
+        :ci_recovery_max_per_hour,
         :max_cpu_pressure,
         :target_cpu_pressure,
         :max_load_average,
@@ -262,6 +270,7 @@ defmodule Aiur.Config.Schema.Agent do
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
+        :synthetic_load_kill_detected,
         :mix_scheduler_cap,
         :saturation_log_enabled,
         :capacity_starvation_alert_after_seconds,
@@ -292,6 +301,8 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
+    |> validate_number(:ci_recovery_max_per_poll, greater_than: 0)
+    |> validate_number(:ci_recovery_max_per_hour, greater_than: 0)
     |> validate_number(:max_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:target_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:max_load_average, greater_than: 0)

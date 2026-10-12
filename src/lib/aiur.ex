@@ -393,8 +393,7 @@ defmodule Aiur.Application do
       # the Publisher and before anything that polls or receives, so the first
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
-      # Owns the open-issue listing the dispatch gate reads as its close signal
-      # (#2714). A table owned by a poll writer would die with it.
+      # Owns open-issue close signals (#2714); a poll-writer-owned table would die with it.
       Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
       # Carries store changes into the agents' `gh` answer store, so a fact
@@ -447,6 +446,7 @@ defmodule Aiur.Application do
       Aiur.Events.SubscriptionStoreSupervisor,
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
+      Aiur.Orchestrator.OptimisticLedger,
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator.SnapshotCache,
       Aiur.Orchestrator.SnapshotStore,
@@ -465,9 +465,7 @@ defmodule Aiur.Application do
       Aiur.TicketContext.child_specs(:late, opts),
       BuildOrders.child_specs(:late, opts),
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence, now reconciling only the pack-status
-      # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
-      # timer). Starts after its sources so its first tick never races boot fill.
+      # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
@@ -507,11 +505,12 @@ defmodule Aiur.Application do
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
       if(recording?, do: [Aiur.AllowedContributors, BuildOrders.child_specs(:recording, opts)]),
-      BuildOrders.child_specs(:final, opts)
+      BuildOrders.child_specs(:final, opts),
+      if(Aiur.MainWatch.enabled?(), do: Aiur.MainWatch)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu])
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?))
   end
 
   defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled

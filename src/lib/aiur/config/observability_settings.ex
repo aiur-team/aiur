@@ -90,6 +90,16 @@ defmodule Aiur.Config.ObservabilitySettings do
     end
   end
 
+  @doc "Whether analytics GitHub fact reads are enabled. Defaults to true when configuration is unreadable."
+  @spec capture_github_facts?() :: boolean()
+  @spec capture_github_facts?(term()) :: boolean()
+  def capture_github_facts?(settings \\ Aiur.Config.settings_uncached()) do
+    case settings do
+      {:ok, %{observability: %{capture_github_facts: enabled?}}} -> enabled?
+      _other -> true
+    end
+  end
+
   @doc "Whether startup should verify the persisted Tailscale Funnel target."
   @spec build_order_funnel_health_check_enabled?(term()) :: boolean()
   def build_order_funnel_health_check_enabled?(settings \\ Aiur.Config.settings_uncached()) do

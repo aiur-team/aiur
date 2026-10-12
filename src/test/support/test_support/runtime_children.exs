@@ -8,11 +8,35 @@ defmodule Aiur.TestSupport.RuntimeChildren do
   def ensure_runtime_children_running do
     with :ok <- ensure_aiur_supervisor_running(),
          :ok <- ensure_pubsub_running(),
+         :ok <- ensure_id_generator_running(),
+         :ok <- ensure_provider_meter_store_running(),
          :ok <- ensure_subscription_store_supervisor_running(),
          :ok <- ensure_branch_ref_store_running(),
          :ok <- ensure_workflow_store_running(),
          :ok <- ensure_read_cache_running() do
       ensure_resource_store_running()
+    end
+  end
+
+  @doc "Ensures the shared durable event ID generator is running after an application restart."
+  @spec ensure_id_generator_running() :: :ok | :error
+  def ensure_id_generator_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.Events.IdGenerator) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_id_generator()
+    end
+  end
+
+  @doc "Ensures the shared provider meter store is running after an application restart."
+  @spec ensure_provider_meter_store_running() :: :ok | :error
+  def ensure_provider_meter_store_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.ProviderMeters.Store) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_provider_meter_store()
     end
   end
 
@@ -273,6 +297,26 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     Supervisor.restart_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
   catch
     :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_id_generator do
+    case Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.IdGenerator) do
+      {:ok, pid} when is_pid(pid) -> :ok
+      {:error, {:already_started, pid}} when is_pid(pid) -> :ok
+      _ -> if Process.whereis(Aiur.Events.IdGenerator), do: :ok, else: :error
+    end
+  catch
+    :exit, _reason -> :error
+  end
+
+  defp restart_provider_meter_store do
+    case Supervisor.restart_child(Aiur.Supervisor, Aiur.ProviderMeters.Store) do
+      {:ok, pid} when is_pid(pid) -> :ok
+      {:error, {:already_started, pid}} when is_pid(pid) -> :ok
+      _ -> if Process.whereis(Aiur.ProviderMeters.Store), do: :ok, else: :error
+    end
+  catch
+    :exit, _reason -> :error
   end
 
   defp restart_subscription_store_supervisor_child do

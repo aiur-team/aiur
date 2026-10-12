@@ -28,6 +28,8 @@ defmodule Aiur.OrchestratorTrackedSetTest do
     # the point under test is that a restart leaves the table intact, not that
     # a concurrent poll happens to stay out of the way.
     freeze_poll_cycle(orchestrator_pid)
+    # The freeze stops new polls only; one already in flight still refreshes the table (#4360).
+    await_orchestrator_state(orchestrator_pid, &(map_size(&1.tracker_tasks) == 0))
 
     assert :ok = TrackedSet.reset(["681"])
     assert Orchestrator.issue_tracked?("681")

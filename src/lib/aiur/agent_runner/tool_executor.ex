@@ -7,7 +7,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   require Logger
 
-  alias Aiur.AgentRunner.{DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
+  alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
 
   alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
 
@@ -60,7 +60,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool))
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool)),
+      ci_wait_pr_fetcher: Keyword.get(opts, :ci_wait_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
     }
 
     event_handlers = %{
@@ -184,11 +185,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp write_ticket_state(coordination, issue_id, state_name) do
-    case coordination.set_ticket_state.(issue_id, state_name) do
-      :ok -> {:ok, %{state: state_name, issue: issue_id}}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
-    end
+    CiWaitTransition.write(coordination, issue_id, state_name)
   end
 
   defp tracker_issue_id(issue) do

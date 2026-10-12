@@ -44,7 +44,7 @@ defmodule AiurEngineWatchdogTest do
     File.mkdir_p!(root)
     File.write!(dump, "=erl_crash_dump:0.5\nSlogan: #{slogan}\n=end\n")
     File.write!(ledger_path_file, ledger)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     assert {_out, 0} =
              run_sourced_engine(
@@ -85,7 +85,7 @@ defmodule AiurEngineWatchdogTest do
     File.mkdir_p!(root)
     File.write!(dump, "=erl_crash_dump:0.5\nSlogan: still being written\n")
     File.write!(ledger_path_file, ledger)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     assert {_out, 0} =
              run_sourced_engine(
@@ -106,7 +106,7 @@ defmodule AiurEngineWatchdogTest do
     ledger_path_file = Path.join(root, "alert-ledger-path")
     File.mkdir_p!(root)
     File.write!(ledger_path_file, ledger)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     assert {_out, 0} =
              run_sourced_engine(
@@ -130,7 +130,7 @@ defmodule AiurEngineWatchdogTest do
     File.mkdir_p!(root)
     File.write!(dump, "=erl_crash_dump:0.5\nSlogan: stale evidence\n=end\n")
     File.write!(ledger_path_file, ledger)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     assert {_out, 0} =
              run_sourced_engine(
@@ -156,7 +156,7 @@ defmodule AiurEngineWatchdogTest do
     File.write!(events, "")
     File.write!(dump, "=erl_crash_dump:0.5\nSlogan: write failure\n=end\n")
     File.write!(ledger_path_file, root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     script = """
     reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
@@ -195,7 +195,7 @@ defmodule AiurEngineWatchdogTest do
     File.write!(events, "")
     File.write!(dump, "=erl_crash_dump:0.5\nSlogan: recurring crash\n=end\n")
     File.write!(ledger_path_file, ledger)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     script = """
     reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
@@ -254,8 +254,8 @@ defmodule AiurEngineWatchdogTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(tmux_state)
       File.rm(events)
     end)
@@ -325,8 +325,8 @@ defmodule AiurEngineWatchdogTest do
       """)
 
     on_exit(fn ->
-      File.rm_rf(rel)
-      File.rm_rf(state)
+      Aiur.TestCleanup.rm_rf!(rel)
+      Aiur.TestCleanup.rm_rf!(state)
       File.rm(tmux_state)
     end)
 
