@@ -4,8 +4,8 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
   alias Mix.Tasks.Aiur.AffectedTests
 
   test "full fallback is runnable from the repository root" do
-    assert AffectedTests.command({:full, "unsafe change"}) == [
-             "# full suite recommended: unsafe change",
+    assert AffectedTests.command({:full, "unsafe change", ["src/test/support/helper.exs"]}) == [
+             "# full suite recommended: unsafe change; changed paths: src/test/support/helper.exs",
              "cd src && mise exec -- make ci"
            ]
   end

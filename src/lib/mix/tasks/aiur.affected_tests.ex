@@ -35,9 +35,18 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
          {:ok, changed} <- changed_files(root, base),
          {:ok, dependents} <- xref_dependents(root, changed),
          {:ok, references} <- deleted_reference_tests(root, base) do
-      changed
-      |> Aiur.AffectedTests.select(base_dir: root, dependent_sources: dependents, reference_tests: references)
-      |> command()
+      selected =
+        Aiur.AffectedTests.select(changed,
+          base_dir: root,
+          dependent_sources: dependents,
+          reference_tests: references
+        )
+
+      selected
+      |> case do
+        {:full, reason} -> command({:full, reason, changed})
+        scoped -> command(scoped)
+      end
       |> Enum.each(fn line -> Mix.shell().info(line) end)
     else
       {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
@@ -45,7 +54,10 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   @doc false
-  @spec command({:full, String.t()} | {:scoped, [String.t()]}) :: [String.t()]
+  @spec command({:full, String.t()} | {:full, String.t(), [String.t()]} | {:scoped, [String.t()]}) :: [String.t()]
+  def command({:full, reason, changed}),
+    do: command({:full, "#{reason}; changed paths: #{Enum.join(changed, ", ")}"})
+
   def command({:full, reason}),
     do: ["# full suite recommended: #{reason}", "cd src && mise exec -- make ci"]
 

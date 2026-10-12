@@ -26,7 +26,13 @@ if grep -qx 'full_ci=false' "$scratch/classification" && ! grep -qx 'docs_only=t
   selection="$(elixir -r src/lib/aiur/affected_tests.ex scripts/ci-test-selection.exs "$scratch/paths")"
   case "$selection" in
     full) printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification" ;;
-    scoped) ;;
+    scoped:*)
+      selected_tests="${selection#scoped:}"
+      # A 525-file selection reached 7,840 tests; keep that size on full CI.
+      if (( selected_tests > 400 )); then
+        printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
+      fi
+      ;;
     *) echo "unsupported affected selection: $selection" >&2; exit 1 ;;
   esac
 fi
