@@ -696,7 +696,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "mise exec -- mix lint"
     assert repo_prompt =~ "python3 scripts/check-bare-assert-receive.py"
     refute repo_prompt =~ "Do not run Credo locally"
-    assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
+    assert repo_prompt =~ "fast on PRs after rollout, full in the merge queue or on forced-full PRs"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"
   end
