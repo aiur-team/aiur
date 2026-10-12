@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Store do
   use GenServer
   require Logger
 
-  alias Aiur.Experiments.{Journal, Paths, Persistence, Reader, Registration, Schema, Spec}
+  alias Aiur.Experiments.{Catalog, Journal, Paths, Persistence, Reader, Registration, Schema, Spec}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -16,7 +16,12 @@ defmodule Aiur.Experiments.Store do
     :persistent_term.erase({__MODULE__, :startup_failure})
 
     with :ok <- Aiur.Journal.ensure_directory(Paths.root()), :ok <- Persistence.recover() do
-      {:ok, %{append: Keyword.get(opts, :journal_writer, &Journal.append/2), defaults: Map.new(Keyword.get(opts, :defaults, config_defaults())) |> Map.put_new(:repo_slug, Paths.repo())}}
+      {:ok,
+       %{
+         append: Keyword.get(opts, :journal_writer, &Journal.append/2),
+         catalog_context: Keyword.get(opts, :catalog_context, %{}),
+         defaults: Map.new(Keyword.get(opts, :defaults, config_defaults())) |> Map.put_new(:repo_slug, Paths.repo())
+       }}
     else
       {:error, reason} ->
         :persistent_term.put({__MODULE__, :startup_failure}, reason)
@@ -54,7 +59,8 @@ defmodule Aiur.Experiments.Store do
     attrs = stringify(attrs) |> with_origin(opts)
 
     with :ok <- Persistence.recover(),
-         {:ok, spec} <- Spec.new(attrs, state.defaults) do
+         {:ok, spec} <- Spec.new(attrs, state.defaults),
+         :ok <- Catalog.validate_refs(spec.metrics, state.catalog_context) do
       case existing(spec.key) do
         {:error, _reason} = error -> error
         {:ok, nil} -> create_new(spec, opts, state)
@@ -118,12 +124,17 @@ defmodule Aiur.Experiments.Store do
            :ok <- Persistence.recover_one(id),
            {:ok, old, _read_only?} <- Reader.spec(id),
            {:ok, updated} <- changed_spec(old, changes, state.defaults),
+           :ok <- validate_changed_metrics(old, updated, state.catalog_context),
            :ok <- status_transition(old["status"], updated.status) do
         persist_amendment(id, old, updated, actor, kind, state.append)
       end
     else
       {:error, :not_found}
     end
+  end
+
+  defp validate_changed_metrics(old, updated, context) do
+    if old["metrics"] == updated.metrics, do: :ok, else: Catalog.validate_refs(updated.metrics, context)
   end
 
   defp persist_amendment(id, old, updated, actor, kind, append) do
