@@ -21,7 +21,7 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     :ok
@@ -36,7 +36,7 @@ defmodule Aiur.BuildQueue.CrashRecoveryTest do
 
     assert before.status == :running
     assert Enum.map(before.projections, & &1.issue_id) |> Enum.sort() == ["1", "2", "3"]
-    assert before_hints == [{"1", {-1, 0}, false}, {"2", {0, 0}, true}, {"3", {0, 0}, false}]
+    assert before_hints == [{"1", {-1, 0}, false, :pr_merged, 1}, {"2", {0, 0}, true, :pr_merged, 0}, {"3", {0, 0}, false, :pr_merged, 0}]
 
     ref = Process.monitor(before_pid)
     Process.exit(before_pid, :kill)

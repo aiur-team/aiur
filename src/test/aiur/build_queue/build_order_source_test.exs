@@ -216,6 +216,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     pid = server(projection)
     assert :ok = Aiur.BuildQueue.add(["1"], "list")
     assert {:ok, [{"1", :already_queued}]} = Aiur.BuildQueue.adopt(99)
+    assert Enum.map(get(:document).queues, &{&1.kind, &1.rank}) == [{:list, 0}, {:build_order, 1}]
     assert Enum.count(get(:document).items, &(&1.issue_id == "1")) == 1
     reconcile(pid)
     changed = snapshot([member(1), member(2), member(4)])
@@ -423,10 +424,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     projection = start_supervised!({Projection, snapshot([member(1)])})
     :sys.replace_state(projection, &%{&1 | timeout?: true})
     server(projection)
-    assert get(:catalog_calls) == 1
     assert {:add, "4", "agent:todo"} in get(:calls)
+    # A snapshot recorded elsewhere on the shared topic must not reach this server and re-try the projection.
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "tracker:open_issues", {:open_issues_recorded, nil})
     assert {:ok, %{sources: sources}} = GenServer.call(Server, :show)
     assert sources == %{"build_order:99" => {:unavailable, :projection_unavailable}, "build_order:100" => {:unavailable, :projection_unavailable}}
+    assert get(:catalog_calls) == 1
   end
 
   defp queue, do: %Model.Queue{id: "q-0000", name: "Build Order", kind: :build_order, root: 99, held: false, generation: 0, created_at: DateTime.from_unix!(0)}
@@ -467,8 +470,8 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
          build_order_projection: projection,
          clock: fn -> get(:now) end,
          schedule: fn _, _, _ -> make_ref() end,
-         sleep: fn _ -> :ok end,
-         exchange: :missing_exchange}
+         exchange: :missing_exchange,
+         open_issues_topic: "tracker:open_issues:#{System.unique_integer([:positive])}"}
       )
 
     reconcile(pid)

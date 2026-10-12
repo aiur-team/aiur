@@ -23,21 +23,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, Metadata, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Lifecycle, Member, Metadata, PackStatus, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
   alias Aiur.DisplaySanitizer
-  alias Aiur.GitHub.Config
-  alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
+  import AiurWeb.BuildOrder.PlanningSource.MembershipHealth
+  import AiurWeb.BuildOrder.PlanningSource.PackLoader
+
+  alias AiurWeb.BuildOrder.PlanningSource.LivePackProgress
+
   @epoch 1
-  @generation 1
-  @default_root_number_base 100_000
-  @default_root_number_range 800_000_000
-  @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
-  @pack_source_precedence_description "workspace > state > environment > configured > explicit"
   @active_membership_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]
 
   @doc "Resolve a pack member document without accepting a filesystem path from the request."
@@ -62,6 +60,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def catalog do
     membership = membership_snapshot()
     packs = load_packs()
+    live_progress = LivePackProgress.load(packs)
 
     {provider_health, status_health, source_generation} = provider(membership, packs)
 
@@ -70,7 +69,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       repository: catalog_repository(packs),
       generation: source_generation,
       authority_epoch: @epoch,
-      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
+      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership, live_progress)), provider_health, search_paths: catalog_search_paths()),
       health: provider_health,
       membership_health: membership_health(membership),
       status_health: status_health
@@ -98,6 +97,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do
       %{} = pack ->
+        live_progress = LivePackProgress.load([pack])
         {provider_health, status_health, source_generation} = provider(membership, [pack])
 
         %Snapshot{
@@ -105,7 +105,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           repository: pack.repository,
           generation: source_generation,
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed), pack_metadata: pack.metadata),
+          data:
+            SelectedRoot.new(root_summary(pack, membership, live_progress), members(pack, membership), provider_health,
+              planning?: not (pack.materialized? or pack.completed),
+              pack_metadata: pack.metadata
+            ),
           health: provider_health,
           membership_health: membership_health(membership),
           status_health: status_health
@@ -169,9 +173,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # --- pack -> structs -------------------------------------------------------
 
-  defp root_summary(pack, membership) do
+  defp root_summary(pack, membership, live_progress) do
     identity = root_identity(pack)
-    progress = progress(pack, membership)
+    progress = progress(pack, membership, live_progress)
 
     RootSummary.new(%{
       identity: identity,
@@ -191,12 +195,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # Partial completion is a lower bound over the whole pack. Coverage remains
   # explicit, and a pack with no resolved members still has no numeric reading.
-  defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
+  defp progress(%{tickets: []}, _membership, _live_progress), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
 
-  defp progress(%{tickets: tickets} = pack, membership) do
-    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership))
+  defp progress(%{tickets: tickets} = pack, membership, live_progress) do
+    live_lifecycles = LivePackProgress.lifecycles(pack, live_progress)
+    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership, live_lifecycles))
     resolved_count = length(resolved)
-    completed_count = Enum.count(resolved, &completed?(&1, pack, membership))
+    completed_count = Enum.count(resolved, &completed?(&1, pack, membership, live_lifecycles))
 
     cond do
       resolved_count == 0 ->
@@ -284,138 +289,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       if(ticket.complexity, do: ["complexity:#{ticket.complexity}"], else: [])
   end
 
-  defp root_identity(pack), do: identity!(pack.repository, pack.root_number, pack.root_node_id || "BO_ROOT")
-
-  defp ticket_identity(pack, %{number: nil, id: id}) do
-    digest = :crypto.hash(:sha256, :erlang.term_to_binary({pack.build_order_id, id}))
-    # Reserve bounded 19-digit locators so drafts can open the ticket context.
-    number = 1_000_000_000_000_000_000 + rem(:binary.decode_unsigned(digest), 8_223_372_036_854_775_807)
-    identity!(pack.repository, number, "PLAN_" <> Base.encode16(digest, case: :lower))
-  end
-
-  defp ticket_identity(pack, ticket), do: identity!(pack.repository, ticket.number, ticket.node_id || "PLAN_#{ticket.id}")
-
-  defp identity!({owner, repo}, number, node_id) do
-    {:ok, identity} =
-      TrackerIdentity.from_github(%{"node_id" => node_id, "number" => number}, {owner, repo}, {owner, repo})
-
-    identity
-  end
-
-  defp provider(membership, packs) do
-    pack_status_snapshot = pack_status_health_snapshot()
-    status_health = pack_status_health(packs, pack_status_snapshot)
-    source_generation = source_generation(membership, pack_status_snapshot)
-
-    # The pack was read independently of live membership and ticket status.
-    # Neither runtime projection may turn a readable graph into a failed plan.
-    health = ProviderHealth.new(source_generation, :healthy, true, observed_at: DateTime.utc_now())
-
-    {health, status_health, source_generation}
-  end
-
-  defp membership_health(%{health: :healthy, freshness: %{status: :fresh}} = membership) do
-    ProviderHealth.new(generation(membership), :healthy, true, observed_at: membership_observed_at(membership))
-  end
-
-  defp membership_health(%{health: :healthy, freshness: %{status: status}} = membership)
-       when status in [:stale, :unknown] do
-    ProviderHealth.new(generation(membership), :stale, false, observed_at: membership_observed_at(membership), failure: :membership_stale)
-  end
-
-  defp membership_health(%{health: :healthy, freshness: %{status: :unavailable}} = membership) do
-    ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: membership_observed_at(membership),
-      failure: :membership_unavailable
-    )
-  end
-
-  defp membership_health(%{health: {:degraded, _reason}} = membership) do
-    ProviderHealth.new(generation(membership), :stale, false, observed_at: membership_observed_at(membership), failure: :membership_stale)
-  end
-
-  defp membership_health(%{health: {:unavailable, _reason}} = membership) do
-    ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: membership_observed_at(membership),
-      failure: :membership_unavailable
-    )
-  end
-
-  defp membership_health(%{health: :unavailable} = membership) do
-    ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: membership_observed_at(membership),
-      failure: :membership_unavailable
-    )
-  end
-
-  defp membership_health(membership) do
-    ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: membership_observed_at(membership),
-      failure: :membership_unavailable
-    )
-  end
-
-  defp membership_observed_at(%{freshness: %{last_observed_at: %DateTime{} = at}}), do: at
-  defp membership_observed_at(_membership), do: nil
-
-  defp pack_status_health(packs, snapshot) do
-    packs
-    |> pack_status_facts()
-    |> project_pack_status_health(snapshot)
-  end
-
-  defp project_pack_status_health({false, _present?, _complete?}, _snapshot), do: nil
-
-  defp project_pack_status_health({true, true, false}, snapshot) do
-    %{snapshot | state: :stale, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
-  end
-
-  defp project_pack_status_health({true, false, false}, snapshot) do
-    %{snapshot | state: :unavailable, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
-  end
-
-  defp project_pack_status_health({true, true, true}, %{state: :unavailable} = snapshot) do
-    %{snapshot | state: :stale}
-  end
-
-  defp project_pack_status_health({true, _present?, true}, snapshot), do: snapshot
-
-  defp pack_status_facts(packs) do
-    Enum.reduce(packs, {false, false, true}, fn pack, facts ->
-      Enum.reduce(pack.tickets, facts, fn ticket, {required?, projection_present?, projection_complete?} ->
-        identity = ticket_identity(pack, ticket)
-        requires_projection? = is_integer(ticket.number)
-        known? = status_lifecycle(identity, pack) in [:completed, :cancelled, :open]
-
-        {
-          required? or requires_projection?,
-          projection_present? or known?,
-          projection_complete? and (not requires_projection? or known?)
-        }
-      end)
-    end)
-  end
-
-  defp pack_status_health_snapshot do
-    Application.get_env(:aiur, :build_order_pack_status_health_snapshot, &PackStatus.health/0).()
-  rescue
-    _error -> ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
-  catch
-    _kind, _reason -> ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
-  end
-
-  defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
-  defp generation(_membership), do: @generation
-
-  defp source_generation(membership, %ProviderHealth{generation: pack_generation})
-       when is_integer(pack_generation) and pack_generation > 0 do
-    membership_generation = generation(membership)
-    sum = membership_generation + pack_generation
-    div(sum * (sum + 1), 2) + pack_generation
-  end
-
-  defp source_generation(membership, _pack_status), do: generation(membership)
-
   defp lifecycle(%{number: nil}, _identity, _pack, _membership), do: {"OPEN", nil}
 
   defp lifecycle(_ticket, identity, pack, membership) do
@@ -431,19 +304,44 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp completed?(ticket, pack, membership) do
+  defp completed?(ticket, pack, membership, live_lifecycles) do
     match?(
       {"CLOSED", "COMPLETED"},
-      lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership)
+      progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership, live_lifecycles)
     )
   end
 
-  defp completion_known?(%{number: nil}, _pack, _membership), do: true
-  defp completion_known?(_ticket, %{completed: true}, _membership), do: true
+  defp completion_known?(%{number: nil}, _pack, _membership, _live_lifecycles), do: true
+  defp completion_known?(%{number: _number}, %{completed: true}, _membership, _live_lifecycles), do: true
 
-  defp completion_known?(ticket, pack, membership) do
-    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
+  defp completion_known?(ticket, pack, membership, live_lifecycles) do
+    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open] or
+      Map.has_key?(live_lifecycles, ticket.id)
   end
+
+  defp progress_lifecycle(%{number: nil} = ticket, _identity, _pack, _membership, live_lifecycles) do
+    case Map.get(live_lifecycles, ticket.id) do
+      %Lifecycle{} = live -> lifecycle_tuple(live)
+      nil -> {"OPEN", nil}
+    end
+  end
+
+  defp progress_lifecycle(ticket, identity, pack, membership, live_lifecycles) do
+    case lifecycle(ticket, identity, pack, membership) do
+      {:unknown, :unknown} ->
+        case Map.get(live_lifecycles, ticket.id) do
+          %Lifecycle{} = live -> lifecycle_tuple(live)
+          nil -> {:unknown, :unknown}
+        end
+
+      resolved ->
+        resolved
+    end
+  end
+
+  defp lifecycle_tuple(%Lifecycle{state: :closed, state_reason: :completed}), do: {"CLOSED", "COMPLETED"}
+  defp lifecycle_tuple(%Lifecycle{state: :closed}), do: {"CLOSED", "NOT_PLANNED"}
+  defp lifecycle_tuple(%Lifecycle{state: :open}), do: {"OPEN", nil}
 
   defp membership_lifecycle(identity, %{members: members} = membership) when is_list(members) do
     if membership_current?(membership) do
@@ -517,440 +415,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp membership_snapshot do
     snapshot = Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
 
-    Map.put_new(snapshot, :labels_by_identity, current_poll_labels())
+    Map.put_new(snapshot, :labels_by_identity, LivePackProgress.current_poll_labels())
   rescue
     _error -> %{health: :unavailable}
   catch
     _kind, _reason -> %{health: :unavailable}
   end
-
-  # `StatusReport` is the in-memory result of the orchestrator's normal
-  # tracker poll. Reading it adds no GitHub traffic and lets ticket-backed
-  # members show current labels while their issue remains in the run snapshot.
-  defp current_poll_labels do
-    case StatusReport.snapshot_api() do
-      snapshot when is_map(snapshot) ->
-        [:running, :retrying, :idle]
-        |> Enum.flat_map(&Map.get(snapshot, &1, []))
-        |> Enum.reduce(%{}, &put_live_labels/2)
-
-      _unavailable ->
-        %{}
-    end
-  rescue
-    _error -> %{}
-  catch
-    _kind, _reason -> %{}
-  end
-
-  defp put_live_labels(row, labels_by_identity) do
-    case {Map.get(row, :tracker_identity), valid_labels(Map.get(row, :labels))} do
-      {%TrackerIdentity{} = identity, [_ | _] = labels} ->
-        Map.put(labels_by_identity, TrackerIdentity.github_key(identity), labels)
-
-      _row ->
-        labels_by_identity
-    end
-  end
-
-  # --- pack loading ----------------------------------------------------------
-
-  defp load_packs(options \\ []) do
-    include_drafts? = Keyword.get(options, :include_drafts?, false)
-
-    pack_paths()
-    |> Enum.map(&load_pack(&1, include_drafts?))
-    |> Enum.flat_map(fn
-      {:ok, pack} -> [pack]
-      {:error, _reason} -> []
-    end)
-    |> filter_for_tracked_repository()
-    |> reconcile_duplicate_packs()
-    |> Enum.sort(&pack_before?/2)
-    |> assign_default_root_numbers()
-    |> assign_default_icons()
-  end
-
-  # A single explicit pack is a test/demo override. Every normal catalog source,
-  # including the environment directory override, remains scoped to the repo this
-  # daemon is tracking.
-  defp filter_for_tracked_repository(packs) do
-    if Application.get_env(:aiur, :build_order_planning_pack) do
-      packs
-    else
-      Enum.filter(packs, &tracked_repository?/1)
-    end
-  end
-
-  defp tracked_repository?(%{repository: repository}), do: same_repository?(repository, configured_repository_tuple())
-  defp tracked_repository?(_pack), do: false
-
-  defp pack_paths do
-    case Application.get_env(:aiur, :build_order_planning_pack) do
-      nil ->
-        case Application.get_env(:aiur, :build_order_planning_packs) do
-          paths when is_list(paths) -> Enum.map(paths, &{:configured, &1})
-          _missing -> discovered_packs()
-        end
-
-      path ->
-        [{:explicit, path}]
-    end
-  end
-
-  # Runtime packs are re-discovered through the same canonical source list the
-  # status poller uses, including publisher-created workspace mirrors.
-  defp discovered_packs do
-    PackPaths.discovered_sources()
-  end
-
-  defp catalog_repository([pack | _packs]), do: pack.repository
-  defp catalog_repository([]), do: configured_repository_tuple()
-
-  defp configured_repository_tuple do
-    case String.split(to_string(configured_repository() || ""), "/", parts: 2) do
-      [owner, repo] when owner != "" and repo != "" -> {owner, repo}
-      _other -> {"unknown", "unknown"}
-    end
-  end
-
-  defp catalog_search_paths do
-    case Application.get_env(:aiur, :build_order_planning_pack) do
-      nil ->
-        case Application.get_env(:aiur, :build_order_planning_packs) do
-          paths when is_list(paths) -> Enum.map(paths, &Path.dirname(absolute_path(&1)))
-          _missing -> PackPaths.discovery_directories()
-        end
-
-      path ->
-        [Path.dirname(absolute_path(path))]
-    end
-  end
-
-  defp load_pack({source, path}, include_drafts?) do
-    absolute = absolute_path(path)
-
-    with {:ok, body} <- File.read(absolute),
-         {:ok, json} <- Jason.decode(body),
-         :ok <- pack_object(json),
-         {:repository, {:ok, repository}} <- {:repository, repository(json)},
-         {:tickets, {:ok, tickets}} <- {:tickets, tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?)} do
-      raw_build_order_id = Map.get(json, "build_order_id")
-      build_order_id = normalized_build_order_id(raw_build_order_id)
-      root_number = Map.get(json, "root_number") || get_in(json, ["github_root", "number"])
-      status = status(absolute)
-      declared_completed? = Map.get(json, "completed", false) == true
-
-      pack =
-        %{
-          source: source,
-          path: absolute,
-          content_hash: :crypto.hash(:sha256, body),
-          repository: repository,
-          build_order_id: build_order_id,
-          build_order_id_explicit?: is_binary(raw_build_order_id) and raw_build_order_id != "",
-          title: Map.get(json, "title", "Planning build order"),
-          icon: pack_icon(json),
-          icon_explicit?: is_binary(Map.get(json, "icon")) and Map.get(json, "icon") != "",
-          root_number: root_number || default_root_number(build_order_id),
-          root_number_explicit?: is_integer(root_number),
-          root_node_id: root_node_id(json, build_order_id),
-          declared_completed?: declared_completed?,
-          completed: declared_completed? or status_completed?(status),
-          completed_at: status_completed_at(status),
-          status: status,
-          metadata: Map.take(json, ["workstreams", "phases", "external_gates"]),
-          materialized?: Enum.any?(tickets, &is_integer(&1.number)),
-          tickets: tickets
-        }
-
-      root_identity(pack)
-      identifiers = Enum.map(tickets, &ticket_identity(pack, &1).identifier)
-
-      if length(Enum.uniq(identifiers)) == length(identifiers),
-        do: {:ok, pack},
-        else: pack_error(absolute, :duplicate_member_identifier)
-    else
-      error -> pack_error(absolute, error)
-    end
-  rescue
-    error -> pack_error(absolute_path(path), {:exception, error.__struct__, Exception.message(error)})
-  end
-
-  defp pack_object(json) when is_map(json), do: :ok
-  defp pack_object(_json), do: {:error, :invalid_pack_object}
-
-  defp pack_error(path, reason) do
-    Logger.warning("build order catalog skipped pack #{path}: #{inspect(reason)}")
-    {:error, reason}
-  end
-
-  # The publisher writes a workspace mirror while the repository state node
-  # retains its canonical copy. Reconcile only mirrors of the same logical
-  # build order before sorting so the URL router receives one root identity.
-  # Source precedence is intentional and auditable in the warning: workspace,
-  # state, environment, configured list, then the singular explicit test/demo
-  # pack. Distinct build orders retain their entries even when root locators
-  # collide, allowing RouteState to fail closed rather than hiding a pack.
-  defp reconcile_duplicate_packs(packs) do
-    packs
-    |> Enum.sort_by(&pack_precedence/1)
-    |> Enum.reduce([], fn pack, selected ->
-      case Enum.find_index(selected, &same_catalog_pack?(&1, pack)) do
-        nil ->
-          [pack | selected]
-
-        index ->
-          chosen = Enum.at(selected, index)
-
-          Logger.warning(
-            "build order catalog discarded #{duplicate_kind(chosen, pack)} #{inspect(pack.build_order_id)} from #{pack.source} (#{pack.path}); " <>
-              "source precedence #{@pack_source_precedence_description} selected #{chosen.source} (#{chosen.path})"
-          )
-
-          List.replace_at(selected, index, retain_state_projection(chosen, pack))
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp pack_precedence(pack), do: {Map.get(@pack_source_precedence, pack.source, 99), pack.path}
-
-  defp same_catalog_pack?(left, right) do
-    same_repository?(left.repository, right.repository) and
-      left.build_order_id_explicit? and right.build_order_id_explicit? and
-      left.build_order_id == right.build_order_id
-  end
-
-  defp duplicate_kind(%{content_hash: hash}, %{content_hash: hash}), do: "identical mirror"
-  defp duplicate_kind(_chosen, _pack), do: "divergent duplicate"
-
-  # A workspace mirror determines the catalog definition, but the daemon writes
-  # status.json only beside the repository-state manifest. Keep that projection
-  # when the matching state pack loses definition precedence.
-  defp retain_state_projection(chosen, %{source: :state, status: status}) do
-    %{chosen | status: status, completed: chosen.declared_completed? or status_completed?(status), completed_at: status_completed_at(status)}
-  end
-
-  defp retain_state_projection(chosen, _discarded), do: chosen
-
-  defp same_repository?({left_owner, left_repo}, {right_owner, right_repo}) do
-    String.downcase(left_owner) == String.downcase(right_owner) and String.downcase(left_repo) == String.downcase(right_repo)
-  end
-
-  defp same_repository?(_left, _right), do: false
-
-  defp normalized_build_order_id(build_order_id) when is_binary(build_order_id) and build_order_id != "", do: build_order_id
-  defp normalized_build_order_id(_build_order_id), do: "planning"
-
-  defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || get_in(json, ["github_root", "node_id"]) || "BO_#{build_order_id}"
-
-  defp assign_default_root_numbers(packs) do
-    {packs, _used_numbers} =
-      Enum.map_reduce(packs, MapSet.new(), fn pack, used_numbers ->
-        root_number =
-          if pack.root_number_explicit? do
-            pack.root_number
-          else
-            unique_default_root_number(pack.build_order_id, used_numbers)
-          end
-
-        {%{pack | root_number: root_number}, MapSet.put(used_numbers, root_number)}
-      end)
-
-    packs
-  end
-
-  defp default_root_number(build_order_id), do: @default_root_number_base + :erlang.phash2(build_order_id, @default_root_number_range)
-
-  defp unique_default_root_number(build_order_id, used_numbers, probe \\ 0) do
-    root_number = default_root_number({build_order_id, probe})
-
-    if MapSet.member?(used_numbers, root_number) do
-      unique_default_root_number(build_order_id, used_numbers, probe + 1)
-    else
-      root_number
-    end
-  end
-
-  defp repository(json) do
-    case String.split(to_string(Map.get(json, "repository", "")), "/", parts: 2) do
-      [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
-      _other -> :error
-    end
-  end
-
-  defp tickets(list, pack_dir, include_drafts?) when is_list(list) do
-    Enum.reduce_while(list, {:ok, []}, fn attributes, {:ok, tickets} ->
-      case ticket(attributes, pack_dir, include_drafts?) do
-        {:ok, ticket} -> {:cont, {:ok, [ticket | tickets]}}
-        :error -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, tickets} -> {:ok, Enum.reverse(tickets)}
-      :error -> :error
-    end
-  end
-
-  defp tickets(_list, _pack_dir, _include_drafts?), do: :error
-
-  defp ticket(%{"id" => id} = attributes, pack_dir, include_drafts?) when is_binary(id) and id != "" do
-    with {:ok, number} <- ticket_number(attributes),
-         document_path <- ticket_document_path(attributes),
-         true <- safe_document_path?(document_path) do
-      {:ok,
-       %{
-         id: id,
-         title: Map.get(attributes, "title", id),
-         lane: ticket_lane(attributes),
-         phase: ticket_phase(attributes),
-         complexity: ticket_complexity(attributes),
-         number: number,
-         node_id: ticket_node_id(attributes),
-         depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
-         document_url: nil,
-         document_path: document_path,
-         draft_body: if(include_drafts? and is_nil(number), do: draft_body(document_path, pack_dir)),
-         icon: Map.get(attributes, "icon")
-       }}
-    else
-      _invalid -> :error
-    end
-  end
-
-  defp ticket(_attributes, _pack_dir, _include_drafts?), do: :error
-
-  defp ticket_document_path(attributes), do: Map.get(attributes, "doc") || Map.get(attributes, "document")
-
-  defp ticket_lane(attributes), do: to_string(Map.get(attributes, "lane") || Map.get(attributes, "workstream") || "unassigned")
-
-  defp ticket_phase(attributes), do: Map.get(attributes, "phase") || Map.get(attributes, "phase_hint") || 0
-
-  defp ticket_complexity(attributes), do: Map.get(attributes, "complexity") || Map.get(attributes, "complexity_points")
-
-  defp ticket_node_id(attributes), do: get_in(attributes, ["github", "node_id"])
-
-  defp safe_document_path?(path) when is_binary(path) and byte_size(path) in 1..512 do
-    Path.type(path) == :relative and
-      String.starts_with?(path, "tickets/") and
-      not Enum.member?(Path.split(path), "..")
-  end
-
-  defp safe_document_path?(_path), do: false
-
-  defp draft_body(path, pack_dir) when is_binary(path) do
-    pack_dir = Path.expand(pack_dir)
-    document = Path.expand(path, pack_dir)
-
-    with {:ok, %{candidate: canonical}} <- Aiur.PathSafety.contained?(pack_dir, document),
-         {:ok, body} when byte_size(body) in 1..64_000 <- File.read(canonical) do
-      body
-    else
-      _missing_or_invalid -> nil
-    end
-  end
-
-  defp draft_body(_path, _pack_dir), do: nil
-
-  defp status(path) do
-    path
-    |> PackPaths.status_path()
-    |> File.read()
-    |> case do
-      {:ok, body} -> Jason.decode(body)
-      _missing -> {:error, :missing}
-    end
-    |> case do
-      {:ok, map} when is_map(map) -> map
-      _invalid -> %{}
-    end
-  end
-
-  defp status_completed?(%{"state" => state}) when state in ["completed", "COMPLETE", "complete"], do: true
-  defp status_completed?(%{"completed" => true}), do: true
-  defp status_completed?(_status), do: false
-
-  defp status_completed_at(%{"completed_at" => value}) when is_binary(value), do: value
-  defp status_completed_at(_status), do: nil
-
-  defp status_lifecycle(%TrackerIdentity{identifier: identifier}, %{status: status}) do
-    state =
-      status
-      |> status_members()
-      |> Map.get(identifier)
-      |> case do
-        %{"lifecycle" => lifecycle} -> lifecycle
-        %{"state" => value} -> value
-        value when is_binary(value) -> value
-        _missing -> nil
-      end
-
-    case state do
-      value when value in ["completed", "COMPLETE", "complete"] -> :completed
-      value when value in ["cancelled", "canceled", "CANCELLED", "CANCELED"] -> :cancelled
-      value when value in ["open", "OPEN"] -> :open
-      _unknown -> nil
-    end
-  end
-
-  defp status_lifecycle(_identity, _pack), do: nil
-
-  defp status_members(%{"members" => members}) when is_map(members), do: members
-  defp status_members(_status), do: %{}
-
-  defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
-  defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
-  defp ticket_number(%{"github" => %{"number" => ticket}}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
-  defp ticket_number(_attributes), do: :error
-
-  @default_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
-
-  defp assign_default_icons(packs) do
-    {packs, _used_icons} =
-      Enum.map_reduce(packs, MapSet.new(), fn pack, used_icons ->
-        if pack.icon_explicit? do
-          {pack, MapSet.put(used_icons, pack.icon)}
-        else
-          icon = unique_default_icon(pack.build_order_id, used_icons)
-          {%{pack | icon: icon}, MapSet.put(used_icons, icon)}
-        end
-      end)
-
-    packs
-  end
-
-  defp pack_icon(%{"icon" => icon}) when is_binary(icon) and icon != "", do: icon
-
-  defp pack_icon(json) do
-    unique_default_icon(Map.get(json, "build_order_id", "planning"), MapSet.new())
-  end
-
-  defp unique_default_icon(build_order_id, used_icons) do
-    offset = :erlang.phash2(build_order_id, length(@default_icons))
-
-    candidates =
-      @default_icons
-      |> Stream.cycle()
-      |> Stream.drop(offset)
-      |> Enum.take(length(@default_icons))
-
-    Enum.find(candidates, &(not MapSet.member?(used_icons, &1))) || hd(candidates)
-  end
-
-  defp pack_before?(left, right) do
-    cond do
-      left.completed != right.completed -> not left.completed
-      left.completed and left.completed_at != right.completed_at -> (left.completed_at || "") > (right.completed_at || "")
-      true -> left.title < right.title
-    end
-  end
-
-  defp configured_repository do
-    Config.repo()
-  rescue
-    _error -> nil
-  end
-
-  defp absolute_path(path), do: if(Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path))
 end

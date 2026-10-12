@@ -30,7 +30,7 @@ defmodule Aiur.RepoBaseTest do
     git!(["-C", origin, "add", "."])
     git!(["-C", origin, "commit", "--quiet", "-m", "init"])
 
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
 
     {:ok, tmp: tmp, origin: origin, node: node, base: base}
   end
@@ -1118,7 +1118,7 @@ defmodule Aiur.RepoBaseTest do
           p -> Aiur.Workflow.set_workflow_file_path(p)
         end
 
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       {:ok, cfg: cfg}
@@ -1177,7 +1177,7 @@ defmodule Aiur.RepoBaseTest do
           p -> Aiur.Workflow.set_workflow_file_path(p)
         end
 
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end)
 
       {:ok, server: pid, cfg: cfg}

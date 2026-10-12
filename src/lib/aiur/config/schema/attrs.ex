@@ -47,11 +47,10 @@ defmodule Aiur.Config.Schema.Attrs do
     if preserve_nil_path?(path), do: Map.put(acc, key, nil), else: acc
   end
 
-  # max_load_average defaults to 1.5 (gate on), so an explicit YAML null is the
-  # only way to disable the gate. Without this, drop_nil_values/2 would strip the
-  # null before the changeset, letting the default silently re-enable the gate.
-  # Keep this path aligned with the Agent schema field's location.
+  # Preserve explicit opt-outs so defaults do not silently re-enable admission.
   @spec preserve_nil_path?(list()) :: boolean()
+  def preserve_nil_path?(["agent", "max_cpu_pressure"]), do: true
+  def preserve_nil_path?(["agent", "target_cpu_pressure"]), do: true
   def preserve_nil_path?(["agent", "max_load_average"]), do: true
   def preserve_nil_path?(["agent", "target_load_average"]), do: true
   def preserve_nil_path?(["tracker", "github", "allowed_contributors" | _rest]), do: true

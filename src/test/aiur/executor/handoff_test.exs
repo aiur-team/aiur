@@ -17,7 +17,7 @@ defmodule Aiur.Executor.HandoffTest do
         root -> Application.put_env(:aiur, :repo_base_root, root)
       end
 
-      File.rm_rf!(tmp)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     {:ok, tmp: tmp}

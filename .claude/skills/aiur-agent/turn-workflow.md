@@ -1,9 +1,10 @@
 # Running a turn
 
 In every repository, mark completed, self-reviewed work ready **before**
-entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
-Only the full required-check set passing on the current head SHA permits
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+All required checks passing on the current head SHA permit
 `agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
+Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.
 
 ## Label lifecycle
 
@@ -70,7 +71,7 @@ in the workpad rather than falling back to raw label edits.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
-11. On a delivered full required-check pass for the current head SHA, verify
+11. On a delivered required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. No overlap or
     conflicts permits `agent:human-review` even if the head is stale. If unsafe,
     follow `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. After
@@ -111,10 +112,21 @@ change as the comment actually warrants.
 A rework turn with nothing to rework must not push. GitHub never clears
 `reviewDecision` when findings are addressed, so a ticket can be routed to
 `agent:rework` with every finding already fixed. When that happens, record it in
-the workpad, reply on the threads that are already satisfied, and end the turn.
-Do **not** merge the base and push to prove liveness: a push with no substantive
-change is not progress, and under a branch ruleset that dismisses stale
-approvals it destroys the approval that would have released the ticket.
+the workpad, reply on the threads that are already satisfied, and hand the
+ticket back with `aiur_set_ticket_state({ "state": "human-review" })` before
+ending the turn. Do **not** merge the base and push to prove liveness: a push
+with no substantive change is not progress, and under a branch ruleset that
+dismisses stale approvals it destroys the approval that would have released the
+ticket.
+
+Red CI is not a reason to stay in `agent:rework`. Once every blocking finding is
+addressed and pushed, post one PR comment naming the head SHA, each finding and
+the commit that addresses it, and any failing check you believe is inherited
+from the base — with the evidence, such as the same check failing on the base
+head. Then move to `agent:human-review`. Whether inherited red CI blocks the
+merge is the reviewer's call. A failure your own change caused is still yours
+to fix first. Ending turns in `agent:rework` with nothing left to change only
+runs the ticket into the no-op bound (#3971).
 
 After pushing rework commits, the agent hands off by label: use
 `agent:ci-wait` while checks are pending, otherwise `agent:human-review`.

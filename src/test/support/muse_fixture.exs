@@ -90,6 +90,11 @@ defmodule Aiur.TestSupport.MuseFixture do
                 emit({'jsonrpc': '2.0', 'id': 'input-1', 'method': 'userInput/request', 'params': {'sessionId': session, 'turnId': 'turn-1'}})
                 if mode == 'user_input_foreign':
                     terminal('completed')
+            elif mode == 'closed_stdin':
+                import os, time
+                os.close(0)
+                emit({'jsonrpc': '2.0', 'method': 'item/started', 'params': {'sessionId': 'native-session', 'viewCursor': 'stdin-closed', 'item': {'itemId': 'item-1', 'kind': 'agentMessage', 'revision': 1}}})
+                time.sleep(30)
             elif mode == 'bad_terminal':
                 terminal('unknown')
             elif mode == 'mcp':

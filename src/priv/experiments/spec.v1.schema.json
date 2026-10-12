@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aiur.team/schemas/experiments/spec.v1.schema.json",
+  "title": "Aiur experiment spec v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]{2,79}$"},
+    "key": {"type": ["string", "null"], "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "hypothesis": {"type": "string"},
+    "owner": {"type": "object", "properties": {"kind": {"enum": ["human", "agent"]}, "id": {"type": "string", "minLength": 1}}, "required": ["kind", "id"], "additionalProperties": false},
+    "status": {"enum": ["draft", "active", "concluded", "abandoned"]},
+    "origin": {
+      "type": "object",
+      "properties": {"kind": {"enum": ["manual", "release", "epic_merge", "analyst"]}, "ref": {"type": ["string", "null"]}},
+      "required": ["kind", "ref"],
+      "additionalProperties": false
+    },
+    "design": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "before_after"},
+            "change": {
+              "type": "object",
+              "properties": {
+                "type": {"enum": ["release", "tag", "commit", "epic_merge", "merge", "config", "manual"]},
+                "ref": {"type": "string", "minLength": 1},
+                "time": {"type": "string", "format": "date-time"},
+                "evidence": {}
+              },
+              "required": ["type", "ref", "time"],
+              "additionalProperties": false
+            },
+            "assign_by": {"enum": ["start", "finish"]}
+          },
+          "required": ["kind", "change", "assign_by"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "ab"},
+            "cohorts": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "properties": {"id": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1}, "where": {"$ref": "#/definitions/predicate"}},
+                "required": ["id", "label", "where"],
+                "additionalProperties": false
+              }
+            },
+            "control": {"type": "string", "minLength": 1}
+          },
+          "required": ["kind", "cohorts", "control"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": {"type": "string", "pattern": "^[a-z0-9-]+/[a-z0-9_]+$"},
+          "direction": {"enum": ["decrease", "increase", "none"]},
+          "primary": {"type": "boolean"},
+          "min_samples": {"type": "integer", "minimum": 1},
+          "mde": {"type": "number", "exclusiveMinimum": 0},
+          "kind": {"enum": ["duration", "count", "binary", "rate", "bucketed"]}
+        },
+        "required": ["ref", "direction", "primary"],
+        "additionalProperties": false
+      }
+    },
+    "min_samples": {"type": "integer", "minimum": 1},
+    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+    "power_target": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+    "windows": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {"before": {"$ref": "#/definitions/window"}, "after": {"$ref": "#/definitions/window"}},
+          "required": ["before", "after"],
+          "additionalProperties": false
+        },
+        {"type": "object", "properties": {"observation": {"$ref": "#/definitions/window"}}, "required": ["observation"], "additionalProperties": false}
+      ]
+    },
+    "filters": {"$ref": "#/definitions/predicate"},
+    "stratify_by": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}},
+    "tags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "notes": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "registered_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "key",
+    "title",
+    "hypothesis",
+    "owner",
+    "status",
+    "origin",
+    "design",
+    "metrics",
+    "min_samples",
+    "alpha",
+    "power_target",
+    "windows",
+    "filters",
+    "stratify_by",
+    "tags",
+    "notes",
+    "created_at",
+    "updated_at",
+    "registered_at"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "predicate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {"attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}, "op": {"const": "eq"}, "value": {}},
+          "required": ["attr", "op", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}, "op": {"const": "neq"}, "value": {}},
+          "required": ["attr", "op", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"},
+            "op": {"const": "in"},
+            "value": {"type": "array"}
+          },
+          "required": ["attr", "op", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"},
+            "op": {"const": "prefix"},
+            "value": {"type": "string"}
+          },
+          "required": ["attr", "op", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"},
+            "op": {"const": "exists"},
+            "value": {"type": "boolean"}
+          },
+          "required": ["attr", "op"],
+          "additionalProperties": false
+        },
+        {"type": "object", "properties": {"all": {"type": "array", "items": {"$ref": "#/definitions/predicate"}}}, "required": ["all"], "additionalProperties": false},
+        {"type": "object", "properties": {"any": {"type": "array", "items": {"$ref": "#/definitions/predicate"}}}, "required": ["any"], "additionalProperties": false},
+        {"type": "object", "properties": {"not": {"$ref": "#/definitions/predicate"}}, "required": ["not"], "additionalProperties": false}
+      ]
+    },
+    "window": {
+      "type": "object",
+      "properties": {"start": {"type": "string", "format": "date-time"}, "end": {"type": ["string", "null"], "format": "date-time"}},
+      "required": ["start", "end"],
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"design": {"properties": {"kind": {"const": "before_after"}}}}},
+      "then": {"properties": {"windows": {"required": ["before", "after"]}}},
+      "else": {"properties": {"windows": {"required": ["observation"]}}}
+    }
+  ]
+}

@@ -1,0 +1,313 @@
+/* Keep the pause/resume control square — it would otherwise inherit the taller
+   min-height from .units-control-action and render as a portrait rectangle. */
+.units-icon-action.units-control-action {
+  min-height: 2.2rem;
+}
+
+.units-icon-action svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.units-icon-action:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.units-icon-action[disabled],
+.units-icon-action.unavailable {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.units-icon-action.tone-applied {
+  border-color: color-mix(in srgb, #6bd6a6 55%, transparent);
+  color: #6bd6a6;
+}
+
+.units-icon-action.tone-error {
+  border-color: color-mix(in srgb, var(--blocking) 55%, transparent);
+  color: var(--blocking-ink);
+}
+
+.units-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.units-action:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.units-action.primary {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.units-action.unavailable {
+  cursor: not-allowed;
+  color: var(--muted);
+}
+
+.units-control {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.units-control-action {
+  min-height: 44px;
+}
+
+.units-control-action.is-resume {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.units-control-action[disabled],
+.units-control-action[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.units-control-status {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.units-control-glyph {
+  font-weight: 700;
+}
+
+.units-control-status.tone-pending {
+  color: var(--muted);
+}
+
+.units-control-status.tone-applied {
+  color: var(--accent-ink);
+}
+
+.units-control-status.tone-warning {
+  color: var(--warn-ink, #8a5a00);
+}
+
+.units-control-status.tone-error {
+  color: var(--danger-ink, #a11);
+}
+
+.units-control-note,
+.units-control-owner {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.fleet-table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+}
+
+.fleet-table th {
+  padding: 0 0.55rem 0.7rem;
+  text-align: left;
+  color: var(--faint);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fleet-table td {
+  padding: 0.78rem 0.55rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.8rem;
+  vertical-align: middle;
+  transition: background 0.14s ease;
+}
+
+.fleet-row[phx-click] {
+  cursor: pointer;
+}
+
+.fleet-row:hover td {
+  background: var(--pill-bg);
+}
+
+.fleet-row.blocked-row td:first-child {
+  box-shadow: inset 3px 0 var(--blocking);
+}
+
+.fleet-row.awaiting-row td:first-child {
+  box-shadow: inset 3px 0 var(--attention);
+}
+
+.fleet-ticket {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 13rem;
+}
+
+.fleet-ticket > span:last-child {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.fleet-ticket strong {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-state-glyph {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.65rem;
+  height: 1.65rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--good-ink);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.fleet-latest,
+.fleet-latest-meta {
+  display: block;
+  max-width: 25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-latest-meta {
+  margin-top: 0.16rem;
+  color: var(--faint);
+  font-size: 0.63rem;
+}
+
+.fleet-actions {
+  justify-content: flex-end;
+}
+
+.fleet-action {
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.78rem;
+}
+
+.fleet-action:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.fleet-action.decision {
+  border-color: var(--attention-line);
+  background: var(--attention-soft);
+  color: var(--attention-ink);
+}
+
+.recent-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.recent-section + .recent-section {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.recent-subtitle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.recent-subtitle-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.outcome-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 0.7rem;
+}
+
+.outcome-card {
+  position: relative;
+  overflow: hidden;
+  padding: 0.88rem 0.95rem 0.88rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-2);
+}
+
+.outcome-card h3 {
+  margin: 0.5rem 0 0;
+  font-size: 0.91rem;
+}
+
+.outcome-card > p {
+  margin: 0.36rem 0 0;
+  color: var(--muted);
+  font-size: 0.79rem;
+}
+
+.outcome-card footer {
+  margin-top: 0.65rem;
+}
+
+.pull-request-number {
+  color: var(--good-ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+

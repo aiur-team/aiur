@@ -99,6 +99,20 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "loopback bind without credentials" do
+    test "dashboard_pages? is written to endpoint config and defaults to on" do
+      start = fn opts ->
+        capture_log(fn ->
+          HttpServer.start_link([host: "127.0.0.1", port: 0, dashboard_writable: false, endpoint_start_fun: fn -> :ignore end] ++ opts)
+        end)
+
+        {Application.get_env(:aiur, AiurWeb.Endpoint)[:dashboard_pages], Application.get_env(:aiur, :dashboard_pages)}
+      end
+
+      on_exit(fn -> Application.delete_env(:aiur, :dashboard_pages) end)
+      assert start.(dashboard_pages?: false) == {false, false}
+      assert start.([]) == {true, true}
+    end
+
     test "a read-only loopback listener binds and warns that requests fail closed" do
       log =
         capture_log(fn ->
