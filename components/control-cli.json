@@ -15,6 +15,8 @@
     "src/lib/aiur/findings.ex",
     "src/lib/aiur/launch_state_adoption.ex",
     "src/lib/aiur/launcher_watchdog.ex",
+    "src/lib/aiur/pr_merge.ex",
+    "src/lib/aiur/pr_merge/**",
     "src/lib/aiur/pubsub_boot.ex",
     "src/lib/aiur/shutdown.ex",
     "src/lib/aiur/specs_check.ex",
@@ -82,6 +84,7 @@
   "owns": {
     "config": [],
     "env": [
+      "AIUR_AGENT_BIN",
       "AIUR_ARGV_FILE",
       "AIUR_BASE_BRANCH",
       "AIUR_BUILD_ORDER_DIRS",
@@ -93,6 +96,7 @@
       "AIUR_GH_KEYRING_TIMEOUT_MS",
       "AIUR_OPENCODE_BRIDGE_PORT",
       "AIUR_PREWARM_DISABLED",
+      "AIUR_PR_MERGE_ENGINE",
       "AIUR_REGISTRY_URL",
       "AIUR_SCREEN_GRAB",
       "AIUR_SSH_CONFIG"

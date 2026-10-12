@@ -224,7 +224,7 @@ function requiresInteractiveTools(argv) {
   if (["", "run", "restart", "--bg"].includes(command)) return true;
   const nonLaunchCommands = new Set([
     "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
-    "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+    "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
     "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
     "upgrade", "pause", "resume", "park", "reset-budget", "message", "cleanup-stale", "stop",
     "executor-answer", "executor-escalate", "executor-moot", "executor-listen", "executor-wait",
