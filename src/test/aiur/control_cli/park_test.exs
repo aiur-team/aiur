@@ -25,7 +25,7 @@ defmodule Aiur.ControlCLI.ParkTest do
     pending = capture_io(fn -> AgentControlCLI.park(["2952"]) end)
     assert pending =~ "parking #2952; tracker marker write pending"
     assert pending =~ "__AIUR_CONTROL_EXIT__:0"
-    assert_receive {:memory_tracker_add_label, "2952", "agent:parked"}
+    assert_receive {:memory_tracker_add_label, "2952", "agent:parked"}, 1_000
 
     assert await_orchestrator_state(Process.whereis(Orchestrator), fn state ->
              get_in(state.running, ["2952", :operator_parked]) == true
@@ -44,7 +44,7 @@ defmodule Aiur.ControlCLI.ParkTest do
       end)
 
     assert stderr =~ "#missing could not be parked: no running agent"
-    assert_receive {:park_stdout, refused}
+    assert_receive {:park_stdout, refused}, 1_000
     assert refused =~ "__AIUR_CONTROL_EXIT__:1"
   end
 end

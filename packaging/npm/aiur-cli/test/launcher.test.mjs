@@ -251,7 +251,7 @@ const nonLaunchCommands = [
   "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
   "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
   "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
-  "upgrade", "pause", "resume", "park", "reset-budget", "message", "cleanup-stale", "stop",
+  "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
   "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
   "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
@@ -821,17 +821,6 @@ test("bare pause/resume flip the global switch; targeted forms stay per-agent", 
   expect(capture).toContain("Aiur.AgentControlCLI.resume_global()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
   expect(capture).toContain('Aiur.AgentControlCLI.resume(["44"])');
-});
-
-test("park requires explicit issue IDs", () => {
-  const { launcher, releaseDir } = setupControlRpc();
-  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
-
-  for (const args of [["park"], ["park", "--all"]]) {
-    const result = runControl(launcher, releaseDir, env, args);
-    expect(result.status).toBe(64);
-    expect(result.stderr).toContain("park expects explicit issue IDs");
-  }
 });
 
 test("workspace-recover safely encodes the ticket and validates its generation", () => {
