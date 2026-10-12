@@ -5,10 +5,13 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
 
   alias Aiur.BuildQueue.ClaimProbe
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{IssueSync, QueueSetSlots, State}
+  alias Aiur.Orchestrator.{IssueSync, OptimisticLedger, QueueSetSlots, State}
 
   @impl true
   def status(ids), do: status(Orchestrator, ids)
+
+  @impl true
+  def optimistic_records, do: OptimisticLedger.open_records()
 
   @doc false
   @spec status(GenServer.server(), [String.t()]) :: ClaimProbe.result()

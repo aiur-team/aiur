@@ -745,7 +745,6 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 | `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
 | `experiments.checkpoint_interval_ms` | integer | 3600000 | Observation checkpoint interval in milliseconds; positive, reserved for snapshot capture. |
 | `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
-
 ## build_queue
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
@@ -761,8 +760,9 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | `build_queue.max_writes_per_minute` | integer | 20 | Queue write budget per minute; 1..60. |
 | `build_queue.observation_max_age_seconds` | integer or null | derived (2× polling.interval_seconds) | Maximum observation age in seconds; null derives twice the base poll interval (240 seconds by default); explicit values must be 10..3600. A non-empty queue whose open-issue snapshot is older than this lists open issues itself, at most once per this age. |
 | `build_queue.merged_open_grace_seconds` | integer | 600 | Grace period in seconds for an `issue_closed` queue prerequisite whose PR merged but issue remains open; 60..86400. |
+| `build_queue.optimistic_failure_grace_seconds` | integer | 600 | Seconds to wait for a reopened or replacement blocker PR before parking optimistic dependents; 60..86400. |
+| `build_queue.optimistic_churn_attention_threshold` | integer | 3 | Conflicting integrations before an informational attention; 0 disables, 0..50. Never pauses work. |
 ## build_order
-
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
