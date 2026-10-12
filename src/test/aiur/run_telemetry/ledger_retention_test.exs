@@ -55,6 +55,20 @@ defmodule Aiur.RunTelemetry.LedgerRetentionTest do
     assert File.regular?(Path.join(Summaries.analytics_dir(), "ledger-cursor.json"))
   end
 
+  test "bounds a slow checkpoint and leaves raw telemetry unchanged", %{root: root, path: path} do
+    reducer = Path.join(root, "slow-reducer")
+    File.mkdir_p!(reducer)
+    script = Path.join(reducer, "reduce")
+    File.write!(script, "#!/bin/sh\nexec sleep 8\n")
+    File.chmod!(script, 0o700)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "unchanged evidence")
+    started = System.monotonic_time(:millisecond)
+    assert {:error, {:ledger_checkpoint_failed, :materialize_timeout}} = LedgerRetention.prune(path, max_bytes: 1, materialize_opts: [reduce_dir: reducer])
+    assert System.monotonic_time(:millisecond) - started < 6_500
+    assert File.read!(path) == "unchanged evidence"
+  end
+
   test "preserves raw evidence when the checkpoint fails", %{root: root, path: path} do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, "unchanged evidence")

@@ -177,7 +177,7 @@ defmodule Aiur.RunTelemetry.Summaries do
          telemetry when is_binary(telemetry) and telemetry != "" <- telemetry_file(opts),
          state when is_binary(state) and state != "" <- state_node() do
       logs_root = Keyword.get(opts, :logs_root, retained_logs_root(telemetry))
-      glob = Path.join([logs_root, "**", "telemetry.ndjson*"])
+      glob = Path.join([logs_root, "*", "log", "telemetry.ndjson*"])
       args = ["--all", "--all-builds", "--ledger", "--telemetry-glob", glob, "--telemetry", telemetry, "--state-node", state, "--repo", repo_url()]
       {:ok, {script, args}}
     else

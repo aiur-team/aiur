@@ -39,7 +39,7 @@ defmodule Aiur.RunTelemetry.SummariesLogsRootTest do
 
     assert {:ok, {_script, args}} = Summaries.reduce_command(reduce_dir: reducer())
     glob = args |> Enum.drop_while(&(&1 != "--telemetry-glob")) |> Enum.at(1)
-    assert glob == Path.join(logs_root, "**/telemetry.ndjson*")
+    assert glob == Path.join(logs_root, "*/log/telemetry.ndjson*")
     assert Enum.sort(Path.wildcard(glob)) == Enum.sort(files)
     assert args |> Enum.drop_while(&(&1 != "--telemetry")) |> Enum.at(1) == List.last(files)
   end
@@ -48,13 +48,31 @@ defmodule Aiur.RunTelemetry.SummariesLogsRootTest do
   test "preserves an explicit discovery root override", %{root: root} do
     override = Path.join(root, "override")
     assert {:ok, {_script, args}} = Summaries.reduce_command(reduce_dir: reducer(), logs_root: override)
-    assert args |> Enum.drop_while(&(&1 != "--telemetry-glob")) |> Enum.at(1) == Path.join(override, "**/telemetry.ndjson*")
+    assert args |> Enum.drop_while(&(&1 != "--telemetry-glob")) |> Enum.at(1) == Path.join(override, "*/log/telemetry.ndjson*")
   end
 
   test "limits noncanonical telemetry paths to their own directory", %{root: root} do
     file = Path.join(root, "standalone/telemetry.ndjson")
     assert {:ok, {_script, args}} = Summaries.reduce_command(reduce_dir: reducer(), telemetry_file: file)
-    assert args |> Enum.drop_while(&(&1 != "--telemetry-glob")) |> Enum.at(1) == Path.join(root, "standalone/**/telemetry.ndjson*")
+    assert args |> Enum.drop_while(&(&1 != "--telemetry-glob")) |> Enum.at(1) == Path.join(root, "standalone/*/log/telemetry.ndjson*")
+  end
+
+  test "a CLI logs root excludes unrelated deeper telemetry files", %{root: root} do
+    current = Path.join(root, "cli-launch/log/telemetry.ndjson")
+    prior = Path.join(root, "prior-launch/log/telemetry.ndjson")
+    unrelated = Path.join(root, "other-project/nested/log/telemetry.ndjson")
+    Application.put_env(:aiur, :log_file, Path.join(root, "cli-launch/log/aiur.log"))
+
+    for file <- [current, prior, unrelated] do
+      File.mkdir_p!(Path.dirname(file))
+      File.write!(file, "")
+    end
+
+    assert {:ok, {_script, args}} = Summaries.reduce_command(reduce_dir: reducer())
+    glob = args |> Enum.drop_while(&(&1 != "--telemetry-glob")) |> Enum.at(1)
+    assert Enum.sort(Path.wildcard(glob)) == Enum.sort([current, prior])
+    refute unrelated in Path.wildcard(glob)
+    assert args |> Enum.drop_while(&(&1 != "--telemetry")) |> Enum.at(1) == current
   end
 
   defp reducer, do: Path.expand("../../../../analytics", __DIR__)

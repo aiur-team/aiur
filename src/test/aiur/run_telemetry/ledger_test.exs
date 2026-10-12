@@ -55,7 +55,7 @@ defmodule Aiur.RunTelemetry.LedgerTest do
     File.write!(Path.join(reduce_dir, "reduce"), "")
     assert {:ok, {_script, args}} = Summaries.reduce_command(reduce_dir: reduce_dir, telemetry_file: Path.join(root, "current/telemetry.ndjson"), logs_root: root)
     assert "--ledger" in args
-    assert Enum.chunk_every(args, 2, 1, :discard) |> Enum.member?(["--telemetry-glob", Path.join(root, "**/telemetry.ndjson*")])
+    assert Enum.chunk_every(args, 2, 1, :discard) |> Enum.member?(["--telemetry-glob", Path.join(root, "*/log/telemetry.ndjson*")])
     assert Enum.chunk_every(args, 2, 1, :discard) |> Enum.member?(["--telemetry", Path.join(root, "current/telemetry.ndjson")])
   end
 end
