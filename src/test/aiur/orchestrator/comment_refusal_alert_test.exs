@@ -68,7 +68,7 @@ defmodule Aiur.Orchestrator.CommentRefusalAlertTest do
     CommentWake.maybe_transition_idle_issue_to_rework(state(), "r1", :pr_comment, comment_event(issue), 1)
 
     assert [alert] = Enum.filter(alerts(), &(&1["topic"] == "ticket.r1.agent.attention.comment_wake_idle_issue"))
-    assert alert["reason"] =~ "unpark the issue"
+    assert alert["reason"] =~ "resume the issue explicitly"
   end
 
   test "not-yet-attempted comment is preserved for dispatch without an alert" do
@@ -295,7 +295,7 @@ defmodule Aiur.Orchestrator.CommentRefusalAlertTest do
   test "dispatch declines persist cause-specific remedies for all gate causes" do
     cases = [
       {:paused, "r7-paused", %Issue{state: "todo", paused: true}, %{}, "resume the issue"},
-      {:parked, "r7-parked", %Issue{state: "todo", parked: true}, %{}, "unpark it"},
+      {:parked, "r7-parked", %Issue{state: "todo", parked: true}, %{}, "resume it explicitly"},
       {:already_running, "r7-running", %Issue{state: "todo"}, %{running: %{"r7-running" => %{control: %{status: :running}}}}, "send the comment to its session"},
       {:policy, "r7-policy", %Issue{state: "done"}, %{}, "move it to an active state"}
     ]
