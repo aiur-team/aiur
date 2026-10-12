@@ -64,7 +64,7 @@ defmodule Aiur.AgentControlCapacityBindingTest do
       }) <> "\n"
     )
 
-    on_exit(fn -> File.rm_rf!(telemetry_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(telemetry_root) end)
     assert {:ok, model} = Presenter.load(telemetry_file: [telemetry_fixture, telemetry_file], orchestrator: orchestrator)
     assert model.cap == 9
     assert model.cap_binding == "awaiting dispatch"
