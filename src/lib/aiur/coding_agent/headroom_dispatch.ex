@@ -119,7 +119,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   its limits, or when the background probe runs (only while every candidate is
   limited). A backend that is not getting work can therefore hold a reading
   that is days old, and usage only rises inside a window. Stale readings trigger
-  a non-blocking Codex probe while retaining the last known score and its age.
+  a non-blocking Codex probe; until refreshed, they continue to score as unknown.
   """
   @spec backend_reading(String.t(), keyword()) :: Headroom.reading()
   def backend_reading(backend, opts \\ []) do
@@ -300,11 +300,12 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   defp meter_reading(_entry, _now, _opts), do: nil
 
   # A reading with no observation time cannot be shown as current.
-  defp with_age(reading, nil, _now, _opts), do: reading
+  defp with_age(reading, nil, _now, _opts), do: Map.put(reading, :stale, true)
 
-  defp with_age(reading, %DateTime{} = observed_at, now, _opts) do
+  defp with_age(reading, %DateTime{} = observed_at, now, opts) do
     age = max(DateTime.diff(now, observed_at, :second), 0)
-    Map.put(reading, :age_seconds, age)
+    reading = Map.put(reading, :age_seconds, age)
+    if age > max_reading_age_seconds(opts), do: Map.put(reading, :stale, true), else: reading
   end
 
   defp maybe_probe_stale_codex(candidates, state, now, opts) do
@@ -322,20 +323,17 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   defp stale_codex_reading?(state, now, opts) do
     entry = get_in(state, ["backends", "codex"]) || %{}
 
-    case parse_time(Map.get(entry, "observed_at")) do
-      %DateTime{} = observed_at ->
-        stale? = DateTime.diff(now, observed_at, :second) > max_reading_age_seconds(opts)
-        stale? and retry_due?(entry, state, now)
-
-      nil ->
-        true
-    end
+    retry_due?(entry, now) and
+      case parse_time(Map.get(entry, "observed_at")) do
+        %DateTime{} = observed_at -> DateTime.diff(now, observed_at, :second) > max_reading_age_seconds(opts)
+        nil -> true
+      end
   end
 
-  defp retry_due?(entry, state, now) do
+  defp retry_due?(entry, now) do
     case parse_time(Map.get(entry, "retry_scheduled_at")) do
       %DateTime{} = retry_at -> DateTime.compare(now, retry_at) != :lt
-      nil -> not ModelAvailability.retry_scheduled?("codex", state: state, now: now)
+      nil -> true
     end
   end
 

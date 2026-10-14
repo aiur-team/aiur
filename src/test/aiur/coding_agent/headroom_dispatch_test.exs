@@ -7,6 +7,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config.Schema
   alias Aiur.Issue
+  alias Aiur.ModelAvailability
 
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
@@ -37,6 +38,11 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   @healthy %{"default" => {0, 0}, "everdred" => {36, 10}}
 
   defp opts(overrides) do
+    ledger_path = Path.join(Aiur.TestSupport.tmp_root!("headroom-ledger"), "model-usage.json")
+    File.mkdir_p!(Path.dirname(ledger_path))
+    File.write!(ledger_path, Jason.encode!(%{"backends" => %{}}))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(ledger_path)) end)
+
     Keyword.merge(
       [
         account_selection: "headroom",
@@ -55,6 +61,8 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
         end,
         usage_snapshot: meters(@healthy),
         state: @ledger,
+        path: ledger_path,
+        probe_fun: fn _backend, _options -> :ok end,
         avoid_peak_pricing: false,
         now: @now
       ],
@@ -124,19 +132,6 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   end
 
   describe "candidates" do
-    test "Codex is refreshed at every stale dispatch even when the previous claim chose Claude" do
-      old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
-      test_pid = self()
-
-      probe = fn backend, _options ->
-        send(test_pid, {:probe, backend})
-        :ok
-      end
-
-      assert {:ok, %Issue{selected_backend: "claude"}} = select(ticket(), state: old, probe_fun: probe)
-      assert_receive {:probe, "codex"}, 100
-    end
-
     test "a single-string routing level keeps its backend; headroom only picks the account" do
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "everdred"}} =
                select(ticket(), routing_candidates: %{3 => ["claude:sonnet"]}, usage_snapshot: meters(%{"default" => {90, 0}, "everdred" => {36, 0}}))
@@ -172,10 +167,12 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
     end
 
-    test "a stale Codex ledger schedules a probe and keeps its known score with age" do
+    test "stale Codex remains unknown until its probe refreshes it, then wins the next claim" do
       old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
-      generous = put_in(old, ["backends", "codex", "weekly", "used"], 1)
-      claude = meters(%{"default" => {100, 0}, "everdred" => {100, 0}})
+      path = Path.join(Aiur.TestSupport.tmp_root!("headroom-lock"), "model-usage.json")
+      File.mkdir_p!(Path.dirname(path))
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
+      assert :ok = File.write(path, Jason.encode!(old))
       test_pid = self()
 
       probe = fn backend, options ->
@@ -183,14 +180,45 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
         :ok
       end
 
-      assert {:ok, %Issue{selected_backend: "codex"} = issue} =
-               select(ticket(), state: generous, usage_snapshot: claude, max_reading_age_seconds: 1800, probe_fun: probe)
+      claude_at_29 = meters(%{"default" => {71, 0}, "everdred" => {100, 0}})
+
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = first} =
+               select(ticket(), state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe)
 
       assert_receive {:probe, "codex", [path: _, now: @now]}, 100
-      assert Enum.any?(issue.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :known and &1.remaining_percent == 99 and &1.age_seconds == 259_200))
+      assert Enum.any?(first.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :unknown and &1.stale and &1.age_seconds == 259_200))
+
+      assert :ok = ModelAvailability.observe("codex", %{"weekly" => %{"used" => 20, "limit" => 100, "reset_at" => @future}}, path: path, now: @now)
+      assert :ok = ModelAvailability.clear_retry_schedule("codex", path: path)
+
+      assert {:ok, %Issue{selected_backend: "codex"} = second} =
+               select(ticket(), state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe)
+
+      assert Enum.any?(second.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :known and &1.remaining_percent == 80))
     end
 
-    test "an old per-account meter reading keeps its value and age" do
+    test "a missing Codex observation does not bypass the probe retry window" do
+      path = Path.join(Aiur.TestSupport.tmp_root!("headroom-probe-retry"), "model-usage.json")
+      File.mkdir_p!(Path.dirname(path))
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
+      assert :ok = File.write(path, Jason.encode!(%{"backends" => %{}}))
+      test_pid = self()
+
+      probe = fn backend, _options ->
+        send(test_pid, {:probe, backend})
+        :ok
+      end
+
+      empty = %{"backends" => %{}}
+      assert {:ok, _} = select(ticket(), state: empty, path: path, probe_fun: probe)
+      assert_receive {:probe, "codex"}, 100
+
+      within_retry_window = DateTime.add(@now, 119, :second)
+      assert {:ok, _} = select(ticket(), state: ModelAvailability.load(path), path: path, now: within_retry_window, probe_fun: probe)
+      refute_receive {:probe, "codex"}, 100
+    end
+
+    test "an old per-account meter reading is unknown and shows its age" do
       stale_meter = fn
         "claude", _names ->
           %{
@@ -202,9 +230,9 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
           %{}
       end
 
-      assert {:ok, %Issue{selected_account: "default"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
+      assert {:ok, %Issue{selected_account: "everdred"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
       assert issue.dispatch_selection.summary =~ "claude/everdred=50% (10m old)"
-      assert issue.dispatch_selection.summary =~ "claude/default=100% (2h old)"
+      assert issue.dispatch_selection.summary =~ "claude/default=unknown (stale, 2h old)"
     end
   end
 
