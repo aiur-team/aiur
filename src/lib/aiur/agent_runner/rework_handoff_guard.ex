@@ -18,6 +18,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
       :allow ->
         case writer.(issue_id, state) do
           :ok -> {:ok, %{state: state, issue: issue_id}}
+          {:ok, result} -> {:ok, result}
           {:error, reason} -> {:error, reason}
           other -> {:error, other}
         end

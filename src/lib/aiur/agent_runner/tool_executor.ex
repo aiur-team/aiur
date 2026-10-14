@@ -185,14 +185,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp write_ticket_state(issue, coordination, issue_id, state_name, workspace, worker_host, opts) do
-    writer = fn issue_id, state_name ->
-      case CiWaitTransition.write(coordination, issue_id, state_name) do
-        {:ok, _result} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    end
-
-    ReworkHandoffGuard.write(issue, issue_id, state_name, workspace, worker_host, opts, writer)
+    ReworkHandoffGuard.write(issue, issue_id, state_name, workspace, worker_host, opts, &CiWaitTransition.write(coordination, &1, &2))
   end
 
   defp tracker_issue_id(issue) do
