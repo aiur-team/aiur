@@ -5,13 +5,13 @@ defmodule Aiur.ExecutorWakeInbox do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox.Recovery
   alias Aiur.Fs
   alias Aiur.Journal
   alias Aiur.JsonStore
+  alias Aiur.Signal
 
   @default_debounce_ms 2_000
   @default_max_records 10_000
@@ -604,7 +604,7 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp safe_alert(name, message, opts) do
-    _ = Alerts.emit_custom(name, message, opts)
+    _ = Signal.agent_alert(name, message, opts)
     :ok
   rescue
     _error -> :ok

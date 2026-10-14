@@ -43,7 +43,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
     get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
-    get("/assets/streamdeck-emulator-hook.js", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator_hook)
+    get("/assets/streamdeck-emulator-:file", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator)
     get("/assets/sortable-table-hook.js", Aiur.BrowserHarness.FixtureAssets, :sortable_table_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
