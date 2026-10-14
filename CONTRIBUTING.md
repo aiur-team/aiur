@@ -77,6 +77,11 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
 
 ## Testing
 
+**Harness characterization suite:** From `src/`, run
+`mise exec -- mix test --only r7_characterization --max-cases 4`. It must pass
+unchanged before and after every MP-R7 PR and MP-E7-C3; record the non-zero
+test count in each PR body. Tagged tests also run in normal partitioned CI.
+
 - **Mock at boundaries, never pure utilities.** Stub the external edges —
   GitHub, the shell, the filesystem, tmux, the coding-agent app-server — so a
   test exercises real internal logic. A pure function is tested with real
