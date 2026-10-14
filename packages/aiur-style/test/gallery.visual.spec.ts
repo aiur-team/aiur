@@ -1,5 +1,8 @@
+import { registerContentTests } from './content.spec';
 import { test, expect } from '@playwright/test';
 import { tokens, contrastPairs } from '../dist/tokens.js';
+
+registerContentTests();
 
 test.describe('Gallery Visual Tests', () => {
   test('gallery loads the committed package stylesheet', async ({ page }) => {
