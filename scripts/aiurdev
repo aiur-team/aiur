@@ -109,7 +109,7 @@ effective_command() {
 targets_release_deliberately() {
   case "${1:-}" in
     build | restart) return 0 ;;
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | pre-pr) return 1 ;;
     watch | init | findings | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
     ask | asks | usage | commands | units | build-orders | epic | queue | analytics | github-cost | github-usage | experiments | capabilities) return 1 ;;
@@ -447,7 +447,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | experiments | capabilities | epic) return 0 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | experiments | capabilities | epic | pre-pr) return 0 ;;
     *) return 1 ;;
   esac
 }

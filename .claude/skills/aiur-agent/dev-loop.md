@@ -152,11 +152,13 @@ blocking finding is the only enforcement they have.
 
 ## The loop
 
-**Resolve validation from the target repository first.** Read
-[`validation.md`](validation.md) before choosing commands. The Elixir examples
-below apply only to Aiur's Elixir core, not to every workspace Aiur operates.
-For other repositories, substitute their documented build/typecheck, formatter,
-focused test runner, test-tree paths and CI gate at each step.
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the merged `origin/main` SHA and each gate result.
+It never pushes and refuses a dirty checkout.
+
+**Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
+The Elixir examples below apply only to Aiur's Elixir core.
 
 1. Implement
 2. Add / update / run tests
