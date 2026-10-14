@@ -1,6 +1,25 @@
 {
   "manifest_version": 1,
+  "directory_published": false,
   "seams": [
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.FeatureCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+    },
+    {
+      "from": "agent-runner",
+      "to_module": "Aiur.FeatureCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_runner/feature_writer.ex"
+      ],
+      "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+    },
     {
       "from": "orchestration",
       "to_module": "Aiur.BuildQueue",

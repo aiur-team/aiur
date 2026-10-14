@@ -3,6 +3,7 @@ import Config
 config :aiur, env: config_env()
 
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
 config :aiur, :signal, alert_sink: Aiur.Alerts
 
@@ -28,7 +29,7 @@ config :aiur, :tracker_fallback_kind, "linear"
 config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
-config :aiur, :experiment_metric_packs, []
+config :aiur, :experiment_metric_packs, [Aiur.Experiments.Packs.DeliverySpeed]
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,

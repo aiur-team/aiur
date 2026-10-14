@@ -99,10 +99,9 @@ Run `aiur experiments metrics --json` to inspect definitions and pack problems.
 Built-in packs implement `Aiur.Experiments.MetricPack` and are registered with
 `:experiment_metric_packs`.
 
-This release registers no built-in packs yet. A repository without a consumer
-pack has an empty catalog, so `aiur experiments create` cannot succeed: every
-spec requires at least one registered metric. Load the example below before
-creating an experiment; the reserved `delivery-speed` pack ships separately.
+The built-in `delivery-speed` pack is enabled by default. Disable it with
+`experiments.disabled_packs: [delivery-speed]`; its definitions then disappear
+from the catalog. Consumer packs can supply application-specific metrics.
 
 Consumer packs are tracked JSON files under
 `.aiur/experiments/packs/` in the default-branch base checkout. An agent branch
@@ -237,3 +236,154 @@ as hooks; they are not sandboxed against filesystem access.
 Stdout and stderr share the bounded script stream. A nonzero exit reports the
 first non-JSON diagnostic line; this can be a stdout diagnostic if one precedes
 stderr.
+
+
+## Delivery-speed metrics
+
+The pack exposes these delivery metrics.
+
+| Group | Metric | Kind | Definition |
+| --- | --- | --- | --- |
+| flow | `start_to_pr_open` | duration | First dispatch to first source-timed PR open, in ms. |
+| flow | `pr_open_to_merge` | duration | First source-timed PR open to merge, in ms. |
+| flow | `start_to_merge` | duration | First dispatch to merge, in ms. |
+| flow | `blocker_merge_to_dependent_start` | duration | Last blocker merge to first dependent dispatch, in ms. |
+| flow | `gap_between_prs` | duration | Previous merge in the same epic to this ticket's merge, in ms. |
+| review | `pr_ready_to_first_review` | duration | Source-timed PR open to first trusted review-thread comment, in ms. |
+| review | `review_rounds` | count | Review-pause starts/points before merge. |
+| review | `rework_time` | duration | Sum of rework starts to next PR open or merge, in ms. |
+| review | `ci_wait` | duration | Sum of CI pending spans before merge, in ms; not captured yet. |
+| throughput | `merged_per_hour` | bucketed | Merges in each hour with measured active agents, including zero merges. |
+| throughput | `agents_vs_cap` | bucketed | Time-weighted running agents / configured cap in those hours. |
+| throughput | `idle_slot_hours` | bucketed | Idle slots × hours while ready work exists; not captured yet. |
+| throughput | `binding_gate` | rate | Dispatch-held share by gate; not captured yet. |
+| cost_quality | `spend_per_merged_ticket` | count | Ticket-attributed provider-reported estimate in USD. |
+| cost_quality | `tokens_per_merged_ticket` | count | Ticket-attributed input and output tokens, including cache/reasoning. |
+| cost_quality | `main_red_events` | bucketed | Default-branch CI failures per day; not captured yet. |
+| cost_quality | `reverts` | bucketed | Revert merges per day; not captured yet. |
+
+Durations, counts and spend prefer lower values; throughput and utilization
+prefer higher values. `binding_gate` has no preferred direction. Every metric
+reference begins with `delivery-speed/`.
+
+Ticket units are `ticket:<number>`, assigned at first dispatch, with complexity
+and dispatch-time cohort attributes. Redispatch and restarts create no second
+unit. Merge, review-round and cost metrics exclude unmerged tickets (`filtered`).
+
+`finished_at` and `censored` are observation attributes. Open PR/review durations
+are censored at window end. Missing PR-open evidence on merged tickets is
+excluded and reports partial capture, never a censored open ticket.
+
+`not_captured` means a required capture fact is absent, with no observations.
+It never means zero. Legacy data may lack source PR times, dispatch blockers/epic
+or review-thread evidence. CI wait, ready-queue depth, gate reason, main-red and
+revert facts remain uncaptured; lifecycle labels are not substitutes.
+
+Disabled telemetry reports `unavailable/telemetry_disabled`; missing telemetry
+reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps report `partial`.
+
+Experiment telemetry uses one streaming reader for JSON summaries and live NDJSON.
+Callers that supply known boot intervals can skip non-overlapping sources before
+opening.
+
+The delivery pack has no boot-range index and does not claim this
+optimization: it reads retained summaries independently and caches each small
+projection by path, size and modification time. Live data is not cached.
+
+Earlier lifecycle and fleet evidence preserves first dispatch and prerequisite
+merges. A large or incomplete boot cannot exhaust another boot's read budget.
+Truncated boot prefixes remain usable within the memory bound and report `partial`;
+complete summaries and live observations remain available.
+
+Each retained summary has its own limits: 100,000 record envelopes, 32 MiB input
+and a 4 MiB projection, plus 1 MiB tokens and 16 nesting levels. Derived actor/ticket maps are discarded after fleet samples are extracted.
+
+The merged retained projection is also capped at 4 MiB; complete boot projections take precedence over truncated prefixes if the
+memory bound is reached. Overflow omits excess data and marks coverage partial. The cache holds at most 64 entries and 24 MiB.
+
+A truncated live read reports `unavailable/truncated` with no observations.
+Bounds never turn an incomplete population into a measured zero.
+
+Live and retained actor samples hold for at most five seconds. Only measured
+hours with active agents produce period observations; `observed_ms` records
+the measured portion of each hour. Thinned summary samples are not stretched
+over gaps.
+
+Cost evaluation resolves merged-ticket identities through the tracker and
+queries the usage aggregate. Missing accounting, identities or measures report
+`unavailable`, or `partial` when other tickets have observations.
+
+Token totals use the pinned provider relationship registry to avoid counting
+cache and reasoning subsets twice. Unknown revisions are unavailable. Missing
+USD spend is not replaced with another currency or zero. Stale or unhealthy
+accounting is unavailable; changing aggregate generations cannot be mixed.
+
+## Confounder sources
+
+`aiur experiments events <id> --json` collects window events, the gap between
+windows and a 24-hour margin before each window. It freezes `events-1.ndjson`.
+Later reads reuse it; `--refresh` appends a new file with stable event IDs.
+Changing windows or source settings also starts a new snapshot.
+
+Results include `events`, `snapshot_hash`, `snapshot` and `incomplete_sources`.
+NDJSON starts with snapshot metadata followed by event rows. Titles are
+untrusted data truncated to 200 characters. Analysts classify every event ID
+and pin the snapshot hash.
+
+The collector uses these sources:
+
+| Event | Evidence |
+| --- | --- |
+| `merged_pr` | Base-branch merges, labels, first 50 changed paths and closing issues' parent epic IDs. |
+| `release` | Published GitHub releases and dated tags. |
+| `version_change`, `config_change` | Run-context transitions; config section hashes identify changed section names. |
+| `incident` | Critical persisted alerts and incident-labelled issues, including overlapping open incidents. |
+| `outage` | Consecutive boot records more than ten minutes apart; raw telemetry supplements summaries. |
+| `main_red` | Required base-branch workflow failures through the next success, per workflow. |
+| `capacity_change` | Max or effective cap changes held at least fifteen minutes; brief blips are ignored. |
+| `global_pause` | Effective capacity dropping to zero through recovery. |
+
+Boot gaps describe restart separation, not measured downtime. Capacity and
+pause spans use sampler observations. Missing or expired telemetry cannot
+prove a complete history and is marked incomplete when it does not cover the
+start of the requested range.
+
+Missing sources produce a stderr warning; the command exits zero with usable
+evidence. Filesystem errors when freezing fail the command. GitHub reads are
+capped at ten pages per connection; reaching the cap marks GitHub incomplete.
+Frozen reads are local; refresh uses the [quota-accounted transport](../apis/github).
+
+Consumer specs may include this optional object:
+
+```json
+"confounder_sources": {
+  "base_branch": "main",
+  "required_workflows": ["CI"],
+  "incident_labels": ["incident", "outage"]
+}
+```
+
+The branch defaults to the tracker's configured branch; incident labels default
+to `incident` and `outage`. Set required workflow names explicitly; without a
+selection, `main_red` is incomplete. An unresolved red span has null `to`.
+
+Events carry `before`, `after`, `between`, `margin`, or `observation` for an A/B
+observation window.
+
+Collection runs in a supervised task with a two-minute timeout. Headers expose
+`collected_at` and the collected `range` in human and JSON output. Open windows
+remain frozen at that horizon until `--refresh`; collection time does not enter
+the input hash, while the observed range does.
+
+Each snapshot keeps at most 5,000 events and 4 MiB, marking capped sources
+incomplete. An experiment permits 32 immutable event snapshots; further refreshes
+are refused rather than deleting evidence pinned by reports. Existing oversized
+snapshots are retained but refused by the bounded reader.
+
+Alert collection streams at most 8 MiB and keeps at most 5,000 critical records.
+Oversized lines (over 256 KiB), partial reads and caps mark alerts incomplete.
+
+Telemetry uses the shared windowed reader: 32 MiB scanned, 10,000 records and
+4 MiB retained across sources. Known outside ranges are skipped. Retained boots
+without a range index remain eligible; missing, malformed or truncated evidence
+marks telemetry incomplete instead of implying a complete history.

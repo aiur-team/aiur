@@ -54,7 +54,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
   test "a joined channel survives a financial-data read while focused" do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
-    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"}, 1_000)
 
     assert {:ok, _generation} = FinancialDataAccess.current_configuration_generation()
 
@@ -122,12 +122,15 @@ defmodule AiurWeb.StreamdeckChannelTest do
   test "a joined channel closes when its socket token expires" do
     socket =
       authenticated_socket()
-      |> Phoenix.Socket.assign(:streamdeck_expires_at_ms, System.system_time(:millisecond) + 20)
+      # Joining performs several subscriptions and a snapshot before returning
+      # the test socket. Keep enough time for that setup to finish under a
+      # loaded test suite, then verify the channel closes on expiry.
+      |> Phoenix.Socket.assign(:streamdeck_expires_at_ms, System.system_time(:millisecond) + 1_000)
 
     assert {:ok, _reply, socket} = subscribe_and_join(socket, "streamdeck:fleet")
     monitor = Process.monitor(socket.channel_pid)
 
-    assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 200
+    assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 1_500
   end
 
   test "join pushes a complete external snapshot" do

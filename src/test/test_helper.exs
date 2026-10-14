@@ -61,6 +61,12 @@ test_run_root =
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
 
+suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
+
+unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
+  raise "alert ledger must use the suite runtime state root #{suite_runtime_state_dir}"
+end
+
 ExUnit.after_suite(fn _result ->
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
   # recreate the counter file after this — a small leftover under the
@@ -155,6 +161,8 @@ Code.require_file("support/webhook_tail_case.ex", __DIR__)
 Code.require_file("support/github_webhook_receiver_case.ex", __DIR__)
 Code.require_file("support/mutation_fixture.ex", __DIR__)
 Code.require_file("support/deposit_fixture.ex", __DIR__)
+Code.require_file("support/current_run_projections_support.ex", __DIR__)
+Code.require_file("support/current_run_membership_store_support.ex", __DIR__)
 Code.require_file("support/feature_label_fixture.ex", __DIR__)
 Code.require_file("support/build_home/usage_inputs.ex", __DIR__)
 Code.require_file("support/build_order_live_case.ex", __DIR__)
@@ -166,3 +174,7 @@ Code.require_file("support/deposit_case.ex", __DIR__)
 Code.require_file("support/live_conversation_support.ex", __DIR__)
 Code.require_file("support/live_e2e/linear_api.ex", __DIR__)
 Code.require_file("support/live_e2e/worker_setup.ex", __DIR__)
+
+# Keep plain ExUnit.Case modules and between-case application timers from
+# publishing Orchestrator poll state or alerts into the suite-wide ledger.
+Aiur.TestSupport.quiesce_live_orchestrator()
