@@ -1,11 +1,29 @@
 defmodule Aiur.BuildQueue.BuildOrderCommands do
   @moduledoc false
   require Logger
-  alias Aiur.BuildQueue.{ListCommands, Model.Queue, Reconcile, Sets}
+  alias Aiur.BuildQueue.{ListCommands, Model.Queue, QueueRanks, Reconcile, Sets}
   alias Aiur.BuildQueue.Sources.BuildOrder
 
-  @spec prepare(map(), {:adopt | :unadopt, term()} | {:adopt, term(), String.t() | nil} | {:adopt, term(), String.t() | nil, Aiur.StartTrigger.trigger() | nil}) ::
+  @spec prepare(
+          map(),
+          {:adopt | :unadopt, term()}
+          | {:adopt, term(), String.t() | nil}
+          | {:adopt, term(), String.t() | nil, Aiur.StartTrigger.trigger() | nil}
+          | {:adopt, term(), String.t() | nil, Aiur.StartTrigger.trigger() | nil, non_neg_integer()}
+        ) ::
           {:ok, map(), list(), map(), map()} | {:error, term()}
+  def prepare(state, {:adopt, root, name, trigger, rank}) do
+    with true <- is_integer(rank) and rank >= 0 and rank <= length(state.document.queues),
+         {:ok, document, actions, observations, updates} <- prepare(state, {:adopt, root, name, trigger}),
+         name = name || "Build Order ##{root}",
+         {:ok, document} <- QueueRanks.creation(document, state.document, queue: name, rank: rank) do
+      {:ok, document, actions, observations, updates}
+    else
+      false -> {:error, :invalid_position}
+      error -> error
+    end
+  end
+
   def prepare(state, {:adopt, root}), do: prepare(state, {:adopt, root, nil})
 
   def prepare(state, {:adopt, root, name}), do: prepare(state, {:adopt, root, name, nil})

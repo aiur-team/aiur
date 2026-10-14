@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ListMutations do
   @moduledoc "Pure, atomic edits of local lists; returns marker actions for the server's writer."
-  alias Aiur.BuildQueue.{Model, QueueTriggers, Sets}
+  alias Aiur.BuildQueue.{Model, QueueRanks, QueueTriggers, Sets}
   alias Aiur.BuildQueue.Model.{Edge, Item, Queue}
   alias Aiur.BuildQueue.Sources.ExecutorList
 
@@ -18,8 +18,11 @@ defmodule Aiur.BuildQueue.ListMutations do
       added = Enum.map(ids, &%Item{issue_id: &1, queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: now})
       {before, following} = Enum.split(items, at)
       queues = if Enum.any?(document.queues, &(&1.id == queue.id)), do: document.queues, else: document.queues ++ [queue]
-      document = %{document | queues: queues, edges: Enum.uniq(document.edges ++ edges)}
-      {:ok, replace_items(document, queue.id, before ++ added ++ following), Enum.map(ids, &{:mark, &1})}
+
+      with {:ok, ranked} <- QueueRanks.creation(%{document | queues: queues}, document, opts) do
+        ranked = %{ranked | edges: Enum.uniq(ranked.edges ++ edges)}
+        {:ok, replace_items(ranked, queue.id, before ++ added ++ following), Enum.map(ids, &{:mark, &1})}
+      end
     end
   end
 
