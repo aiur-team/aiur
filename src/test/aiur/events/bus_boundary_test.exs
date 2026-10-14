@@ -25,8 +25,6 @@ defmodule Aiur.Events.BusBoundaryTest do
     {"events/publisher.ex", "Aiur.GitHub.ResourceStore"} => "C2-T06",
     {"events/publisher.ex", "Aiur.Webhooks"} => "C2-T06",
     {"events/publisher.ex", "Aiur.IssueLog"} => "C2-T03",
-    {"events/id_generator.ex", "Aiur.Executor.StatePaths"} => "C2-T07",
-    {"events/id_generator.ex", "Aiur.LaunchStateAdoption"} => "C2-T07",
     {"events/subscription_store.ex", "Aiur.Orchestrator"} => "C2-T01",
     {"events/subscription_store.ex", "Aiur.Signal"} => "C2-T01",
     {"events/subscription_store.ex", "Aiur.IssueLog"} => "C2-T03",
