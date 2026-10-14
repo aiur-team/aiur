@@ -20,6 +20,7 @@
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "agent-sandbox",
     "config",
     "kernel",
     "signal",

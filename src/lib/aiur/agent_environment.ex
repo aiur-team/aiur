@@ -3,10 +3,9 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, Shell}
+  alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
+  alias Aiur.AgentEnvironment.Contributor
   alias Aiur.Config.Paths
-  alias Aiur.GitHub.{AgentMarker, Budget, Credential}
-  alias Aiur.GitHub.Config, as: GitHubConfig
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
@@ -248,9 +247,6 @@ defmodule Aiur.AgentEnvironment do
     [hex, mix, npm_cache] = package_cache_paths(opts)
     state_path = repo_url(opts) |> Paths.repo_state_path()
     base_branch = configured_base_branch(opts)
-    label_prefix = configured_label_prefix(opts)
-    real_gh = AgentGitHubGuard.real_gh()
-    github_budget = Budget.guard_settings()
     build_gate_env = BuildGate.shell_env()
     real_git = System.find_executable("git")
 
@@ -282,44 +278,6 @@ defmodule Aiur.AgentEnvironment do
         {~c"MIX_HOME", String.to_charlist(mix)},
         {~c"npm_config_cache", String.to_charlist(npm_cache)},
         {~c"AIUR_REPO_STATE_PATH", String.to_charlist(state_path)},
-        {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> AgentGitHubGuard.quota_dir() |> String.to_charlist()},
-        {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
-        # SECURITY INVARIANT — see `AgentGitHubGuard.gh_config_dir/1`. An empty
-        # agent-private `gh` config dir severs the operator keyring, which is
-        # the identity that can bypass branch protection. Removing this makes
-        # `env -u GITHUB_TOKEN -u GH_TOKEN gh pr review --approve` succeed as
-        # the human again.
-        {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
-        {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
-        {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
-        # Single-account mode only: the marker the `gh` guard appends to comment
-        # bodies the agent writes, so the daemon can later tell those comments
-        # from ones the operator typed under the same login. `false` (unset) on
-        # a separate-account install, where the author login already answers it
-        # and the guard must not touch any body.
-        {String.to_charlist(AgentMarker.env_var()), agent_comment_marker()},
-        # The repository the agent was dispatched against, so the `gh` guard can
-        # file a cached response under a resource identity (#2073 U6). `gh`
-        # resolves the repo from the working directory, so the guard only trusts
-        # this while the agent is inside the workspace below — a clone of some
-        # other repository must not have its answers filed under this one.
-        {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
-        {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
-        # #2356: the path to the token file the daemon wrote for the `gh` guard.
-        # This is a PATH, not a credential — the raw token lives on disk and the
-        # wrapper injects it only into a governed call's real `gh` child, so the
-        # agent environment itself never carries `GITHUB_TOKEN`/`GH_TOKEN`.
-        {~c"AIUR_GITHUB_CREDENTIAL_FILE", AgentGitHubGuard.agent_token_path() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
-        {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", publication_credential_key(opts) |> String.to_charlist()},
-        {~c"AIUR_GITHUB_MAX_INFLIGHT", github_budget.max_inflight |> Integer.to_string() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_STAGGER_MS", github_budget.stagger_ms |> Integer.to_string() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", github_budget.agent_core_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", github_budget.agent_graphql_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
-        {~c"AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR", github_budget.agent_search_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
@@ -350,7 +308,14 @@ defmodule Aiur.AgentEnvironment do
         build_gate_bin_env(workspace, build_gate_env) ++
         port_startup_env
 
-    unset_inherited_env ++ workspace_env
+    contributions = Contributor.port_env(workspace, opts)
+
+    contributed_credentials =
+      for {name, _value} <- contributions, Regex.match?(@app_credential_env_pattern, to_string(name)), do: {name, false}
+
+    (workspace_env ++ contributions ++ unset_inherited_env ++ contributed_credentials)
+    |> Map.new()
+    |> Map.to_list()
   end
 
   def workspace_env(_, _opts), do: []
@@ -404,9 +369,6 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
     state_path = Path.join("~", Paths.repo_state_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
-    label_prefix = configured_label_prefix(opts)
-    agent_bin = AgentGitHubGuard.bin_dir(workspace)
-    github_budget = Budget.guard_settings()
     build_gate_exports = build_gate_export_prefix(workspace, opts)
     real_git = System.find_executable("git")
 
@@ -433,59 +395,22 @@ defmodule Aiur.AgentEnvironment do
     # covers workspaces provisioned before this existed; only redirect TMPDIR
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
-    "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\n" <>
-      "AIUR_REAL_GIT=#{if real_git, do: Aiur.Shell.escape(real_git), else: ""}\n" <>
-      "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
-      "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
-      remote_repo_slug_export() <>
-      agent_comment_marker_export() <>
-      "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
-      "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
-      "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(AgentGitHubGuard.quota_dir(workspace))}\n" <>
+    "{\n#{sidecar_exports}\n#{build_gate_exports}" <>
+      "AIUR_REAL_GIT=#{if real_git, do: Aiur.Shell.escape(real_git), else: ""}\nexport AIUR_REAL_GIT\n" <>
+      Contributor.shell_exports(workspace, opts) <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
-      "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
-      "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
-      "export AIUR_GITHUB_CREDENTIAL_FILE='~/.aiur/github-budget/agent-token'\n" <>
-      "AIUR_GITHUB_CREDENTIAL_FILE=\"$HOME/${AIUR_GITHUB_CREDENTIAL_FILE#\\~/}\"\nexport AIUR_GITHUB_CREDENTIAL_FILE\n" <>
-      "unset AIUR_GITHUB_BUDGET_KEY\n" <>
-      publication_credential_export(opts) <>
       __MODULE__.GitIdentity.export_prefix(opts) <>
-      "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
-      "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
-      "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
-      "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>
-      "export AIUR_GITHUB_REQUESTS_PER_MINUTE=#{github_budget.requests_per_minute}\n" <>
-      "export AIUR_GITHUB_STAGGER_MS=#{github_budget.stagger_ms}\n" <>
-      "export AIUR_GITHUB_CORE_LIMIT_PER_HOUR=#{github_budget.agent_core_limit_per_hour}\n" <>
-      "export AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR=#{github_budget.agent_graphql_limit_per_hour}\n" <>
-      "export AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR=#{github_budget.agent_search_limit_per_hour}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
       ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"; TMPPREFIX="$aiur_scratch_dir/zsh-"\n) <>
       "  export TMPDIR TMP TEMP TMPPREFIX\nfi\nunset aiur_scratch_dir\n" <>
+      "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       "{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}\n}"
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
-
-  defp publication_credential_key(opts) do
-    %Credential{id: "primary", kind: :machine_user, identity: publication_credential_identity(opts)}
-    |> Credential.identity_key()
-  end
-
-  defp publication_credential_identity(opts) do
-    Keyword.get_lazy(opts, :github_budget_identity, &GitHubConfig.bot_account/0)
-  rescue
-    _unavailable -> nil
-  catch
-    :exit, _reason -> nil
-  end
-
-  defp publication_credential_export(opts) do
-    "export AIUR_GITHUB_BUDGET_IDENTITY_KEY=#{Aiur.Shell.escape(publication_credential_key(opts))}\n"
-  end
 
   defp build_gate_export_prefix(workspace, opts) do
     if Keyword.get(opts, :build_gate, false) do
@@ -557,7 +482,6 @@ defmodule Aiur.AgentEnvironment do
   end
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)
-  defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
 
   @doc false
   @spec package_cache_paths(keyword()) :: [Path.t()]
@@ -565,41 +489,6 @@ defmodule Aiur.AgentEnvironment do
     root = repo_url(opts) |> Paths.repo_state_path()
 
     Paths.repo_cache_sidecar_paths(root)
-  end
-
-  # `false` unsets the variable for the child, which is what a non-GitHub
-  # tracker or an unconfigured repo should produce: the guard then resolves no
-  # resource identity and caches nothing, rather than filing responses under a
-  # placeholder slug that no other agent would ever ask for.
-  # Remote workers keep their own budget root under their own home, so they get
-  # their own state cache shared with the other agents on that host — the same
-  # sharing boundary the budget broker already draws.
-  defp remote_repo_slug_export do
-    case configured_repo_slug() do
-      false -> "unset AIUR_GITHUB_REPO\n"
-      slug -> "export AIUR_GITHUB_REPO=#{Aiur.Shell.escape(List.to_string(slug))}\n"
-    end
-  end
-
-  defp agent_comment_marker do
-    if GitHubConfig.single_account?(), do: String.to_charlist(AgentMarker.marker()), else: false
-  end
-
-  defp agent_comment_marker_export do
-    case agent_comment_marker() do
-      false ->
-        "unset #{AgentMarker.env_var()}\n"
-
-      marker ->
-        "export #{AgentMarker.env_var()}=#{Aiur.Shell.escape(List.to_string(marker))}\n"
-    end
-  end
-
-  defp configured_repo_slug do
-    case GitHubConfig.repo() do
-      repo when is_binary(repo) -> if repo =~ ~r{\A[\w.-]+/[\w.-]+\z}, do: String.to_charlist(repo), else: false
-      _other -> false
-    end
   end
 
   # Remote workers have their own home directories, so shell launches must
@@ -622,7 +511,7 @@ defmodule Aiur.AgentEnvironment do
 
   defp repo_url(opts) do
     Keyword.get_lazy(opts, :repo_url, fn ->
-      case Aiur.GitHub.Config.repo() do
+      case Contributor.repo_slug() do
         repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
         _ -> neutral_repo_url()
       end
