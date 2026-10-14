@@ -3,8 +3,8 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
   require Logger
 
-  alias Aiur.Workspace.Ownership.Retention
   alias Aiur.Workspace.Ownership.Guardian.{Provider, Receipt}
+  alias Aiur.Workspace.Ownership.Retention
 
   # A live provider with no verified containment is deliberately fail-closed.
   # The owner may have died between OS process creation and metadata inspection; releasing
