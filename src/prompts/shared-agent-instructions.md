@@ -55,6 +55,11 @@ checks on the current head SHA.
 
 ### Local pre-handoff checks
 
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the merged `origin/main` SHA and each gate result.
+The command never pushes and refuses a dirty checkout.
+
 For changes in the Aiur repository, before marking the PR ready or handing
 off to CI/review, run all required checks and fix any failures:
 

@@ -259,13 +259,13 @@ defmodule Aiur.GitHub.ResourceStore do
 
   alias Aiur.{Config, Fs, JsonStore}
   alias Aiur.GitHub.{MembershipAccess, ResourceEvents}
+  alias Aiur.GitHub.ResourceStore.Memory
 
   @table __MODULE__.Table
   @retention_ms 72 * 60 * 60 * 1000
   @sweep_interval_ms 5 * 60 * 1000
   @checkpoint_interval_ms 30 * 1000
   @filename "github_resources.json"
-  @max_entries 100_000
 
   # The bound on suppression that has no version behind it.
   #
@@ -1373,13 +1373,13 @@ defmodule Aiur.GitHub.ResourceStore do
     if path, do: schedule(:checkpoint, checkpoint_interval(opts))
     schedule(:sweep, sweep_interval(opts))
 
-    {:ok, %{table: table, path: path, last_written: nil}}
+    {:ok, %{table: table, path: path, last_written: nil}, :hibernate}
   end
 
   @impl true
   def handle_call(:flush, _from, state) do
     {reply, state} = checkpoint(state)
-    {:reply, reply, state}
+    {:reply, reply, state, :hibernate}
   end
 
   def handle_call({:membership_access, fun}, _from, state), do: {:reply, fun.(), state}
@@ -1388,13 +1388,13 @@ defmodule Aiur.GitHub.ResourceStore do
   def handle_info(:checkpoint, state) do
     {_reply, state} = checkpoint(state)
     schedule(:checkpoint, @checkpoint_interval_ms)
-    {:noreply, state}
+    {:noreply, state, :hibernate}
   end
 
   def handle_info(:sweep, state) do
     sweep(state.table)
     schedule(:sweep, @sweep_interval_ms)
-    {:noreply, state}
+    {:noreply, state, :hibernate}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -1877,69 +1877,14 @@ defmodule Aiur.GitHub.ResourceStore do
     |> expired_body_keys(cutoff)
     |> Enum.each(&drop_expired_body(&1, cutoff))
 
-    # A hard backstop far above real volume. Crossing it means the retention
-    # window alone is not bounding the set, so shed the oldest *bodies*. What
-    # the backstop bounds is body memory, not entry count: an entry that sheds
-    # its body survives, so the table can hold more than `@max_entries` keys
-    # and metadata until the 72 h retention sweep catches up. That unbounded
-    # tail is acceptable because the non-body half of an entry is a key plus a
-    # few hundred bytes of metadata, while the bodies shed are the payloads
-    # that run up to 256 KiB — the memory that scales with GitHub traffic is
-    # body memory, and that is what stays capped.
-    #
-    # The backstop drops only `:data` — never the whole entry — because the
-    # rest of the entry is state a later read is still entitled to: the `:etag`
-    # lets a revalidating reader ask "has this changed?" for free, and the
-    # `:processed_at_ms` mark is the publisher's only durable dedup gate, so
-    # evicting it with the body would re-publish a comment an agent already
-    # handled once the in-memory window closes or the daemon restarts. A body is
-    # two orders of magnitude larger than the metadata beside it, so bounding
-    # *bodies* bounds the memory without discarding state that is still correct.
-    #
-    # `:data` and `:data_version` go together — the version describes the body,
-    # so a body that is gone must not leave a marker describing it behind — and
-    # `recorded_at_ms` is untouched, so a bodyless entry ages out of the
-    # retention sweep on its real clock rather than being renewed by its own
-    # eviction. A reader that sends `If-None-Match` afterwards is answered `304`
-    # and holds nothing; it re-reads unconditionally, which is the documented
-    # reader's half of the validator/body contract.
-    overflow = (:ets.info(table, :size) || 0) - @max_entries
-
-    if overflow > 0 do
-      shed_bodies(table, overflow)
-    end
+    # The backstop on what retention alone does not bound: body bytes, and far
+    # above real volume, entry count. `Memory.enforce/1` sheds the least
+    # recently written *bodies* — never whole entries, because the `:etag` and
+    # the processed mark beside a body are state a later read is still entitled
+    # to — and reports what the table holds.
+    Memory.enforce(table)
 
     :ok
-  end
-
-  # Drop the body — never the whole entry — from the oldest entries that still
-  # hold one. Entries an earlier sweep already shed are skipped, so a
-  # steady-state overflow warns once about the bodies it actually dropped rather
-  # than re-announcing a condition it already handled.
-  defp shed_bodies(table, overflow) do
-    evicted =
-      table
-      |> :ets.tab2list()
-      |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :recorded_at_ms, 0) end)
-      |> Enum.take(overflow)
-      |> Enum.filter(fn {_key, entry} -> Map.has_key?(entry, :data) end)
-
-    if evicted != [] do
-      Logger.warning("GitHub.ResourceStore exceeded #{@max_entries} entries; dropping bodies from #{length(evicted)} oldest")
-
-      # Pinned to the exact object that was sorted, so a concurrent write
-      # between the snapshot and the eviction spares the entry rather than
-      # losing it — a refreshed entry no longer matches the snapshot and
-      # keeps its new body.
-      Enum.each(evicted, fn {key, entry} ->
-        replacement = Map.drop(entry, [:data, :data_version])
-
-        :ets.select_replace(
-          table,
-          [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [{:const, {key, replacement}}]}]
-        )
-      end)
-    end
   end
 
   # Keys of the data-bearing entries whose body is past retention, collected by
@@ -1981,32 +1926,44 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   # Writes land in ETS directly from the poll fan-out rather than through this
-  # process, so there is no dirty flag to trust: the checkpoint compares the
-  # rendered document against the last one written and skips an identical one.
-  # That keeps a steady-state cycle — the case this whole change exists to make
-  # free — from also becoming a disk write every 30 seconds.
+  # process, so there is no dirty flag to trust: the checkpoint compares a
+  # digest of the rendered document against the last one written and skips an
+  # identical one. That keeps a steady-state cycle — the case this whole change
+  # exists to make free — from also becoming a disk write every 30 seconds.
+  #
+  # The document is rendered one entry at a time and only its digest is kept.
+  # Snapshotting the table and holding the previous document for the comparison
+  # put two decoded copies of every body on this process's heap (#3997). The
+  # callbacks hibernate for the same reason: this process is idle between
+  # timers, so whatever a checkpoint or the boot load allocated would otherwise
+  # sit on its heap until the next one.
   defp checkpoint(%{path: nil} = state), do: {:ok, state}
 
   defp checkpoint(%{table: table, path: path} = state) do
-    document = table |> :ets.tab2list() |> Enum.reduce(%{}, &encode_entry/2)
-
-    if document == state.last_written do
-      {:ok, state}
+    with {:ok, encoded} <- render(table),
+         digest = :erlang.md5(encoded),
+         false <- digest == state.last_written,
+         :ok <- write(path, encoded) do
+      {:ok, %{state | last_written: digest}}
     else
-      case write(path, document) do
-        :ok ->
-          {:ok, %{state | last_written: document}}
+      true ->
+        {:ok, state}
 
-        {:error, reason} = error ->
-          Logger.warning("GitHub.ResourceStore checkpoint failed; reason=#{inspect(reason)}")
-          {error, state}
-      end
+      {:error, reason} = error ->
+        Logger.warning("GitHub.ResourceStore checkpoint failed; reason=#{inspect(reason)}")
+        {error, state}
     end
   end
 
-  defp write(path, document) do
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         {:ok, encoded} <- Jason.encode(%{"version" => 1, "entries" => document}) do
+  defp render(table) do
+    entries = :ets.foldl(&encode_entry/2, [], table)
+    {:ok, [~s({"version":1,"entries":{), Enum.intersperse(entries, ?,), "}}"]}
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp write(path, encoded) do
+    with :ok <- File.mkdir_p(Path.dirname(path)) do
       Fs.atomic_write(path, encoded, fsync: true, mode: 0o600)
     end
   rescue
@@ -2025,7 +1982,7 @@ defmodule Aiur.GitHub.ResourceStore do
         acc
 
       encoded ->
-        Map.put(acc, encoded, encode_fields(key, entry))
+        [[Jason.encode!(encoded), ?:, Jason.encode!(encode_fields(key, entry))] | acc]
     end
   end
 

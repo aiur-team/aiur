@@ -63,7 +63,7 @@ engine_source="${BASH_SOURCE[0]}"
 
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands lifecycle upgrade"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands lifecycle upgrade pre_pr"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -131,6 +131,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur doctor [--repair]         check mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
+       aiur pre-pr           merge origin/main locally and run cheap PR gates
        aiur --version
 Bare aiur: start or attach to this directory's interactive session.
 EOF
@@ -340,6 +341,10 @@ aiur_engine_main() {
     cleanup-stale)
       shift
       cmd_cleanup_stale "$@"
+      ;;
+    pre-pr)
+      shift
+      cmd_pre_pr "$@"
       ;;
     stop)
       cmd_stop
