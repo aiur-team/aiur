@@ -244,7 +244,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     number state headRefName headRefOid baseRefName
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
-    mergeQueueEntry { id }
+    mergeQueueEntry { id state }
     #{contexts_selection()}
     """
   end
