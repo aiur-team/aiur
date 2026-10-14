@@ -215,6 +215,8 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
          {'image': b'\0new', 'src/lib/a.ex': b'\xff', 'new.bin': b'\0'},
          {'source': (1, 0, 0, 1, 0)}, 3),
         ('binary to text', {'misc': b'\0'}, {'misc': b'x'}, {'other': (0, 1, 1, 0, 0)}, 1),
+        ('text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n', 'src/lib/a.ex': content},
+         {'src/lib/a.ex': edited}, {'source': (100, 100, 10, 10, 0), 'other': (1, 1, 0, 0, 0)}, 0),
         ('unusual rename paths', {'src/lib/tab\tline\na.ex': content},
          {'src/lib/tab\tline\na.ex': None, 'docs/tab\tline\nb.md': content},
          {'source': (100, 0, 0, 0, 100), 'docs': (0, 100, 0, 0, 0)}, 0),

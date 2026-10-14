@@ -36,7 +36,9 @@ In a clean worktree it checks file size, docs paragraph/table prose, component o
 For refactor reports, run `python3 scripts/check-file-size.py --census <base> <head>`
 from the repository root; add `--json` for machine-readable output. The table
 reports tracked-text totals and added, removed and moved lines by source, test,
-docs, generated/vendor and other areas. Git-detected rename/copy pairs credit
+docs, generated/vendor and other areas.
+
+Git-detected rename/copy pairs credit
 unchanged lines as moved to the original area; edits count as added/removed.
 
 Copies and cross-area moves can change area totals without text churn. Binary

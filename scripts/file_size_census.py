@@ -55,7 +55,7 @@ def census(before, after, git, base, head):
         for path, count in tree.items():
             if isinstance(count, int):
                 rows[area(path)][column] += count
-    raw = git('diff', '--no-ext-diff', '--no-textconv', '-M', '-C', '--find-copies-harder',
+    raw = git('diff', '--no-ext-diff', '--no-textconv', '--text', '-M', '-C', '--find-copies-harder',
               '--numstat', '-z', base, head, '--')
     binary_changes = sum(record_change(rows, before, after, change) for change in changes(raw))
     return {'areas': rows, 'binary_changes': binary_changes}
