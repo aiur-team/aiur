@@ -7,6 +7,7 @@
     "src/lib/aiur.ex",
     "src/lib/aiur/*_cli.ex",
     "src/lib/aiur/affected_tests.ex",
+    "src/lib/aiur/affected_tests/**",
     "src/lib/aiur/application/**",
     "src/lib/aiur/cli.ex",
     "src/lib/aiur/cli/**",
