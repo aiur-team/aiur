@@ -472,7 +472,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
       else: entry
   end
 
-  defp put_running_entry(state, issue_id, entry),
+  @doc false
+  @spec put_running_entry(State.t(), String.t(), map()) :: State.t()
+  def put_running_entry(state, issue_id, entry),
     do: %{state | running: Map.put(state.running, issue_id, entry)}
 
   defp max_transitions_per_tick(opts) do

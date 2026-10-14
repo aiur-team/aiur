@@ -77,7 +77,6 @@
   {Aiur.Orchestrator.PushRouting.ClearedDependency, :running,
    "Baseline lifecycle write in Aiur.Orchestrator.PushRouting.ClearedDependency; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.RateLimitFallback, :running, "Baseline lifecycle write in Aiur.Orchestrator.RateLimitFallback; retain until this responsibility moves to its field owner."},
-  {Aiur.Orchestrator.RateLimitFallback.Redispatch, :running, "#3420 Moved existing fallback redispatch safety writes; no new lifecycle responsibility."},
   {Aiur.Orchestrator.RateLimitFallbackTransition, :fallback_backoff, "Existing rate-limit fallback transition persists lifecycle retry backoff; retain until lifecycle owns this transition."},
   {Aiur.Orchestrator.Reconciler, :running_issue_cache, "Baseline core write in Aiur.Orchestrator.Reconciler; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.RemoteControlMode, :retry_attempts, "Baseline lifecycle write in Aiur.Orchestrator.RemoteControlMode; retain until this responsibility moves to its field owner."},

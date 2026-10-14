@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.Redispatch do
 
   alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.Init.AgentCli
-  alias Aiur.Orchestrator.{Dispatcher, RemoteControlMode, RetryEngine, State, TicketTransition}
+  alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RemoteControlMode, RetryEngine, State, TicketTransition}
 
   @spec handoff(keyword(), State.t(), map(), Issue.t(), String.t(), map()) :: {State.t(), boolean()}
   def handoff(opts, state, running_entry, issue, destination, session) do
@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.Redispatch do
     staged_state = teardown.(state, running_entry, :account_handoff)
     staged_entry = Map.get(staged_state.running, issue.id, running_entry)
     safe_entry = redispatch_safety_entry(staged_entry, issue) |> Map.put(:session_execution, %{backend: session.backend, account: destination})
-    staged_state = put_running_entry(staged_state, issue.id, safe_entry)
+    staged_state = RateLimitFallback.put_running_entry(staged_state, issue.id, safe_entry)
 
     next_state =
       case Keyword.get(opts, :dispatch_fun) do
@@ -61,7 +61,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.Redispatch do
     state =
       state
       |> teardown.(running_entry, :rate_limit_fallback)
-      |> put_running_entry(issue_id, staged_entry)
+      |> RateLimitFallback.put_running_entry(issue_id, staged_entry)
 
     state = dispatch.(state, relabeled_issue, nil, worker_host)
     state = retain_redispatch_safety(state, staged_entry, relabeled_issue)
@@ -99,10 +99,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback.Redispatch do
   defp retain_redispatch_safety(state, staged_entry, relabeled_issue) do
     case Map.get(state.running, relabeled_issue.id) do
       %{pid: pid} = replacement when is_pid(pid) ->
-        put_running_entry(state, relabeled_issue.id, inherit_redispatch_safety(replacement, staged_entry))
+        RateLimitFallback.put_running_entry(state, relabeled_issue.id, inherit_redispatch_safety(replacement, staged_entry))
 
       _other ->
-        put_running_entry(state, relabeled_issue.id, staged_entry)
+        RateLimitFallback.put_running_entry(state, relabeled_issue.id, staged_entry)
     end
   end
 
@@ -190,9 +190,6 @@ defmodule Aiur.Orchestrator.RateLimitFallback.Redispatch do
   end
 
   defp default_backend_ready?(_backend, _worker_host, _opts), do: false
-
-  defp put_running_entry(state, issue_id, entry),
-    do: %{state | running: Map.put(state.running, issue_id, entry)}
 
   @spec transition_context(State.t(), map(), Issue.t(), Issue.t(), keyword()) :: map()
   def transition_context(state, running_entry, issue, relabeled, opts) do
