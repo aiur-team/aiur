@@ -24,9 +24,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    outputs:
-      docs_only: ${{ steps.classify.outputs.docs_only }}
-      full_ci: ${{ steps.classify.outputs.full_ci }}
+    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -726,6 +724,7 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
         run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
   ci-gate:
     name: ci gate
