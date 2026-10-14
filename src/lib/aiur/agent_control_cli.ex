@@ -2009,6 +2009,4 @@ defmodule Aiur.AgentControlCLI do
       _ -> message
     end
   end
-
-
 end
