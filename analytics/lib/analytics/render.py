@@ -13,6 +13,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .optimistic import optimistic_line, optimistic_rollup
+
 # Cost is expressed in CPU-seconds, matching the design ("Cost per ticket" means
 # CPU-seconds). Dollar spend is cost-report's job.
 SAMPLE_SECONDS = 5
@@ -156,6 +158,7 @@ def run_summary_kpis(summary: dict, cap: int) -> dict:
         "fleet_pressure": pressure,
         "top_cost": top_cost,
         "provenance": summary.get("provenance", {}),
+        **({"optimistic": optimistic_rollup(summary)} if optimistic_rollup(summary) else {}),
     }
 
 
@@ -179,6 +182,8 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
         "",
         "Top cost (CPU-seconds):",
     ]
+    if optimistic_line(summary):
+        lines.insert(9, optimistic_line(summary))
     if kpis["top_cost"]:
         for key, cost in kpis["top_cost"]:
             lines.append("  %-24s %.1f" % (_actor_label(key), cost))

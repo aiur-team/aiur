@@ -147,9 +147,14 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   end
 
   def handle_event("send-operator-message", %{"message" => message}, socket) do
-    Process.send_after(self(), :fixture_agent_voice_partial, 50)
+    send(self(), :fixture_agent_voice_partial)
 
     {:noreply, socket |> assign(:sent_message, message) |> assign(:drafts, %{"1110" => ""})}
+  end
+
+  def handle_event("complete-voice-reply", _params, socket) do
+    send(self(), :fixture_agent_voice_reply)
+    {:noreply, socket}
   end
 
   def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
@@ -193,7 +198,6 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   @impl true
   def handle_info(:fixture_agent_voice_partial, %{assigns: %{conversation_drawer: %{row: row} = drawer}} = socket) do
     updated_drawer = %{drawer | view: ConversationPresenter.present(row, conversation_snapshot(:with_partial_reply))}
-    Process.send_after(self(), :fixture_agent_voice_reply, 250)
     {:noreply, assign(socket, :conversation_drawer, updated_drawer)}
   end
 
@@ -246,6 +250,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       <div class="controls" aria-label="Units fixture updates">
         <button id="same-identity-update" type="button" phx-click="same-identity-update">Update same Unit</button>
         <button id="remove-selected-unit" type="button" phx-click="remove-selected-unit">Remove selected Unit</button>
+        <button type="button" phx-click="complete-voice-reply">Complete voice reply</button>
       </div>
 
       <TicketContext.ticket_context

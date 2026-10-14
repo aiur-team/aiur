@@ -15,7 +15,10 @@ else:
         raise ValueError('selector produced multiple commands')
     command = shlex.split(commands[0].removeprefix('cd src && mise exec -- '))
     if command == ['make', 'ci']:
-        raise ValueError('unsafe affected selection requires full CI')
+        reason = next((line.removeprefix('# full suite recommended: ')
+                       for line in selection.splitlines()
+                       if line.startswith('# full suite recommended: ')), 'unknown')
+        raise ValueError(f'unsafe affected selection requires full CI: {reason}')
     if command[:4] != ['mix', 'test', '--max-cases', '4']:
         raise ValueError('unsupported selector command')
     subprocess.run(command, check=True)

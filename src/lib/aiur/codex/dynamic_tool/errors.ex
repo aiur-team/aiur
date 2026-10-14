@@ -213,7 +213,7 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     %{
       "error" => %{
         "message" =>
-          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
+          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, or optimistic.integrated.",
         "examples" => [
           "progress",
           "progress.brainstorm-end",

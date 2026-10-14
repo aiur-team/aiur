@@ -9,6 +9,7 @@
     "src/lib/aiur/affected_tests.ex",
     "src/lib/aiur/application/**",
     "src/lib/aiur/cli.ex",
+    "src/lib/aiur/cli/**",
     "src/lib/aiur/control_cli/**",
     "src/lib/aiur/daemon_lifecycle.ex",
     "src/lib/aiur/distribution.ex",
