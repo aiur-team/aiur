@@ -44,17 +44,9 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
           reference_tests: references
         )
 
-      lines =
-        if json? do
-          [selection_json(selected)]
-        else
-          case selected do
-            {:full, reason} -> command({:full, reason, changed})
-            scoped -> command(scoped)
-          end
-        end
-
-      Enum.each(lines, &print_line/1)
+      selected
+      |> output_lines(json?, changed)
+      |> Enum.each(&print_line/1)
     else
       {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
     end
@@ -87,6 +79,10 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+
+  defp output_lines(selection, true, _changed), do: [selection_json(selection)]
+  defp output_lines({:full, reason}, false, changed), do: command({:full, reason, changed})
+  defp output_lines(selection, false, _changed), do: command(selection)
 
   defp print_line(line), do: Mix.shell().info(line)
 
