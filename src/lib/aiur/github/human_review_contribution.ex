@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.HumanReviewContribution do
+  # Keeps approval equivalence checks separate from the state gate: bounded
+  # GitHub comparisons, commit ancestry, and patch fingerprints all fail closed.
   @moduledoc false
 
   @doc false
@@ -232,8 +234,10 @@ defmodule Aiur.GitHub.HumanReviewContribution do
     old_count_value = hunk_count(old_count, 1)
     new_count_value = hunk_count(new_count, 1)
     insertion_at_start? = old_start == 0 and new_start > 0 and old_count_value == 0
+    deletion_at_start? = old_start > 0 and new_start == 0 and new_count_value == 0
+    ordinary_hunk? = old_start > 0 and new_start > 0
 
-    if insertion_at_start? or (old_start > 0 and new_start > 0) do
+    if insertion_at_start? or deletion_at_start? or ordinary_hunk? do
       {old_start, old_count_value, new_count_value}
     end
   end

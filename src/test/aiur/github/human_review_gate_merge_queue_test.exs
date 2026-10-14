@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
+  # These scenarios exercise the state-write gate using pinned REST/GraphQL
+  # responses, including commit ancestry and patch equivalence after base merges.
   # #4204: a head approved at its current commit and already in the merge queue
   # (or armed to enter it) is tested merged with the base before it lands, and a
   # queued branch rejects pushes, so the hand-off gate must refuse it only for a
@@ -137,6 +139,11 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
   test "an unrelated binary base file without a patch does not block handoff" do
     assert :ok = Client.update_issue_state("42", "human-review", request_fun: merge_only_request_fun(:unrelated_binary), bot_account: "aiur-bot")
+    assert_received {:label_written, ["agent:human-review"]}
+  end
+
+  test "base deletion at the beginning of the file preserves the approved contribution" do
+    assert :ok = Client.update_issue_state("42", "human-review", request_fun: merge_only_request_fun(:start_of_file_deletion), bot_account: "aiur-bot")
     assert_received {:label_written, ["agent:human-review"]}
   end
 
@@ -318,6 +325,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   defp scenario_approved_patch(:moved_repeated), do: "@@ -10,6 +10,6 @@\n same\n same\n-old feature\n+new feature\n same\n same"
   defp scenario_approved_patch(:replaced_context), do: "@@ -1,5 +1,5 @@\n before\n first\n second\n-old feature\n+new feature\n after"
   defp scenario_approved_patch(:singleline_base), do: "@@ -5,3 +5,3 @@\n before\n-old feature\n+new feature\n after"
+  defp scenario_approved_patch(:start_of_file_deletion), do: "@@ -5,3 +5,3 @@\n before\n-old feature\n+new feature\n after"
   defp scenario_approved_patch(_scenario), do: "@@ -1,3 +1,3 @@\n before\n-old feature\n+new feature\n after"
 
   defp scenario_patch(:changed_merge, _patch), do: "@@ -1 +1 @@\n-old feature\n+resolved feature"
@@ -326,6 +334,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   defp scenario_patch(:distant_base, _patch), do: "@@ -5,3 +5,3 @@\n before\n-old feature\n+new feature\n after"
   defp scenario_patch(:start_of_file_base, _patch), do: "@@ -5,3 +5,3 @@\n before\n-old feature\n+new feature\n after"
   defp scenario_patch(:singleline_base, _patch), do: "@@ -5,3 +5,3 @@\n before\n-old feature\n+new feature\n after"
+  defp scenario_patch(:start_of_file_deletion, _patch), do: "@@ -1,3 +1,3 @@\n before\n-old feature\n+new feature\n after"
   defp scenario_patch(:repeated_context, _patch), do: "@@ -1,4 +1,4 @@\n \n-old feature\n+new feature\n \n"
   defp scenario_patch(:moved_repeated, _patch), do: "@@ -40,6 +40,6 @@\n same\n same\n-old feature\n+new feature\n same\n same"
   defp scenario_patch(:replaced_context, _patch), do: "@@ -1,5 +1,5 @@\n before\n changed first\n changed second\n-old feature\n+new feature\n after"
@@ -373,7 +382,8 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     end
   end
 
-  defp base_history_comparison(scenario) when scenario in [:distant_base, :start_of_file_base, :singleline_base] do
+  defp base_history_comparison(scenario)
+       when scenario in [:distant_base, :start_of_file_base, :singleline_base, :start_of_file_deletion] do
     patch = base_history_patch(scenario)
 
     {:ok,
@@ -407,6 +417,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
   defp base_history_patch(:start_of_file_base), do: "@@ -0,0 +1,4 @@\n+line one\n+line two\n+line three\n+line four"
   defp base_history_patch(:singleline_base), do: "@@ -1 +1 @@\n-old base line\n+new base line"
+  defp base_history_patch(:start_of_file_deletion), do: "@@ -1,4 +0,0 @@\n-line one\n-line two\n-line three\n-line four"
   defp base_history_patch(:distant_base), do: "@@ -1,0 +1,4 @@\n+line one\n+line two\n+line three\n+line four"
 
   defp post_approval_comparison(post_commits) do
