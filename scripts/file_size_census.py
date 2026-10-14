@@ -30,7 +30,25 @@ def changes(raw):
         yield added, removed, old, new
 
 
-def record_change(rows, before, after, change):
+def text_churn(git, base, head, old, new):
+    # Blob IDs remove path attributes that can suppress numstat even with --text.
+    blobs = [git('rev-parse', f'{rev}:{path.decode("utf-8", errors="surrogateescape")}').decode().strip()
+             for rev, path in ((base, old), (head, new))]
+    raw = git('diff', '--text', '--no-ext-diff', '--no-textconv', '--numstat', *blobs, '--')
+    return tuple(raw.split(b'\t', 2)[:2]) if raw else (b'0', b'0')
+
+
+def line_churn(added, removed, before, after, git, base, head, old, new):
+    if added != b'-':
+        return int(added), int(removed)
+    if old not in before:
+        return after[new], 0
+    if new not in after:
+        return 0, before[old]
+    return tuple(map(int, text_churn(git, base, head, old, new)))
+
+
+def record_change(rows, before, after, change, git, base, head):
     added, removed, old, new = change
     previous, current = before.get(old, 0), after.get(new, 0)
     binary = 'binary' in (previous, current)
@@ -41,7 +59,7 @@ def record_change(rows, before, after, change):
         if isinstance(current, int):
             rows[area(new)]['added'] += current
         return int(binary)
-    added, removed = int(added), int(removed)
+    added, removed = line_churn(added, removed, before, after, git, base, head, old, new)
     rows[area(new)]['added'] += added
     rows[area(old)]['removed'] += removed
     if old != new:
@@ -57,7 +75,7 @@ def census(before, after, git, base, head):
                 rows[area(path)][column] += count
     raw = git('diff', '--no-ext-diff', '--no-textconv', '--text', '-M', '-C', '--find-copies-harder',
               '--numstat', '-z', base, head, '--')
-    binary_changes = sum(record_change(rows, before, after, change) for change in changes(raw))
+    binary_changes = sum(record_change(rows, before, after, change, git, base, head) for change in changes(raw))
     return {'areas': rows, 'binary_changes': binary_changes}
 
 
