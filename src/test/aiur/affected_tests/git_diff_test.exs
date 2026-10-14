@@ -39,7 +39,7 @@ defmodule Aiur.AffectedTests.GitDiffTest do
       System.put_env("GITHUB_EVENT_NAME", "pull_request")
 
       try do
-        assert {:ok, [command]} = AffectedTests.selection(repo, "refs/heads/main")
+        assert {:ok, [command]} = AffectedTests.selection(repo, base)
         assert command == "cd src && mise exec -- mix test --max-cases 4 'test/aiur/feature_test.exs'"
       after
         System.delete_env("GITHUB_EVENT_NAME")
