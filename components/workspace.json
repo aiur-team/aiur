@@ -17,6 +17,7 @@
     "agent-sandbox",
     "config",
     "kernel",
+    "signal",
     "tracker"
   ],
   "optional": [],
