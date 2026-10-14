@@ -6,9 +6,9 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.AppServer.{Messages, RelayPort, Transport, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.AgentTools.Dispatch
   alias Aiur.ProcessTree
 
   @port_line_bytes 1_048_576

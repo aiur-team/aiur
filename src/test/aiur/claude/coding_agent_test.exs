@@ -2,9 +2,9 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.AppServer.Transport
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
-  alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Workflow

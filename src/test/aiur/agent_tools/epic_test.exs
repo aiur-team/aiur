@@ -1,9 +1,9 @@
 defmodule Aiur.AgentTools.EpicTest do
   use ExUnit.Case, async: true
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.BuildOrder.EpicOverrides, as: Store
   alias Aiur.AgentTools.Dispatch
   alias Aiur.AgentTools.Epic
+  alias Aiur.BuildOrder.EpicOverrides, as: Store
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("epic-tool")

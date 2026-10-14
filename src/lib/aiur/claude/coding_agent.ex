@@ -11,10 +11,10 @@ defmodule Aiur.Claude.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
+  alias Aiur.AgentTools.Catalog
   alias Aiur.AppServer.{Adapter, Messages, Rpc, Transport}
   alias Aiur.Claude.{AccountGeneration, NotificationPolicy}
   alias Aiur.Claude.CodingAgent.Methods
-  alias Aiur.AgentTools.Catalog
   alias Aiur.Config
   alias Aiur.ProcessTree
 

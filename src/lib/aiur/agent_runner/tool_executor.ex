@@ -11,7 +11,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.{Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
-  alias Aiur.AgentTools.Dispatch
+  alias Aiur.AgentTools.{Dispatch, EmitEvent}
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
@@ -380,7 +380,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{issue: issue} = event_context
     identifier = issue_identifier(issue)
 
-    topic = Aiur.AgentTools.EmitEvent.topic(identifier, name)
+    topic = EmitEvent.topic(identifier, name)
 
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}
