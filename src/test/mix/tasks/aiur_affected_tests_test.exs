@@ -21,6 +21,18 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
              "# no affected test files detected for the documentation-only change"
            ]
   end
+
+  test "JSON selection reports full fallback and scoped test files as data" do
+    assert Jason.decode!(AffectedTests.selection_json({:full, "shared support changed"})) == %{
+             "status" => "full",
+             "reason" => "shared support changed"
+           }
+
+    assert Jason.decode!(AffectedTests.selection_json({:scoped, ["src/test/engine_test.exs"]})) == %{
+             "status" => "scoped",
+             "tests" => ["src/test/engine_test.exs"]
+           }
+  end
 end
 
 defmodule Mix.Tasks.Aiur.AffectedTests.ChangedPathsTest do
