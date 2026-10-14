@@ -8,10 +8,12 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeConfirmationTest do
   alias Aiur.Orchestrator.{ControlLifecycle, StatusReport}
 
   alias Aiur.Orchestrator.ControlCLI, as: AgentControlCLI
-  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
+  alias Aiur.Orchestrator.ControlCLI.TestFixture
+
+  import TestFixture, except: [setup: 1]
 
   setup context do
-    Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)
+    TestFixture.setup(context)
   end
 
   test "running resume still clears a tracker pause that reconciliation has not applied", %{orchestrator: pid} do

@@ -12,10 +12,12 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, Lifecycle, State}
 
-  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
+  alias Aiur.Orchestrator.ControlCLI.TestFixture
+
+  import TestFixture, except: [setup: 1]
 
   setup context do
-    Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)
+    TestFixture.setup(context)
   end
 
   test "fixture restoration fences queued ticks and poll cycles between cases (#3007)", %{orchestrator: pid} do

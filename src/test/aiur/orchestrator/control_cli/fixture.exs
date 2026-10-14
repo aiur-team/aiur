@@ -2,9 +2,11 @@ defmodule Aiur.Orchestrator.ControlCLI.TestFixture do
   @moduledoc false
   import ExUnit.Assertions
   import ExUnit.Callbacks
-  alias Aiur.{Issue, Orchestrator, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.Issue
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TrackerIdentity
   # Tests that overwrite the shared workflow config must put it back: `Config`
   # re-reads the file on every call, so an unrestored write silently became the
   # next test's configuration (the capacity assertions flipped between the

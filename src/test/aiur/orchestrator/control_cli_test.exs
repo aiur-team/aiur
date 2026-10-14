@@ -9,10 +9,12 @@ defmodule Aiur.Orchestrator.ControlCLITest do
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, SnapshotStore, StatusReport}
 
   alias Aiur.Orchestrator.ControlCLI, as: AgentControlCLI
-  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
+  alias Aiur.Orchestrator.ControlCLI.TestFixture
+
+  import TestFixture, except: [setup: 1]
 
   setup context do
-    Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)
+    TestFixture.setup(context)
   end
 
   test "pause reports already paused agents as a successful no-op", %{orchestrator: pid} do

@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.ControlCLI.Output do
   @moduledoc false
-  alias Aiur.{Issue}
   alias Aiur.ControlCLI.Reasons
+  alias Aiur.Issue
   import Aiur.ControlCLI.Protocol
   @spec print_empty_selection(atom(), :all) :: :ok
   def print_empty_selection(:pause, :all), do: control_error("aiur: pause took no action because there are no running agents")

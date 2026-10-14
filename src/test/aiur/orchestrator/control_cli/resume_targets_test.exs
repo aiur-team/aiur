@@ -5,13 +5,15 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeTargetsTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{Issue}
+  alias Aiur.Issue
 
   alias Aiur.Orchestrator.ControlCLI, as: AgentControlCLI
-  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
+  alias Aiur.Orchestrator.ControlCLI.TestFixture
+
+  import TestFixture, except: [setup: 1]
 
   setup context do
-    Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)
+    TestFixture.setup(context)
   end
 
   test "idle resume starts queued issues", %{orchestrator: pid} do

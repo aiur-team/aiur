@@ -1,8 +1,7 @@
 defmodule Aiur.Orchestrator.ControlCLI.Resume do
   @moduledoc false
   alias Aiur.ControlCLI.Reasons
-  alias Aiur.Orchestrator.StatusReason
-  alias Aiur.Orchestrator.ControlCLI
+  alias Aiur.Orchestrator.{ControlCLI, StatusReason}
   import Aiur.ControlCLI.Protocol
   import Aiur.Orchestrator.ControlCLI.Output
   @status_timeout_ms 5_000

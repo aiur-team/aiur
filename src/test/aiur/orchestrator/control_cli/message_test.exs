@@ -6,10 +6,12 @@ defmodule Aiur.Orchestrator.ControlCLI.MessageTest do
   import ExUnit.CaptureIO
 
   alias Aiur.Orchestrator.ControlCLI.Message, as: AgentControlCLI
-  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
+  alias Aiur.Orchestrator.ControlCLI.TestFixture
+
+  import TestFixture, except: [setup: 1]
 
   setup context do
-    Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)
+    TestFixture.setup(context)
   end
 
   test "message status timeout exits 124" do
