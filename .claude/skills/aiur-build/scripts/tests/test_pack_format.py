@@ -30,6 +30,7 @@ class PackFormatTests(unittest.TestCase):
             original = path.read_bytes()
             self.assertEqual(subprocess.run([*command, str(path)], capture_output=True).returncode, 0)
             self.assertNotEqual(path.read_bytes(), original)
+            self.assertEqual(path.read_text(), '{\n  "tickets": [\n    {"id": "T1"}\n  ]\n}\n')
             self.assertEqual(subprocess.run([*command, '--check', str(path)], capture_output=True).returncode, 0)
             path.write_bytes(path.read_bytes().replace(b'\n', b'\r\n'))
             self.assertEqual(subprocess.run([*command, '--check', str(path)], capture_output=True).returncode, 1)
