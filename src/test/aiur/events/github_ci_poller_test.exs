@@ -74,6 +74,28 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert result.review_decision == "APPROVED"
   end
 
+  test "normalizes REST pull request conflicts into the lifecycle result" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 71, "head" => pr_head("aiur/42", "conflict-head"), "base" => %{"ref" => "main"}, "mergeable" => false}]
+           }}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok, %{status: 200, body: %{"check_runs" => []}}}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+      end
+    end
+
+    assert {:ok, %{errors: [], results: [%{mergeable: "CONFLICTING", head_sha: "conflict-head"}]}} =
+             poll(["42"], request_fun: request_fun)
+  end
+
   test "a ready (non-draft) batched PR reports draft false" do
     batch = %{
       "42" => %{

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   """
 
   alias Aiur.Events.GithubCIPoller
+  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
@@ -14,6 +15,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
   alias Aiur.Orchestrator.Reconciler
+  alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.StartTrigger.ProgressStore
@@ -114,6 +116,48 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   def recover_ci_poll_result(state, issue, result, opts) do
     result = Map.put(result, :ci_recovery_opts, opts)
 
+    waiting_state = Transition.effective_ci_state(issue)
+
+    cond do
+      waiting_state in [@ci_wait_state, @human_review_state] and
+          result[:mergeable] == "CONFLICTING" ->
+        Transition.transition_ci_ticket(state, issue, "rework")
+
+      waiting_state in [@ci_wait_state, @human_review_state] and
+          result[:review_decision] == "CHANGES_REQUESTED" ->
+        reconcile_changes_requested(state, issue, result, opts)
+
+      true ->
+        recover_ci_poll_result_after_rework(state, issue, result, opts)
+    end
+  end
+
+  defp reconcile_changes_requested(state, issue, result, opts) do
+    fetcher = Keyword.get(opts, :reviews_fetcher, &GitHubClient.fetch_classified_pr_reviews/2)
+
+    Poll.run_ci_effect(
+      state,
+      issue,
+      "review_rework_check",
+      fn -> fetcher.(result[:pr_number], opts) end,
+      fn current, reviews_result ->
+        current_finding? =
+          case reviews_result do
+            {:ok, reviews} when is_list(reviews) ->
+              Enum.any?(ReworkGate.blocking_reviews(reviews), &(&1["commit_id"] == result[:head_sha]))
+
+            _ ->
+              false
+          end
+
+        if current_finding?,
+          do: Transition.transition_ci_ticket(current, issue, "rework"),
+          else: recover_ci_poll_result_after_rework(current, issue, result, opts)
+      end
+    )
+  end
+
+  defp recover_ci_poll_result_after_rework(state, issue, result, opts) do
     if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and
          (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
             (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[CiLifecycle.ci_target_for_issue(issue)]))) and

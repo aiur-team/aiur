@@ -11,6 +11,59 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
   setup :ci_lifecycle_setup
 
   describe "CI lifecycle coordination" do
+    test "first CI poll routes a ci-wait ticket with current changes requested findings to rework" do
+      identifier = unique_identifier("restart-review-rework")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "ci-wait")
+
+      reviews = [%{"state" => "CHANGES_REQUESTED", "commit_id" => "review-head", "submitted_at" => "2026-10-13T00:00:00Z", "id" => 1, "user" => %{"login" => "reviewer"}, authoritative: true}]
+
+      next =
+        poll_ci(
+          %Aiur.Orchestrator.State{},
+          ticket,
+          %{decision: :pending, head_sha: "review-head", pr_number: 4388, review_decision: "CHANGES_REQUESTED"},
+          reviews_fetcher: fn 4388, _opts -> {:ok, reviews} end
+        )
+
+      assert_received {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}
+      assert next.ci_lifecycle.poll_cache[identifier].review_decision == "CHANGES_REQUESTED"
+    end
+
+    test "sticky changes requested does not route a head that has a newer commit" do
+      identifier = unique_identifier("restart-stale-review")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "ci-wait")
+
+      reviews = [%{"state" => "CHANGES_REQUESTED", "commit_id" => "reviewed-head", "submitted_at" => "2026-10-13T00:00:00Z", "id" => 1, "user" => %{"login" => "reviewer"}, authoritative: true}]
+
+      _next =
+        poll_ci(
+          %Aiur.Orchestrator.State{},
+          ticket,
+          %{decision: :pending, head_sha: "new-head", pr_number: 4390, review_decision: "CHANGES_REQUESTED"},
+          reviews_fetcher: fn 4390, _opts -> {:ok, reviews} end
+        )
+
+      refute_received {:tracker_update, ^identifier, "rework", _opts}
+    end
+
+    test "first CI poll routes a human-review ticket with a conflicting PR to rework" do
+      identifier = unique_identifier("restart-conflict-rework")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "human-review")
+
+      _next =
+        poll_ci(%Aiur.Orchestrator.State{}, ticket, %{
+          decision: :pending,
+          head_sha: "conflicting-head",
+          pr_number: 4389,
+          mergeable: "CONFLICTING"
+        })
+
+      assert_received {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}
+    end
+
     test "a deactivated+ci-wait entry is woken by the CI terminal event" do
       identifier = unique_identifier("deactivated-terminal-wake")
       recorder = start_recorder()
