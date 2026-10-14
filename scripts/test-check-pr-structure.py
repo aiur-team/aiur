@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from components.public_fixtures import complete_fixture
 
 SOURCE = Path(__file__).resolve().parent.parent
 
@@ -47,6 +48,7 @@ class StructuralGateTest(unittest.TestCase):
             owns=dict(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'],
                       state=['fixture_dir'], capabilities=[]), prior=[])])
         self.write('components.json', json.dumps(manifest))
+        complete_fixture(self.root)
         self.write('src/test/fixture_test.exs', 'assert_receive :done, 100\n')
         self.git('init', '-q')
         self.git('config', 'gc.auto', '0')

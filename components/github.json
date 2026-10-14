@@ -1,8 +1,8 @@
 {
   "id": "github",
-  "name": "GitHub client, budget, read cache, domain",
+  "name": "GitHub integration",
   "layer": 2,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/allowed_contributors.ex",
     "src/lib/aiur/allowed_contributors/**",
@@ -49,5 +49,26 @@
     "GHC",
     "GHD",
     "GHR"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Reads issues, tracks pull requests and manages GitHub API budgets for a run.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "apis/github.md"
+  ],
+  "config": [],
+  "env": [
+    "AIUR_GITHUB_BUDGET_CONSUMER",
+    "AIUR_GITHUB_BUDGET_IDENTITY_KEY",
+    "GH_TOKEN",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_INSTALLATION_ID",
+    "GITHUB_APP_PRIVATE_KEY",
+    "GITHUB_APP_PRIVATE_KEY_PATH",
+    "GITHUB_TOKEN"
+  ],
+  "capabilities": []
 }

@@ -1,8 +1,8 @@
 {
   "id": "pairing-discovery",
-  "name": "Machine pairing and instance registry, instance side (MP-N2, new)",
+  "name": "Pairing and discovery",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [],
   "facades": [
     "*"
@@ -20,5 +20,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Pairs devices with a machine and discovers its Aiur instances.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N2"
 }

@@ -1,8 +1,8 @@
 {
   "id": "event-bus",
-  "name": "Event exchange and subscriptions (MP-R2)",
+  "name": "Message bus",
   "layer": 1,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_events.ex",
     "src/lib/aiur/agent_pubsub.ex",
@@ -29,5 +29,19 @@
   },
   "prior": [
     "BUS"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Routes ticket events to subscribed agents and the Executor.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/message-bus.md"
+  ],
+  "config": [
+    "events"
+  ],
+  "env": [],
+  "capabilities": []
 }
