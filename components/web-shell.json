@@ -23,6 +23,7 @@
     "config",
     "identity",
     "projections",
+    "signal",
     "web-kit"
   ],
   "optional": [

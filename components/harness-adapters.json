@@ -29,7 +29,8 @@
     "agent-sandbox",
     "config",
     "identity",
-    "kernel"
+    "kernel",
+    "signal"
   ],
   "optional": [
     "accounting"
