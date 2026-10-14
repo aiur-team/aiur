@@ -1,6 +1,6 @@
 defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
-
+  @moduletag :r7_characterization
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
   alias Aiur.{AlertFeed, Issue, LiveConversation, PauseContainment, TrackerIdentity}
   alias Aiur.Events.Exchange

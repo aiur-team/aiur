@@ -1,6 +1,6 @@
 defmodule Aiur.AgentQueueTest do
   use ExUnit.Case, async: true
-
+  @moduletag :r7_characterization
   alias Aiur.{AgentQueue, AgentQueueStore}
 
   defp decision_correlation(overrides \\ %{}) do
