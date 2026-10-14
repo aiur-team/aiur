@@ -1,6 +1,8 @@
 defmodule Aiur.AgentControlCLIDelegationTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Orchestrator.TodoCLI
+
   @libexec Path.expand("../../../packaging/npm/aiur-cli/libexec", __DIR__)
 
   test "every launcher-called AgentControlCLI function is exported" do
@@ -50,8 +52,8 @@ defmodule Aiur.AgentControlCLIDelegationTest do
     source = File.read!(Path.expand("../../lib/aiur/agent_control_cli.ex", __DIR__))
     assert source =~ "defdelegate todo(issue_ids, opts"
     assert source =~ "to: Aiur.Orchestrator.TodoCLI"
-    assert {:todo, 1} in Aiur.Orchestrator.TodoCLI.__info__(:functions)
-    assert {:todo, 2} in Aiur.Orchestrator.TodoCLI.__info__(:functions)
+    assert {:todo, 1} in TodoCLI.__info__(:functions)
+    assert {:todo, 2} in TodoCLI.__info__(:functions)
     refute source =~ "defp queue_todo_issue("
   end
 
