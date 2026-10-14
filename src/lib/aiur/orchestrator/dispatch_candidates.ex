@@ -25,45 +25,35 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
   @spec partition([Issue.t()], MapSet.t(), [Issue.t()]) :: {[Issue.t()], [Issue.t()]}
   def partition(issues, terminal_states, polled \\ []) do
     github? = Config.settings!().tracker.kind == "github"
-    ordered = order(issues, terminal_states, polled)
-    {held, chain} = Enum.split_with(ordered, &fresh_cached_hold?(&1, terminal_states, github?))
-    stale = Enum.filter(chain, &last_known_hold?(&1, terminal_states, github?))
-    stale_ids = MapSet.new(stale, & &1.id)
-    {Enum.reject(chain, &MapSet.member?(stale_ids, &1.id)) ++ stale, hydrate_holds(held, github?)}
+
+    classified = order(issues, terminal_states, polled) |> Enum.map(&classify(&1, terminal_states, github?))
+
+    {pick(classified, :chain) ++ pick(classified, :last), pick(classified, :held)}
   end
 
-  defp hydrate_holds(issues, true) do
-    Enum.map(issues, fn issue ->
-      case Tracker.cached_blocked_by(issue) do
-        {:ok, hydrated} -> hydrated
-        {:error, _unknown} -> issue
-      end
-    end)
-  end
+  defp pick(classified, class), do: for({^class, issue} <- classified, do: issue)
 
-  defp hydrate_holds(issues, false), do: issues
-
-  defp fresh_cached_hold?(issue, terminal_states, true) do
-    if DispatchPolicy.normalize_issue_state(issue.state) == "todo" do
-      case Tracker.cached_blocked_by(issue) do
-        {:ok, hydrated} -> open_blocker?(hydrated, terminal_states)
-        {:error, _unknown} -> false
-      end
-    else
-      false
+  defp classify(issue, terminal_states, github?) do
+    cond do
+      github? and DispatchPolicy.normalize_issue_state(issue.state) == "todo" -> classify_cached(issue, terminal_states)
+      open_blocker?(issue, terminal_states) -> {:last, issue}
+      true -> {:chain, issue}
     end
   end
 
-  defp fresh_cached_hold?(issue, terminal_states, false), do: open_blocker?(issue, terminal_states)
+  defp classify_cached(issue, terminal_states) do
+    case Tracker.cached_blocked_by(issue) do
+      {:ok, hydrated} -> if open_blocker?(hydrated, terminal_states), do: {:held, hydrated}, else: {:chain, issue}
+      {:error, _unknown} -> if last_known_hold?(issue, terminal_states), do: {:last, issue}, else: {:chain, issue}
+    end
+  end
 
-  defp last_known_hold?(issue, terminal_states, true) do
+  defp last_known_hold?(issue, terminal_states) do
     case Tracker.last_known_blocked_by(issue) do
       {:ok, hydrated} -> open_blocker?(hydrated, terminal_states)
       {:error, _none} -> false
     end
   end
-
-  defp last_known_hold?(issue, terminal_states, false), do: open_blocker?(issue, terminal_states)
 
   defp open_blocker?(%Issue{state: state, blocked_by: blockers}, terminal_states)
        when is_binary(state) and is_list(blockers) do
@@ -99,10 +89,7 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
 
   defp tier(issue, terminal_states) do
     hydrated = DependencyGate.cached_issue(issue)
-
-    if fresh_cached_hold?(issue, terminal_states, Config.settings!().tracker.kind == "github"),
-      do: :held,
-      else: cached_tier(issue, hydrated, terminal_states)
+    cached_tier(issue, hydrated, terminal_states)
   end
 
   defp cached_tier(issue, hydrated, terminal_states) do
