@@ -106,8 +106,8 @@ jobs:
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
       - name: Structural guards
         run: python3 scripts/check-bare-assert-receive.py && python3 scripts/check-on-exit-rm-rf.py && python3 scripts/check-config-docs.py && node scripts/check-docs-prose.mjs
-      - name: Test rename preflight
-        run: make test-rename-preflight
+      - name: Test rename preflight and plan refresh
+        run: make test-rename-preflight && python3 -I scripts/test_plan_refresh.py
       - name: Test config documentation and design extract guards
         run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
       - name: Test component manifest guard

@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   references deleted from individual source diff hunks, so root-level sibling
   tests are not hidden by topic-directory selections.
 
-      mix aiur.affected_tests [base_ref]
+      mix aiur.affected_tests [base_ref] [--json]
 
   Prints a root-runnable `cd src && mise exec -- mix test ...` line, or advises
   running the full `make ci` suite when the change cannot be scoped safely.
@@ -30,6 +30,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   @impl Mix.Task
   def run(args) do
     root = repo_root()
+    json? = "--json" in args
+    args = Enum.reject(args, &(&1 == "--json"))
 
     with {:ok, base} <- requested_or_default_base(root, args),
          {:ok, changed} <- changed_files(root, base),
@@ -43,15 +45,17 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
         )
 
       selected
-      |> case do
-        {:full, reason} -> command({:full, reason, changed})
-        scoped -> command(scoped)
-      end
-      |> Enum.each(fn line -> Mix.shell().info(line) end)
+      |> output_lines(json?, changed)
+      |> Enum.each(&print_line/1)
     else
       {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
     end
   end
+
+  @doc false
+  @spec selection_json({:full, String.t()} | {:scoped, [String.t()]}) :: String.t()
+  def selection_json({:full, reason}), do: Jason.encode!(%{status: "full", reason: reason})
+  def selection_json({:scoped, tests}), do: Jason.encode!(%{status: "scoped", tests: tests})
 
   @doc false
   @spec command({:full, String.t()} | {:full, String.t(), [String.t()]} | {:scoped, [String.t()]}) :: [String.t()]
@@ -75,6 +79,12 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+
+  defp output_lines(selection, true, _changed), do: [selection_json(selection)]
+  defp output_lines({:full, reason}, false, changed), do: command({:full, reason, changed})
+  defp output_lines(selection, false, _changed), do: command(selection)
+
+  defp print_line(line), do: Mix.shell().info(line)
 
   @doc false
   @spec changed_files(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
