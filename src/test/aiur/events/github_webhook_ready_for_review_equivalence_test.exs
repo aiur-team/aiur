@@ -9,12 +9,25 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
   use Aiur.TestSupport.WebhookEquivalenceFixture
 
   alias Aiur.Events.{Exchange, GithubWebhook}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, State}
 
   @repo "owner/repo"
 
   test "pull request ready for review publishes its own topic" do
     :ok = Exchange.subscribe("ticket.55.pr.ready_for_review")
+    last_review_sha = String.duplicate("c", 40)
+    review_key = ResourceStore.key_for_repo(:pull_request_reviews, @repo, 901)
+
+    :ok =
+      ResourceStore.put_resource(
+        review_key,
+        [
+          %{"submitted_at" => "2026-06-23T11:00:00Z", "commit_id" => String.duplicate("d", 40), "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}},
+          %{"submitted_at" => "2026-06-24T11:00:00Z", "commit_id" => last_review_sha, "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}}
+        ],
+        source: :poll
+      )
 
     delivery = %{
       "action" => "ready_for_review",
@@ -22,6 +35,7 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       "pull_request" => %{
         "number" => 901,
         "draft" => false,
+        "user" => %{"login" => "aiur-worker"},
         "updated_at" => "2026-06-24T12:00:00Z",
         "head" => %{"ref" => "aiur/55", "sha" => "deadbeef"}
       },
@@ -29,10 +43,12 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
     }
 
     assert %{status: :published, published: ["ticket.55.pr.ready_for_review"]} =
-             GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo)
+             GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, orchestrator: self())
 
-    assert %{topic: "ticket.55.pr.ready_for_review", action: "ready_for_review", pr: %{"number" => 901, "draft" => false}} =
+    assert %{topic: "ticket.55.pr.ready_for_review", action: "ready_for_review", pr: %{"number" => 901, "draft" => false, "last_review_sha" => ^last_review_sha}} =
              await_event("ticket.55.pr.ready_for_review")
+
+    receive_barrier({:github_pr_ready_transition, "55", 901, "deadbeef"})
   end
 
   # #2707: on a poll-only repository nothing delivers `ready_for_review`, and
@@ -79,6 +95,100 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       _state = poll_draft_flag(state, "57", 902, "ready-head", false)
       refute_receive {:event, %{topic: ^topic}}, 100
       refute_received {:history_read, _url}
+    end
+
+    test "a webhook ready transition seeds the ledger and prevents its initial-sync replay" do
+      topic = "ticket.64.pr.ready_for_review"
+      :ok = Exchange.subscribe(topic)
+
+      delivery = %{
+        "action" => "ready_for_review",
+        "repository" => %{"full_name" => @repo},
+        "pull_request" => %{
+          "number" => 911,
+          "draft" => false,
+          "head" => %{"ref" => "aiur/64", "sha" => "reviewed-head"}
+        },
+        "sender" => %{"login" => "its-everdred"}
+      }
+
+      assert %{status: :published, published: [^topic]} =
+               GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, orchestrator: self())
+
+      assert %{topic: ^topic} = await_event(topic)
+      receive_barrier({:github_pr_ready_transition, "64", 911, "reviewed-head"})
+      assert {:noreply, state} = Aiur.Orchestrator.handle_info({:github_pr_ready_transition, "64", 911, "reviewed-head"}, %State{})
+      assert state.pr_ready_ledger[{"64", 911}] == {:announced, "reviewed-head"}
+
+      clear_replay_window()
+      _state = poll_draft_flag(state, "64", 911, "reviewed-head", false, [%{"event" => "ready_for_review"}])
+
+      refute_received {:history_read, _url}
+      refute_received {:event, %{topic: ^topic}}
+    end
+
+    test "a new ready head after a reviewed head publishes once with both SHAs" do
+      topic = "ticket.65.pr.ready_for_review"
+      :ok = Exchange.subscribe(topic)
+      old_head = String.duplicate("a", 40)
+      new_head = String.duplicate("b", 40)
+      key = ResourceStore.key_for_repo(:pull_request_reviews, @repo, 912)
+
+      :ok =
+        ResourceStore.put_resource(
+          key,
+          [
+            %{"id" => 1, "submitted_at" => "2026-10-09T06:17:00Z", "commit_id" => String.duplicate("c", 40), "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}},
+            %{"id" => 2, "submitted_at" => "2026-10-10T06:17:00Z", "commit_id" => old_head, "state" => "CHANGES_REQUESTED", "user" => %{"login" => "reviewer"}}
+          ],
+          source: :poll
+        )
+
+      state =
+        %State{}
+        |> poll_draft_flag("65", 912, old_head, true)
+        |> poll_draft_flag("65", 912, old_head, false)
+
+      first = await_event(topic)
+      assert get_in(first, [:pr, "last_review_sha"]) == old_head
+
+      state = poll_draft_flag(state, "65", 912, new_head, false)
+      second = await_event(topic)
+
+      assert get_in(second, [:pr, "head", "sha"]) == new_head
+      assert get_in(second, [:pr, "last_review_sha"]) == old_head
+      refute_received {:event, %{topic: ^topic}}
+
+      _state = poll_draft_flag(state, "65", 912, new_head, false)
+      refute_received {:event, %{topic: ^topic}}
+    end
+
+    test "a PR author's comment on the current head does not count as its last review" do
+      topic = "ticket.66.pr.ready_for_review"
+      :ok = Exchange.subscribe(topic)
+      head = String.duplicate("f", 40)
+      review_key = ResourceStore.key_for_repo(:pull_request_reviews, @repo, 913)
+
+      :ok =
+        ResourceStore.put_resource(
+          review_key,
+          [%{"submitted_at" => "2026-10-10T06:40:00Z", "commit_id" => head, "state" => "COMMENTED", "user" => %{"login" => "aiur-worker"}}],
+          source: :poll
+        )
+
+      delivery = %{
+        "action" => "ready_for_review",
+        "repository" => %{"full_name" => @repo},
+        "pull_request" => %{"number" => 913, "draft" => false, "user" => %{"login" => "aiur-worker"}, "head" => %{"ref" => "aiur/66", "sha" => head}},
+        "sender" => %{"login" => "its-everdred"}
+      }
+
+      assert %{status: :published, published: [^topic]} = GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo)
+      assert %{pr: pr} = await_event(topic)
+      refute Map.has_key?(pr, "last_review_sha")
+
+      projected = Aiur.ExecutorWakeProjection.project(%{topic: topic, pr: pr})
+      assert {:ok, %{"head_sha" => ^head, "last_review_sha" => nil}} = projected
     end
 
     test "webhook plus poll of the same draft-to-ready transition wakes once" do

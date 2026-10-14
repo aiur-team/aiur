@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     * a draft observation records `:draft`;
     * a ready observation of a `:draft` PR publishes and records
       `{:announced, head_sha}`;
+    * a ready observation at a new head publishes once for that head;
     * a ready observation of a PR the ledger does not know is resolved from the
       PR's history (`GitHub.Client.fetch_pull_request_was_draft/2`), which the
       comment poll reads once per such PR: a PR that was a draft publishes, and
@@ -27,8 +28,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       webhook does. The CI poll does not read history, so it leaves an unknown
       PR for the comment poll.
 
-  Each draft period of a PR therefore gets exactly one wake, at the head the
-  poll saw. The publish carries the webhook's dedup key
+  Each newly ready head therefore gets exactly one wake. The publish carries the webhook's dedup key
   (`GithubKeys.pr_dedup_key(repo, pr, "ready_for_review", head_sha)`), so a
   webhook delivery and a poll of the same transition produce one event.
   """
@@ -51,6 +51,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
           required(:pr_number) => pos_integer(),
           required(:head_sha) => String.t(),
           required(:draft?) => boolean(),
+          optional(:pr_author) => String.t() | nil,
           optional(:was_draft?) => boolean() | :error | nil
         }
 
@@ -80,6 +81,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
          ref when is_binary(ref) <- Map.get(head, "ref"),
          {:ticket, ticket, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> ref) do
       observation(ticket, Map.get(pr, "number"), Map.get(head, "sha"), Map.get(pr, "draft"))
+      |> maybe_put_author(get_in(pr, ["user", "login"]))
     else
       _ -> nil
     end
@@ -110,6 +112,22 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   @spec ledger(State.t()) :: PrReadyLedgerStore.ledger()
   def ledger(%State{pr_ready_ledger: ledger}) when is_map(ledger), do: ledger
   def ledger(%State{}), do: PrReadyLedgerStore.load()
+
+  @doc "Records a real webhook-observed draft-to-ready transition without publishing it again."
+  @spec observe_webhook_transition(State.t(), String.t(), pos_integer(), String.t()) :: State.t()
+  def observe_webhook_transition(%State{} = state, ticket, pr_number, head_sha)
+      when is_binary(ticket) and ticket != "" and is_integer(pr_number) and pr_number > 0 and is_binary(head_sha) and head_sha != "" do
+    ledger = ledger(state)
+    next = Map.put(ledger, {ticket, pr_number}, {:announced, head_sha})
+
+    if next != ledger do
+      :ok = PrReadyLedgerStore.save(next)
+    end
+
+    %{state | pr_ready_ledger: next}
+  end
+
+  def observe_webhook_transition(%State{} = state, _ticket, _pr_number, _head_sha), do: state
 
   @doc """
   Folds observations into the ledger, publishes what they reveal, and persists
@@ -147,6 +165,9 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       {false, :draft} ->
         announce(ledger, key, observation, opts)
 
+      {false, {:announced, prior_head}} when prior_head != observation.head_sha ->
+        announce(ledger, key, observation, opts)
+
       {false, nil} ->
         classify_from_history(ledger, key, observation, opts)
 
@@ -177,33 +198,47 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     end
   end
 
-  defp announce(ledger, {ticket, pr_number} = key, %{head_sha: head_sha}, opts) do
+  defp announce(ledger, {ticket, pr_number} = key, observation, opts) do
     repo_fun = Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0)
 
     case repo_fun.() do
       repo when is_binary(repo) and repo != "" ->
         Publisher.publish(
           "ticket.#{ticket}.pr.ready_for_review",
-          ready_payload(pr_number, head_sha, opts),
+          ready_payload(repo, pr_number, observation.head_sha, observation, opts),
           issue_number: ticket,
-          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
+          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", observation.head_sha)
         )
 
-        Map.put(ledger, key, {:announced, head_sha})
+        Map.put(ledger, key, {:announced, observation.head_sha})
 
       _no_repo ->
         ledger
     end
   end
 
-  defp ready_payload(pr_number, head_sha, opts) do
-    payload = %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}}
+  defp ready_payload(repo, pr_number, head_sha, observation, opts) do
+    pr_author = Map.get(observation, :pr_author)
+    pr = %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}
+
+    pr =
+      case GithubKeys.last_review_sha(repo, pr_number, pr_author) do
+        sha when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
+        _ -> pr
+      end
+
+    payload = %{action: "ready_for_review", pr: pr}
 
     case Keyword.get(opts, :observation) do
       "initial_sync" -> Map.put(payload, :observation, "initial_sync")
       _ -> payload
     end
   end
+
+  defp maybe_put_author(observation, author) when is_map(observation) and is_binary(author),
+    do: Map.put(observation, :pr_author, author)
+
+  defp maybe_put_author(observation, _author), do: observation
 
   defp prune(ledger) when map_size(ledger) <= @max_entries, do: ledger
 
