@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
     end
 
     test "sticky changes requested does not route a head that has a newer commit" do
+      # Future-regression guard: the sticky decision must not route an older-head review.
       identifier = unique_identifier("restart-stale-review")
       RecordingGitHubClient.record_to(self())
       ticket = issue(identifier, "ci-wait")
