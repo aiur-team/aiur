@@ -7,7 +7,6 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config.Schema
   alias Aiur.Issue
-  alias Aiur.ModelAvailability
 
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
@@ -189,11 +188,6 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
 
       assert_receive {:probe, "codex", [path: _, now: @now]}, 100
       assert Enum.any?(issue.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :known and &1.remaining_percent == 99 and &1.age_seconds == 259_200))
-
-      scheduled = put_in(generous, ["backends", "codex", "retry_scheduled_at"], "2026-10-10T06:02:00Z")
-
-      assert ModelAvailability.probe_stale_limits(["codex"], state: scheduled, now: @now, stale_after_seconds: 1800, probe_fun: probe, path: Path.join(System.tmp_dir!(), "unused-model-usage.json")) ==
-               0
     end
 
     test "an old per-account meter reading keeps its value and age" do

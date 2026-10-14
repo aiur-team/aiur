@@ -316,13 +316,8 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     if codex_stale? do
       probe_opts = [path: path, now: now]
 
-      ModelAvailability.probe_stale_limits(["codex"],
-        Keyword.merge(probe_opts,
-          state: state,
-          stale_after_seconds: max_reading_age_seconds(opts),
-          probe_fun: &schedule_probe(&1, &2, opts)
-        )
-      )
+      ModelAvailability.schedule_retry("codex", now, path: path)
+      schedule_probe("codex", probe_opts, opts)
     end
   end
 
@@ -330,8 +325,13 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     entry = get_in(state, ["backends", "codex"]) || %{}
 
     case parse_time(Map.get(entry, "observed_at")) do
-      %DateTime{} = observed_at -> DateTime.diff(now, observed_at, :second) > max_reading_age_seconds(opts)
-      nil -> true
+      %DateTime{} = observed_at ->
+        stale? = DateTime.diff(now, observed_at, :second) > max_reading_age_seconds(opts)
+        retry_due? = ModelAvailability.retry_scheduled?("codex", state: state, now: now)
+        stale? and (not Map.has_key?(entry, "retry_scheduled_at") or retry_due?)
+
+      nil ->
+        true
     end
   end
 
