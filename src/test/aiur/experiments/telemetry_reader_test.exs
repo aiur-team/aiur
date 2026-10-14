@@ -79,10 +79,10 @@ defmodule Aiur.Experiments.TelemetryReaderTest do
 
   test "a nested kind tag is metadata rather than a second telemetry record", %{path: path} do
     summary = Path.join(path, "tagged.json")
-    tagged = Map.update!(record("tagged"), :attributes, &Map.put(&1, "tags", %{"kind" => "baseline"}))
+    tagged = %{record("tagged") | kind: "run_context", attributes: %{"capture_tags" => %{"kind" => "baseline"}}}
     File.write!(summary, Jason.encode!(%{records: [tagged]}))
     assert {:ok, %{state: :complete, records: [row]}} = TelemetryReader.read(@window, [%{path: summary, format: :summary}])
-    assert row.attributes["tags"] == %{"kind" => "baseline"}
+    assert row.attributes["capture_tags"] == %{"kind" => "baseline"}
   end
 
   defp record(id) do

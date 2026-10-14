@@ -284,7 +284,9 @@ reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps
 
 Experiment telemetry uses one streaming reader for JSON summaries and live NDJSON.
 Callers that supply known boot intervals can skip non-overlapping sources before
-opening. The delivery pack has no boot-range index and does not claim this
+opening.
+
+The delivery pack has no boot-range index and does not claim this
 optimization: it reads retained summaries independently and caches each small
 projection by path, size and modification time. Live data is not cached.
 
