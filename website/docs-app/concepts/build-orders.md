@@ -66,6 +66,10 @@ Draft members carry local ticket document paths and no invented GitHub issue URL
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
+The Analytics pane shows an **Optimistic starts** tile when member telemetry records early starts. It counts redone and discarded work and reports head start (the interval from dependent start to blocker merge, floored at zero), never time saved.
+
+Missing head-start evidence is shown as unknown. A parked optimistic member stays `optimistic_parked` in the lifecycle chart until it resumes.
+
 ## The repository state node
 
 Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.
