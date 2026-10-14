@@ -47,6 +47,7 @@
     "kernel",
     "orchestration",
     "projections",
+    "signal",
     "tracker",
     "web-kit",
     "workspace"

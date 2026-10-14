@@ -9,7 +9,9 @@
     "src/lib/aiur_web/sockets/streamdeck.ex",
     "src/lib/aiur_web/stream_deck_grid.ex",
     "src/lib/aiur_web/streamdeck*.ex",
-    "src/lib/aiur_web/streamdeck_logs/*.ex"
+    "src/lib/aiur_web/streamdeck_channel/*.ex",
+    "src/lib/aiur_web/streamdeck_logs/*.ex",
+    "src/lib/aiur_web/streamdeck_projection/*.ex"
   ],
   "facades": [
     "*"
