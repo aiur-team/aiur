@@ -107,6 +107,19 @@ class AnalyzeTest(unittest.TestCase):
         spec['metrics'][0]['kind'] = 'bucketed'
         self.assertIn('autocorrelated_units', analyze(snapshot, spec)['metrics']['latency']['flags'])
 
+    def test_primary_test_selection_for_ties_and_cutoff(self):
+        snapshot, spec = fixture()
+        metric = analyze(snapshot, spec)['metrics']['latency']
+        self.assertEqual(metric['p_raw'], metric['tests']['mann_whitney_u']['p_value'])
+        for size, primary in [(40, 'permutation'), (51, 'mann_whitney_u')]:
+            snapshot['metrics']['latency']['rows'] = [
+                {'unit_id':g+str(i),'group':g,'value':i % 3 + offset}
+                for g, offset in [('a', 1), ('b', 10)] for i in range(size)]
+            metric = analyze(snapshot, spec)['metrics']['latency']
+            self.assertEqual(metric['p_raw'], metric['tests'][primary]['p_value'])
+            self.assertNotEqual(metric['tests']['mann_whitney_u']['p_value'],
+                                metric['tests']['permutation']['p_value'])
+
     def test_unbounded_rate_interval_preserves_direction_and_cause(self):
         snapshot, spec = fixture()
         spec['metrics'][0]['kind'] = 'rate'
@@ -119,7 +132,12 @@ class AnalyzeTest(unittest.TestCase):
         self.assertIsNone(effect['hi'])
         self.assertEqual(effect['unbounded'], ['estimate', 'hi'])
         self.assertGreater(effect['lo'], 1)
-        for group in snapshot['metrics']['latency']['groups'].values():
+        rates = snapshot['metrics']['latency']['groups']
+        rates['a'], rates['b'] = rates['b'], rates['a']
+        metric = analyze(snapshot, spec)['metrics']['latency']
+        self.assertEqual(metric['direction'], 'improved')
+        self.assertEqual(metric['effects']['rate_ratio']['estimate'], 0)
+        for group in rates.values():
             group['events'] = 0
         metric = analyze(snapshot, spec)['metrics']['latency']
         self.assertEqual(metric['direction'], 'no_change')
