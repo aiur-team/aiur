@@ -11,6 +11,7 @@ import time
 from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
 from components.manifest import read_manifest, write_manifest
+from components.docs_rules import check_docs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -134,7 +135,7 @@ def validate_manifest(manifest, document):
         for edge in ('requires', 'optional', 'shared_with'):
             for target in component.get(edge, []):
                 if target not in ids:
-                    raise InvalidManifest(f'/components/{index}/{edge}: unknown component {target}')
+                    raise InvalidManifest(f'{component["id"]}: /components/{index}/{edge}: unknown component {target}')
         for pattern in component['paths']:
             if pattern.startswith('/') or any(p in ('', '.', '..') for p in pattern.split('/')) or '\\' in pattern:
                 raise InvalidManifest(f'/components/{index}/paths: expected repository-relative glob')
@@ -401,6 +402,7 @@ def declaration_ownership(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--docs', action='store_true', help='validate public docs references without source checks')
     parser.add_argument('--rules', default='all', help='ownership, elixir, all, or comma-separated declared,private,down,optional')
     parser.add_argument('--require-elixir', action='store_true', help='require Elixir reference checks')
     parser.add_argument('--write-baseline', action='store_true')
@@ -420,6 +422,15 @@ def main():
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
     try:
         manifest = load_manifest(root)
+        if args.docs or (args.rules == 'all' and not args.format):
+            docs_problems = check_docs(root, manifest)
+            for message in docs_problems:
+                print(f'components: {message}')
+            if docs_problems:
+                return 1
+            if args.docs:
+                print('components: docs references valid')
+                return 0
         files = source_files(root)
         if args.format:
             write_manifest(root, manifest)
@@ -436,7 +447,10 @@ def main():
             return 1
         if args.rules != 'ownership' and check_references(root, manifest, file_owners, args.write_baseline, rules, args.prune, args.growth_base):
             return 1
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
+    except InvalidManifest as error:
+        print(f'components: components.json: {error}', file=sys.stderr)
+        return 1 if args.docs else 2
+    except Exception as error:
         print(f'components: components.json: {error}', file=sys.stderr)
         return 2
     print(f'components: all {sum(counts.values())} source files owned')

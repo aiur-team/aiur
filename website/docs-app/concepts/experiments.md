@@ -317,3 +317,73 @@ Token totals use the pinned provider relationship registry to avoid counting
 cache and reasoning subsets twice. Unknown revisions are unavailable. Missing
 USD spend is not replaced with another currency or zero. Stale or unhealthy
 accounting is unavailable; changing aggregate generations cannot be mixed.
+
+## Confounder sources
+
+`aiur experiments events <id> --json` collects window events, the gap between
+windows and a 24-hour margin before each window. It freezes `events-1.ndjson`.
+Later reads reuse it; `--refresh` appends a new file with stable event IDs.
+Changing windows or source settings also starts a new snapshot.
+
+Results include `events`, `snapshot_hash`, `snapshot` and `incomplete_sources`.
+NDJSON starts with snapshot metadata followed by event rows. Titles are
+untrusted data truncated to 200 characters. Analysts classify every event ID
+and pin the snapshot hash.
+
+The collector uses these sources:
+
+| Event | Evidence |
+| --- | --- |
+| `merged_pr` | Base-branch merges, labels, first 50 changed paths and closing issues' parent epic IDs. |
+| `release` | Published GitHub releases and dated tags. |
+| `version_change`, `config_change` | Run-context transitions; config section hashes identify changed section names. |
+| `incident` | Critical persisted alerts and incident-labelled issues, including overlapping open incidents. |
+| `outage` | Consecutive boot records more than ten minutes apart; raw telemetry supplements summaries. |
+| `main_red` | Required base-branch workflow failures through the next success, per workflow. |
+| `capacity_change` | Max or effective cap changes held at least fifteen minutes; brief blips are ignored. |
+| `global_pause` | Effective capacity dropping to zero through recovery. |
+
+Boot gaps describe restart separation, not measured downtime. Capacity and
+pause spans use sampler observations. Missing or expired telemetry cannot
+prove a complete history and is marked incomplete when it does not cover the
+start of the requested range.
+
+Missing sources produce a stderr warning; the command exits zero with usable
+evidence. Filesystem errors when freezing fail the command. GitHub reads are
+capped at ten pages per connection; reaching the cap marks GitHub incomplete.
+Frozen reads are local; refresh uses the [quota-accounted transport](../apis/github).
+
+Consumer specs may include this optional object:
+
+```json
+"confounder_sources": {
+  "base_branch": "main",
+  "required_workflows": ["CI"],
+  "incident_labels": ["incident", "outage"]
+}
+```
+
+The branch defaults to the tracker's configured branch; incident labels default
+to `incident` and `outage`. Set required workflow names explicitly; without a
+selection, `main_red` is incomplete. An unresolved red span has null `to`.
+
+Events carry `before`, `after`, `between`, `margin`, or `observation` for an A/B
+observation window.
+
+Collection runs in a supervised task with a two-minute timeout. Headers expose
+`collected_at` and the collected `range` in human and JSON output. Open windows
+remain frozen at that horizon until `--refresh`; collection time does not enter
+the input hash, while the observed range does.
+
+Each snapshot keeps at most 5,000 events and 4 MiB, marking capped sources
+incomplete. An experiment permits 32 immutable event snapshots; further refreshes
+are refused rather than deleting evidence pinned by reports. Existing oversized
+snapshots are retained but refused by the bounded reader.
+
+Alert collection streams at most 8 MiB and keeps at most 5,000 critical records.
+Oversized lines (over 256 KiB), partial reads and caps mark alerts incomplete.
+
+Telemetry uses the shared windowed reader: 32 MiB scanned, 10,000 records and
+4 MiB retained across sources. Known outside ranges are skipped. Retained boots
+without a range index remain eligible; missing, malformed or truncated evidence
+marks telemetry incomplete instead of implying a complete history.

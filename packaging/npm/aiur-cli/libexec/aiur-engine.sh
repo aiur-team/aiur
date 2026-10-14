@@ -106,6 +106,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
+       aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings

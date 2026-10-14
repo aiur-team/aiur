@@ -1,5 +1,6 @@
 {
   "manifest_version": 1,
+  "directory_published": false,
   "seams": [
     {
       "from": "control-cli",
