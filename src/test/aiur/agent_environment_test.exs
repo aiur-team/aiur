@@ -758,7 +758,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=2"
       assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=120"
       assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
-      assert prefix =~ "export AIUR_REAL_GH AIUR_REAL_GIT"
+      assert prefix =~ "export AIUR_REAL_GH\n" and prefix =~ "export AIUR_REAL_GIT\n"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "GH_CONFIG_DIR='/work/aiur/440/.aiur-runtime/gh'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
