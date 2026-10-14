@@ -2,7 +2,7 @@ defmodule Aiur.BuildQueueCLI do
   @moduledoc "Human and JSON views of the version 1 build queue read model."
   alias Aiur.BuildOrder.ProgressRenderer
   alias Aiur.{BuildQueue, JSONSafe}
-  alias Aiur.BuildQueue.MutationCLI
+  alias Aiur.BuildQueue.{ClaimProbe, MutationCLI, SetSummary}
 
   @spec run(keyword()) :: 0 | 1 | 64 | 124
   def run(opts \\ [])
@@ -19,7 +19,7 @@ defmodule Aiur.BuildQueueCLI do
     with :ok <- validate(opts),
          envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.BuildQueue.Server)),
          {:ok, envelope} <- select(envelope, Keyword.get(opts, :queue)) do
-      envelope = JSONSafe.normalize(envelope)
+      envelope = envelope |> select_next(opts) |> JSONSafe.normalize()
       if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: human(envelope, opts)
       if envelope["status"] in ["running", "writes_paused"], do: 0, else: 1
     else
@@ -28,6 +28,17 @@ defmodule Aiur.BuildQueueCLI do
         1
     end
   end
+
+  # Sample dispatch after the queue RPC: orchestrator callers of the read model must not call themselves.
+  defp select_next(%{queues: [_ | _] = queues} = envelope, opts) do
+    if Enum.all?(queues, &(is_integer(Map.get(&1, :set_rank)) and Map.has_key?(&1, :counts))) do
+      SetSummary.select_next(envelope, ClaimProbe.next_set(Keyword.get(opts, :claim_probe, ClaimProbe.impl())))
+    else
+      envelope
+    end
+  end
+
+  defp select_next(envelope, _opts), do: envelope
 
   defp default_error(message), do: IO.puts(:stderr, message)
 
@@ -57,7 +68,7 @@ defmodule Aiur.BuildQueueCLI do
   defp print_model(envelope) do
     IO.puts("build queue  #{envelope["status"]}  captured #{envelope["snapshot"]["captured_at"]}")
     envelope["sources"] |> Enum.sort() |> Enum.each(fn {name, source} -> IO.puts("#{name}  observed #{source["observed_at"] || "unknown"}  #{freshness(source)}#{reasons(source)}") end)
-    next = Enum.find(envelope["queues"], &(is_integer(&1["set_rank"]) and &1["state"] == "next"))
+    next = Enum.find(envelope["queues"], &(is_integer(&1["set_rank"]) and &1["next"] == true))
     if next, do: IO.puts("NEXT  #{next["name"]}  rank #{next["set_rank"]}")
     Enum.each(envelope["queues"], &print_queue/1)
   end

@@ -15,12 +15,21 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   end
 
   defmodule QueueBoundary do
+    alias Aiur.Issue
+    alias Aiur.Orchestrator.{BuildQueueClaimProbe, State}
     def load, do: Agent.get(__MODULE__, &{:ok, &1})
     def save(document), do: Agent.update(__MODULE__, fn _ -> document end)
     def open_issue_labels(_), do: {:ok, Map.new(1..12, &{to_string(&1), %{labels: ~w(agent:queued agent:todo)}}), System.system_time(:millisecond)}
     def blocked_by(_), do: {:ok, []}
     def ticket_pull_request(_), do: {:ok, nil}
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
+
+    def next_set do
+      document = Agent.get(__MODULE__, & &1)
+      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: "todo", blocked_by: []}} end)
+      BuildQueueClaimProbe.next_set(%State{max_concurrent_agents: 6, effective_concurrent_agents: 6, last_polled_issues: issues})
+    end
+
     def add_label(_, _), do: raise("ordering must not write GitHub labels")
     def remove_label(_, _), do: raise("ordering must not write GitHub labels")
     def notify_demand(_), do: :ok
@@ -60,9 +69,9 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(10 11 12 3 8 9)
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
     assert output == "0  set 2\n1  set 1\n2  set 0\n"
-    output = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid) end)
+    output = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, claim_probe: QueueBoundary) end)
     assert output =~ "NEXT  set 2  rank 0"
-    json = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true) end) |> Jason.decode!()
+    json = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: QueueBoundary) end) |> Jason.decode!()
     assert Enum.map(json["queues"], &{&1["set_rank"], &1["state"]}) == [{0, "next"}, {1, "waiting"}, {2, "waiting"}]
   end
 

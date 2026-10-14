@@ -676,9 +676,8 @@ defmodule Aiur.Orchestrator do
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
 
-  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
-    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
-  end
+  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids), do: {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  def handle_call(:build_queue_next_set, _from, state), do: {:reply, BuildQueueClaimProbe.next_set(state), state}
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 
