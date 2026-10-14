@@ -153,8 +153,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
         sub: "slots not on #{member_word(scope)}",
         tone: "block"
       }
-    ]
+    ] ++ optimistic_items(Map.get(k, :optimistic, %{starts: 0}))
   end
+
+  defp optimistic_items(%{starts: 0}), do: []
+
+  defp optimistic_items(k) do
+    [%{label: "Optimistic starts", val: k.starts, sub: "#{k.redone} redone · #{k.discarded} discarded · #{head_start(k.head_start_ms)} head start", tone: if(k.discarded > 0, do: "block")}]
+  end
+
+  defp head_start(nil), do: "unknown"
+  defp head_start(ms), do: hours(ms)
 
   defp member_word(%{total: total}) when total > 0, do: "these #{total} members"
   defp member_word(_scope), do: "this build"

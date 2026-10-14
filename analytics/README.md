@@ -96,6 +96,18 @@ analytics/build-report analytics-optimizations
 analytics/build-report analytics-optimizations --json
 ```
 
+Optimistic lifecycle evidence adds an optional `tickets.<id>.optimistic` block
+without changing the summary schema version. `build-report` groups starts,
+redone and discarded outcomes, integration reports, head start and waste by
+start trigger, including discard rate among terminal outcomes (unavailable
+until an outcome is recorded); `--json` includes the same `optimistic` rollup. `run-summary`
+adds one headline line. Builds with no optimistic starts keep their existing
+report output. Missing integration reports remain unknown. Head start is the
+blocker merge time minus the dependent start, floored at zero, for merged
+dependents; it is **not time saved**. Waste counts implementation intervals
+before the park, for discarded work only. Regenerate cached summaries to
+include this evidence.
+
 The daemon materializes summaries automatically on telemetry segment boundary
 and on shutdown (best-effort, fail-open). Manual `reduce` runs are always safe
 and regenerate any summary.
