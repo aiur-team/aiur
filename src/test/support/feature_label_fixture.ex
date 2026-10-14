@@ -47,7 +47,7 @@ defmodule Aiur.TestSupport.FeatureLabelFixture do
       )
 
     h = ExUnit.Callbacks.start_supervised!({History, name: __MODULE__.History, repository: "acme/widgets", state_dir: Path.join(dir, "history"), flush_ms: 60_000})
-    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(dir) end)
+    ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     ctx = %{dir: dir, clock: clock, features: f, history: h, path: Path.join(dir, "projection.json")}
     create(ctx, "auth")
     create(ctx, "other")
