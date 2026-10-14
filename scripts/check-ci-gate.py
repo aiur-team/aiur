@@ -23,6 +23,9 @@ def main():
     required = required_jobs(os.environ['EVENT_NAME'], full == 'true')
     failed = [job for job in required if needs.get(job, {}).get('result') != 'success']
     if failed:
+        if 'affected-tests' in failed and needs['affected-tests'].get('result') == 'cancelled':
+            print('CI gate failed: affected tests (cancelled; possible timeout)', file=sys.stderr)
+            return 1
         print(f'CI gate failed: {", ".join(failed)}', file=sys.stderr)
         return 1
     print(f'CI gate passed: {", ".join(required)}')
