@@ -267,26 +267,11 @@ jobs:
           # Put per-test SQLite state in private runner temp, avoiding quota-mounted
           # /tmp; df free space does not reflect EDQUOT limits.
           TMPDIR: ${{ runner.temp }}
-        # Capture the full log in a file: orphaned opencode/sleep processes hold
-        # tee pipes open, hanging the step until a cancelled red (#2397).
-        # Orphans inherit the file FD harmlessly, allowing completion when make
-        # exits; the known-flaky reporter below can still read the log.
-        #
-        # The bound lives here, in the step, not on the job. A job-level
-        # timeout cancels the job and a cancelled job skips every remaining
-        # step, so `Print partition log` and the known-flaky report are lost
-        # exactly when a wedge makes them most valuable. `timeout` makes the
-        # step exit normally with 124, which is an ordinary step *failure*, so
-        # the `failure()` steps below still run and the red names what it is.
-        #
-        # `tail -F` mirrors the log to the live job output while the partition
-        # runs. `Print partition log` below only helps when the runner survives
-        # to reach it; a partition that takes its own runner down (#2560) ends
-        # the job mid-step, skips every remaining step, and used to report as a
-        # bare exit 143 with not one line of test output. Streaming means the
-        # log GitHub has already ingested names the test that was running. This
-        # is a `tail`, not a `tee`: nothing downstream of `make` holds a pipe
-        # open, so the orphaned-background-process hang of #2397 cannot recur.
+        # Stream a file-backed log so orphan processes cannot hold a tee pipe
+        # open (#2397), and GitHub captures test output before a runner dies
+        # (#2560). Keep the timeout at step level: its ordinary failure lets
+        # the log and known-flaky reporting steps below run; a job timeout
+        # would cancel them. The private temp avoids quota-mounted /tmp.
         run: |
           log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
           : > "$log"
@@ -536,6 +521,9 @@ jobs:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Set up browser harness
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/setup-browser
@@ -547,6 +535,7 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
         run: npm run test:visual
+
   browser-3:
     name: browser smoke (3/3)
     container:
@@ -559,6 +548,9 @@ jobs:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Set up browser harness
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/setup-browser
@@ -570,6 +562,7 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
         run: npm run test:visual && npm run verify:failure-artifacts
+
   streamdeck:
     name: streamdeck
     needs: changes
@@ -720,7 +713,7 @@ jobs:
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, home-css, layout-release, analytics, streamdeck]
-    if: ${{ always() && (github.event_name != 'schedule') && !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -730,6 +723,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Require the event's selected jobs
+        if: ${{ github.event_name != 'schedule' && !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         env:
           EVENT_NAME: ${{ github.event_name }}
           NEEDS_JSON: ${{ toJSON(needs) }}
