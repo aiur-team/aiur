@@ -143,6 +143,12 @@ class AnalyzeTest(unittest.TestCase):
         snapshot['metrics']['latency']['rows'] = snapshot['metrics']['latency']['rows'][:1] + snapshot['metrics']['latency']['rows'][6:7]
         self.assertIn('cannot_reach_significance', analyze(snapshot, spec)['metrics']['latency']['flags'])
 
+    def test_unknown_primary_rejected(self):
+        snapshot, spec = fixture()
+        spec['primary_metrics'].append('misspelled')
+        with self.assertRaisesRegex(ValueError, 'primary_metrics IDs'):
+            analyze(snapshot, spec)
+
     def test_invalid_inputs_and_flat_adapter(self):
         for bad in [float('nan'), -1, True, '1']:
             snapshot, spec = fixture()

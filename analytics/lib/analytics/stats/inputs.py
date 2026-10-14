@@ -144,6 +144,8 @@ def normalize(snapshot, spec, annotations):
                 n = positive_integer(data.get("n"), "rate independent-unit n", 0)
                 metric["rates"][group] = {"events": events, "exposure": exposure, "n": n}
         metrics.append(metric)
+    if set(primaries) - seen:
+        raise ValueError("primary_metrics IDs must exist in spec.metrics")
     for metric_id in sorted(set(source_metrics) - seen):
         warnings.append(f"{metric_id}: not in spec; skipped")
     return experiment_id, groups, metrics, settings, warnings
