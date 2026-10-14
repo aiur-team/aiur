@@ -19,8 +19,15 @@ def slugify(heading):
 
 def headings(source):
     """Ignore fenced examples when inspecting Markdown ATX headings."""
-    fence = None
+    fence, comment = None, False
     for line in source.splitlines():
+        if fence is None:
+            if comment:
+                comment = '-->' not in line
+                continue
+            if '<!--' in line:
+                comment = '-->' not in line.partition('<!--')[2]
+                continue
         marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
         if marker:
             token = marker[1]

@@ -73,6 +73,8 @@ def run(repo, selected):
           files={'website/docs-app/guide/fixture.md': '## Explicit {#custom}\n## **Title**\n## Title\n'})
     check('docs_invalid_fence_closer_fails', field('docs', ['guide/fixture.md#absent']), 1, 'a: docs anchor not found',
           files={'website/docs-app/guide/fixture.md': '```md\n```not-a-closing-fence\n## absent\n```\n'})
+    check('docs_commented_anchor_fails', field('docs', ['guide/fixture.md#absent']), 1, 'a: docs anchor not found',
+          files={'website/docs-app/guide/fixture.md': '<!--\n## absent\n-->\n'})
     check('docs_entity_anchor_passes', field('docs', ['guide/fixture.md#a-b']),
           files={'website/docs-app/guide/fixture.md': '## A &amp; B\n'})
     check('docs_raw_entity_anchor_fails', field('docs', ['guide/fixture.md#a-amp-b']), 1, 'a: docs anchor not found',
