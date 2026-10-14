@@ -17,7 +17,13 @@
     },
     "./aiur-style.css": "./dist/aiur-style.css",
     "./css/*": "./dist/css/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./tokens": {
+      "types": "./dist/tokens.d.ts",
+      "default": "./dist/tokens.js"
+    },
+    "./tokens.css": "./dist/tokens.css",
+    "./theme-init.js": "./dist/init/theme-init.js"
   },
   "files": [
     "dist",
@@ -38,15 +44,19 @@
     "build": "node scripts/build.mjs",
     "check-dist": "node scripts/check-dist.mjs",
     "sync": "node scripts/sync.mjs",
-    "test": "npm run test:node",
-    "test:node": "node --test test/dist.test.mjs",
-    "test:visual": "playwright test test/gallery.visual.spec.ts",
-    "test:visual:docker": "docker run --rm --ipc=host -v \"$PWD:/work\" -w /work mcr.microsoft.com/playwright:v1.61.1-noble npm run test:visual"
+    "test": "npm run test:node && npm run test:unit",
+    "test:node": "node --test test/*.test.mjs",
+    "test:visual": "playwright test",
+    "test:visual:docker": "docker run --rm --ipc=host -v \"$PWD:/work\" -w /work mcr.microsoft.com/playwright:v1.61.1-noble npm run test:visual",
+    "test:unit": "vitest run test/theme.test.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "typescript": "^5.3.0",
     "@playwright/test": "1.61.1",
-    "http-server": "14.1.1"
+    "http-server": "14.1.1",
+    "jsdom": "24.1.3",
+    "terser": "5.44.0",
+    "vitest": "2.1.9"
   }
 }

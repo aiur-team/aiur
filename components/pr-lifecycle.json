@@ -1,0 +1,49 @@
+{
+  "id": "pr-lifecycle",
+  "name": "PR health",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/pr_lifecycle/**"
+  ],
+  "facades": [
+    "Aiur.PRLifecycle.HealthScanner",
+    "Aiur.PRLifecycle.ReworkRequeue"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "config",
+    "github",
+    "kernel",
+    "signal",
+    "tracker"
+  ],
+  "optional": [
+    "executor-attention"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [
+    "PRL"
+  ],
+  "forbid": [
+    "Aiur.Orchestrator",
+    "Aiur.Orchestrator.*"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Tracks pull request health and returns tickets that need more work.",
+  "docs": [
+    "concepts/ticket-lifecycle.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

@@ -60,3 +60,10 @@ The trailer is evidence for later verification; it never grants approval by itse
 Idle restacks leave a private pending ref; before_run consumes it with a local
 fast-forward before merging the integration branch. Divergent local work skips
 that hook and remains for the resumed agent to reconcile.
+
+After an attempted restack, emit `optimistic.integrated` once with
+`payload: {blocker: "<blocker ticket>", sha: "<blocker head SHA>",
+conflict: <boolean>, non_ff: <boolean>}`. Use the ticket number rather than the
+PR number. Set `conflict` if merge-tree or rebase conflicted, including an aborted
+attempt; set `non_ff` when the blocker head rewrote the previously integrated
+blocker history. Emit before tests or parking so failed attempts remain visible.

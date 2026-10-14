@@ -22,7 +22,7 @@ defmodule Aiur.GitHub.HostCommand do
   It does not wrap the operator's interactive shell. `~/.aiur/bin` has to be on
   an Executor shell's `PATH` for `gh pr review`/`gh pr merge` to reach the
   guard; this module covers the daemon's own programmatic calls, and the guard's
-  identity binding (see `priv/github_quota_guard.sh`) covers whichever credential
+  identity binding (see `priv/github_guard/gh/`) covers whichever credential
   that shell resolves.
   """
 

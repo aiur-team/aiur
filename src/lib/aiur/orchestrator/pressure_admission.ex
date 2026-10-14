@@ -76,7 +76,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     {next, decreased_at} =
       if bootstrap_hold?(effective, previous, target, fresh?),
         do: {1, nil},
-        else: adjust(effective, previous, pressure, target, count, now_ms, fresh?, Slots.max_concurrent_agent_limit(state))
+        else: adjust(effective, previous, pressure, target, count, now_ms, fresh?, %{limit: Slots.max_concurrent_agent_limit(state), used_slots: Slots.used_slots(state)})
 
     previous = if fresh?, do: EnvelopeResume.observe(previous, Slots.used_slots(state), next, effective, pressure, target, count), else: previous
     snapshot = if is_map(probes.cpu_snapshot), do: probes.cpu_snapshot, else: nil
@@ -103,16 +103,26 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   defp bootstrap_hold?(effective, previous, target, fresh?),
     do: fresh? and is_number(target) and effective == 1 and is_nil(previous.last_decrease_ms) and not Map.get(previous, :bootstrap_complete?, false)
 
-  defp adjust(_effective, _previous, _pressure, nil, _count, _now, _fresh?, limit), do: {limit, nil}
-  defp adjust(effective, previous, _pressure, _target, _count, _now, false, limit), do: {min(effective, limit), previous.last_decrease_ms}
+  defp adjust(_effective, _previous, _pressure, nil, _count, _now, _fresh?, %{limit: limit}), do: {limit, nil}
+  defp adjust(effective, previous, _pressure, _target, _count, _now, false, %{limit: limit}), do: {min(effective, limit), previous.last_decrease_ms}
 
-  defp adjust(effective, previous, pressure, target, count, now, true, limit) do
+  defp adjust(effective, previous, pressure, target, count, now, true, %{limit: limit, used_slots: used_slots}) do
     last = previous.last_decrease_ms
 
     cond do
-      pressure > target -> SustainedLoad.decrease(min(effective, limit), last, %{overload_samples: count, now_ms: now, cooldown_ms: Config.load_cooldown_seconds() * 1_000})
-      pressure < target * 0.8 -> ramp(effective, previous, pressure, target, limit)
-      true -> {min(effective, limit), last}
+      pressure > target ->
+        SustainedLoad.decrease(min(effective, limit), last, %{
+          overload_samples: count,
+          now_ms: now,
+          cooldown_ms: Config.load_cooldown_seconds() * 1_000,
+          running_floor: max(div(used_slots + 1, 2), Map.get(previous, :safe_level, 1))
+        })
+
+      pressure < target * 0.8 ->
+        ramp(effective, previous, pressure, target, limit)
+
+      true ->
+        {min(effective, limit), last}
     end
   end
 

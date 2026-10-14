@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{DataSource, Protocol, Read, URLState}
+  alias AiurWeb.Build.{DataSource, Protocol, Read, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.Presenter
@@ -20,7 +20,8 @@ defmodule AiurWeb.BuildLive do
     socket =
       socket
       |> Protocol.init()
-      |> NavState.assign_nav()
+      |> DashboardShell.mount()
+      |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
       |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
 
@@ -85,13 +86,23 @@ defmodule AiurWeb.BuildLive do
 
   def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
 
+  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
+  def handle_info({AiurWeb.FinancialData, :updated, _} = message, socket), do: {:noreply, UsageUpdates.queue(socket, message)}
+  def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
+  def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
+
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
+
+  @impl true
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
+  def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
+  def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}
 
   def handle_event("build:url", params, socket) when is_map(params) do
     previous = socket.assigns.url_state
@@ -129,7 +140,8 @@ defmodule AiurWeb.BuildLive do
     ~H"""
     <DashboardShell.dashboard_shell route={@route} routes={RouteRegistry.routes(@analytics)}
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
-      nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}>
+      nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
+      pause_state={DashboardShell.pause_state(assigns)}>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
@@ -142,6 +154,7 @@ defmodule AiurWeb.BuildLive do
         <div class="bd-status" id="bd-status"></div>
       </div>
     </DashboardShell.dashboard_shell>
+    <div id="usage-watch" phx-hook="UsageWatch" hidden></div>
     <div class="tk-backdrop" id="tk-backdrop" phx-update="ignore">
       <div class="tk-modal" id="tk-modal" role="dialog" aria-modal="true" aria-label="Ticket context">
         <header class="tk-head" id="tk-head"></header>

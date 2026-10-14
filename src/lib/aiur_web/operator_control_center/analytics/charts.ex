@@ -613,7 +613,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp status_color(:merged), do: "var(--good)"
   defp status_color(:rework), do: "var(--blocking)"
   defp status_color(:in_review), do: "var(--attention)"
-  defp status_color(:paused), do: "var(--faint)"
+  defp status_color(status) when status in [:paused, :optimistic_parked], do: "var(--faint)"
   defp status_color(_active), do: "var(--accent)"
 
   defp cost_metric(:peakcpu), do: & &1.peak_cpu

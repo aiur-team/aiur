@@ -4,7 +4,7 @@
 
 **Execution refresh:** 2026-07-13 — re-pulled from the Claude Design project
 (source etag `1783996988320902`) and preserved as the distinct versioned file
-`prototype/Aiur Operator Control Center.2026-07-13-refresh.html`. It adds a
+[retired Aiur Operator Control Center.2026-07-13-refresh.html](https://github.com/aiur-team/aiur/blob/a58b309a80301aa6823e6f9f6e9af9025bc18afe/docs/build-order/prototype/Aiur%20Operator%20Control%20Center.2026-07-13-refresh.html). It adds a
 build-order summary with complexity-weighted phase-progress bars. It does not
 replace immutable DESIGN-001 at the canonical path; DEC-015 authorizes BO-020
 to consume this versioned execution reference.
@@ -28,12 +28,16 @@ the accepted requirements, those decisions win. When the HTML and its companion
 constraints disagree, the discrepancy must be resolved rather than silently
 choosing whichever is easier to implement.
 
+Retired under the [2026-10-10 Executor decision](https://github.com/aiur-team/aiur/issues/3383#issuecomment-6097568004).
+The links below pin each retired file to its last content commit for restoration.
+
 ## Files
 
 | File | SHA-256 |
 |---|---|
-| `prototype/Aiur Operator Control Center.html` (immutable DESIGN-001) | `504239e1728342651b336f8b39559817a1b6381239e6647b52860a44032f0b38` |
-| `prototype/Aiur Operator Control Center.2026-07-13-refresh.html` (DEC-015 execution reference) | `0afe7e5e89de1b5de23bf278f7d02335969533fee81634008339169d87e6190e` |
+| [retired plan-preview.html](https://github.com/aiur-team/aiur/blob/1e53d79955739cef9aa4711659b8a8059b7a3d3d/docs/build-order/plan-preview.html) | `60ea5857af906d2e5f9d60121c6166f646f4294e4e51fef52354ee7da13d3c68` |
+| [retired Aiur Operator Control Center.html](https://github.com/aiur-team/aiur/blob/a58b309a80301aa6823e6f9f6e9af9025bc18afe/docs/build-order/prototype/Aiur%20Operator%20Control%20Center.html) (immutable DESIGN-001) | `504239e1728342651b336f8b39559817a1b6381239e6647b52860a44032f0b38` |
+| [retired Aiur Operator Control Center.2026-07-13-refresh.html](https://github.com/aiur-team/aiur/blob/a58b309a80301aa6823e6f9f6e9af9025bc18afe/docs/build-order/prototype/Aiur%20Operator%20Control%20Center.2026-07-13-refresh.html) (DEC-015 execution reference) | `0afe7e5e89de1b5de23bf278f7d02335969533fee81634008339169d87e6190e` |
 | `prototype/feature-constraints.md` | `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a` |
 | `prototype/README.md` | `f1f6e95194166edc779f0727a7e1a8571c5763a143c27156f105d9e79bea7cd8` |
 | `prototype/assets/aiur-logo.png` | `8a6ed8b69be413ba771bb003d7212ee3635a219e6d2abb7d18f64a40ad23fda0` |
@@ -97,6 +101,6 @@ choosing whichever is easier to implement.
 
 The two user-provided screenshots in the planning conversation confirm the
 intended dense desktop hierarchy and lower-phase continuation. They are
-supplementary references; the committed prototype above is the durable artifact.
+supplementary references; the pinned prototype above is the durable artifact.
 The full browser and current-code inventory is recorded in
 `06-prototype-capability-audit.md`.

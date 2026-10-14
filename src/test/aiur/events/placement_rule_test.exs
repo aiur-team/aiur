@@ -21,7 +21,7 @@ defmodule Aiur.Events.PlacementRuleTest do
   ]
   @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex", "aiur/build_queue/server.ex"]
   @reverse_bridges []
-  @topic_calls ~r/\b(?:emit_custom|emit_system|Publisher\.publish(?:_persisted)?|ExecutorEvents\.publish|Exchange\.publish)\(\s*"([^"#]*)"/s
+  @topic_calls ~r/\b(?:emit_custom|emit_system|Signal\.(?:agent_alert|alert)|Publisher\.publish(?:_persisted)?|ExecutorEvents\.publish|Exchange\.publish)\(\s*"([^"#]*)"/s
   @exchange_subscriber ~r/\bExchange\.subscribe\s*(?:\(|\/)|\bexchange_subscribe_fun\b/
   @pubsub_broadcaster ~r/\b(?:Phoenix\.PubSub\.(?:local_)?broadcast!?|DecisionPubSub\.broadcast_(?:changed|metrics_changed)|ObservabilityPubSub\.broadcast_update|AgentPubSub\.broadcast)\s*(?:\(|\/)/
   @pubsub_subscriber ~r/\bPhoenix\.PubSub\.subscribe\s*(?:\(|\/)/
@@ -74,10 +74,12 @@ defmodule Aiur.Events.PlacementRuleTest do
       "orphan.topic", "hash # inside a string") # trailing comment
     Publisher.publish("ticket.1.valid", %{})
     Alerts.emit_custom("ticket.#{id}.dynamic", "x")
+    Signal.agent_alert("orphan.signal", "x", [])
+    Signal.alert("orphan.alert", [])
     '''
 
     stripped = strip_docs(source)
-    assert topics(stripped) == [{"orphan.topic", 6}, {"ticket.1.valid", 8}]
+    assert topics(stripped) == [{"orphan.topic", 6}, {"ticket.1.valid", 8}, {"orphan.signal", 10}, {"orphan.alert", 11}]
     assert stripped =~ "hash # inside a string"
     refute stripped =~ "doc.topic"
     refute stripped =~ "comment.topic"

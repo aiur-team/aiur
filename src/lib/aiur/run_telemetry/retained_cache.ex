@@ -113,7 +113,8 @@ defmodule Aiur.RunTelemetry.RetainedCache do
 
     if size <= max_value do
       bytes = :ets.foldl(fn {_key, stored}, total -> total + :erlang.external_size(stored) end, 0, table)
-      if :ets.info(table, :size) >= 8 or bytes + size > 24 * 1024 * 1024, do: :ets.delete_all_objects(table)
+      max_entries = min(Keyword.get(opts, :max_entries, 8), 64)
+      if :ets.info(table, :size) >= max_entries or bytes + size > 24 * 1024 * 1024, do: :ets.delete_all_objects(table)
       :ets.insert(table, {key, value})
     end
   end

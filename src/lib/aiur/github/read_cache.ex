@@ -40,7 +40,7 @@ defmodule Aiur.GitHub.ReadCache do
 
   An entry is stamped with the moment its fetch **started**, not the moment the
   response came back, and is served only when all of the following hold — the
-  same test `priv/github_quota_guard.sh` applies to the agent-side store:
+  same test `priv/github_guard/gh/` applies to the agent-side store:
 
     * it was stamped no more than its TTL ago;
     * it was not stamped in the future;
@@ -339,7 +339,7 @@ defmodule Aiur.GitHub.ReadCache do
   # one it did touch stale. Guessing a repository is the failure mode; not
   # guessing is the fix.
   #
-  # `github_quota_guard.sh:1409-1412` warns that retiring a repository per
+  # `cache_invalidate_writes` in the agent `gh` guard warns that retiring a repository per
   # subresource write would be "correct and ruinous" — but it is describing
   # agent workpad comments, which are rewritten every few minutes through a
   # different store. This fallback is reachable only from node-id GraphQL

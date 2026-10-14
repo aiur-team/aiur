@@ -127,14 +127,11 @@ defmodule Aiur.Alerts do
     end
   end
 
-  # A `.resolved` alert reports the firing → cleared transition. Emitting it
-  # again while the condition has stayed clear reports a state as if it were a
-  # transition, and a poller doing so every cycle buries every record an
+  # Repeating `.resolved` while a condition stays clear reports a state as a transition and buries records an
   # Executor would act on. The check is against the durable ledger rather than
   # caller-held state, so an emitter that loses its in-memory latch — a restart,
   # a fresh CLI process — still cannot replay a transition that already landed.
-  # Reads with the same default options `write_alert_ledger_entry/3` appends
-  # under, so the gate can never consult a ledger the emit would not land in.
+  # Reads and writes use the same ledger options, so the gate checks the ledger the emit writes.
   # Fails open: an unreadable ledger must not swallow a real transition.
   defp repeat_resolution?(topic) do
     AlertFeed.duplicate_resolution?(topic)
@@ -321,6 +318,9 @@ defmodule Aiur.Alerts do
       issue_number: issue_number_for(opts),
       bypass_contamination: Keyword.get(opts, :bypass_contamination, false),
       identity: Keyword.get(opts, :observation_identity),
+      resource: Keyword.get(opts, :resource),
+      resource_version: Keyword.get(opts, :resource_version),
+      resource_source: Keyword.get(opts, :resource_source, :poll),
       observation_source: Keyword.get(opts, :observation_source),
       observation_provenance: Keyword.get(opts, :observation_provenance),
       occurred_at: Keyword.get(opts, :occurred_at)
@@ -330,11 +330,11 @@ defmodule Aiur.Alerts do
     # Ordinary alerts stay best-effort during early boot; durable callers need the failure to retry.
     error -> publication_result({:error, {:publish_failed, error}}, opts)
   catch
-    # A missing IdGenerator exits through GenServer.call; durable callers must keep their pending latch.
     :exit, reason -> publication_result({:error, {:publish_failed, reason}}, opts)
   end
 
   defp publication_result({:ok, _id, _subscribers}, _opts), do: :ok
+  defp publication_result(:deduped, _opts), do: :ok
 
   defp publication_result(result, opts) do
     if Keyword.get(opts, :durable, false), do: {:error, {:publication_failed, result}}, else: :ok

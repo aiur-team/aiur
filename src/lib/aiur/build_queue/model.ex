@@ -16,11 +16,12 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Queue do
     @moduledoc "A named list or imported build order."
     @enforce_keys [:id, :name, :kind, :root, :held, :generation, :created_at]
-    defstruct @enforce_keys ++ [start_trigger: nil]
+    defstruct @enforce_keys ++ [start_trigger: nil, rank: 0]
 
     @type t :: %__MODULE__{
             id: String.t(),
             name: String.t(),
+            rank: non_neg_integer(),
             start_trigger: Aiur.StartTrigger.trigger() | nil,
             kind: :list | :build_order,
             root: pos_integer() | nil,

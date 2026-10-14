@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.RefreshTest do
 
   alias Aiur.{AgentGitHubGuard, AppServer.Adapter}
   alias Aiur.Workflow
-  alias Aiur.Workspace.{Ownership, Refresh}
+  alias Aiur.Workspace.{Context, Hooks, Ownership, Refresh}
 
   setup do
     test_root = Aiur.TestSupport.tmp_root!("refresh_test")
@@ -285,12 +285,14 @@ defmodule Aiur.Workspace.RefreshTest do
     test_root: test_root
   } do
     init_repo!(workspace)
-    git!(["-C", workspace, "checkout", "--quiet", "-b", "aiur/123-fix-login"])
-    trace = Path.join(test_root, "branch-trace")
+    git!(workspace, ["checkout", "--quiet", "-b", "aiur/123-fix-login"])
+    trace_root = Path.join(test_root, "branch-traces")
+    File.mkdir_p!(trace_root)
+    trace = Path.join(trace_root, "123-fix-login")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_before_run: "printf '%s\\n' \"$AIUR_TICKET_BRANCH\" >> #{trace}; exit 65"
+      hook_before_run: "printf '%s\\n' \"$AIUR_TICKET_BRANCH\" >> #{Aiur.Shell.escape(trace_root)}/\"${AIUR_TICKET_BRANCH#aiur/}\"; exit 65"
     )
 
     issue = %{
@@ -304,6 +306,30 @@ defmodule Aiur.Workspace.RefreshTest do
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
     assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
+
+    other_workspace = Path.join(test_root, "other")
+    File.mkdir_p!(other_workspace)
+
+    other_issue = %{
+      id: 164,
+      identifier: "164",
+      title: "Rework completed, review still open",
+      state: "rework",
+      labels: [],
+      pr_head_ref: nil
+    }
+
+    assert {:error, {:workspace_hook_failed, "before_run", 65, _output}} =
+             Hooks.run_hook(
+               Config.settings!().hooks.before_run,
+               other_workspace,
+               Context.build(other_issue),
+               "before_run",
+               nil
+             )
+
+    assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
+    assert File.read!(Path.join(trace_root, "164-rework-completed-review-still")) |> String.trim() == "aiur/164-rework-completed-review-still"
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
@@ -334,6 +360,11 @@ defmodule Aiur.Workspace.RefreshTest do
 
   defp git!(args) do
     {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    out
+  end
+
+  defp git!(workspace, args) do
+    {out, 0} = System.cmd(System.get_env("AIUR_REAL_GIT") || "/usr/bin/git", ["-C", workspace | args], stderr_to_stdout: true)
     out
   end
 end

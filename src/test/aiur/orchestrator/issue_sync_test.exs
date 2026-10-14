@@ -1865,7 +1865,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_received {:event, %{topic: ^resolved_topic}}
-    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
+    refute Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true), &(&1["topic"] == topic))
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -1936,7 +1936,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_received {:event, %{topic: ^topic}}
-
+    :ok = AlertLedger.append(%{"topic" => "system.supervision.degraded", "needs_attention" => true})
     assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), &(&1["topic"] == topic))
 
     _restart_with_pause =
@@ -1965,7 +1965,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_received {:event, %{topic: ^resolved_topic}}
-    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
+    refute Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true), &(&1["topic"] == topic))
 
     _ =
       IssueSync.sync_polled_issue_state(

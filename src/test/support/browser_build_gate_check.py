@@ -16,7 +16,7 @@ real_bin = root / "real-bin"
 real_bin.mkdir()
 node = real_bin / "node"
 node.write_text("""#!/usr/bin/python3
-import os, subprocess, sys, time
+import os, select, subprocess, sys, time
 if sys.argv[-1] == 'nested':
     sys.exit(subprocess.call(['node', '/pkg/playwright/cli.js', 'child']))
 if sys.argv[-1] == 'orphan':
@@ -28,7 +28,10 @@ if sys.argv[-1] == 'orphan':
     print('pids', os.getpid(), child, flush=True)
 print('started', flush=True)
 if sys.argv[-1] in ('hold', 'orphan'):
-    sys.stdin.read(1)
+    release = os.open(os.environ['AIUR_BUILD_GATE_RELEASE_FIFO'], os.O_RDONLY | os.O_NONBLOCK)
+    print('holding', flush=True)
+    select.select([release], [], [])
+    os.read(release, 1)
 """)
 node.chmod(0o755)
 gate = root / "gate"
@@ -45,8 +48,8 @@ environment = {
     "AIUR_BUILD_GATE_DIR": str(gate),
     "AIUR_BUILD_GATE_LOCK_DIR": str(locks),
     "AIUR_BUILD_GATE_SLOTS": "2",
-    "AIUR_BUILD_GATE_TIMEOUT_SECONDS": "10",
-    "AIUR_BUILD_GATE_MAX_HOLD_SECONDS": "20",
+    "AIUR_BUILD_GATE_TIMEOUT_SECONDS": "60",
+    "AIUR_BUILD_GATE_MAX_HOLD_SECONDS": "0",
     "AIUR_BUILD_GATE_RETAIN_SECONDS": "0",
 }
 processes = []
@@ -54,11 +57,17 @@ orphans = []
 
 
 def start(script="/pkg/playwright/cli.js", action="hold", env=None):
+    child_env = dict(environment if env is None else env)
+    if action in ("hold", "orphan"):
+        fifo = root / f"release-{len(processes)}.fifo"
+        os.mkfifo(fifo)
+        child_env["AIUR_BUILD_GATE_RELEASE_FIFO"] = str(fifo)
     process = subprocess.Popen(
         [str(wrapper if env is None else Path(env["AIUR_BUILD_GATE_BIN"]) / "node"), script, action],
-        env=environment if env is None else env,
+        env=child_env,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
     )
+    process.release_fifo = fifo if action in ("hold", "orphan") else None
     processes.append(process)
     return process
 
@@ -79,14 +88,15 @@ def wait_log(process, text):
 
 
 def release(process):
-    process.stdin.write(b"x")
-    process.stdin.flush()
+    with process.release_fifo.open("wb") as release_signal:
+        release_signal.write(b"x")
     assert process.wait(timeout=15) == 0, process.stderr.read().decode()
 
 
 try:
     first = start()
     assert line(first.stdout) == "started\n"
+    assert line(first.stdout) == "holding\n"
     expired = start(action="exit", env=dict(environment, AIUR_BUILD_GATE_TIMEOUT_SECONDS="0"))
     assert expired.wait(timeout=15) == 124, expired.stderr.read().decode()
     assert b"browser_workspace_timeout" in expired.stderr.read()
@@ -107,6 +117,7 @@ try:
     capped = dict(environment, AIUR_BUILD_GATE_SLOTS="1")
     first = start(env=capped)
     assert line(first.stdout) == "started\n"
+    assert line(first.stdout) == "holding\n"
     second_env = dict(capped, AIUR_BUILD_GATE_BIN=str(other), PATH=f"{other}:{real_bin}:/usr/bin:/bin")
     second = start(env=second_env)
     wait_log(second, "queued slots=1")
@@ -115,6 +126,7 @@ try:
         assert not selector.select(0), "host cap was bypassed"
     release(first)
     assert line(second.stdout) == "started\n"
+    assert line(second.stdout) == "holding\n"
     release(second)
 
     for script in ("/pkg/@playwright/test/cli.js", "/pkg/playwright-core/cli.js", "/pkg/node_modules/.bin/playwright"):
@@ -132,6 +144,7 @@ try:
         _, node_pid, orphan_pid = line(crashed.stdout).split()
         orphans.append(int(orphan_pid))
         assert line(crashed.stdout) == "started\n"
+        assert line(crashed.stdout) == "holding\n"
         crashed.kill()
         os.kill(int(node_pid), signal.SIGKILL)
         crashed.wait(timeout=15)

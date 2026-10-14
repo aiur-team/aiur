@@ -2453,7 +2453,7 @@
    "id": "DESIGN-001",
    "source": "https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Operator+Control+Center.html",
    "captured_at": "2026-07-12T22:00:40-07:00",
-   "artifact": "prototype/Aiur Operator Control Center.html",
+   "artifact": "https://github.com/aiur-team/aiur/blob/a58b309a80301aa6823e6f9f6e9af9025bc18afe/docs/build-order/prototype/Aiur%20Operator%20Control%20Center.html",
    "sha256": "504239e1728342651b336f8b39559817a1b6381239e6647b52860a44032f0b38"
   },
   {

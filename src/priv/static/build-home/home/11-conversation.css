@@ -1,0 +1,445 @@
+/* C:529 */ .cv-dh b {
+  font-weight: 600;
+}
+
+/* C:529 */ .cv-dh .a {
+  color: var(--good-ink);
+}
+
+/* C:529 */ .cv-dh .d {
+  color: var(--block-ink);
+}
+
+/* C:530 */ .cv-diff pre {
+  margin: 0;
+  padding: .35rem 0;
+  font: .72rem/1.55 "JetBrains Mono", monospace;
+  overflow-x: auto;
+}
+
+/* C:531 */ .cv-diff pre span {
+  display: block;
+  padding: 0 .65rem;
+  color: var(--muted);
+  white-space: pre;
+}
+
+/* C:532 */ .cv-diff pre .a {
+  background: color-mix(in srgb, var(--good) 10%, transparent);
+  color: var(--fg);
+}
+
+/* C:533 */ .cv-diff pre .d {
+  background: color-mix(in srgb, var(--block) 9%, transparent);
+  color: var(--muted);
+}
+
+/* C:534 */ .cv-ev {
+  --ec: oklch(.74 .14 var(--eh));
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .45rem 0;
+  margin: .25rem 0;
+  font: .74rem "JetBrains Mono", monospace;
+  color: var(--muted);
+  border-radius: 6px;
+}
+
+/* C:535 */ .cv-ev::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid color-mix(in srgb, var(--ec) 30%, transparent);
+  z-index: 0;
+}
+
+/* C:536 */ .cv-ev > * {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-2);
+}
+
+/* C:537 */ .cv-evi {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ec);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ec) 45%, transparent);
+}
+
+/* C:538 */ .cv-evi svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* C:539 */ .cv-ev b {
+  font-weight: 600;
+  color: var(--ec);
+  padding-right: .1rem;
+}
+
+/* C:540 */ .cv-evs {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: .5rem;
+}
+
+/* C:541 */ .cv-ev time {
+  margin-left: auto;
+  padding-left: .5rem;
+  color: var(--faint);
+  flex: none;
+}
+
+/* C:542 */ .cv-ev.mute {
+  --ec: var(--muted);
+}
+
+/* C:543 */ .cv-go {
+  border: 0;
+  font: 600 .66rem "JetBrains Mono", monospace;
+  color: var(--accent-ink);
+  cursor: pointer;
+  padding: 0 .4rem;
+}
+
+/* C:544 */ .cv-new {
+  position: absolute;
+  left: 50%;
+  bottom: 5.2rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  height: 28px;
+  padding: 0 .75rem;
+  border-radius: 999px;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font: 600 .72rem "Space Grotesk", sans-serif;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,.3);
+}
+
+/* C:545 */ .cv-new svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* C:546 */ .cv-new[hidden], .cv-typing[hidden] {
+  display: none;
+}
+
+/* C:547 */ .cv-typing {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  padding: 0 1.2rem .4rem 2.75rem;
+  font: .68rem "JetBrains Mono", monospace;
+  color: var(--faint);
+}
+
+/* C:548 */ .cv-typing i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: cvDot 1.2s infinite ease-in-out;
+}
+
+/* C:549 */ .cv-typing i:nth-child(2) {
+  animation-delay: .15s;
+}
+
+/* C:549 */ .cv-typing i:nth-child(3) {
+  animation-delay: .3s;
+  margin-right: .35rem;
+}
+
+@keyframes cvDot {
+  0%, 80%, 100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* C:551 */ .cv-cmd {
+  margin: 0 1rem .6rem;
+  padding: .75rem .9rem;
+  border-radius: 12px;
+  background: var(--block-soft);
+}
+
+/* C:552 */ .cv-cmd p {
+  margin: 0 0 .6rem;
+  font-size: .88rem;
+  color: var(--fg);
+}
+
+/* C:553 */ .cv-cmd .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+/* C:554 */ .cv-cmd .rec {
+  margin-left: .45rem;
+  font: .6rem "JetBrains Mono", monospace;
+  opacity: .75;
+}
+
+/* C:555 */ .cv-in {
+  display: flex;
+  align-items: flex-end;
+  gap: .35rem;
+  margin: 0 1rem 1rem;
+  padding: .35rem .35rem .35rem .85rem;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, color-mix(in srgb, var(--fg) 16%, var(--surface)), var(--surface) 80%) border-box;
+}
+
+/* C:557 */ .cv-in:focus-within {
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 25%, var(--surface))) border-box;
+}
+
+/* C:558 */ .cv-in textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg);
+  font-family: inherit;
+  padding: .4rem 0;
+  max-height: 140px;
+}
+
+/* C:559 */ .cv-in textarea::placeholder {
+  color: var(--faint);
+}
+
+/* C:560 */ .cv-mic, .cv-send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* C:561 */ .cv-mic {
+  background: none;
+  color: var(--muted);
+}
+
+/* C:561 */ .cv-mic:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+/* C:562 */ .cv-mic.rec {
+  color: var(--block);
+  animation: cvRec 1.4s ease-in-out infinite;
+}
+
+@keyframes cvRec {
+  50% {
+    box-shadow: 0 0 0 4px var(--block-soft);
+  }
+}
+
+/* C:564 */ .cv-send {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* C:565 */ .cv-mic svg, .cv-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* C:566 */ .cv-end {
+  margin: 0 1rem 1rem;
+  padding: .7rem;
+  text-align: center;
+  font: .72rem "JetBrains Mono", monospace;
+  color: var(--faint);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+/* C:568 */ .cv-map {
+  position: relative;
+  flex: 0 0 10%;
+  min-width: 56px;
+  max-width: 116px;
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg-2));
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+
+/* C:569 */ .mm {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  pointer-events: none;
+}
+
+/* C:570 */ .mm-b {
+  position: absolute;
+  left: 0;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--fg) 16%, transparent);
+}
+
+/* C:571 */ .mm-b.k-op {
+  left: auto;
+  right: 0;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* C:572 */ .mm-b.k-diff {
+  background: color-mix(in srgb, var(--good) 22%, transparent);
+}
+
+/* C:573 */ .mm-b.k-tool {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+/* C:574 */ .mm-b.k-sys {
+  left: 32%;
+}
+
+/* C:575 */ .mm-e {
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  height: 9px;
+  margin-top: -4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* C:576 */ .mm-e::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: oklch(.74 .15 var(--eh));
+}
+
+/* C:577 */ .mm-e:hover::after {
+  height: 3px;
+  top: 3px;
+  left: 0;
+  right: 0;
+  box-shadow: 0 0 6px oklch(.74 .15 var(--eh) / .7);
+}
+
+/* C:578 */ .mm-vw {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  margin-top: 8px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+}
+
+/* C:579 */ .mm-tip {
+  position: absolute;
+  right: calc(100% + 6px);
+  margin-top: 8px;
+  transform: translateY(-50%);
+  z-index: 4;
+  display: none;
+  align-items: center;
+  gap: .45rem;
+  padding: .35rem .6rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  font: 600 .7rem "JetBrains Mono", monospace;
+  color: var(--fg);
+  background: var(--surface-3);
+  box-shadow: 0 8px 22px rgba(0,0,0,.35);
+}
+
+/* C:581 */ .mm-tip.show {
+  display: inline-flex;
+}
+
+/* C:582 */ .mm-tip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: oklch(.74 .15 var(--eh));
+}
+
+/* C:583 */ .mm-tip time {
+  font-weight: 400;
+  color: var(--faint);
+}
+
+/* C:585 */ .bm-doc {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* C:586 */ .bm-art {
+  padding: 1.4rem 1.6rem 2rem;
+  max-width: 70ch;
+}
+
+/* C:587 */ .bm-src {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font: .72rem "JetBrains Mono", monospace;
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+
+/* C:588 */ .bm-src svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* C:589 */ .bm-sum {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+

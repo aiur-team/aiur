@@ -9,7 +9,6 @@ defmodule Aiur.ExecutorEvents do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.Events.IdGenerator
@@ -22,6 +21,7 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Journal
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
+  alias Aiur.Signal
 
   @default_topic "executor.#"
 
@@ -465,7 +465,7 @@ defmodule Aiur.ExecutorEvents do
     Logger.error("aiur_executor_events phase=journal_corrupt path=#{journal_path()} line=#{line} reason=#{inspect(reason)}")
 
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "executor_events.corrupted",
         "Executor event journal is corrupt at #{journal_path()} line #{line}; listener replay is stopped.",
         needs_attention: true

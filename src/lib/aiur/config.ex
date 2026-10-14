@@ -231,6 +231,9 @@ defmodule Aiur.Config do
   defdelegate agent_stall_timeout_ms(), to: Aiur.Config.AgentSettings
   defdelegate max_agent_duration_minutes(), to: Aiur.Config.AgentSettings
   defdelegate ci_wait_rewake_minutes(), to: Aiur.Config.AgentSettings
+  defdelegate ci_recovery_enabled?(), to: Aiur.Config.AgentSettings
+  defdelegate ci_recovery_max_per_poll(), to: Aiur.Config.AgentSettings
+  defdelegate ci_recovery_max_per_hour(), to: Aiur.Config.AgentSettings
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings

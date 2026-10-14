@@ -33,7 +33,7 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.EndpointPolicy
   alias Aiur.GitHub.GraphQLCost
@@ -191,7 +191,7 @@ defmodule Aiur.GitHub.Quota do
       # start without also moving the clock that prices everything else.
       started_at: Keyword.get_lazy(opts, :started_at, fn -> Keyword.get(opts, :clock, &DateTime.utc_now/0).() end),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-      emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
+      emit_fun: Keyword.get(opts, :emit_fun, &Signal.alert/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
       stale_broker_path: Keyword.get_lazy(opts, :stale_broker_path, &default_stale_broker_path/0),
       stale_broker_alerts: MapSet.new(),

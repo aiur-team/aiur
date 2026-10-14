@@ -1,0 +1,72 @@
+{
+  "id": "web-shell",
+  "name": "HTTP and sockets",
+  "layer": 4,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/http_server.ex",
+    "src/lib/aiur/http_server/**",
+    "src/lib/aiur/tailscale_funnel.ex",
+    "src/lib/aiur_web/controllers/*api*.ex",
+    "src/lib/aiur_web/controllers/observability*.ex",
+    "src/lib/aiur_web/endpoint.ex",
+    "src/lib/aiur_web/financial_data_access.ex",
+    "src/lib/aiur_web/router.ex",
+    "src/lib/aiur_web/routes/api.ex",
+    "src/lib/aiur_web/supervisor_auth.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "identity",
+    "projections",
+    "signal",
+    "web-kit"
+  ],
+  "optional": [
+    "build-orders",
+    "commands",
+    "conversations",
+    "dashboard-ui",
+    "github-listeners",
+    "pairing-discovery",
+    "streamdeck-server",
+    "voice-stt"
+  ],
+  "owns": {
+    "config": [
+      "observability",
+      "server"
+    ],
+    "env": [
+      "AIUR_DASHBOARD_PASSWORD",
+      "AIUR_DASHBOARD_USERNAME"
+    ],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [
+    "WEB"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Hosts authenticated APIs, sockets and web routes for operator clients.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/gui.md"
+  ],
+  "config": [
+    "observability",
+    "server"
+  ],
+  "env": [
+    "AIUR_DASHBOARD_PASSWORD",
+    "AIUR_DASHBOARD_USERNAME"
+  ],
+  "capabilities": []
+}

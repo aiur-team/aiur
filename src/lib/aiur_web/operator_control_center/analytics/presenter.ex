@@ -20,7 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, ProjectedSeries, TicketRow}
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
 
   @default_buckets 180
   @max_series_actors 8
@@ -376,21 +376,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     end
   end
 
-  # Idle slot-hours are measured against the ceiling that actually existed —
-  # the effective cap — not the configured one, so the figure counts slots the
-  # dispatcher could have filled rather than slots that were never on offer.
-  #
-  # With no known ceiling there is no subtrahend, so there is no figure. `nil`
-  # renders as an em dash: an unknown cap must not produce a precise-looking
-  # hour count derived from a number the page just admitted it does not have.
-  defp wasted_slot_hours(_series, %{cap_available?: false}, _bucket_hours), do: nil
-
-  defp wasted_slot_hours(series, ctx, bucket_hours) do
-    series
-    |> Enum.reduce(0.0, fn s, acc -> acc + max(ctx.cap - s.conc, 0) * bucket_hours end)
-    |> round1()
-  end
-
   # ---- per-actor summary ----
 
   defp actor_summary(key, actor) do
@@ -680,7 +665,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     mean_cpu = mean(Enum.sum(Enum.map(series, & &1.total_cpu)), length(series))
     mem_now = (List.last(series) || %{}) |> Map.get(:total_mem, 0)
     bucket_hours = ctx.bw / 1000 / 3600
-    wasted = wasted_slot_hours(series, ctx, bucket_hours)
+    {wasted, wasted_partial?} = WastedCapacity.summarize(series, bucket_hours, ctx.cap_available?)
     merged = Enum.count(tickets, fn {_id, t} -> merged?(t) end)
     # A Build Order knows its own size; telemetry only knows the tickets that ran,
     # so inferring scope from it would report a build complete before it started.
@@ -698,9 +683,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       total: total,
       done_pct: pct(merged, total),
       wasted_slot_hours: wasted,
+      wasted_slot_hours_partial: wasted_partial?,
       sessions: ctx.dataset |> Dataset.boot_ids() |> length(),
       active_ms: round(ctx.bw * length(series)),
-      cpu_hours: round1(cpu_hours(ctx.dataset))
+      cpu_hours: round1(cpu_hours(ctx.dataset)),
+      optimistic: Optimistic.summary(tickets)
     }
   end
 
@@ -714,8 +701,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     |> Enum.sum()
     |> Kernel./(3600)
   end
-
-  # ---- ticket lifecycle rows ----
 
   defp merged?(ticket) do
     ticket |> Map.get(:intervals, []) |> Enum.any?(&(Map.get(&1, :phase) == "pr_merged"))

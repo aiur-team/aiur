@@ -33,12 +33,14 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @script_path"
     ],
     "aiur/agent_github_guard.ex" => [
-      "@gh_script_path Path.expand(\"../../priv/github_quota_guard.sh\", __DIR__)",
-      "@git_script_path Path.expand(\"../../priv/github_push_guard.sh\", __DIR__)",
       "@broker_path Path.expand(\"../../priv/github_budget.py\", __DIR__)",
-      "@external_resource @gh_script_path",
-      "@external_resource @git_script_path",
       "@external_resource @broker_path"
+    ],
+    # The guard fragments are concatenated at compile time into the two
+    # installed scripts; no fragment path is read at runtime.
+    "aiur/agent_github_guard/script.ex" => [
+      "@root Path.expand(\"../../../priv/github_guard\", __DIR__)",
+      "for {_guard, paths} <- @paths, path <- paths, do: @external_resource(path)"
     ],
     "aiur/agent_github_guard/git_script.ex" => [
       "@queue_guard_path Path.expand(\"../../../priv/github_merge_queue_push_guard.sh\", __DIR__)",

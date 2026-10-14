@@ -213,7 +213,7 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     %{
       "error" => %{
         "message" =>
-          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
+          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, or optimistic.integrated.",
         "examples" => [
           "progress",
           "progress.brainstorm-end",
@@ -286,6 +286,16 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     do: %{
       "error" => %{
         "message" => "`aiur_set_ticket_state` is unavailable in the current runtime context."
+      }
+    }
+
+  def payload({:draft_pr_cannot_enter_state, state, number}),
+    do: %{
+      "error" => %{
+        "reason" => "draft_pr_cannot_enter_state",
+        "state" => state,
+        "pull_request" => number,
+        "message" => "Mark the draft pull request ready before moving this ticket to #{state}."
       }
     }
 

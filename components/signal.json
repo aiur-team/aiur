@@ -1,0 +1,39 @@
+{
+  "id": "signal",
+  "name": "Signals and telemetry",
+  "layer": 1,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/log_file.ex",
+    "src/lib/aiur/perf.ex",
+    "src/lib/aiur/signal.ex"
+  ],
+  "facades": [
+    "Aiur.LogFile",
+    "Aiur.Perf",
+    "Aiur.Signal"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "event-bus",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Carries operational signals so other components can record and display them.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

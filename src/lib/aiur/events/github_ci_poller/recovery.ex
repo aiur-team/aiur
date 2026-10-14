@@ -1,7 +1,7 @@
 defmodule Aiur.Events.GithubCIPoller.Recovery do
   @moduledoc "One exact-head rerun, then bounded CI/rework escalation."
   require Logger
-  alias Aiur.{AlertFeed, Alerts}
+  alias Aiur.{AlertFeed, Alerts, Config}
   alias Aiur.CI.FailureDigest
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -16,6 +16,17 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   def complete(issue, result, error, opts), do: attention(issue, result, "worker_failed", error, opts)
 
   @spec recover(map(), map(), keyword()) :: map()
+  def recover(issue, %{pending_reason: :ci_cancelled, pr_number: number, head_sha: sha} = result, opts)
+      when is_integer(number) and is_binary(sha) do
+    target = to_string(issue.identifier || issue.id)
+
+    case Store.read(target, number, opts) do
+      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} -> hold_result(result, hold)
+      {:ok, _entry} -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+    end
+  end
+
   def recover(issue, %{pr_number: number, head_sha: sha} = result, opts) when is_integer(number) and is_binary(sha) do
     target = to_string(issue.identifier || issue.id)
 
@@ -30,13 +41,30 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp recover_entry(_issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold}, _opts),
     do: hold_result(result, hold)
 
-  defp recover_entry(issue, result, %{"cycles" => cycles}, opts) when cycles >= 3,
-    do: attention(issue, result, "loop", "#{cycles} failed CI/rework cycles", opts)
+  defp recover_entry(issue, %{head_sha: sha} = result, %{"limit_hold" => %{"sha" => held_sha, "retry_at" => retry_at}}, opts) do
+    if sha == held_sha and now(opts) < retry_at do
+      held(result, "rerun_limit")
+    else
+      case update(issue, result, &Map.delete(&1, "limit_hold"), opts) do
+        {:ok, updated} -> recover_entry(issue, result, updated, opts)
+        {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+      end
+    end
+  end
 
   defp recover_entry(issue, result, entry, opts) do
-    case digest(result.head_sha, opts) do
-      {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+    cond do
+      not Keyword.get_lazy(opts, :ci_recovery_enabled, &Config.ci_recovery_enabled?/0) ->
+        result
+
+      entry["cycles"] >= 3 ->
+        attention(issue, result, "loop", "#{entry["cycles"]} failed CI/rework cycles", opts)
+
+      true ->
+        case digest(result.head_sha, opts) do
+          {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
+          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+        end
     end
   end
 
@@ -55,8 +83,14 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp choose_recovery(issue, result, entry, pr, opts) do
     cond do
-      not current_ready_head?(pr, result.head_sha) ->
+      pr["state"] != "OPEN" or pr["headRefOid"] != result.head_sha ->
         held(result, "head_changed")
+
+      pr["isDraft"] != false ->
+        if pr["isDraft"] == true, do: attention(issue, result, "rerun_skipped", "draft_pr", opts), else: held(result, "pr_observation_unavailable")
+
+      pr["reviewDecision"] == "CHANGES_REQUESTED" ->
+        attention(issue, result, "rerun_skipped", "changes_requested", opts)
 
       not Map.has_key?(pr, "mergeQueueEntry") ->
         held(result, "queue_observation_unavailable")
@@ -68,8 +102,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
         rerun(issue, result, entry, opts)
     end
   end
-
-  defp current_ready_head?(pr, sha), do: pr["state"] == "OPEN" and pr["isDraft"] == false and pr["headRefOid"] == sha
 
   defp retryable?(%{flake_only: true}, _number, _opts), do: true
 
@@ -97,10 +129,46 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp start_rerun(issue, result, opts) do
-    with {:ok, runs} <- failing_runs(result.ci_failure_digest.checks, result.head_sha, opts),
-         {:ok, _} <- update(issue, result, &put_in(&1, ["heads", result.head_sha], %{"runs" => runs, "checks" => check_ids(result), "requested_at" => now(opts)}), opts) do
-      request_reruns(issue, result, runs, opts)
+    case failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
+      {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
+      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+    end
+  end
+
+  defp prepare_reruns(issue, result, runs, opts) do
+    if Enum.any?(runs, &(&1["conclusion"] == "cancelled")) do
+      attention(issue, result, "rerun_skipped", "cancelled_run", opts)
     else
+      case Store.reserve_reruns(
+             Keyword.get(opts, :ci_recovery_poll_id, :standalone),
+             length(runs),
+             Config.ci_recovery_max_per_poll(),
+             Config.ci_recovery_max_per_hour(),
+             opts
+           ) do
+        :ok -> persist_and_request(issue, result, runs, opts)
+        {:error, :poll_limit_reached} -> held(result, "rerun_limit")
+        {:error, {:hour_limit_reached, retry_at}} -> defer_reruns(issue, result, retry_at, opts)
+        {:error, :ticket_exceeds_rerun_limit} -> attention(issue, result, "rerun_skipped", "ticket_exceeds_limit", opts)
+        {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+      end
+    end
+  end
+
+  defp defer_reruns(issue, result, retry_at, opts) do
+    hold = %{"sha" => result.head_sha, "retry_at" => retry_at}
+
+    case update(issue, result, &Map.put(&1, "limit_hold", hold), opts) do
+      {:ok, _entry} -> held(result, "rerun_limit")
+      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+    end
+  end
+
+  defp persist_and_request(issue, result, runs, opts) do
+    attempt = %{"runs" => runs, "checks" => check_ids(result), "requested_at" => now(opts)}
+
+    case update(issue, result, &put_in(&1, ["heads", result.head_sha], attempt), opts) do
+      {:ok, _} -> request_reruns(issue, result, runs, opts)
       {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
     end
   end
@@ -135,8 +203,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp read_run(id, {:ok, runs}, sha, opts) do
     case CIRecovery.read("/actions/runs/#{id}", opts) do
-      {:ok, %{"head_sha" => ^sha, "run_attempt" => attempt, "status" => "completed"}} when is_integer(attempt) ->
-        {:cont, {:ok, runs ++ [%{"id" => id, "attempt" => attempt}]}}
+      {:ok, %{"head_sha" => ^sha, "run_attempt" => attempt, "status" => "completed", "conclusion" => conclusion}} when is_integer(attempt) and conclusion in ["failure", "timed_out", "cancelled"] ->
+        {:cont, {:ok, runs ++ [%{"id" => id, "attempt" => attempt, "conclusion" => conclusion}]}}
 
       other ->
         {:halt, {:error, {:invalid_actions_run, id, other}}}
@@ -203,7 +271,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   @spec record_pass(map(), map(), keyword()) :: :ok | {:error, term()}
   def record_pass(issue, %{pr_number: number} = result, opts) when is_integer(number) do
-    case update(issue, result, &(&1 |> Map.put("cycles", 0) |> Map.delete("last_cycle") |> Map.delete("hold") |> Map.put("attentions", [])), opts) do
+    case update(issue, result, &(&1 |> Map.put("cycles", 0) |> Map.delete("last_cycle") |> Map.delete("hold") |> Map.delete("limit_hold") |> Map.put("attentions", [])), opts) do
       {:ok, _} ->
         :ok
 
@@ -242,7 +310,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
-    case update(issue, result, &Map.put(&1, "hold", hold), opts) do
+    case update(issue, result, &(&1 |> Map.put("hold", hold) |> Map.delete("limit_hold")), opts) do
       {:ok, entry} ->
         unless kind in Map.get(entry, "attentions", []), do: emit_attention(issue, result, kind, message, emitter, opts)
         hold_result(result, hold)

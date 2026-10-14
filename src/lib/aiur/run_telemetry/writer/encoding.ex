@@ -7,7 +7,12 @@ defmodule Aiur.RunTelemetry.Writer.Encoding do
   # analytics. A segment roll prunes every earlier segment of the live boot, so
   # these are re-emitted after each boundary (marked `segment_continuation:
   # "carried"`) or the boot would forget a merge it already observed (#2603).
-  @carried_point_events ~w(dispatch pr_opened pr_merged)
+  @carried_point_events ~w(
+    dispatch
+    pr_opened
+    pr_merged
+    pr_facts
+  )
 
   defp next_sequence(%{shared_sequence?: true}), do: RunTelemetry.next_sequence()
   defp next_sequence(state), do: state.sequence + 1

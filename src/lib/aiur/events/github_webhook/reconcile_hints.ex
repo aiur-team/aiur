@@ -55,6 +55,25 @@ defmodule Aiur.Events.GithubWebhook.ReconcileHints do
     end
   end
 
+  @spec main_check_reconcile(map(), String.t(), keyword()) :: result()
+  def main_check_reconcile(subject, event_type, opts) do
+    suite = Map.get(subject, "check_suite") || subject
+    enabled = Keyword.get_lazy(opts, :main_watch_enabled, fn -> Aiur.MergePolicy.current().main_watch.enabled end)
+    base = Keyword.get_lazy(opts, :base_branch, &Aiur.Config.base_branch/0)
+
+    if enabled and main_actions_check?(subject, suite, base) do
+      {:reconcile, %{kind: :main_ci, head_sha: subject["head_sha"] || suite["head_sha"], source: event_type, action: "completed"}}
+    else
+      {:drop, {:unresolved_ticket, event_type, "completed"}}
+    end
+  end
+
+  defp main_actions_check?(subject, suite, base) do
+    branch = Map.get(subject, "head_branch") || Map.get(suite, "head_branch")
+    app = Map.get(subject, "app") || Map.get(suite, "app") || %{}
+    is_binary(base) and branch == base and Map.get(subject, "pull_requests", []) == [] and app["slug"] == "github-actions"
+  end
+
   @spec review_thread_reconcile(map(), map(), String.t(), String.t()) :: result()
   def review_thread_reconcile(payload, thread, action, repo) do
     thread_id = Map.get(thread, "node_id")

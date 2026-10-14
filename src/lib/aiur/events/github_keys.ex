@@ -9,7 +9,35 @@ defmodule Aiur.Events.GithubKeys do
 
   @pre_boot_buffer_seconds 60
 
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketBranch
+
+  @doc false
+  @spec last_review_sha(String.t(), pos_integer(), String.t() | nil) :: String.t() | nil
+  def last_review_sha(repo, pr_number, pr_author)
+      when is_binary(repo) and is_integer(pr_number) and pr_number > 0 and is_binary(pr_author) do
+    case ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)) do
+      {:ok, %{data: reviews}} when is_list(reviews) ->
+        reviews
+        |> Enum.filter(fn review ->
+          get_in(review, ["user", "login"]) != pr_author and
+            get_in(review, ["state"]) in ["APPROVED", "CHANGES_REQUESTED"]
+        end)
+        |> Enum.max_by(&submitted_at_key/1, fn -> nil end)
+        |> case do
+          %{"commit_id" => sha} when is_binary(sha) -> sha
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def last_review_sha(_repo, _pr_number, _pr_author), do: nil
+
+  defp submitted_at_key(%{"submitted_at" => submitted_at}) when is_binary(submitted_at), do: submitted_at
+  defp submitted_at_key(_review), do: ""
 
   @doc """
   Converts a full Git ref into the event topic classification.

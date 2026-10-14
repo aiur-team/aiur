@@ -1,0 +1,56 @@
+/* H:1596 */ .tk-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  place-items: center;
+  padding: 1.2rem;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+}
+
+/* H:1597 */ .tk-backdrop.show {
+  display: grid;
+}
+
+/* H:1598 */ .tk-modal {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 2.4rem);
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-lg);
+  animation: tkin 0.24s cubic-bezier(0.22,1,0.36,1);
+}
+
+@keyframes tkin {
+  0% {
+    transform: translateY(14px) scale(0.99);
+    opacity: 0.4;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* H:1600 */ .tk-head {
+  position: relative;
+  padding: 1.3rem 1.4rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+}
+
+/* H:1612 */ .tk-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1.3rem 1.4rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+

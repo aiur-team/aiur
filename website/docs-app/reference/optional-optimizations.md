@@ -172,7 +172,7 @@ The "codex → claude" pairing is the automatic rate-limit reroute, not the defa
 
 ### Configuration
 
-Set `agent.priority` in `.aiur/config` and provide the matching provider keys via `agent.backend_configs.<backend>.api_key_env`. See [agent](/reference/configuration#agent) for the full key.
+Set `agent.priority` in `.aiur/config` and provide the matching provider keys via `agent.backend_configs.<backend>.api_key_env`. See [agent](/reference/configuration-agent#agent) for the full key.
 
 ## What you lose by skipping everything
 

@@ -274,6 +274,12 @@ defmodule Aiur.Events.GithubWebhook.Triples do
     pr_number = Map.get(pr, "number")
     head_sha = get_in(pr, ["head", "sha"]) || ""
 
+    pr =
+      case {action, GithubKeys.last_review_sha(repo, pr_number, get_in(pr, ["user", "login"]))} do
+        {"ready_for_review", sha} when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
+        _ -> pr
+      end
+
     with {:ok, target, _pr_number} <- Identity.pull_request_identity(payload),
          topic when is_binary(topic) <- pr_topic(target, action, merged?) do
       publish_opts = [

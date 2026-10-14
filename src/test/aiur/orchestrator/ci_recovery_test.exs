@@ -75,7 +75,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert %{decision: :failed} = recover(ctx)
     assert %{decision: :failed} = recover(ctx)
     assert writes(ctx) == [{:post, "/actions/runs/99/rerun-failed-jobs"}]
-    assert {:ok, %{"heads" => %{"head-1" => %{"runs" => [%{"id" => 99, "attempt" => 1}]}}}} = CiRecoveryStore.read("3864", 42, ctx.opts)
+    assert {:ok, %{"heads" => %{"head-1" => %{"runs" => [%{"id" => 99, "attempt" => 1, "conclusion" => "failure"}]}}}} = CiRecoveryStore.read("3864", 42, ctx.opts)
     refute_received {:attention, _, _}
   end
 
@@ -260,7 +260,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     setup_lifecycle(ctx)
 
     poll = fn state, result ->
-      CiLifecycle.poll_github_ci(state, ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [ctx.issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [result], errors: []}} end])
+      CiLifecycle.poll_github_ci(past_ci_cadence(state), ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [ctx.issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [result], errors: []}} end])
     end
 
     state = poll.(empty_orchestrator_state(), ctx.result)
@@ -275,6 +275,48 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert_received {:ci_watcher_update, "3864", "in-progress"}
     assert {:ok, %{"cycles" => 0, "attentions" => []}} = CiRecoveryStore.read("3864", 42, ctx.opts)
     assert length(writes(ctx)) == 1
+  end
+
+  test "status names skipped draft checks" do
+    output = capture_io(fn -> CiWait.print(%{ci_wait: [%{identifier: "4316", pr_number: 17, decision: :pending, pending_reason: :draft_pull_request, failures: []}]}) end)
+    assert output =~ "CI WAIT 4316 PR #17: draft_pr"
+  end
+
+  test "a cancelled verdict stays pending and raises one neutral skip attention", ctx do
+    setup_lifecycle(ctx)
+    cancelled = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    state = lifecycle_poll(empty_orchestrator_state(), %{ctx | result: cancelled}, ctx.issue)
+    assert state.ci_lifecycle.poll_cache["3864"].recovery == "rerun_skipped"
+    assert_received {:attention, "ticket.3864.pr.ci_recovery.rerun_skipped", details}
+    assert details[:message] =~ "cancelled_run"
+    refute Enum.any?(requests(ctx), &(&1.method == :post))
+
+    state = lifecycle_poll(state, %{ctx | result: cancelled}, ctx.issue)
+    assert state.ci_lifecycle.poll_cache["3864"].recovery == "rerun_skipped"
+    refute_received {:attention, _, _}
+  end
+
+  test "scheduled CI polls get distinct rerun admission ids", ctx do
+    setup_lifecycle(ctx)
+    recipient = self()
+
+    opts =
+      ctx.opts ++
+        [
+          ci_issue_fetcher: fn _states -> {:ok, [ctx.issue]} end,
+          ci_poller: fn _targets, poll_opts ->
+            send(recipient, {:ci_recovery_poll_id, Keyword.fetch!(poll_opts, :ci_recovery_poll_id)})
+            {:ok, %{results: [], errors: []}}
+          end
+        ]
+
+    CiLifecycle.start_poll(empty_orchestrator_state(), &Function.identity/1, opts)
+    CiLifecycle.start_poll(empty_orchestrator_state(), &Function.identity/1, opts)
+    assert_receive {:ci_recovery_poll_id, first}, 1_000
+    assert_receive {:ci_recovery_poll_id, second}, 1_000
+    assert is_reference(first)
+    assert is_reference(second)
+    refute first == second
   end
 
   test "pending CI observations retain recovery and suppress fallback wakes", ctx do
@@ -354,8 +396,11 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
   end
 
   defp lifecycle_poll(state, ctx, issue) do
-    CiLifecycle.poll_github_ci(state, ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [ctx.result], errors: []}} end])
+    CiLifecycle.poll_github_ci(past_ci_cadence(state), ctx.opts ++ [ci_issue_fetcher: fn _ -> {:ok, [issue]} end, ci_poller: fn _, _ -> {:ok, %{results: [ctx.result], errors: []}} end])
   end
+
+  # A running Orchestrator can publish the :ci cadence at any moment; these polls are separate ticks (#4360).
+  defp past_ci_cadence(state), do: %{state | last_ci_poll_started_at_ms: nil}
 
   defp setup_lifecycle(ctx) do
     previous = Application.get_env(:aiur, :github_client_module)
@@ -390,8 +435,8 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
           "pullRequest" => %{
             "state" => "OPEN",
             "headRefOid" => state.head,
-            "reviewDecision" => "APPROVED",
             "isDraft" => false,
+            "reviewDecision" => "APPROVED",
             "baseRefName" => "main",
             "mergeable" => "MERGEABLE",
             "mergeStateStatus" => if(state.behind, do: "BEHIND", else: "CLEAN"),
@@ -404,7 +449,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
 
   defp response(%{method: :post, url: url}, state, agent, path) do
     assert {:ok, entries} = JsonStore.read(path)
-    assert get_in(entries, ["3864", "heads", state.head, "runs"]) == [%{"id" => 99, "attempt" => 1}]
+    assert get_in(entries, ["3864", "heads", state.head, "runs"]) == [%{"id" => 99, "attempt" => 1, "conclusion" => "failure"}]
     assert String.contains?(url, "rerun-failed-jobs")
     if state.actions_post_status == 202 and state.advance, do: Agent.update(agent, &%{&1 | attempt: &1.attempt + 1})
     %{status: state.actions_post_status, body: %{"message" => "Resource not accessible by integration"}} |> then(&{:ok, &1})
@@ -431,7 +476,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
         ok(Enum.map(state.changed, &%{"filename" => &1, "status" => "modified"}))
 
       String.ends_with?(url, "/actions/runs/99") ->
-        {:ok, %{status: state.actions_get_status, body: %{"head_sha" => state.head, "run_attempt" => state.attempt, "status" => "completed"}}}
+        {:ok, %{status: state.actions_get_status, body: %{"head_sha" => state.head, "run_attempt" => state.attempt, "status" => "completed", "conclusion" => "failure"}}}
     end
   end
 

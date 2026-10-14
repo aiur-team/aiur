@@ -1,12 +1,13 @@
 defmodule Aiur.WorkspaceDirtyRefreshTest do
   use Aiur.TestSupport
+  alias Aiur.Workspace.Context
   alias Aiur.Workspace.WipPreservation
 
   test "before_run preserves and recreates dirty leftover workspaces for todo dispatches" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover")
 
     try do
-      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-1")
+      {workspace, trace_root} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-1")
 
       issue = %Issue{
         id: "issue-stale-1",
@@ -16,7 +17,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
         labels: ["agent:todo"]
       }
 
-      assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
+      assert_stale_refresh_saved!(workspace, issue.identifier, trace_root, issue)
     after
       File.rm_rf(test_root)
     end
@@ -26,7 +27,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-retry")
 
     try do
-      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-RETRY-1")
+      {workspace, trace_root} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-RETRY-1")
 
       issue = %Issue{
         id: "issue-stale-retry-1",
@@ -36,7 +37,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
         labels: ["agent:todo"]
       }
 
-      assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
+      assert_stale_refresh_saved!(workspace, issue.identifier, trace_root, issue)
     after
       File.rm_rf(test_root)
     end
@@ -46,7 +47,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-exit-code")
 
     try do
-      {workspace, trace_file} =
+      {workspace, trace_root} =
         bootstrap_dirty_refresh_workspace!(test_root, "STALE-65-ONLY", refusal_output: "changed operator-facing refusal text")
 
       issue = %Issue{
@@ -57,7 +58,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
         labels: ["agent:todo"]
       }
 
-      assert_stale_refresh_saved!(workspace, issue.identifier, trace_file, issue)
+      assert_stale_refresh_saved!(workspace, issue.identifier, trace_root, issue)
     after
       File.rm_rf(test_root)
     end
@@ -85,7 +86,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-protect-resume")
 
     try do
-      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "LIVE-1")
+      {workspace, trace_root} = bootstrap_dirty_refresh_workspace!(test_root, "LIVE-1")
 
       issue = %Issue{
         id: "issue-live-1",
@@ -107,7 +108,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       # before_run ran exactly once: a live resume skips, it does not recreate
       # the workspace (which would re-run before_run, recording a second trace
       # line — that recreate path is reserved for fresh todo dispatches, #577).
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+      assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
@@ -215,10 +216,10 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
     end
   end
 
-  defp assert_stale_refresh_saved!(workspace, identifier, trace_file, issue) do
+  defp assert_stale_refresh_saved!(workspace, identifier, trace_root, issue) do
     assert :ok = Workspace.run_before_run_hook(workspace, issue)
     assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-    assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+    assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 2
 
     assert [notice] = WipPreservation.pending_notices(workspace, identifier)
     assert notice["action"] == "recreate the stale workspace"
@@ -234,9 +235,10 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
     source_repo = Path.join(test_root, "source")
     remote_repo = Path.join(test_root, "remote.git")
     workspace_root = Path.join(test_root, "workspaces")
-    trace_file = Path.join(test_root, "before-run.trace")
+    trace_root = Path.join(test_root, "before-run-traces")
     refusal_output = Keyword.get(opts, :refusal_output)
 
+    File.mkdir_p!(trace_root)
     File.mkdir_p!(source_repo)
     File.write!(Path.join(source_repo, "README.md"), "initial\n")
     git!(["-C", source_repo, "init", "-b", "main"])
@@ -257,7 +259,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       """,
       hook_before_run: """
       PATH="/usr/bin:/bin:$PATH"
-      printf 'attempt\\n' >> #{shell_quote(trace_file)}
+      printf 'attempt\\n' >> #{shell_quote(trace_root)}/"${AIUR_TICKET_BRANCH#aiur/}"
       if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
         git clone #{shell_quote(remote_repo)} .
@@ -277,8 +279,12 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
 
     assert {:ok, workspace} = Workspace.create_for_issue(identifier)
     File.write!(Path.join(workspace, "README.md"), "dirty\n")
+    {workspace, trace_root}
+  end
 
-    {workspace, trace_file}
+  defp trace_path(trace_root, issue) do
+    branch = Context.build(issue).branch_name
+    Path.join(trace_root, String.replace_prefix(branch, "aiur/", ""))
   end
 
   defp git!(args) do

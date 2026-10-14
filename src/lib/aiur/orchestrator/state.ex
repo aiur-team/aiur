@@ -115,7 +115,7 @@ defmodule Aiur.Orchestrator.State do
           dependency_circular_wait: %{
             optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
           },
-          running: %{optional(String.t()) => %{optional(:optimistic_blockers) => [String.t()], optional(atom()) => term()}},
+          running: %{optional(String.t()) => %{optional(:start_mode) => :ready | :optimistic, optional(:optimistic_blockers) => [String.t()], optional(atom()) => term()}},
           running_issue_cache: %{optional(String.t()) => %{etag: String.t() | nil, issue: Issue.t()}},
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -720,7 +720,7 @@ defmodule Aiur.Orchestrator.State do
   # A provider usage limit belongs here for the same reason: the account, not
   # this agent, is what the fleet waits on, there is no turn in flight, and
   # holding the slot turns one account limit into a fleet-wide dispatch stall.
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
   def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons

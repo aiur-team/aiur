@@ -98,6 +98,15 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"2", 1}]
   end
 
+  test "rank at list creation persists in a batch and cannot silently reorder an existing set", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "first")
+    run(pid, :add, ids: ["2", "3"], queue: "second", rank: 0)
+    assert Enum.map(document().queues, &{&1.name, &1.rank}) == [{"second", 0}, {"first", 1}]
+    assert Enum.map(document().items, & &1.issue_id) == ~w(1 2 3)
+    assert {:ok, [{"#9", {:error, :rank_requires_new_queue}}]} = MutationCLI.execute(verb: :add, ids: ["9"], queue: "first", rank: 0, server: pid)
+    assert {:ok, [{"first", {:error, :invalid_position}}]} = MutationCLI.execute(verb: :order, queue: "first", to: 5, server: pid)
+  end
+
   test "positions edges reorder and remove traverse real persisted commands", %{server: pid} do
     run(pid, :add, ids: ["1", "2"], after: "3")
     run(pid, :add, ids: ["3"], at: 1)

@@ -15,7 +15,9 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
   pattern. The `name` is a scoped vocabulary tag (`progress.<slug>`,
   `decision.<slug>`, `blocked`, `unblocked`, `attention.<slug>`,
   `attention.resolved`, `pause.request`, or `custom.<slug>`). The full
-  published topic is `ticket.<your-issue>.agent.<name>`.
+  published topic is `ticket.<your-issue>.agent.<name>`, except
+  `optimistic.integrated`, which publishes `ticket.<your-issue>.optimistic.integrated`
+  with payload `{blocker, sha, conflict, non_ff}`.
 
   Subscribers see your `message` and optional structured `payload`. Use
   `emit_event` for coordination signals an agent on another ticket might
@@ -39,7 +41,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
       "name" => %{
         "type" => "string",
         "description" =>
-          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
@@ -57,7 +59,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
     ~r/\Aattention\.[a-z0-9][a-z0-9.-]{0,63}\z/,
     ~r/\Acustom\.[a-z0-9][a-z0-9.-]{0,63}\z/
   ]
-  @agent_event_exact ["progress", "blocked", "unblocked", "attention.resolved", "pause.request"]
+  @agent_event_exact ["progress", "blocked", "unblocked", "attention.resolved", "pause.request", "optimistic.integrated"]
 
   @progress_emits_per_turn_max 2
   @progress_quota_key {Aiur.Codex.DynamicTool, :progress_emit_count}
@@ -130,6 +132,12 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
       true -> {:error, :event_name_not_in_allowlist}
     end
   end
+
+  @doc false
+  @spec topic(String.t() | nil, String.t()) :: String.t()
+  def topic(identifier, "optimistic.integrated") when is_binary(identifier), do: "ticket.#{identifier}.optimistic.integrated"
+  def topic(nil, name), do: "agent.#{name}"
+  def topic(identifier, name), do: "ticket.#{identifier}.agent.#{name}"
 
   @spec enforce_per_turn_quota(String.t()) :: :ok | {:error, atom()}
   def enforce_per_turn_quota("progress") do

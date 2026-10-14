@@ -32,9 +32,9 @@ defmodule Aiur.PRLifecycle.HealthScanner do
 
   require Logger
 
-  alias Aiur.{Alerts, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.{Signal, Tracker}
 
   @default_interval_ms 30 * 60 * 1_000
   @default_stale_hours 24
@@ -60,7 +60,7 @@ defmodule Aiur.PRLifecycle.HealthScanner do
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
       human_mergers_fun: Keyword.get(opts, :human_mergers_fun, &GitHubConfig.human_mergers/0),
       comment_fun: Keyword.get(opts, :comment_fun, &Tracker.create_comment/2),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       alerted: MapSet.new(),

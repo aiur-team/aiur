@@ -1,9 +1,10 @@
 # Running a turn
 
 In every repository, mark completed, self-reviewed work ready **before**
-entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
-Only the full required-check set passing on the current head SHA permits
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+All required checks passing on the current head SHA permit
 `agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
+Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.
 
 ## Label lifecycle
 
@@ -70,7 +71,7 @@ in the workpad rather than falling back to raw label edits.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
-11. On a delivered full required-check pass for the current head SHA, verify
+11. On a delivered required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. No overlap or
     conflicts permits `agent:human-review` even if the head is stale. If unsafe,
     follow `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. After

@@ -68,7 +68,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
   def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
-  def streamdeck_emulator_hook(conn, _params), do: serve_embedded(conn, "/streamdeck-emulator-hook.js")
+  def streamdeck_emulator(conn, %{"file" => file}), do: serve_embedded(conn, "/streamdeck-emulator-" <> file)
   def sortable_table_hook(conn, _params), do: serve_embedded(conn, "/sortable-table-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")

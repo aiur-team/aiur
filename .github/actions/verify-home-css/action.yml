@@ -1,0 +1,19 @@
+name: Verify home CSS
+description: Run the complete home CSS matrix and retain its evidence.
+runs:
+  using: composite
+  steps:
+    - name: Set up browser harness
+      uses: ./.github/actions/setup-browser
+    - name: Run complete home CSS matrix
+      working-directory: src/browser
+      shell: bash
+      run: npm run fixture:preflight && npm run test:home-css
+    - name: Upload home CSS evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: home-css-artifacts
+        path: src/browser/.artifacts-run-*/
+        if-no-files-found: ignore
+        include-hidden-files: true

@@ -5,6 +5,7 @@ async function openMeterRow(page, query = '') {
   await page.goto('/auth/read_only')
   await page.goto(`/meter-row${query}`)
   await expect(page.locator('[data-meter-row-fixture="true"]')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
 }
 
 const closeEnough = (left, right) => Math.abs(left - right) <= 0.25

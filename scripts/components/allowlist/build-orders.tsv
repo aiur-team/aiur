@@ -11,6 +11,7 @@ R-down	AiurWeb.OperatorControlCenter.Analytics.Presenter	baseline 22b2fa407c5d42
 R-down	AiurWeb.OperatorControlCenter.AwaitingCommands	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.OperatorControlCenter.BuildOrderBreakdown	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.OperatorControlCenter.BuildOrderGridModel	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	AiurWeb.OperatorControlCenter.DashboardShell	#4013 shared pause controls for the Build Orders shell
 R-down	AiurWeb.OperatorControlCenter.NavState	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.OperatorControlCenter.RouteRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.OperatorControlCenter.UsageSummaryPresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'fs';
+import { buildTokens } from '../src/tokens/build.mjs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -33,6 +34,10 @@ try {
   process.exit(1);
 }
 
+// Ship the hand-written pre-paint script as-is
+fs.mkdirSync(path.join(distDir, 'init'), { recursive: true });
+fs.copyFileSync(path.join(packageRoot, 'src', 'init', 'theme-init.js'), path.join(distDir, 'init', 'theme-init.js'));
+
 // Concatenate CSS files in sorted order
 console.log('Building CSS...');
 try {
@@ -45,7 +50,8 @@ try {
   }
 
   // Concatenate all CSS into main file with LF line endings
-  const cssContent = cssFiles
+  const tokenCss = buildTokens(distDir);
+  const cssContent = tokenCss + cssFiles
     .map(file => {
       const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
       return content.replace(/\r\n/g, '\n');

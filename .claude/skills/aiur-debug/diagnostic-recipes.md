@@ -307,7 +307,7 @@ agents continue.
 
 Use loopback; configure credentials without logging them; choose a free port;
 restart only the affected instance after preserving logs/listeners; then verify
-with the real browser or the canonical wrapper-tmux TUI recipe in `AGENTS.md`.
+with the real browser or the canonical wrapper-tmux TUI recipe in `docs/manual-testing.md`.
 Changing bind widens network exposure; enabling writability expands mutation
 authority; both require explicit operator intent.
 

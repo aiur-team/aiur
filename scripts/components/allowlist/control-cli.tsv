@@ -11,8 +11,7 @@ R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472a
 R-optional	Aiur.EpicCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Executor.Claims	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Executor.Roster	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
 R-optional	Aiur.ExecutorBindings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorEvents	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -28,6 +27,7 @@ R-optional	Aiur.GitHub.HostCommand	baseline 22b2fa407c5d4218d25d63b1aa17472aeca5
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Quota	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.ReadCache	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.ResourceStore.Memory	#3997 status prints the GitHub resource store size; gated on the GitHub tracker like CiReadiness
 R-optional	Aiur.GitHub.StatePolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

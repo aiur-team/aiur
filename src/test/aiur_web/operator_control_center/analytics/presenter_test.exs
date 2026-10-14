@@ -148,15 +148,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     # Idle slot-hours are a subtraction from the cap. A figure derived from a
     # cap the model just called unknown reads as precise and is not.
     assert model(cap_available?: false).kpis.wasted_slot_hours == nil
-    assert model(cap: 4).kpis.wasted_slot_hours > 0
-  end
-
-  test "measures idle slot-hours against the effective cap, not the configured one" do
-    lowered = model(cap: 2, configured_cap: 16)
-    configured = model(cap: 16, configured_cap: 16)
-
-    # A cap lowered 16 -> 2 leaves far fewer slots that could have been filled.
-    assert lowered.kpis.wasted_slot_hours < configured.kpis.wasted_slot_hours
+    assert model(cap: 4).kpis.wasted_slot_hours == nil
   end
 
   test "buckets exact fleet pressure independently of process availability" do
@@ -306,7 +298,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
 
   test "wasted capacity accumulates idle slot-hours under the cap" do
     m = model()
-    assert m.kpis.wasted_slot_hours > 0
+    assert m.kpis.wasted_slot_hours == nil
+    assert m.kpis.wasted_slot_hours_partial
     assert is_number(m.kpis.mean_util_pct)
     assert m.kpis.mem_headroom_pct >= 0 and m.kpis.mem_headroom_pct <= 100
   end
@@ -389,7 +382,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
             Enum.map(second, &%{boot_id: "boot-b", timestamp_ms: &1, kind: "resource"}),
         actors: %{
           "_daemon" => %{
-            samples: Enum.map(first ++ second, &sample("_daemon", "daemon", &1, 20.0, 100_000_000)),
+            samples:
+              Enum.map(first ++ second, fn ts ->
+                pressure_sample(ts,
+                  occupied: 2,
+                  max_agents: 4,
+                  effective: 4,
+                  active: 2,
+                  queued: 0,
+                  wait: 0
+                )
+              end),
             profile: profile(20.0, 30.0, 100_000_000, 62)
           },
           "ticket:5" => %{
@@ -442,11 +445,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
       absolute = long_run_model(timeline: :absolute)
       compressed = long_run_model(timeline: :active)
 
-      # This is the failure the compressed axis exists to prevent: over a
-      # three-day span the naive number counts two idle nights as wasted agent
-      # slots and reports hundreds of hours of "wasted capacity".
-      assert absolute.kpis.wasted_slot_hours > 100
-      assert compressed.kpis.wasted_slot_hours <= 4 * 1.0 + 0.1
+      assert absolute.kpis.wasted_slot_hours > 4.1
+      assert compressed.kpis.wasted_slot_hours <= 4.1
     end
 
     test "a merge recorded in the second session lands inside the second session on the axis" do

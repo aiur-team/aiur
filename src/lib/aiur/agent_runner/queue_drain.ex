@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{AgentPubSub, Alerts, Commands, Issue, PauseContainment}
+  alias Aiur.{AgentPubSub, Commands, Issue, PauseContainment, Signal}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -356,7 +356,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
     Logger.warning("Decision delivery correlation exhausted issue=#{identifier} action_id=#{action_id} reason=#{inspect(reason)}")
 
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         delivery_correlation_attention_topic(identifier, action_id),
         "Decision answer handoff could not be durably correlated after bounded retries.",
         issue: identifier,
@@ -372,7 +372,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
     Logger.warning("Provider delivery reached issue=#{identifier} action_id=#{action_id}, but durable decision evidence failed reason=#{inspect(reason)}")
 
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         delivery_correlation_attention_topic(identifier, action_id),
         "Provider received the decision answer, but its durable delivery evidence failed.",
         issue: identifier,
@@ -386,7 +386,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   defp resolve_delivery_correlation_attention(identifier, action_id) do
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         delivery_correlation_attention_topic(identifier, action_id) <> ".resolved",
         "Decision answer handoff is durably correlated.",
         issue: identifier,

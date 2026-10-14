@@ -1,0 +1,47 @@
+{
+  "id": "event-bus",
+  "name": "Message bus",
+  "layer": 1,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/agent_events.ex",
+    "src/lib/aiur/agent_pubsub.ex",
+    "src/lib/aiur/agent_pubsub/**",
+    "src/lib/aiur/events/**",
+    "src/lib/aiur/ticket_observation.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [
+      "events"
+    ],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [
+    "BUS"
+  ],
+  "dependency_kind": "required",
+  "summary": "Routes ticket events to subscribed agents and the Executor.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/message-bus.md"
+  ],
+  "config": [
+    "events"
+  ],
+  "env": [],
+  "capabilities": []
+}

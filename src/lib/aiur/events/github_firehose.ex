@@ -19,6 +19,8 @@ defmodule Aiur.Events.GithubFirehose do
   | `PushEvent` (default branch)            | `system.<branch>.branch.push` |
   | `PullRequestEvent action=opened`        | `ticket.<id>.pr.opened`   |
   | `PullRequestEvent action=closed merged` | `ticket.<id>.pr.merged`   |
+  | `PullRequestEvent action=closed merged=false` | `ticket.<id>.pr.closed_unmerged` |
+  | `PullRequestEvent action=reopened`      | `ticket.<id>.pr.reopened` |
 
   Other event types are dropped silently. v1 keeps the surface narrow;
   add new types here as the brainstorm/use-cases call for them.
@@ -405,7 +407,7 @@ defmodule Aiur.Events.GithubFirehose do
     merged? = merged_pull_request_event?(action, Map.get(pr, "merged"))
 
     with {:ticket, id, _push_topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref),
-         topic when is_binary(topic) <- pr_topic(id, action, merged?) do
+         topic when is_binary(topic) <- pr_topic(id, action, Map.get(pr, "merged")) do
       publish_opts = [
         actor: actor,
         issue_number: id,
@@ -423,7 +425,10 @@ defmodule Aiur.Events.GithubFirehose do
 
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
   defp pr_topic(id, "ready_for_review", _merged), do: "ticket.#{id}.pr.ready_for_review"
-  defp pr_topic(id, _action, true), do: "ticket.#{id}.pr.merged"
+  defp pr_topic(id, "reopened", _merged), do: "ticket.#{id}.pr.reopened"
+  defp pr_topic(id, "merged", _merged), do: "ticket.#{id}.pr.merged"
+  defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
+  defp pr_topic(id, "closed", false), do: "ticket.#{id}.pr.closed_unmerged"
   defp pr_topic(_id, _action, _merged), do: nil
 
   # GitHub's Events API emits sparse merge notifications as action=merged.

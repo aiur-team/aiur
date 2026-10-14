@@ -1,0 +1,21 @@
+Run summary — boot build:aiur-team/aiur:test-build
+Generated: fixed
+
+Records:        20
+Tickets:        2 (dispatched 2, merged 1, open 1)
+CPU burned:     0.0 CPU-hours
+Peak concurrency: 1 of 10 cap
+Wasted capacity: unknown (partial; missing cap observations)
+
+Top cost (CPU-seconds):
+  #930                     9.5
+  #931                     1.0
+
+Fleet-wide build pressure:
+  Occupancy: CPU-derived legacy fallback (exact fleet samples unavailable)
+  Binding admission signal: unavailable; load unavailable / threshold unavailable
+  Peak builds: active unavailable, queued unavailable; capacity unavailable; longest live wait: unavailable
+  Latest source observations: fleet unavailable (aged unavailable); build unavailable
+
+Time range: 2026-07-11T00:00:03Z .. 2026-07-11T01:00:07Z
+Source files (2): session-a/telemetry.ndjson, session-b/telemetry.ndjson

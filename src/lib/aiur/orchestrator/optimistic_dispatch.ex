@@ -3,12 +3,16 @@ defmodule Aiur.Orchestrator.OptimisticDispatch do
 
   require Logger
 
+  alias Aiur.BuildQueue.Hints
   alias Aiur.Events.BranchRefStore
   alias Aiur.{Issue, OptimisticStart}
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, OptimisticLedger}
+  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.StartTrigger.ProgressStore
 
   @spec prepare_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, atom()}
+  def prepare_for_dispatch(%Issue{optimistic_start: %{}} = issue, _opts), do: {:ok, issue}
+
   def prepare_for_dispatch(issue, opts) do
     lookup = Keyword.get(opts, :blocker_ref_lookup, &latest_ref/1)
 
@@ -42,6 +46,52 @@ defmodule Aiur.Orchestrator.OptimisticDispatch do
       {:ok, %{issue | optimistic_start: record}}
     end
   end
+
+  @spec record(Aiur.Issue.t(), String.t(), [String.t()]) :: :ok
+  def record(%{optimistic_start: nil}, _attempt_id, _ids), do: :ok
+
+  def record(issue, attempt_id, _ids) do
+    start = issue.optimistic_start
+
+    blockers =
+      Enum.map(start.blockers, fn head ->
+        blocker = Enum.find(issue.blocked_by, &(Map.get(&1, :identifier, &1.id) == head.identifier))
+        facts = if blocker, do: ProgressStore.lookup(blocker.id) || %{}, else: %{}
+
+        %{
+          "id" => head.identifier,
+          "pr_number" => head.pr_number,
+          "pr_head_sha_at_start" => head.sha,
+          "pr_head_ref_at_start" => head.ref,
+          "last_head_sha" => head.sha,
+          "pr_state" => pr_state(facts),
+          "failed_cause" => nil,
+          "failed_at_ms" => nil,
+          "merged_at_ms" => nil
+        }
+      end)
+
+    trigger = Hints.trigger_for(issue.id)
+    attrs = %{attempt_id: attempt_id, start_trigger: trigger, started_at_ms: DateTime.to_unix(start.started_at, :millisecond), blockers: blockers}
+
+    case OptimisticLedger.record_start(issue.identifier, attrs) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Optimistic start not persisted ticket=#{issue.identifier} attempt=#{attempt_id} reason=#{inspect(reason)}")
+    end
+
+    Lifecycle.record(issue.identifier, attempt_id, :optimistic_start, :point, %{
+      start_trigger: trigger,
+      blockers: Enum.map(blockers, & &1["id"]),
+      blocker_prs: Enum.map(blockers, & &1["pr_number"])
+    })
+
+    :ok
+  end
+
+  defp pr_state(%{stage: :pr_merged}), do: "merged"
+  defp pr_state(%{closed_unmerged?: true}), do: "closed"
+  defp pr_state(%{stage: stage}) when stage in [:pr_opened, :pr_ci_green, :pr_approved], do: "open"
+  defp pr_state(_), do: nil
 
   defp subscribe(blockers, dependent, subscriber, optimistic?) do
     Enum.reduce_while(blockers, :ok, fn blocker, :ok ->

@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   state. A failed open-PR lookup never closes the ticket.
   """
   alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore}
-  alias Aiur.Orchestrator.{CommentWake, Lifecycle, PushRouting, Reconciler, ReworkGate, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{CommentWake, Lifecycle, OptimisticLedger, PushRouting, Reconciler, ReworkGate, State, TicketTransition, TrackerTasks}
 
   require Logger
 
@@ -70,6 +70,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   def reconcile(%State{} = state, _issues, _opts), do: {state, []}
 
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
+    OptimisticLedger.close(issue.identifier, :merged, System.system_time(:millisecond))
+
     if TrackerTasks.owner?(state) do
       input = Reconciler.issue_input(state, issue.id)
 
@@ -139,7 +141,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   # The merge closed the ticket's last open PR: no other PR remains, so the
-  # legacy one-PR-per-ticket terminal path holds exactly as before.
   defp reconcile_merged_ticket_to_done(state, %Issue{} = issue, merge, opts, retained) do
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
@@ -374,7 +375,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
   # The ticket was already transitioned above, so the terminalisation pass only
   # has to tear the agent down and resume dependents.
-  #
   # `merged_by` is the sole input to the merger-attribution audit, so it is
   # passed through: with it stubbed out the audit could never fire. A record
   # backfilled from the Events API often carries no merger at all, and an

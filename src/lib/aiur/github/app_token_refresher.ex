@@ -98,7 +98,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
   @impl true
   def init(opts) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-    emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Alerts.emit_custom/3)
+    emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Signal.agent_alert/3)
 
     state = %{
       enabled: AppCredentials.configured?(),

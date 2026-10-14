@@ -34,25 +34,32 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp validate(opts) do
     ids = Keyword.get(opts, :ids, [])
     queue = opts[:queue]
-    valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and (is_nil(queue) or (is_binary(queue) and String.trim(queue) != ""))
+    valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and valid_queue?(queue)
+    valid = valid and valid_rank?(opts)
     valid = valid and valid_options?(opts) and valid_command?(opts[:verb], ids, opts)
     if valid, do: :ok, else: {:error, :invalid_arguments}
   end
 
   defp valid_options?(opts) do
-    allowed =
-      case opts[:verb] do
-        :add -> [:ids, :queue, :after, :at, :build_order, :start_on]
-        :set -> [:queue, :start_on]
-        :recover -> [:force]
-        :clear -> [:remove_markers, :yes]
-        :remove -> [:ids]
-        :reorder -> [:ids, :to]
-        verb when verb in [:hold, :release] -> [:ids, :queue]
-        _ -> []
-      end
+    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+  end
 
-    Enum.all?(Keyword.keys(opts), &(&1 in (allowed ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+  defp valid_queue?(nil), do: true
+  defp valid_queue?(queue), do: is_binary(queue) and String.trim(queue) != ""
+  defp valid_rank?(opts), do: not Keyword.has_key?(opts, :rank) or (is_binary(opts[:queue]) and position?(opts[:rank]))
+  defp allowed_options(:order), do: [:queue, :to]
+
+  defp allowed_options(verb) do
+    case verb do
+      :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank]
+      :set -> [:queue, :start_on]
+      :recover -> [:force]
+      :clear -> [:remove_markers, :yes]
+      :remove -> [:ids]
+      :reorder -> [:ids, :to]
+      verb when verb in [:hold, :release] -> [:ids, :queue]
+      _ -> []
+    end
   end
 
   defp valid_command?(:add, ids, opts) do
@@ -63,6 +70,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
+  defp valid_command?(:order, [], opts), do: is_binary(opts[:queue]) and position?(opts[:to])
   defp valid_command?(:set, [], opts), do: is_binary(opts[:queue]) and Keyword.has_key?(opts, :start_on)
   defp valid_command?(:recover, [], opts), do: Keyword.get(opts, :force, false) in [true, false]
   defp valid_command?(:clear, [], opts), do: opts[:remove_markers] == true and Keyword.get(opts, :yes, false) in [true, false]
@@ -93,6 +101,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp adopt(opts) do
     root = opts[:build_order]
     command = if Keyword.has_key?(opts, :start_on), do: {:adopt, root, opts[:queue], opts[:start_on]}, else: {:adopt, root, opts[:queue]}
+    command = if Keyword.has_key?(opts, :rank), do: {:adopt, root, opts[:queue], opts[:start_on], opts[:rank]}, else: command
     result = call({:mutate, command}, opts)
 
     results =
@@ -108,18 +117,19 @@ defmodule Aiur.BuildQueue.MutationCLI do
     if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
   end
 
+  defp dispatch(:order, opts), do: {:ok, [{opts[:queue], call({:mutate, {:order, opts[:queue], opts[:to]}}, opts)}]}
   defp dispatch(:set, opts), do: {:ok, [{opts[:queue], call({:mutate, {:set_trigger, opts[:queue], opts[:start_on]}}, opts)}]}
   defp dispatch(:recover, opts), do: {:ok, [{"recover", call({:recover, Keyword.get(opts, :force, false)}, opts)}]}
   defp dispatch(:clear, opts), do: {:ok, [{"clear", call({:mutate, {:clear, Keyword.take(opts, [:remove_markers, :yes])}}, opts)}]}
 
   defp dispatch(:add, opts) do
     {results, _} =
-      Enum.map_reduce(opts[:ids], opts[:at], fn id, at ->
-        options = Keyword.take(opts, [:after]) |> Keyword.put(:queue, opts[:queue] || "default")
+      Enum.map_reduce(opts[:ids], {opts[:at], Keyword.take(opts, [:rank])}, fn id, {at, rank} ->
+        options = Keyword.take(opts, [:after]) |> Keyword.merge(rank) |> Keyword.put(:queue, opts[:queue] || "default")
         options = if Keyword.has_key?(opts, :start_on), do: Keyword.put(options, :start_trigger, opts[:start_on]), else: options
         options = if is_nil(at), do: options, else: Keyword.put(options, :at, at)
         result = call({:mutate, {:add, [id], options}}, opts)
-        {{"##{id}", result}, if(inserted?(result) and is_integer(at), do: at + 1, else: at)}
+        {{"##{id}", result}, {if(inserted?(result) and is_integer(at), do: at + 1, else: at), if(inserted?(result), do: [], else: rank)}}
       end)
 
     {:ok, results}

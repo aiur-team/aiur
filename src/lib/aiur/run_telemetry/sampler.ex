@@ -20,8 +20,18 @@ defmodule Aiur.RunTelemetry.Sampler do
   @default_interval_ms 5_000
   @default_pressure_probe_timeout_ms 500
   @default_build_probe_cadence 5
-  @fleet_fields [:fleet_agents_occupied, :fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective]
-  @fleet_admission_fields [:fleet_admission_signal, :fleet_load, :fleet_load_threshold, :fleet_schedulers]
+  @fleet_fields [
+    :fleet_agents_occupied,
+    :fleet_agents_configured,
+    :fleet_agents_max,
+    :fleet_agents_effective
+  ]
+  @fleet_admission_fields [
+    :fleet_admission_signal,
+    :fleet_load,
+    :fleet_load_threshold,
+    :fleet_schedulers
+  ]
   @build_fields [
     :build_gate_enabled,
     :build_gate_capacity,

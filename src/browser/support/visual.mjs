@@ -48,6 +48,10 @@ export async function openVisualRoute(page, { theme, palette, route, collapsed =
   await page.goto(route)
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+  if (new URL(page.url()).pathname === '/analytics') {
+    await expect(page.getByRole('status').filter({ hasText: 'Loading run analytics…' })).toHaveCount(0)
+    await expect(page.locator('[data-source-kind], [data-empty-reason]:not([data-empty-reason="loading"])')).toBeVisible()
+  }
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
   await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', String(collapsed))
   await page.evaluate(() => document.fonts.ready)

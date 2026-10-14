@@ -295,6 +295,7 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
             issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
             started_at: stale_at,
             last_codex_timestamp: stale_at,
+            session_execution: %{backend: "claude"},
             control: %{status: :working}
           }
         },
@@ -310,8 +311,11 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
       assert %{identifier: ^identifier, error: "stalled" <> _} =
                Map.get(next.retry_attempts, issue_id)
 
+      assert next.retry_attempts[issue_id].error =~ "without claude activity"
+
       receive_barrier({:event, %{topic: "ticket.STALL-W.agent.stalled"} = event})
       assert event["needs_attention"] == true
+      assert event["message"] =~ "claude command made no progress"
       assert event["reason"] =~ "no-progress window"
     end
 

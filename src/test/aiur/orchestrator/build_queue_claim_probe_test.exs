@@ -36,6 +36,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbeTest do
   test "status and demand reach a real orchestrator process" do
     server = start_supervised!({Orchestrator, name: nil, initial_poll?: false})
     assert BuildQueueClaimProbe.status(server, ["unknown"]) == %{"unknown" => :unclaimed}
+    assert BuildQueueClaimProbe.next_set(server) == {:ok, nil}
     assert BuildQueueClaimProbe.notify_demand(server, ["7"]) == :ok
     assert Map.has_key?(:sys.get_state(server).queued_demand_hints, "7")
   end
@@ -45,6 +46,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbeTest do
     ref = Process.monitor(server)
     receive_barrier({:DOWN, ^ref, :process, ^server, _})
     assert BuildQueueClaimProbe.status(server, ["7"]) == :unavailable
+    assert BuildQueueClaimProbe.next_set(server) == :unavailable
     assert BuildQueueClaimProbe.notify_demand(server, ["7"]) == :unavailable
   end
 

@@ -39,7 +39,7 @@ defmodule Aiur.GitHub.ReadCache.Identity do
     * `{:repo, owner, repo}` — every read of one repository.
     * `{:collections, owner, repo}` — reads that enumerate (issue lists, search,
       batch documents). A created issue makes every list wrong and no individual
-      resource wrong, which is the distinction `github_quota_guard.sh` draws
+      resource wrong, which is the distinction the agent `gh` guard draws
       between a `collection` write and a numbered one.
     * `{:number, owner, repo, n}` — one issue-or-pull-request number.
 

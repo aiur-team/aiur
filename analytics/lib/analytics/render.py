@@ -13,6 +13,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .optimistic import optimistic_line, optimistic_rollup
+
 # Cost is expressed in CPU-seconds, matching the design ("Cost per ticket" means
 # CPU-seconds). Dollar spend is cost-report's job.
 SAMPLE_SECONDS = 5
@@ -152,10 +154,11 @@ def run_summary_kpis(summary: dict, cap: int) -> dict:
         "cpu_hours": cpu_hours,
         "peak_concurrency": peak_concurrency,
         "cap": cap,
-        "wasted_slot_hours": round(wasted_slot_hours, 1),
+        "wasted_slot_hours": None if wasted_slot_hours is None else round(wasted_slot_hours, 1),
         "fleet_pressure": pressure,
         "top_cost": top_cost,
         "provenance": summary.get("provenance", {}),
+        **({"optimistic": optimistic_rollup(summary)} if optimistic_rollup(summary) else {}),
     }
 
 
@@ -172,10 +175,15 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
         % (kpis["tickets"], kpis["dispatched"], kpis["merged"], kpis["open"]),
         "CPU burned:     %.1f CPU-hours" % kpis["cpu_hours"],
         "Peak concurrency: %s of %d cap" % (_display(kpis["peak_concurrency"]), kpis["cap"]),
-        "Wasted capacity: %.1f slot-hours" % kpis["wasted_slot_hours"],
+        "Wasted capacity: %s%s" % (
+            "unknown" if kpis["wasted_slot_hours"] is None else "%.1f slot-hours" % kpis["wasted_slot_hours"],
+            " (partial; missing cap observations)" if kpis["fleet_pressure"]["wasted_slot_hours_partial"] else "",
+        ),
         "",
         "Top cost (CPU-seconds):",
     ]
+    if optimistic_line(summary):
+        lines.insert(9, optimistic_line(summary))
     if kpis["top_cost"]:
         for key, cost in kpis["top_cost"]:
             lines.append("  %-24s %.1f" % (_actor_label(key), cost))
@@ -245,10 +253,11 @@ def fleet_pressure(summary: dict, cap: int = 10) -> dict:
         latest = fleet[-1]
         peak = _maximum(fleet, "fleet_agents_occupied")
         legacy_fallback = False
-        wasted = _sampled_waste(fleet, cap)
+        wasted = _sampled_waste(fleet)
     else:
         agents = {key: actor for key, actor in (summary.get("actors") or {}).items() if _agent_key(key)}
-        peak, wasted = _concurrency(summary, agents, cap)
+        peak = _concurrency(agents)
+        wasted = None
         latest = {}
         legacy_fallback = True
 
@@ -273,6 +282,7 @@ def fleet_pressure(summary: dict, cap: int = 10) -> dict:
         "peak_queued_builds": _maximum(build, "build_gate_queued"),
         "longest_wait_seconds": _maximum(build, "build_queue_oldest_wait_seconds"),
         "wasted_slot_hours": wasted,
+        "wasted_slot_hours_partial": not fleet or any(_number(sample.get("fleet_agents_effective")) is None for sample in fleet),
         "legacy_fallback": legacy_fallback,
     }
 
@@ -319,15 +329,17 @@ def _age_display(age_ms) -> str:
     return "%ss old" % int(round(numeric / 1000))
 
 
-def _sampled_waste(samples: list[dict], fallback_cap: int) -> float:
+def _sampled_waste(samples: list[dict]) -> float | None:
     bucket_hours = SAMPLE_SECONDS / 3600
     total = 0.0
+    observed = False
     for sample in samples:
         occupied = _number(sample.get("fleet_agents_occupied"))
         capacity = _number(sample.get("fleet_agents_effective"))
-        if occupied is not None:
-            total += max((fallback_cap if capacity is None else capacity) - occupied, 0) * bucket_hours
-    return total
+        if occupied is not None and capacity is not None:
+            total += max(capacity - occupied, 0) * bucket_hours
+            observed = True
+    return total if observed else None
 
 
 def _display(value) -> str:
@@ -346,8 +358,8 @@ def _timestamp_display(value) -> str:
     return datetime.fromtimestamp(numeric / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _concurrency(summary: dict, agents: dict, cap: int) -> tuple[int, float]:
-    """Bucket agent samples on the 5s cadence; peak active agents + wasted slots."""
+def _concurrency(agents: dict) -> int:
+    """Bucket agent samples on the 5s cadence and return peak concurrency."""
     buckets: dict[int, set[str]] = {}
     for key, actor in agents.items():
         for sample in actor.get("samples", []):
@@ -360,12 +372,9 @@ def _concurrency(summary: dict, agents: dict, cap: int) -> tuple[int, float]:
             buckets.setdefault(bucket, set()).add(key)
 
     if not buckets:
-        return 0, 0.0
+        return 0
 
-    peak = max(len(active) for active in buckets.values())
-    bucket_hours = SAMPLE_SECONDS / 3600
-    wasted = sum(max(cap - len(active), 0) * bucket_hours for active in buckets.values())
-    return peak, wasted
+    return max(len(active) for active in buckets.values())
 
 
 def _agent_key(key: str) -> bool:

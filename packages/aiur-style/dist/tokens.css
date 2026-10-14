@@ -1,0 +1,285 @@
+@layer aiur.tokens {
+  :root {
+    color-scheme: light;
+    --aiur-color-bg: #e7d6b2;
+    --aiur-color-bg-2: #e2cfa6;
+    --aiur-color-bg-app: #e7d6b2;
+    --aiur-color-surface: #f4ecd9;
+    --aiur-color-surface-2: #efe5cd;
+    --aiur-color-surface-3: #e9dcbf;
+    --aiur-color-fg: #2a2520;
+    --aiur-color-muted: #5f5645;
+    --aiur-color-muted-app: #635a48;
+    --aiur-color-faint: #6d6450;
+    --aiur-color-hairline: rgba(42,37,26,.12);
+    --aiur-color-line: rgba(42,37,26,.16);
+    --aiur-color-line-strong: rgba(42,37,26,.28);
+    --aiur-color-pill-bd: rgba(42,37,26,.16);
+    --aiur-color-pill-bg: rgba(42,37,26,.035);
+    --aiur-color-field-line: rgba(42,37,26,.17);
+    --aiur-color-accent: #1f57c4;
+    --aiur-color-accent-ink: #1a4aa8;
+    --aiur-color-accent-soft: rgba(31,87,196,.11);
+    --aiur-color-focus: #1f57c4;
+    --aiur-color-fill: #1f57c4;
+    --aiur-color-good: #1f9d4d;
+    --aiur-color-good-ink: #167038;
+    --aiur-color-good-soft: rgba(31, 157, 77, 0.13);
+    --aiur-color-good-line: rgba(31, 157, 77, 0.3);
+    --aiur-color-attention: #b8821a;
+    --aiur-color-attention-ink: #75530d;
+    --aiur-color-attention-soft: rgba(184, 130, 26, 0.13);
+    --aiur-color-attention-line: rgba(184, 130, 26, 0.32);
+    --aiur-color-blocking: #d23b32;
+    --aiur-color-blocking-ink: #a52a23;
+    --aiur-color-blocking-soft: rgba(210, 59, 50, 0.11);
+    --aiur-color-blocking-line: rgba(210, 59, 50, 0.3);
+    --aiur-color-super: #8a4fd0;
+    --aiur-color-super-ink: #6d3aa8;
+    --aiur-color-super-soft: rgba(138, 79, 208, 0.12);
+    --aiur-color-super-line: rgba(138, 79, 208, 0.3);
+    --aiur-color-on-blocking: #ffffff;
+    --aiur-color-ack: #0e9e8e;
+    --aiur-font-display: "Bungee", system-ui, sans-serif;
+    --aiur-font-body: "Space Grotesk", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --aiur-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+    --aiur-text-banner: clamp(11px, 1.5vw, 13px);
+    --aiur-text-summary: clamp(25px, 3.6vw, 42px);
+    --aiur-text-signoff: clamp(27px, 4.4vw, 52px);
+    --aiur-radius-sm: 7px;
+    --aiur-radius-md: 10px;
+    --aiur-radius-box: 11px;
+    --aiur-radius-lg: 16px;
+    --aiur-radius-xl: 24px;
+    --aiur-radius-pill: 999px;
+    --aiur-motion-fast: .2s;
+    --aiur-ease-rise: cubic-bezier(.2,.85,.3,1);
+    --aiur-ease-standard: cubic-bezier(.4,0,.2,1);
+    --aiur-layout-nav: 15rem;
+    --aiur-layout-nav-collapsed: 2.6rem;
+    --aiur-layout-measure: 75rem;
+    --aiur-layout-page-max: 1440px;
+    --aiur-z-topbar: 20;
+    --aiur-z-banner: 3;
+    --aiur-z-stage: 6;
+    --aiur-text-xs: 12px;
+    --aiur-text-sm: 13px;
+    --aiur-text-md: 15px;
+    --aiur-text-lg: 17px;
+    --aiur-space-1: 4px;
+    --aiur-space-2: 8px;
+    --aiur-space-3: 12px;
+    --aiur-space-4: 16px;
+    --aiur-space-5: 20px;
+    --aiur-space-6: 24px;
+    --aiur-space-7: 32px;
+    --aiur-space-8: 48px;
+    --aiur-shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.1);
+    --aiur-shadow-md: 0 4px 12px -2px rgba(58, 44, 18, 0.22);
+    --aiur-shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.3);
+    /* Light faint is 4.08:1 on bg; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-faint-on-bg: var(--aiur-color-muted);
+    /* Light faint is 3.82:1 on bg-2; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-faint-on-bg-2: var(--aiur-color-muted);
+    /* Light faint is 4.08:1 on bg-app; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-faint-on-bg-app: var(--aiur-color-muted);
+    /* Light accent is 4.26:1 on bg-2; use accent-ink per plan §7.3. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-accent-on-bg-2: var(--aiur-color-accent-ink);
+    /* Dark accent is 4.31:1 on surface-2; use accent-ink for readable text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-accent-on-surface-2: var(--aiur-color-accent);
+    --aiur-color-accent-line: rgba(31,87,196,.30);
+    --aiur-color-on-fill: #ffffff;
+    --aiur-color-fill-hover: #1a4aa8;
+    --aiur-color-fill-pressed: #163e8c;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+    --aiur-color-bg: #1a1b1e;
+      --aiur-color-bg-2: #161719;
+      --aiur-color-bg-app: #16171a;
+      --aiur-color-surface: #1e2025;
+      --aiur-color-surface-2: #23262c;
+      --aiur-color-surface-3: #292d34;
+      --aiur-color-fg: #edeef0;
+      --aiur-color-muted: #8c8d93;
+      --aiur-color-muted-app: #969aa4;
+      --aiur-color-faint: #8b8f99;
+      --aiur-color-hairline: rgba(221,226,235,.10);
+      --aiur-color-line: rgba(221,226,235,.12);
+      --aiur-color-line-strong: rgba(221,226,235,.20);
+      --aiur-color-pill-bd: rgba(221,226,235,.13);
+      --aiur-color-pill-bg: rgba(221,226,235,.03);
+      --aiur-color-field-line: rgba(221,226,235,.14);
+      --aiur-color-accent: #2f86ff;
+      --aiur-color-accent-ink: #8fbcff;
+      --aiur-color-accent-soft: rgba(47,134,255,.15);
+      --aiur-color-focus: #2f86ff;
+      --aiur-color-fill: #1f57c4;
+      --aiur-color-good: #3fb950;
+      --aiur-color-good-ink: #74d47f;
+      --aiur-color-good-soft: rgba(63, 185, 80, 0.14);
+      --aiur-color-good-line: rgba(63, 185, 80, 0.32);
+      --aiur-color-attention: #e3b341;
+      --aiur-color-attention-ink: #f1cf6f;
+      --aiur-color-attention-soft: rgba(227, 179, 65, 0.15);
+      --aiur-color-attention-line: rgba(227, 179, 65, 0.34);
+      --aiur-color-blocking: #ff7b72;
+      --aiur-color-blocking-ink: #ffa39c;
+      --aiur-color-blocking-soft: rgba(255, 123, 114, 0.14);
+      --aiur-color-blocking-line: rgba(255, 123, 114, 0.34);
+      --aiur-color-super: #c69bff;
+      --aiur-color-super-ink: #d8bcff;
+      --aiur-color-super-soft: rgba(198, 155, 255, 0.15);
+      --aiur-color-super-line: rgba(198, 155, 255, 0.34);
+      --aiur-color-on-blocking: #2a0906;
+      --aiur-color-ack: #4fd6c4;
+      --aiur-font-display: "Bungee", system-ui, sans-serif;
+      --aiur-font-body: "Space Grotesk", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      --aiur-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+      --aiur-text-banner: clamp(11px, 1.5vw, 13px);
+      --aiur-text-summary: clamp(25px, 3.6vw, 42px);
+      --aiur-text-signoff: clamp(27px, 4.4vw, 52px);
+      --aiur-radius-sm: 7px;
+      --aiur-radius-md: 10px;
+      --aiur-radius-box: 11px;
+      --aiur-radius-lg: 16px;
+      --aiur-radius-xl: 24px;
+      --aiur-radius-pill: 999px;
+      --aiur-motion-fast: .2s;
+      --aiur-ease-rise: cubic-bezier(.2,.85,.3,1);
+      --aiur-ease-standard: cubic-bezier(.4,0,.2,1);
+      --aiur-layout-nav: 15rem;
+      --aiur-layout-nav-collapsed: 2.6rem;
+      --aiur-layout-measure: 75rem;
+      --aiur-layout-page-max: 1440px;
+      --aiur-z-topbar: 20;
+      --aiur-z-banner: 3;
+      --aiur-z-stage: 6;
+      --aiur-text-xs: 12px;
+      --aiur-text-sm: 13px;
+      --aiur-text-md: 15px;
+      --aiur-text-lg: 17px;
+      --aiur-space-1: 4px;
+      --aiur-space-2: 8px;
+      --aiur-space-3: 12px;
+      --aiur-space-4: 16px;
+      --aiur-space-5: 20px;
+      --aiur-space-6: 24px;
+      --aiur-space-7: 32px;
+      --aiur-space-8: 48px;
+      --aiur-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+      --aiur-shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
+      --aiur-shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
+      /* Light faint is 4.08:1 on bg; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+      --aiur-color-faint-on-bg: var(--aiur-color-faint);
+      /* Light faint is 3.82:1 on bg-2; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+      --aiur-color-faint-on-bg-2: var(--aiur-color-faint);
+      /* Light faint is 4.08:1 on bg-app; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+      --aiur-color-faint-on-bg-app: var(--aiur-color-faint);
+      /* Light accent is 4.26:1 on bg-2; use accent-ink per plan §7.3. Fixed palette preserved; use this token for text on the named background. */
+      --aiur-color-accent-on-bg-2: var(--aiur-color-accent);
+      /* Dark accent is 4.31:1 on surface-2; use accent-ink for readable text. Fixed palette preserved; use this token for text on the named background. */
+      --aiur-color-accent-on-surface-2: var(--aiur-color-accent-ink);
+      --aiur-color-accent-line: rgba(47,134,255,.34);
+      --aiur-color-on-fill: #ffffff;
+      --aiur-color-fill-hover: #1a4aa8;
+      --aiur-color-fill-pressed: #163e8c;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --aiur-color-bg: #1a1b1e;
+    --aiur-color-bg-2: #161719;
+    --aiur-color-bg-app: #16171a;
+    --aiur-color-surface: #1e2025;
+    --aiur-color-surface-2: #23262c;
+    --aiur-color-surface-3: #292d34;
+    --aiur-color-fg: #edeef0;
+    --aiur-color-muted: #8c8d93;
+    --aiur-color-muted-app: #969aa4;
+    --aiur-color-faint: #8b8f99;
+    --aiur-color-hairline: rgba(221,226,235,.10);
+    --aiur-color-line: rgba(221,226,235,.12);
+    --aiur-color-line-strong: rgba(221,226,235,.20);
+    --aiur-color-pill-bd: rgba(221,226,235,.13);
+    --aiur-color-pill-bg: rgba(221,226,235,.03);
+    --aiur-color-field-line: rgba(221,226,235,.14);
+    --aiur-color-accent: #2f86ff;
+    --aiur-color-accent-ink: #8fbcff;
+    --aiur-color-accent-soft: rgba(47,134,255,.15);
+    --aiur-color-focus: #2f86ff;
+    --aiur-color-fill: #1f57c4;
+    --aiur-color-good: #3fb950;
+    --aiur-color-good-ink: #74d47f;
+    --aiur-color-good-soft: rgba(63, 185, 80, 0.14);
+    --aiur-color-good-line: rgba(63, 185, 80, 0.32);
+    --aiur-color-attention: #e3b341;
+    --aiur-color-attention-ink: #f1cf6f;
+    --aiur-color-attention-soft: rgba(227, 179, 65, 0.15);
+    --aiur-color-attention-line: rgba(227, 179, 65, 0.34);
+    --aiur-color-blocking: #ff7b72;
+    --aiur-color-blocking-ink: #ffa39c;
+    --aiur-color-blocking-soft: rgba(255, 123, 114, 0.14);
+    --aiur-color-blocking-line: rgba(255, 123, 114, 0.34);
+    --aiur-color-super: #c69bff;
+    --aiur-color-super-ink: #d8bcff;
+    --aiur-color-super-soft: rgba(198, 155, 255, 0.15);
+    --aiur-color-super-line: rgba(198, 155, 255, 0.34);
+    --aiur-color-on-blocking: #2a0906;
+    --aiur-color-ack: #4fd6c4;
+    --aiur-font-display: "Bungee", system-ui, sans-serif;
+    --aiur-font-body: "Space Grotesk", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --aiur-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+    --aiur-text-banner: clamp(11px, 1.5vw, 13px);
+    --aiur-text-summary: clamp(25px, 3.6vw, 42px);
+    --aiur-text-signoff: clamp(27px, 4.4vw, 52px);
+    --aiur-radius-sm: 7px;
+    --aiur-radius-md: 10px;
+    --aiur-radius-box: 11px;
+    --aiur-radius-lg: 16px;
+    --aiur-radius-xl: 24px;
+    --aiur-radius-pill: 999px;
+    --aiur-motion-fast: .2s;
+    --aiur-ease-rise: cubic-bezier(.2,.85,.3,1);
+    --aiur-ease-standard: cubic-bezier(.4,0,.2,1);
+    --aiur-layout-nav: 15rem;
+    --aiur-layout-nav-collapsed: 2.6rem;
+    --aiur-layout-measure: 75rem;
+    --aiur-layout-page-max: 1440px;
+    --aiur-z-topbar: 20;
+    --aiur-z-banner: 3;
+    --aiur-z-stage: 6;
+    --aiur-text-xs: 12px;
+    --aiur-text-sm: 13px;
+    --aiur-text-md: 15px;
+    --aiur-text-lg: 17px;
+    --aiur-space-1: 4px;
+    --aiur-space-2: 8px;
+    --aiur-space-3: 12px;
+    --aiur-space-4: 16px;
+    --aiur-space-5: 20px;
+    --aiur-space-6: 24px;
+    --aiur-space-7: 32px;
+    --aiur-space-8: 48px;
+    --aiur-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --aiur-shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
+    --aiur-shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
+    /* Light faint is 4.08:1 on bg; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-faint-on-bg: var(--aiur-color-faint);
+    /* Light faint is 3.82:1 on bg-2; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-faint-on-bg-2: var(--aiur-color-faint);
+    /* Light faint is 4.08:1 on bg-app; use muted for readable page text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-faint-on-bg-app: var(--aiur-color-faint);
+    /* Light accent is 4.26:1 on bg-2; use accent-ink per plan §7.3. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-accent-on-bg-2: var(--aiur-color-accent);
+    /* Dark accent is 4.31:1 on surface-2; use accent-ink for readable text. Fixed palette preserved; use this token for text on the named background. */
+    --aiur-color-accent-on-surface-2: var(--aiur-color-accent-ink);
+    --aiur-color-accent-line: rgba(47,134,255,.34);
+    --aiur-color-on-fill: #ffffff;
+    --aiur-color-fill-hover: #1a4aa8;
+    --aiur-color-fill-pressed: #163e8c;
+  }
+}

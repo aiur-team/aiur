@@ -224,10 +224,16 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # Executor to dequeue it, and the approval already outranks an open thread
   # (#1756). A failed read keeps the rework verdict the threads justified.
   defp rework_unless_queued(pr, opts) do
-    fetcher = Keyword.get(opts, :queued_approval_fetcher, &default_queued_approval_fetcher/1)
     # A blocking review submitted after the approval leaves `reviewDecision` APPROVED; it is still a finding.
     blocking? = Keyword.get(opts, :blocking_review_submission?, false)
-    if not blocking? and fetcher.(pr) == {:ok, true}, do: {:skip, :approved_and_queued}, else: {:ok, pr}
+    if not blocking? and approved_and_queued?(pr, opts) == {:ok, true}, do: {:skip, :approved_and_queued}, else: {:ok, pr}
+  end
+
+  @doc false
+  @spec approved_and_queued?(map(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def approved_and_queued?(pr, opts \\ []) do
+    fetcher = Keyword.get(opts, :queued_approval_fetcher, &default_queued_approval_fetcher/1)
+    fetcher.(pr)
   end
 
   defp default_queued_approval_fetcher(pr) do

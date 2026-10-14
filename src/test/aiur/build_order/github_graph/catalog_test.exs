@@ -85,7 +85,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.CatalogTest do
   # so the recurring catalog poll never pays it. If this test starts failing
   # because the default variant grew a member `labels` selection, the fix is not
   # to update the assertion.
-  test "keeps per-member labels off the default catalog query and on the opt-in variant" do
+  test "keeps reconciliation fields and per-member labels off the default catalog query" do
     default = Queries.catalog()
     labelled = Queries.catalog(member_labels?: true)
 
@@ -94,14 +94,15 @@ defmodule Aiur.BuildOrder.GitHubGraph.CatalogTest do
 
     assert catalog_sub_issues_selection(default) =~ "state stateReason"
     refute catalog_sub_issues_selection(default) =~ "labels"
+    refute default =~ "body"
 
     assert catalog_sub_issues_selection(labelled) =~ "labels(first: 100)"
     assert catalog_sub_issues_selection(labelled) =~ "nodes { name }"
+    assert labelled =~ "title url body state stateReason"
 
-    # Only the member selection differs; the labelled variant is otherwise the
-    # same query, including the root-level `labels` the catalog has always had.
-    assert String.replace(labelled, catalog_sub_issues_selection(labelled), catalog_sub_issues_selection(default)) ==
-             default
+    assert catalog_sub_issues_selection(labelled) =~ "title url createdAt updatedAt"
+    assert catalog_sub_issues_selection(labelled) =~ "body state stateReason"
+    assert labelled =~ "number title url body state stateReason createdAt updatedAt"
   end
 
   test "marks catalog progress unresolved when no member lifecycle can be resolved" do

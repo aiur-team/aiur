@@ -1,0 +1,56 @@
+/* H:1343 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  padding: 0.56rem 0.95rem;
+  font-weight: 600;
+  font-size: 0.86rem;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+  justify-content: normal;
+  min-height: auto;
+}
+
+/* H:1349 */ html[data-theme="light"] :where(.bd-root, .tk-backdrop, .ax-pop) .btn {
+  color: #fff;
+}
+
+/* H:1350 */ html[data-theme="light"] :where(.bd-root, .tk-backdrop, .ax-pop) .btn.secondary {
+  color: var(--fg);
+}
+
+/* H:1352 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 8px 20px var(--accent-soft);
+}
+
+/* H:1353 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* H:1354 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn.secondary {
+  background: var(--surface-3);
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+/* H:1355 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn.secondary:hover {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+/* H:1361 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn.sm {
+  padding: 0.4rem 0.72rem;
+  font-size: 0.8rem;
+}
+
+/* H:1362 */ :where(.bd-root, .tk-backdrop, .ax-pop) .btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+

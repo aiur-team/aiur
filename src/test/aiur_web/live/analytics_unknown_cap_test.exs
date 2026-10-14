@@ -4,6 +4,7 @@ defmodule AiurWeb.AnalyticsUnknownCapTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
+  alias Aiur.TestSupport.LiveViewAsync
   alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.Analytics.Presenter
 
@@ -38,7 +39,9 @@ defmodule AiurWeb.AnalyticsUnknownCapTest do
   test "reports no wasted-capacity figure when no effective cap is known" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, view, _html} = live(build_conn(), "/analytics")
+
+    html = LiveViewAsync.render_when_complete(view)
 
     # Idle slot-hours are a subtraction from the cap. With no cap reported the
     # page must not substitute the local config file and print a precise hour

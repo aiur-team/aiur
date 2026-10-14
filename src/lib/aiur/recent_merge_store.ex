@@ -13,8 +13,7 @@ defmodule Aiur.RecentMergeStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Fs, Journal, RecentMerge}
-  alias Aiur.Signal
+  alias Aiur.{Config, Fs, Journal, RecentMerge, Signal}
 
   @filename "recent_merges.ndjson"
   @retention_limit 100
@@ -69,7 +68,7 @@ defmodule Aiur.RecentMergeStore do
       append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
       compact_fun: Keyword.get(opts, :compact_fun, &compact_log/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.agent_alert/3),
       retention_limit: retention_limit,
       compaction_record_limit:
         max(

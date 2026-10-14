@@ -1,0 +1,447 @@
+/* C:128 */ .bd-fg {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  height: 30px;
+  padding: 0 .65rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--muted);
+  font: 600 .76rem "Space Grotesk", sans-serif;
+  cursor: pointer;
+}
+
+/* C:129 */ .bd-fg:hover, .bd-fg.open {
+  color: var(--fg);
+  border-color: var(--faint);
+}
+
+/* C:130 */ .bd-fg.has {
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* C:131 */ .bd-fg svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* C:132 */ .bd-fg b {
+  font: 700 .64rem "JetBrains Mono", monospace;
+}
+
+/* C:136 */ .bd-fclear {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: 600 .72rem "JetBrains Mono", monospace;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* C:137 */ .bd-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  max-width: 340px;
+  padding: .6rem;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-lg);
+}
+
+/* C:138 */ .bd-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  height: 28px;
+  padding: 0 .6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font: 600 .74rem "Space Grotesk", sans-serif;
+  cursor: pointer;
+}
+
+/* C:139 */ .bd-opt img {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: contain;
+}
+
+/* C:140 */ .bd-opt.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* C:141 */ .bd-opt i {
+  width: .55rem;
+  height: .55rem;
+  border-radius: 2px;
+}
+
+@container bd (max-width: 640px) {
+  /* C:142 */ .bd-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: .2rem;
+    scrollbar-width: none;
+  }
+  /* C:142 */ .bd-pop {
+    position: fixed;
+    left: 12px !important;
+    right: 12px;
+    top: auto;
+    bottom: 80px;
+    max-width: none;
+  }
+}
+
+/* C:145 */ .bd-tools {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  flex-wrap: wrap;
+}
+
+/* C:146 */ .bd-tools .sp {
+  flex: 1;
+}
+
+/* C:147 */ .bd-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font: .66rem "JetBrains Mono", monospace;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* C:148 */ .bd-leg-l {
+  width: 1.3rem;
+  border-top: 2px solid var(--good);
+}
+
+/* C:150 */ .bd-leg-h {
+  width: 1rem;
+  height: .7rem;
+  border-radius: 3px;
+  border: 1px dashed var(--line-strong);
+  background: repeating-linear-gradient(135deg, var(--line-strong) 0 2px, transparent 2px 5px);
+}
+
+/* C:151 */ .bd-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+}
+
+/* C:155 */ .bd-zv {
+  min-width: 3rem;
+  text-align: center;
+  font: .72rem "JetBrains Mono", monospace;
+  color: var(--muted);
+}
+
+/* C:156 */ .bd-now-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: 0 .75rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 700 .74rem "JetBrains Mono", monospace;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+
+/* C:157 */ .bd-now-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* C:158 */ .bd-now-btn.at {
+  opacity: .55;
+}
+
+/* C:159 */ .bd-daemon {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font: 600 .68rem "JetBrains Mono", monospace;
+  color: var(--muted);
+}
+
+/* C:160 */ .bd-daemon i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px var(--good-soft);
+}
+
+/* C:161 */ .bd-daemon.off i {
+  background: var(--block);
+  box-shadow: 0 0 0 3px var(--block-soft);
+}
+
+/* C:162 */ .bd-daemon.off {
+  color: var(--block-ink);
+}
+
+@container bd (max-width: 640px) {
+  /* C:163 */ .bd-tools .bd-leg {
+    display: none;
+  }
+  /* C:163 */ .bd-tools .sp {
+    display: none;
+  }
+}
+
+/* C:166 */ .bd-vp {
+  position: relative;
+  height: min(76vh, 860px);
+  overflow: auto;
+  background: radial-gradient(circle at 1px 1px, var(--hairline) 1px, transparent 0) 0 0 / 22px 22px, var(--surface-2);
+  overscroll-behavior: contain;
+}
+
+/* C:167 */ .bd-vp::-webkit-scrollbar {
+  height: 10px;
+}
+
+/* C:167 */ .bd-vp::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 5px;
+  border: 2px solid var(--surface-2);
+}
+
+/* C:168 */ .bd-content {
+  position: relative;
+  min-width: 100%;
+}
+
+/* C:169 */ .bd-lanes {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  height: 46px;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  backdrop-filter: blur(5px);
+  border-bottom: 1px solid var(--line);
+}
+
+/* C:170 */ .bd-lane {
+  position: absolute;
+  top: 8px;
+  height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: 0 .6rem;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: .78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: left .34s cubic-bezier(.22,1,.36,1), width .34s cubic-bezier(.22,1,.36,1), opacity .26s, transform .26s;
+}
+
+/* C:171 */ .bd-lane.enter, .bd-lane.leave {
+  opacity: 0;
+  transform: translateY(-7px);
+}
+
+/* C:172 */ .bd-lane svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--ec);
+}
+
+/* C:173 */ .bd-lane span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* C:174 */ .bd-lane em {
+  margin-left: auto;
+  font: 600 .62rem "JetBrains Mono", monospace;
+  font-style: normal;
+  color: var(--faint);
+}
+
+/* C:175 */ .bd-lane.temp {
+  border-style: dashed;
+  border-color: oklch(.66 .14 var(--h) / .55);
+}
+
+/* C:176 */ .bd-lane.lock em svg {
+  width: 11px;
+  height: 11px;
+  color: var(--fg);
+}
+
+/* C:177 */ .bd-lane-g {
+  position: absolute;
+  left: 12px;
+  top: 15px;
+  font: 700 .58rem "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* C:178 */ .bd-guides {
+  position: absolute;
+  left: 0;
+  top: 46px;
+  bottom: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* C:179 */ .bd-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--hairline);
+  border-right: 1px dashed var(--hairline);
+  transition: left .34s cubic-bezier(.22,1,.36,1), width .34s cubic-bezier(.22,1,.36,1), opacity .26s;
+}
+
+/* C:180 */ .bd-guide.enter, .bd-guide.leave {
+  opacity: 0;
+}
+
+/* C:181 */ .bd-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+  transition: opacity .18s;
+}
+
+/* C:182 */ .bd-edges.hide {
+  opacity: 0;
+}
+
+/* C:183 */ .bd-e {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  opacity: .75;
+}
+
+/* C:184 */ .bd-e.ok {
+  stroke: var(--good);
+  stroke-width: 1.8;
+}
+
+/* C:186 */ .bd-e.gh {
+  stroke-dasharray: 2 4;
+}
+
+/* C:187 */ .bd-e.hl {
+  stroke-width: 2.8;
+  opacity: 1;
+}
+
+/* C:188 */ .bd-edges.gantt .bd-e {
+  opacity: .35;
+}
+
+/* C:188 */ .bd-edges.gantt .bd-ea {
+  opacity: .45;
+}
+
+/* C:189 */ .bd-e.fade {
+  opacity: .12;
+}
+
+/* C:190 */ .bd-ea {
+  fill: var(--faint);
+}
+
+/* C:190 */ .bd-ea.ok {
+  fill: var(--good);
+}
+
+/* C:190 */ .bd-ea.fade {
+  opacity: .12;
+}
+
+/* C:192 */ .bd-sec {
+  position: relative;
+  z-index: 2;
+}
+
+/* C:193 */ .bd-sech {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding-left: 14px;
+  font: 700 .64rem "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+/* C:194 */ .bd-sec:first-of-type .bd-sech {
+  border-top: 0;
+}
+
+/* C:195 */ .bd-sech em {
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: .02em;
+  text-transform: none;
+  color: var(--faint);
+}
+
+/* C:196 */ .bd-layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* C:197 */ .bd-lbl {
+  position: absolute;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  padding-left: 12px;
+  pointer-events: none;
+  transform: translateY(-.15rem);
+}
+
+/* C:198 */ .bd-lbl b {
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--fg);
+  white-space: nowrap;
+}
+

@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.Reader do
   @moduledoc false
 
-  alias Aiur.Experiments.{Journal, Paths, Registration, Schema, Spec}
+  alias Aiur.Experiments.{Journal, Paths, Registration, Schema, Snapshot, Spec}
 
   @spec json(Path.t()) :: {:ok, map()} | {:error, term()}
   def json(path) do
@@ -58,14 +58,15 @@ defmodule Aiur.Experiments.Reader do
     %{id: id, title: spec["title"], kind: safe_get(spec, ["design", "kind"]), status: spec["status"], created_at: spec["created_at"], updated_at: spec["updated_at"]}
   end
 
-  @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
-  def fetch(id) do
+  @spec fetch(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def fetch(id, context \\ %{}) do
     with {:ok, spec, spec_read_only?} <- spec(id),
          {:ok, journal} <- Journal.read(Paths.file(id, "journal.ndjson")),
          {:ok, annotations} <- Journal.read(Paths.file(id, "annotations.ndjson")),
-         {:ok, snapshots} <- snapshots(id) do
+         {:ok, snapshots} <- Snapshot.all(id) do
       read_only? = spec_read_only? or newer?(journal ++ annotations) or pending_newer?(id)
-      {:ok, %{spec: spec, phase: phase(spec), journal: Enum.take(journal, -50), annotations: annotations, snapshots: snapshots, read_only?: read_only?}}
+      changed? = Enum.any?(snapshots, &(&1["packs"] != Snapshot.packs(spec, context)))
+      {:ok, %{spec: spec, phase: phase(spec), journal: Enum.take(journal, -50), annotations: annotations, snapshots: snapshots, pack_changed_since_freeze: changed?, read_only?: read_only?}}
     end
   end
 
@@ -105,13 +106,5 @@ defmodule Aiur.Experiments.Reader do
       key, value when is_map(value) -> Map.get(value, key)
       _key, _unknown -> nil
     end)
-  end
-
-  defp snapshots(id) do
-    case File.ls(Paths.file(id, "snapshots")) do
-      {:ok, names} -> {:ok, Enum.sort(names)}
-      {:error, :enoent} -> {:ok, []}
-      {:error, reason} -> {:error, reason}
-    end
   end
 end

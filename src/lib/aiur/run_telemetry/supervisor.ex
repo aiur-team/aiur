@@ -15,6 +15,8 @@ defmodule Aiur.RunTelemetry.Supervisor do
   def init(opts) do
     writer_opts = Keyword.get(opts, :writer_opts, [])
     sampler_opts = Keyword.get(opts, :sampler_opts, [])
-    Supervisor.init([{Writer, writer_opts}, {Sampler, sampler_opts}], strategy: :one_for_one)
+    facts_opts = Keyword.get(opts, :facts_opts, [])
+    timeline_opts = Keyword.get(opts, :timeline_opts, [])
+    Supervisor.init([{Writer, writer_opts}, {Aiur.RunTelemetry.FactsCapture, facts_opts}, {Aiur.RunTelemetry.RepoTimeline, timeline_opts}, {Sampler, sampler_opts}], strategy: :one_for_one)
   end
 end

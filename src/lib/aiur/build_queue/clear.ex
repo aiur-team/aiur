@@ -9,7 +9,9 @@ defmodule Aiur.BuildQueue.Clear do
     with :ok <- confirm(opts),
          {:fresh, observations} <- Reconcile.snapshot(state) do
       marker = "#{state.settings.tracker.github.label_prefix}:queued"
-      actions = for {id, row} <- Enum.sort(observations), marker in row.labels, do: {:unmark, id}
+      member_ids = for item <- state.document.items, not Map.has_key?(observations, item.issue_id), do: item.issue_id
+      marked_ids = for {id, row} <- observations, marker in row.labels, do: id
+      actions = Enum.map(Enum.uniq(member_ids ++ marked_ids) |> Enum.sort(), &{:unmark, &1})
       document = ListCommands.record(state, @empty, actions, observations)
       {:ok, document, actions, observations}
     else

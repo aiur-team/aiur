@@ -1,0 +1,21 @@
+{
+  "build_order_id": "optimistic-test",
+  "title": "Optimistic fixture",
+  "tickets": [
+    {
+      "ticket": 1,
+      "id": "U1",
+      "title": "Ticket 1"
+    },
+    {
+      "ticket": 2,
+      "id": "U2",
+      "title": "Ticket 2"
+    },
+    {
+      "ticket": 3,
+      "id": "U3",
+      "title": "Ticket 3"
+    }
+  ]
+}

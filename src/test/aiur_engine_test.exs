@@ -446,6 +446,27 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     assert sourced -- shipped == []
   end
 
+  test "pre-pr command refuses a dirty checkout and rejects extra arguments" do
+    assert {"aiur: pre-pr does not accept arguments\n", 64} = run_engine(["pre-pr", "--push"], [])
+
+    root = Aiur.TestSupport.tmp_root!("pre-pr-dirty")
+    File.mkdir_p!(root)
+    File.mkdir_p!(Path.join(root, "src"))
+    File.mkdir_p!(Path.join(root, "scripts"))
+    File.write!(Path.join(root, "src/mix.exs"), "")
+    File.write!(Path.join(root, "scripts/check-pr-structure.py"), "")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    System.cmd("git", ["init", "-q", root])
+    File.write!(Path.join(root, "dirty"), "dirty")
+    {out, code} = run_sourced_engine("cd #{root} && aiur_engine_main pre-pr", [])
+    assert code == 1
+    assert out =~ "pre-pr requires a clean working tree"
+  end
+
+  test "pre-pr does not push changes" do
+    refute Aiur.EngineSource.text() =~ "git push"
+  end
+
   test "a missing engine module aborts by path before any command runs" do
     root = Aiur.TestSupport.tmp_root!("aiur-engine-modules")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)

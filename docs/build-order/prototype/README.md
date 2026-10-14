@@ -2,8 +2,8 @@
 
 This folder is a **visual/interaction prototype** of the "Build Order" view for the
 Aiur Operator Control Center, exported from the Claude Design project so it can live
-in-repo. It exists because the design tool isn't reachable from the Codex agent's
-environment — this is the offline stand-in.
+in Git history. The HTML files are retired; [the manifest](../design-manifest.md)
+records their pinned links and hashes.
 
 **Treat it as a point of reference and a prototype, not a spec to reproduce line for
 line.** It shows the intended look, layout, and interactions. Where it and the written
@@ -11,10 +11,7 @@ constraints disagree, or where it does something awkward, use judgement — the 
 the *idea* of the view, not a pixel-perfect port of a single-file mock.
 
 ## Files
-- `Aiur Operator Control Center.html` — self-contained prototype. Open it directly in a
-  browser (`open "Aiur Operator Control Center.html"`). No build step, no server, no
-  network beyond Google Fonts. All logic/styles are inline; the only external
-  dependencies are the icons in `assets/`.
+- Retired HTML references: download the pinned files from [the manifest](../design-manifest.md).
 - `assets/` — the 5 image assets the HTML references (Aiur logo, Claude/Codex tokens
   and symbols). Keep them beside the HTML; paths are relative (`assets/…`).
 - `feature-constraints.md` — the design's own "grain of salt" companion. This is the
@@ -22,8 +19,8 @@ the *idea* of the view, not a pixel-perfect port of a single-file mock.
   what it **deliberately defers**. Read this first.
 
 ## How to use it (for the implementing agent)
-1. Read `feature-constraints.md` for the data model and layout rules, then open the
-   HTML to see them realized.
+1. Read `feature-constraints.md` for the data model and layout rules, then download and open the
+   pinned HTML to see them realized.
 2. Mine it for the concrete decisions the prose can't convey: the epic-lane × phase-layer
    grid, node card anatomy, the cleared-vs-blocking edge treatment, hover chain
    highlighting, and the pan/zoom canvas controls.

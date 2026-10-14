@@ -1,3 +1,1 @@
-"use strict";
-// aiur-style barrel export
-// Component behaviors and exports will be added in future tickets
+export { getTheme, setTheme, onThemeChange, initThemeToggle } from './theme.js';

@@ -1,0 +1,78 @@
+{
+  "id": "commands",
+  "name": "Commands",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/asks.ex",
+    "src/lib/aiur/asks_store.ex",
+    "src/lib/aiur/commands.ex",
+    "src/lib/aiur/commands/**",
+    "src/lib/aiur/decision*.ex",
+    "src/lib/aiur/decision_api/**",
+    "src/lib/aiur/decision_dispatch_tasks/**",
+    "src/lib/aiur/decision_event/**",
+    "src/lib/aiur/decision_metrics/**",
+    "src/lib/aiur/decision_query/**",
+    "src/lib/aiur/decision_store/**",
+    "src/lib/aiur/supervisor_token.ex",
+    "src/lib/aiur/supervisor_token/**",
+    "src/lib/aiur_web/controllers/decision*.ex",
+    "src/lib/aiur_web/routes/decisions.ex"
+  ],
+  "facades": [
+    "Aiur.Commands",
+    "Aiur.Commands.DeliveryTarget",
+    "Aiur.Decision",
+    "Aiur.DecisionAnswer",
+    "Aiur.DecisionArtifact",
+    "Aiur.DecisionEvent",
+    "Aiur.DecisionRevision",
+    "AiurWeb.DecisionApiController",
+    "AiurWeb.Routes.Decisions"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "config",
+    "event-bus",
+    "identity",
+    "kernel",
+    "signal",
+    "web-kit"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [
+      "decisions"
+    ],
+    "env": [
+      "AIUR_CI_READINESS_TOKEN",
+      "AIUR_SUPERVISOR_TOKEN"
+    ],
+    "state": [
+      "decision_state_dir"
+    ],
+    "capabilities": []
+  },
+  "prior": [
+    "DEC",
+    "EXE"
+  ],
+  "dependency_kind": "required",
+  "summary": "Routes agent questions to the right responder and delivers their answers.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/commands.md"
+  ],
+  "config": [
+    "decisions"
+  ],
+  "env": [
+    "AIUR_CI_READINESS_TOKEN",
+    "AIUR_SUPERVISOR_TOKEN"
+  ],
+  "capabilities": []
+}

@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue do
   @moduledoc "Supervised build queue reconciliation, paced label writes and local ordered-list commands."
 
-  alias Aiur.BuildQueue.{ReadModel, Server}
+  alias Aiur.BuildQueue.{Attention, ReadModel, Server}
 
   @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused
 
@@ -28,6 +28,17 @@ defmodule Aiur.BuildQueue do
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end
+
+  @doc "Serializes guard-owned attentions with queue reconciliation."
+  @spec optimistic_attention(:open | :resolve, String.t(), map()) :: :ok | {:error, term()}
+  def optimistic_attention(action, id, payload) do
+    GenServer.call(Server, {:optimistic_attention, action, id, payload})
+  catch
+    :exit, {:noproc, _} -> {:error, :disabled}
+  end
+
+  @spec transient_optimistic_attention(String.t(), map(), boolean()) :: :ok | {:error, term()}
+  def transient_optimistic_attention(id, payload, resolved?), do: Attention.transient(:optimistic_blocker_failed, id, payload, resolved?)
 
   @spec add([String.t()], String.t(), keyword()) :: :ok | {:error, term()}
   def add(ids, queue, opts \\ []), do: mutate({:add, ids, Keyword.put(opts, :queue, queue)})

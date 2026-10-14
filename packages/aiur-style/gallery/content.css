@@ -1,0 +1,10 @@
+@font-face { font-family: Bungee; src: url('assets/Bungee-Regular.woff2') format('woff2'); font-weight: 400; }
+@font-face { font-family: 'Space Grotesk'; src: url('assets/SpaceGrotesk-Variable.woff2') format('woff2'); font-weight: 300 700; }
+@font-face { font-family: 'JetBrains Mono'; src: url('assets/JetBrainsMono-Variable.woff2') format('woff2'); font-weight: 100 800; }
+body { margin: 0; padding: 24px; background: var(--aiur-color-bg); color: var(--aiur-color-fg); font-family: var(--aiur-font-body); }
+a { color: var(--aiur-color-accent); }
+main { display: grid; gap: 48px; justify-items: center; padding-bottom: 400px; }
+section { width: 100%; }
+#prose { display: grid; gap: 24px; justify-items: center; }
+#prose p { margin-block: 0; }
+.aiur-features { margin: 0 auto; }

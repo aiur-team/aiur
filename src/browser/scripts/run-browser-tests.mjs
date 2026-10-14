@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { browserChildEnvironment, sanitizeArtifactRoot } from './artifact-sanitizer.mjs'
+import { startFixture } from './start-fixture.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const allocatedPorts = new Set()
@@ -43,8 +44,9 @@ export async function createArtifactRoot(environment = process.env) {
 }
 
 export async function runBrowserTests(args, environment = process.env) {
-  const port = await allocatePort()
   const artifactRoot = await createArtifactRoot(environment)
+  const fixture = await startFixture({ ...environment, AIUR_BROWSER_PORT: '0' })
+  const port = fixture.port
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   const childEnvironment = browserChildEnvironment(environment, {
     AIUR_BROWSER_PORT: String(port),
@@ -69,6 +71,7 @@ export async function runBrowserTests(args, environment = process.env) {
 
     return { ...result, artifactRoot, port }
   } finally {
+    await fixture.stop()
     await sanitizeArtifactRoot(artifactRoot, environment)
 
     const retainArtifacts = !result || result.code !== 0 || result.signal || environment.AIUR_BROWSER_SCREENSHOTS === '1' || environment.AIUR_BROWSER_KEEP_ARTIFACTS === '1'

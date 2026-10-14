@@ -4,7 +4,38 @@ defmodule Aiur.Experiments.StoreTest do
   alias Aiur.Experiments
   alias Aiur.Experiments.{CapabilityProvider, Journal, Paths, Store}
 
+  defmodule FixturePack do
+    @behaviour Aiur.Experiments.MetricPack
+    def id, do: "delivery-speed"
+    def version, do: 1
+
+    def metrics,
+      do: [
+        %Aiur.Experiments.Metric{
+          id: "start_to_merge",
+          pack: id(),
+          label: "Fixture",
+          unit: "ms",
+          unit_of_analysis: "ticket",
+          kind: "duration",
+          better: "lower",
+          default_direction: "decrease",
+          group: "Fixture",
+          requires: []
+        }
+      ]
+
+    def observations(_ids, _window, _context), do: %{}
+  end
+
   setup do
+    previous_packs = Application.get_env(:aiur, :experiment_metric_packs)
+    Application.put_env(:aiur, :experiment_metric_packs, [FixturePack])
+
+    on_exit(fn ->
+      if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
+    end)
+
     {:ok, _applications} = Application.ensure_all_started(:phoenix_pubsub)
     root = Path.join(System.tmp_dir!(), "experiments-store-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :experiments_dir)
@@ -31,10 +62,24 @@ defmodule Aiur.Experiments.StoreTest do
     }
   end
 
+  test "mutations reject unknown metric refs while disappeared packs remain readable" do
+    start_supervised!(Store)
+    bad = Map.put(attrs(), :metrics, [%{ref: "delivery-speed/start_to_merg"}])
+    assert {:error, [%{path: "metrics.0.ref", message: message}]} = Experiments.create(bad)
+    assert message =~ "delivery-speed/start_to_merge"
+    assert {:ok, spec} = Experiments.create(attrs(), freeze: false)
+    assert {:error, [%{path: "metrics.0.ref"}]} = Experiments.amend(spec.id, %{metrics: [%{ref: "absent/nope"}]}, "operator")
+    Application.put_env(:aiur, :experiment_metric_packs, [])
+    assert {:ok, detail} = Experiments.fetch(spec.id)
+    assert detail.spec["metrics"] == [%{"ref" => "delivery-speed/start_to_merge", "direction" => "decrease", "primary" => true}]
+    assert {:ok, changed} = Experiments.amend(spec.id, %{notes: "pack disappeared"}, "operator")
+    assert changed.notes == "pack disappeared"
+  end
+
   test "create persists spec, audit and index, broadcasts and deduplicates by key" do
     start_supervised!(Store)
     :ok = Experiments.subscribe()
-    {:ok, spec} = Experiments.create(Map.put(attrs(), :key, "release:test"))
+    {:ok, spec} = Experiments.create(Map.put(attrs(), :key, "release:test"), freeze: false)
     assert_received {:experiments_changed, id}
     assert id == spec.id
     assert File.exists?(Paths.file(id, "spec.json"))
@@ -43,9 +88,9 @@ defmodule Aiur.Experiments.StoreTest do
     assert [%{"kind" => "created", "schema_version" => 1}] = Experiments.journal(id)
     {:ok, index} = File.read(Path.join(Paths.root(), "index.json"))
     assert [%{"id" => ^id}] = Jason.decode!(index)["experiments"]
-    assert {:ok, %{id: ^id, existing: true}} = Experiments.create(Map.put(attrs(), :key, "release:test"))
+    assert {:ok, %{id: ^id, existing: true}} = Experiments.create(Map.put(attrs(), :key, "release:test"), freeze: false)
     assert length(Experiments.journal(id)) == 1
-    assert {:ok, second} = Experiments.create(attrs())
+    assert {:ok, second} = Experiments.create(attrs(), freeze: false)
     assert second.id == id <> "-2"
   end
 
@@ -85,14 +130,14 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "newer specs and journals refuse mutation without changing bytes" do
     start_supervised!(Store)
-    {:ok, spec} = Experiments.create(attrs())
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
     path = Paths.file(spec.id, "spec.json")
     bytes = File.read!(path) |> Jason.decode!() |> Map.put("schema_version", 2) |> Jason.encode!()
     File.write!(path, bytes)
     assert {:ok, %{read_only?: true}} = Experiments.fetch(spec.id)
     assert {:error, {:newer_version, 2}} = Experiments.amend(spec.id, %{title: "changed"}, "operator")
     assert File.read!(path) == bytes
-    {:ok, second} = Experiments.create(attrs())
+    {:ok, second} = Experiments.create(attrs(), freeze: false)
     journal = Paths.file(second.id, "journal.ndjson")
     File.write!(journal, Jason.encode!(%{schema_version: 2, kind: "future"}) <> "\n", [:append])
     before = File.read!(journal)
@@ -102,8 +147,8 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "listing survives corrupt specs and requests index rebuild", %{root: root} do
     start_supervised!(Store)
-    {:ok, first} = Experiments.create(attrs())
-    {:ok, second} = Experiments.create(attrs())
+    {:ok, first} = Experiments.create(attrs(), freeze: false)
+    {:ok, second} = Experiments.create(attrs(), freeze: false)
     File.write!(Paths.file(second.id, "spec.json"), "{")
     File.rm!(Path.join(root, "index.json"))
     assert {:ok, rows} = Experiments.list()
@@ -115,9 +160,9 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "annotations validate and append, absent writer refuses writes" do
     assert Experiments.child(false) == nil
-    assert Experiments.create(attrs()) == {:error, :disabled}
+    assert Experiments.create(attrs(), freeze: false) == {:error, :disabled}
     start_supervised!(Store)
-    {:ok, spec} = Experiments.create(attrs())
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
     assert :ok = Experiments.annotate(spec.id, %{kind: "note", reason: "deploy", at: "2026-10-01T00:00:00Z"}, "operator")
     assert {:ok, %{annotations: [%{"kind" => "note", "actor" => "operator", "schema_version" => 1}]}} = Experiments.fetch(spec.id)
     assert {:error, :invalid_annotation} = Experiments.annotate(spec.id, %{kind: "unknown"}, "operator")
@@ -125,7 +170,7 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "invalid annotation timestamp refuses input and keeps the writer alive" do
     start_supervised!(Store)
-    {:ok, spec} = Experiments.create(attrs())
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
     assert {:error, :invalid_annotation} = Experiments.annotate(spec.id, %{kind: "note", reason: "test", at: 123}, "operator")
     assert {:ok, _spec} = Experiments.amend(spec.id, %{notes: "writer still running"}, "operator")
   end
@@ -142,14 +187,14 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "future annotations and pending transactions make the experiment read-only" do
     start_supervised!(Store)
-    {:ok, spec} = Experiments.create(attrs())
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
     path = Paths.file(spec.id, "annotations.ndjson")
     File.write!(path, Jason.encode!(%{schema_version: 2, kind: "future"}) <> "\n")
     bytes = File.read!(path)
     assert {:ok, %{read_only?: true}} = Experiments.fetch(spec.id)
     assert {:error, {:newer_version, 2}} = Experiments.annotate(spec.id, %{kind: "note", at: "2026-10-01T00:00:00Z", reason: "test"}, "operator")
     assert File.read!(path) == bytes
-    {:ok, second} = Experiments.create(attrs())
+    {:ok, second} = Experiments.create(attrs(), freeze: false)
     pending = Paths.file(second.id, "pending.json")
     File.write!(pending, Jason.encode!(%{schema_version: 2}))
     pending_bytes = File.read!(pending)
@@ -160,7 +205,7 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "directory errors surface and unfamiliar future shapes remain readable", %{root: root} do
     start_supervised!(Store)
-    {:ok, spec} = Experiments.create(attrs())
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
     File.write!(Paths.file(spec.id, "spec.json"), Jason.encode!(%{schema_version: 2, design: "future"}))
     assert {:ok, [%{id: id, read_only?: true}]} = Experiments.list()
     assert id == spec.id
@@ -174,10 +219,10 @@ defmodule Aiur.Experiments.StoreTest do
   test "a pending-only create retry recovers before matching its key" do
     start_supervised!({Store, journal_writer: fn _path, _entry -> {:error, :injected_failure} end})
     input = Map.put(attrs(), :key, "pending:retry")
-    assert {:error, :injected_failure} = Experiments.create(input)
+    assert {:error, :injected_failure} = Experiments.create(input, freeze: false)
     assert {:ok, [id]} = Paths.ids()
     File.rm!(Paths.file(id, "spec.json"))
-    assert {:ok, %{id: ^id, existing: true}} = Experiments.create(input)
+    assert {:ok, %{id: ^id, existing: true}} = Experiments.create(input, freeze: false)
     assert {:ok, [row]} = Experiments.list()
     assert row.id == id
     assert [%{"kind" => "created"}] = Experiments.journal(id)
@@ -192,7 +237,7 @@ defmodule Aiur.Experiments.StoreTest do
     assert Experiments.status().store == {:error, :unreadable}
     report = CapabilityProvider.capabilities(%{})
     assert report["experiments"] == %{state: :unavailable, reason: :store_unavailable}
-    assert Experiments.create(attrs()) == {:error, :unreadable}
+    assert Experiments.create(attrs(), freeze: false) == {:error, :unreadable}
   end
 
   test "restart reconciles an audit entry appended before an ambiguous failure" do
@@ -202,7 +247,7 @@ defmodule Aiur.Experiments.StoreTest do
     end
 
     start_supervised!({Store, journal_writer: append_then_fail})
-    assert {:error, :injected_failure} = Experiments.create(attrs())
+    assert {:error, :injected_failure} = Experiments.create(attrs(), freeze: false)
     stop_supervised!(Store)
     start_supervised!(Store)
     assert {:ok, [row]} = Experiments.list()
@@ -214,7 +259,7 @@ defmodule Aiur.Experiments.StoreTest do
 
   test "restart repairs exact audit diff after append failure" do
     start_supervised!({Store, journal_writer: fn _path, _entry -> {:error, :injected_failure} end})
-    assert {:error, :injected_failure} = Experiments.create(attrs())
+    assert {:error, :injected_failure} = Experiments.create(attrs(), freeze: false)
     stop_supervised!(Store)
     start_supervised!(Store)
     assert {:ok, [row]} = Experiments.list()

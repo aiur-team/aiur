@@ -72,14 +72,23 @@ defmodule Aiur.BuildQueueCLITest do
   test "unreconciled items expose unknown progress and rank instead of invented zero" do
     model = ReadModel.build(state())
     assert [queue] = model.queues
+    assert queue.counts == %{ready: nil, started: nil, done: nil}
+    assert queue.state == :waiting
     assert queue.progress.percent == nil
     assert queue.progress.completed == nil
     assert Enum.all?(queue.items, &(&1.state == :unknown and &1.downstream_open == nil and &1.rank == nil))
     output = capture_io(fn -> BuildQueueCLI.run(server: read_server(model)) end)
     assert output =~ "paseo  unknown"
     assert output =~ "tracker_observation  observed unknown  unknown"
+    assert output =~ "ready unknown / started unknown / done unknown"
     refute output =~ "0%"
     refute output =~ "0 downstream"
+    empty_state = state()
+    empty_state = %{empty_state | document: %{empty_state.document | items: [], edges: []}}
+    empty_model = ReadModel.build(empty_state)
+    assert hd(empty_model.queues).counts == %{ready: nil, started: nil, done: nil}
+    output = capture_io(fn -> BuildQueueCLI.run(server: read_server(empty_model, :empty_unknown)) end)
+    assert output =~ "ready unknown / started unknown / done unknown"
   end
 
   test "items follow planner start order, and a stale observation hides held projections" do
@@ -88,7 +97,11 @@ defmodule Aiur.BuildQueueCLITest do
     current = %{state() | projections: projections, observations: observations}
     assert [%{number: 2, state: :waiting}, %{number: 1, state: :ready, downstream_open: 1}] = hd(ReadModel.build(current).queues).items
     stale = %{current | clock: fn -> 1_500 + 86_400_000 end}
-    assert Enum.all?(hd(ReadModel.build(stale).queues).items, &(&1.state == :unknown and &1.rank == nil))
+    model = ReadModel.build(stale)
+    assert Enum.all?(hd(model.queues).items, &(&1.state == :unknown and &1.rank == nil))
+    assert hd(model.queues).counts == %{ready: nil, started: nil, done: nil}
+    output = capture_io(fn -> BuildQueueCLI.run(server: read_server(model)) end)
+    assert output =~ "ready unknown / started unknown / done unknown"
   end
 
   test "disabled still prints JSON status and exits one through control marker" do
@@ -155,13 +168,17 @@ defmodule Aiur.BuildQueueCLITest do
     [queue] = model.queues
     legacy_edges = [%{number: 12, verdict: :satisfied, source: :native}, %{number: 13, verdict: :pending, source: :native}]
     legacy_items = Enum.map(queue.items, &%{&1 | prerequisites: legacy_edges})
-    legacy_queue = queue |> Map.drop([:start_trigger, :start_trigger_source]) |> Map.put(:items, legacy_items)
-    legacy_model = %{model | queues: [legacy_queue]}
 
-    output = capture_io(fn -> assert BuildQueueCLI.run(server: read_server(legacy_model)) == 0 end)
-    assert output =~ "#13 pending (native)"
-    refute output =~ "#12"
-    refute output =~ "start on"
+    for missing <- [[:set_rank], [:counts, :next]] do
+      legacy_queue = queue |> Map.drop([:start_trigger, :start_trigger_source] ++ missing) |> Map.put(:state, :next) |> Map.put(:held, false) |> Map.put(:items, legacy_items)
+      legacy_model = %{model | queues: [legacy_queue]}
+      output = capture_io(fn -> assert BuildQueueCLI.run(server: read_server(legacy_model, {:legacy, missing})) == 0 end)
+      assert output =~ "#13 pending (native)"
+      refute output =~ "#12"
+      refute output =~ "start on"
+      refute output =~ "set rank"
+      refute output =~ "NEXT"
+    end
   end
 
   @spec document() :: map()

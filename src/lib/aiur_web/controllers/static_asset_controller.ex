@@ -26,6 +26,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec streamdeck_emulator_hook(Conn.t(), map()) :: Conn.t()
   def streamdeck_emulator_hook(conn, _params), do: serve(conn, "/streamdeck-emulator-hook.js", revalidate?: true)
 
+  @spec streamdeck_emulator_knob(Conn.t(), map()) :: Conn.t()
+  def streamdeck_emulator_knob(conn, _params), do: serve(conn, "/streamdeck-emulator-knob.js", revalidate?: true)
+
   @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
   def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
 

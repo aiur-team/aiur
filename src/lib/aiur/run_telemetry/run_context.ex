@@ -2,7 +2,11 @@ defmodule Aiur.RunTelemetry.RunContext do
   @moduledoc "Content-free build and effective configuration identity for a telemetry boot."
 
   @secret ~r/(?:sk[-_][A-Za-z0-9]|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret|password|credential|bearer|authorization|api[-_]?key|prompt|token)/i
-  @volatile ~w(refresh_ms render_interval_ms telemetry_retention_prune_interval_bytes)
+  @volatile ~w(
+    refresh_ms
+    render_interval_ms
+    telemetry_retention_prune_interval_bytes
+  )
 
   @spec current() :: map()
   def current do

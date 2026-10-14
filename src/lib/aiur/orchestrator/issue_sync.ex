@@ -7,11 +7,10 @@ defmodule Aiur.Orchestrator.IssueSync do
   require Logger
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
-  alias Aiur.GitHub.ResourceStore
-  alias Aiur.GitHub.StatePolicy
+  alias Aiur.GitHub.{ResourceStore, StatePolicy}
+
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TicketTransition, TrackerTasks}
-  alias Aiur.Orchestrator.PressureAdmission
-  alias Aiur.Orchestrator.StatusObservation
+  alias Aiur.Orchestrator.{OptimisticGuardEffects, PressureAdmission, StatusObservation}
   alias Aiur.PollCadence
 
   @idle_terminal_verification_batch_size 25
@@ -865,6 +864,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         released_claims: purge_resolved_released_claims(state.released_claims, retained_issues, terminal_states)
     }
     |> StatusObservation.observe_tickets(issues, retained_issues)
+    |> OptimisticGuardEffects.reconcile()
   end
 
   # A `released_claims` entry exists only to tell the operator that a claim was
@@ -2355,7 +2355,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   # unknown, not known-blocking — so a ticket held there stays ready work and
   # still alerts.
   defp dependency_declined?(%State{} = state, issue),
-    do: Map.get(state.dispatch_declines, issue.id) == :dependency
+    do: Map.get(state.dispatch_declines, issue.id) in [:dependency, :optimistic_share, :queue_set_order]
 
   defp capacity_constraint_entries(%State{} = state, issues) do
     state.dispatch_capacity_constraints

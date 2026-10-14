@@ -57,7 +57,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
         totalCount
         pageInfo { hasNextPage endCursor }
         nodes {
-          id databaseId number title url state stateReason createdAt updatedAt
+          __ROOT_FIELDS__
           repository { name owner { login } }
           parent { id databaseId number url repository { name owner { login } } }
           labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
@@ -77,9 +77,17 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
   }
   """
 
-  @catalog String.replace(@catalog_template, "__MEMBER_FIELDS__", @catalog_member_fields)
+  @catalog String.replace(
+             String.replace(@catalog_template, "__ROOT_FIELDS__", "id databaseId number title url state stateReason createdAt updatedAt"),
+             "__MEMBER_FIELDS__",
+             @catalog_member_fields
+           )
 
-  @catalog_labelled String.replace(@catalog_template, "__MEMBER_FIELDS__", @catalog_member_fields <> " " <> @catalog_member_labels)
+  @catalog_labelled String.replace(
+                      String.replace(@catalog_template, "__ROOT_FIELDS__", "id databaseId number title url body state stateReason createdAt updatedAt"),
+                      "__MEMBER_FIELDS__",
+                      "body " <> @catalog_member_fields <> " " <> @catalog_member_labels
+                    )
 
   @selected """
   query AiurBuildOrderSelectedRoot($owner: String!, $repo: String!, $number: Int!, $cursor: String, $pageSize: Int!) {

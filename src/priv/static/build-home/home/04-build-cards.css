@@ -1,0 +1,437 @@
+/* C:29 */ .ax-acc span, .ax-uh span, .bd-fg, .bd-now-btn, .bd-daemon, .bd-seg button, .bd-sech em {
+  white-space: nowrap;
+}
+
+/* C:30 */ .bd-lane span {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* C:30 */ .bd-lane em {
+  flex: none;
+  padding-left: .3rem;
+}
+
+/* C:31 */ .bd-lane {
+  container-type: inline-size;
+}
+
+@container (max-width: 132px) {
+  /* C:32 */ .bd-lane em {
+    display: none;
+  }
+}
+
+/* C:50 */ .ax-usage {
+  display: grid;
+}
+
+/* C:51 */ .ax-uc {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* C:52 */ .ax-uh {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  font: 700 .64rem "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+/* C:53 */ .ax-uh::after {
+  content: "";
+  order: 1;
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+
+/* C:54 */ .ax-uh span {
+  order: 2;
+  font-weight: 500;
+  letter-spacing: .02em;
+  text-transform: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* C:55 */ .ax-rows {
+  display: flex;
+  flex-direction: column;
+  gap: .8rem;
+}
+
+/* C:56 */ .ax-r {
+  display: grid;
+  align-items: center;
+  height: 46px;
+}
+
+/* C:57 */ .ax-who {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* C:58 */ .ax-who img, .ax-mono {
+  flex: none;
+  border-radius: 5px;
+  object-fit: contain;
+}
+
+/* C:59 */ .ax-mono {
+  display: grid;
+  place-items: center;
+  font: 700 .64rem "JetBrains Mono", monospace;
+  color: #fff;
+  background: #8b6cf0;
+}
+
+/* C:60 */ .ax-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--fg);
+}
+
+/* C:62 */ .ax-who b {
+  font-weight: 700;
+  font-size: .86rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* C:63 */ .ax-x {
+  flex: none;
+  font: 700 .58rem "JetBrains Mono", monospace;
+  padding: .02rem .32rem;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  cursor: help;
+}
+
+/* C:64 */ .ax-m {
+  display: grid;
+  grid-template-rows: 13px 14px 13px;
+  row-gap: 3px;
+  min-width: 0;
+}
+
+/* C:65 */ .ax-l {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+  font: .6rem/1 "JetBrains Mono", monospace;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* C:66 */ .ax-l b {
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* C:67 */ .ax-l em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--fg);
+  margin-left: .25rem;
+}
+
+/* C:68 */ .ax-h {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: .4rem;
+  overflow: hidden;
+}
+
+/* C:69 */ .ax-h + .ax-h {
+  padding-left: 6px;
+}
+
+/* C:70 */ .ax-rt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* C:71 */ .ax-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+/* C:72 */ .ax-bar {
+  display: flex;
+  gap: 3px;
+  height: 4.5px;
+}
+
+/* C:73 */ .ax-bar.one {
+  height: 6px;
+}
+
+/* C:74 */ .ax-bar.none {
+  border-radius: 999px;
+  border: 1px dashed var(--line-strong);
+  box-sizing: border-box;
+}
+
+/* C:75 */ .ax-seg {
+  position: relative;
+  flex: 1 1 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  cursor: default;
+}
+
+/* C:76 */ .ax-seg i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  min-width: 4px;
+}
+
+/* C:77 */ .ax-seg i.z {
+  min-width: 0;
+}
+
+/* C:78 */ .ax-seg i.hi {
+  background: var(--attn);
+}
+
+/* C:79 */ .ax-seg i.max {
+  background: var(--block);
+}
+
+/* C:83 */ .bd-root {
+  container: bd / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: .9rem;
+  min-width: 0;
+}
+
+/* C:85 */ .bd-mono {
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* C:88 */ .bd-sel {
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--fg);
+  font: 600 .72rem "JetBrains Mono", monospace;
+  padding: 0 .45rem;
+}
+
+/* C:93 */ .bd-offline {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .7rem .9rem;
+  border-radius: 12px;
+  border: 1px solid var(--block-line);
+  background: var(--block-soft);
+  color: var(--fg);
+  font-size: .86rem;
+}
+
+/* C:94 */ .bd-offline svg {
+  width: 18px;
+  height: 18px;
+  color: var(--block-ink);
+  flex: none;
+}
+
+/* C:95 */ .bd-offline b {
+  color: var(--block-ink);
+}
+
+/* C:96 */ .bd-offline button {
+  margin-left: auto;
+}
+
+/* C:106 */ .bd-fh {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.6rem;
+  padding: .85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid oklch(.66 .14 var(--fh) / .45);
+  background: linear-gradient(90deg, oklch(.66 .14 var(--fh) / .1), transparent 70%), var(--surface);
+}
+
+/* C:107 */ .bd-fh-name {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* C:108 */ .bd-fh-name i {
+  width: .7rem;
+  height: .7rem;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  background: oklch(.66 .14 var(--fh));
+}
+
+/* C:109 */ .bd-kv {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+}
+
+/* C:110 */ .bd-kv small {
+  font: 700 .58rem "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* C:111 */ .bd-kv b {
+  font: 700 .95rem "JetBrains Mono", monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+/* C:112 */ .bd-kv b em {
+  font-style: normal;
+  font-size: .72rem;
+  color: var(--attn-ink);
+}
+
+/* C:113 */ .bd-kv svg.sp {
+  width: 76px;
+  height: 22px;
+}
+
+/* C:114 */ .bd-fh-ep {
+  display: flex;
+  gap: .35rem;
+  flex-wrap: wrap;
+}
+
+/* C:115 */ .bd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  height: 22px;
+  padding: 0 .5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font: 600 .68rem "JetBrains Mono", monospace;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* C:116 */ .bd-chip svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* C:117 */ .bd-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+
+/* C:118 */ .bd-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  height: 28px;
+  padding: 0 .7rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font: 600 .74rem "Space Grotesk", sans-serif;
+  cursor: pointer;
+}
+
+/* C:119 */ .bd-seg button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* C:120 */ .bd-seg button.on {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* C:121 */ .bd-x {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* C:122 */ .bd-x svg {
+  width: 14px;
+  height: 14px;
+}
+
+@container bd (max-width: 900px) {
+  /* C:123 */ .bd-fh {
+    grid-template-columns: 1fr 1fr;
+    gap: .8rem 1rem;
+  }
+  /* C:123 */ .bd-fh-name {
+    grid-column: 1 / -1;
+  }
+  /* C:123 */ .bd-fh-ep {
+    grid-column: 1 / -1;
+  }
+}
+
+/* C:126 */ .bd-filters {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+/* C:127 */ .bd-filters > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--faint);
+  margin-right: .1rem;
+}
+

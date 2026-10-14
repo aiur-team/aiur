@@ -3,12 +3,35 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
 
   @behaviour Aiur.BuildQueue.ClaimProbe
 
-  alias Aiur.BuildQueue.ClaimProbe
+  alias Aiur.BuildQueue.{ClaimProbe, Hints}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{IssueSync, State}
+  alias Aiur.Orchestrator.{DispatchCandidates, DispatchPolicy, IssueSync, OptimisticLedger, QueueSetSlots, State}
+
+  @impl true
+  def next_set, do: next_set(Orchestrator)
+
+  @doc false
+  @spec next_set(State.t() | GenServer.server()) :: ClaimProbe.next_set()
+  def next_set(%State{} = state) do
+    issues = Map.values(state.last_polled_issues)
+    ordered = DispatchCandidates.order(issues, DispatchPolicy.terminal_state_set(), issues)
+    candidate = Enum.find(ordered, &DispatchPolicy.should_dispatch_issue?(&1, state))
+    snapshot = Hints.sets()
+    member = candidate && snapshot && snapshot.members[candidate.id]
+    {:ok, if(member, do: member.set_id)}
+  end
+
+  def next_set(server) do
+    GenServer.call(server, :build_queue_next_set, 1_000)
+  catch
+    :exit, _ -> :unavailable
+  end
 
   @impl true
   def status(ids), do: status(Orchestrator, ids)
+
+  @impl true
+  def optimistic_records, do: OptimisticLedger.open_records()
 
   @doc false
   @spec status(GenServer.server(), [String.t()]) :: ClaimProbe.result()
@@ -37,6 +60,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
       :claimed
     else
       case Map.get(state.dispatch_declines, id) do
+        :queue_set_order -> {:declined, {:queue_set_order, QueueSetSlots.waiting(id, state)}}
         nil -> :unclaimed
         reason -> {:declined, reason}
       end

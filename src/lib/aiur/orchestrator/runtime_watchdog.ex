@@ -325,13 +325,14 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = State.running_entry_session_id(running_entry)
+      backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
 
       Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
 
       _ =
         Alerts.emit_custom(
           "ticket.#{identifier}.agent.stalled",
-          "Agent command made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
+          "#{backend} command made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
           issue: Map.get(running_entry, :issue),
           workspace: Map.get(running_entry, :workspace_path),
           worker_host: Map.get(running_entry, :worker_host),
@@ -348,7 +349,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         identifier: identifier,
         tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
         issue_state: Map.get(Map.get(running_entry, :issue) || %{}, :state),
-        error: "stalled for #{elapsed_ms}ms without codex activity",
+        error: "stalled for #{elapsed_ms}ms without #{backend} activity",
         prior_work: RetryEngine.prior_work_for_retry?(running_entry),
         worker_host: Map.get(running_entry, :worker_host),
         workspace_path: Map.get(running_entry, :workspace_path)
