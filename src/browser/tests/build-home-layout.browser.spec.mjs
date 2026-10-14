@@ -135,7 +135,7 @@ test('gantt slots preserve section output and advance waves', async ({ page }) =
       plan(ents, ctx) { calls.push([ents[0].t.id, ctx.y, ctx.cum, ctx.unknown]); return { items: [], end: ctx.y + 36, label: { y: ctx.y + 30, t: 'estimate' }, unknown: true } }
     } })
     return { calls, histH: L.secs.hist.h, planH: L.secs.plan.h, labels: L.secs.plan.labels.filter(lb => !lb.wave) }
-  })).toEqual({ calls: [['h0', 1, 18], ['p1', 48.4, 0, false], ['p2', 99.80000000000001, 2, true]], histH: 99, planH: 156.8, labels: [{ y: 78.4, t: 'estimate' }, { y: 129.8, t: 'estimate' }] })
+  })).toEqual({ calls: [['h0', 1, 18], ['p1', 48.4, 0, false], ['p2', 99.80000000000001, (48.4 + 36 - 48.4) / 18, true]], histH: 99, planH: 156.8, labels: [{ y: 78.4, t: 'estimate' }, { y: 129.8, t: 'estimate' }] })
 })
 test('shared date helpers use local dates and design duration rounding', async ({ page }) => {
   expect(await page.evaluate(async () => {
