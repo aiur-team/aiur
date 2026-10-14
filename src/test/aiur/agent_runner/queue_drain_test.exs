@@ -4,7 +4,6 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
   alias Aiur.{AlertFeed, Issue, LiveConversation, PauseContainment, TrackerIdentity}
   alias Aiur.Events.Exchange
-
   @active_turn_mismatch %{"code" => -32_600, "message" => "expected active turn id queued-turn but found prior-turn"}
 
   setup do
@@ -214,6 +213,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   describe "queue_item_text/1" do
     setup %{log_root: log_root} do
       previous = Aiur.Workflow.workflow_file_path()
+      File.mkdir_p!(log_root)
       path = Path.join(log_root, "test.yaml")
       Aiur.TestSupport.write_workflow_file!(path)
       Aiur.Workflow.set_workflow_file_path(path)
