@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.WipPreservation.Notices do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workspace.WipPreservation.{Artifact, Capture}
 
   @hold_file "hold-alerted.json"
@@ -122,7 +122,7 @@ defmodule Aiur.Workspace.WipPreservation.Notices do
   @spec emit_discarded_alert(String.t(), Path.t(), term()) :: :ok
   def emit_discarded_alert(ticket, workspace, reason) do
     message = "Deleted the workspace of #{ticket} at #{workspace} without saving its uncommitted work, as an operator authorized (#{inspect(reason)})."
-    _ = Alerts.emit_system("ticket.#{ticket}.workspace.wip_discarded", issue: ticket, message: message, reason: message, severity: "warning")
+    _ = Signal.alert("ticket.#{ticket}.workspace.wip_discarded", issue: ticket, message: message, reason: message, severity: "warning")
     :ok
   end
 

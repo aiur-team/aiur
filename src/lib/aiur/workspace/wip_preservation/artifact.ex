@@ -7,8 +7,8 @@ defmodule Aiur.Workspace.WipPreservation.Artifact do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Config.Paths
+  alias Aiur.Signal
   alias Aiur.Workspace.WipPreservation.{Capture, Retention}
 
   @root_name "wip-preserved"
@@ -228,7 +228,7 @@ defmodule Aiur.Workspace.WipPreservation.Artifact do
         if(skipped == [], do: "", else: " #{length(skipped)} untracked paths were over the size bounds and not saved; the manifest lists them.") <>
         " The next agent turn gets the restore commands."
 
-    Alerts.emit_system("ticket.#{ticket}.workspace.wip_preserved",
+    Signal.alert("ticket.#{ticket}.workspace.wip_preserved",
       issue: ticket,
       message: message,
       reason: message,
@@ -243,7 +243,7 @@ defmodule Aiur.Workspace.WipPreservation.Artifact do
       "Deleted the workspace of closed ticket #{ticket} at #{workspace} after its uncommitted-work save timed out (#{inspect(reason)}). " <>
         "Only a manifest was saved, at #{artifact["artifact_dir"]}."
 
-    Alerts.emit_system("ticket.#{ticket}.workspace.wip_preservation_incomplete",
+    Signal.alert("ticket.#{ticket}.workspace.wip_preservation_incomplete",
       issue: ticket,
       message: message,
       reason: message,

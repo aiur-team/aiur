@@ -64,8 +64,8 @@ defmodule Aiur.Workspace.WipPreservation do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Config
+  alias Aiur.Signal
   alias Aiur.Workspace.WipPreservation.{Artifact, Capture, Command, Notices, Retention}
 
   @orchestrator_check_timeout_ms 5_000
@@ -243,7 +243,7 @@ defmodule Aiur.Workspace.WipPreservation do
       Logger.error("Refusing #{action}: uncommitted workspace state could not be preserved ticket=#{ticket} workspace=#{workspace} reason=#{inspect(reason)}")
       message = refusal_message(workspace, ticket, action, reason, Keyword.get(opts, :terminal?, false))
 
-      Alerts.emit_system("ticket.#{ticket}.workspace.wip_preservation_failed",
+      Signal.alert("ticket.#{ticket}.workspace.wip_preservation_failed",
         issue: ticket,
         message: message,
         reason: message,
