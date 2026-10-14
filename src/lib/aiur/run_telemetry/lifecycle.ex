@@ -15,6 +15,11 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   @events ~w(
     dispatch
     optimistic_start
+    blocker_push
+    blocker_integrate
+    optimistic_park
+    optimistic_resume
+    optimistic_outcome
     prewarm
     workspace_setup
     workspace_ownership
@@ -93,6 +98,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     changed_files
     commit_count
     merge_commit_sha
+    blocker
+    non_ff
+    head_start_ms
+    waste_ms
   )a
 
   @doc "Creates an opaque identity for one dispatched worker attempt."

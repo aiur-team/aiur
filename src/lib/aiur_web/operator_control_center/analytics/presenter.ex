@@ -20,7 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, ProjectedSeries, TicketRow}
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, Optimistic, ProjectedSeries, TicketRow}
 
   @default_buckets 180
   @max_series_actors 8
@@ -700,7 +700,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       wasted_slot_hours: wasted,
       sessions: ctx.dataset |> Dataset.boot_ids() |> length(),
       active_ms: round(ctx.bw * length(series)),
-      cpu_hours: round1(cpu_hours(ctx.dataset))
+      cpu_hours: round1(cpu_hours(ctx.dataset)),
+      optimistic: Optimistic.summary(tickets)
     }
   end
 
@@ -714,8 +715,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     |> Enum.sum()
     |> Kernel./(3600)
   end
-
-  # ---- ticket lifecycle rows ----
 
   defp merged?(ticket) do
     ticket |> Map.get(:intervals, []) |> Enum.any?(&(Map.get(&1, :phase) == "pr_merged"))

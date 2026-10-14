@@ -186,6 +186,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_RELEASE_NODE", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance daemon node name used by CLI control calls; set by the launcher."},
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},
+    {"AIUR_CI_CHANGED_PATHS_B64", type: :string, validate: false, example: false, group: :runtime, purpose: "Classifier-selected paths for affected-test scoping in CI."},
     {"AIUR_SESSION_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Session tempfile path; set by the launcher."},
     {"AIUR_WORKSPACE_ROOT_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the workspace root from."},
     {"AIUR_ALERT_LEDGER_PATH_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the alert ledger path from."},

@@ -380,11 +380,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{issue: issue} = event_context
     identifier = issue_identifier(issue)
 
-    topic =
-      case identifier do
-        nil -> "agent.#{name}"
-        id -> "ticket.#{id}.agent.#{name}"
-      end
+    topic = DynamicTool.EmitEvent.topic(identifier, name)
 
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}
