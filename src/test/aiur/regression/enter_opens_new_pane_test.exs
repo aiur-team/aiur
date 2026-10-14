@@ -74,7 +74,7 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
 
   describe "SessionWriterRegistry is keyed per (identifier, base_url)" do
     test "registry uses :duplicate keys" do
-      app_source = File.read!(Path.expand("../../../lib/aiur.ex", __DIR__))
+      app_source = File.read!(Path.expand("../../../lib/aiur/application/children.ex", __DIR__))
 
       assert app_source =~
                ~r/keys:\s*:duplicate.*Aiur\.Opencode\.SessionWriterRegistry\.Registry/,

@@ -81,10 +81,18 @@ Code.require_file("support/orchestrator_status_support.ex", __DIR__)
 Code.require_file("support/agent_control_cli_todo.ex", __DIR__)
 Code.require_file("support/turn_loop_test_support.ex", __DIR__)
 Code.require_file("support/account_generation_test_support.ex", __DIR__)
+Code.require_file("support/ci_lifecycle_test_support.ex", __DIR__)
+Code.require_file("support/auto_resume_test_support.ex", __DIR__)
+Code.require_file("support/global_pause_test_support.ex", __DIR__)
 Code.require_file("support/live_view_async.ex", __DIR__)
 Code.require_file("support/refresh_trace.ex", __DIR__)
 Code.require_file("support/github_client_test_support.ex", __DIR__)
 Code.require_file("support/event_ticket.ex", __DIR__)
+
+# These imports must load before the glob, which sorts cache support before its dependency.
+Code.require_file("support/agent_github_guard_test_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_cache_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_case.ex", __DIR__)
 
 # Support loads by glob, so a new support file needs no line here. The explicit list below
 # stays only until the queue of open PRs has drained (#4219); do not add to it.
@@ -128,6 +136,8 @@ Code.require_file("support/webhook_mode_contract.exs", __DIR__)
 
 Code.require_file("support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("support/build_home/protocol_case.ex", __DIR__)
+Code.require_file("support/streamdeck_live_case.ex", __DIR__)
+Code.require_file("support/streamdeck_channel_case.ex", __DIR__)
 Code.require_file("support/webhook_deliveries.ex", __DIR__)
 Code.require_file("support/comments_poller_fixture.ex", __DIR__)
 Code.require_file("support/ci_poller_fixture.ex", __DIR__)

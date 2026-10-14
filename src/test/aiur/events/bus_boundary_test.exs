@@ -28,7 +28,7 @@ defmodule Aiur.Events.BusBoundaryTest do
     {"events/id_generator.ex", "Aiur.Executor.StatePaths"} => "C2-T07",
     {"events/id_generator.ex", "Aiur.LaunchStateAdoption"} => "C2-T07",
     {"events/subscription_store.ex", "Aiur.Orchestrator"} => "C2-T01",
-    {"events/subscription_store.ex", "Aiur.Alerts"} => "C2-T01",
+    {"events/subscription_store.ex", "Aiur.Signal"} => "C2-T01",
     {"events/subscription_store.ex", "Aiur.IssueLog"} => "C2-T03",
     {"events/debug_log.ex", "Phoenix.PubSub"} => "C2-T05",
     {"events/debug_log.ex", "Aiur.PubSub"} => "C2-T05",
