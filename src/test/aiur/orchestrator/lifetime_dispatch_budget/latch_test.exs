@@ -254,5 +254,4 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudget.LatchTest do
     assert statuses["issue-a"] == {:lifetime, 10, 10}
     assert statuses["issue-b"] == :none
   end
-
 end

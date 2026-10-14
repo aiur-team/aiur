@@ -79,12 +79,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec prior_work_for_retry?(map(), boolean()) :: boolean()
   defdelegate prior_work_for_retry?(running_entry, continuation_enabled? \\ Config.agent_prior_work_continuation?()), to: AgentDown
 
+  @doc false
   @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term(), map()) :: State.t()
   defdelegate wait_for_workspace_ownership(state, issue_id, identifier, owner, wait, retry_defaults \\ %{}), to: WorkspaceWait
 
+  @doc false
   @spec release_workspace_wait(State.t(), String.t()) :: State.t()
   defdelegate release_workspace_wait(state, identifier), to: WorkspaceWait
 
+  @doc false
   @spec release_workspace_wait(State.t(), String.t(), pid(), pos_integer()) :: State.t()
   defdelegate release_workspace_wait(state, identifier, guardian, generation), to: WorkspaceWait
 
@@ -110,25 +113,31 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec next_retry_attempt_from_running(map()) :: pos_integer() | nil
   defdelegate next_retry_attempt_from_running(running_entry), to: Scheduling
 
+  @doc false
   @spec move_exhausted_issue_to_error_state(String.t(), String.t(), term()) ::
           :ok | :alert_emitted | {:error, {:no_state_label_written, String.t()}}
   defdelegate move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason), to: Exhaustion
 
+  @doc false
   @spec maybe_schedule_transient_auto_resume(State.t(), String.t(), term()) :: State.t()
   defdelegate maybe_schedule_transient_auto_resume(state, issue_id, reason), to: Exhaustion
 
+  @doc false
   @spec record_claim_release(State.t(), String.t(), term()) :: State.t()
   defdelegate record_claim_release(state, issue_id, reason), to: PollFailure
 
+  @doc false
   @spec format_retry_preflight_error(term()) :: String.t()
   defdelegate format_retry_preflight_error(reason), to: PollFailure
 
+  @doc false
   @spec handle_retry_poll_failure(State.t(), String.t(), integer(), map(), term()) :: State.t()
   defdelegate handle_retry_poll_failure(state, issue_id, attempt, metadata, reason), to: PollFailure
 
   @spec handle_retry_issue(State.t(), String.t(), integer(), map(), keyword()) :: {:noreply, State.t()}
   defdelegate handle_retry_issue(state, issue_id, attempt, metadata, opts \\ []), to: Lookup
 
+  @doc false
   @spec fetch_retry_issue(
           [term()],
           String.t(),
@@ -136,6 +145,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         ) :: {:ok, Issue.t() | nil} | {:error, term()}
   defdelegate fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun), to: Lookup
 
+  @doc false
   @spec handle_retry_issue_lookup(
           Issue.t() | nil,
           State.t(),
@@ -147,6 +157,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           {:noreply, State.t()}
   defdelegate handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts \\ []), to: Lookup
 
+  @doc false
   @spec ensure_active_retry_started(State.t(), Issue.t(), pos_integer() | nil, map(), keyword()) :: State.t()
   defdelegate ensure_active_retry_started(state, issue, attempt, metadata, opts), to: Lookup
 end
