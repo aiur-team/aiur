@@ -59,6 +59,7 @@ try {
     .join('\n').replace(/\n[ \t]*}/g, ' }');
 
   const mainCssPath = path.join(distDir, 'aiur-style.css');
+  // Compact only the bundle; preserve whitespace inside CSS strings.
   fs.writeFileSync(mainCssPath, cssContent, { encoding: 'utf8' });
   console.log(`✓ CSS concatenated to dist/aiur-style.css (${cssFiles.length} files)`);
 
