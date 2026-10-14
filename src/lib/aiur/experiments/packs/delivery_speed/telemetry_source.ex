@@ -1,14 +1,21 @@
 defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
   @moduledoc "The pack's only reader of live telemetry, retained boots and usage accounting."
   alias Aiur.Claude.Telemetry.UsageAdapter.Relationship
-  alias Aiur.Experiments.Packs.DeliverySpeed.{BootWindow, Tokens}
+  alias Aiur.Experiments.Packs.DeliverySpeed.Tokens
   alias Aiur.Experiments.Sources.Common
   alias Aiur.Experiments.{TelemetryHistory, TelemetryReader}
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, Summaries}
+  alias Aiur.RunTelemetry.Dataset
   alias Aiur.RunTelemetry.Dataset.Source
   alias Aiur.Usage.Headless.Catalog
   alias Aiur.UsageEnvelope.RelationshipRegistry
+
+  @events ~w(dispatch pr_opened pr_merged review_pause rework_start comment_received)
+  @attributes %{
+    "run_context" => ~w(aiur_vsn config_hash capture_tags),
+    "lifecycle" =>
+      ~w(event boundary ticket attempt_id complexity backend model effort feature epic tags blockers start_mode source source_timestamp author_trusted review_thread_id event_key source_id operation_id segment_continuation)
+  }
 
   @spec load(map(), map()) :: {:ok, map()} | {:error, term()}
   def load(window, ctx) do
@@ -23,11 +30,20 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
     boot = Map.get_lazy(ctx, :boot_id, &RunTelemetry.boot_id/0)
     {prior, unreadable?} = prior_projection(boot, window, ctx)
     sources = Map.get_lazy(ctx, :telemetry_path, &RunTelemetry.telemetry_file/0) |> List.wrap() |> Source.discover_files() |> Enum.map(&%{path: &1, format: :ndjson})
-    live = TelemetryReader.read(window, sources, history: true)
+
+    live =
+      TelemetryReader.read(window, sources,
+        history: true,
+        projection: :fleet,
+        keep_kinds: ~w(lifecycle run_context restart resource),
+        max_records: 100_000,
+        lifecycle_events: @events,
+        attribute_keys: @attributes
+      )
 
     with {:ok, live} <- live do
       cond do
-        prior.state == :truncated or live.state == :truncated -> {:error, :truncated}
+        live.state == :truncated -> {:error, :truncated}
         prior.records == [] and live.records == [] -> {:error, :telemetry_missing}
         true -> build_data(prior, live, unreadable?, window, ctx)
       end
@@ -55,44 +71,22 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
      }}
   end
 
-  defp prior_projection(boot, window, ctx) do
-    if Map.has_key?(ctx, :prior_loader) or Map.has_key?(ctx, :summary_reader) do
-      {datasets, unreadable?} = prior_datasets(boot, window, ctx)
-
-      {%{
-         records: Enum.flat_map(datasets, & &1.records),
-         samples: Enum.flat_map(datasets, &(get_in(&1, [:actors, "_daemon", :samples]) || [])),
-         state: if(Enum.any?(datasets, &(&1.warnings != [])), do: :partial, else: :complete)
-       }, unreadable?}
-    else
-      case TelemetryHistory.read(boot, ctx) do
-        {:ok, projection} -> {projection, false}
-        {:error, _reason} -> {%{records: [], samples: [], state: :partial}, true}
-      end
-    end
-  end
-
-  # Fixture loaders can supply reduced datasets; production uses only the shared bounded reader.
-  defp prior_datasets(boot, window, ctx) do
+  defp prior_projection(boot, _window, ctx) do
     case Map.fetch(ctx, :prior_loader) do
-      {:ok, loader} -> loader.(boot)
-      :error -> load_prior(boot, window, ctx)
+      {:ok, loader} ->
+        {datasets, unreadable?} = loader.(boot)
+
+        {%{
+           records: Enum.flat_map(datasets, & &1.records),
+           samples: Enum.flat_map(datasets, &(get_in(&1, [:actors, "_daemon", :samples]) || [])),
+           state: if(Enum.any?(datasets, &(&1.warnings != [])), do: :partial, else: :complete)
+         }, unreadable?}
+
+      :error ->
+        opts = Map.get(ctx, :telemetry_reader_options, []) |> Keyword.put(:lifecycle_events, @events) |> Keyword.put(:attribute_keys, @attributes)
+        {:ok, projection} = TelemetryHistory.read(boot, Map.put(ctx, :telemetry_reader_options, opts))
+        {projection, false}
     end
-  end
-
-  defp load_prior(current, window, ctx) do
-    path = Map.get(ctx, :summary_path, &Summaries.run_summary_path/1)
-    reader = ctx.summary_reader
-
-    Map.get(ctx, :summary_boot_ids, &Summaries.summary_boot_ids/0).()
-    |> Enum.reject(&(&1 == current))
-    |> Enum.filter(&BootWindow.before_end?(path.(&1), &1, window.end))
-    |> Enum.reduce({[], false}, fn boot, {datasets, unreadable?} ->
-      case reader.(boot) do
-        {:ok, dataset} -> {[dataset | datasets], unreadable?}
-        {:error, _reason} -> {datasets, true}
-      end
-    end)
   end
 
   defp ticket_record(ticket, raw, contexts) do

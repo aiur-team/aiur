@@ -283,20 +283,24 @@ Disabled telemetry reports `unavailable/telemetry_disabled`; missing telemetry
 reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps report `partial`.
 
 Experiment telemetry uses one streaming reader for JSON summaries and live NDJSON.
-Known boot intervals outside the requested window are skipped before opening.
-Unknown intervals remain eligible.
+Callers that supply known boot intervals can skip non-overlapping sources before
+opening. The delivery pack has no boot-range index and does not claim this
+optimization: it reads retained summaries independently and caches each small
+projection by path, size and modification time. Live data is not cached.
 
-The delivery pack separately caches bounded
-lifecycle and fleet history by file size and modification time, preserving first
-dispatch and prerequisite merges without retaining full datasets. Changed files
-invalidate that projection; live telemetry is never cached.
+Earlier lifecycle and fleet evidence preserves first dispatch and prerequisite
+merges. A large or incomplete boot cannot exhaust another boot's read budget.
+Truncated boot prefixes remain usable within the memory bound and report `partial`;
+complete summaries and live observations remain available.
 
-Defaults bound each reader call to 10,000 record envelopes, 32 MiB of input
-and a 4 MiB retained projection (plus 1 MiB tokens and 16 nesting levels).
+Each retained summary has its own limits: 100,000 record envelopes, 32 MiB input
+and a 4 MiB projection, plus 1 MiB tokens and 16 nesting levels. Derived actor/ticket maps are discarded after fleet samples are extracted.
 
-Record, input-byte and retained-byte limits stop a read with the cause-neutral
-`truncated` state. Delivery metrics then report `unavailable/truncated` with no
-observations, rather than treating an incomplete population as a measured result.
+The merged retained projection is also capped at 4 MiB; complete boot projections take precedence over truncated prefixes if the
+memory bound is reached. Overflow omits excess data and marks coverage partial. The cache holds at most 64 entries and 24 MiB.
+
+A truncated live read reports `unavailable/truncated` with no observations.
+Bounds never turn an incomplete population into a measured zero.
 
 Live and retained actor samples hold for at most five seconds. Only measured
 hours with active agents produce period observations; `observed_ms` records

@@ -5,7 +5,8 @@ defmodule Aiur.Experiments.TelemetryReader do
   optional `:start`/`:end` boot bounds. Known non-overlapping sources are never
   opened; unknown bounds remain eligible. `history: true` includes earlier
   lifecycle/context evidence. Default resource projection keeps daemon fleet
-  evidence; `projection: :all` includes ticket resources.
+  evidence; `projection: :all` includes ticket resources. `projection: :fleet`
+  keeps slim fleet samples without resource envelopes.
 
   Limits apply across all sources: 10,000 records, 32 MiB input, 4 MiB retained
   projection, 1 MiB tokens and 16 nesting levels. Keyword overrides are
@@ -18,6 +19,7 @@ defmodule Aiur.Experiments.TelemetryReader do
   @chunk_bytes 16_384
   @token_bytes 1_048_576
   @depth_limit 16
+  @fleet_fields [:timestamp, :timestamp_ms, :boot_id, :record_id, :fleet_capacity_status, "fleet_agents_occupied", "fleet_agents_configured"]
 
   @spec read(map(), [map()], keyword()) :: {:ok, map()}
   def read(window, sources, opts \\ []) do
@@ -120,7 +122,7 @@ defmodule Aiur.Experiments.TelemetryReader do
       string: &:binary.copy/1,
       object_start: &container(&1, %{}),
       object_push: fn name, value, acc -> bounded(acc, Map.put(acc.value, name, value)) end,
-      object_finish: fn acc, old -> finish_object(acc.value, old, path, window, opts, key) end,
+      object_finish: fn acc, old -> finish_container(acc, old, path, window, opts, key) end,
       array_start: &container(&1, []),
       array_push: fn
         nil, acc -> acc
@@ -164,10 +166,19 @@ defmodule Aiur.Experiments.TelemetryReader do
     %{acc | value: value}
   end
 
-  defp finish_object(%{"kind" => _kind} = object, old, path, window, opts, key) do
-    accept_line(Jason.encode!(object), path, Process.get(key).stats.records_seen + 1, window, opts, key)
+  defp finish_container(%{depth: 3, value: %{"kind" => _} = object}, %{value: value} = old, path, window, opts, key) when is_list(value),
+    do: finish_record(object, old, path, window, opts, key)
+
+  # Actor/ticket projections duplicate the records; retain only their streamed fleet samples.
+  defp finish_container(%{depth: 3} = acc, %{value: value} = old, path, window, opts, key) when is_map(value) do
+    finish_object(acc.value, old, path, window, opts, key)
     {nil, old}
   end
+
+  defp finish_container(acc, old, path, window, opts, key), do: finish_object(acc.value, old, path, window, opts, key)
+
+  defp finish_object(%{"kind" => _, "schema_version" => _, "record_id" => _, "attributes" => _} = object, old, path, window, opts, key),
+    do: finish_record(object, old, path, window, opts, key)
 
   defp finish_object(%{"fleet_agents_occupied" => _, "timestamp_ms" => _} = sample, old, _path, window, opts, key) do
     count(key, opts)
@@ -176,13 +187,18 @@ defmodule Aiur.Experiments.TelemetryReader do
 
     if in_window?(timestamp, window) do
       normalized = Enum.reduce(~w(timestamp timestamp_ms boot_id record_id fleet_capacity_status)a, sample, fn field, acc -> Map.put(acc, field, sample[Atom.to_string(field)]) end)
-      retain(key, :samples, Map.put(normalized, :timestamp, timestamp), opts)
+      store_sample(key, Map.put(normalized, :timestamp, timestamp), opts)
     end
 
     {nil, old}
   end
 
   defp finish_object(object, old, _path, _window, _opts, _key), do: {object, old}
+
+  defp finish_record(object, old, path, window, opts, key) do
+    accept_line(Jason.encode!(object), path, Process.get(key).stats.records_seen + 1, window, opts, key)
+    {nil, old}
+  end
 
   defp count(key, opts) do
     if Process.get(key).stats.records_seen >= Keyword.get(opts, :max_records, 10_000), do: throw(:limit)
@@ -191,15 +207,31 @@ defmodule Aiur.Experiments.TelemetryReader do
 
   defp keep(record, window, opts, key) do
     if keep_record?(record, window, opts) do
-      retain(key, :records, record, opts)
+      unless record.kind == "resource" and Keyword.get(opts, :projection) == :fleet, do: retain(key, :records, project_attributes(record, opts), opts)
       keep_samples(record, opts, key)
+    else
+      if record.kind == "warning", do: warning(key, record.source_path, :runtime_warning)
     end
   end
 
   defp keep_record?(record, window, opts) do
     kinds = Keyword.get(opts, :keep_kinds, ~w(lifecycle run_context restart resource warning))
-    record.kind in kinds and keep_resource?(record, opts) and record_window?(record, window, opts)
+    record.kind in kinds and keep_resource?(record, opts) and keep_event?(record, opts) and record_window?(record, window, opts)
   end
+
+  defp project_attributes(record, opts) do
+    case Keyword.get(opts, :attribute_keys, %{})[record.kind] do
+      nil -> record
+      keys -> %{record | attributes: Map.take(record.attributes, keys)}
+    end
+  end
+
+  defp keep_event?(%{kind: "lifecycle", attributes: attrs}, opts) do
+    events = Keyword.get(opts, :lifecycle_events)
+    is_nil(events) or attrs["event"] in events
+  end
+
+  defp keep_event?(_record, _opts), do: true
 
   defp keep_resource?(%{kind: "resource", attributes: attrs}, opts), do: attrs["actor"] == "_daemon" or Keyword.get(opts, :projection) == :all
   defp keep_resource?(_record, _opts), do: true
@@ -211,10 +243,15 @@ defmodule Aiur.Experiments.TelemetryReader do
 
   defp keep_samples(%{kind: "resource", attributes: %{"actor" => "_daemon"}} = record, opts, key) do
     {actors, _warnings} = Resources.reduce_actors([record], [])
-    for sample <- actors["_daemon"].samples, do: retain(key, :samples, sample, opts)
+    for sample <- actors["_daemon"].samples, do: store_sample(key, sample, opts)
   end
 
   defp keep_samples(_record, _opts, _key), do: :ok
+
+  defp store_sample(key, sample, opts) do
+    sample = if Keyword.get(opts, :projection) == :fleet, do: Map.take(sample, @fleet_fields), else: sample
+    retain(key, :samples, sample, opts)
+  end
 
   defp retain(key, field, value, opts) do
     bytes = :erlang.external_size(value) + 16

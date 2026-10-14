@@ -68,6 +68,23 @@ defmodule Aiur.Experiments.TelemetryReaderTest do
     assert Enum.map(old.records, & &1.record_id) == ["first"]
   end
 
+  test "large derived actor maps are discarded without losing lifecycle evidence", %{path: path} do
+    summary = Path.join(path, "projected.json")
+    actors = Map.new(1..600, &{Integer.to_string(&1), %{profile: %{note: String.duplicate("x", 3_000)}, samples: []}})
+    File.write!(summary, Jason.encode!(%{actors: actors, records: [record("survives")]}))
+    assert File.stat!(summary).size > 1_048_576
+    assert {:ok, %{state: :complete, records: [retained]}} = TelemetryReader.read(@window, [%{path: summary, format: :summary}])
+    assert retained.record_id == "survives"
+  end
+
+  test "a nested kind tag is metadata rather than a second telemetry record", %{path: path} do
+    summary = Path.join(path, "tagged.json")
+    tagged = Map.update!(record("tagged"), :attributes, &Map.put(&1, "tags", %{"kind" => "baseline"}))
+    File.write!(summary, Jason.encode!(%{records: [tagged]}))
+    assert {:ok, %{state: :complete, records: [row]}} = TelemetryReader.read(@window, [%{path: summary, format: :summary}])
+    assert row.attributes["tags"] == %{"kind" => "baseline"}
+  end
+
   defp record(id) do
     %{schema_version: 3, kind: "lifecycle", timestamp: "2026-10-09T11:00:00Z", boot_id: "boot", sequence: 1, record_id: id, attributes: %{ticket: "101", event: "dispatch"}}
   end

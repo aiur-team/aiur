@@ -1,9 +1,8 @@
 defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
   use ExUnit.Case, async: true
-  alias Aiur.Experiments.Packs.DeliverySpeed.{BootWindow, TelemetrySource}
-  alias Aiur.RunTelemetry.Summaries
+  alias Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource
 
-  test "window loads earlier and overlapping summaries once, without reading future or current boots" do
+  test "production history reads unindexed boots but omits future facts and the current boot" do
     root = Path.join(System.tmp_dir!(), "delivery-window-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
@@ -47,16 +46,15 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
     File.write!(Path.join(root, "anchored"), Jason.encode!(%{records: [anchor | future]}))
     path = &Path.join(root, &1)
 
+    self_owner = self()
+
     ctx = %{
       telemetry_enabled: true,
       boot_id: "current",
       telemetry_path: Path.join(root, "missing"),
       summary_boot_ids: fn -> ["old", "inside", "future", "anchored", "current"] end,
       summary_path: path,
-      summary_reader: fn boot ->
-        send(self(), {:summary_loaded, boot})
-        Summaries.decode_summary(File.read!(path.(boot)))
-      end
+      telemetry_reader_options: [on_open: fn loaded -> send(self_owner, {:summary_loaded, Path.basename(loaded)}) end]
     }
 
     window = %{start: ~U[2026-10-09 09:00:00Z], end: ~U[2026-10-09 11:00:00Z]}
@@ -65,13 +63,16 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
     assert_received {:summary_loaded, "old"}
     assert_received {:summary_loaded, "inside"}
     assert_received {:summary_loaded, "anchored"}
+    assert_received {:summary_loaded, "future"}
     refute_received {:summary_loaded, _boot}
   end
 
-  test "unknown prefix bounds keep a summary rather than guessing it lies outside the window" do
-    root = Path.join(System.tmp_dir!(), "delivery-bound-#{System.unique_integer([:positive])}")
-    File.write!(root, "{")
-    on_exit(fn -> File.rm!(root) end)
-    assert BootWindow.before_end?(root, "legacy", ~U[2026-10-09 11:00:00Z])
+  test "unindexed corrupt history is partial rather than skipped" do
+    path = Path.join(System.tmp_dir!(), "delivery-bound-#{System.unique_integer([:positive])}")
+    File.write!(path, "{")
+    on_exit(fn -> File.rm!(path) end)
+    live = Path.expand("../../../fixtures/experiments/telemetry/boot-b.ndjson", __DIR__)
+    ctx = %{telemetry_enabled: true, boot_id: "current", telemetry_path: live, summary_boot_ids: fn -> ["legacy"] end, summary_path: fn _ -> path end}
+    assert {:ok, %{partial?: true}} = TelemetrySource.load(%{start: ~U[2026-10-09 09:00:00Z], end: ~U[2026-10-09 14:00:00Z]}, ctx)
   end
 end
