@@ -17,6 +17,10 @@ defmodule Aiur.Harness.CallbackSupportTest do
     def reply_native_question(_session, _ref, _answers), do: :ok
   end
 
+  defmodule ReleaseOnlyAdapter do
+    def release_native_question(_session, _ref, _text), do: :ok
+  end
+
   defmodule WrongArityAdapter do
     def steer(_session, _payload), do: {:ok, :steered}
     def reply_native_question(_session, _answers), do: :ok
@@ -47,6 +51,37 @@ defmodule Aiur.Harness.CallbackSupportTest do
            }
   end
 
+  @tag :tmp_dir
+  test "support loads an adapter from its beam before checking exports", %{tmp_dir: tmp_dir} do
+    adapter = __MODULE__.ColdAdapter
+
+    [{^adapter, beam}] =
+      Code.compile_string("""
+      defmodule #{inspect(adapter)} do
+        def steer(_session, _payload, _turn), do: {:ok, :steered}
+      end
+      """)
+
+    File.write!(Path.join(tmp_dir, "#{adapter}.beam"), beam)
+    path = String.to_charlist(tmp_dir)
+    true = :code.add_patha(path)
+
+    on_exit(fn ->
+      :code.purge(adapter)
+      :code.delete(adapter)
+      :code.del_path(path)
+    end)
+
+    :code.purge(adapter)
+    true = :code.delete(adapter)
+    assert :code.is_loaded(adapter) == false
+
+    assert Capabilities.callback_support_for_module(adapter) == %{
+             steer: :native,
+             native_question_reply: :none
+           }
+  end
+
   test "native questions require both reply and release callbacks" do
     assert Capabilities.callback_support_for_module(QuestionAdapter) == %{
              steer: :none,
@@ -54,6 +89,11 @@ defmodule Aiur.Harness.CallbackSupportTest do
            }
 
     assert Capabilities.callback_support_for_module(PartialQuestionAdapter) == %{
+             steer: :none,
+             native_question_reply: :none
+           }
+
+    assert Capabilities.callback_support_for_module(ReleaseOnlyAdapter) == %{
              steer: :none,
              native_question_reply: :none
            }
