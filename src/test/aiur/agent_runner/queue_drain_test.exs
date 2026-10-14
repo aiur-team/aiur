@@ -5,10 +5,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   alias Aiur.{AlertFeed, Issue, LiveConversation, PauseContainment, TrackerIdentity}
   alias Aiur.Events.Exchange
 
-  @active_turn_mismatch %{
-    "code" => -32_600,
-    "message" => "expected active turn id queued-turn but found prior-turn"
-  }
+  @active_turn_mismatch %{"code" => -32_600, "message" => "expected active turn id queued-turn but found prior-turn"}
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -23,9 +20,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      # A late log writer can recreate an entry between rm_rf's directory
-      # listing and final rmdir under CI load. As documented in #461/#480,
-      # tolerate that race for this unique test root instead of raising.
+      # TestCleanup tolerates late writers recreating the unique log root (#461/#480).
       Aiur.TestCleanup.rm_rf!(log_root, unset: [:runtime_state_dir])
     end)
 
@@ -36,10 +31,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     use GenServer
 
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-
     @impl true
     def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
-
     @impl true
     def handle_call({:validate_delivery, item}, _from, state) do
       send(state.report, {:decision_delivery_prepared, item})
@@ -54,7 +47,6 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
   defmodule FakeQueueOrchestrator do
     use GenServer
-
     def start_link(item, report), do: GenServer.start_link(__MODULE__, %{item: item, delivered: nil, report: report})
 
     @impl true
@@ -220,6 +212,14 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   end
 
   describe "queue_item_text/1" do
+    setup %{log_root: log_root} do
+      previous = Aiur.Workflow.workflow_file_path()
+      path = Path.join(log_root, "test.yaml")
+      Aiur.TestSupport.write_workflow_file!(path)
+      Aiur.Workflow.set_workflow_file_path(path)
+      on_exit(fn -> Aiur.Workflow.set_workflow_file_path(previous) end)
+    end
+
     test "extracts body text from an operator_message item" do
       item = %{category: :operator_message, body: %{text: "hello operator"}}
 
