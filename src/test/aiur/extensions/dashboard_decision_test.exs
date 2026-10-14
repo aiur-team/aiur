@@ -7,6 +7,65 @@ defmodule Aiur.Extensions.DashboardDecisionTest do
   import Aiur.ExtensionsTestSupport
   alias Aiur.ExtensionsTestSupport.StaticOrchestrator
 
+  defmodule StaticDecisionStore do
+    use GenServer
+
+    alias Aiur.DecisionStore.RetainedSnapshot
+
+    def start_link(opts) do
+      name = Keyword.fetch!(opts, :name)
+      GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :decisions), name: name)
+    end
+
+    def init(decisions), do: {:ok, decisions}
+
+    def handle_call({:get, decision_id}, _from, decisions) do
+      case Enum.find(decisions, &(&1.decision_id == decision_id)) do
+        nil -> {:reply, {:error, :not_found}, decisions}
+        decision -> {:reply, {:ok, decision}, decisions}
+      end
+    end
+
+    def handle_call({:retained_lookup, decision_id}, _from, decisions) do
+      decision = Enum.find(decisions, &(&1.decision_id == decision_id))
+      {:reply, {:ok, %{decision: decision, health: :writable}}, decisions}
+    end
+
+    def handle_call({:retained_query, query}, _from, decisions) do
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+
+      {:reply, RetainedSnapshot.query(current, index, :writable, query), decisions}
+    end
+
+    def handle_call(:retained_counts, _from, decisions) do
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+      {:reply, RetainedSnapshot.counts(index, :writable), decisions}
+    end
+
+    def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}
+    def handle_call(:health, _from, decisions), do: {:reply, :writable, decisions}
+    def handle_call({:recent_decisions, limit}, _from, decisions), do: {:reply, Enum.take(decisions, limit), decisions}
+
+    def handle_call({:recent_audit_history, _limit}, _from, decisions) do
+      {:reply, %{records: [], contexts: %{}, revisions: %{}}, decisions}
+    end
+
+    def handle_call(:all_audit_history, _from, decisions), do: {:reply, %{}, decisions}
+  end
+
+  defmodule StaticPayloadProvider do
+    use GenServer
+
+    def start_link(responses), do: GenServer.start_link(__MODULE__, Map.new(responses))
+    def init(responses), do: {:ok, responses}
+
+    def handle_call(request, _from, responses) do
+      {:reply, Map.fetch!(responses, request), responses}
+    end
+  end
+
   setup do
     linear_client_module = Application.get_env(:aiur, :linear_client_module)
 
@@ -107,65 +166,6 @@ defmodule Aiur.Extensions.DashboardDecisionTest do
     lifecycle_diagnostic = dashboard_route_diagnostic(missing_html, providers)
     assert Process.alive?(decision_store), lifecycle_diagnostic
     assert GenServer.whereis(decision_store_name) == decision_store, lifecycle_diagnostic
-  end
-
-  defmodule StaticDecisionStore do
-    use GenServer
-
-    alias Aiur.DecisionStore.RetainedSnapshot
-
-    def start_link(opts) do
-      name = Keyword.fetch!(opts, :name)
-      GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :decisions), name: name)
-    end
-
-    def init(decisions), do: {:ok, decisions}
-
-    def handle_call({:get, decision_id}, _from, decisions) do
-      case Enum.find(decisions, &(&1.decision_id == decision_id)) do
-        nil -> {:reply, {:error, :not_found}, decisions}
-        decision -> {:reply, {:ok, decision}, decisions}
-      end
-    end
-
-    def handle_call({:retained_lookup, decision_id}, _from, decisions) do
-      decision = Enum.find(decisions, &(&1.decision_id == decision_id))
-      {:reply, {:ok, %{decision: decision, health: :writable}}, decisions}
-    end
-
-    def handle_call({:retained_query, query}, _from, decisions) do
-      current = Map.new(decisions, &{&1.decision_id, &1})
-      index = RetainedSnapshot.build_index(current)
-
-      {:reply, RetainedSnapshot.query(current, index, :writable, query), decisions}
-    end
-
-    def handle_call(:retained_counts, _from, decisions) do
-      current = Map.new(decisions, &{&1.decision_id, &1})
-      index = RetainedSnapshot.build_index(current)
-      {:reply, RetainedSnapshot.counts(index, :writable), decisions}
-    end
-
-    def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}
-    def handle_call(:health, _from, decisions), do: {:reply, :writable, decisions}
-    def handle_call({:recent_decisions, limit}, _from, decisions), do: {:reply, Enum.take(decisions, limit), decisions}
-
-    def handle_call({:recent_audit_history, _limit}, _from, decisions) do
-      {:reply, %{records: [], contexts: %{}, revisions: %{}}, decisions}
-    end
-
-    def handle_call(:all_audit_history, _from, decisions), do: {:reply, %{}, decisions}
-  end
-
-  defmodule StaticPayloadProvider do
-    use GenServer
-
-    def start_link(responses), do: GenServer.start_link(__MODULE__, Map.new(responses))
-    def init(responses), do: {:ok, responses}
-
-    def handle_call(request, _from, responses) do
-      {:reply, Map.fetch!(responses, request), responses}
-    end
   end
 
   defp start_static_payload_provider(id, responses) do

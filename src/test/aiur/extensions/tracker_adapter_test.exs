@@ -3,6 +3,38 @@ defmodule Aiur.Extensions.TrackerAdapterTest do
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
 
+  defmodule FakeLinearClient do
+    def fetch_candidate_issues do
+      send(self(), :fetch_candidate_issues_called)
+      {:ok, [:candidate]}
+    end
+
+    def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
+
+    def fetch_issues_by_states(states, _opts) do
+      send(self(), {:fetch_issues_by_states_called, states})
+      {:ok, states}
+    end
+
+    def fetch_issue_states_by_ids(issue_ids) do
+      send(self(), {:fetch_issue_states_by_ids_called, issue_ids})
+      {:ok, issue_ids}
+    end
+
+    def graphql(query, variables) do
+      send(self(), {:graphql_called, query, variables})
+
+      case Process.get({__MODULE__, :graphql_results}) do
+        [result | rest] ->
+          Process.put({__MODULE__, :graphql_results}, rest)
+          result
+
+        _ ->
+          Process.get({__MODULE__, :graphql_result})
+      end
+    end
+  end
+
   setup do
     linear_client_module = Application.get_env(:aiur, :linear_client_module)
 
@@ -221,37 +253,5 @@ defmodule Aiur.Extensions.TrackerAdapterTest do
 
     assert_receive {:graphql_called, _stale_lookup_query, %{issueId: "issue-1", stateName: "Done"}}, 1000
     refute_receive {:graphql_called, _query, %{stateId: "state-done"}}, 100
-  end
-
-  defmodule FakeLinearClient do
-    def fetch_candidate_issues do
-      send(self(), :fetch_candidate_issues_called)
-      {:ok, [:candidate]}
-    end
-
-    def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
-
-    def fetch_issues_by_states(states, _opts) do
-      send(self(), {:fetch_issues_by_states_called, states})
-      {:ok, states}
-    end
-
-    def fetch_issue_states_by_ids(issue_ids) do
-      send(self(), {:fetch_issue_states_by_ids_called, issue_ids})
-      {:ok, issue_ids}
-    end
-
-    def graphql(query, variables) do
-      send(self(), {:graphql_called, query, variables})
-
-      case Process.get({__MODULE__, :graphql_results}) do
-        [result | rest] ->
-          Process.put({__MODULE__, :graphql_results}, rest)
-          result
-
-        _ ->
-          Process.get({__MODULE__, :graphql_result})
-      end
-    end
   end
 end

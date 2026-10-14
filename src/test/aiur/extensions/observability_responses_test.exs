@@ -5,6 +5,25 @@ defmodule Aiur.Extensions.ObservabilityResponsesTest do
 
   import Aiur.ExtensionsTestSupport
 
+  defmodule SlowOrchestrator do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, :ok, opts)
+    end
+
+    def init(:ok), do: {:ok, :ok}
+
+    def handle_call(:snapshot, _from, state) do
+      Process.sleep(25)
+      {:reply, %{}, state}
+    end
+
+    def handle_call(:request_refresh, _from, state) do
+      {:reply, :unavailable, state}
+    end
+  end
+
   setup do
     linear_client_module = Application.get_env(:aiur, :linear_client_module)
 
@@ -103,24 +122,5 @@ defmodule Aiur.Extensions.ObservabilityResponsesTest do
                "generated_at" => timeout_payload["generated_at"],
                "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
              }
-  end
-
-  defmodule SlowOrchestrator do
-    use GenServer
-
-    def start_link(opts) do
-      GenServer.start_link(__MODULE__, :ok, opts)
-    end
-
-    def init(:ok), do: {:ok, :ok}
-
-    def handle_call(:snapshot, _from, state) do
-      Process.sleep(25)
-      {:reply, %{}, state}
-    end
-
-    def handle_call(:request_refresh, _from, state) do
-      {:reply, :unavailable, state}
-    end
   end
 end

@@ -3,6 +3,23 @@ defmodule Aiur.Core.OrchestratorPollRetryTest do
 
   import Aiur.CoreTestSupport
 
+  defmodule RetryPollFailingGitHubClient do
+    def preflight_auth, do: :ok
+
+    def fetch_candidate_issues do
+      case Application.get_env(:aiur, :retry_poll_failure_test_pid) do
+        pid when is_pid(pid) -> send(pid, :retry_poll_fetch_candidate_issues)
+        _ -> :ok
+      end
+
+      {:error, {:github_api_status, 403}}
+    end
+
+    def fetch_issues_by_states(_states), do: {:ok, []}
+    def fetch_issues_by_states(_states, _opts), do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+  end
+
   test "retry poll failures do not consume agent retry budget" do
     issue_id = "issue-retry-poll-fail"
     ref = make_ref()
@@ -142,22 +159,5 @@ defmodule Aiur.Core.OrchestratorPollRetryTest do
              identifier: "MT-561",
              error: "agent exited: :boom"
            } = :sys.get_state(pid).retry_attempts[issue_id]
-  end
-
-  defmodule RetryPollFailingGitHubClient do
-    def preflight_auth, do: :ok
-
-    def fetch_candidate_issues do
-      case Application.get_env(:aiur, :retry_poll_failure_test_pid) do
-        pid when is_pid(pid) -> send(pid, :retry_poll_fetch_candidate_issues)
-        _ -> :ok
-      end
-
-      {:error, {:github_api_status, 403}}
-    end
-
-    def fetch_issues_by_states(_states), do: {:ok, []}
-    def fetch_issues_by_states(_states, _opts), do: {:ok, []}
-    def hydrate_blocked_by(issue), do: {:ok, issue}
   end
 end

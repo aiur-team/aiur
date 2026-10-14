@@ -3,6 +3,11 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.OperatorMessages
 
+  defmodule CheckpointNoPollClient do
+    def fetch_issues_by_states(_states, _opts \\ []), do: {:ok, []}
+    def fetch_candidate_issues, do: raise("queue-only checkpoint fixture must not poll the tracker")
+  end
+
   test "agent runner delivers queued operator messages at the turn boundary after a deferred checkpoint" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint")
 
@@ -292,10 +297,5 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
     end
-  end
-
-  defmodule CheckpointNoPollClient do
-    def fetch_issues_by_states(_states, _opts \\ []), do: {:ok, []}
-    def fetch_candidate_issues, do: raise("queue-only checkpoint fixture must not poll the tracker")
   end
 end
