@@ -757,7 +757,7 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "CI-wait fallback config is documented but is not an init question" do
     config_reference =
-      File.read!(Path.join(@repo_root, "website/docs-app/reference/configuration.md"))
+      File.read!(Path.join(@repo_root, "website/docs-app/reference/configuration-agent.md"))
 
     assert config_reference =~ "`agent.ci_wait_rewake_minutes`"
     assert config_reference =~ "| 5 |"
