@@ -131,6 +131,8 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/core_test_support.exs",
+        "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",
         "test/support/test_support.exs",
         "test/support/test_support/workflow_yaml_sections.exs",

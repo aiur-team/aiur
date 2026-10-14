@@ -13,6 +13,13 @@ defmodule Aiur.Codex.DynamicTool.Errors do
   def payload(:epic_overrides_outcome_unknown), do: %{"error" => %{"message" => "Epic write outcome is unknown. Retry the identical set to observe changed or unchanged."}}
   def payload(:epic_config_unavailable), do: %{"error" => %{"message" => "Epic config unavailable; no default catalog is assumed."}}
 
+  def payload(:feature_writer_unavailable), do: feature_error("feature_writer_unavailable", "Feature writer unavailable; use the daemon-bound agent tool.")
+  def payload(:feature_tool_needs_github_issue), do: feature_error("feature_tool_needs_github_issue", "Feature tools require a bound numeric GitHub issue identifier.")
+  def payload(:invalid_feature_arguments), do: feature_error("invalid_feature_arguments", "Invalid feature arguments; actor and source cannot be supplied.")
+  def payload({:invalid_feature_arguments, message}), do: feature_error("invalid_feature_arguments", message)
+  def payload({:agent_cannot_use_feature_op, op}), do: feature_error("agent_cannot_use_feature_op", "Feature #{op} is operator-only.")
+  def payload({:backfill_cannot_use_feature_op, op}), do: feature_error("backfill_cannot_use_feature_op", "Backfill cannot use feature #{op}.")
+
   def payload(:missing_query) do
     %{
       "error" => %{
@@ -457,4 +464,6 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     error = %{"message" => message, "reason" => Atom.to_string(reason)}
     %{"error" => if(is_nil(detail), do: error, else: Map.put(error, "detail", Response.jsonable(detail)))}
   end
+
+  defp feature_error(code, message), do: %{"error" => %{"code" => code, "message" => message}}
 end

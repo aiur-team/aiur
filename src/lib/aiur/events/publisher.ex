@@ -38,7 +38,7 @@ defmodule Aiur.Events.Publisher do
 
   require Logger
 
-  alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
+  alias Aiur.Events.{DebugLog, Exchange, HistoryStore, IdGenerator}
   alias Aiur.GitHub.AgentMarker
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.ResourceStore
@@ -352,7 +352,7 @@ defmodule Aiur.Events.Publisher do
             true -> :emit
           end
 
-        Aiur.IssueLog.record_event(ticket_id, kind, event)
+        HistoryStore.record(ticket_id, kind, event)
     end
   end
 

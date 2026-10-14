@@ -9,6 +9,8 @@
     "src/lib/aiur/build_orders_cli.ex",
     "src/lib/aiur/build_progress.ex",
     "src/lib/aiur/epic_cli.ex",
+    "src/lib/aiur/feature_cli.ex",
+    "src/lib/aiur/feature_cli/**",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
     "src/lib/aiur_web/build_order_presenter/**",
@@ -32,6 +34,7 @@
     "Aiur.BuildOrder.RootSummary",
     "Aiur.BuildOrdersCLI",
     "Aiur.EpicCLI",
+    "Aiur.FeatureCLI",
     "AiurWeb.BuildOrder.DataSource",
     "AiurWeb.BuildOrder.Runtime"
   ],

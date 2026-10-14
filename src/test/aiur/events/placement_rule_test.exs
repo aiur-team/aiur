@@ -17,7 +17,7 @@ defmodule Aiur.Events.PlacementRuleTest do
     {"aiur/executor_events.ex", "executor_events.corrupted"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.ambiguous"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.timeline_unreadable"},
-    {"aiur/orchestrator/retry_engine.ex", "orchestrator.claim_released"}
+    {"aiur/orchestrator/retry_engine/poll_failure.ex", "orchestrator.claim_released"}
   ]
   @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex", "aiur/build_queue/server.ex"]
   @reverse_bridges []

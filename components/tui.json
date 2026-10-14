@@ -56,9 +56,7 @@
     "guide/tui.md"
   ],
   "config": [
-    "max_vertical_panes",
-    "opencode",
-    "pre_warmed_sessions"
+    "opencode"
   ],
   "env": [
     "AIUR_TMUX_SESSION",

@@ -3,8 +3,17 @@ import Config
 config :aiur, env: config_env()
 
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
 config :aiur, :signal, alert_sink: Aiur.Alerts
+
+config :aiur, :github_poll_owner, Aiur.Orchestrator
+config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
+config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
+config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+
+# Sources are named here so the sweep's complete set is readable in one place.
+config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
 
 # The agent sandbox sits below the TUI and the orchestrator, so it reaches both
 # through these names instead of referencing them.

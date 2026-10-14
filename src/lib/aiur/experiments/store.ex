@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Store do
   use GenServer
   require Logger
 
-  alias Aiur.Experiments.{AnalysisInput, Catalog, Checkpoint, Evaluation, Journal, Paths, Persistence, Reader, Registration, Schema, Snapshot, SnapshotPersistence, Spec, WindowData}
+  alias Aiur.Experiments.{AnalysisInput, Catalog, Checkpoint, Evaluation, Journal, Paths, Persistence, Reader, Registration, Schema, Snapshot, SnapshotPersistence, Spec, WindowData, WindowEvents}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -47,6 +47,10 @@ defmodule Aiur.Experiments.Store do
 
   def handle_call({:annotate, id, annotation, actor}, _from, state) do
     {:reply, annotate(id, annotation, actor), state}
+  end
+
+  def handle_call({:events_snapshot, id, snapshot, refresh?}, _from, state) do
+    {:reply, WindowEvents.freeze(id, snapshot, refresh?), state}
   end
 
   def handle_call({:freeze, id, window, opts}, from, state) do

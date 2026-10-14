@@ -63,8 +63,6 @@
     "concepts/operating-aiur.md"
   ],
   "config": [
-    "debug",
-    "max_log_history_mb",
     "monitoring"
   ],
   "env": [

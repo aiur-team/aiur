@@ -6,14 +6,14 @@ defmodule Aiur.Codex.DynamicTool do
   alias Aiur.Codex.DynamicTool.Blockers
   alias Aiur.Codex.DynamicTool.EmitAlert
   alias Aiur.Codex.DynamicTool.EmitEvent
-  alias Aiur.Codex.DynamicTool.Epic
+  alias Aiur.Codex.DynamicTool.{Epic, Feature}
   alias Aiur.Codex.DynamicTool.LinearGraphQL
   alias Aiur.Codex.DynamicTool.Response
   alias Aiur.Codex.DynamicTool.ReviewThreads
   alias Aiur.Codex.DynamicTool.Subscriptions
   alias Aiur.Codex.DynamicTool.TicketState
 
-  @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers, TicketState, Epic]
+  @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers, TicketState, Epic, Feature]
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do

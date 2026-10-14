@@ -78,8 +78,13 @@ Aiur separates the repository's tracked code from daemon-owned state under `~/.a
 | --- | --- |
 | `latest/` | Aiur-managed warm clone of the configured base branch. |
 | `builds/` | State-node Build Order packs, daemon status projections, and cross-boot build summaries. |
-| `analytics/` | Telemetry summaries, including `runs/<boot-id>/run-summary.json`. |
+| `analytics/` | Run summaries, durable `tickets/<ticket>.json`, and `repo-timeline.ndjson` facts when captured. |
 | `meta/` | Executor findings at `findings.ndjson` and narrative retrospectives at `retros/<boot-id>.md`. |
+
+From a checkout, `analytics/ledger-backfill --since 2026-09-15 --repo owner/name`
+rebuilds durable ticket records from retained launches and fetches missing PR facts.
+Use `--no-facts` for offline replay. Missing milestones stay unavailable; records
+already materialized survive raw-log retention.
 
 These paths are machine-local. Do not commit them, and do not expect copying a repository to copy its run state.
 

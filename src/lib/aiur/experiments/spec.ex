@@ -20,6 +20,7 @@ defmodule Aiur.Experiments.Spec do
             stratify_by: ["complexity"],
             tags: [],
             notes: "",
+            confounder_sources: %{},
             created_at: nil,
             updated_at: nil,
             registered_at: nil,
