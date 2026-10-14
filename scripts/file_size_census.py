@@ -5,8 +5,8 @@ import json
 
 # First match wins. Keep all area rules here, including lockfile names.
 AREA_RULES = (
-    ('generated/vendor', ('src/priv/static/vendor/*', '*.min.js', '*lock.json', '*.lock',
-                          'mix.lock', 'yarn.lock', 'bun.lockb', 'pnpm-lock.yaml')),
+    ('generated/vendor', ('src/priv/static/vendor/*', '*.min.js', 'package-lock.json',
+                          'npm-shrinkwrap.json', '*.lock', 'bun.lockb', 'pnpm-lock.yaml')),
     ('test', ('src/test/*', '*test*')),
     ('source', ('src/lib/*',)),
     ('docs', ('docs/*', 'website/docs-app/*', '*.md')),
@@ -16,7 +16,9 @@ AREA_RULES = (
 
 def area(path):
     name = path.decode('utf-8', errors='surrogateescape')
-    return next(label for label, patterns in AREA_RULES if any(fnmatchcase(name, p) for p in patterns))
+    basename = name.rsplit('/', 1)[-1]
+    return next(label for label, patterns in AREA_RULES
+                if any(fnmatchcase(name, p) or fnmatchcase(basename, p) for p in patterns))
 
 
 def changes(raw):
