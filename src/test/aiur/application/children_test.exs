@@ -2,6 +2,7 @@ defmodule Aiur.Application.ChildrenTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Executor.StatePaths
 
   describe "child_specs/1 run-shape gating" do
     test "IdGenerator child spec supplies the application-owned floor sources" do
@@ -18,7 +19,7 @@ defmodule Aiur.Application.ChildrenTest do
 
         assert child.id == Aiur.Events.IdGenerator
         assert {Aiur.Events.IdGenerator, :start_link, [opts]} = child.start
-        assert Keyword.fetch!(opts, :floor_files).() == [Aiur.Executor.StatePaths.journal_path()]
+        assert Keyword.fetch!(opts, :floor_files).() == [StatePaths.journal_path()]
         assert Keyword.fetch!(opts, :legacy_counter_files) == (&Aiur.IdFloorSources.legacy_counter_files/0)
       end
     end
