@@ -36,6 +36,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   setup do
     workflow_file = Aiur.Workflow.workflow_file_path()
     root = Application.fetch_env!(:aiur, :repo_base_root) |> Path.dirname()
+    File.mkdir_p!(Path.join(root, "workspace"))
+    File.mkdir_p!(Path.join(root, "home"))
     registry = Application.fetch_env!(:aiur, :agent_environment_contributors)
     env = Application.fetch_env!(:aiur, :env)
     budget = Application.fetch_env!(:aiur, :github_budget_dir)
