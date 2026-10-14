@@ -54,18 +54,4 @@ defmodule Aiur.RunTelemetry.WindowEventSourcesTest do
     {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, request_fun: request)
     assert length(data["runs"]) == 10
   end
-
-  test "raw boot heads supplement summaries and malformed streams report missing coverage" do
-    root = Path.join(System.tmp_dir!(), "window-records-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(root)
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
-    raw = Path.join(root, "telemetry.ndjson")
-    summary = Path.join(root, "run-summary.json")
-    boot = %{"kind" => "restart", "boot_id" => "new", "timestamp" => "2026-10-09T04:00:00Z", "attributes" => %{"event" => "daemon_restart"}}
-    old = %{boot | "boot_id" => "old", "timestamp" => "2026-10-09T01:00:00Z"}
-    File.write!(raw, Jason.encode!(boot) <> "\n{bad\n")
-    File.write!(summary, Jason.encode!(%{"records" => [old], "restarts" => [old]}))
-    {rows, ["telemetry"]} = RunTelemetry.window_records(telemetry_files: [raw], summary_files: [summary])
-    assert Enum.sort(Enum.map(rows, & &1["boot_id"])) == ["new", "old"]
-  end
 end

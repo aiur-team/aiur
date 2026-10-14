@@ -382,3 +382,8 @@ snapshots are retained but refused by the bounded reader.
 
 Alert collection streams at most 8 MiB and keeps at most 5,000 critical records.
 Oversized lines (over 256 KiB), partial reads and caps mark alerts incomplete.
+
+Telemetry uses the shared windowed reader: 32 MiB scanned, 10,000 records and
+4 MiB retained across sources. Known outside ranges are skipped. Retained boots
+without a range index remain eligible; missing, malformed or truncated evidence
+marks telemetry incomplete instead of implying a complete history.

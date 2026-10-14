@@ -6,7 +6,7 @@ defmodule Aiur.Experiments.WindowEvents.Local do
 
   @spec collect(keyword()) :: {[map()], [String.t()]}
   def collect(opts) do
-    {records, missing} = Keyword.get(opts, :records_fun, &Aiur.RunTelemetry.window_records/1).(opts)
+    {records, missing} = Keyword.get(opts, :records_fun, &Aiur.Experiments.WindowEvents.Telemetry.read/1).(opts)
     records = Enum.filter(records, &(is_map(&1) and Common.timestamp(&1["timestamp"]))) |> Enum.sort_by(&{DateTime.to_unix(Common.timestamp(&1["timestamp"]), :microsecond), &1["record_id"]})
     missing = if starts_late?(records, opts[:range_start]), do: ["telemetry" | missing], else: missing
     contexts = Enum.filter(records, &(&1["kind"] == "run_context"))
