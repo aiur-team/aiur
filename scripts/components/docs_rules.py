@@ -1,4 +1,5 @@
 """Pure-file validation of the component directory's public references."""
+import html
 import importlib.util
 import json
 import re
@@ -20,12 +21,13 @@ def headings(source):
     """Ignore fenced examples when inspecting Markdown ATX headings."""
     fence = None
     for line in source.splitlines():
-        marker = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
         if marker:
             token = marker[1]
             if fence is None:
-                fence = token
-            elif token[0] == fence[0] and len(token) >= len(fence):
+                if token[0] != "`" or "`" not in marker[2]:
+                    fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not marker[2].strip():
                 fence = None
             continue
         if fence is None:
@@ -43,7 +45,7 @@ def heading_anchors(source):
         else:
             # Markdown inline emphasis and code markers are not visible title text.
             title = re.sub(r'`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*', lambda m: next(g for g in m.groups() if g is not None), re.sub(r'\[([^]]+)\]\([^)]*\)', r'\1', heading))
-            anchor = slugify(title)
+            anchor = slugify(html.unescape(title))
         count = counts.get(anchor, 0)
         counts[anchor] = count + 1
         anchors.add(f'{anchor}-{count}' if count else anchor)

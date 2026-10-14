@@ -62,6 +62,12 @@ def run(repo, selected):
           files={'website/docs-app/guide/fixture.md': '```md\n## absent\n```\n'})
     check('docs_custom_and_duplicate_anchors_pass', field('docs', ['guide/fixture.md#custom', 'guide/fixture.md#title-1']),
           files={'website/docs-app/guide/fixture.md': '## Explicit {#custom}\n## **Title**\n## Title\n'})
+    check('docs_invalid_fence_closer_fails', field('docs', ['guide/fixture.md#absent']), 1, 'a: docs anchor not found',
+          files={'website/docs-app/guide/fixture.md': '```md\n```not-a-closing-fence\n## absent\n```\n'})
+    check('docs_entity_anchor_passes', field('docs', ['guide/fixture.md#a-b']),
+          files={'website/docs-app/guide/fixture.md': '## A &amp; B\n'})
+    check('docs_raw_entity_anchor_fails', field('docs', ['guide/fixture.md#a-amp-b']), 1, 'a: docs anchor not found',
+          files={'website/docs-app/guide/fixture.md': '## A &amp; B\n'})
     check('setup_docs_missing_fails' , field('install', dict(type='setup', docs='guide/nope.md')), 1, 'a: docs path not found')
     check('config_heading_missing_fails', field('config', ['no_such_section']), 1, 'a: config section no_such_section')
     check('config_heading_exact_match_fails', field('config', ['build_order']), 1, 'a: config section build_order',
