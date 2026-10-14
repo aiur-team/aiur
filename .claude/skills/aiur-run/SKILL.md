@@ -967,6 +967,16 @@ invokes it so it fires whether or not you remember:
 - no scheduler available: fall back to `scripts/executor-retrospective.sh due`,
   which keeps a durable run-scoped timer, and check it on every wake
 
+**A resume is a start.** Re-arm the timer every time the run resumes: after an
+operator pause, a persistent goal being set or resumed, a context compaction, or a new
+session taking over. Timers cancelled to save tokens during a pause do not come
+back by themselves. On 2026-10-14 the Executor resumed a paused run without
+re-arming and ran 15 hours with no meta-check; the operator, not the check, found
+24 approved PRs stuck on infrastructure-failed CI. Confirm the timer exists as
+part of the resume checklist, with whatever your harness offers: a scheduler or
+cron listing (Claude Code `CronList`), a Codex or other harness job list, or
+`scripts/executor-retrospective.sh due` when there is no scheduler.
+
 Do not rely on noticing that an hour has passed. An Executor deep in a merge
 queue does not notice, and the checks that get skipped are exactly the ones that
 would have caught the surface going quietly wrong — a provider meter frozen for
