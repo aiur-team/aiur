@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   malformed or failed status reads retain a neutral cause and a separate reason.
   """
 
-  alias Aiur.{Alerts, Config, HttpServer, TailscaleFunnel}
+  alias Aiur.{Config, HttpServer, Signal, TailscaleFunnel}
 
   @default_timeout_ms 5_000
   @healthy_statuses [200, 301, 302, 304, 307, 308, 401]
@@ -189,7 +189,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp emit_unreachable_alert(%{cause: :timeout, reasons: reasons}, _port) do
-    Alerts.emit_system(
+    Signal.alert(
       "system.build_order_funnel.target_timeout",
       message: "Build Order endpoint check timed out",
       reason: "Build Order endpoint transport timed out: #{inspect(reasons)}",
@@ -198,7 +198,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp emit_unreachable_alert(%{cause: :unreachable, reasons: reasons}, port) do
-    Alerts.emit_system(
+    Signal.alert(
       "system.build_order_funnel.target_unreachable",
       message: "Build Order endpoint returned an unexpected HTTP status at #{dashboard_url(port)}",
       reason: "Build Order endpoint HTTP result: #{inspect(reasons)}",
@@ -207,7 +207,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp emit_unreachable_alert(%{cause: :funnel_target_mismatch, reasons: [{:target_port, target_port}]}, port) do
-    Alerts.emit_system(
+    Signal.alert(
       "system.build_order_funnel.target_mismatch",
       message:
         "Tailscale Funnel HTTPS 443 targets port #{target_port}; dashboard is bound to port #{port}. " <>
@@ -218,7 +218,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp emit_unreachable_alert(%{cause: :unknown, reasons: reasons}, _port) do
-    Alerts.emit_system(
+    Signal.alert(
       "system.build_order_funnel.health_check_error",
       message: "Build Order Funnel health check could not classify its result",
       reason: "Build Order Funnel health check reason: #{inspect(reasons)}",

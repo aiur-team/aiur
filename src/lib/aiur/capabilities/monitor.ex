@@ -52,7 +52,8 @@ defmodule Aiur.Capabilities.Monitor do
   end
 
   defp notify(revision, opts, warnings) do
-    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, "capabilities", {:capabilities_changed, revision})
+    pubsub = Keyword.get(opts, :pubsub, Aiur.PubSub)
+    if Process.whereis(pubsub), do: Phoenix.PubSub.broadcast(pubsub, "capabilities", {:capabilities_changed, revision})
     publish = Keyword.get(opts, :publish_fun, &Publisher.publish/3)
 
     case publish_change(publish, revision) do

@@ -33,28 +33,28 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
-  test "draft workflow runs three fast jobs and produces every required check when ready" do
+  test "PR workflow runs five fast jobs and the event gate produces the required check" do
     root = Path.expand("../../../../..", __DIR__)
     workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
     parsed = YamlElixir.read_from_string!(workflow)
     assert parsed["on"]["pull_request"]["types"] == ~w(opened synchronize reopened ready_for_review)
     assert Map.has_key?(parsed["on"], "merge_group")
-    assert "main" in parsed["on"]["push"]["branches"]
-    gate = "needs.changes.outputs.draft != 'true'"
+    assert parsed["on"]["push"]["branches"] == ["v2"]
+    gate = "needs.changes.outputs.full_ci == 'true'"
+    fast = ~w(affected-tests changes ci-gate lint workflow-security)
+    selected = for {id, job} <- parsed["jobs"], not String.contains?(Map.get(job, "if", ""), gate), do: id
+    assert Enum.sort(selected) == fast
 
-    for {id, job} <- parsed["jobs"] do
-      if id in ~w(changes lint build) do
-        refute String.contains?(Map.get(job, "if", ""), "draft")
-      else
-        assert job["if"] in ["${{ #{gate} }}", "${{ always() && (#{gate}) }}", "${{ !cancelled() && (#{gate}) }}"]
-      end
+    for {id, job} <- parsed["jobs"], id not in fast do
+      assert String.contains?(job["if"], gate)
     end
 
+    assert parsed["jobs"]["ci-gate"]["if"] == "${{ always() }}"
     declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
     readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)
     assert readiness.ready?
-    assert length(readiness.required_checks) == 12
+    assert readiness.required_checks == ["ci gate"]
   end
 
   test "reports a repository without a pull request workflow" do

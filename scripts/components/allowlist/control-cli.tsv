@@ -11,6 +11,7 @@ R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472a
 R-optional	Aiur.EpicCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
 R-optional	Aiur.ExecutorBindings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorEvents	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -50,4 +51,3 @@ R-optional	AiurWeb.OperatorControlCenter.DecisionProvider	baseline 22b2fa407c5d4
 R-optional	AiurWeb.OperatorControlCenter.PayloadLoader	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs

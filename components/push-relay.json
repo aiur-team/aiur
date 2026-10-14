@@ -1,0 +1,28 @@
+{
+  "id": "push-relay",
+  "name": "Encrypted notification relay client (MP-N4, new)",
+  "layer": 3,
+  "kind": "optional",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "commands",
+    "event-bus",
+    "identity",
+    "pairing-discovery"
+  ],
+  "optional": [
+    "build-orders",
+    "build-queue"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}

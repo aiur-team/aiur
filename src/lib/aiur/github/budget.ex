@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.GitHub.{BudgetBroker, CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger
@@ -406,7 +406,7 @@ defmodule Aiur.GitHub.Budget do
 
     with %{} = window <- CredentialHeadroom.window(key, resource),
          %{} = local <- local_usage(key, resource, opts) do
-      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2))
+      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2))
     else
       _unavailable -> :ok
     end
@@ -420,7 +420,7 @@ defmodule Aiur.GitHub.Budget do
 
     case CredentialHeadroom.window(key, resource) do
       %{} = window ->
-        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2))
+        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2))
 
       _unavailable ->
         :ok
