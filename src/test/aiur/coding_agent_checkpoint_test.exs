@@ -1,6 +1,7 @@
 defmodule Aiur.CodingAgentCheckpointTest do
   use Aiur.TestSupport
   @moduletag :r7_characterization
+
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.CodingAgent, as: CodexAgent
 

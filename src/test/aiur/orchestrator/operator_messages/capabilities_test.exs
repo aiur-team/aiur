@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
   use ExUnit.Case, async: true
   @moduletag :r7_characterization
+
   alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.State

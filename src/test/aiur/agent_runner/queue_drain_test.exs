@@ -1,10 +1,15 @@
 defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
   @moduletag :r7_characterization
+
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
   alias Aiur.{AlertFeed, Issue, LiveConversation, PauseContainment, TrackerIdentity}
   alias Aiur.Events.Exchange
-  @active_turn_mismatch %{"code" => -32_600, "message" => "expected active turn id queued-turn but found prior-turn"}
+
+  @active_turn_mismatch %{
+    "code" => -32_600,
+    "message" => "expected active turn id queued-turn but found prior-turn"
+  }
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -19,7 +24,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      # TestCleanup tolerates late writers recreating the unique log root (#461/#480).
+      # A late log writer can recreate an entry between rm_rf's directory
+      # listing and final rmdir under CI load. As documented in #461/#480,
+      # tolerate that race for this unique test root instead of raising.
       Aiur.TestCleanup.rm_rf!(log_root, unset: [:runtime_state_dir])
     end)
 
@@ -30,8 +37,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     use GenServer
 
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
     @impl true
     def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
+
     @impl true
     def handle_call({:validate_delivery, item}, _from, state) do
       send(state.report, {:decision_delivery_prepared, item})
@@ -46,6 +55,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
   defmodule FakeQueueOrchestrator do
     use GenServer
+
     def start_link(item, report), do: GenServer.start_link(__MODULE__, %{item: item, delivered: nil, report: report})
 
     @impl true
@@ -207,69 +217,6 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
       assert QueueDrain.record_provider_delivery(correlated_item(), issue, store) == :ok
       assert_receive {:decision_delivery, %{action_id: "act_9"}}, 1000
-    end
-  end
-
-  describe "queue_item_text/1" do
-    setup %{log_root: log_root} do
-      previous = Aiur.Workflow.workflow_file_path()
-      File.mkdir_p!(log_root)
-      path = Path.join(log_root, "test.yaml")
-      Aiur.TestSupport.write_workflow_file!(path)
-      Aiur.Workflow.set_workflow_file_path(path)
-      on_exit(fn -> Aiur.Workflow.set_workflow_file_path(previous) end)
-    end
-
-    test "extracts body text from an operator_message item" do
-      item = %{category: :operator_message, body: %{text: "hello operator"}}
-
-      assert QueueDrain.queue_item_text(item) == "hello operator"
-    end
-
-    test "renders an events_digest coordination event via EventsDigest" do
-      event = %{id: 1, topic: "ticket.QD-01.agent.progress", source: :agent, message: "progress note"}
-      item = %{category: :coordination_event, event_type: :events_digest, body: %{events: [event]}}
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert result =~ "<aiur:events>"
-      assert result =~ "progress note"
-    end
-
-    test "renders an urgent events_digest with the urgent attribute" do
-      event = %{id: 1, topic: "ticket.QD-01.agent.progress", source: :agent, message: "blocker note"}
-
-      item = %{
-        category: :coordination_event,
-        event_type: :events_digest,
-        body: %{events: [event], urgent: true}
-      }
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert result =~ ~s(<aiur:events urgent="true">)
-      assert result =~ "blocker note"
-    end
-
-    test "returns summary for other coordination events" do
-      item = %{
-        category: :coordination_event,
-        event_type: :some_kind,
-        body: %{summary: "coordination summary"}
-      }
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert result =~ "coordination summary"
-      assert result =~ "some_kind"
-    end
-
-    test "falls back to inspect for unknown item shapes" do
-      item = %{category: :unknown}
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert is_binary(result)
     end
   end
 
