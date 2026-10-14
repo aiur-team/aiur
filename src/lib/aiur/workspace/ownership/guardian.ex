@@ -713,9 +713,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     safe_audit(state.audit_fun, record)
   end
 
-  defp persist_state(state) do
-    Store.put(state.lease.ticket, receipt(state), state.store)
-  end
+  defp persist_state(state), do: Store.put(state.lease.ticket, receipt(state), state.store)
 
   defp receipt(state) do
     %{
