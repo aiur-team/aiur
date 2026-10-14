@@ -2,6 +2,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
+  alias Aiur.AgentCompaction.Config, as: AgentCompactionConfig
+  alias Aiur.AgentCompaction.Handoff, as: AgentCompactionHandoff
   alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -341,87 +343,17 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  defp compact_for_review_handoff(turn_context, %{backend: "codex"} = app_session, issue) do
-    compaction_config = Aiur.AgentCompaction.Config.settings()
-    agent_total_tokens = token_count_for_compaction(turn_context, issue, compaction_config)
+  defp compact_for_review_handoff(turn_context, app_session, issue) do
+    config = AgentCompactionConfig.settings()
+    tokens = token_count_for_compaction(turn_context, issue, config)
+    callback = compaction_status_callback(turn_context, app_session, issue)
 
-    if issue.state == "human-review" and Aiur.AgentCompaction.Config.should_compact_at_handoff?(compaction_config, agent_total_tokens) and
-         Aiur.AgentCompaction.Orchestrator.supported_backend?("codex") do
-      prior =
-        case Aiur.AgentCompaction.Store.load(issue.identifier) do
-          {:ok, state} ->
-            recovered = Aiur.AgentCompaction.Orchestrator.interrupted_pending_attempt(state, app_session.thread_id)
-
-            if recovered != state do
-              _ = Aiur.AgentCompaction.Store.save(issue.identifier, recovered)
-              compaction_status_callback(turn_context, app_session, issue).(:failed, app_session.thread_id, recovered["reason"])
-            end
-
-            recovered
-
-          {:error, reason} ->
-            Logger.warning("Could not read prior Codex compaction state for #{issue.identifier}; skipping compaction: #{inspect(reason)}")
-            %{"thread_id" => app_session.thread_id, "status" => "unreadable"}
-        end
-
-      if prior["status"] == "unreadable" or Aiur.AgentCompaction.Orchestrator.already_attempted_for_thread?(prior, app_session.thread_id) do
-        Logger.info("Codex compaction skipped for unchanged waiting session identifier=#{issue.identifier}")
-        return_completed(turn_context, issue)
-      else
-        case Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => app_session.thread_id, "status" => "pending"}) do
-          :ok ->
-            case Aiur.AgentCompaction.Orchestrator.trigger_compaction(
-                   app_session,
-                   "codex",
-                   turn_context.turn_number,
-                   on_status: compaction_status_callback(turn_context, app_session, issue)
-                 ) do
-              {:ok, :completed, state} ->
-                _ = Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => app_session.thread_id, "compacted_thread_id" => state.compacted_transcript_ref, "status" => "completed"})
-                Logger.info("Codex compaction completed before review handoff identifier=#{issue.identifier}")
-
-              {:error, reason} ->
-                _ = Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => app_session.thread_id, "status" => "failed", "reason" => inspect(reason)})
-                Logger.warning("Codex compaction failed; preserving normal review handoff identifier=#{issue.identifier} reason=#{inspect(reason)}")
-            end
-
-          {:error, reason} ->
-            Logger.warning("Could not persist Codex compaction pending state for #{issue.identifier}; skipping compaction: #{inspect(reason)}")
-        end
-
-        return_completed(turn_context, issue)
-      end
-    else
-      return_completed(turn_context, issue)
-    end
+    _ = AgentCompactionHandoff.run(issue.state, app_session, issue.identifier, turn_context.turn_number, config, tokens, callback)
+    return_completed(turn_context, issue)
   rescue
     error ->
       Logger.warning("Codex compaction failed; preserving normal review handoff identifier=#{issue.identifier} reason=#{Exception.message(error)}")
       return_completed(turn_context, issue)
-  end
-
-  defp compact_for_review_handoff(turn_context, app_session, issue) do
-    thread_id = Map.get(app_session, :thread_id)
-    compaction_config = Aiur.AgentCompaction.Config.settings()
-    agent_total_tokens = token_count_for_compaction(turn_context, issue, compaction_config)
-
-    if issue.state == "human-review" and Aiur.AgentCompaction.Config.trigger_requested_at_handoff?(compaction_config, agent_total_tokens) and
-         not Aiur.AgentCompaction.Orchestrator.supported_backend?(Map.get(app_session, :backend)) do
-      if not Aiur.AgentCompaction.Orchestrator.already_attempted_for_thread?(
-           Aiur.AgentCompaction.Store.load(issue.identifier) |> elem(1),
-           thread_id
-         ) do
-        compaction_status_callback(turn_context, app_session, issue).(:unsupported, thread_id, nil)
-
-        if is_binary(thread_id) do
-          _ = Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => thread_id, "status" => "unsupported"})
-        end
-      end
-    end
-
-    return_completed(turn_context, issue)
-  rescue
-    _error -> return_completed(turn_context, issue)
   end
 
   defp current_agent_total_tokens(%{orchestrator: orchestrator}, issue) do

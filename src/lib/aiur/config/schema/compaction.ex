@@ -3,12 +3,15 @@ defmodule Aiur.Config.Schema.Compaction.AutoTrigger do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @primary_key false
   embedded_schema do
     field(:enabled, :boolean, default: false)
     field(:token_threshold, :integer, default: 50_000)
   end
 
+  @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, [:enabled, :token_threshold], empty_values: [])
@@ -22,6 +25,7 @@ defmodule Aiur.Config.Schema.Compaction do
   import Ecto.Changeset
 
   @type t :: %__MODULE__{}
+  alias Aiur.Config.Schema.Compaction.AutoTrigger
 
   @primary_key false
   embedded_schema do
@@ -37,7 +41,7 @@ defmodule Aiur.Config.Schema.Compaction do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, [:enabled, :backends, :manual_approval, :timeout_ms], empty_values: [])
-    |> cast_embed(:auto_trigger, with: &Aiur.Config.Schema.Compaction.AutoTrigger.changeset/2)
+    |> cast_embed(:auto_trigger, with: &AutoTrigger.changeset/2)
     |> validate_backends()
     |> validate_number(:timeout_ms, greater_than: 0)
   end

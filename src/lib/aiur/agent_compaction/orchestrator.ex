@@ -48,10 +48,12 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   def supported_backend?(backend), do: backend == "codex" and "codex" in Config.backends()
 
   @doc false
+  @spec already_compacted?(map()) :: boolean()
   def already_compacted?(%{compacted_at: compacted_at}) when not is_nil(compacted_at), do: true
   def already_compacted?(_session), do: false
 
   @doc false
+  @spec already_attempted_for_thread?(term(), term()) :: boolean()
   def already_attempted_for_thread?(%{"thread_id" => thread_id, "status" => status}, thread_id)
       when status in ["pending", "completed", "failed", "unsupported"],
       do: true
@@ -59,6 +61,7 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   def already_attempted_for_thread?(_, _thread_id), do: false
 
   @doc false
+  @spec interrupted_pending_attempt(term(), term()) :: term()
   def interrupted_pending_attempt(%{"thread_id" => thread_id, "status" => "pending"} = state, thread_id) do
     Map.merge(state, %{"status" => "failed", "reason" => "interrupted before completion; not retried"})
   end
@@ -87,6 +90,8 @@ defmodule Aiur.AgentCompaction.Orchestrator do
           backend :: String.t(),
           current_message_count :: non_neg_integer()
         ) :: {:ok, :completed, Schema.t()} | {:error, String.t()}
+  @spec trigger_compaction(map(), String.t(), non_neg_integer(), keyword()) ::
+          {:ok, :completed, Schema.t()} | {:error, String.t()}
   def trigger_compaction(session, backend, current_message_count, opts \\ []) do
     session_id = Map.get(session, :id) || "unknown"
     state = Schema.new(session_id, backend, :manual)

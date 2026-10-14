@@ -1,7 +1,9 @@
 defmodule Aiur.AgentCompaction.OrchestratorTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentCompaction.Config, as: CompactionConfig
   alias Aiur.AgentCompaction.Orchestrator
+  alias Aiur.Config.Schema.Compaction
 
   test "unsupported provider is rejected even when global opt-in is off" do
     refute Orchestrator.supported_backend?("claude")
@@ -14,22 +16,19 @@ defmodule Aiur.AgentCompaction.OrchestratorTest do
   end
 
   test "manual terminal-handoff opt-in requires all three actual settings" do
-    alias Aiur.Config.Schema.Compaction
-
-    refute Aiur.AgentCompaction.Config.should_compact_at_handoff?(%Compaction{enabled: false, manual_approval: true, backends: ["codex"]}, nil)
-    refute Aiur.AgentCompaction.Config.should_compact_at_handoff?(%Compaction{enabled: true, manual_approval: false, backends: ["codex"]}, nil)
-    refute Aiur.AgentCompaction.Config.should_compact_at_handoff?(%Compaction{enabled: true, manual_approval: true, backends: []}, nil)
-    assert Aiur.AgentCompaction.Config.should_compact_at_handoff?(%Compaction{enabled: true, manual_approval: true, backends: ["codex"]}, nil)
+    refute CompactionConfig.should_compact_at_handoff?(%Compaction{enabled: false, manual_approval: true, backends: ["codex"]}, nil)
+    refute CompactionConfig.should_compact_at_handoff?(%Compaction{enabled: true, manual_approval: false, backends: ["codex"]}, nil)
+    refute CompactionConfig.should_compact_at_handoff?(%Compaction{enabled: true, manual_approval: true, backends: []}, nil)
+    assert CompactionConfig.should_compact_at_handoff?(%Compaction{enabled: true, manual_approval: true, backends: ["codex"]}, nil)
   end
 
   test "threshold opt-in only fires at or above the configured cumulative usage" do
-    alias Aiur.Config.Schema.Compaction
     config = %Compaction{enabled: true, backends: ["codex"], auto_trigger: %Compaction.AutoTrigger{enabled: true, token_threshold: 50_000}}
 
-    refute Aiur.AgentCompaction.Config.should_compact_at_handoff?(config, nil)
-    refute Aiur.AgentCompaction.Config.should_compact_at_handoff?(config, 49_999)
-    assert Aiur.AgentCompaction.Config.should_compact_at_handoff?(config, 50_000)
-    assert Aiur.AgentCompaction.Config.should_compact_at_handoff?(config, 75_000)
+    refute CompactionConfig.should_compact_at_handoff?(config, nil)
+    refute CompactionConfig.should_compact_at_handoff?(config, 49_999)
+    assert CompactionConfig.should_compact_at_handoff?(config, 50_000)
+    assert CompactionConfig.should_compact_at_handoff?(config, 75_000)
   end
 
   test "already compacted sessions are explicitly skipped when enabled" do

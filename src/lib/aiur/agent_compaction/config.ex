@@ -35,6 +35,7 @@ defmodule Aiur.AgentCompaction.Config do
   end
 
   @doc false
+  @spec should_compact_at_handoff?(term(), term()) :: boolean()
   def should_compact_at_handoff?(%Aiur.Config.Schema.Compaction{} = config, agent_total_tokens) do
     trigger_requested_at_handoff?(config, agent_total_tokens) and "codex" in config.backends
   end
@@ -42,6 +43,7 @@ defmodule Aiur.AgentCompaction.Config do
   def should_compact_at_handoff?(_, _), do: false
 
   @doc false
+  @spec trigger_requested_at_handoff?(term(), term()) :: boolean()
   def trigger_requested_at_handoff?(%Aiur.Config.Schema.Compaction{} = config, agent_total_tokens) do
     auto_trigger = config.auto_trigger || %Aiur.Config.Schema.Compaction.AutoTrigger{}
     manual? = config.manual_approval
@@ -51,6 +53,7 @@ defmodule Aiur.AgentCompaction.Config do
 
   def trigger_requested_at_handoff?(_, _), do: false
 
+  @spec settings() :: Aiur.Config.Schema.Compaction.t()
   def settings, do: get_compaction_config()
 
   @spec timeout_ms() :: non_neg_integer()

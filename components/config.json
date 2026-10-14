@@ -25,7 +25,8 @@
   "owns": {
     "config": [
       "merge_policy",
-      "prompt_file"
+      "prompt_file",
+      "compaction"
     ],
     "env": [
       "HOME",

@@ -7,6 +7,7 @@ defmodule Aiur.AgentCompaction.CodexClient do
   """
 
   require Logger
+  alias Aiur.Codex.Rpc
 
   @spec request_compact(port(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def request_compact(port, thread_id, opts \\ [])
@@ -20,7 +21,7 @@ defmodule Aiur.AgentCompaction.CodexClient do
       notify_status(opts, :pending, thread_id, nil)
 
       with {:ok, response} <-
-             Aiur.Codex.Rpc.await_response(port, request_id, remaining_ms(deadline), on_notification: fn payload -> route_notification(payload, thread_id, opts) end),
+             Rpc.await_response(port, request_id, remaining_ms(deadline), on_notification: fn payload -> route_notification(payload, thread_id, opts) end),
            :ok <- empty_response(response),
            {:ok, completion} <- await_completion(port, thread_id, deadline, opts) do
         notify_status(opts, :completed, thread_id, completion.turn_id)
@@ -41,6 +42,7 @@ defmodule Aiur.AgentCompaction.CodexClient do
   def request_compact(_port, thread_id, _opts), do: {:error, {:invalid_thread_or_port, thread_id}}
 
   @doc false
+  @spec build_request(String.t(), integer()) :: {:ok, map()} | {:error, :invalid_thread_id}
   def build_request(thread_id, request_id \\ :erlang.unique_integer([:positive]))
 
   def build_request(thread_id, request_id) when is_binary(thread_id) and byte_size(thread_id) > 0 and is_integer(request_id) do
@@ -52,7 +54,7 @@ defmodule Aiur.AgentCompaction.CodexClient do
   defp timeout(opts), do: Keyword.get(opts, :timeout_ms, 30_000)
 
   defp send_request(port, frame) do
-    Aiur.Codex.Rpc.send_message(port, frame)
+    Rpc.send_message(port, frame)
     :ok
   rescue
     ArgumentError -> {:error, :port_closed}
@@ -106,7 +108,7 @@ defmodule Aiur.AgentCompaction.CodexClient do
   end
 
   defp await_completion_notification(port, sentinel, deadline, thread_id, opts) do
-    case Aiur.Codex.Rpc.await_response(port, sentinel, remaining_ms(deadline), on_notification: fn payload -> route_notification(payload, thread_id, opts) end) do
+    case Rpc.await_response(port, sentinel, remaining_ms(deadline), on_notification: fn payload -> route_notification(payload, thread_id, opts) end) do
       {:error, :response_timeout} -> :ok
       other -> other
     end

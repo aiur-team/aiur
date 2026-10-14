@@ -21,6 +21,7 @@ defmodule Aiur.AgentCompaction.Store do
   end
 
   @doc false
+  @spec path_for(String.t(), String.t(), keyword()) :: String.t()
   def path_for(identifier, dir, opts \\ []) do
     repo = Keyword.get(opts, :repo_name) || Paths.repo_name()
     Path.join(dir, "#{Paths.sanitize(repo)}.#{Paths.sanitize(identifier)}.json")

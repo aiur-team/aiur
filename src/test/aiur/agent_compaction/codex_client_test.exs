@@ -32,7 +32,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
 
   test "the app-server RPC parser preserves server errors and the client reports timeout" do
     {:ok, frame} = CodexClient.build_request("thr_original")
-    payload = Jason.encode!(%{"id" => frame["id"], "error" => %{"code" => -32000, "message" => "compaction rejected"}})
+    payload = Jason.encode!(%{"id" => frame["id"], "error" => %{"code" => -32_000, "message" => "compaction rejected"}})
 
     assert {:error, {:response_error, %{"message" => "compaction rejected"}}} =
              AppServerRpc.handle_response(port(), frame["id"], payload, 10, "Codex")
