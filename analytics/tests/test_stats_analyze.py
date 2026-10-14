@@ -107,6 +107,24 @@ class AnalyzeTest(unittest.TestCase):
         spec['metrics'][0]['kind'] = 'bucketed'
         self.assertIn('autocorrelated_units', analyze(snapshot, spec)['metrics']['latency']['flags'])
 
+    def test_unbounded_rate_interval_preserves_direction_and_cause(self):
+        snapshot, spec = fixture()
+        spec['metrics'][0]['kind'] = 'rate'
+        snapshot['metrics']['latency'] = {'kind':'rate','groups':{
+            'a':{'events':0,'exposure':100,'n':40},
+            'b':{'events':40,'exposure':100,'n':40}}}
+        metric = analyze(snapshot, spec)['metrics']['latency']
+        self.assertEqual((metric['status'], metric['direction']), ('significant', 'regressed'))
+        effect = metric['effects']['rate_ratio']
+        self.assertIsNone(effect['hi'])
+        self.assertEqual(effect['unbounded'], ['estimate', 'hi'])
+        self.assertGreater(effect['lo'], 1)
+        for group in snapshot['metrics']['latency']['groups'].values():
+            group['events'] = 0
+        metric = analyze(snapshot, spec)['metrics']['latency']
+        self.assertEqual(metric['direction'], 'no_change')
+        self.assertEqual(metric['effects']['rate_ratio']['unbounded'], [])
+
     def test_zero_and_empty_groups_are_not_plausible_defaults(self):
         snapshot, spec = fixture()
         for row in snapshot['metrics']['latency']['rows']:

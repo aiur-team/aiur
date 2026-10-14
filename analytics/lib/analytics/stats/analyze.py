@@ -40,6 +40,9 @@ def _metric(metric, groups, annotations, settings, seed):
     if min(sizes) < settings["min_samples"]:
         return result
     tests, effects, primary_effect, p = infer(metric, groups, seed, settings)
+    for effect in effects.values():
+        effect["unbounded"] = [key for key in ("estimate", "lo", "hi")
+                               if effect.get(key) is not None and not isfinite(effect[key])]
     result.update(tests=tests, effects=effects, primary_effect=primary_effect, p_raw=p)
     if primary_effect == "median_difference":
         result["flags"] = sorted(set(result["flags"] + ["relative_effect_undefined"]))
@@ -52,7 +55,7 @@ def _label(result, metric, alpha):
     effect = result["effects"][result["primary_effect"]]
     lo, hi, estimate = effect["lo"], effect["hi"], effect["estimate"]
     null = effect["null"]
-    bounded = lo is not None and hi is not None and isfinite(lo) and isfinite(hi)
+    bounded = lo is not None and hi is not None
     relative = result["primary_effect"] in ("median_ratio", "rate_ratio")
     # Binary equivalence uses relative difference against the baseline proportion.
     baseline = next(iter(result["groups"].values())).get("median")
