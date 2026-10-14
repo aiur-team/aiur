@@ -1,8 +1,8 @@
 {
   "id": "voice-conversation-core",
-  "name": "Host-agnostic voice assistant core (MP-E6, born as a package)",
+  "name": "Voice conversation core",
   "layer": 3,
-  "kind": "optional",
+  "kind": "package",
   "paths": [
     ".github/workflows/voice-converse-standalone.yml",
     "packages/elixir/voice_converse/**",
@@ -20,5 +20,17 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides a reusable voice assistant engine for conversation hosts.",
+  "docs": [
+    "guide/gui.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

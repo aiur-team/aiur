@@ -2,7 +2,7 @@
   "id": "aiur-style",
   "name": "Shared styles",
   "layer": 5,
-  "kind": "optional",
+  "kind": "package",
   "paths": [
     "packages/aiur-style/**"
   ],
@@ -18,5 +18,15 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides consistent styles and UI elements for Aiur sites and clients.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

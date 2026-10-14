@@ -1,8 +1,8 @@
 {
   "id": "orchestration",
-  "name": "Poll cycle, dispatch, control lifecycle, PR/CI lifecycle, operator messaging",
+  "name": "Run orchestration",
   "layer": 3,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_chat.ex",
     "src/lib/aiur/agent_queue.ex",
@@ -60,5 +60,22 @@
   ],
   "shared_with": [
     "github-listeners"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Dispatches tickets, manages agent lifecycles and coordinates pull request progress.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/ticket-lifecycle.md"
+  ],
+  "config": [
+    "polling",
+    "pr_health",
+    "pr_watch",
+    "worker"
+  ],
+  "env": [],
+  "capabilities": []
 }

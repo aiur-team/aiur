@@ -262,7 +262,7 @@ defmodule Aiur.Application.Children do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?))
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ BuildOrders.child_specs(:label_projection, opts))
   end
 
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil

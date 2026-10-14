@@ -1,8 +1,8 @@
 {
   "id": "pr-lifecycle",
-  "name": "PR health lifecycle",
+  "name": "PR health",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/pr_lifecycle/**"
   ],
@@ -33,5 +33,17 @@
   "forbid": [
     "Aiur.Orchestrator",
     "Aiur.Orchestrator.*"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Tracks pull request health and returns tickets that need more work.",
+  "docs": [
+    "concepts/ticket-lifecycle.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

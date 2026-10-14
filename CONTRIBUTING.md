@@ -192,6 +192,7 @@ configured integrations; missing or skipped required checks remain pending.
 
 ## Documentation
 
+- `components.json` supplies public component descriptions and the planned-features list for the generated directory.
 - **Functionality ships with its documentation, in the same PR.** Docs are
   required when a change adds or changes a config key, a CLI command or flag,
   an environment variable an operator would set, a new user-facing surface (a

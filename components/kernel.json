@@ -2,7 +2,7 @@
   "id": "kernel",
   "name": "Kernel primitives",
   "layer": 0,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/boot.ex",
     "src/lib/aiur/bounded.ex",
@@ -47,5 +47,15 @@
   },
   "prior": [
     "K"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Provides shared filesystem, process and data utilities used throughout Aiur.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

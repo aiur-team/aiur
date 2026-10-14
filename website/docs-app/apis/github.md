@@ -522,7 +522,7 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
-The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+A cold, corrupt or stopped cache falls back to fetching. It costs throughput, never correctness.
 
 Comment, CI, and review-thread pollers consult these complete snapshots before
 building their GraphQL documents. A poll-written snapshot is only a baseline;
@@ -571,9 +571,7 @@ nothing retires. This is a deliberate divergence from the daemon's `ReadCache`
 policy, which refuses every `/actions` path wholesale — the two stores serve
 different callers with different invalidation reach.
 
-An answer is kept for 60 seconds.
-
-**Conditional requests and 304s.** `gh api` reads carry a validator where the
+Answers are kept for 60 seconds. **Conditional requests and 304s.** `gh api` reads carry a validator where the
 store holds one: a re-read sends `If-None-Match` with the entry's stored `ETag`,
 and an unchanged answer returns `304`, is served from the cache, and is
 reconciled free — the same contract as the daemon's REST reads.
@@ -593,10 +591,7 @@ The wrapper records hit and miss events in durable `agent-cache.tsv` files in
 each agent workspace. These counters describe the agent `gh` cache on that
 workspace's host; they do not include remote SSH workers in a local census.
 
-The cache key intentionally includes the exact requested output shape. Two
-reads of one pull request that request different JSON fields, templates, or
-queries cannot share an answer without changing `gh`'s output, so each shape
-misses independently.
+The cache key includes the exact requested output shape. Different JSON fields, templates or queries miss independently to preserve `gh`’s output.
 
 Likewise, a write or daemon delivery retires every shape of the changed
 resource to protect correctness.
@@ -629,7 +624,7 @@ fetch and the rest wait behind it, then read what it wrote.
 If the admitted one never answers, the others stop waiting and fetch. The cost is
 the single call the waiting was meant to save, never a stall.
 
-Sharing is controlled by these settings:
+Sharing settings:
 
 | Setting | Effect |
 | --- | --- |
@@ -730,6 +725,7 @@ The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |
+| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; unconfirmed backfill waits for explicit release. |
 | A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
 | The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
 | A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |
