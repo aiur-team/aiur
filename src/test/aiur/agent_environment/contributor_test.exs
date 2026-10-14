@@ -110,8 +110,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   end
 
   def snapshot(module, :shell, context) do
-    keys = module.workspace_env(context.workspace, opts()) |> Enum.map(fn {name, _} -> to_string(name) end)
-    module |> shell_env(context) |> Map.take(keys) |> normalize(context)
+    module |> shell_env(context) |> Map.drop(~w(HOME PATH PWD SHLVL _)) |> normalize(context)
   end
 
   defp shell_env(module, context) do
