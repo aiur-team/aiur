@@ -45,4 +45,23 @@ defmodule Aiur.AgentControlCLIDelegationTest do
       assert MapSet.member?(exported, {name, arity}), "missing #{name}/#{arity}"
     end
   end
+
+  test "todo delegates both arities to the orchestration component" do
+    source = File.read!(Path.expand("../../lib/aiur/agent_control_cli.ex", __DIR__))
+    assert source =~ "defdelegate todo(issue_ids, opts"
+    assert source =~ "to: Aiur.Orchestrator.TodoCLI"
+    assert {:todo, 1} in Aiur.Orchestrator.TodoCLI.__info__(:functions)
+    assert {:todo, 2} in Aiur.Orchestrator.TodoCLI.__info__(:functions)
+    refute source =~ "defp queue_todo_issue("
+  end
+
+  # Future regression guard: build-queue behavior remains in its existing module.
+  test "queue forwards to BuildQueueCLI without owning build-queue behavior" do
+    source = File.read!(Path.expand("../../lib/aiur/agent_control_cli.ex", __DIR__))
+    queue = source |> String.split("\n") |> Enum.filter(&String.starts_with?(&1, "  def queue("))
+    assert [line] = queue
+    assert line =~ "Aiur.BuildQueueCLI.run()"
+    assert {:run, 1} in Aiur.BuildQueueCLI.__info__(:functions)
+    refute source =~ "BuildQueue."
+  end
 end
