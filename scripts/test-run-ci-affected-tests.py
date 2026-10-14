@@ -42,7 +42,7 @@ else:
         self.assertEqual(self.run_selection("cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'"),
                          (0, [['test', '--max-cases', '4', 'test/a test.exs', 'test/$(bad)_test.exs']]))
 
-    def test_unsafe_selection_defers_full_suite_to_merge_group(self):
+    def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
         reason = 'changed files include test support; changed paths: src/test/support/helper.exs'
         status, calls = self.run_selection(
             f'# full suite recommended: {reason}\ncd src && mise exec -- make ci'

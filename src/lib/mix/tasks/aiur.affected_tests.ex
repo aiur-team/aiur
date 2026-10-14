@@ -34,9 +34,10 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     args = Enum.reject(args, &(&1 == "--json"))
 
     with {:ok, base} <- requested_or_default_base(root, args),
-         {:ok, changed} <- changed_files(root, base),
+         {:ok, diff_base} <- merge_base(root, base),
+         {:ok, changed} <- changed_files(root, diff_base),
          {:ok, dependents} <- xref_dependents(root, changed),
-         {:ok, references} <- deleted_reference_tests(root, base) do
+         {:ok, references} <- deleted_reference_tests(root, diff_base) do
       selected =
         Aiur.AffectedTests.select(changed,
           base_dir: root,
@@ -91,7 +92,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   def changed_files(root, base) do
     case System.get_env("AIUR_CI_CHANGED_PATHS_B64") do
       nil ->
-        with {:ok, committed} <- git(root, ["diff", "--name-only", base, "--"]),
+        with {:ok, committed} <- changed_paths(root, base),
              {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
              {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
           {:ok, Enum.uniq(committed ++ working ++ untracked)}
@@ -105,6 +106,15 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
         else
           _ -> {:error, "AIUR_CI_CHANGED_PATHS_B64 must encode a JSON array of paths"}
         end
+    end
+  end
+
+  @doc false
+  @spec changed_paths(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def changed_paths(root, base) do
+    case git(root, ["diff", "--name-only", "#{base}...HEAD", "--"]) do
+      {:ok, paths} -> {:ok, paths}
+      error -> error
     end
   end
 
@@ -187,6 +197,14 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
       {:ok, [sha]} -> {:ok, sha}
       {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
       {:error, reason} -> {:error, "#{reason}\nHint: base ref `#{origin}` not found locally; run `git fetch origin`"}
+    end
+  end
+
+  defp merge_base(root, base) do
+    case git(root, ["merge-base", "HEAD", base]) do
+      {:ok, [sha]} -> {:ok, sha}
+      {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
+      error -> error
     end
   end
 
