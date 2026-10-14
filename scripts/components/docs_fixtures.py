@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -40,9 +41,17 @@ def run(repo, selected):
                 path.write_text(content)
             if remove:
                 (root / remove).unlink()
-            result = subprocess.run([sys.executable, str(repo / 'scripts/check-components.py'), *args],
-                                    env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root), PATH=''),
-                                    capture_output=True, text=True)
+            env = dict(os.environ, AIUR_COMPONENTS_ROOT=str(root), PATH='')
+            command = [sys.executable, str(repo / 'scripts/check-components.py'), *args]
+            if args == ('ci-step',):
+                workflow = (repo / '.github/workflows/ci.yml').read_text()
+                job = re.search(r'^  workflow-security:\n(.*?)(?=^  [\w-]+:|\Z)', workflow, re.MULTILINE | re.DOTALL)[1]
+                assert 'docs_only' not in job, 'workflow security must run on docs-only PRs'
+                step = re.search(r'run: (python3 scripts/check-components.py --docs[^\n]*)', job)
+                assert step, 'workflow security must invoke --docs'
+                command = ['bash', '-c', step[1]]
+                env['PATH'] = os.environ['PATH']
+            result = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True)
             output = result.stdout + result.stderr
             assert result.returncode == code, f'{name}: expected {code}, got {result.returncode}: {output}'
             assert message in output, f'{name}: missing {message!r}: {output}'
@@ -98,6 +107,8 @@ def run(repo, selected):
     check('missing_manifest_exits_2', code=2, message='components.json:', remove='components.json')
     check('docs_invalid_json_exits_2', code=2, message='components.json:', files={'components.json': '{bad'})
     check('full_checker_checks_docs', field('docs', ['guide/nope.md']), 1, 'a: docs path not found', args=())
+    check('ci_docs_only_step_rejects_broken_link', field('docs', ['guide/nope.md']), 1,
+          'a: docs path not found: guide/nope.md', args=('ci-step',))
     check('split_manifest_docs_passes', lambda m: (m.update(component_files=['components/a.json']), m.pop('components')),
           files={'components/a.json': json.dumps(base['components'][0])})
     return ran
