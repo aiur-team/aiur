@@ -5,10 +5,10 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeConfirmationTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.Orchestrator.{ControlLifecycle, SnapshotStore, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, StatusReport}
 
   alias Aiur.Orchestrator.ControlCLI, as: AgentControlCLI
-  import Aiur.Orchestrator.ControlCLI.TestFixture
+  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
 
   setup context do
     Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)

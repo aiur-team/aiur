@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.ControlCLI.MessageTest do
   import ExUnit.CaptureIO
 
   alias Aiur.Orchestrator.ControlCLI.Message, as: AgentControlCLI
-  import Aiur.Orchestrator.ControlCLI.TestFixture
+  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
 
   setup context do
     Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)

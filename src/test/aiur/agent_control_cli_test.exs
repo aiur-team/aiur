@@ -12,7 +12,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, Lifecycle, State}
 
-  import Aiur.Orchestrator.ControlCLI.TestFixture
+  import Aiur.Orchestrator.ControlCLI.TestFixture, except: [setup: 1]
 
   setup context do
     Aiur.Orchestrator.ControlCLI.TestFixture.setup(context)
