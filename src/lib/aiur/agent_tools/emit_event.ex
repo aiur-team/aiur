@@ -1,13 +1,13 @@
-defmodule Aiur.Codex.DynamicTool.EmitEvent do
+defmodule Aiur.AgentTools.EmitEvent do
   @moduledoc """
   Dynamic tool handler for the `emit_event` tool.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Args
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Args
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
 
   @emit_event_description """
   Emit a cross-ticket Aiur event. Routes onto the `Aiur.Events.Exchange`
@@ -62,7 +62,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
   @agent_event_exact ["progress", "blocked", "unblocked", "attention.resolved", "pause.request", "optimistic.integrated"]
 
   @progress_emits_per_turn_max 2
-  @progress_quota_key {Aiur.Codex.DynamicTool, :progress_emit_count}
+  @progress_quota_key {Aiur.AgentTools.Dispatch, :progress_emit_count}
 
   @impl true
   @spec tools() :: [String.t()]

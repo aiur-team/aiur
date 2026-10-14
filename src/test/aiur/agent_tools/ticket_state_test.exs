@@ -1,8 +1,8 @@
-defmodule Aiur.Codex.DynamicTool.TicketStateTest do
+defmodule Aiur.AgentTools.TicketStateTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool
-  alias Aiur.Codex.DynamicTool.TicketState
+  alias Aiur.AgentTools.Dispatch
+  alias Aiur.AgentTools.TicketState
 
   describe "execute/3 — aiur_set_ticket_state" do
     test "declares the target state without naming any label to remove (#2805)" do
@@ -91,14 +91,14 @@ defmodule Aiur.Codex.DynamicTool.TicketStateTest do
   end
 
   describe "registration" do
-    test "the tool is dispatchable through DynamicTool and advertises its schema" do
-      spec = Enum.find(DynamicTool.tool_specs(), &(&1["name"] == "aiur_set_ticket_state"))
+    test "the tool is dispatchable through Dispatch and advertises its schema" do
+      spec = Enum.find(Dispatch.tool_specs(), &(&1["name"] == "aiur_set_ticket_state"))
 
       assert spec["inputSchema"]["required"] == ["state"]
       assert spec["description"] =~ "ONLY"
 
       response =
-        DynamicTool.execute("aiur_set_ticket_state", %{"state" => "in-progress"}, ticket_state_setter: fn state -> {:ok, state} end)
+        Dispatch.execute("aiur_set_ticket_state", %{"state" => "in-progress"}, ticket_state_setter: fn state -> {:ok, state} end)
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["state"] == "in-progress"

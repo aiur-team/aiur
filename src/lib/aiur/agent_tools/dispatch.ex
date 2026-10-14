@@ -1,17 +1,17 @@
-defmodule Aiur.Codex.DynamicTool do
+defmodule Aiur.AgentTools.Dispatch do
   @moduledoc """
-  Executes client-side tool calls requested by Codex app-server turns.
+  Executes client-side tool calls requested by coding-agent turns.
   """
 
-  alias Aiur.Codex.DynamicTool.Blockers
-  alias Aiur.Codex.DynamicTool.EmitAlert
-  alias Aiur.Codex.DynamicTool.EmitEvent
-  alias Aiur.Codex.DynamicTool.Epic
-  alias Aiur.Codex.DynamicTool.LinearGraphQL
-  alias Aiur.Codex.DynamicTool.Response
-  alias Aiur.Codex.DynamicTool.ReviewThreads
-  alias Aiur.Codex.DynamicTool.Subscriptions
-  alias Aiur.Codex.DynamicTool.TicketState
+  alias Aiur.AgentTools.Blockers
+  alias Aiur.AgentTools.EmitAlert
+  alias Aiur.AgentTools.EmitEvent
+  alias Aiur.AgentTools.Epic
+  alias Aiur.AgentTools.LinearGraphQL
+  alias Aiur.AgentTools.Response
+  alias Aiur.AgentTools.ReviewThreads
+  alias Aiur.AgentTools.Subscriptions
+  alias Aiur.AgentTools.TicketState
 
   @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers, TicketState, Epic]
 

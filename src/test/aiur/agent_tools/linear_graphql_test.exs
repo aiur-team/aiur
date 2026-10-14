@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.LinearGraphQLTest do
+defmodule Aiur.AgentTools.LinearGraphQLTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.LinearGraphQL
+  alias Aiur.AgentTools.LinearGraphQL
 
   describe "execute/3" do
     test "success on clean response" do

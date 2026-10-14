@@ -1,10 +1,10 @@
-defmodule Aiur.Codex.DynamicTool.Errors do
+defmodule Aiur.AgentTools.Errors do
   @moduledoc """
   Error payload catalog for dynamic tool failures.
   """
 
-  alias Aiur.Codex.DynamicTool.Response
-  alias Aiur.Codex.DynamicTool.TicketState
+  alias Aiur.AgentTools.Response
+  alias Aiur.AgentTools.TicketState
 
   @spec payload(term()) :: map()
   def payload(:invalid_epic_arguments), do: %{"error" => %{"message" => "Invalid epic arguments; choose an epic or clear, without actor or source fields."}}

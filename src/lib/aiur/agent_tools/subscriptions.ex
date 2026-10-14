@@ -1,12 +1,12 @@
-defmodule Aiur.Codex.DynamicTool.Subscriptions do
+defmodule Aiur.AgentTools.Subscriptions do
   @moduledoc """
   Dynamic tool handler for `aiur_subscribe` and `aiur_unsubscribe`.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
   alias Aiur.Events.AgentSubscriptionPolicy
 
   @aiur_subscribe_description """

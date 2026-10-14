@@ -1,9 +1,9 @@
-defmodule Aiur.Codex.DynamicTool.EpicTest do
+defmodule Aiur.AgentTools.EpicTest do
   use ExUnit.Case, async: true
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.BuildOrder.EpicOverrides, as: Store
-  alias Aiur.Codex.DynamicTool
-  alias Aiur.Codex.DynamicTool.Epic
+  alias Aiur.AgentTools.Dispatch
+  alias Aiur.AgentTools.Epic
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("epic-tool")
@@ -49,7 +49,7 @@ defmodule Aiur.Codex.DynamicTool.EpicTest do
           nil
         ] do
       assert {:error, :invalid_epic_arguments} = Epic.normalize(args)
-      assert DynamicTool.execute("aiur_set_epic", args, epic_setter: fn _ -> flunk("setter must not be called") end)["success"] == false
+      assert Dispatch.execute("aiur_set_epic", args, epic_setter: fn _ -> flunk("setter must not be called") end)["success"] == false
     end
 
     assert hd(Epic.specs())["inputSchema"]["additionalProperties"] == false
@@ -60,6 +60,6 @@ defmodule Aiur.Codex.DynamicTool.EpicTest do
     result = run.("aiur_set_epic", %{"epic" => "nope"})
     assert result["success"] == false
     assert Jason.decode!(result["output"])["error"]["known"] == ["bugs"]
-    assert DynamicTool.execute("aiur_set_epic", %{"epic" => "bugs"})["success"] == false
+    assert Dispatch.execute("aiur_set_epic", %{"epic" => "bugs"})["success"] == false
   end
 end

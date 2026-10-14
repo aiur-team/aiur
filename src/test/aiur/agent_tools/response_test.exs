@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.ResponseTest do
+defmodule Aiur.AgentTools.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Response
 
   describe "build/2" do
     test "returns the expected envelope shape on success" do

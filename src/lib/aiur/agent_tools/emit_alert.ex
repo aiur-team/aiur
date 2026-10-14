@@ -1,13 +1,13 @@
-defmodule Aiur.Codex.DynamicTool.EmitAlert do
+defmodule Aiur.AgentTools.EmitAlert do
   @moduledoc """
   Dynamic tool handler for the `emit_alert` tool.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Args
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Args
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
 
   @emit_alert_description """
   Emit a custom Aiur alert with a scoped name, concise message, and

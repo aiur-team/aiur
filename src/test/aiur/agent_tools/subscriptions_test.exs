@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.SubscriptionsTest do
+defmodule Aiur.AgentTools.SubscriptionsTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.Subscriptions
+  alias Aiur.AgentTools.Subscriptions
 
   describe "execute/3 — aiur_subscribe" do
     test "subscribe via injected closure succeeds" do

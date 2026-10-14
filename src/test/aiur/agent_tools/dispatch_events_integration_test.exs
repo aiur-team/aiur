@@ -1,6 +1,6 @@
-defmodule Aiur.Codex.DynamicToolEventsTest do
+defmodule Aiur.AgentTools.DispatchEventsTest do
   use Aiur.TestSupport
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
 
   describe "emit_event" do
     test "publishes a progress.<slug> event for a valid name" do
@@ -12,7 +12,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       end
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "emit_event",
           %{"name" => "progress.brainstorm-end", "message" => "Done"},
           event_publisher: stub_publisher
@@ -31,7 +31,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
         {:ok, %{}}
       end
 
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_event",
         %{"name" => "blocked", "message" => "x", "payload" => %{"blocking_issue" => 80}},
         event_publisher: stub
@@ -44,7 +44,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       stub = fn _, _, _ -> {:ok, %{}} end
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "emit_event",
           %{"name" => "system.weird.thing", "message" => "no"},
           event_publisher: stub
@@ -60,7 +60,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
       for name <- ["blocked", "unblocked", "attention.resolved", "pause.request"] do
         assert %{"success" => true} =
-                 DynamicTool.execute(
+                 Dispatch.execute(
                    "emit_event",
                    %{"name" => name, "message" => "ok"},
                    event_publisher: stub
@@ -71,21 +71,21 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
     test "requires name and message" do
       stub = fn _, _, _ -> {:ok, %{}} end
 
-      r1 = DynamicTool.execute("emit_event", %{"message" => "x"}, event_publisher: stub)
-      r2 = DynamicTool.execute("emit_event", %{"name" => "blocked"}, event_publisher: stub)
+      r1 = Dispatch.execute("emit_event", %{"message" => "x"}, event_publisher: stub)
+      r2 = Dispatch.execute("emit_event", %{"name" => "blocked"}, event_publisher: stub)
 
       assert r1["success"] == false
       assert r2["success"] == false
     end
 
     test "returns error when publisher is missing from opts" do
-      response = DynamicTool.execute("emit_event", %{"name" => "blocked", "message" => "x"})
+      response = Dispatch.execute("emit_event", %{"name" => "blocked", "message" => "x"})
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["message"] =~ "unavailable"
     end
 
     test "tool_specs advertises emit_event" do
-      assert Enum.any?(DynamicTool.tool_specs(), fn spec ->
+      assert Enum.any?(Dispatch.tool_specs(), fn spec ->
                spec["name"] == "emit_event" and
                  spec["description"] =~ "other agents/the Executor" and
                  spec["description"] =~ "Executor-facing audible alerts"
@@ -103,7 +103,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       end
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_subscribe",
           %{"topic_pattern" => "ticket.42.#"},
           subscriber: stub
@@ -121,7 +121,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
         :ok
       end
 
-      DynamicTool.execute(
+      Dispatch.execute(
         "aiur_unsubscribe",
         %{"topic_pattern" => "ticket.42.#"},
         unsubscriber: stub
@@ -134,19 +134,19 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       stub = fn _ -> :ok end
 
       for bad <- ["", ".bad", "bad.", "ticket..101"] do
-        r = DynamicTool.execute("aiur_subscribe", %{"topic_pattern" => bad}, subscriber: stub)
+        r = Dispatch.execute("aiur_subscribe", %{"topic_pattern" => bad}, subscriber: stub)
         assert r["success"] == false
       end
     end
 
     test "missing pattern returns error" do
       stub = fn _ -> :ok end
-      r = DynamicTool.execute("aiur_subscribe", %{}, subscriber: stub)
+      r = Dispatch.execute("aiur_subscribe", %{}, subscriber: stub)
       assert r["success"] == false
     end
 
     test "missing injected closure returns unavailable error" do
-      r = DynamicTool.execute("aiur_subscribe", %{"topic_pattern" => "x"})
+      r = Dispatch.execute("aiur_subscribe", %{"topic_pattern" => "x"})
       assert r["success"] == false
       assert Jason.decode!(r["output"])["error"]["message"] =~ "unavailable"
     end
@@ -155,7 +155,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
   describe "aiur_declare_blocker / aiur_unblock — Wave 0 characterization" do
     test "declare_blocker success payload shape with atom result rendered as string" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => 42},
           blocker_declarer: fn _n -> {:ok, :already_declared} end
@@ -170,7 +170,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "unblock success payload shape" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_unblock",
           %{"issue_number" => 10},
           unblocker: fn _n -> {:ok, :removed} end
@@ -185,7 +185,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "normalize_issue_number: string input is parsed and trimmed" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => "  99  "},
           blocker_declarer: fn n -> {:ok, n} end
@@ -197,7 +197,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "normalize_issue_number: zero is rejected" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => 0},
           blocker_declarer: fn _n -> {:ok, :ok} end
@@ -208,7 +208,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "normalize_issue_number: negative integer is rejected" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => -5},
           blocker_declarer: fn _n -> {:ok, :ok} end
@@ -219,7 +219,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "normalize_issue_number: missing key returns missing_issue_number" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{},
           blocker_declarer: fn _n -> {:ok, :ok} end
@@ -230,20 +230,20 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
     end
 
     test "blocker_declarer_unavailable when closure is absent" do
-      response = DynamicTool.execute("aiur_declare_blocker", %{"issue_number" => 1})
+      response = Dispatch.execute("aiur_declare_blocker", %{"issue_number" => 1})
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["message"] =~ "unavailable"
     end
 
     test "unblocker_unavailable when closure is absent" do
-      response = DynamicTool.execute("aiur_unblock", %{"issue_number" => 1})
+      response = Dispatch.execute("aiur_unblock", %{"issue_number" => 1})
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["message"] =~ "unavailable"
     end
 
     test "cycle_detected error rendering" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => 5},
           blocker_declarer: fn _n -> {:error, :cycle_detected} end
@@ -255,7 +255,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "blocker_not_found error rendering" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => 9999},
           blocker_declarer: fn _n -> {:error, :blocker_not_found} end
@@ -267,7 +267,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "rate_limited error rendering" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => 5},
           blocker_declarer: fn _n -> {:error, :rate_limited} end
@@ -279,7 +279,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "permission_denied error rendering" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{"issue_number" => 5},
           blocker_declarer: fn _n -> {:error, :permission_denied} end
@@ -293,7 +293,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
   describe "catch-all error payload" do
     test "non-linear tool returning an unexpected error renders the shared catch-all message" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "emit_event",
           %{"name" => "blocked", "message" => "test"},
           event_publisher: fn _name, _message, _payload -> {:error, :unexpected} end
@@ -310,7 +310,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
     test "explicit severity passthrough" do
       test_pid = self()
 
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_alert",
         %{
           "name" => "phase.work.start",
@@ -332,7 +332,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       test_pid = self()
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "emit_alert",
           %{
             "name" => "phase.work.start",
@@ -356,7 +356,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       test_pid = self()
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_subscribe",
           %{topic_pattern: "ticket.42.#"},
           subscriber: fn pattern ->
@@ -373,7 +373,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
       test_pid = self()
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "emit_alert",
           %{name: "phase.plan.start", message: "Planning"},
           alert_emitter: fn name, message, _reason, _needs_attention, _severity ->
@@ -388,7 +388,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
 
     test "aiur_declare_blocker accepts atom-key issue_number" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "aiur_declare_blocker",
           %{issue_number: 7},
           blocker_declarer: fn n -> {:ok, n} end
@@ -402,7 +402,7 @@ defmodule Aiur.Codex.DynamicToolEventsTest do
   describe "emit_event publisher arity gate — Wave 0 characterization" do
     test "wrong-arity publisher (fn/2) returns event_publisher_unavailable" do
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           "emit_event",
           %{"name" => "blocked", "message" => "test"},
           event_publisher: fn _name, _message -> {:ok, %{}} end

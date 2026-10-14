@@ -1,12 +1,12 @@
-defmodule Aiur.Codex.DynamicToolProgressCapTest do
+defmodule Aiur.AgentTools.DispatchTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
 
   @emit_event_tool "emit_event"
 
   setup do
-    DynamicTool.reset_turn_quotas()
+    Dispatch.reset_turn_quotas()
     :ok
   end
 
@@ -15,7 +15,7 @@ defmodule Aiur.Codex.DynamicToolProgressCapTest do
       {captured, publisher} = capture_publisher()
 
       response =
-        DynamicTool.execute(
+        Dispatch.execute(
           @emit_event_tool,
           emit_args("progress", "starting work", %{"percent" => 30, "label" => "work: typing"}),
           event_publisher: publisher
@@ -29,8 +29,8 @@ defmodule Aiur.Codex.DynamicToolProgressCapTest do
       {captured, publisher} = capture_publisher()
       opts = [event_publisher: publisher]
 
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
 
       assert length(capture_take(captured)) == 2
     end
@@ -39,10 +39,10 @@ defmodule Aiur.Codex.DynamicToolProgressCapTest do
       {captured, publisher} = capture_publisher()
       opts = [event_publisher: publisher]
 
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
 
-      response = DynamicTool.execute(@emit_event_tool, emit_args("progress", "100%", %{"percent" => 100}), opts)
+      response = Dispatch.execute(@emit_event_tool, emit_args("progress", "100%", %{"percent" => 100}), opts)
 
       refute success?(response)
       assert error_message(response) =~ "per-turn `progress` cap"
@@ -54,15 +54,15 @@ defmodule Aiur.Codex.DynamicToolProgressCapTest do
       opts = [event_publisher: publisher]
 
       # turn 1: 2 emits
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
 
       # turn boundary
-      assert :ok = DynamicTool.reset_turn_quotas()
+      assert :ok = Dispatch.reset_turn_quotas()
 
       # turn 2: 2 more emits
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "80%", %{"percent" => 80}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "100%", %{"percent" => 100}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "80%", %{"percent" => 80}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "100%", %{"percent" => 100}), opts))
 
       assert length(capture_take(captured)) == 4
     end
@@ -71,12 +71,12 @@ defmodule Aiur.Codex.DynamicToolProgressCapTest do
       {captured, publisher} = capture_publisher()
       opts = [event_publisher: publisher]
 
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
 
       for slug <- ["heartbeat", "ping", "pong"] do
         name = "custom.#{slug}"
-        assert success?(DynamicTool.execute(@emit_event_tool, emit_args(name, slug, %{}), opts))
+        assert success?(Dispatch.execute(@emit_event_tool, emit_args(name, slug, %{}), opts))
       end
 
       # 2 progress + 3 custom = 5 published
@@ -88,12 +88,12 @@ defmodule Aiur.Codex.DynamicToolProgressCapTest do
       opts = [event_publisher: publisher]
 
       # Exhaust the bare-progress quota
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "30%", %{"percent" => 30}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress", "60%", %{"percent" => 60}), opts))
 
       # `progress.<slug>` milestone events still publish freely
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress.tests-green", "tests pass", %{}), opts))
-      assert success?(DynamicTool.execute(@emit_event_tool, emit_args("progress.compile-clean", "compile clean", %{}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress.tests-green", "tests pass", %{}), opts))
+      assert success?(Dispatch.execute(@emit_event_tool, emit_args("progress.compile-clean", "compile clean", %{}), opts))
 
       assert length(capture_take(captured)) == 4
     end

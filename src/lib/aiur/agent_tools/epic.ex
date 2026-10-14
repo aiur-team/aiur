@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.Epic do
+defmodule Aiur.AgentTools.Epic do
   @moduledoc "Daemon-bound epic assignment tool; agents cannot supply provenance."
-  @behaviour Aiur.Codex.DynamicTool.Handler
-  alias Aiur.Codex.DynamicTool.{Errors, Response}
+  @behaviour Aiur.AgentTools.Handler
+  alias Aiur.AgentTools.{Errors, Response}
 
   @impl true
   def tools, do: ["aiur_set_epic"]

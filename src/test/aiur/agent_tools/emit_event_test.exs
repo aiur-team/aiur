@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.EmitEventTest do
+defmodule Aiur.AgentTools.EmitEventTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Codex.DynamicTool.EmitEvent
+  alias Aiur.AgentTools.EmitEvent
 
   setup do
     EmitEvent.reset_turn_quotas()

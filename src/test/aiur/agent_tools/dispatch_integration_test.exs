@@ -1,9 +1,9 @@
-defmodule Aiur.Codex.DynamicToolTest do
+defmodule Aiur.AgentTools.DispatchIntegrationTest do
   use Aiur.TestSupport
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
 
   test "tool_specs advertises the linear_graphql, review thread, and emit_alert contracts" do
-    specs = DynamicTool.tool_specs()
+    specs = Dispatch.tool_specs()
 
     assert Enum.any?(specs, fn
              %{
@@ -76,7 +76,7 @@ defmodule Aiur.Codex.DynamicToolTest do
   end
 
   test "unsupported tools return a failure payload with the supported tool list" do
-    response = DynamicTool.execute("not_a_real_tool", %{})
+    response = Dispatch.execute("not_a_real_tool", %{})
 
     assert response["success"] == false
 
@@ -111,7 +111,7 @@ defmodule Aiur.Codex.DynamicToolTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{
           "query" => "query Viewer { viewer { id } }",
@@ -134,7 +134,7 @@ defmodule Aiur.Codex.DynamicToolTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "aiur_reply_review_thread",
         %{
           "review_thread_id" => "PRRT_verified",
@@ -157,7 +157,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   test "aiur_reply_review_thread surfaces unverified replies as failures" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "aiur_reply_review_thread",
         %{
           "review_thread_id" => "PRRT_unverified",
@@ -178,7 +178,7 @@ defmodule Aiur.Codex.DynamicToolTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "aiur_resolve_review_thread",
         %{
           "review_thread_id" => "PRRT_done",
@@ -202,7 +202,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   test "aiur_resolve_review_thread surfaces token permission failures explicitly" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "aiur_resolve_review_thread",
         %{
           "review_thread_id" => "PRRT_denied",
@@ -234,7 +234,7 @@ defmodule Aiur.Codex.DynamicToolTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_alert",
         %{
           "name" => "phase.work.start",
@@ -257,7 +257,7 @@ defmodule Aiur.Codex.DynamicToolTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_alert",
         %{
           "name" => "phase.plan.start",
@@ -277,7 +277,7 @@ defmodule Aiur.Codex.DynamicToolTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_alert",
         %{
           "name" => "phase.review.start",
@@ -297,7 +297,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   test "emit_alert rejects explicit non-boolean needs_attention" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_alert",
         %{
           "name" => "phase.review.start",
@@ -315,7 +315,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   test "emit_alert rejects reserved system scopes" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "emit_alert",
         %{
           "name" => "task.done",

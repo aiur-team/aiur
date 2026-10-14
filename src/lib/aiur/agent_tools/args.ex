@@ -1,4 +1,4 @@
-defmodule Aiur.Codex.DynamicTool.Args do
+defmodule Aiur.AgentTools.Args do
   @moduledoc """
   Argument normalizers for dynamic tool input.
   """

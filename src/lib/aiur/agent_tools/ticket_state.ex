@@ -1,4 +1,4 @@
-defmodule Aiur.Codex.DynamicTool.TicketState do
+defmodule Aiur.AgentTools.TicketState do
   @moduledoc """
   Dynamic tool handler for `aiur_set_ticket_state`.
 
@@ -20,10 +20,10 @@ defmodule Aiur.Codex.DynamicTool.TicketState do
   own transitions.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
 
   # States an agent may declare for its own ticket. `todo` is the pre-work state
   # dispatch owns, and `merging`/`cancelled` are Executor dispositions — an agent

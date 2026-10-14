@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.BlockersTest do
+defmodule Aiur.AgentTools.BlockersTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.Blockers
+  alias Aiur.AgentTools.Blockers
 
   describe "execute/3 — aiur_declare_blocker" do
     test "declare via injected closure succeeds with expected payload shape" do

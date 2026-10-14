@@ -1,4 +1,4 @@
-defmodule Aiur.Codex.DynamicTool.Handler do
+defmodule Aiur.AgentTools.Handler do
   @moduledoc """
   Behaviour for a dynamic-tool handler module.
   """

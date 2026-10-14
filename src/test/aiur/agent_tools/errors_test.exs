@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.ErrorsTest do
+defmodule Aiur.AgentTools.ErrorsTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.Errors
+  alias Aiur.AgentTools.Errors
 
   describe "payload/1 — linear tool family" do
     test ":missing_query renders correct message" do

@@ -1,13 +1,13 @@
-defmodule Aiur.Codex.DynamicTool.ReviewThreads do
+defmodule Aiur.AgentTools.ReviewThreads do
   @moduledoc """
   Dynamic tool handler for `aiur_reply_review_thread` and `aiur_resolve_review_thread`.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Args
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Args
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
   alias Aiur.GitHub.Client, as: GitHubClient
 
   @reply_review_thread_description """

@@ -1,4 +1,4 @@
-defmodule Aiur.Codex.DynamicTool.Response do
+defmodule Aiur.AgentTools.Response do
   @moduledoc """
   Builds standard response envelopes for dynamic tool results.
   """

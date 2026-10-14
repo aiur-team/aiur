@@ -1,12 +1,12 @@
-defmodule Aiur.Codex.DynamicTool.LinearGraphQL do
+defmodule Aiur.AgentTools.LinearGraphQL do
   @moduledoc """
   Dynamic tool handler for the `linear_graphql` tool.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
   alias Aiur.Linear.Client, as: LinearClient
 
   @linear_graphql_description """

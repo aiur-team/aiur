@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.ArgsTest do
+defmodule Aiur.AgentTools.ArgsTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.Args
+  alias Aiur.AgentTools.Args
 
   describe "string/3" do
     test "trims whitespace and returns the trimmed value" do

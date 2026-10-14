@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.AgentCompaction.Handoff
   alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.GitHub.Client, as: GitHubClient
@@ -120,7 +120,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
 
-    :ok = DynamicTool.reset_turn_quotas()
+    :ok = Dispatch.reset_turn_quotas()
 
     lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
     operation_id = "turn:#{turn_number}"

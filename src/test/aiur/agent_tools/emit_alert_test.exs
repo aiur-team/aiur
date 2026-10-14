@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
+defmodule Aiur.AgentTools.EmitAlertTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.EmitAlert
+  alias Aiur.AgentTools.EmitAlert
 
   describe "execute/3" do
     test "5-arity emitter succeeds" do

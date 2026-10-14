@@ -1,12 +1,12 @@
-defmodule Aiur.Codex.DynamicToolLinearTest do
+defmodule Aiur.AgentTools.DispatchLinearTest do
   use Aiur.TestSupport
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
 
   test "linear_graphql accepts a raw GraphQL query string" do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         "  query Viewer { viewer { id } }  ",
         linear_client: fn query, variables, opts ->
@@ -23,7 +23,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
     test_pid = self()
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }", "operationName" => "Viewer"},
         linear_client: fn query, variables, opts ->
@@ -45,7 +45,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
     """
 
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => query},
         linear_client: fn forwarded_query, variables, opts ->
@@ -68,7 +68,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
   end
 
   test "linear_graphql rejects blank raw query strings even when using the default client" do
-    response = DynamicTool.execute("linear_graphql", "   ")
+    response = Dispatch.execute("linear_graphql", "   ")
 
     assert response["success"] == false
 
@@ -81,7 +81,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql marks GraphQL error responses as failures while preserving the body" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "mutation BadMutation { nope }"},
         linear_client: fn _query, _variables, _opts ->
@@ -99,7 +99,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql marks atom-key GraphQL error responses as failures" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
         linear_client: fn _query, _variables, _opts ->
@@ -112,7 +112,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql validates required arguments before calling Linear" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"variables" => %{"commentId" => "comment-1"}},
         linear_client: fn _query, _variables, _opts ->
@@ -129,7 +129,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
            }
 
     blank_query =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "   "},
         linear_client: fn _query, _variables, _opts ->
@@ -142,7 +142,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql rejects invalid argument types" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         [:not, :valid],
         linear_client: fn _query, _variables, _opts ->
@@ -161,7 +161,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql rejects invalid variables" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }", "variables" => ["bad"]},
         linear_client: fn _query, _variables, _opts ->
@@ -180,7 +180,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql formats transport and auth failures" do
     missing_token =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
         linear_client: fn _query, _variables, _opts -> {:error, :missing_linear_api_token} end
@@ -195,7 +195,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
            }
 
     status_error =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
         linear_client: fn _query, _variables, _opts -> {:error, {:linear_api_status, 503}} end
@@ -209,7 +209,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
            }
 
     request_error =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
         linear_client: fn _query, _variables, _opts ->
@@ -227,7 +227,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql formats unexpected failures from the client" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
         linear_client: fn _query, _variables, _opts -> {:error, :boom} end
@@ -245,7 +245,7 @@ defmodule Aiur.Codex.DynamicToolLinearTest do
 
   test "linear_graphql falls back to inspect for non-JSON payloads" do
     response =
-      DynamicTool.execute(
+      Dispatch.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
         linear_client: fn _query, _variables, _opts -> {:ok, :ok} end

@@ -1,7 +1,7 @@
-defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
+defmodule Aiur.AgentTools.ReviewThreadsTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.DynamicTool.ReviewThreads
+  alias Aiur.AgentTools.ReviewThreads
 
   describe "input validation — aiur_reply_review_thread" do
     test "missing review_thread_id returns required error" do

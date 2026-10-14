@@ -1,12 +1,12 @@
-defmodule Aiur.Codex.DynamicTool.Blockers do
+defmodule Aiur.AgentTools.Blockers do
   @moduledoc """
   Dynamic tool handler for `aiur_declare_blocker` and `aiur_unblock`.
   """
 
-  @behaviour Aiur.Codex.DynamicTool.Handler
+  @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.Codex.DynamicTool.Errors
-  alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.AgentTools.Errors
+  alias Aiur.AgentTools.Response
 
   @aiur_declare_blocker_description """
   Declare that another GitHub issue (by number) blocks the issue you
