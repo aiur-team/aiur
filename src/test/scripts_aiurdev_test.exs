@@ -89,6 +89,34 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "ENGINE_ARGS: status"
   end
 
+  test "pre-pr stays on the control path without a pinned opencode install" do
+    root = fake_repo()
+    cwd = Aiur.TestSupport.tmp_root!("aiurdev-pre-pr-control")
+    File.mkdir_p!(cwd)
+    File.touch!(Path.join(cwd, "pre-pr"))
+
+    for {file, function, code} <- [
+          {script(), "targets_release_deliberately", 1},
+          {script(), "pure_control_command", 0},
+          {Path.expand("../../scripts/lib/aiurdev-toolchain.sh", __DIR__), "requires_pinned_opencode", 1}
+        ] do
+      source = File.read!(file)
+      [definition] = Regex.run(~r/^#{function}\(\) \{.*?^\}/ms, source)
+      assert {"", ^code} = System.cmd("bash", ["-c", "cd #{cwd} && #{definition}\n#{function} pre-pr"])
+    end
+
+    {out, 0} =
+      run_shim(["pre-pr"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", Path.join(root, "missing-mise")},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: pre-pr"
+    refute out =~ "rebuilding"
+  end
+
   test "launch paths fail closed when pinned opencode is unavailable" do
     root = fake_repo()
 
