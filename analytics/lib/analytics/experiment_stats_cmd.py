@@ -4,11 +4,10 @@ import argparse
 from datetime import datetime, timezone
 import difflib
 import json
-import os
 from pathlib import Path
 import sys
-import tempfile
 
+from .materialize import _atomic_write
 from .stats import analyze
 from .stats.canonical import encode
 
@@ -17,21 +16,6 @@ def read(path):
     def reject_constant(value):
         raise ValueError(f"nonfinite JSON number: {value}")
     return json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
-
-
-def atomic_write(path, content):
-    name = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix=".result-", delete=False) as handle:
-            name = handle.name
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(name, path)
-    finally:
-        if name is not None and os.path.exists(name):
-            os.unlink(name)
 
 
 def main(argv=None):
@@ -61,7 +45,7 @@ def main(argv=None):
         now = args.now or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         from .stats.inputs import timestamp
         timestamp(now)
-        atomic_write(path, encode({"generated_at": now, "body": body}))
+        _atomic_write(path, encode({"generated_at": now, "body": body}))
         return 0
     except (ValueError, TypeError, KeyError, AttributeError, OSError, OverflowError) as error:
         print(f"experiment-stats: {error}", file=sys.stderr)

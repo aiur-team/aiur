@@ -1,6 +1,9 @@
 """Small structural JSON-schema validator; runtime remains dependency-free."""
 
 import json
+import re
+from datetime import datetime
+from copy import deepcopy
 from pathlib import Path
 import unittest
 
@@ -25,6 +28,27 @@ def validate(value, schema):
                  'integer': type(value) is int, 'null': value is None}
         if not any(valid[t] for t in types):
             raise ValueError('type')
+    if type(value) in (int, float):
+        if 'minimum' in schema and value < schema['minimum']:
+            raise ValueError('minimum')
+        if 'maximum' in schema and value > schema['maximum']:
+            raise ValueError('maximum')
+    if isinstance(value, str):
+        if 'pattern' in schema and re.search(schema['pattern'], value) is None:
+            raise ValueError('pattern')
+        if schema.get('format') == 'date-time':
+            date = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            if date.tzinfo is None:
+                raise ValueError('timezone')
+    if isinstance(value, (dict, list)):
+        prefix = 'Properties' if isinstance(value, dict) else 'Items'
+        if 'min' + prefix in schema and len(value) < schema['min' + prefix]:
+            raise ValueError('min' + prefix)
+        if 'max' + prefix in schema and len(value) > schema['max' + prefix]:
+            raise ValueError('max' + prefix)
+    if isinstance(value, list) and schema.get('uniqueItems'):
+        if len({json.dumps(item, sort_keys=True) for item in value}) != len(value):
+            raise ValueError('uniqueItems')
     if isinstance(value, dict):
         if any(key not in value for key in schema.get('required', [])):
             raise ValueError('required')
@@ -80,3 +104,20 @@ class SchemaTest(unittest.TestCase):
         envelope['body']['metrics']['latency']['tests'] = {}
         with self.assertRaises(ValueError):
             validate(envelope, SCHEMA)
+
+    def test_invalid_counts_groups_hashes_and_timestamp(self):
+        snapshot, spec = fixture()
+        good = {'generated_at': '2026-10-09T00:00:00Z', 'body': analyze(snapshot, spec)}
+        mutations = [
+            lambda e: e.update(generated_at='not-a-date'),
+            lambda e: e['body'].update(group_order=['a']),
+            lambda e: e['body'].update(group_order=['a','b','c']),
+            lambda e: e['body'].update(group_order=['a','a']),
+            lambda e: e['body']['inputs'].update(snapshot_sha256='invalid'),
+            lambda e: e['body']['metrics']['latency']['groups']['a'].update(n=-1),
+        ]
+        for mutation in mutations:
+            bad = deepcopy(good)
+            mutation(bad)
+            with self.assertRaises(ValueError):
+                validate(bad, SCHEMA)
