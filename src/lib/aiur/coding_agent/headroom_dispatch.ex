@@ -311,11 +311,9 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     path = Keyword.get_lazy(opts, :path, &ModelAvailability.path/0)
 
     codex_candidate? = Enum.any?(candidates, &(ModelAvailability.backend_key(&1.backend) == "codex"))
-    codex_stale? = codex_candidate? and stale_codex_reading?(state, now, opts)
 
-    if codex_stale? do
+    if codex_candidate? and stale_codex_reading?(state, now, opts) do
       probe_opts = [path: path, now: now]
-
       ModelAvailability.schedule_retry("codex", now, path: path)
       schedule_probe("codex", probe_opts, opts)
     end
@@ -327,11 +325,17 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     case parse_time(Map.get(entry, "observed_at")) do
       %DateTime{} = observed_at ->
         stale? = DateTime.diff(now, observed_at, :second) > max_reading_age_seconds(opts)
-        retry_due? = ModelAvailability.retry_scheduled?("codex", state: state, now: now)
-        stale? and (not Map.has_key?(entry, "retry_scheduled_at") or retry_due?)
+        stale? and retry_due?(entry, state, now)
 
       nil ->
         true
+    end
+  end
+
+  defp retry_due?(entry, state, now) do
+    case parse_time(Map.get(entry, "retry_scheduled_at")) do
+      %DateTime{} = retry_at -> DateTime.compare(now, retry_at) != :lt
+      nil -> not ModelAvailability.retry_scheduled?("codex", state: state, now: now)
     end
   end
 
