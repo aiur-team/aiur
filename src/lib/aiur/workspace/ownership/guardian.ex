@@ -113,7 +113,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       provider_scope: Map.get(receipt, :provider_scope, :unknown),
       provider_boot_id: Map.get(receipt, :provider_boot_id),
       host_boot_id_fun: Keyword.get(opts, :host_boot_id_fun, &HostBoot.id/0),
-      notify_waiter_fun: Keyword.get(opts, :notify_waiter_fun, &Kernel.send/2),
+      before_notify_fun: Keyword.get(opts, :before_notify_fun, fn _waiter -> :ok end),
       waiters: MapSet.new(),
       release_waiters: [],
       reap_fun: Keyword.get(opts, :reap_fun, &ProcessTree.reap_process_group/2),
@@ -642,7 +642,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         Registry.unregister(state.registry, state.lease.ticket)
         emit_telemetry(%{state | lease: final_lease}, :end, :released)
         Retention.resolve(final_lease)
-        Enum.each(state.waiters, fn waiter -> state.notify_waiter_fun.(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation}) end)
+
+        Enum.each(state.waiters, fn waiter ->
+          state.before_notify_fun.(waiter)
+          send(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation})
+        end)
 
         Enum.each(state.release_waiters, fn
           {from, ref, :release} -> reply(from, ref, :ok)

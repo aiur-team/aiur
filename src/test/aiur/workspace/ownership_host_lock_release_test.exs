@@ -12,9 +12,8 @@ defmodule Aiur.Workspace.OwnershipHostLockReleaseTest do
 
     assert {:ok, lease} =
              Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
-               notify_waiter_fun: fn waiter, message ->
+               before_notify_fun: fn _waiter ->
                  send(parent, {:host_lock_at_notification, HostLock.holder(workspace)})
-                 send(waiter, message)
                end
              )
 
