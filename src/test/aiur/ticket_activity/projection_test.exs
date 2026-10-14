@@ -364,6 +364,22 @@ defmodule Aiur.TicketActivity.ProjectionTest do
            } = Projection.snapshot(state, ticket, @now)
   end
 
+  test "preserves allowlisted compaction state in safe activity evidence" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(observation(ticket, :agent_alert, "compaction.failed", %{compaction_status: :failed}, 1))
+
+    assert %{
+             latest_evidence: %{
+               source: %{kind: :agent_alert, name: "compaction.failed"},
+               attributes: %{compaction_status: :failed}
+             }
+           } = Projection.snapshot(state, ticket, @now)
+  end
+
   test "drops malformed timestamp and event metadata from public evidence" do
     ticket = identity()
 

@@ -150,7 +150,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
       %{
         label: "Capacity elsewhere",
         val: Presenter.wasted_slot_hours_label(k.wasted_slot_hours),
-        sub: "slots not on #{member_word(scope)}",
+        sub: "slots not on #{member_word(scope)}#{if(k.wasted_slot_hours_partial, do: " (partial; missing cap observations)", else: "")}",
         tone: "block"
       }
     ] ++ optimistic_items(Map.get(k, :optimistic, %{starts: 0}))

@@ -44,7 +44,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.ci_recovery_max_per_poll` | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
 | `agent.ci_recovery_max_per_hour` | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
 | `agent.max_cpu_pressure` | float or nil | 20.0 | Linux CPU PSI `some avg60` ceiling in percent (greater than 0, at most 100). Holds new dispatch above the ceiling; null disables it. Independent of scheduler count; avg10 is diagnostic and does not gate dispatch. |
-| `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. Halves capacity after 3 fresh above-target samples, subject to the decrease cooldown; ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
+| `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. After 3 fresh above-target samples and the decrease cooldown, floors the reduction at half occupied slots or the recorded safe level, capped at the current envelope. Ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
 | `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
 | `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
 | `agent.run_queue_threshold` | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
@@ -215,7 +215,7 @@ Fleet admission uses CPU PSI and configured reserves, falling back to load when 
 
 | Signal | Admission behavior |
 | --- | --- |
-| CPU pressure and AIMD | `agent.max_cpu_pressure` and `agent.target_cpu_pressure` use Linux CPU PSI `some avg60` percentages. AIMD halves after 3 fresh overload samples, respects `agent.load_cooldown_seconds`, and adds `agent.load_ramp_step` only below 80% of target. |
+| CPU pressure and AIMD | `agent.max_cpu_pressure` and `agent.target_cpu_pressure` use Linux CPU PSI `some avg60` percentages. After 3 fresh overload samples and `agent.load_cooldown_seconds`, AIMD floors its reduction at half occupied slots or the recorded safe level, capped at the current envelope; it adds `agent.load_ramp_step` only below 80% of target. |
 | PSI-unavailable fallback | `agent.max_load_average`, `agent.target_load_average`, and optional `agent.run_queue_threshold` use per-scheduler load and run queue; CPU corroboration applies when available, otherwise raw load. Status explicitly names the fallback. |
 | Memory, file descriptors, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. Build occupancy does not defer dispatch; build concurrency, stagger, and nice throttle bursts separately. |
 | Recovery | Gates reopen when pressure clears; unavailable CPU pressure does not count as a zero-pressure recovery sample. |
