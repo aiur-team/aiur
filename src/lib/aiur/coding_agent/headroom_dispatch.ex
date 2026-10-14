@@ -37,7 +37,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.{Headroom, UsageReadings}
-  alias Aiur.{CodingAgent, CodexProber, Config, Issue, ModelAvailability}
+  alias Aiur.{CodexProber, CodingAgent, Config, Issue, ModelAvailability}
   alias Aiur.Config.RoutingValue
 
   @policy "headroom"
