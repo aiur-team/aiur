@@ -37,7 +37,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.{Headroom, UsageReadings}
-  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
+  alias Aiur.{CodingAgent, CodexProber, Config, Issue, ModelAvailability}
   alias Aiur.Config.RoutingValue
 
   @policy "headroom"
@@ -118,9 +118,8 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   The ledger is written only when a session of that backend starts or reports
   its limits, or when the background probe runs (only while every candidate is
   limited). A backend that is not getting work can therefore hold a reading
-  that is days old, and usage only rises inside a window. A reading older than
-  `agent.headroom_reading_max_age_seconds` is returned as `stale: true`, which
-  scores as unknown. `age_seconds` carries the age either way.
+  that is days old, and usage only rises inside a window. Stale readings trigger
+  a non-blocking Codex probe while retaining the last known score and its age.
   """
   @spec backend_reading(String.t(), keyword()) :: Headroom.reading()
   def backend_reading(backend, opts \\ []) do
@@ -264,6 +263,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     state = ledger_state(opts)
     opts = Keyword.put(opts, :max_reading_age_seconds, max_reading_age_seconds(opts))
+    maybe_probe_stale_codex(candidates, state, now, opts)
     meters = account_meters(candidates, now, opts)
     per_backend = candidates |> Enum.uniq_by(&{&1.backend, &1.account}) |> Enum.frequencies_by(& &1.backend)
 
@@ -300,14 +300,44 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   defp meter_reading(_entry, _now, _opts), do: nil
 
   # A reading with no observation time cannot be shown as current.
-  defp with_age(reading, nil, _now, _opts), do: Map.put(reading, :stale, true)
+  defp with_age(reading, nil, _now, _opts), do: reading
 
-  defp with_age(reading, %DateTime{} = observed_at, now, opts) do
+  defp with_age(reading, %DateTime{} = observed_at, now, _opts) do
     age = max(DateTime.diff(now, observed_at, :second), 0)
+    Map.put(reading, :age_seconds, age)
+  end
 
-    if age > max_reading_age_seconds(opts),
-      do: %{stale: true, age_seconds: age, source: reading.source},
-      else: Map.put(reading, :age_seconds, age)
+  defp maybe_probe_stale_codex(candidates, state, now, opts) do
+    path = Keyword.get_lazy(opts, :path, &ModelAvailability.path/0)
+
+    codex_candidate? = Enum.any?(candidates, &(ModelAvailability.backend_key(&1.backend) == "codex"))
+    codex_stale? = codex_candidate? and stale_codex_reading?(state, now, opts)
+
+    if codex_stale? do
+      probe_opts = [path: path, now: now]
+
+      ModelAvailability.probe_stale_limits(["codex"],
+        Keyword.merge(probe_opts,
+          state: state,
+          stale_after_seconds: max_reading_age_seconds(opts),
+          probe_fun: &schedule_probe(&1, &2, opts)
+        )
+      )
+    end
+  end
+
+  defp stale_codex_reading?(state, now, opts) do
+    entry = get_in(state, ["backends", "codex"]) || %{}
+
+    case parse_time(Map.get(entry, "observed_at")) do
+      %DateTime{} = observed_at -> DateTime.diff(now, observed_at, :second) > max_reading_age_seconds(opts)
+      nil -> true
+    end
+  end
+
+  defp schedule_probe(backend, probe_opts, opts) do
+    probe_fun = Keyword.get(opts, :probe_fun, &CodexProber.probe_async/2)
+    probe_fun.(backend, probe_opts)
   end
 
   defp parse_time(%DateTime{} = value), do: value

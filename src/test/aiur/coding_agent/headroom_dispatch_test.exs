@@ -7,6 +7,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config.Schema
   alias Aiur.Issue
+  alias Aiur.ModelAvailability
 
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
@@ -124,6 +125,19 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   end
 
   describe "candidates" do
+    test "Codex is refreshed at every stale dispatch even when the previous claim chose Claude" do
+      old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
+      test_pid = self()
+
+      probe = fn backend, _options ->
+        send(test_pid, {:probe, backend})
+        :ok
+      end
+
+      assert {:ok, %Issue{selected_backend: "claude"}} = select(ticket(), state: old, probe_fun: probe)
+      assert_receive {:probe, "codex"}, 100
+    end
+
     test "a single-string routing level keeps its backend; headroom only picks the account" do
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "everdred"}} =
                select(ticket(), routing_candidates: %{3 => ["claude:sonnet"]}, usage_snapshot: meters(%{"default" => {90, 0}, "everdred" => {36, 0}}))
@@ -159,27 +173,30 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
     end
 
-    # Review of #3969: the probe runs only while every candidate is limited, so
-    # a backend that gets no work keeps a ledger reading that can be days old.
-    test "a reading older than the freshness bound ranks as unknown and shows its age" do
+    test "a stale Codex ledger schedules a probe and keeps its known score with age" do
       old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
-
-      assert HeadroomDispatch.backend_reading("codex", state: old, now: @now, max_reading_age_seconds: 1800) ==
-               %{stale: true, age_seconds: 259_200, source: "ledger"}
-
-      # Codex at "5%" would lose to unknown anyway; make the old number look generous instead.
       generous = put_in(old, ["backends", "codex", "weekly", "used"], 1)
-      exhausted_ish = meters(%{"default" => {100, 0}, "everdred" => {95, 0}})
+      claude = meters(%{"default" => {100, 0}, "everdred" => {100, 0}})
+      test_pid = self()
 
-      assert {:ok, issue} = select(ticket(), state: generous, usage_snapshot: exhausted_ish, max_reading_age_seconds: 1800)
-      assert [%{name: "codex", status: :unknown, stale: true, age_seconds: 259_200} | _] = issue.dispatch_selection.candidates
-      assert issue.dispatch_selection.summary =~ "codex=unknown (stale, 3d old)"
+      probe = fn backend, options ->
+        send(test_pid, {:probe, backend, options})
+        :ok
+      end
 
-      fresh_claude = meters(%{"default" => {20, 0}, "everdred" => {95, 0}})
-      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} = select(ticket(), state: generous, usage_snapshot: fresh_claude, max_reading_age_seconds: 1800)
+      assert {:ok, %Issue{selected_backend: "codex"} = issue} =
+               select(ticket(), state: generous, usage_snapshot: claude, max_reading_age_seconds: 1800, probe_fun: probe)
+
+      assert_receive {:probe, "codex", [path: _, now: @now]}, 100
+      assert Enum.any?(issue.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :known and &1.remaining_percent == 99 and &1.age_seconds == 259_200))
+
+      scheduled = put_in(generous, ["backends", "codex", "retry_scheduled_at"], "2026-10-10T06:02:00Z")
+
+      assert ModelAvailability.probe_stale_limits(["codex"], state: scheduled, now: @now, stale_after_seconds: 1800, probe_fun: probe, path: Path.join(System.tmp_dir!(), "unused-model-usage.json")) ==
+               0
     end
 
-    test "an old per-account meter reading is unknown too, and a current one shows its age" do
+    test "an old per-account meter reading keeps its value and age" do
       stale_meter = fn
         "claude", _names ->
           %{
@@ -191,9 +208,9 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
           %{}
       end
 
-      assert {:ok, %Issue{selected_account: "everdred"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
+      assert {:ok, %Issue{selected_account: "default"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
       assert issue.dispatch_selection.summary =~ "claude/everdred=50% (10m old)"
-      assert issue.dispatch_selection.summary =~ "claude/default=unknown (stale, 2h old)"
+      assert issue.dispatch_selection.summary =~ "claude/default=100% (2h old)"
     end
   end
 

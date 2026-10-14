@@ -240,7 +240,7 @@ defmodule Aiur.ModelAvailability do
     stale_backends =
       backends
       |> Enum.filter(fn backend ->
-        backend_key(backend) == "codex" and stale_or_unknown?(backend, state: state, now: now, path: path) and
+        backend_key(backend) == "codex" and stale_or_unknown?(backend, state: state, now: now, path: path, stale_after_seconds: Keyword.get(opts, :stale_after_seconds, @stale_threshold_seconds)) and
           probe_due?(backend, state: state, now: now, path: path)
       end)
 
@@ -258,7 +258,12 @@ defmodule Aiur.ModelAvailability do
     backend = backend_key(backend)
     state = Keyword.fetch!(opts, :state)
     entry = get_in(state, ["backends", backend]) || %{}
-    not Map.has_key?(entry, "observed_at") or stale?(backend, opts)
+    observed_at = parse_time(Map.get(entry, "observed_at"))
+
+    case observed_at do
+      %DateTime{} = time -> DateTime.diff(Keyword.fetch!(opts, :now), time, :second) > Keyword.get(opts, :stale_after_seconds, @stale_threshold_seconds)
+      nil -> true
+    end
   end
 
   defp probe_due?(backend, opts) do
