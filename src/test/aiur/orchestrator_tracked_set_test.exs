@@ -29,7 +29,9 @@ defmodule Aiur.OrchestratorTrackedSetTest do
     # a concurrent poll happens to stay out of the way.
     freeze_poll_cycle(orchestrator_pid)
     # The freeze stops new polls only; one already in flight still refreshes the table (#4360).
-    await_orchestrator_state(orchestrator_pid, &(map_size(&1.tracker_tasks) == 0))
+    await_orchestrator_state(orchestrator_pid, fn state ->
+      state.poll_frozen and not state.poll_check_in_progress and map_size(state.tracker_tasks) == 0
+    end)
 
     assert :ok = TrackedSet.reset(["681"])
     assert Orchestrator.issue_tracked?("681")
