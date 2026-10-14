@@ -89,6 +89,11 @@ Code.require_file("support/refresh_trace.ex", __DIR__)
 Code.require_file("support/github_client_test_support.ex", __DIR__)
 Code.require_file("support/event_ticket.ex", __DIR__)
 
+# These imports must load before the glob, which sorts cache support before its dependency.
+Code.require_file("support/agent_github_guard_test_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_cache_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_case.ex", __DIR__)
+
 # Support loads by glob, so a new support file needs no line here. The explicit list below
 # stays only until the queue of open PRs has drained (#4219); do not add to it.
 # Sorted order puts some callers ahead of the support module they call at runtime.
@@ -108,6 +113,8 @@ Code.require_file("support/muse_fixture.exs", __DIR__)
 Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
 Code.require_file("support/init_case.ex", __DIR__)
 Code.require_file("support/rejected_workflow.ex", __DIR__)
+Code.require_file("support/dispatcher_test_support.ex", __DIR__)
+Code.require_file("support/dispatcher_blocked_by_cost_support.ex", __DIR__)
 Code.require_file("support/claude_meter_test_support.exs", __DIR__)
 Code.require_file("support/build_order_github_graph_test_adapter.ex", __DIR__)
 Code.require_file("support/build_order_github_graph_fixtures.ex", __DIR__)
