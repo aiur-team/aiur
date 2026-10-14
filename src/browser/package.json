@@ -29,7 +29,7 @@
     "test:models-panel": "node scripts/run-browser-tests.mjs tests/models-panel.browser.spec.mjs",
     "test:quota-panel": "node scripts/run-browser-tests.mjs tests/quota-panel.browser.spec.mjs",
     "test:parity": "node scripts/run-browser-tests.mjs tests/parity-composition.browser.spec.mjs",
-    "test:streamdeck": "node scripts/run-browser-tests.mjs tests/streamdeck-emulator.browser.spec.mjs",
+    "test:streamdeck": "node scripts/run-browser-tests.mjs tests/streamdeck-emulator-dials-keys.browser.spec.mjs tests/streamdeck-emulator-modes-paging.browser.spec.mjs tests/streamdeck-emulator-surface.browser.spec.mjs",
     "test:streamdeck-flow": "node scripts/run-browser-tests.mjs tests/streamdeck-operator-flow.browser.spec.mjs",
     "test:visual": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/visual-shell.browser.spec.mjs",
     "test:harness": "node scripts/run-browser-tests.mjs tests/harness-failures.spec.mjs",

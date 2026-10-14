@@ -64,9 +64,9 @@ defmodule Aiur.Workspace.WipPreservation do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.Config.Paths
+  alias Aiur.Signal
   alias Aiur.Workspace.WipPreservation.{Capture, Command, Retention}
 
   @root_name "wip-preserved"
@@ -248,7 +248,7 @@ defmodule Aiur.Workspace.WipPreservation do
       Logger.error("Refusing #{action}: uncommitted workspace state could not be preserved ticket=#{ticket} workspace=#{workspace} reason=#{inspect(reason)}")
       message = refusal_message(workspace, ticket, action, reason, Keyword.get(opts, :terminal?, false))
 
-      Alerts.emit_system("ticket.#{ticket}.workspace.wip_preservation_failed",
+      Signal.alert("ticket.#{ticket}.workspace.wip_preservation_failed",
         issue: ticket,
         message: message,
         reason: message,
@@ -461,7 +461,7 @@ defmodule Aiur.Workspace.WipPreservation do
   @spec emit_discarded_alert(String.t(), Path.t(), term()) :: :ok
   def emit_discarded_alert(ticket, workspace, reason) do
     message = "Deleted the workspace of #{ticket} at #{workspace} without saving its uncommitted work, as an operator authorized (#{inspect(reason)})."
-    _ = Alerts.emit_system("ticket.#{ticket}.workspace.wip_discarded", issue: ticket, message: message, reason: message, severity: "warning")
+    _ = Signal.alert("ticket.#{ticket}.workspace.wip_discarded", issue: ticket, message: message, reason: message, severity: "warning")
     :ok
   end
 
@@ -647,7 +647,7 @@ defmodule Aiur.Workspace.WipPreservation do
         if(skipped == [], do: "", else: " #{length(skipped)} untracked paths were over the size bounds and not saved; the manifest lists them.") <>
         " The next agent turn gets the restore commands."
 
-    Alerts.emit_system("ticket.#{ticket}.workspace.wip_preserved",
+    Signal.alert("ticket.#{ticket}.workspace.wip_preserved",
       issue: ticket,
       message: message,
       reason: message,
@@ -660,7 +660,7 @@ defmodule Aiur.Workspace.WipPreservation do
       "Deleted the workspace of closed ticket #{ticket} at #{workspace} after its uncommitted-work save timed out (#{inspect(reason)}). " <>
         "Only a manifest was saved, at #{artifact["artifact_dir"]}."
 
-    Alerts.emit_system("ticket.#{ticket}.workspace.wip_preservation_incomplete",
+    Signal.alert("ticket.#{ticket}.workspace.wip_preservation_incomplete",
       issue: ticket,
       message: message,
       reason: message,
