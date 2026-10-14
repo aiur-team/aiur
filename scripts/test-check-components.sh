@@ -36,7 +36,7 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
                 'src/lib/aiur/config/paths.ex': '  def fixture_dir, do: "/fixture"\n'}
             components[0]['paths'].extend(declarations)
             components[0]['owns'].update(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'], state=['fixture_dir'])
-        manifest = dict(manifest_version=1, components=components, features=[])
+        manifest = dict(manifest_version=1, directory_published=False, components=components, features=[])
         if change:
             change(manifest)
         (root / 'components.json').write_text(json.dumps(manifest))
@@ -485,6 +485,8 @@ else:
             assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
             print('PASS: missing_elixir_exits_2')
 
+from components.docs_fixtures import run as docs_fixtures
+ran.update(docs_fixtures(repo, selected))
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
