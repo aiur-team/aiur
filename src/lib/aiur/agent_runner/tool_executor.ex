@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
 
-  alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
+  alias Aiur.{Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
@@ -101,7 +101,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           # pre-build the full topic) aren't double-prefixed.
           topic = prefix_with_ticket_namespace(name, issue)
 
-          Alerts.emit_custom(topic, message,
+          Signal.agent_alert(topic, message,
             issue: issue,
             workspace: workspace,
             worker_host: worker_host,
@@ -380,11 +380,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{issue: issue} = event_context
     identifier = issue_identifier(issue)
 
-    topic =
-      case identifier do
-        nil -> "agent.#{name}"
-        id -> "ticket.#{id}.agent.#{name}"
-      end
+    topic = DynamicTool.EmitEvent.topic(identifier, name)
 
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}

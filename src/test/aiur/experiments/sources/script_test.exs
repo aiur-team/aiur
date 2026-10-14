@@ -19,11 +19,11 @@ defmodule Aiur.Experiments.Sources.ScriptTest do
   end
 
   test "timeout stops the child process and its descendants", %{root: root} do
-    path = write_script(root, "sleep 0.3\nprintf leaked > survived\n")
-    result = Script.observations(metric(["/bin/sh", path]), "app/request_latency", @window, %{repo_path: root, script_timeout_ms: 30})
+    path = write_script(root, "sleep 30 &\nprintf '%s\\n' \"$!\" > process.pid\nsleep 30\n")
+    result = Script.observations(metric(["/bin/sh", path]), "app/request_latency", @window, %{repo_path: root, script_timeout_ms: 1_000})
     assert result == %{coverage: %{state: :unavailable, reason: :timeout}, observations: []}
-    Process.sleep(350)
-    refute File.exists?(Path.join(root, "survived"))
+    child_pid = Path.join(root, "process.pid") |> File.read!() |> String.trim() |> String.to_integer()
+    refute Aiur.ProcessTree.process_alive?(child_pid)
   end
 
   test "continuous output cannot starve the timeout", %{root: root} do
