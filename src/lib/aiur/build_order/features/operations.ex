@@ -146,7 +146,8 @@ defmodule Aiur.BuildOrder.Features.Operations do
   defp add_events(number, slug, epic, meta, projection) do
     owner = projection.owners[number]
     confirmed = meta.confirmed or match?(%{feature: ^slug, confirmed: true}, owner)
-    same? = match?(%{feature: ^slug, epic: ^epic, confirmed: ^confirmed}, owner)
+    label_echo? = String.starts_with?(meta.source, "label:") and match?(%{feature: ^slug, confirmed: true}, owner) and not Map.has_key?(meta, :epic)
+    same? = label_echo? or match?(%{feature: ^slug, epic: ^epic, confirmed: ^confirmed}, owner)
 
     leave =
       case owner do

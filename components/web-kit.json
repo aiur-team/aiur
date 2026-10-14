@@ -1,8 +1,8 @@
 {
   "id": "web-kit",
-  "name": "Phoenix helper library for component route, socket and controller modules (RC-39)",
+  "name": "Web helpers",
   "layer": 1,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur_web/capability_error.ex",
     "src/lib/aiur_web/kit.ex",
@@ -27,5 +27,16 @@
   },
   "prior": [
     "WEB"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Provides shared helpers for components that offer web pages or APIs.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-R1"
 }

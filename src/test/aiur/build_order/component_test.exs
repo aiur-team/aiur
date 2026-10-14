@@ -130,7 +130,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.BackgroundCpu,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
-    Aiur.Experiments.Checkpointer
+    Aiur.Experiments.Checkpointer,
+    Aiur.BuildOrder.Features.LabelProjection
   ]
 
   setup do

@@ -12,17 +12,13 @@ import sys
 import tempfile
 
 repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / 'scripts'))
+from components.public_fixtures import fixture_component as component, complete_fixture, verify_format
 with_node = '--with-node' in sys.argv[2:]
 with_elixir = '--with-elixir' in sys.argv[2:]
 selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
-
-
-def component(cid, paths):
-    return dict(id=cid, name=cid, layer=0, kind='required', paths=paths,
-                facades=['Aiur.' + cid.title()], facade_pending=None,
-                requires=[], optional=[], owns={k: [] for k in ('config', 'env', 'state', 'capabilities')}, prior=[])
 
 
 def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None, rules='ownership', links=None):
@@ -40,7 +36,7 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
                 'src/lib/aiur/config/paths.ex': '  def fixture_dir, do: "/fixture"\n'}
             components[0]['paths'].extend(declarations)
             components[0]['owns'].update(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'], state=['fixture_dir'])
-        manifest = dict(manifest_version=1, components=components)
+        manifest = dict(manifest_version=1, components=components, features=[])
         if change:
             change(manifest)
         (root / 'components.json').write_text(json.dumps(manifest))
@@ -73,12 +69,7 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
         for message in messages:
             assert message in output, f'{name}: missing {message!r}: {output}'
         if format:
-            content = (root / 'components.json').read_bytes()
-            sys.path.insert(0, str(repo / 'scripts'))
-            from components.manifest import canonical
-            assert json.loads(content) == canonical(dict(manifest, components=sorted(components, key=lambda c: (c['layer'], c['id']))))
-            subprocess.run(args, env=env, check=True, capture_output=True)
-            assert (root / 'components.json').read_bytes() == content, f'{name}: formatting not idempotent'
+            verify_format(root, args, manifest, components, name)
         print(f'PASS: {name}')
 
 
@@ -119,16 +110,19 @@ check('unknown_dependency_fails', [dict(component('a', []), requires=['absent'])
       ('/components/0/requires: unknown component absent',))
 check('duplicate_component_fails', [component('a', []), component('a', [])], [], 2, ('duplicate component id',))
 check('relative_paths_required', [component('a', ['../src/lib/a.ex'])], [], 2, ('/components/0/paths',))
-check('binary_kind_required', [dict(component('a', []), kind='experimental')], [], 2, ('/components/0/kind',))
+check('public_kind_required', [dict(component('a', []), kind='experimental')], [], 2, ('/components/0/kind',))
 check('boolean_layer_rejected', [dict(component('a', []), layer=True)], [], 2, ('/components/0/layer',))
 check('private_namespaces_supported', [dict(component('a', ['src/lib/a.ex']), private_namespaces=['Aiur.Codex.'])], ['src/lib/a.ex'])
-check('future_public_fields_supported', [dict(component('a', ['src/lib/a.ex']), summary='A', status='core', install={'type': 'included'}, docs=['concepts/build-orders.md'], feature_id='MP-R1')],
+check('future_public_fields_supported', [dict(component('a', ['src/lib/a.ex']), summary='Provides fixture behavior.', status='core', install={'type': 'included'}, docs=['concepts/build-orders.md'], feature_id='MP-R1')],
       ['src/lib/a.ex'], change=lambda m: m.update(features=[], directory_published=False))
 check('required_property_fails', [component('a', [])], [], 2, ('/components/0/name: required property',),
       change=lambda m: m['components'][0].pop('name'))
 check('empty_name_fails', [dict(component('a', []), name='')], [], 2, ('/components/0/name: empty string',))
 check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])], ['src/lib/a.ex'], 2,
       ('/components/0/paths: duplicate items',))
+from components.public_fixtures import run as public_checks
+public_checks(component, check)
+
 if with_node:
     def imports(name, source, code=0, messages=(), dependencies=None, extra=None, links=None):
         files = {'packages/a/package.json': json.dumps(dict(name='a', dependencies=dependencies or {})),
@@ -284,6 +278,7 @@ else:
             root = Path(directory)
             shutil.copytree(repo / 'scripts/components/fixtures' / fixture, root, dirs_exist_ok=True)
             shutil.copyfile(repo / 'components.schema.json', root / 'components.schema.json')
+            complete_fixture(root)
             if source is not None:
                 (root / 'src/lib/a.ex').write_text(source)
             if change:
@@ -405,8 +400,8 @@ else:
         path = root / 'components.json'
         manifest = json.loads(path.read_text())
         a, b = manifest['components']
-        a.update(layer=source_layer, kind=source_kind)
-        b.update(layer=target_layer, kind=target_kind)
+        a.update(layer=source_layer, dependency_kind=source_kind)
+        b.update(layer=target_layer, dependency_kind=target_kind)
         if target_kind == 'optional':
             a.update(requires=[], optional=['b'])
         if cycle:

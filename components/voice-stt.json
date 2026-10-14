@@ -1,8 +1,8 @@
 {
   "id": "voice-stt",
-  "name": "Speech-to-text and TTS (MP-R5)",
+  "name": "Voice input and speech",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/eleven_labs.ex",
     "src/lib/aiur/eleven_labs/**",
@@ -36,5 +36,24 @@
   },
   "prior": [
     "VOX"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Transcribes voice input and synthesizes speech through the configured voice provider.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "apis/elevenlabs.md"
+  ],
+  "config": [
+    "elevenlabs"
+  ],
+  "env": [
+    "ELEVENLABS_API_KEY"
+  ],
+  "capabilities": [
+    "voice.stt",
+    "voice.tts"
   ]
 }

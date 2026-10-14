@@ -1,8 +1,8 @@
 {
   "id": "docs-site",
-  "name": "Docs site and the component directory page",
+  "name": "Documentation",
   "layer": 5,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "website/docs-app/**"
   ],
@@ -18,5 +18,15 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Publishes setup guides, operating concepts and reference pages for Aiur.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

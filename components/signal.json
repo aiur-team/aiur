@@ -1,8 +1,8 @@
 {
   "id": "signal",
-  "name": "Signal and telemetry port",
+  "name": "Signals and telemetry",
   "layer": 1,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/log_file.ex",
     "src/lib/aiur/perf.ex",
@@ -25,5 +25,15 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Carries operational signals so other components can record and display them.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

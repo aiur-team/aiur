@@ -42,7 +42,13 @@ def canonical(value):
 
 
 def format_json(value):
-    return json.dumps(canonical(value), ensure_ascii=False, indent=2) + '\n'
+    value = canonical(value)
+    text = json.dumps(value, ensure_ascii=False, indent=2)
+    if isinstance(value, dict) and 'features' in value:
+        expanded = json.dumps(value['features'], ensure_ascii=False, indent=2).replace('\n', '\n  ')
+        compact = '[\n' + ',\n'.join('    ' + json.dumps(f, ensure_ascii=False) for f in value['features']) + '\n  ]'
+        text = text.replace('  "features": ' + expanded, '  "features": ' + compact)
+    return text + '\n'
 
 
 def write_manifest(root, manifest):
