@@ -28,11 +28,11 @@ defmodule Aiur.AgentCompaction.HandoffTest do
     session = %{backend: "claude", thread_id: "thread-1"}
     callback = fn status, thread_id, _detail -> send(self(), {:status, status, thread_id}) end
 
-    assert :ok = Handoff.run("human-review", session, "issue-1", 4, config, nil, callback)
+    assert :ok = Handoff.execute("human-review", session, "issue-1", 4, config, nil, callback)
     assert_received {:status, :unsupported, "thread-1"}
     assert {:ok, %{"thread_id" => "thread-1", "status" => "unsupported"}} = Store.load("issue-1", dir: dir)
 
-    assert :ok = Handoff.run("human-review", session, "issue-1", 4, config, nil, callback)
+    assert :ok = Handoff.execute("human-review", session, "issue-1", 4, config, nil, callback)
     refute_received {:status, :unsupported, "thread-1"}
   end
 
@@ -41,7 +41,7 @@ defmodule Aiur.AgentCompaction.HandoffTest do
     session = %{backend: "codex", thread_id: "thread-1"}
     callback = fn status, thread_id, _detail -> send(self(), {:status, status, thread_id}) end
 
-    assert :ok = Handoff.run("human-review", session, "issue-1", 4, config, nil, callback)
+    assert :ok = Handoff.execute("human-review", session, "issue-1", 4, config, nil, callback)
     refute_received {:status, :unsupported, "thread-1"}
   end
 end

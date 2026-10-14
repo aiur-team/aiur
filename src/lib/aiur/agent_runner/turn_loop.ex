@@ -2,8 +2,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentCompaction.Config, as: AgentCompactionConfig
-  alias Aiur.AgentCompaction.Handoff, as: AgentCompactionHandoff
+  alias Aiur.AgentCompaction.Handoff
   alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -336,79 +335,16 @@ defmodule Aiur.AgentRunner.TurnLoop do
       {:done, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
 
-        compact_for_review_handoff(turn_context, app_session, refreshed_issue)
+        Handoff.run(turn_context, app_session, refreshed_issue)
+        return_completed(turn_context, refreshed_issue)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp compact_for_review_handoff(turn_context, app_session, issue) do
-    config = AgentCompactionConfig.settings()
-    tokens = token_count_for_compaction(turn_context, issue, config)
-    callback = compaction_status_callback(turn_context, app_session, issue)
-
-    _ = AgentCompactionHandoff.run(issue.state, app_session, issue.identifier, turn_context.turn_number, config, tokens, callback)
-    return_completed(turn_context, issue)
-  rescue
-    error ->
-      Logger.warning("Codex compaction failed; preserving normal review handoff identifier=#{issue.identifier} reason=#{Exception.message(error)}")
-      return_completed(turn_context, issue)
-  end
-
-  defp current_agent_total_tokens(%{orchestrator: orchestrator}, issue) do
-    case Aiur.Orchestrator.status(orchestrator, 5_000) do
-      entries when is_list(entries) ->
-        case Enum.find(entries, &(Map.get(&1, :identifier) == issue.identifier)) do
-          %{agent_total_tokens: tokens} when is_integer(tokens) and tokens >= 0 -> tokens
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  rescue
-    _error -> nil
-  end
-
-  defp token_count_for_compaction(turn_context, issue, %{auto_trigger: %{enabled: true}}),
-    do: current_agent_total_tokens(turn_context, issue)
-
-  defp token_count_for_compaction(_turn_context, _issue, _config), do: nil
-
-  defp compaction_status_callback(%{workspace: workspace, worker_host: worker_host}, app_session, issue) do
-    fn status, thread_id, detail ->
-      message =
-        case status do
-          :pending -> "Native Codex compaction pending"
-          :completed -> "Native Codex compaction completed"
-          :failed -> "Native Codex compaction failed: #{inspect(detail)}"
-          :unsupported -> "Native compaction unsupported for this provider"
-        end
-
-      Aiur.Alerts.emit_custom("compaction.#{status}", message,
-        issue: issue,
-        workspace: workspace,
-        worker_host: worker_host,
-        reason: "Codex thread compaction #{status}",
-        needs_attention: false,
-        severity: if(status == :failed, do: "warning", else: "info"),
-        observation_identity: Issue.tracker_identity(issue),
-        observation_source: %{kind: :agent_alert, name: "compaction.#{status}"},
-        observation_provenance: %{
-          run_id: Aiur.Boot.run_id(),
-          session_id: thread_id || Map.get(app_session, :thread_id)
-        },
-        occurred_at: DateTime.utc_now()
-      )
-    end
-  end
-
-  # #2806: the state label alone is not a licence to re-prompt. Fold this
-  # turn's observable-progress witness into the run's consecutive-no-op counter
-  # and stop the loop — loudly, and without mutating the ticket — once a run of
-  # turns that changed nothing reaches the cap. A productive turn zeroes the
-  # counter, so a long run of real work is never bounded by this path.
+  # #2806: fold turn progress into the no-op counter and stop without mutating
+  # the ticket once an unproductive run reaches its cap. Productive turns reset it.
   defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler) do
     %{
       workspace: workspace,
