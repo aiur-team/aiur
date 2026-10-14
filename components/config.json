@@ -51,10 +51,7 @@
   "docs": [
     "reference/configuration.md"
   ],
-  "config": [
-    "merge_policy",
-    "prompt_file"
-  ],
+  "config": [],
   "env": [
     "HOME",
     "XDG_CONFIG_HOME",

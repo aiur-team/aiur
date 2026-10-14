@@ -1,6 +1,25 @@
 {
   "manifest_version": 1,
+  "directory_published": false,
   "seams": [
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.FeatureCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+    },
+    {
+      "from": "agent-runner",
+      "to_module": "Aiur.FeatureCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_runner/feature_writer.ex"
+      ],
+      "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+    },
     {
       "from": "orchestration",
       "to_module": "Aiur.BuildQueue",
@@ -204,16 +223,6 @@
       "reason": "#3772: merge-order audit reuses the pure blocker-containment verdict"
     },
     {
-      "from": "github",
-      "to_module": "Aiur.BuildOrder.History",
-      "kind": "reference",
-      "only_paths": [
-        "src/lib/aiur/github/tracker.ex"
-      ],
-      "allow_forbidden": true,
-      "reason": "MP-E8-C4-T04 (#3123): nonblocking start journal is a no-op without the optional history store"
-    },
-    {
       "from": "orchestration",
       "to_module": "Aiur.BuildOrder.History",
       "kind": "reference",
@@ -242,6 +251,24 @@
         "src/lib/aiur/pr_merge/record.ex"
       ],
       "reason": "#3880: daemon independently verifies the claimed merge through the governed GitHub read transport"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHubCostCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "MP-R1-C7-T06 (#3301): CLI routes into the existing GitHub-owned command facade"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHubUsageCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "MP-R1-C7-T06 (#3301): CLI routes into the existing GitHub-owned command facade"
     }
   ],
   "ports": [

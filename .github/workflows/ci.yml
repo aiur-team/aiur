@@ -110,8 +110,8 @@ jobs:
         run: make test-rename-preflight && python3 -I scripts/test_plan_refresh.py
       - name: Test config documentation and design extract guards
         run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
-      - name: Test component manifest guard
-        run: bash scripts/test-check-components.sh
+      - name: Check component docs links and test manifest guard
+        run: python3 scripts/check-components.py --docs && bash scripts/test-check-components.sh
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
