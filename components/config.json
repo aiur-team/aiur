@@ -28,6 +28,7 @@
       "prompt_file"
     ],
     "env": [
+      "AIUR_CI_CHANGED_PATHS_B64",
       "HOME",
       "XDG_CONFIG_HOME",
       "XDG_STATE_HOME"
