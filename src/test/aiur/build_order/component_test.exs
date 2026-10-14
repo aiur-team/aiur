@@ -73,6 +73,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Events.SubscriptionStoreSupervisor,
     Aiur.DecisionAttention,
     Aiur.OperatorWaitLog,
+    Aiur.Orchestrator.OptimisticLedger,
     Aiur.Orchestrator.TrackedSet,
     Aiur.Orchestrator.SnapshotCache,
     Aiur.Orchestrator.SnapshotStore,
@@ -126,7 +127,10 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.App,
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
-    Aiur.BackgroundCpu
+    Aiur.BackgroundCpu,
+    Aiur.Experiments.Store,
+    Aiur.Experiments.Capture,
+    Aiur.Experiments.Checkpointer
   ]
 
   setup do
@@ -166,7 +170,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "application composition names only the declared build-order facade" do
-    source = File.read!(Path.expand("../../../lib/aiur.ex", __DIR__))
+    source = File.read!(Path.expand("../../../lib/aiur/application/children.ex", __DIR__))
     assert Regex.scan(~r/Aiur\.BuildOrder\.[A-Za-z.]+/, source) == [["Aiur.BuildOrder.Component"]]
     assert source =~ "Aiur.TicketContext.child_specs(:early, opts)"
     assert source =~ "Aiur.TicketContext.child_specs(:late, opts)"

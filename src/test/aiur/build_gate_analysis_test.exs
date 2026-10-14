@@ -31,9 +31,9 @@ defmodule Aiur.BuildGateAnalysisTest do
         ]
 
     on_exit(fn ->
-      File.rm_rf!(root)
       File.chmod(BuildGate.lock_dir(root), 0o755)
-      File.rm_rf!(BuildGate.lock_dir(root))
+      Aiur.TestCleanup.rm_rf!(BuildGate.lock_dir(root))
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{root: root, bin: bin, env: env}

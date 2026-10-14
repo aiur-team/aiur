@@ -1,31 +1,39 @@
 defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
+  import AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters, only: [currency_amount: 2]
+
   @moduledoc "Compact, truthful current-run and provider-usage summary."
 
   use Phoenix.Component
 
+  import AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows,
+    only: [
+      api_count_label: 1,
+      elevenlabs_configured?: 1,
+      elevenlabs_meter_percent: 1,
+      elevenlabs_explanation: 0,
+      elevenlabs_meta: 2,
+      elevenlabs_compact_meta: 2,
+      elevenlabs_invoice_due: 1,
+      github_windows: 1,
+      github_backoffs: 1,
+      github_window_label: 1,
+      github_window_explanation: 1,
+      github_window_meta: 2,
+      github_window_compact_meta: 2
+    ]
+
   import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, meter_class: 3]
 
   alias Aiur.CodingAgent
-  alias Aiur.ModelAvailability
+  alias AiurWeb.Build.UsageFacts
   alias AiurWeb.OperatorControlCenter.ModelProviders
   alias AiurWeb.OperatorControlCenter.ModelsPanel
   alias AiurWeb.OperatorControlCenter.Money
-
-  # The dispatch-limits ledger's buckets, used to find the governing one when a
-  # provider has no live meter observation this boot.
-  @durable_windows ~w(hourly weekly monthly)
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
   # takes the position the Summary block used to occupy.
   @lead_provider :deepseek
-
-  # GitHub's two primary budgets, in the order they render. They are separate
-  # budgets billed in different units on windows that reset at different times,
-  # so every figure on the card belongs to exactly one of them.
-  @github_resources ~w(core graphql)
-  @seconds_per_day 86_400
-  @seconds_per_hour 3_600
 
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
@@ -236,133 +244,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end)
   end
 
-  defp api_count_label(true), do: "2 APIs"
-  defp api_count_label(_elevenlabs?), do: "1 API"
-
-  # An unconfigured account is not an API this deployment has: the row is absent
-  # entirely. Every other standing — awaiting a first answer, observed, or a
-  # failed read against a key that *is* configured — keeps the row, because each
-  # of those is a fact about a real account.
-  defp elevenlabs_configured?(%{state: :unconfigured}), do: false
-  defp elevenlabs_configured?(%{state: state}) when state in [:unknown, :observed, :failed], do: true
-  defp elevenlabs_configured?(_quota), do: false
-
-  defp elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: percent
-  defp elevenlabs_meter_percent(_window), do: 0
-
-  defp elevenlabs_explanation do
-    "ElevenLabs account credit quota (characters). Speech-to-text is billed per minute of audio and is not counted here. The dollar figure is the amount due on the next invoice, not a balance."
-  end
-
-  # The label already says Credits, so the compact line carries only the
-  # remaining count, consumed share, and day-scale reset.
-  defp elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
-    [
-      "#{compact_number(window.remaining)} left",
-      elevenlabs_percent_text(window),
-      elevenlabs_reset_text(window.reset_at, now)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-  end
-
-  defp elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
-  defp elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
-
-  defp elevenlabs_compact_meta(%{state: :observed, window: %{} = window}, now) do
-    [
-      compact_number(window.remaining),
-      elevenlabs_percent_text(window) |> compact_percent_text(),
-      elevenlabs_compact_reset_text(window.reset_at, now)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-  end
-
-  defp elevenlabs_compact_meta(%{state: :failed}, _now), do: "Unavailable"
-  defp elevenlabs_compact_meta(_quota, _now), do: "Awaiting response"
-
-  defp compact_percent_text(nil), do: nil
-  defp compact_percent_text(text), do: String.replace_suffix(text, " used", "")
-
-  defp elevenlabs_compact_reset_text(reset_at, now) do
-    reset_at
-    |> elevenlabs_reset_text(now)
-    |> String.replace_prefix("resets ", "")
-  end
-
-  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
-  defp elevenlabs_percent_text(_window), do: nil
-
-  defp elevenlabs_invoice_due(%{next_invoice: %{amount_due_cents: cents, currency: currency}})
-       when is_integer(cents) and cents >= 0 and is_binary(currency) do
-    currency_amount(currency, cents_amount(cents))
-  end
-
-  defp elevenlabs_invoice_due(_window), do: nil
-
-  defp cents_amount(cents), do: "#{div(cents, 100)}.#{pad2(rem(cents, 100))}"
-
-  defp pad2(value), do: value |> Integer.to_string() |> String.pad_leading(2, "0")
-
-  defp elevenlabs_reset_text(%DateTime{} = reset, %DateTime{} = now) do
-    seconds = DateTime.diff(reset, now, :second)
-
-    cond do
-      seconds <= 0 -> "reset time passed"
-      seconds >= @seconds_per_day -> "resets #{div(seconds, @seconds_per_day)}d"
-      seconds >= @seconds_per_hour -> "resets #{div(seconds, @seconds_per_hour)}h"
-      true -> "resets #{max(div(seconds, 60), 1)}m"
-    end
-  end
-
-  defp elevenlabs_reset_text(_reset, _now), do: "reset unavailable"
-
-  # Named reasons only, and never the credential: a failure line is one of the
-  # places a secret leaks into a screenshot.
-  defp elevenlabs_failure_label(:authentication), do: "the API key was rejected"
-  defp elevenlabs_failure_label(:rate_limited), do: "rate limited by ElevenLabs"
-  defp elevenlabs_failure_label(:provider_error), do: "ElevenLabs returned an error"
-  defp elevenlabs_failure_label(:transport), do: "ElevenLabs could not be reached"
-  defp elevenlabs_failure_label(:malformed), do: "the response could not be read"
-  defp elevenlabs_failure_label(_failure), do: "the quota could not be read"
-
-  defp github_windows(%{windows: windows}) when is_map(windows) do
-    @github_resources
-    |> Enum.map(&Map.get(windows, &1))
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp github_windows(_quota), do: []
-
-  defp github_backoffs(%{backoffs: backoffs}) when is_list(backoffs), do: backoffs
-  defp github_backoffs(_quota), do: []
-
-  defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
-
-  defp github_resource_label("graphql"), do: "GraphQL"
-  defp github_resource_label(resource), do: String.capitalize(resource)
-
-  # GitHub's two budgets bill in different units; the popover names what each
-  # window actually meters so "Core"/"GraphQL" are never read as the same thing.
-  defp github_window_explanation(%{resource: "core"}), do: "REST request budget"
-  defp github_window_explanation(%{resource: "graphql"}), do: "GraphQL point budget"
-  defp github_window_explanation(_window), do: nil
-
-  defp github_window_meta(window, now) do
-    "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
-  end
-
-  defp github_window_compact_meta(window, now) do
-    "#{window.remaining}/#{window.limit} · #{compact_reset_text(window.reset_at, now)}"
-  end
-
-  defp compact_reset_text(reset_at, now) do
-    reset_at
-    |> reset_text(now)
-    |> String.replace_prefix("resets in ", "")
-  end
-
   # DeepSeek leads the strip: it takes the position the Summary block used to
   # occupy, so it sorts ahead of the registry card order while the rest keep
   # their relative order.
@@ -382,51 +263,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # a probe session on an exhausted quota). Attach that durable record so the
   # card can render a visibly-stale last-known value instead of an empty one.
   defp put_durable_observation(%{state: :unknown} = card) do
-    case durable_observation(card.provider) do
+    case UsageFacts.durable(card.provider) do
       nil -> card
       observation -> Map.put(card, :durable_observation, observation)
     end
   end
 
   defp put_durable_observation(card), do: card
-
-  # The durable record is keyed by backend family and carries the last used/limit
-  # per window plus an observed timestamp. `ModelAvailability` is a public read
-  # API; the web layer simply never reached it before. The record's windows are
-  # the dispatch buckets (`hourly`/`weekly`/`monthly`); the governing one is the
-  # most-used, which is what limits whether new work may start.
-  defp durable_observation(provider) do
-    with %{"backends" => backends} <- ModelAvailability.load(),
-         %{} = entry when map_size(entry) > 0 <- Map.get(backends, Atom.to_string(provider)),
-         %{percent: percent} <- durable_percent_entry(entry) do
-      %{
-        percent: percent,
-        observed_at: parse_observed_at(Map.get(entry, "observed_at"))
-      }
-    else
-      _ -> nil
-    end
-  end
-
-  defp parse_observed_at(%DateTime{} = value), do: value
-
-  defp parse_observed_at(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _ -> nil
-    end
-  end
-
-  defp parse_observed_at(_value), do: nil
-
-  defp durable_percent_entry(entry) do
-    entry
-    |> Map.take(@durable_windows)
-    |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
-      %{percent: min(round(used / limit * 100), 100)}
-    end)
-    |> Enum.max_by(& &1.percent, fn -> nil end)
-  end
 
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
@@ -555,42 +398,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp money_list([%{currency: currency, amount: amount}]), do: currency_amount(currency, amount)
   defp money_list([]), do: "N/A"
   defp money_list(amounts), do: Enum.map_join(amounts, " + ", &currency_amount(&1.currency, &1.amount))
-
-  defp currency_amount("USD", amount), do: "$#{amount}"
-  defp currency_amount(currency, amount), do: "#{amount} #{currency}"
-
-  defp compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
-  defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
-  defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
-
-  defp format_used_percent(percent) when is_number(percent) do
-    percent = percent |> max(0) |> min(100)
-    rounded = Float.round(percent, 1)
-
-    if rounded == trunc(rounded) do
-      Integer.to_string(trunc(rounded))
-    else
-      :erlang.float_to_binary(rounded, decimals: 1)
-    end
-  end
-
-  defp reset_text(%DateTime{} = reset, %DateTime{} = now) do
-    seconds = DateTime.diff(reset, now, :second)
-    if seconds > 0, do: "resets in #{duration(seconds)}", else: "reset time passed"
-  end
-
-  defp reset_text(_reset, _now), do: "reset unavailable"
-  # Days once there are any: a weekly window reading "167h 59m" makes the reader
-  # divide to learn it is a week away.
-  defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
-
-  defp duration(seconds) when seconds < @seconds_per_day do
-    "#{div(seconds, @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
-  end
-
-  defp duration(seconds) do
-    "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
-  end
 
   # Each card renders its own registry logo. The ticket's "swap the Codex and
   # Claude logos" premise was verified false on review: `codex-color.svg` is the

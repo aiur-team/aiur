@@ -10,6 +10,7 @@ import sys
 import time
 from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
+from components.manifest import read_manifest, write_manifest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -90,7 +91,11 @@ def validate(value, schema, document, pointer=''):
 
 def load_manifest(root):
     document = json.loads((root / 'components.schema.json').read_text())
-    manifest = json.loads((root / 'components.json').read_text())
+    manifest = read_manifest(root)
+    return validate_manifest(manifest, document)
+
+
+def validate_manifest(manifest, document):
     validate(manifest, document, document)
     ids = [c['id'] for c in manifest['components']]
     if len(ids) != len(set(ids)):
@@ -227,7 +232,8 @@ def module_violations(root, manifest, file_owners):
             continue
         component, provider = components[source], components[destination]
         graph[source].add(destination)
-        if path == 'src/lib/aiur.ex':
+        # The composition root wires every component; its boot-order modules are part of it.
+        if path == 'src/lib/aiur.ex' or path.startswith('src/lib/aiur/application/'):
             continue
         for rule in edge_rules(component, provider, target):
             if seam and rule in ('R-declared', 'R-optional'):
@@ -297,8 +303,9 @@ def declaration_ownership(root, manifest):
     fields = re.findall(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", config, re.MULTILINE)
     env = re.findall(r'^\s*\{"([A-Z][A-Z0-9_]+)",',
                      (root / 'src/lib/aiur/env/schema.ex').read_text(), re.MULTILINE)
-    state = re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b',
-                       (root / 'src/lib/aiur/config/paths.ex').read_text(), re.MULTILINE)
+    state_sources = [root / path for path in ('src/lib/aiur/config/paths.ex', 'src/lib/aiur/repo_base.ex')]
+    state = [name for path in state_sources if path.exists()
+             for name in re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b', path.read_text(), re.MULTILINE)]
     inventories = {'config': sections + fields, 'env': env, 'state': state}
     for kind, names in inventories.items():
         if not names or (kind == 'config' and not sections):
@@ -321,34 +328,6 @@ def declaration_ownership(root, manifest):
     return problems, {'sections': len(sections), 'fields': len(fields),
                       'env vars': len(env), 'state paths': len(state)}
 
-
-def format_manifest(manifest):
-    """One component block with inline arrays, keeping the manifest reviewable."""
-    ordered = dict(manifest)
-    ordered['components'] = sorted(manifest['components'], key=lambda c: (c['layer'], c['id']))
-    lines = ['{']
-    for key, value in ordered.items():
-        if key != 'components':
-            lines.append(f'  {json.dumps(key)}: {json.dumps(value, ensure_ascii=False)},')
-            continue
-        lines.append('  "components": [')
-        for component in value:
-            lines.append('    {')
-            groups = [('id', 'name', 'layer', 'kind'), ('paths',),
-                      ('facades', 'facade_pending'), ('requires', 'optional'),
-                      ('owns',), ('prior',)]
-            used = {field for group in groups for field in group}
-            groups.extend((field,) for field in component if field not in used)
-            for group in groups:
-                entries = [f'{json.dumps(field)}: {json.dumps(component[field], ensure_ascii=False)}'
-                           for field in group if field in component]
-                lines.append('      ' + ', '.join(entries) + ',')
-            lines[-1] = lines[-1].removesuffix(',')
-            lines.append('    },')
-        lines[-1] = lines[-1].removesuffix(',')
-        lines.append('  ],')
-    lines[-1] = lines[-1].removesuffix(',')
-    return '\n'.join(lines + ['}', ''])
 
 
 def main():
@@ -374,7 +353,7 @@ def main():
         manifest = load_manifest(root)
         files = source_files(root)
         if args.format:
-            (root / 'components.json').write_text(format_manifest(manifest))
+            write_manifest(root, manifest)
         problems, counts, file_owners = ownership(manifest, files)
         declaration_counts = {}
         if args.rules in ('all', 'ownership'):

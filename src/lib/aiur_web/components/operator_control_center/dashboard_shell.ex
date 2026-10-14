@@ -3,8 +3,9 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.RouteRegistry
+  alias AiurWeb.OperatorControlCenter.{NavState, PauseState, RouteRegistry}
   alias Phoenix.LiveView.JS
+  alias Phoenix.LiveView.Socket
 
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
@@ -22,12 +23,17 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # state), writable-gated like every other control surface.
   attr(:globally_paused, :any, default: nil)
   attr(:writable, :boolean, default: false)
+  attr(:global_pause_error, :string, default: nil)
+  attr(:pause_state, :map, default: nil)
   # Notices precede page content.
   slot(:banner)
   slot(:inner_block, required: true)
 
   @spec dashboard_shell(map()) :: Phoenix.LiveView.Rendered.t()
   def dashboard_shell(assigns) do
+    assigns =
+      assign(assigns, :pause_state, assigns.pause_state || %{globally_paused: assigns.globally_paused, writable: assigns.writable, global_pause_error: assigns.global_pause_error})
+
     ~H"""
     <div class="ax-frame" id="ax-frame">
       <header class="ax-top">
@@ -39,7 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <button class="ax-ib ax-cog" id="ax-cog" type="button" title="Settings" aria-label="Settings"
               aria-haspopup="menu" aria-expanded="false" aria-controls="ax-menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
             <div class="ax-menu" id="ax-menu" role="menu" aria-labelledby="ax-cog" inert>
-              <.pause_item globally_paused={@globally_paused} writable={@writable} />
+              <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
             </div>
@@ -52,7 +58,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>
-        <span class={["ax-paused", @globally_paused == true && "show"]} id="ax-paused">All agents paused</span>
+        <span class={["ax-paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
       <div class="app-layout">
         <aside class="sidenav">
@@ -62,6 +68,9 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <.navigation routes={@routes} current_route={@route} nav_counts={@nav_counts} />
         </aside>
         <section class="dashboard-shell" aria-labelledby="route-title">
+          <div :if={@pause_state.global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
+            <span>{@pause_state.global_pause_error}</span>
+          </div>
           {render_slot(@banner)}
           {render_slot(@inner_block)}
         </section>
@@ -69,6 +78,21 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     </div>
     """
   end
+
+  @spec mount(Socket.t()) :: Socket.t()
+  def mount(socket), do: socket |> NavState.assign_nav() |> PauseState.mount()
+
+  @spec toggle_pause(Socket.t()) :: Socket.t()
+  def toggle_pause(socket), do: PauseState.toggle(socket)
+
+  @spec refresh_pause(Socket.t()) :: Socket.t()
+  def refresh_pause(socket), do: PauseState.refresh(socket)
+
+  @spec handle_info(term(), Socket.t()) :: {:noreply, Socket.t()}
+  def handle_info(message, socket), do: PauseState.handle_info(message, socket)
+
+  @spec pause_state(map()) :: map()
+  def pause_state(assigns), do: Map.take(assigns, [:globally_paused, :writable, :global_pause_error])
 
   attr(:globally_paused, :any, required: true)
   attr(:writable, :boolean, required: true)

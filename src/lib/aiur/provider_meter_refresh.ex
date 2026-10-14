@@ -13,6 +13,10 @@ defmodule Aiur.ProviderMeterRefresh do
     last watcher looks away. An abandoned tab stops costing requests; a glance
     elsewhere does not cost a stale meter on return. A surface gaining focus is
     observed immediately rather than waiting out the interval.
+  - **Headroom dispatch is a watcher.** `agent.account_selection: headroom`
+    ranks accounts by these readings at every claim, so the policy keeps
+    polling with no surface open (#4127). With no agents running it polls
+    Claude only.
   - **One baseline shortly after boot**, so the first surface to open shows real
     values rather than "not observed".
   - **Codex only while agents run.** Observing Codex means opening an app-server
@@ -76,8 +80,9 @@ defmodule Aiur.ProviderMeterRefresh do
   @impl true
   def init(opts) do
     state = %{
-      observer: Keyword.get(opts, :observer, &ProviderMeterProbe.observe/1),
+      observer: Keyword.get_lazy(opts, :observer, &default_observer/0),
       agents_running?: Keyword.get(opts, :agents_running_fun, &agents_running?/0),
+      headroom?: Keyword.get(opts, :headroom_fun, &headroom_selection?/0),
       interval_fun: Keyword.get(opts, :interval_fun, &configured_interval_ms/0),
       now_fun: Keyword.get(opts, :now_fun, &System.monotonic_time/0),
       grace_ms: Keyword.get(opts, :grace_ms, @default_grace_ms),
@@ -113,7 +118,13 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   def handle_info(:refresh, state) do
-    state = if watched?(state), do: observe(state, refresh_target(state)), else: state
+    state =
+      cond do
+        watched?(state) -> observe(state, refresh_target(state))
+        state.headroom?.() -> observe(state, headroom_target(state))
+        true -> state
+      end
+
     schedule_refresh(state)
 
     {:noreply, state}
@@ -184,6 +195,17 @@ defmodule Aiur.ProviderMeterRefresh do
   # answer to "is this fleet consuming anything", and callers inject it.
   defp refresh_target(_state), do: :all
 
+  # The test VM's supervised refresher must not probe: a Codex probe runs the
+  # active workflow's `codex.command`, which there is whichever test's fake
+  # binary is configured when the boot baseline or a dashboard mount fires (#4221).
+  defp default_observer do
+    if Application.get_env(:aiur, :env) == :test, do: fn _target -> [] end, else: &ProviderMeterProbe.observe/1
+  end
+
+  # Dispatch reads the meter with nobody looking. Codex is observed by opening
+  # an app-server session, so an idle fleet pays only for the Claude read.
+  defp headroom_target(state), do: if(state.agents_running?.(), do: :all, else: :claude)
+
   # An observer failure must never take the scheduler down: a provider being
   # unreachable is an expected condition, and the retained observation keeps
   # displaying with its true age.
@@ -208,6 +230,15 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   defp schedule_refresh(state), do: Process.send_after(self(), :refresh, state.interval_fun.())
+
+  # Read from config, not `HeadroomDispatch.enabled?/0`: accounting may not depend on the coding agent.
+  defp headroom_selection? do
+    match?({:ok, %{agent: %{account_selection: "headroom"}}}, Config.settings())
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
 
   defp configured_interval_ms do
     case Config.settings() do

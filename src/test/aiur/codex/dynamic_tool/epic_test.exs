@@ -7,7 +7,7 @@ defmodule Aiur.Codex.DynamicTool.EpicTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("epic-tool")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
     start_supervised!({Store, name: name, repository: "acme/app", state_dir: dir, settings_fun: fn -> {:ok, %{build_order: %{general_epics: [%{key: "bugs", label: "Bugs"}]}}} end})
     %{opts: [server: name]}

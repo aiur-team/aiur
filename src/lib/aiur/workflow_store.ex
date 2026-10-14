@@ -25,9 +25,9 @@ defmodule Aiur.WorkflowStore do
   use GenServer
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workflow
-  alias Aiur.WorkflowStore.Cache
+  alias Aiur.WorkflowStore.{Cache, ReloadRejection}
 
   @poll_interval_ms 1_000
   @call_timeout_ms 5_000
@@ -151,8 +151,7 @@ defmodule Aiur.WorkflowStore do
       with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
   end
 
-  # Overridable so the saturation repro can stall the store without a real
-  # five-second wait.
+  # Overridable so the saturation repro can stall the store without a real five-second wait.
   defp call_timeout, do: Application.get_env(:aiur, :workflow_store_call_timeout_ms, @call_timeout_ms)
 
   @spec force_reload() :: :ok | {:error, term()}
@@ -327,19 +326,20 @@ defmodule Aiur.WorkflowStore do
   end
 
   defp reload_changed_stamp(path, stamp, state) do
-    case load_state(path) do
-      {:ok, new_state} ->
-        new_state = advance_generation(new_state, state)
-        commit(state, new_state)
-        {:ok, new_state}
-
+    # Schema validation runs before `commit/2`: a published config that
+    # `Config.settings!/0` raises on crashes every consumer (#3961).
+    with {:ok, new_state} <- load_state(path),
+         :ok <- ReloadRejection.validate(new_state.workflow) do
+      ReloadRejection.clear()
+      new_state = advance_generation(new_state, state)
+      commit(state, new_state)
+      {:ok, new_state}
+    else
       {:error, reason} ->
-        # Keep the prior stamp so the next poll retries: a transient load
-        # error must not mark the new content as current, or a later good
-        # reload gets skipped and stale config is served. Track the failing
-        # stamp separately so a persistently-broken config still logs once
-        # per change instead of every poll.
-        if stamp != state.failed_stamp, do: log_reload_error(path, reason)
+        # Keep the prior stamp so the next poll retries: a transient load error must not mark the new content as
+        # current, or a later good reload gets skipped and stale config is served. Track the failing stamp
+        # separately so a persistently-broken config logs and alerts once per change instead of every poll.
+        if stamp != state.failed_stamp, do: ReloadRejection.reject(path, reason)
         {:error, reason, %{state | failed_stamp: stamp}}
     end
   end
@@ -509,7 +509,7 @@ defmodule Aiur.WorkflowStore do
     # operator alert (Executor-facing feed/ledger/sound). The extra fields
     # ride the alert's exchange payload so subscribers do not receive a
     # duplicate event for the same change.
-    Alerts.emit_system(@base_branch_changed_topic,
+    Signal.alert(@base_branch_changed_topic,
       message: message,
       reason: message,
       needs_attention: false,

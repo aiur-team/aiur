@@ -57,9 +57,24 @@ defmodule Aiur.DecisionDispatchTest do
     assert payload.correlation.decision_id == decision.decision_id
     assert payload.correlation.decision_version == 1
     assert payload.correlation.attempt_id == "attempt-1"
-    # The envelope is product-first and concise: the answer and rationale read
-    # plainly, and the ticket/version/action identity lives in the payload, not
-    # the prose.
+    assert payload.correlation.action_id == decision.answer.action_id
+    assert payload.correlation.decision_version == decision.answer.decision_version
+
+    correlation_json =
+      payload.body
+      |> String.split("Decision lifecycle correlation: ")
+      |> List.last()
+      |> String.split("\n")
+      |> hd()
+
+    assert Jason.decode!(correlation_json) == %{
+             "decision_id" => decision.decision_id,
+             "expected_version" => decision.answer.decision_version,
+             "action_id" => decision.answer.action_id
+           }
+
+    # The envelope keeps the answer readable and includes lifecycle identifiers
+    # in the body so the agent can record its acknowledgement.
     refute payload.body =~ "Durable Executor answer for ticket 981"
     refute payload.body =~ "Request version"
     assert payload.body =~ "Selected option `ship`: Ship it"
@@ -93,5 +108,6 @@ defmodule Aiur.DecisionDispatchTest do
     assert payload.retry_failed == true
     assert String.length(payload.body) <= DecisionDispatch.max_message_chars()
     assert payload.body =~ "Custom response:"
+    assert payload.body =~ "Decision lifecycle correlation:"
   end
 end

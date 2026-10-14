@@ -11,7 +11,7 @@ defmodule Aiur.AsksCLITest do
 
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, repo: "owner/repo"}

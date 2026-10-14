@@ -174,22 +174,14 @@ cmd_github_usage() {
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
-  local needs_attention=0 arg
+  local args="" arg
   for arg in "$@"; do
     case "$arg" in
-      --needs-attention) needs_attention=1 ;;
-      *)
-        echo "aiur: alerts only accepts --needs-attention" >&2
-        exit 64
-        ;;
+      '' | *[!a-z0-9-]*) echo "aiur: alerts accepts --needs-attention, --limit <n>, --all" >&2; exit 64 ;;
     esac
+    args="${args}\"$arg\", "
   done
-
-  if [ "$needs_attention" -eq 1 ]; then
-    run_control_rpc "Aiur.AgentControlCLI.alerts(needs_attention: true)"
-  else
-    run_control_rpc "Aiur.AgentControlCLI.alerts()"
-  fi
+  run_control_rpc "Aiur.AgentControlCLI.alerts(argv: [${args%, }])"
 }
 
 # `aiur watch` — the server-side status board. Compiles one row per active

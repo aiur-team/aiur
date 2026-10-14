@@ -4,13 +4,36 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{StartupClaimReconciler, State}
 
-  test "stale review base falls back to guarded rework in the same recovery attempt" do
+  test "stale review base sends unapproved PR to rework" do
     opts =
       Keyword.merge(opts(),
         open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
         pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
         unresolved_threads_fetcher: fn _ -> {:ok, []} end,
         reviews_fetcher: fn _ -> {:ok, []} end,
+        approved_at_head_fetcher: fn 42 -> {:ok, false} end,
+        update_issue_state_fun: fn "3710", target, "in-progress" ->
+          send(self(), {:write, target})
+          if target == "human-review", do: {:error, {:stale_review_base, %{pr_number: 42}}}, else: :ok
+        end
+      )
+
+    {_released, [result]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+    assert result.state == "rework"
+    assert_received {:write, "human-review"}
+    assert_received {:write, "rework"}
+    assert_received {:comment, body}
+    assert body =~ "Integrate the base, push, and hand it back."
+  end
+
+  test "stale review base defers an approved head without consuming retries" do
+    opts =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        approved_at_head_fetcher: fn 42 -> {:ok, true} end,
         update_issue_state_fun: fn "3710", target, "in-progress" ->
           send(self(), {:write, target})
           if target == "human-review", do: {:error, {:stale_review_base, %{pr_number: 42}}}, else: :ok
@@ -18,15 +41,32 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
       )
 
     {released, [result]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
-    assert result.state == "rework"
-    assert result.state_labels == ["rework"]
-    assert released.startup_claim_reconciliation_failures == %{}
-    assert released.orphaned_claim_since == %{}
+    assert result.state == "in-progress"
+    assert released.startup_claim_reconciliation_failures["3710"].attempts == 0
     assert_received {:write, "human-review"}
-    assert_received {:write, "rework"}
-    assert_received {:comment, body}
-    assert body =~ "to rework"
-    assert body =~ "Integrate the base"
+    refute_received {:write, "rework"}
+    refute_received {:comment, _}
+  end
+
+  test "stale review base defers when approval status cannot be verified" do
+    opts =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        approved_at_head_fetcher: fn 42 -> {:error, :timeout} end,
+        update_issue_state_fun: fn "3710", target, "in-progress" ->
+          send(self(), {:write, target})
+          if target == "human-review", do: {:error, {:stale_review_base, %{pr_number: 42}}}, else: :ok
+        end
+      )
+
+    {released, [result]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+    assert result.state == "in-progress"
+    assert released.startup_claim_reconciliation_failures["3710"].attempts == 0
+    assert_received {:write, "human-review"}
+    refute_received {:write, "rework"}
     refute_received {:comment, _}
   end
 

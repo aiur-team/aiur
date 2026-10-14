@@ -11,13 +11,7 @@ defmodule Aiur.BuildOrder.GraphProjection.SelectedRootTest do
   alias Aiur.BuildOrder.ProviderResult
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   # Acceptance criterion 1: opening the Build Order page costs zero, cold cache

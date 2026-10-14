@@ -1,0 +1,18 @@
+Build report — fixture (Test build)
+Generated: fixed
+Members: 3
+
+Merged: 1/3   Rework: 0   Open: 2
+CI cycles: 2 total   Rework events: 1   CPU: 0.0 CPU-hours
+
+Ticket   Title                        Status    Wall-clock     Active      CI  Rework  CPU-sec
+----------------------------------------------------------------------------------------------
+#931     Member two                   active            1s         0s       0       0      1.0
+#930     Member one                   merged         1h00m        14s       2       1      9.5
+#999     Member three (never ran)     open             n/a         0s       0       0      0.0
+
+Notes
+  - Wall-clock spans dispatch through the latest lifecycle boundary across every boot.
+  - Active time sums closed phase intervals (idle gaps elided).
+  - CI cycles are closed build_test intervals; failed counts red outcomes.
+  - CPU-seconds ≈ mean core fraction × sampled span. Dollar spend: analytics/cost-report.

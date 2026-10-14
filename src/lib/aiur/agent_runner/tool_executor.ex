@@ -7,10 +7,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   require Logger
 
-  alias Aiur.AgentRunner.EpicSetter
-  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
 
-  alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
+  alias Aiur.{Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
@@ -61,7 +60,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # so an agent never has to name (and never has to guess) the label to
       # remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool))
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool)),
+      ci_wait_pr_fetcher: Keyword.get(opts, :ci_wait_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
     }
 
     event_handlers = %{
@@ -101,7 +101,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           # pre-build the full topic) aren't double-prefixed.
           topic = prefix_with_ticket_namespace(name, issue)
 
-          Alerts.emit_custom(topic, message,
+          Signal.agent_alert(topic, message,
             issue: issue,
             workspace: workspace,
             worker_host: worker_host,
@@ -185,11 +185,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp write_ticket_state(coordination, issue_id, state_name) do
-    case coordination.set_ticket_state.(issue_id, state_name) do
-      :ok -> {:ok, %{state: state_name, issue: issue_id}}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
-    end
+    CiWaitTransition.write(coordination, issue_id, state_name)
   end
 
   defp tracker_issue_id(issue) do
@@ -384,11 +380,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{issue: issue} = event_context
     identifier = issue_identifier(issue)
 
-    topic =
-      case identifier do
-        nil -> "agent.#{name}"
-        id -> "ticket.#{id}.agent.#{name}"
-      end
+    topic = DynamicTool.EmitEvent.topic(identifier, name)
 
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}
@@ -661,7 +653,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
              |> Map.new(fn {key, value} -> {Atom.to_string(key), stringify_lifecycle_value(value)} end)}
 
           {:error, reason} ->
-            {:error, {:decision_lifecycle_rejected, reason}}
+            DecisionLifecycleFailureAlert.recording_failed(issue, payload, name, reason)
         end
     end
   end
