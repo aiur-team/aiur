@@ -418,7 +418,7 @@ defmodule Aiur.Events.SubscriptionStore do
     new_state =
       case enqueue_event(state, event) do
         :ok ->
-          Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+          Aiur.Events.HistoryStore.record(state.identifier, :consumed, event)
           DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
           resolve_stall(state, event_id)
 
@@ -443,7 +443,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
     case enqueue_event(state, event) do
       :ok ->
-        Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+        Aiur.Events.HistoryStore.record(state.identifier, :consumed, event)
         DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
         advance_cursor_inline(state, event_id)
 

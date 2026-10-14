@@ -352,7 +352,7 @@ defmodule Aiur.Events.Publisher do
             true -> :emit
           end
 
-        Aiur.IssueLog.record_event(ticket_id, kind, event)
+        Aiur.Events.HistoryStore.record(ticket_id, kind, event)
     end
   end
 
