@@ -192,6 +192,7 @@ configured integrations; missing or skipped required checks remain pending.
 
 ## Documentation
 
+- `python3 scripts/check-components.py --docs` validates directory docs, sections, env names and capabilities.
 - `components.json` supplies public component descriptions and the planned-features list for the generated directory.
 - **Functionality ships with its documentation, in the same PR.** Docs are
   required when a change adds or changes a config key, a CLI command or flag,
@@ -336,6 +337,7 @@ to one component indexed by `components.json` in `components/<id>.json`. Add new
 paths in the same PR. Before running `python3 scripts/check-components.py`, install its pinned TypeScript
 toolchain with `npm ci --prefix scripts/components --ignore-scripts`. The required lint job runs both;
 unowned files, equally specific competing owners and stale globs fail the check.
+Workflow security runs the docs rules even on docs-only PRs; lint also runs the full checker.
 Use `python3 scripts/check-components.py --format` to keep the manifest deterministic.
 Arrays have one member per line; string sets and exemption TSVs stay sorted.
 Workflow security enforces this layout with `scripts/check-hot-list-format.py`.

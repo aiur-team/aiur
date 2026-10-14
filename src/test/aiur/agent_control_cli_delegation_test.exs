@@ -36,4 +36,13 @@ defmodule Aiur.AgentControlCLIDelegationTest do
       assert function_exported?(Aiur.AgentControlCLI, name, arity), "#{name}/#{arity}"
     end
   end
+
+  # Future regression guard: the launcher retains both default-message arities.
+  test "control verbs retain all launcher arities after extraction" do
+    exported = MapSet.new(Aiur.AgentControlCLI.__info__(:functions))
+
+    for {name, arity} <- [pause: 1, resume: 1, reset_budget: 1, pause_global: 0, resume_global: 0, set_max_agents: 1, message: 2, message: 3] do
+      assert MapSet.member?(exported, {name, arity}), "missing #{name}/#{arity}"
+    end
+  end
 end

@@ -27,8 +27,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     refute orphan in Task.Supervisor.children(Aiur.TaskSupervisor)
     await_generation_released(identifier, orphan_lease.generation)
 
-    # One poll after the release redispatches the ticket onto a fresh lease.
-    _ = Orchestrator.request_refresh(second)
+    # The release notification wakes the restarted Orchestrator to redispatch.
     runner = await_runner_holding_lease(second, issue_id, identifier)
     kill_on_exit(runner)
     assert runner != orphan
@@ -62,8 +61,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 15_000
     await_generation_released(identifier, orphan_lease.generation)
 
-    # One poll after the release redispatches the ticket onto a fresh lease.
-    _ = Orchestrator.request_refresh(orchestrator)
+    # The release notification wakes the Orchestrator to redispatch.
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
     kill_on_exit(runner)
     assert runner != orphan

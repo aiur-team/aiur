@@ -137,6 +137,7 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'TUI', link: '/guide/tui' },
             { text: 'CLI', link: '/reference/cli' },
+            { text: 'Build History Commands', link: '/reference/build-history-commands' },
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
