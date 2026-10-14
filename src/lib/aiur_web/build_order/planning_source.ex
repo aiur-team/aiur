@@ -23,16 +23,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, Metadata, PackStatus, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Lifecycle, Member, Metadata, PackStatus, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
   alias Aiur.DisplaySanitizer
-  alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
   import AiurWeb.BuildOrder.PlanningSource.MembershipHealth
   import AiurWeb.BuildOrder.PlanningSource.PackLoader
+
+  alias AiurWeb.BuildOrder.PlanningSource.LivePackProgress
 
   @epoch 1
   @active_membership_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]
@@ -59,6 +60,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def catalog do
     membership = membership_snapshot()
     packs = load_packs()
+    live_progress = LivePackProgress.load(packs)
 
     {provider_health, status_health, source_generation} = provider(membership, packs)
 
@@ -67,7 +69,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       repository: catalog_repository(packs),
       generation: source_generation,
       authority_epoch: @epoch,
-      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
+      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership, live_progress)), provider_health, search_paths: catalog_search_paths()),
       health: provider_health,
       membership_health: membership_health(membership),
       status_health: status_health
@@ -95,6 +97,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do
       %{} = pack ->
+        live_progress = LivePackProgress.load([pack])
         {provider_health, status_health, source_generation} = provider(membership, [pack])
 
         %Snapshot{
@@ -102,7 +105,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           repository: pack.repository,
           generation: source_generation,
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed), pack_metadata: pack.metadata),
+          data:
+            SelectedRoot.new(root_summary(pack, membership, live_progress), members(pack, membership), provider_health,
+              planning?: not (pack.materialized? or pack.completed),
+              pack_metadata: pack.metadata
+            ),
           health: provider_health,
           membership_health: membership_health(membership),
           status_health: status_health
@@ -166,9 +173,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # --- pack -> structs -------------------------------------------------------
 
-  defp root_summary(pack, membership) do
+  defp root_summary(pack, membership, live_progress) do
     identity = root_identity(pack)
-    progress = progress(pack, membership)
+    progress = progress(pack, membership, live_progress)
 
     RootSummary.new(%{
       identity: identity,
@@ -188,12 +195,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # Partial completion is a lower bound over the whole pack. Coverage remains
   # explicit, and a pack with no resolved members still has no numeric reading.
-  defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
+  defp progress(%{tickets: []}, _membership, _live_progress), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
 
-  defp progress(%{tickets: tickets} = pack, membership) do
-    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership))
+  defp progress(%{tickets: tickets} = pack, membership, live_progress) do
+    live_lifecycles = LivePackProgress.lifecycles(pack, live_progress)
+    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership, live_lifecycles))
     resolved_count = length(resolved)
-    completed_count = Enum.count(resolved, &completed?(&1, pack, membership))
+    completed_count = Enum.count(resolved, &completed?(&1, pack, membership, live_lifecycles))
 
     cond do
       resolved_count == 0 ->
@@ -296,19 +304,44 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp completed?(ticket, pack, membership) do
+  defp completed?(ticket, pack, membership, live_lifecycles) do
     match?(
       {"CLOSED", "COMPLETED"},
-      lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership)
+      progress_lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership, live_lifecycles)
     )
   end
 
-  defp completion_known?(%{number: nil}, _pack, _membership), do: true
-  defp completion_known?(_ticket, %{completed: true}, _membership), do: true
+  defp completion_known?(%{number: nil}, _pack, _membership, _live_lifecycles), do: true
+  defp completion_known?(%{number: _number}, %{completed: true}, _membership, _live_lifecycles), do: true
 
-  defp completion_known?(ticket, pack, membership) do
-    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
+  defp completion_known?(ticket, pack, membership, live_lifecycles) do
+    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open] or
+      Map.has_key?(live_lifecycles, ticket.id)
   end
+
+  defp progress_lifecycle(%{number: nil} = ticket, _identity, _pack, _membership, live_lifecycles) do
+    case Map.get(live_lifecycles, ticket.id) do
+      %Lifecycle{} = live -> lifecycle_tuple(live)
+      nil -> {"OPEN", nil}
+    end
+  end
+
+  defp progress_lifecycle(ticket, identity, pack, membership, live_lifecycles) do
+    case lifecycle(ticket, identity, pack, membership) do
+      {:unknown, :unknown} ->
+        case Map.get(live_lifecycles, ticket.id) do
+          %Lifecycle{} = live -> lifecycle_tuple(live)
+          nil -> {:unknown, :unknown}
+        end
+
+      resolved ->
+        resolved
+    end
+  end
+
+  defp lifecycle_tuple(%Lifecycle{state: :closed, state_reason: :completed}), do: {"CLOSED", "COMPLETED"}
+  defp lifecycle_tuple(%Lifecycle{state: :closed}), do: {"CLOSED", "NOT_PLANNED"}
+  defp lifecycle_tuple(%Lifecycle{state: :open}), do: {"OPEN", nil}
 
   defp membership_lifecycle(identity, %{members: members} = membership) when is_list(members) do
     if membership_current?(membership) do
@@ -382,39 +415,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp membership_snapshot do
     snapshot = Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
 
-    Map.put_new(snapshot, :labels_by_identity, current_poll_labels())
+    Map.put_new(snapshot, :labels_by_identity, LivePackProgress.current_poll_labels())
   rescue
     _error -> %{health: :unavailable}
   catch
     _kind, _reason -> %{health: :unavailable}
-  end
-
-  # `StatusReport` is the in-memory result of the orchestrator's normal
-  # tracker poll. Reading it adds no GitHub traffic and lets ticket-backed
-  # members show current labels while their issue remains in the run snapshot.
-  defp current_poll_labels do
-    case StatusReport.snapshot_api() do
-      snapshot when is_map(snapshot) ->
-        [:running, :retrying, :idle]
-        |> Enum.flat_map(&Map.get(snapshot, &1, []))
-        |> Enum.reduce(%{}, &put_live_labels/2)
-
-      _unavailable ->
-        %{}
-    end
-  rescue
-    _error -> %{}
-  catch
-    _kind, _reason -> %{}
-  end
-
-  defp put_live_labels(row, labels_by_identity) do
-    case {Map.get(row, :tracker_identity), valid_labels(Map.get(row, :labels))} do
-      {%TrackerIdentity{} = identity, [_ | _] = labels} ->
-        Map.put(labels_by_identity, TrackerIdentity.github_key(identity), labels)
-
-      _row ->
-        labels_by_identity
-    end
   end
 end

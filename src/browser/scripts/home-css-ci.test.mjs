@@ -12,17 +12,22 @@ const workflow = yaml.parse(read('.github/workflows/ci.yml'))
 const home = yaml.parse(read('.github/actions/verify-home-css/action.yml'))
 const scripts = JSON.parse(read('src/browser/package.json')).scripts
 
-test('required browser gate rejects failures, cancellations and skipped child jobs', () => {
-  const gate = Object.values(workflow.jobs).find(job => job.name === 'browser harness')
-  assert.deepEqual(gate.needs, ['changes', 'browser', 'home-css'])
+test('required full CI gate rejects failures, cancellations and skipped browser jobs', () => {
+  const gate = workflow.jobs['ci-gate']
+  assert.ok(gate.needs.includes('browser'))
+  assert.ok(gate.needs.includes('home-css'))
   assert.match(gate.if, /always\(\)/)
-  const step = gate.steps.find(step => step.name === 'Require both browser suites')
-  assert.equal(step.env.BROWSER_RESULT, '${{ needs.browser.result }}')
-  assert.equal(step.env.HOME_CSS_RESULT, '${{ needs.home-css.result }}')
+  const step = gate.steps.find(step => step.name === "Require the event's selected jobs")
+  assert.equal(step.env.EVENT_NAME, '${{ github.event_name }}')
+  assert.equal(step.env.NEEDS_JSON, '${{ toJSON(needs) }}')
   for (const browser of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const css of ['success', 'failure', 'cancelled', 'skipped']) {
+      const needs = Object.fromEntries(gate.needs.map(job => [job, { result: 'success' }]))
+      needs.changes.outputs = { full_ci: 'true' }
+      needs.browser.result = browser
+      needs['home-css'].result = css
       const result = spawnSync('bash', ['-c', step.run], {
-        env: { ...process.env, BROWSER_RESULT: browser, HOME_CSS_RESULT: css }
+        cwd: root, env: { ...process.env, EVENT_NAME: 'merge_group', NEEDS_JSON: JSON.stringify(needs) }
       })
       assert.equal(result.status === 0, browser === 'success' && css === 'success', `${browser}/${css}`)
     }
@@ -31,6 +36,7 @@ test('required browser gate rejects failures, cancellations and skipped child jo
 
 test('home matrix has an independent deadline and stays in the local full suite', () => {
   assert.equal(workflow.jobs.browser['timeout-minutes'], 30)
+  assert.match(workflow.jobs['home-css'].if, /outputs.full_ci == 'true'/)
   assert.equal(workflow.jobs['home-css']['timeout-minutes'], 25)
   assert.equal(workflow.jobs['home-css'].steps.at(-1).uses, './.github/actions/verify-home-css')
   assert.equal(home.runs.steps.find(step => step.name === 'Run complete home CSS matrix').run,

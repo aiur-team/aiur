@@ -98,7 +98,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
-       aiur experiments show <id> [--json]
+       aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
@@ -119,9 +119,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
-       aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
+       aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
@@ -189,6 +190,16 @@ aiur_engine_main() {
       ;;
     logout)
       run_local_cli "$@"
+      ;;
+    pr)
+      export AIUR_PR_MERGE_ENGINE="$engine_source"
+      run_local_cli "$@"
+      ;;
+    __pr-merge-state)
+      run_control_rpc "Aiur.PrMerge.Record.print_watcher_state()"
+      ;;
+    __pr-merge-record)
+      run_control_rpc "Aiur.PrMerge.Record.publish(\"$(encode_control_value "${2:-}")\" |> Base.decode64!())"
       ;;
     findings)
       run_findings "$@"
@@ -310,7 +321,7 @@ aiur_engine_main() {
       shift
       cmd_upgrade "$@"
       ;;
-    pause | resume)
+    pause | resume | park)
       shift
       cmd_pause_resume "$cmd" "$@"
       ;;

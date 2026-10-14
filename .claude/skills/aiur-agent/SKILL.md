@@ -37,9 +37,9 @@ shared [dictated-input note](dictated-input.md).
 - Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment
   current. When implementation and draft-PR self-review are complete, mark the
   PR ready before moving to `agent:ci-wait` and ending the turn. Drafts never
-  pass CI in any repository. Only after the full required-check set passes on
+  permit handoff. Only after all required checks pass on
   the current head SHA, flip to `agent:human-review`. Do **not** self-merge — always await
-  human review.
+  human review. Aiur PRs run fast checks; the merge queue runs the full suite.
 - **Every state move is `aiur_set_ticket_state({ "state": "<state>" })`, never
   `gh issue edit --add-label` / `--remove-label`.** The daemon relabels your
   ticket too, so a label you name for removal may already be gone — the removal
