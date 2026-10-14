@@ -12,7 +12,6 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
   # one-PR-per-ticket terminal path.
   defp no_open_pull_requests, do: [open_pull_requests_fun: fn _identifier -> {:ok, []} end]
 
-
   test "closes an active issue linked by a merged PR body, resumes dependents, and emits a visible alert" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
     blockee = %Issue{id: "issue-1571", identifier: "1571", state: "in-progress"}
