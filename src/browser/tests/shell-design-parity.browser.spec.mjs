@@ -51,6 +51,7 @@ async function finishTransitions(pair) {
   }
 }
 
+// Keep shell states together to reuse each viewport's paired pages and isolate transitions.
 for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']) {
   const cell = { ...viewport, theme, palette, dataset: 'live' }
   const label = `${viewport.viewport.width}-${theme}-${palette}`
@@ -86,15 +87,12 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       await finishTransitions(pair)
       await equalStyle(pair, '#ax-pause')
       await expectDesignParity(pair, { name: `menu-hover-${label}`, region: '#ax-menu' })
-      for (const page of [pair.design, pair.product]) await page.locator('#ax-pause').click()
-      await expect(pair.product.locator('#ax-paused')).toHaveClass(/show/)
       for (const page of [pair.design, pair.product]) await page.keyboard.press('Escape')
       for (const backdrop of menuBackdrops) await backdrop.evaluate(node => node.remove())
-      for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '.brand-logo, .wm, #ax-cog, #ax-title, #ax-paused { visibility: visible !important; }' })
-      // Pointer and keyboard focus are not a design region's paused state.
+      // The truthful chip copy is asserted in dashboard tests; its pinned design copy is stale.
+      for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '.brand-logo, .wm, #ax-cog, #ax-title { visibility: visible !important; }' })
       for (const page of [pair.design, pair.product]) await page.locator('#ax-title').click()
-      await finishTransitions(pair)
-      await expectDesignParity(pair, { name: `top-paused-${label}`, region: 'header.ax-top' })
+      for (const page of [pair.design, pair.product]) await page.mouse.move(0, 400)
 
       if (cell.viewport.width > 960) {
         for (const page of [pair.design, pair.product]) await page.locator('#ax-drag').click()
@@ -150,6 +148,35 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       await openVisualRoute(pair.product, { theme, palette, route: '/palette-probe?paused=false&writable=true&awaiting=0', mode: 'writable' })
       await equalStyle(pair, navPairs[0])
       await compareNavRegion(pair, `commands-empty-${label}`, navPairs[0])
+
+      await pair.design.evaluate(() => window.AiurHost.switchTab('fleet'))
+      await openVisualRoute(pair.product, { theme, palette, route: '/palette-probe?paused=false&writable=true', mode: 'writable' })
+      // Paused fixture cards glow through the translucent header; compare the header without them.
+      for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: 'section.dashboard-shell { visibility: hidden !important; }' })
+      for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '.brand-logo, .wm, #ax-cog, #ax-title, #ax-paused { visibility: visible !important; }' })
+      for (const page of [pair.design, pair.product]) await page.locator('#ax-cog').click()
+      for (const page of [pair.design, pair.product]) await page.locator('#ax-pause').click()
+      await expect(pair.product.locator('#ax-paused')).toHaveClass(/show/)
+      for (const page of [pair.design, pair.product]) await page.keyboard.press('Escape')
+      for (const page of [pair.design, pair.product]) {
+        await page.evaluate(() => document.activeElement?.blur())
+        await page.mouse.move(0, 400)
+      }
+      await finishTransitions(pair)
+      // Compare natural placement before normalizing the copy-dependent screenshot box.
+      await equalStyle(pair, '#ax-paused', properties.filter(key => !['width', 'height', 'margin'].includes(key)))
+      const chipBoxes = await Promise.all([pair.design, pair.product].map(page => page.locator('#ax-paused').boundingBox()))
+      expect(Math.abs(chipBoxes[0].x + chipBoxes[0].width - chipBoxes[1].x - chipBoxes[1].width)).toBeLessThanOrEqual(10)
+      const maskWidth = Math.max(...chipBoxes.map(box => box.width))
+      const maskHeight = Math.max(...chipBoxes.map(box => box.height))
+      const pausedCopy = await pair.product.locator('#ax-paused').textContent()
+      expect(pausedCopy).toBe('Provisioning paused')
+      await pair.design.locator('#ax-paused').evaluate((node, copy) => { node.textContent = copy }, pausedCopy)
+      for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: `#ax-paused { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); flex: 0 0 ${maskWidth}px !important; width: ${maskWidth}px !important; height: ${maskHeight}px !important; font-size: 0 !important; line-height: 0 !important; }` })
+      await finishTransitions(pair)
+      // The closed menu keeps a box, so its copy mask would paint over this header capture.
+      pair.allowlist = pair.allowlist.filter(entry => entry.id !== 'global-pause-menu-copy')
+      await expectDesignParity(pair, { name: `top-paused-${label}`, region: 'header.ax-top' })
     } finally {
       await designContext.close()
       await productContext.close()

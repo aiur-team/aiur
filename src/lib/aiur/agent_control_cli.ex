@@ -39,7 +39,6 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.{SystemLoad, Tracker}
   alias Aiur.Webhooks.ModePresenter
   alias Aiur.WorkflowStore.ReloadRejection
-  alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   import Aiur.ControlCLI.Protocol,
@@ -134,7 +133,7 @@ defmodule Aiur.AgentControlCLI do
   defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
     case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
       :ok ->
-        print_snapshot_freshness(freshness)
+        Aiur.AgentControlCLIFreshness.print(freshness, Map.get(snapshot, :global_pause))
         StatusObservation.print_groups(snapshot)
         render.(snapshot, statuses)
 
@@ -173,20 +172,6 @@ defmodule Aiur.AgentControlCLI do
         opts
     end
   end
-
-  defp print_snapshot_freshness(%{status: :stale} = freshness) do
-    IO.puts(
-      "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
-        stale_snapshot_reason(Map.get(freshness, :reason))
-    )
-  end
-
-  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
-
-  defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
-  defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
-  defp stale_snapshot_reason(:orchestrator_unavailable), do: " (the orchestrator is unavailable)"
-  defp stale_snapshot_reason(_reason), do: ""
 
   @spec main_watch_state() :: map()
   defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
@@ -290,7 +275,7 @@ defmodule Aiur.AgentControlCLI do
 
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
-          print_snapshot_freshness(freshness)
+          Aiur.AgentControlCLIFreshness.print(freshness, Map.get(snapshot, :global_pause))
           print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
           exit_marker(0)
 

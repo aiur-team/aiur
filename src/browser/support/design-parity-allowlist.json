@@ -143,5 +143,31 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
     }
+  },
+  {
+    "id": "global-pause-menu-copy",
+    "kind": "pixel-mask",
+    "selector": "#ax-pause span",
+    "cells": {},
+    "reason": "Global pause stops provisioning only; the menu copy differs from the pinned design",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/4236"
+    }
+  },
+  {
+    "id": "global-pause-chip-copy",
+    "kind": "pixel-mask",
+    "selector": "#ax-paused",
+    "cells": {},
+    "reason": "Global pause stops provisioning only; the chip copy differs from the pinned design",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/4236"
+    }
   }
 ]
