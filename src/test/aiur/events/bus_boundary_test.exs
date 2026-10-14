@@ -5,7 +5,7 @@ defmodule Aiur.Events.BusBoundaryTest do
 
   @lib Path.expand("../../../lib/aiur", __DIR__)
 
-  @members ~w(exchange topic publisher id_generator subscription_store
+  @members ~w(delivery exchange topic publisher id_generator subscription_store
               subscription_store_supervisor universal_subscriptions
               agent_subscription_policy debug_log)
            |> Enum.map(&"events/#{&1}.ex")
@@ -27,8 +27,6 @@ defmodule Aiur.Events.BusBoundaryTest do
     {"events/publisher.ex", "Aiur.IssueLog"} => "C2-T03",
     {"events/id_generator.ex", "Aiur.Executor.StatePaths"} => "C2-T07",
     {"events/id_generator.ex", "Aiur.LaunchStateAdoption"} => "C2-T07",
-    {"events/subscription_store.ex", "Aiur.Orchestrator"} => "C2-T01",
-    {"events/subscription_store.ex", "Aiur.Signal"} => "C2-T01",
     {"events/subscription_store.ex", "Aiur.IssueLog"} => "C2-T03",
     {"events/debug_log.ex", "Phoenix.PubSub"} => "C2-T05",
     {"events/debug_log.ex", "Aiur.PubSub"} => "C2-T05",
