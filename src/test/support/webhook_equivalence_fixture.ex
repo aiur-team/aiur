@@ -86,6 +86,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
       "number" => pr_number,
       "state" => "open",
       "draft" => draft?,
+      "user" => %{"login" => "aiur-worker"},
       "head" => %{"ref" => "aiur/#{target}", "sha" => head_sha}
     }
 
