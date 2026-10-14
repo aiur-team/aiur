@@ -2276,20 +2276,3 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 end
-
-defmodule Aiur.AgentControlCLITest.BusyOrchestrator do
-  use GenServer
-
-  def start_link(state), do: GenServer.start_link(__MODULE__, state, name: Aiur.Orchestrator)
-  @impl true
-  def init(state), do: {:ok, state}
-  @impl true
-  def handle_info({:block, parent}, state) do
-    send(parent, :blocked)
-    receive do: (:release -> {:noreply, state})
-  end
-
-  def handle_info(message, state), do: Aiur.Orchestrator.handle_info(message, state)
-  @impl true
-  def handle_call(request, from, state), do: Aiur.Orchestrator.handle_call(request, from, state)
-end
