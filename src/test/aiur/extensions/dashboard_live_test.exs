@@ -1,5 +1,6 @@
 defmodule Aiur.Extensions.DashboardLiveTest do
   use Aiur.TestSupport
+  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
   @endpoint AiurWeb.Endpoint
   alias Aiur.Orchestrator.SnapshotStore

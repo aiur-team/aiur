@@ -1,5 +1,6 @@
 defmodule Aiur.Extensions.ReadOnlyDashboardTest do
   use Aiur.TestSupport
+  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
   @endpoint AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
