@@ -78,6 +78,16 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
+  @spec refresh_open_issue_labels(keyword()) :: :ok | {:error, term()}
+  # The queue keeps its own page cache so it and the dispatch poll cannot clobber each other's validators.
+  def refresh_open_issue_labels(opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, cache} <- Issues.refresh_open_issues(OpenIssueSnapshot.refresh_cache(owner, repo), opts) do
+      OpenIssueSnapshot.put_refresh_cache(owner, repo, cache)
+    end
+  end
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
 
@@ -254,6 +264,15 @@ defmodule Aiur.GitHub.Tracker do
   def fetch_open_pull_requests_for_branch(issue_id) do
     client_module().fetch_open_pull_requests_for_branch(issue_id)
   end
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate optimistic_blocker(value, number), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate park_pull_request(value), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate comment_optimistic_park(dependent, blocker, cause), to: Aiur.GitHub.OptimisticFailure
 
   @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}

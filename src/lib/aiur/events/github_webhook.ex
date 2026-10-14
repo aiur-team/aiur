@@ -61,7 +61,7 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.AllowedContributors
   alias Aiur.AllowedContributors.Candidate
   alias Aiur.Config
-  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ThreadResolver}
+  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ReadyTransition, ThreadResolver}
   alias Aiur.Events.{Publisher, Sanitizer}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Issues
@@ -114,6 +114,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.normalize(event_type, payload, opts) do
       {:publish, triples} ->
         outcome = publish_all(triples, opts)
+        ReadyTransition.record(triples, outcome.results, opts)
         maybe_wake_on_publish(triples, opts)
         outcome
 
@@ -271,6 +272,8 @@ defmodule Aiur.Events.GithubWebhook do
   # it is handed straight to the orchestrator — no generic wake, no coalesce
   # window. The poll cycle has nothing to discover that the delivery did not
   # already carry, so a generic wake would only duplicate the targeted pass.
+  defp nudge_orchestrator(%{kind: :main_ci}, _opts), do: Aiur.MainWatch.reconcile()
+
   defp nudge_orchestrator(%{kind: :review_thread} = hint, opts) do
     case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
       pid when is_pid(pid) -> send(pid, {:github_webhook_reconcile, hint})

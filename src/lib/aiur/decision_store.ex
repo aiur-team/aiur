@@ -33,7 +33,6 @@ defmodule Aiur.DecisionStore do
   require Logger
 
   alias Aiur.{
-    Alerts,
     Boot,
     Config,
     Decision,
@@ -52,14 +51,15 @@ defmodule Aiur.DecisionStore do
     ExecutorEvents,
     Issue,
     Journal,
-    SecretRedactor
+    SecretRedactor,
+    Signal
   }
 
+  alias Aiur.Commands.DeliveryTarget
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.{ProjectionRecovery, RetainedSnapshot}
   alias Aiur.Events.{IdGenerator, Publisher}
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Tracker
 
   @ndjson_filename "decisions.ndjson"
@@ -694,7 +694,7 @@ defmodule Aiur.DecisionStore do
       )
 
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "decision_store.unrecognized_event_types",
           "DecisionStore replayed audit records this build does not understand (#{listed}) at #{path}. " <>
             "They are retained on disk and skipped; the store stays writable. " <>
@@ -716,7 +716,7 @@ defmodule Aiur.DecisionStore do
     Logger.error("aiur_decision_store phase=corruption path=#{path} line=#{line} reason=#{inspected_reason}")
 
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "decision_store.corrupted",
         "DecisionStore audit log corrupt at #{path} line #{line} " <>
           "(#{inspected_reason}); store is read-only.",
@@ -1954,7 +1954,7 @@ defmodule Aiur.DecisionStore do
       end)
 
     if stale do
-      Alerts.emit_custom(
+      Signal.agent_alert(
         failure_attention_topic(decision, stale.action_id) <> "-unknown",
         "Decision answer send outcome is unknown for #{decision.decision_id}.",
         issue: decision.ticket.identifier,
@@ -2568,7 +2568,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp journal_failure_state(state, {:journal_ambiguous, event, reason}) do
-    _ = Alerts.emit_custom("decision_store.append_ambiguous", "Decision journal outcome is unknown; writes are held.", reason: "Event #{event.event_id}: #{inspect(reason)}", needs_attention: true)
+    _ = Signal.agent_alert("decision_store.append_ambiguous", "Decision journal outcome is unknown; writes are held.", reason: "Event #{event.event_id}: #{inspect(reason)}", needs_attention: true)
     %{state | writable?: false, health: {:journal_ambiguous, event.event_id, reason}}
   end
 
@@ -3317,8 +3317,7 @@ defmodule Aiur.DecisionStore do
   # conservative re-raise path stays in effect.
   defp default_terminal_ticket_resolver(ticket_identifiers) do
     with {:ok, issues} <- Tracker.fetch_issue_states_by_ids(ticket_identifiers) do
-      terminal_states = DispatchPolicy.terminal_state_set()
-      {:ok, terminal_identities(issues, terminal_states)}
+      {:ok, terminal_identities(issues, DeliveryTarget.impl().terminal_state_set())}
     end
   end
 
@@ -3332,7 +3331,7 @@ defmodule Aiur.DecisionStore do
   def terminal_identities(issues, terminal_states)
       when is_list(issues) and is_struct(terminal_states, MapSet) do
     issues
-    |> Enum.filter(&DispatchPolicy.terminal_issue_state?(&1.state, terminal_states))
+    |> Enum.filter(&DeliveryTarget.impl().terminal_issue_state?(&1.state, terminal_states))
     |> Enum.map(&issue_terminal_identity/1)
     |> Enum.reject(&is_nil/1)
     |> MapSet.new()
@@ -3384,7 +3383,7 @@ defmodule Aiur.DecisionStore do
         _attempt -> "delivery_failed"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision),
       "Decision answer delivery failed for #{decision.decision_id} (#{reason_class}).",
       issue: decision.ticket.identifier,
@@ -3401,7 +3400,7 @@ defmodule Aiur.DecisionStore do
   defp emit_failure_resolution(decision, :recovered) do
     active_answer = Decision.active_answer(decision)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery recovered for #{decision.decision_id}.",
       issue: decision.ticket.identifier,
@@ -3420,7 +3419,7 @@ defmodule Aiur.DecisionStore do
   defp emit_failure_resolution(decision, :non_actionable) do
     active_answer = Decision.active_answer(decision)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery is not actionable for #{decision.decision_id}: " <>
         "the target agent is absent.",
@@ -3441,7 +3440,7 @@ defmodule Aiur.DecisionStore do
   defp emit_failure_resolution(decision, :terminal) do
     active_answer = Decision.active_answer(decision)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery is no longer actionable for #{decision.decision_id}: " <>
         "ticket #{decision.ticket.identifier} is terminal.",
@@ -3467,7 +3466,7 @@ defmodule Aiur.DecisionStore do
       end
 
     if why do
-      Alerts.emit_custom(
+      Signal.agent_alert(
         failure_attention_topic(decision, action_id) <> "-withdrawn",
         "A withdrawn Decision answer reached the agent for #{decision.decision_id}.",
         issue: decision.ticket.identifier,
@@ -3494,7 +3493,7 @@ defmodule Aiur.DecisionStore do
         :superseded -> "a newer answer replaced it before it reached an agent"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision, action_id) <> ".resolved",
       "Decision answer delivery withdrawn for #{decision.decision_id}: #{detail}.",
       issue: decision.ticket.identifier,
@@ -4385,7 +4384,7 @@ defmodule Aiur.DecisionStore do
 
     unless MapSet.member?(failures, action_id) do
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           lifecycle_append_failure_topic(decision, action_id),
           "Decision delivery persistence is temporarily unavailable for #{decision.decision_id}.",
           issue: decision.ticket.identifier,
@@ -4420,7 +4419,7 @@ defmodule Aiur.DecisionStore do
 
     if MapSet.member?(failures, action_id) do
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           lifecycle_append_failure_topic(decision, action_id) <> ".resolved",
           "Decision delivery persistence recovered for #{decision.decision_id}.",
           issue: decision.ticket.identifier,
@@ -4564,7 +4563,7 @@ defmodule Aiur.DecisionStore do
   # raise supersedes any `.resolved` clear that branch wrote.
   defp emit_retry_exhausted_attention(decision, action_id, attempts) do
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         failure_attention_topic(decision),
         "Decision answer delivery gave up for #{decision.decision_id} after #{attempts} automatic retries.",
         issue: decision.ticket.identifier,
@@ -4600,6 +4599,7 @@ defmodule Aiur.DecisionStore do
   defp dispatch_failure_class(:max_concurrent_agents_reached), do: "target_agent_unavailable"
   defp dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   defp dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
+  defp dispatch_failure_class(:delivery_target_unbound), do: "delivery_target_unbound"
   defp dispatch_failure_class(:decision_dispatch_overloaded), do: "decision_dispatch_overloaded"
   defp dispatch_failure_class(:decision_dispatch_unavailable), do: "decision_dispatch_unavailable"
   defp dispatch_failure_class(:decision_dispatch_timeout), do: "decision_dispatch_timeout"

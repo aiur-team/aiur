@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.AttentionActions do
   @moduledoc false
   require Logger
-  alias Aiur.BuildQueue.{Attention, Ordering, Readiness, Settings}
+  alias Aiur.BuildQueue.{Attention, ClaimProbe, Ordering, Readiness, Settings}
 
   @spec execute(map(), tuple()) :: map()
   def execute(context, {:attention_resolve, key} = command) do
@@ -34,7 +34,14 @@ defmodule Aiur.BuildQueue.AttentionActions do
     edges = Map.get(context, :planned_edges, context.document.edges)
     active = for item <- context.document.items, match?(%{open?: true}, context.observations[item.issue_id]) and context.marker in context.observations[item.issue_id].labels, do: item.issue_id
     blocked = Ordering.dependents(edges, id) |> Enum.filter(&(&1 in active))
-    %{prerequisite: id, blocked: blocked, cause: reason}
+
+    started =
+      case ClaimProbe.optimistic_records(Map.get(context, :claim_probe, ClaimProbe.impl())) do
+        {:ok, records} -> records |> Enum.filter(fn row -> Enum.any?(row["blockers"], &(&1["id"] == id)) end) |> Enum.map(& &1["ticket"]) |> Enum.uniq() |> Enum.sort()
+        {:error, _} -> []
+      end
+
+    %{prerequisite: id, blocked: blocked, started: started, cause: reason}
   end
 
   defp payload(:dependency_changed_after_start, id, context) do

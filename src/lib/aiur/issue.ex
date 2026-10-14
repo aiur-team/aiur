@@ -5,6 +5,8 @@ defmodule Aiur.Issue do
 
   alias Aiur.TrackerIdentity
 
+  # The normalized tracker record keeps dispatch context alongside issue facts.
+  # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :id,
     :identifier,
@@ -35,6 +37,7 @@ defmodule Aiur.Issue do
     # as "yes" (fail closed).
     :created_via_app?,
     :dispatch_revision,
+    :optimistic_start,
     paused: false,
     # GitHub ingestion resolves this before an issue can reach dispatch. Other
     # tracker backends retain the safe compatibility default.
@@ -89,6 +92,7 @@ defmodule Aiur.Issue do
           creator_type: String.t() | nil,
           created_via_app?: boolean() | nil,
           dispatch_revision: String.t() | nil,
+          optimistic_start: Aiur.OptimisticStart.t() | nil,
           paused: boolean(),
           dispatch_authorized?: boolean(),
           dispatch_authorization: :authorized | :denied | :deferred,
@@ -113,6 +117,9 @@ defmodule Aiur.Issue do
   @spec parked?(t()) :: boolean()
   def parked?(%__MODULE__{parked: parked}), do: parked == true
   def parked?(_issue), do: false
+
+  @spec parked?(t(), map()) :: boolean()
+  def parked?(issue, running_entry), do: parked?(issue) or Map.get(running_entry, :operator_parked) == true
 
   @doc "Returns whether the issue carries the build-queue marker."
   @spec queued?(t()) :: boolean()

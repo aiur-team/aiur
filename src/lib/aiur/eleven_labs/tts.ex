@@ -7,6 +7,8 @@ defmodule Aiur.ElevenLabs.TTS do
   provider response object.
   """
 
+  @behaviour Aiur.Voice.Synthesizer
+
   alias Aiur.Config
 
   @endpoint "https://api.elevenlabs.io/v1/text-to-speech"
@@ -18,6 +20,7 @@ defmodule Aiur.ElevenLabs.TTS do
 
   @type request_fun :: (String.t(), keyword() -> {:ok, Req.Response.t()} | {:error, term()})
 
+  @impl true
   @spec start(pid(), String.t(), keyword()) :: {:ok, pid()} | {:error, atom()}
   def start(owner, text, opts \\ []) when is_pid(owner) and is_binary(text) do
     with {:ok, text} <- validate_text(text),
@@ -53,9 +56,9 @@ defmodule Aiur.ElevenLabs.TTS do
     request_fun.(url, options)
     |> handle_result(owner)
   rescue
-    _error -> notify(owner, {:elevenlabs_audio, :error, "Voice playback failed"})
+    _error -> notify(owner, {:voice_audio, :error, "Voice playback failed"})
   catch
-    _kind, _reason -> notify(owner, {:elevenlabs_audio, :error, "Voice playback failed"})
+    _kind, _reason -> notify(owner, {:voice_audio, :error, "Voice playback failed"})
   end
 
   defp stream_into(owner, limits) do
@@ -82,22 +85,22 @@ defmodule Aiur.ElevenLabs.TTS do
     end
   end
 
-  defp forward_chunk(owner, 200, data), do: send(owner, {:elevenlabs_audio, :chunk, data})
+  defp forward_chunk(owner, 200, data), do: send(owner, {:voice_audio, :chunk, data})
   defp forward_chunk(_owner, _status, _data), do: :ok
 
   defp handle_result({:ok, %{status: 200}}, owner) do
     if Process.get(:aiur_tts_limited) == true do
-      notify(owner, {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"})
+      notify(owner, {:voice_audio, :error, "Voice reply exceeded its playback limit"})
     else
-      notify(owner, {:elevenlabs_audio, :done})
+      notify(owner, {:voice_audio, :done})
     end
   end
 
   defp handle_result({:ok, _response}, owner),
-    do: notify(owner, {:elevenlabs_audio, :error, "ElevenLabs could not speak this reply"})
+    do: notify(owner, {:voice_audio, :error, "ElevenLabs could not speak this reply"})
 
   defp handle_result({:error, _opaque}, owner),
-    do: notify(owner, {:elevenlabs_audio, :error, "Voice playback connection failed"})
+    do: notify(owner, {:voice_audio, :error, "Voice playback connection failed"})
 
   defp validate_text(text) do
     text = String.trim(text)

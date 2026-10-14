@@ -86,6 +86,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     orphaned_agent_reap_count: :lifecycle,
     contradictory_state_label_tickets: :lifecycle,
     contradictory_state_label_alert_active: :lifecycle,
+    terminal_verification_attempts: :lifecycle,
     globally_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
@@ -123,6 +124,7 @@ defmodule Aiur.Orchestrator.State.Owners do
   @members %{
     core: [
       Aiur.Orchestrator.BlockerPropagation,
+      Aiur.Orchestrator.Parking,
       Aiur.Orchestrator,
       Aiur.Orchestrator.IssueSync,
       Aiur.Orchestrator.TrackerHealth,
@@ -143,6 +145,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     lifecycle: [
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,
+      Aiur.Orchestrator.Parking,
       Aiur.Orchestrator.RetryEngine,
       Aiur.Orchestrator.Reconciler,
       Aiur.Orchestrator.AgentTeardown,
@@ -154,13 +157,15 @@ defmodule Aiur.Orchestrator.State.Owners do
     control: [Aiur.Orchestrator.PauseResume, Aiur.Orchestrator.GlobalPause, Aiur.Orchestrator.ControlLifecycle],
     pr_lifecycle: [
       Aiur.Orchestrator.CiLifecycle,
+      Aiur.Orchestrator.DraftAlertLifecycle,
       Aiur.Orchestrator.CommentWake,
       Aiur.Orchestrator.ReworkGate,
       Aiur.Orchestrator.PRHealthScanner,
       Aiur.Orchestrator.ReadyForReviewTransitions,
       Aiur.Orchestrator.MergedTicketReconciler,
       Aiur.Orchestrator.ReworkRequeue,
-      Aiur.Orchestrator.RestackScheduler
+      Aiur.Orchestrator.RestackScheduler,
+      Aiur.Orchestrator.MergeOrderAudit
     ],
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],

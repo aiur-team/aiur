@@ -88,7 +88,7 @@ defmodule Aiur.AppServer.MessagesTest do
   test "normalize_tool_result/2 rejects a runtime-directory symlink escape", %{tmp_dir: tmp_dir} do
     outside = Aiur.TestSupport.tmp_root!("outside-spill")
     File.mkdir_p!(outside)
-    on_exit(fn -> File.rm_rf!(outside) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(outside) end)
     File.ln_s!(outside, Path.join(tmp_dir, ".aiur-runtime"))
     original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
 
@@ -103,7 +103,7 @@ defmodule Aiur.AppServer.MessagesTest do
     outside = Aiur.TestSupport.tmp_root!("outside-results")
     File.mkdir_p!(runtime)
     File.mkdir_p!(outside)
-    on_exit(fn -> File.rm_rf!(outside) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(outside) end)
     File.ln_s!(outside, Path.join(runtime, "tool-results"))
     original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
 

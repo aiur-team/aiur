@@ -1,0 +1,55 @@
+{
+  "id": "experiments",
+  "name": "Experiment specifications and evidence",
+  "layer": 3,
+  "kind": "optional",
+  "paths": [
+    "src/lib/aiur/experiments.ex",
+    "src/lib/aiur/experiments/**",
+    "src/lib/aiur/experiments_cli.ex"
+  ],
+  "facades": [
+    "Aiur.Experiments",
+    "Aiur.Experiments.CapabilityProvider",
+    "Aiur.Experiments.MetricPack",
+    "Aiur.Experiments.Observation",
+    "Aiur.Experiments.Predicate",
+    "Aiur.Experiments.Spec",
+    "Aiur.ExperimentsCLI"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "agent-sandbox",
+    "config",
+    "event-bus",
+    "identity",
+    "kernel",
+    "workspace"
+  ],
+  "optional": [
+    "accounting",
+    "executor-attention",
+    "telemetry",
+    "tracker"
+  ],
+  "owns": {
+    "config": [
+      "experiments"
+    ],
+    "env": [],
+    "state": [
+      "experiments_path"
+    ],
+    "capabilities": [
+      "experiments",
+      "experiments.metric_packs"
+    ]
+  },
+  "prior": [],
+  "forbid": [
+    "Aiur.GitHub",
+    "Aiur.GitHub.*",
+    "Aiur.Orchestrator",
+    "Aiur.Orchestrator.*"
+  ]
+}

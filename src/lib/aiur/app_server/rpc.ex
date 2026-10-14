@@ -6,39 +6,40 @@ defmodule Aiur.AppServer.Rpc do
   require Logger
 
   alias Aiur.AppServer.Rpc.{Await, SensitiveResponses, Stream, StreamDiagnostics}
+  alias Aiur.AppServer.Transport
 
-  @spec send_line(port(), map()) :: true
+  @spec send_line(port() | pid(), map()) :: true
   def send_line(port, message) do
     line = Jason.encode!(message) <> "\n"
-    Port.command(port, line)
+    Transport.command(port, line)
   end
 
   @type notification_handler :: (map() -> :handled | :ignore)
 
   @doc false
-  @spec retain_late_sensitive_response(port(), integer()) :: :ok
+  @spec retain_late_sensitive_response(port() | pid(), integer()) :: :ok
   defdelegate retain_late_sensitive_response(port, request_id), to: SensitiveResponses, as: :retain
 
   @doc false
-  @spec retain_late_sensitive_response(port(), integer(), boolean()) :: :ok
+  @spec retain_late_sensitive_response(port() | pid(), integer(), boolean()) :: :ok
   defdelegate retain_late_sensitive_response(port, request_id, partial_line?), to: SensitiveResponses, as: :retain
 
   @doc false
-  @spec clear_late_sensitive_responses(port()) :: :ok
+  @spec clear_late_sensitive_responses(port() | pid()) :: :ok
   defdelegate clear_late_sensitive_responses(port), to: SensitiveResponses, as: :clear
 
   @doc false
-  @spec discard_late_sensitive_response?(port(), binary() | map()) :: boolean()
+  @spec discard_late_sensitive_response?(port() | pid(), binary() | map()) :: boolean()
   defdelegate discard_late_sensitive_response?(port, data), to: SensitiveResponses, as: :discard?
 
-  @spec with_timeout_response(port(), integer(), non_neg_integer(), String.t(), String.t()) ::
+  @spec with_timeout_response(port() | pid(), integer(), non_neg_integer(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label) do
     with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, fn _payload -> :ignore end)
   end
 
   @spec with_timeout_response(
-          port(),
+          port() | pid(),
           integer(),
           non_neg_integer(),
           String.t(),
@@ -52,7 +53,7 @@ defmodule Aiur.AppServer.Rpc do
   end
 
   @spec with_timeout_response(
-          port(),
+          port() | pid(),
           integer(),
           non_neg_integer(),
           String.t(),
@@ -66,20 +67,20 @@ defmodule Aiur.AppServer.Rpc do
     Await.response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?)
   end
 
-  @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t()) ::
+  @spec handle_response(port() | pid(), integer(), binary(), non_neg_integer(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def handle_response(port, request_id, data, timeout_ms, backend_label) do
     handle_response(port, request_id, data, timeout_ms, backend_label, fn _payload -> :ignore end)
   end
 
-  @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t(), notification_handler()) ::
+  @spec handle_response(port() | pid(), integer(), binary(), non_neg_integer(), String.t(), notification_handler()) ::
           {:ok, map()} | {:error, term()}
   def handle_response(port, request_id, data, timeout_ms, backend_label, on_notification) when is_function(on_notification, 1) do
     handle_response(port, request_id, data, timeout_ms, backend_label, on_notification, false)
   end
 
   @spec handle_response(
-          port(),
+          port() | pid(),
           integer(),
           binary(),
           non_neg_integer(),

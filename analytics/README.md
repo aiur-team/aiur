@@ -36,6 +36,8 @@ Materialized outputs live in the per-repo state node (`RepoBase.repo_path/1`,
 ~/.aiur/repo/<owner>/<name>/
 ├── analytics/
 │   ├── runs/<boot-id>/run-summary.json     # one reduced dataset per boot
+│   ├── repo-timeline.ndjson                # commits, main-red boundaries and tags
+│   ├── facts-pending.json                  # durable terminal-ticket capture queue
 │   └── flakes.ndjson                       # reserved (flake-report; blocked)
 └── builds/<slug>/build-summary.json        # rollup across every boot touching a member
 ```
@@ -45,6 +47,22 @@ application writer (`reduce --build <slug>` / the daemon's summary writer).
 Build-order packs still load from the in-repo `.aiur/build_orders/*.json`
 (`planning_source.ex`); the state-node `builds/<slug>/build-order.json` remains
 Executor-placed.
+
+PR facts are captured at merge or terminal ticket observation as body-free `pr_facts`
+lifecycle points, including ready/review/approval times, review counts/classes,
+size, merge SHA and epic. Both reducers carry these fields into ticket summaries.
+`FactsCapture.capture/1` queues historical terminal tickets for backfill.
+The completion journal retains 10,000 recent trigger keys (two per merged ticket);
+evicted backfills may capture again.
+
+`repo-timeline.ndjson` follows `schema/repo-timeline.v1.json`. The daemon reads
+base-branch history and tags at boot and hourly, deduplicating rows across boots.
+Pending CI rollups leave red intervals unchanged; revert messages are classified
+in memory and never stored. Non-ticket merges have `ticket: null`. GitHub
+budget holds defer capture; three failed PR reads record unavailable coverage.
+Other timeline failures back off exponentially from one minute to one hour.
+Unresolvable revert targets stay null; unsupported or missing tags are skipped.
+`observability.capture_github_facts: false` disables both GitHub capture paths.
 
 ## Tools
 
@@ -77,6 +95,18 @@ analytics/run-summary <boot-id> --json
 analytics/build-report analytics-optimizations
 analytics/build-report analytics-optimizations --json
 ```
+
+Optimistic lifecycle evidence adds an optional `tickets.<id>.optimistic` block
+without changing the summary schema version. `build-report` groups starts,
+redone and discarded outcomes, integration reports, head start and waste by
+start trigger, including discard rate among terminal outcomes (unavailable
+until an outcome is recorded); `--json` includes the same `optimistic` rollup. `run-summary`
+adds one headline line. Builds with no optimistic starts keep their existing
+report output. Missing integration reports remain unknown. Head start is the
+blocker merge time minus the dependent start, floored at zero, for merged
+dependents; it is **not time saved**. Waste counts implementation intervals
+before the park, for discarded work only. Regenerate cached summaries to
+include this evidence.
 
 The daemon materializes summaries automatically on telemetry segment boundary
 and on shutdown (best-effort, fail-open). Manual `reduce` runs are always safe

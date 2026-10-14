@@ -23,8 +23,8 @@ defmodule Aiur.GitHub.CredentialHeadroom do
 
   use GenServer
 
-  alias Aiur.Alerts
   alias Aiur.GitHub.{Budget, Transport}
+  alias Aiur.Signal
 
   @table __MODULE__
   @disagreements_table Module.concat(__MODULE__, Disagreements)
@@ -226,7 +226,7 @@ defmodule Aiur.GitHub.CredentialHeadroom do
   end
 
   defp emit_disagreement(key, message, opts) do
-    alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_system/2)
+    alert_fun = Keyword.get(opts, :alert_fun, &Signal.alert/2)
 
     case alert_fun.("system.github.budget_meter_disagreement",
            reason: message,
