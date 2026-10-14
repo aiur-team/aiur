@@ -24,6 +24,7 @@
   "optional": [],
   "owns": {
     "config": [
+      "compaction",
       "merge_policy",
       "prompt_file"
     ],

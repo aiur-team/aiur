@@ -15,6 +15,7 @@ defmodule Aiur.TicketObservation do
   @progress_names ["progress", "progress.checkin", "progress.phase"]
   @stages ["brainstorm", "plan", "work", "review"]
   @transitions ["start", "end"]
+  @compaction_statuses ["pending", "completed", "failed", "unsupported"]
   @severities ["info", "warning", "critical"]
 
   @derive {
@@ -127,9 +128,10 @@ defmodule Aiur.TicketObservation do
   end
 
   defp normalize_source(%{kind: :agent_alert, name: name}) when is_binary(name) do
-    case parse_stage(name) do
-      {:ok, _stage, _transition} -> %{kind: :agent_alert, name: name}
-      :error -> %{kind: :agent_alert, name: "alert"}
+    cond do
+      compaction_status(name) -> %{kind: :agent_alert, name: name}
+      match?({:ok, _, _}, parse_stage(name)) -> %{kind: :agent_alert, name: name}
+      true -> %{kind: :agent_alert, name: "alert"}
     end
   end
 
@@ -143,9 +145,15 @@ defmodule Aiur.TicketObservation do
   end
 
   defp safe_attributes(%{kind: :agent_alert, name: name}, payload) do
-    case parse_stage(name) do
-      {:ok, stage, transition} -> %{stage: stage, transition: transition}
-      :error -> alert_attributes(payload)
+    case compaction_status(name) do
+      status when not is_nil(status) ->
+        %{compaction_status: String.to_existing_atom(status)}
+
+      nil ->
+        case parse_stage(name) do
+          {:ok, stage, transition} -> %{stage: stage, transition: transition}
+          :error -> alert_attributes(payload)
+        end
     end
   end
 
@@ -172,6 +180,9 @@ defmodule Aiur.TicketObservation do
   end
 
   defp parse_stage(_name), do: :error
+
+  defp compaction_status("compaction." <> status) when status in @compaction_statuses, do: status
+  defp compaction_status(_name), do: nil
 
   defp payload_value(payload, key), do: Map.get(payload, key, Map.get(payload, String.to_atom(key)))
 
