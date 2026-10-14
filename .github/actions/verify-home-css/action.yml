@@ -3,10 +3,6 @@ description: Run the complete home CSS matrix and retain its evidence.
 runs:
   using: composite
   steps:
-    - name: Disclose rerun attempt
-      if: ${{ (github.run_attempt > 1) }}
-      shell: bash
-      run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
     - name: Set up browser harness
       uses: ./.github/actions/setup-browser
     - name: Run complete home CSS matrix
