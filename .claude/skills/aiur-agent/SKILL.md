@@ -67,7 +67,8 @@ shared [dictated-input note](dictated-input.md).
   A PR already in the merge queue is left alone: never dequeue it, or ask the
   Executor to, in order to update its branch.
 - **Events:** `emit_event(name, message, payload?)` publishes to
-  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
+  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
+  `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
   `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with

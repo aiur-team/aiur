@@ -45,6 +45,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/build-order-grid-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
+        <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
         <script defer src="/build-home/loader.js"></script>

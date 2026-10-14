@@ -290,6 +290,7 @@ test('Units interactive voice chat sends speech and plays the next agent reply',
   await expect(drawer.getByRole('button', { name: 'Cancel waiting for voice reply' })).toBeEnabled()
   await expect(drawer.locator('.conversation-message-agent[data-message-complete="false"]')).toContainText('Voice reply')
   await expect.poll(() => page.evaluate(() => window.__voicePlaybackStarts)).toBe(0)
+  await page.getByRole('button', { name: 'Complete voice reply' }).evaluate((button) => button.click())
   await expect(drawer).toContainText('Voice reply from the agent.')
   await expect.poll(() => page.evaluate(() => window.__voicePlaybackStarts)).toBe(1)
   await expect(drawer.locator('[data-voice-status]')).toContainText(

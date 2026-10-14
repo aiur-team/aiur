@@ -60,6 +60,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:collapsed_epics, [])
       |> assign(:time_domain, nil)
       |> assign(:now, Runtime.display_now())
+      |> assign(:catalog_wait_started_at, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
       |> assign(:agent_kind, Runtime.agent_kind())
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
@@ -286,13 +287,14 @@ defmodule AiurWeb.BuildOrderLive do
         aria-label="Build Order explorer"
         data-build-order-status={RouteState.status(@route_state)}
         data-build-order-root={RouteState.root_identifier(@route_state)}
-        data-build-order-catalog-state={BuildOrderCatalog.catalog_state(RouteState.catalog_snapshot(@route_state))}
+        data-build-order-catalog-state={BuildOrderCatalog.catalog_state(RouteState.catalog_snapshot(@route_state), catalog_wait_ms(@now, @catalog_wait_started_at))}
       >
         <QueuePanel.panel :if={RouteState.route(@route_state) == :catalog} view={@queue_view} now={@now} />
         <BuildOrderCatalog.build_order_catalog
           :if={RouteState.route(@route_state) == :catalog}
           route_state={@route_state}
           now={@now}
+          catalog_wait_ms={catalog_wait_ms(@now, @catalog_wait_started_at)}
         />
         <BuildOrderSelected.build_order_selected
           :if={RouteState.route(@route_state) == :selected}
@@ -325,6 +327,9 @@ defmodule AiurWeb.BuildOrderLive do
   end
 
   defp schedule_ui_tick, do: Process.send_after(self(), :build_order_ui_tick, @ui_tick_ms)
+
+  defp catalog_wait_ms(%DateTime{} = now, %DateTime{} = started_at), do: max(DateTime.diff(now, started_at, :millisecond), 0)
+  defp catalog_wait_ms(_now, _started_at), do: 0
 
   defp page_title(route, route_state) do
     case {RouteState.route(route_state), RouteState.root_identifier(route_state)} do

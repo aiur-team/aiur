@@ -1,5 +1,6 @@
 defmodule Aiur.OpenAICompat.CodingAgentSessionTest do
   use ExUnit.Case, async: true
+  @moduletag :r7_characterization
   use Aiur.TestSupport.OpenAICompatAgent
 
   alias Aiur.OpenAICompat.{CodingAgent, Config}
