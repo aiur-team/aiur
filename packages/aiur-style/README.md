@@ -38,7 +38,7 @@ import 'aiur-style/aiur-style.css';
 
 ### JavaScript
 
-Theme behaviors are exported from the package root and `aiur-style/theme`.
+Theme behaviors are exported from the package root.
 
 ```javascript
 import { getTheme, setTheme, onThemeChange, initThemeToggle } from 'aiur-style';
@@ -57,7 +57,7 @@ The package supports light and dark themes via the `data-theme` attribute on `<h
 When the attribute is absent, the theme follows the system preference via `prefers-color-scheme`.
 
 Load the external classic initializer as the first child of `<head>`, before
-stylesheets. Copy it from `aiur-style/init/theme-init.js` into your public assets;
+stylesheets. Copy it from `aiur-style/theme-init.js` into your public assets;
 do not use `type="module"`, `async`, `defer`, or inline script code.
 
 ```html
@@ -72,8 +72,9 @@ migrate the first valid theme and the first banner dismissal (`dismissed` or
 `1`), without overwriting an existing choice. A migrated key is removed only
 after the new value is written. `data-banner` selects `aiur-banner:<id>`;
 `dismissed` sets `html[data-aiur-banner="dismissed"]` before paint.
-`data-vitepress="true"` also synchronizes `vitepress-theme-appearance` (including
-`auto` for system mode) and `html.dark`. Storage failures never prevent rendering.
+`data-vitepress="true"` synchronizes `vitepress-theme-appearance` (including
+`auto` for system mode) and `html.dark` during initialization only. Runtime
+`setTheme()` does not synchronize VitePress. Storage failures never prevent rendering.
 
 `getTheme()` resolves the attribute or system preference. `setTheme(theme,
 {persist: false})` changes only the current page; persistence defaults to true.
