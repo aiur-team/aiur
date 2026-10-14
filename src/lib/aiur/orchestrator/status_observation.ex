@@ -127,10 +127,16 @@ defmodule Aiur.Orchestrator.StatusObservation do
   @spec row_label(map()) :: String.t()
   defdelegate row_label(row), to: Aiur.Protocol.ObservationAge
 
+  defp oldest_suffix(:per_ticket, %{per_ticket: %{oldest_ticket_id: id, oldest_age_ms: age}}) when not is_nil(id),
+    do: "; oldest retained ##{id} #{label(%{age_ms: age})}"
+
+  defp oldest_suffix(:per_ticket, _groups), do: ""
+  defp oldest_suffix(_group, _groups), do: ""
+
   @spec print_groups(map()) :: :ok
   def print_groups(%{observations: groups}) when is_map(groups) do
     Enum.each(@groups, fn group ->
-      suffix = if group == :per_ticket, do: "; oldest retained ##{groups.per_ticket[:oldest_ticket_id]} #{label(%{age_ms: groups.per_ticket[:oldest_age_ms]})}", else: ""
+      suffix = oldest_suffix(group, groups)
       IO.puts("#{group |> Atom.to_string() |> String.upcase()} OBSERVATION #{label(groups[group])}#{suffix}")
     end)
   end

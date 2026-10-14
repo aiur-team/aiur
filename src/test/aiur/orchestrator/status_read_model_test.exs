@@ -186,6 +186,8 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{}))
     assert snapshot.observations.dispatch == %{observed_at: nil, age_ms: nil}
     assert snapshot.observations.per_ticket == %{observed_at: nil, age_ms: nil, oldest_ticket_id: nil, oldest_observed_at: nil, oldest_age_ms: nil}
+    output = capture_io(fn -> StatusObservation.print_groups(snapshot) end)
+    refute output =~ "oldest retained #"
     assert StatusObservation.label(snapshot.observations.dispatch) == "age unavailable"
     assert StatusObservation.label(%{observed_at: "invalid", age_ms: nil}) == "age unavailable"
     assert StatusObservation.observation("invalid", DateTime.utc_now()) == %{observed_at: nil, age_ms: nil}
