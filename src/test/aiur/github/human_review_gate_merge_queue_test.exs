@@ -89,6 +89,8 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     assert_received {:label_written, ["agent:human-review"]}
   end
 
+  # These refusal cases guard the new merge-only exception from widening; the
+  # old blanket stale-base gate also refuses them, so they are future-regression guards.
   test "a non-merge commit after the merge requires re-review even if the contribution is unchanged" do
     assert {:error, {:stale_review_base, %{head_sha: "tested-head"}}} =
              Client.update_issue_state("42", "human-review", request_fun: merge_only_request_fun(:non_merge), bot_account: "aiur-bot")
@@ -308,8 +310,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     }
   end
 
-  defp scenario_files(:merge), do: @shared
-  defp scenario_files(_scenario), do: [%{"filename" => "base-only.ex"}]
+  defp scenario_files(_scenario), do: @shared
 
   defp comparison_request_fun(fallback, scenario) do
     approved_patch = scenario_approved_patch(scenario)
