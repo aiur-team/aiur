@@ -12,8 +12,10 @@ end
 defmodule Aiur.BrowserHarness.VoiceTranscriber do
   @behaviour Aiur.Voice.Transcriber
 
+  alias Aiur.BrowserHarness.VoiceSTT
+
   @impl true
-  def start(opts), do: Aiur.BrowserHarness.VoiceSTT.start_link(Keyword.fetch!(opts, :owner))
+  def start(opts), do: VoiceSTT.start_link(Keyword.fetch!(opts, :owner))
   @impl true
   def push(pid, audio), do: GenServer.cast(pid, {:push, audio})
   @impl true
