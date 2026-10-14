@@ -24,9 +24,9 @@
   "optional": [],
   "owns": {
     "config": [
+      "compaction",
       "merge_policy",
-      "prompt_file",
-      "compaction"
+      "prompt_file"
     ],
     "env": [
       "AIUR_CI_CHANGED_PATHS_B64",
