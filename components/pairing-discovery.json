@@ -1,0 +1,24 @@
+{
+  "id": "pairing-discovery",
+  "name": "Machine pairing and instance registry, instance side (MP-N2, new)",
+  "layer": 3,
+  "kind": "optional",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "identity",
+    "machine-gateway",
+    "web-kit"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": []
+}
