@@ -30,7 +30,7 @@ Rows and the resume checkpoint share the history file; a restart resumes unfinis
 
 The predicted cost is about 3 points per 100 issues; `rateLimit.cost` and `aiur github-cost` report the actual spend. Blocker overflow is paged; label and timeline overflow is marked incomplete. A page costing more than 5 reported points is saved, then the job stops with `page_cost_exceeded`, including after restart.
 
-Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
+Polling remains the webhook fallback. Delivery-speed cost evaluation resolves eligible merged-ticket identities (`issue_by_id`, plus tracker authorization reads). Review census on 2026-10-12: 526 merged PRs in 14 days, potentially 526 identities per evaluation; these lookups are not polling. Accounting is then queried once for the ticket set.
 
 `observability.capture_github_facts` gates both analytics readers. Missing credentials and non-GitHub trackers disable history capture. Budget holds defer queued tickets; three failed PR reads record unavailable coverage. Other timeline failures back off from one minute to one hour.
 

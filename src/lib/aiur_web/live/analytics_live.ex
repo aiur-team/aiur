@@ -494,7 +494,7 @@ defmodule AiurWeb.AnalyticsLive do
       %{
         label: "Wasted capacity",
         val: Presenter.wasted_slot_hours_label(k.wasted_slot_hours),
-        sub: "idle unit-slots",
+        sub: if(k.wasted_slot_hours_partial, do: "idle unit-slots (partial; missing cap observations)", else: "idle unit-slots"),
         tone: "block"
       }
     ]
