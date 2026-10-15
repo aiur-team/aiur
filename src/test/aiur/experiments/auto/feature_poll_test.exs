@@ -248,7 +248,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
         assert data["epics"]["42"]["state"]["phase"] == "skipped"
         refute data["epics"]["42"]["state"]["experiment_id"]
         assert {:ok, again} = FeaturePoll.run(opts, false)
-      assert again["epics"]["42"]["state"]["phase"] == "skipped"
+        assert again["epics"]["42"]["state"]["phase"] == "skipped"
       end)
 
     assert length(Regex.scan(~r/automatic experiment skipped: telemetry disabled/, log)) == 1
