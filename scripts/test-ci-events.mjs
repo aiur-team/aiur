@@ -91,13 +91,16 @@ assert.ok(jobs.get('workflow-security').includes('Set up Elixir for evidence and
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
 const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
-assert.ok(affectedTimeout >= 30, 'affected-tests job has headroom beyond its former 15-minute limit');
-assert.ok(affected.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),
+assert.equal(affectedTimeout, 15, 'the job retains its original overall budget');
+assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
+const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
+assert.ok(affectedRunner.includes('git rev-parse HEAD^1'), 'affected-tests uses the PR merge base, not a stale event payload');
+assert.ok(affectedRunner.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),
   'affected-tests logs dependency setup duration');
 for (const guard of ['base_branch_literal_guard', 'state_owners', 'placement_rule', 'non_transition_facade', 'waiting_descriptor', 'application_child_order', 'health_scanner_child_order']) {
   assert.ok(affected.includes(`${guard}_test.exs`), `fast CI includes ${guard}`);
 }
-assert.ok(affected.includes('run-ci-affected-tests.py "$PR_BASE"'));
+assert.ok(affectedRunner.includes('run-ci-affected-tests.py "$PR_BASE"'));
 assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));

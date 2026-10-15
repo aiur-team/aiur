@@ -666,7 +666,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: src
@@ -694,9 +694,8 @@ jobs:
       - name: Run affected tests on the PR merge
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
-        run: started=$SECONDS; sudo apt-get update && sudo apt-get install -y zsh && echo "::notice::affected-tests dependency setup duration: $((SECONDS - started))s" && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+        run: bash ../scripts/run-ci-affected-tests.sh
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, home-css, layout-release, analytics, streamdeck]

@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Exercise the selector runner with a hermetic Mix executable."""
 import json
+import importlib.util
+import io
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name('run-ci-affected-tests.py')
 SELECTED_TEST = 'cd src && mise exec -- mix test --max-cases 4 test/slow_test.exs'
+RUNNER_SPEC = importlib.util.spec_from_file_location('affected_runner', SCRIPT)
+RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
+RUNNER_SPEC.loader.exec_module(RUNNER)
 
 
 class AffectedRunnerTest(unittest.TestCase):
@@ -59,6 +67,19 @@ else:
         self.assertEqual(calls, [['test', '--max-cases', '4', 'test/slow_test.exs']])
         self.assertIsNotNone(match)
         self.assertGreaterEqual(float(match.group(1)), 1.0)
+
+    def test_selected_test_command_is_terminated_at_its_timeout(self):
+        self.assertEqual(RUNNER.SELECTED_TEST_TIMEOUT_SECONDS, 600)
+        stderr = io.StringIO()
+        command = [sys.executable, '-c', 'import time; time.sleep(5)']
+        with patch.object(RUNNER, 'SELECTED_TEST_TIMEOUT_SECONDS', 0.1):
+            with redirect_stderr(stderr), self.assertRaises(subprocess.TimeoutExpired):
+                RUNNER.run_selected_tests(command)
+
+        match = re.search(r'::notice::affected-tests selected tests duration: ([0-9.]+)s', stderr.getvalue())
+        self.assertIsNotNone(match)
+        self.assertLess(float(match.group(1)), 2.0)
+        self.assertIn('::error::affected-tests selected tests exceeded its 0.1s timeout', stderr.getvalue())
 
     def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
         reason = 'changed files include test support; changed paths: src/test/support/helper.exs'
