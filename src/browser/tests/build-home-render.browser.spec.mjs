@@ -237,7 +237,9 @@ test('performance regression guard: dense scroll stays bounded', async ({ page }
 })
 
 test('span URL pages before settling and paging state survives server patches', async ({ page }) => {
-  await page.goto('/build-fixture/dense?span=3')
+  await page.request.get('/build-fixture/dense')
+  await page.goto('/build?span=3')
+  await expect.poll(() => page.evaluate(async () => { const { S, ctx } = await import('/build-home/state.js'); return { span: S.span, url: location.search, root: ctx.root?.dataset.urlState } })).toMatchObject({ span: 3, url: '?span=3' })
   await expect.poll(() => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js')
     return ctx.D ? (await import('/build-home/layout.js')).histDays(ctx.D.hist).length : 0

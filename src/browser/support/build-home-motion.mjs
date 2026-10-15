@@ -1,6 +1,6 @@
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
-// The ticket requires one support module: measurements and sequence ownership stay together.
+// Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))

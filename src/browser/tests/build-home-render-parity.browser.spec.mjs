@@ -1,14 +1,25 @@
+import { readFile } from 'node:fs/promises'
 import { test, expect } from '@playwright/test'
-import { openParityPair, expectDesignParity, FIXTURE_META } from '../support/design-parity.mjs'
+import { openParityPair, expectDesignParity, FIXTURE_META, waitParityReady } from '../support/design-parity.mjs'
 import { runOn, compareRecords } from '../support/build-home-motion.mjs'
+
+const source = await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8')
+const anchor = '  window.AiurBuild = {'
+expect(source.split(anchor)).toHaveLength(2)
+// Expose the original update; disable automatic paging only for static component captures.
+const probe = source.replace(anchor, `window.__E8Render = { stop: () => { S.ready = false; }, scroll(sec) {
+  vp.scrollTop = secs[sec].el.offsetTop + (sec === 'hist' ? 400 : 50); update();
+} };\n${anchor}`)
 
 for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) test(`section headers and vertical geometry match the design: ${dataset}`, async ({ browser }) => {
   const cell = { viewport: { width: 1440, height: 900 }, theme: 'light', palette: 'aiur', dataset }
   const pair = await openParityPair(browser, cell, { motion: true })
   try {
-    // Band rendering belongs to C9-T08; align both viewports to the history top.
-    for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => { el.scrollTop = 400; el.dispatchEvent(new Event('scroll')) })
-    for (const page of [pair.design, pair.product]) await page.clock.runFor(32)
+    await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: probe }))
+    await pair.design.reload()
+    await waitParityReady(pair.design, 'board', 'design', true)
+    await pair.design.evaluate(() => window.__E8Render.stop())
+    await pair.product.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
     const read = page => page.evaluate(() => ['hist', 'plan', 'nq'].map(sec => ({
       sec, h: document.querySelector('#bd-sec-' + sec).style.height,
       head: document.querySelector('#bd-sec-' + sec + ' .bd-sech').innerHTML,
@@ -18,14 +29,15 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) test(`section hea
     // Virtual windows depend on the Now band, which has not landed; compare shared card geometry.
     for (let i = 0; i < design.length; i++) {
       expect(product[i].h, JSON.stringify({ sec: product[i].sec, product: product[i].head, design: design[i].head })).toBe(design[i].h); expect(product[i].head).toBe(design[i].head)
-      for (const page of [pair.design, pair.product]) {
-        await page.evaluate(sec => { const vp = document.querySelector('#bd-vp'); vp.scrollTop = document.querySelector('#bd-sec-' + sec).offsetTop + (sec === 'hist' ? 400 : 50); vp.dispatchEvent(new Event('scroll')) }, product[i].sec)
-        await page.clock.runFor(32)
-      }
+      await pair.design.evaluate(sec => window.__E8Render.scroll(sec), product[i].sec)
+      await pair.product.evaluate(async sec => {
+        const { ctx, fx } = await import('/build-home/state.js')
+        ctx.vp.scrollTop = ctx.secs[sec].el.offsetTop + (sec === 'hist' ? 400 : 50); fx.update()
+      }, product[i].sec)
       const dc = (await read(pair.design))[i].cards, pc = (await read(pair.product))[i].cards
       const byId = new Map(dc.map(card => [card.id.replace('AIUR-', ''), { ...card, id: card.id.replace('AIUR-', '') }]))
       const common = pc.filter(card => byId.has(card.id))
-      if (pc.length) expect(common.length).toBeGreaterThan(0)
+      if (pc.length) expect(common.length, JSON.stringify({ sec: pc[0], designFirst: dc[0], designLast: dc.at(-1) })).toBeGreaterThan(0)
       for (const card of common) expect(card).toEqual(byId.get(card.id))
     }
     // Isolate the transparent header from unowned dot/edge backdrops (C9-T07/T10).
