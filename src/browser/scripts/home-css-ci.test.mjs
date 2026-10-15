@@ -66,10 +66,17 @@ test('browser shards execute every core suite exactly once', () => {
       })
       assert.equal(result.status, 0, result.stderr)
     }
+    const invalid = spawnSync(process.execPath, [fileURLToPath(new URL('./run-browser-smoke-shard.mjs', import.meta.url)), '4'], {
+      cwd: new URL('../', import.meta.url), encoding: 'utf8',
+      env: { ...process.env, PATH: bin + ':' + process.env.PATH, BROWSER_SHARD_CALLS: calls }
+    })
+    assert.notEqual(invalid.status, 0, 'only the three workflow shard ids are accepted')
+    assert.match(invalid.stderr, /Unknown browser smoke shard: 4/)
     const expected = [...scripts['test:core'].matchAll(/npm run ([\w:-]+)/g)].map(match => match[1])
       .filter(name => name !== 'fixture:preflight').sort()
     const selected = readFileSync(calls, 'utf8').trim().split('\n').map(line => line.replace(/^run /, ''))
       .filter(name => name !== 'fixture:preflight').sort()
     assert.deepEqual(selected, expected)
+    assert.equal(selected.length, new Set(selected).size, 'each core suite runs exactly once across shards')
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 })
