@@ -7,7 +7,7 @@
     "test:build-home-protocol": "TZ=America/Los_Angeles node --test scripts/build-home-protocol.test.mjs",
     "test:build-home-now-state": "node --test scripts/build-home-now-state.test.mjs",
     "test:home-css-ci": "node --test scripts/home-css-ci.test.mjs",
-    "check:elk": "node scripts/check-vendored-elk.mjs",
+    "check:elk": "node --test scripts/vendor-elk.test.mjs && node scripts/check-vendored-elk.mjs",
     "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
     "fixture:server": "node scripts/start-fixture.mjs",
     "test:admission": "node --test scripts/browser-admission.test.mjs",
