@@ -2,8 +2,8 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   @moduledoc "Frozen v1 build datasets, bounded to active history days in the socket zone."
   @behaviour AiurWeb.Build.DataSource
 
-  alias AiurWeb.Build.Read
   alias Aiur.TestSupport.BuildHome.EarlierControl
+  alias AiurWeb.Build.Read
 
   @files ~w(live dense newrepo noqueue offline odd-edges)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
