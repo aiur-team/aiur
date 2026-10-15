@@ -38,12 +38,12 @@ defmodule Aiur.LandingWatch.MergeFailureOptions do
   end
 
   defp add_failure_signatures(opts) do
-    main_paths = Keyword.get(opts, :recent_main_failure_paths, MapSet.new())
+    main_paths = Keyword.get(opts, :recent_main_failure_paths, [])
 
     opts
     |> Keyword.put(:known_failure_patterns, Keyword.get(opts, :known_failure_patterns, []))
     |> Keyword.put(:failed_on_main_fun, fn path, _ ->
-      is_binary(path) and MapSet.member?(main_paths, path)
+      is_binary(path) and path in main_paths
     end)
   end
 

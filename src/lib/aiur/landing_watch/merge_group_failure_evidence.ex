@@ -5,14 +5,14 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   @page_limit 5
 
-  @spec recent_main_paths(binary(), keyword()) :: MapSet.t(String.t())
+  @spec recent_main_paths(binary(), keyword()) :: [String.t()]
   def recent_main_paths(base, opts) do
     case Keyword.get(opts, :recent_main_failure_paths_fun, &fetch_recent_main_failure_paths/2).(
            base,
            opts
          ) do
-      {:ok, paths} when is_list(paths) -> paths |> Enum.filter(&is_binary/1) |> MapSet.new()
-      _ -> MapSet.new()
+      {:ok, paths} when is_list(paths) -> paths |> Enum.filter(&is_binary/1) |> Enum.uniq()
+      _ -> []
     end
   end
 
