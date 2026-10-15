@@ -30,12 +30,7 @@ defmodule Aiur.RunTelemetry.Writer do
   alias Aiur.RunTelemetry.Writer.Encoding
   alias Aiur.RunTelemetry.Writer.Retention, as: WriterRetention
 
-  @external_event_patterns [
-    "ticket.*.pr.opened",
-    "ticket.*.pr.merged",
-    "ticket.*.issue.commented",
-    "ticket.*.pr.review_comment"
-  ]
+  @external_event_patterns Aiur.RunTelemetry.DaemonEvents.patterns()
 
   @max_pending_casts 256
   @admission_key {__MODULE__, :pending_casts}

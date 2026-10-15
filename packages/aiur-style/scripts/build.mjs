@@ -21,7 +21,7 @@ export function build(outputDir = path.join(packageRoot, 'dist')) {
     // Font loading is opt-in; consumers adopt fonts.css in their migration.
     return file === 'fonts.css' ? '' : css;
   });
-  fs.writeFileSync(path.join(outputDir, 'aiur-style.css'), buildTokens(outputDir) + contents.join('\n'));
+  fs.writeFileSync(path.join(outputDir, 'aiur-style.css'), buildTokens(outputDir) + contents.join('\n').replace(/\n[ \t]*}/g, ' }'));
   fs.mkdirSync(path.join(outputDir, 'init'), { recursive: true });
   fs.copyFileSync(path.join(packageRoot, 'src/init/theme-init.js'), path.join(outputDir, 'init/theme-init.js'));
   fs.copyFileSync(path.join(cssDir, 'fonts.css'), path.join(outputDir, 'fonts.css'));
