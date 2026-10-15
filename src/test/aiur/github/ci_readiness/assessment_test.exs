@@ -124,7 +124,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert CiReadiness.cached_result(Keyword.put(opts, :config_fingerprint, "config-b")) == :unavailable
   end
 
-  test "dispatch consumes a persisted operator assessment without elevated daemon access" do
+  test "dispatch refreshes persisted readiness even when required checks are unchanged" do
     path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
@@ -145,15 +145,46 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert :ok = CiReadiness.persist_assessment(readiness, opts)
     assert :ok = CiReadiness.clear_cached_result()
 
+    parent = self()
+
     request_fun = fn %{url: url} ->
+      send(parent, {:readiness_request, url})
+
       cond do
-        url =~ "/rules/branches/develop" -> {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]}}
-        String.ends_with?(url, "/branches/develop/protection") -> {:ok, %{status: 404, body: %{}}}
-        true -> flunk("unexpected request: #{url}")
+        url =~ "/rules/branches/develop" ->
+          {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]}}
+
+        String.ends_with?(url, "/branches/develop/protection") ->
+          {:ok, %{status: 404, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-content"}]}}
+
+        url == "workflow-content?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => Base.encode64(@workflow)}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 7}]}}
+
+        url =~ "/rulesets/7" ->
+          {:ok, %{status: 200, body: %{"rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]}}}
+
+        true ->
+          flunk("unexpected request: #{url}")
       end
     end
 
     assert {:ok, ^readiness} = CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+    assert_received {:readiness_request, "workflow-content?ref=develop"}
   end
 
   test "dispatch re-assesses when the live required check set changes" do

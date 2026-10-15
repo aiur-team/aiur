@@ -79,12 +79,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def dispatch_check(opts) do
     case operator_token() do
       token when is_binary(token) ->
-        opts = Keyword.put(opts, :token, token)
-
-        case cached_result(opts) do
-          %{} = result -> refresh_if_required_checks_changed(result, opts)
-          :unavailable -> check(opts)
-        end
+        opts |> Keyword.put(:token, token) |> check()
 
       nil ->
         opts = Keyword.put(opts, :force_refresh, true)
@@ -93,19 +88,6 @@ defmodule Aiur.GitHub.CiReadiness do
           %{} = result -> {:ok, result}
           :unavailable -> check_workflow_presence(opts)
         end
-    end
-  end
-
-  defp refresh_if_required_checks_changed(result, opts) do
-    case fetch_required_checks(opts) do
-      {:ok, checks} ->
-        current = checks |> Enum.map(&RepositoryReads.required_check_identity/1) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort_by(&{&1.name, &1.app_id})
-        cached = Map.get(result, :required_check_identities, []) |> Enum.sort_by(&{&1.name, &1.app_id})
-
-        if current == cached, do: {:ok, result}, else: check(opts)
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
