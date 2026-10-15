@@ -37,7 +37,7 @@ defmodule Aiur.Workspace.AttributionGuard do
   #!/bin/sh
   # #{@push_marker}: installed by Aiur. Refuse commits with AI attribution.
   zero=0000000000000000000000000000000000000000
-  while read local_ref local_sha remote_ref remote_sha; do
+  while read local_ref local_sha remote_ref remote_sha || [ -n "${local_sha:-}" ]; do
     [ "$local_sha" = "$zero" ] && continue
     if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
     for commit in $(git rev-list "$range" 2>/dev/null); do
