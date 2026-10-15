@@ -3,14 +3,13 @@ defmodule Aiur.Orchestrator.TicketTransition do
   Owns ticket state and marker writes, with caller attribution and outcome evidence.
 
   The tracker label is authoritative: repeated writes retain adapter semantics.
-  Transient local GitHub budget holds are retried before callers decide again.
+  GitHub state writes retry local budget holds at the request boundary.
   Errors are returned unchanged. Transport/deadline failures have unknown outcomes.
   `tracker:` names the facade-shaped module to call (default `Aiur.Tracker`); the
   build queue passes its injected tracker so its writes are attributed here too.
   """
 
   require Logger
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, Effect, HumanReview, PauseResume, RetryEngine, State}
   alias Aiur.Tracker
 
@@ -41,22 +40,8 @@ defmodule Aiur.Orchestrator.TicketTransition do
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
 
-    adapter_opts =
-      Keyword.drop(opts, [
-        :writer,
-        :identifier,
-        :tracker,
-        :local_hold_sleep_fun,
-        :local_hold_max_wait_ms,
-        :local_hold_max_waits,
-        :local_hold_broker_timeout_recorder
-      ])
-
-    result =
-      LocalHold.run(
-        fn -> with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end) end,
-        LocalHold.caller_opts(opts)
-      )
+    adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker])
+    result = with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
 
     record(issue_id, :state, to_state, writer, opts, result)
     result

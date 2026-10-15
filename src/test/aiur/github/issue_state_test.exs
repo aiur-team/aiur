@@ -41,29 +41,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       parent = self()
       reads = :ets.new(:issue_state_reads, [:set, :public])
       :ets.insert(reads, {:count, 0})
-
-      request_fun = fn request ->
-        send(parent, {:request, request})
-
-        case request.method do
-          :get ->
-            assert request.etag == ~s("stale")
-            read = :ets.update_counter(reads, :count, 1)
-
-            if read < 3 do
-              {:ok, %{status: 304}}
-            else
-              {:ok, %{status: 200, body: live, headers: [{"etag", ~s("live")}]}}
-            end
-
-          :post ->
-            assert request.body == %{"labels" => ["sym:in-progress"]}
-            {:ok, %{status: 200}}
-
-          :delete ->
-            {:ok, %{status: 200}}
-        end
-      end
+      request_fun = concurrent_state_request_fun(parent, reads, live)
 
       assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
 
@@ -75,6 +53,28 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert rework_url =~ "sym%3Arework" or rework_url =~ "sym:rework"
       assert_receive {:request, %{method: :delete, url: review_url}}, 1000
       assert review_url =~ "sym%3Ahuman-review" or review_url =~ "sym:human-review"
+    end
+
+    test "resumes cleanup when a local hold follows the target label add" do
+      parent = self()
+      request_counts = :ets.new(:held_issue_state_requests, [:set, :public])
+      :ets.insert(request_counts, get: 0, post: 0, delete: 0)
+      reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+      rework = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+      both = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:in-progress"}]}
+      request_fun = held_state_request_fun(parent, request_counts, reset_at, rework, both)
+
+      assert :ok =
+               IssueState.update_issue_state("42", "in-progress",
+                 request_fun: request_fun,
+                 expected_state: "rework",
+                 local_hold_sleep_fun: fn _ -> :ok end
+               )
+
+      assert Map.new(:ets.tab2list(request_counts)) == %{get: 4, post: 1, delete: 2}
+      assert_received {:held_state_request, %{method: :delete, url: deleted_label}}
+      assert deleted_label =~ "sym%3Arework" or deleted_label =~ "sym:rework"
+      assert_received {:held_state_request, %{method: :delete, url: ^deleted_label}}
     end
 
     test "swap keeps the queued marker" do
@@ -354,5 +354,59 @@ defmodule Aiur.GitHub.IssueStateTest do
       # so no DELETE ever fires and the ticket keeps exactly one state label.
       refute_receive {:request, %{method: :delete}}, 100
     end
+  end
+
+  defp concurrent_state_request_fun(parent, reads, live) do
+    fn request ->
+      send(parent, {:request, request})
+
+      case request.method do
+        :get ->
+          concurrent_state_read(request, reads, live)
+
+        :post ->
+          assert request.body == %{"labels" => ["sym:in-progress"]}
+          {:ok, %{status: 200}}
+
+        :delete ->
+          {:ok, %{status: 200}}
+      end
+    end
+  end
+
+  defp concurrent_state_read(request, reads, live) do
+    assert request.etag == ~s("stale")
+    read = :ets.update_counter(reads, :count, 1)
+
+    if read < 3 do
+      {:ok, %{status: 304}}
+    else
+      {:ok, %{status: 200, body: live, headers: [{"etag", ~s("live")}]}}
+    end
+  end
+
+  defp held_state_request_fun(parent, request_counts, reset_at, rework, both) do
+    fn request ->
+      send(parent, {:held_state_request, request})
+      count = :ets.update_counter(request_counts, request.method, 1)
+      held_state_response(request, count, reset_at, rework, both)
+    end
+  end
+
+  defp held_state_response(%{method: :get}, count, _reset_at, rework, both) do
+    body = if count < 3, do: rework, else: both
+    {:ok, %{status: 200, body: body}}
+  end
+
+  defp held_state_response(%{method: :post}, _count, _reset_at, _rework, _both) do
+    {:ok, %{status: 200}}
+  end
+
+  defp held_state_response(%{method: :delete}, 1, reset_at, _rework, _both) do
+    {:error, {:aiur, :locally_held, %{reset_at: reset_at}}}
+  end
+
+  defp held_state_response(%{method: :delete}, _count, _reset_at, _rework, _both) do
+    {:ok, %{status: 200, body: [%{"name" => "sym:in-progress"}]}}
   end
 end
