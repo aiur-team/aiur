@@ -39,11 +39,12 @@ Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding br
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
 CI batches and landing need ruleset checks on PR heads. Startup readiness uses `AIUR_CI_READINESS_TOKEN` and reports unavailable without it.
+
 Main-watch status names the credential actually applied after a 401. Transport logs include a short token fingerprint without exposing the token. Missing/skipped checks fail; lookup errors keep green aggregates pending.
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-Ticket CI holds user-cancelled runs pending. The landing watcher follows approvals, retries infra failures, routes real failures to rework, checks attribution, and cancels stale groups. A same-job pass in an overlapping group proves a flake; it files a test-keyed issue, emits durable evidence, and re-enqueues approved PRs.
+Ticket CI holds user-cancelled runs pending. Landing follows approvals, retries infra failures, routes real failures to rework, checks attribution, and cancels stale groups. A same-job pass in an overlapping group proves a flake; it files a test-keyed issue, emits durable evidence, and re-enqueues approved PRs.
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
