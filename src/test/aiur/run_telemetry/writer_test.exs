@@ -40,6 +40,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     assert Enum.at(records, 1)["timestamp"] == "2026-07-11T12:00:00Z"
     assert Enum.at(records, 1)["attributes"] == %{"event" => "dispatch", "ticket" => "930"}
+    assert Enum.at(records, 0)["attributes"]["event"] == "daemon_restart"
+    assert Enum.at(records, 2)["attributes"]["event"] == "daemon_restart"
     assert Enum.at(records, 2)["attributes"]["existing_records"] == true
   end
 
@@ -326,6 +328,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     [competing_record] = read_records(competing_path)
     competing_sequence = competing_record["sequence"]
+    assert competing_record["attributes"]["event"] == "telemetry_writer_restart"
 
     {:ok, second} = Writer.start_link(name: nil, path: path)
     assert :ok = Writer.flush(second)

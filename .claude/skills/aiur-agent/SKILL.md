@@ -59,7 +59,8 @@ shared [dictated-input note](dictated-input.md).
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
 - Integration safety is your responsibility. Before CI or human-review
   handoff, assess the exact PR head against its configured base. Harmless
-  staleness passes; conflicts or changed-file overlap require integration,
+  staleness passes; an approved exact head needs integration only for a real
+  conflict, while other conflicts or changed-file overlap require integration,
   up to 3 integrations per handoff without asking, each followed by relevant
   local tests and format, size, components gates. After the third, emit a
   non-blocking Executor alert; keep going if the base is safe. Never open a
