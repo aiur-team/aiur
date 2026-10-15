@@ -28,6 +28,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       if (viewport.viewport.width <= 1180) {
         const boxes = []
         for (const side of ['design', 'product']) boxes.push(await pair[side].evaluate(() => {
+          document.querySelector('#bd-tools-l').style.transform = ''
           const l = document.querySelector('#bd-tools-l').getBoundingClientRect(), r = document.querySelector('#bd-tools').getBoundingClientRect(), toolbar = document.querySelector('.bd-toolbar').getBoundingClientRect()
           return [l.x, l.y - toolbar.y, l.width, l.height, r.right]
         }))
@@ -57,7 +58,7 @@ test('toolbar breakpoint and reduced motion guards preserve existing stylesheet 
     for (const width of [1181, 1180, 721, 720]) {
       await pair.product.setViewportSize({ width, height: 900 })
       const boxes = await pair.product.evaluate(() => ['bd-filters', 'bd-tools-l', 'bd-tools'].map(id => { const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width } }))
-      if (width > 1180) expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].top)
+      if (width > 1180) { expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].top); expect(boxes[0].top).toBeLessThanOrEqual(boxes[1].bottom) }
       else { expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].bottom); expect(boxes[0].width).toBeGreaterThan(boxes[1].width) }
     }
     await expect(pair.product.locator('.bd-live i')).toHaveCSS('animation-name', 'bdPulse')
