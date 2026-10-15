@@ -1,6 +1,7 @@
 defmodule Aiur.Experiments.Auto.LineMerge do
   @moduledoc false
   alias Aiur.Experiments
+  alias Aiur.Experiments.Auto
   alias Aiur.Experiments.Auto.{BuildStamp, Line, SpecBuilder}
   alias Aiur.Experiments.Reader
 
@@ -23,6 +24,25 @@ defmodule Aiur.Experiments.Auto.LineMerge do
     end
   end
 
+  @spec supersede(String.t(), Line.t()) :: :ok | {:error, term()}
+  def supersede(_id, %Line{source: :feature}), do: :ok
+
+  def supersede(id, line) do
+    with {:ok, details} <- details() do
+      details
+      |> Enum.filter(&(&1.spec["id"] != id and source?(&1, to_string(line.source)) and &1.spec["status"] == "active" and DateTime.compare(line.at, time(&1)) == :gt))
+      |> Enum.reduce_while(:ok, &close_previous(&1, line.at, &2))
+    end
+  end
+
+  defp close_previous(detail, at, :ok) do
+    case Auto.truncate(detail.spec["id"], at, "newer_line") do
+      {:ok, _spec} -> {:cont, :ok}
+      :noop -> {:cont, :ok}
+      error -> {:halt, error}
+    end
+  end
+
   @spec rollback(String.t(), DateTime.t()) :: :ok | {:error, term()}
   def rollback(version, at) do
     with {:ok, details} <- details() do
@@ -35,9 +55,7 @@ defmodule Aiur.Experiments.Auto.LineMerge do
   defp rollback_seen?(detail, at), do: Enum.any?(detail.annotations, &(&1["auto_line_key"] == "rollback:#{DateTime.to_iso8601(at)}"))
 
   defp truncate(detail, version, at, :ok) do
-    windows = put_in(detail.spec["windows"], ["after", "end"], DateTime.to_iso8601(at))
-
-    with {:ok, _spec} <- Experiments.amend(detail.spec["id"], %{windows: windows}, "auto"),
+    with {:ok, _spec} <- Auto.truncate(detail.spec["id"], at, "rollback"),
          :ok <- annotate_once(detail.spec["id"], detail, "rollback:#{DateTime.to_iso8601(at)}", at, "rollback to #{version}", %{}) do
       {:cont, :ok}
     else
@@ -93,7 +111,11 @@ defmodule Aiur.Experiments.Auto.LineMerge do
   end
 
   defp version_experiment?(detail) do
-    get_in(detail.spec, ["design", "change", "evidence", "source"]) == "aiur_version" or Enum.any?(detail.annotations, &(&1["source"] == "aiur_version"))
+    source?(detail, "aiur_version")
+  end
+
+  defp source?(detail, source) do
+    get_in(detail.spec, ["design", "change", "evidence", "source"]) == source or Enum.any?(detail.annotations, &(&1["source"] == source))
   end
 
   defp open_at?(%{"status" => status, "windows" => %{"after" => window}}, at) when status in ["active", "draft"] do
