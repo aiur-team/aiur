@@ -1,4 +1,5 @@
 defmodule Aiur.GitHub.IssueStateTest do
+  # Cohesion: these tests cover the GitHub issue-state transition protocol end to end.
   use Aiur.TestSupport
 
   alias Aiur.GitHub.IssueState

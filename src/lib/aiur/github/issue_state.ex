@@ -1,3 +1,4 @@
+# Cohesion: keep GitHub state-label swaps and their compensating writes together.
 defmodule Aiur.GitHub.IssueState do
   @moduledoc """
   Label-encoded issue state writes for GitHub issues.
