@@ -17,4 +17,11 @@ defmodule Aiur.BuildQueue.Settings do
   def observation_max_age_ms(%Schema{} = settings) do
     (settings.build_queue.observation_max_age_seconds || 2 * settings.polling.interval_seconds) * 1000
   end
+
+  @spec terminal_states(Schema.t()) :: MapSet.t(String.t())
+  def terminal_states(%Schema{} = settings) do
+    (settings.tracker.terminal_states ++ ["closed"])
+    |> Enum.map(&(String.trim(&1) |> String.downcase()))
+    |> MapSet.new()
+  end
 end

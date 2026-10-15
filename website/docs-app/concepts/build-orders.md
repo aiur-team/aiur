@@ -145,7 +145,9 @@ Stale, partial or unavailable graph evidence makes that root's items unknown and
 
 A queue is a feature set: dispatch fills capacity in set rank order. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
-`build_queue.set_order` selects `ranked` or `none` (default); `build_queue.max_active_sets` optionally caps unfinished active sets; `build_queue.spill_reserve_slots` keeps slots for the earliest unfinished set (default 0). `aiur queue order` adjusts ranks, and holds still stop a set. `NEXT` marks dispatch's selected set, including one already active.
+`build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
+
+Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
 
