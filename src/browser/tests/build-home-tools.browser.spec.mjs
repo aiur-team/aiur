@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { openFixture } from './support/browser-helpers.mjs'
+import { openFixture, expectAuditClean } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
   await openFixture(page)
@@ -92,7 +92,7 @@ test('span HTML invalidates cache, list omits span controls, lifecycle releases 
 test('tabs and status have complete accessible roles in every view', async ({ page }) => {
   for (const name of ['Timeline', 'Gantt', 'List']) {
     await page.getByRole('tab', { name, exact: true }).click()
-    expect((await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').disableRules(['color-contrast']).analyze()).violations).toEqual([])
+    expectAuditClean(await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze())
   }
 })
 

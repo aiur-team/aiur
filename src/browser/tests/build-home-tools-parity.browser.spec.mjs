@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import { PARITY_VIEWPORTS, openParityPair, expectDesignParity } from '../support/design-parity.mjs'
-import { assertNoDocumentOverflow, assertControlsRemainReachable } from './support/browser-helpers.mjs'
+import { assertNoDocumentOverflow, assertControlsRemainReachable, expectAuditClean } from './support/browser-helpers.mjs'
 
 for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
   const name = `${viewport.viewport.width}-${theme}-${palette}`
@@ -16,18 +17,19 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
         // Align raster origins; sibling filters/span controls are not populated yet.
         for (const side of ['design', 'product']) await pair[side].evaluate(() => {
           for (const id of ['bd-tools-l', 'bd-status']) {
-            const el = document.getElementById(id), r = el.getBoundingClientRect()
+            const el = document.getElementById(id); el.style.transform = ''; const r = el.getBoundingClientRect()
             el.style.transform = `translate(${Math.round(r.x) - r.x}px, ${Math.round(r.y) - r.y}px)`
           }
         })
         await expectDesignParity(pair, { name: `tabs-${view}-${name}`, region: '#bd-tools-l' })
         await expectDesignParity(pair, { name: `status-${view}-${name}`, region: '#bd-status' })
+        if (viewport.viewport.width === 1440) expectAuditClean(await new AxeBuilder({ page: pair.product }).include('.bd-toolbar').include('#bd-status').analyze())
       }
       if (viewport.viewport.width <= 1180) {
         const boxes = []
         for (const side of ['design', 'product']) boxes.push(await pair[side].evaluate(() => {
-          const l = document.querySelector('#bd-tools-l').getBoundingClientRect(), r = document.querySelector('#bd-tools').getBoundingClientRect()
-          return [l.x, l.width, l.height, r.right]
+          const l = document.querySelector('#bd-tools-l').getBoundingClientRect(), r = document.querySelector('#bd-tools').getBoundingClientRect(), toolbar = document.querySelector('.bd-toolbar').getBoundingClientRect()
+          return [l.x, l.y - toolbar.y, l.width, l.height, r.right]
         }))
         expect(boxes[1]).toEqual(boxes[0])
       }
