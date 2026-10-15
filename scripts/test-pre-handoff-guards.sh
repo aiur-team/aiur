@@ -29,6 +29,7 @@ chmod +x "$tmp/bin/gh"
 pr_base="$(git rev-parse HEAD^1)"
 merge_base="$(git rev-parse HEAD)"
 main_base="$(git rev-parse origin/main)"
+dispatch_base="$(git merge-base "$merge_base" "$main_base")"
 push_before="$main_base"
 run_event() {
   local name="$1" event="$2" pr_sha="$3" merge_sha="$4" push_sha="$5"
@@ -56,8 +57,8 @@ grep -F -- "check-file-size.py --base $pr_base" "$tmp/pull_request.log" >/dev/nu
 grep -F -- "check-file-size.py --base $merge_base" "$tmp/merge_group.log" >/dev/null
 grep -F -- "check-file-size.py --base $push_before" "$tmp/push.log" >/dev/null
 grep -F -- "check-file-size.py --base $pr_base" "$tmp/push_zero.log" >/dev/null
-grep -F -- "check-file-size.py --base $main_base" "$tmp/workflow_dispatch.log" >/dev/null
-grep -F -- "check-file-size.py --base $main_base" "$tmp/schedule.log" >/dev/null
+grep -F -- "check-file-size.py --base $dispatch_base" "$tmp/workflow_dispatch.log" >/dev/null
+grep -F -- "check-file-size.py --base $dispatch_base" "$tmp/schedule.log" >/dev/null
 
 fixture="$(mktemp "$repo_root/src/test/aiur/pre_handoff_guard_fixture.XXXXXX.exs")"
 cat > "$fixture" <<'ELIXIR'
