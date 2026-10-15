@@ -64,6 +64,13 @@ In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 into the PR body; it records the merged `origin/main` SHA and each gate result.
 The command never pushes and refuses a dirty checkout.
 
+Every PR body must follow `.github/pull_request_template.md`, including its
+`## Local tests` evidence. Before each handoff, run
+`scripts/pre-handoff-guards <PR_JSON_FILE> <BASE_SHA>` with fresh PR metadata;
+CI uses the same `scripts/pre-handoff-guards.list` for every event. In tests,
+use `Aiur.TestCleanup.rm_rf!/1` instead of bare `File.rm_rf` or
+`File.rm_rf!`, including inside `on_exit`.
+
 For changes in the Aiur repository, before marking the PR ready or handing
 off to CI/review, run all required checks and fix any failures:
 
