@@ -61,9 +61,20 @@ defmodule Aiur.Orchestrator.Dispatcher.ThrashAndProvenanceTest do
   end
 
   describe "dispatch attempt provenance" do
+    setup do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      :ok
+    end
+
     test "captures a first rework head asynchronously before starting the runner" do
       test_pid = self()
       issue = %Issue{id: "rework-first", identifier: "repo#rework-first", state: "rework"}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
       runner = fn dispatched_issue, recipient, opts ->
         send(test_pid, {:rework_runner_started, dispatched_issue, recipient, opts})
@@ -112,6 +123,7 @@ defmodule Aiur.Orchestrator.Dispatcher.ThrashAndProvenanceTest do
     test "preserves the original rework head on retry dispatch" do
       test_pid = self()
       issue = %Issue{id: "rework-retry", identifier: "repo#rework-retry", state: "rework"}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
       runner = fn dispatched_issue, recipient, opts ->
         send(test_pid, {:rework_retry_runner, dispatched_issue, recipient, opts})

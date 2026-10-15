@@ -66,7 +66,7 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | Target | Written by | Where |
 | --- | --- | --- |
 | `ci-wait` | orchestrator | `src/lib/aiur/orchestrator/ci_lifecycle/transition.ex:63-81`, callers `ci_lifecycle/outcome.ex:40,141` |
-| `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle/outcome.ex:254-261`, `ci_lifecycle/wait_rewake.ex:342-348`; `shared-agent-instructions.md:44,49,120` |
+| `in-progress` | orchestrator on CI pass / fallback re-wake / guarded rework dispatch claim; **also the agent itself** at turn start | `ci_lifecycle/outcome.ex:254-261`, `ci_lifecycle/wait_rewake.ex:342-348`; `dispatcher.ex`; `shared-agent-instructions.md:44,49,120` |
 | `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle/outcome.ex:294-301`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume/tracker_control.ex:307` |
 | `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
