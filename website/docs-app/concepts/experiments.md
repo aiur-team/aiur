@@ -61,8 +61,10 @@ to disable the writer. The capability report exposes `experiments` and
 `experiments.metric_packs`. Invalid pack files report `degraded/pack_invalid`;
 other packs remain usable. Disabling experiments reports `unavailable/disabled`.
 
-Storage failures leave the daemon running and report the experiments store as
+Store failures leave the daemon running and report the experiments store as
 unavailable; writes return the storage failure while disk reads remain usable.
+An automatic-worker startup failure is logged; automatic creation remains
+unavailable while the daemon continues.
 
 
 ## Baselines and retention
@@ -237,6 +239,31 @@ Stdout and stderr share the bounded script stream. A nonzero exit reports the
 first non-JSON diagnostic line; this can be a stdout diagnostic if one precedes
 stderr.
 
+## Automatic experiments
+
+`experiments.auto` configures version, release and feature lines. The deploy
+ledger records each recording daemon boot at `experiments/deploys.ndjson` under
+the repository state node. It retains the latest 5,000 boots, including version,
+base semver, boot time and build-stamp SHA and dirty flag when available.
+
+Missing build evidence stays null. Deploys alone never create experiments.
+Automatic line creation uses the experiment store's baseline-freezing transaction.
+Repeated keys create neither another experiment nor another baseline; completion
+receipts survive restarts. Concurrent lines annotate other open windows once.
+
+Read-only experiments are left unchanged and log one warning per Creator lifetime while new lines still complete.
+
+With telemetry disabled, a line creates nothing and logs its skip once per key.
+If automatic experiment storage cannot start, Aiur logs its unavailability and
+continues running.
+
+The default auto pack name `delivery` refers to the built-in `delivery-speed`
+pack. Other names select consumer packs. Missing or disabled packs return an
+availability error rather than creating an experiment without metrics.
+
+Feature lines can supply a baseline ending at the first member merge. The gap
+until go-live is excluded from both windows and carried in change evidence.
+Line detection belongs to the version, release and feature workers.
 
 ## Delivery-speed metrics
 

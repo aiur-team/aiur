@@ -5,6 +5,7 @@ defmodule Aiur.Application.Children do
 
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
 
   @doc """
@@ -138,7 +139,7 @@ defmodule Aiur.Application.Children do
       Aiur.ElevenLabs.Quota,
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
-      Aiur.Events.IdGenerator,
+      {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       Aiur.Events.BranchRefStore,
       # Restart-durable GitHub state keyed by resource identity. Starts before
@@ -262,7 +263,7 @@ defmodule Aiur.Application.Children do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ BuildOrders.child_specs(:label_projection, opts))
+    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ Auto.child_specs(recording?: recording?) ++ BuildOrders.child_specs(:label_projection, opts))
   end
 
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil

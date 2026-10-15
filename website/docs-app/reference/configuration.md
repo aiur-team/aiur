@@ -460,6 +460,22 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 | `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
 | `experiments.checkpoint_interval_ms` | integer | 3600000 | Observation checkpoint interval in milliseconds; positive, reserved for snapshot capture. |
 | `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
+| `experiments.auto.enabled` | boolean | true | Enable automatic line workers and the deploy ledger. |
+| `experiments.auto.version_line` | boolean | true | Enable base-semver version lines. |
+| `experiments.auto.release_line` | boolean | true | Enable repository release lines. |
+| `experiments.auto.release_tag_pattern` | string | v* | Release tag pattern; non-empty, no whitespace. |
+| `experiments.auto.release_include_prereleases` | boolean | false | Include prerelease tags. |
+| `experiments.auto.release_min_interval_days` | integer | 7 | Minimum days between release lines; positive. |
+| `experiments.auto.feature_label` | string | experiment:feature | Non-empty label marking measured feature epics. |
+| `experiments.auto.feature_live_signal` | string | auto | One of auto, merge, release, daemon_boot. |
+| `experiments.auto.feature_quiet_hours` | integer | 6 | Hours without new epic members; positive. |
+| `experiments.auto.live_signal_max_wait_hours` | integer | 72 | Hours before falling back to merge time; positive. |
+| `experiments.auto.before_days` | integer | 14 | Baseline window length in days; positive. |
+| `experiments.auto.after_days` | integer | 14 | Initial after window length in days; positive. |
+| `experiments.auto.after_step_days` | integer | 7 | After window extension in days; positive. |
+| `experiments.auto.after_max_days` | integer | 42 | Maximum after window days; at least after_days. |
+| `experiments.auto.metric_packs` | string list | ["delivery"] | Metric packs used for automatic experiments. |
+
 ## build_queue
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 

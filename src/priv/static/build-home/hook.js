@@ -1,4 +1,97 @@
-// MP-E8-C9-T01 replaces this stub; keep the export and health attribute.
+import { S, ctx, fx, resetState, renderChrome } from './state.js';
+import { createLife } from './life.js';
+import { shell } from './shell.js';
+import { decide } from './protocol.js';
+import { acceptSnapshot, applyDiff } from './store.js';
+import { fromServer, flushURL } from './url.js';
+import './clock.js';
+
+export function writeOwnData() {
+  Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', buildSocket: ctx.socket });
+  if (ctx.proto.epoch !== null) {
+    ctx.root.dataset.buildEpoch = ctx.proto.epoch;
+    ctx.root.dataset.buildGeneration = ctx.proto.generation;
+  }
+}
+function showServerState(ds) {
+  if (ds.buildState === 'unavailable' && !ctx.snap) fx.renderUnavailable(ds.buildReason);
+}
+function firstPaint() {
+  ctx.inited = true; S.loading = false;
+  renderChrome(); fx.viewport(); fx.relayout(); fx.jumpNow(true); S.ready = true;
+  ctx.life.frame('ticket', () => fx.openFromURL());
+}
+function repaint() { renderChrome(); fx.relayout(); fx.update(); }
+function reloadOnce() {
+  try {
+    if (!sessionStorage.getItem('aiur-build-reloaded')) {
+      sessionStorage.setItem('aiur-build-reloaded', '1'); ctx.reload(); return;
+    }
+  } catch { /* Storage unavailable: show the version error instead of looping. */ }
+  fx.renderUnavailable('version');
+}
+export function receive(msg) {
+  if (msg.kind === 'error') { if (!ctx.snap) fx.renderUnavailable(msg.reason); return; }
+  switch (decide({ ...ctx.proto, resyncing: ctx.proto.inFlight }, msg)) {
+    case 'reload': reloadOnce(); break;
+    case 'resync': resync(); break;
+    case 'apply': {
+      if (msg.kind !== 'snapshot' && msg.kind !== 'diff') return;
+      const first = !ctx.snap;
+      const result = msg.kind === 'snapshot' ? acceptSnapshot(msg) : applyDiff(msg);
+      if (result.error) {
+        if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
+        return;
+      }
+      if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
+      else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
+      writeOwnData();
+      break;
+    }
+  }
+}
+export function resync() {
+  if (ctx.proto.inFlight) return;
+  ctx.proto.inFlight = true;
+  const seq = ++ctx.resyncSeq, life = ctx.life;
+  const current = () => ctx.life === life && !life.disposed && seq === ctx.resyncSeq;
+  return ctx.push('build-resync', {}).then(reply => {
+    if (!current()) return;
+    ctx.proto.inFlight = false; receive(reply);
+  }, () => { if (current()) ctx.proto.inFlight = false; });
+}
+function onServerURL({ state }) {
+  const span = S.span;
+  fromServer(state); repaint();
+  if (span !== S.span) fx.jumpNow(true);
+}
 export function createBuildHomeHook() {
-  return { mounted() { this.el.dataset.buildHomeHook = "mounted"; } };
+  return {
+    mounted() {
+      let urlState;
+      try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
+      resetState(urlState);
+      ctx.root = this.el; ctx.life = createLife();
+      ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
+      this.buildLife = ctx.life;
+      this.buildActive = shell();
+      if (!this.buildActive) return;
+      writeOwnData();
+      this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
+      showServerState(this.el.dataset); resync();
+    },
+    updated() { if (this.buildActive) { writeOwnData(); showServerState(this.el.dataset); } },
+    disconnected() {
+      if (!this.buildActive) return;
+      ctx.socket = 'down'; ctx.proto.inFlight = false; ctx.resyncSeq++; writeOwnData();
+    },
+    reconnected() {
+      if (!this.buildActive) return;
+      ctx.socket = 'up'; writeOwnData(); resync(); flushURL();
+    },
+    destroyed() {
+      this.buildLife?.dispose();
+      if (ctx.life === this.buildLife) { ctx.proto.inFlight = false; ctx.resyncSeq++; }
+    },
+  };
 }

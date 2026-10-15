@@ -38,7 +38,7 @@ defmodule Aiur.Events.Publisher do
 
   require Logger
 
-  alias Aiur.Events.{DebugLog, Exchange, HistoryStore, IdGenerator, SourcePolicy}
+  alias Aiur.Events.{Exchange, HistoryStore, IdGenerator, SourcePolicy, Trace}
   alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
@@ -169,7 +169,7 @@ defmodule Aiur.Events.Publisher do
     # first would make the same crash suppress the event permanently,
     # because this store is the sweep's own source of suppression.
     policy().mark_processed(opts)
-    DebugLog.broadcast(:publish, topic, id: id, body: payload)
+    Trace.trace(:publish, topic, id: id, body: payload)
     {:ok, id, subscribers}
   end
 
@@ -193,7 +193,7 @@ defmodule Aiur.Events.Publisher do
 
       subscribers = Exchange.publish(topic, event)
       record_emit_marker(topic, event, opts)
-      DebugLog.broadcast(:publish, topic, id: id, body: payload)
+      Trace.trace(:publish, topic, id: id, body: payload)
       {:ok, id, subscribers}
     end
   end
