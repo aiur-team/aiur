@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentQueue, AgentQueueStore, AlertFeed, Issue}
+  alias Aiur.{AgentControlCLI, AgentQueue, AgentQueueStore, AlertFeed, Issue, Workflow}
   alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, LifecycleFence, LifecycleFenceExpiry, OperatorMessages, PauseResume, RetryEngine, State, StatusReport, TrackerTasks}
 
   test "a review digest starts completed replacement without waiting for fence expiry" do
@@ -20,6 +20,8 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiryTest do
 
   test "a never-acknowledged fence expires on the dispatch poll and dispatches rework with its input" do
     {state, issue, item} = fenced_state(:completed)
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", tracker_active_states: ["todo", "in-progress", "rework"])
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
     assert {:fenced, _} = LifecycleFence.reconcile_observed_state(state, issue)
     {store, _} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue.identifier)
     state = %{state | queue_store: store}
