@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.IssueStateTest do
   # Cohesion: these tests cover the GitHub issue-state transition protocol end to end.
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.IssueState
+  alias Aiur.GitHub.{Issues, IssueState}
   alias Aiur.GitHub.ResourceStore
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -343,6 +343,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert_received {:rework_swap_request, %{method: :delete, url: rollback_url}}
       assert rollback_url =~ "sym%3Ain-progress" or rollback_url =~ "sym:in-progress"
       assert [{:value, ["sym:rework"]}] = :ets.lookup(labels, :value)
+      assert Issues.extract_state(rework, ["sym:rework"], "sym") == "rework"
     end
 
     test "the successful rework transition leaves only the in-progress state label" do
