@@ -19,7 +19,7 @@ class StructuralGateTest(unittest.TestCase):
         self.root = Path(self.scratch.name)
         shutil.copytree(SOURCE / 'scripts/components', self.root / 'scripts/components',
                         ignore=shutil.ignore_patterns('node_modules', 'allowlist', '__pycache__'))
-        for name in ('check-pr-structure.py', 'check-file-size.py', 'check-docs-prose.mjs', 'check-components.py',
+        for name in ('check-pr-structure.py', 'check-file-size.py', 'file_size_census.py', 'check-docs-prose.mjs', 'check-components.py',
                      'check-bare-assert-receive.py'):
             shutil.copyfile(SOURCE / 'scripts' / name, self.root / 'scripts' / name)
         # Stub mix outside the fixture repo: it logs its arguments and fails on demand.

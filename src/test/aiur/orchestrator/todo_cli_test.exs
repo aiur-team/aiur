@@ -1,4 +1,4 @@
-defmodule Aiur.AgentControlCLITodoTest do
+defmodule Aiur.Orchestrator.TodoCLITest do
   # Keep the complete todo/2 contract together; these cases share only injected tracker callbacks.
   use ExUnit.Case
 

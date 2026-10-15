@@ -303,7 +303,7 @@ defmodule Aiur.TestSupport do
         # test's agent runner resume a prior thread (building the "session
         # resumed" continuation prompt) instead of cold-starting — an
         # order-dependent failure that only surfaces when the leaking sibling
-        # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
+        # test is absent from the run (e.g. `mix test test/aiur/core/`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
 
