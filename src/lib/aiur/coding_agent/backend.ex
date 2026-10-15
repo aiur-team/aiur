@@ -48,6 +48,7 @@ defmodule Aiur.CodingAgent.Backend do
   optional `c:interrupt/1` callback is the out-of-band variant for
   backends whose live process is cut externally (the persistent REPL:
   Ctrl+C into the pane).
+  Optional `c:steer/3` delivers mid-turn input without cancelling the turn.
   """
 
   alias Aiur.CodingAgent
@@ -145,5 +146,17 @@ defmodule Aiur.CodingAgent.Backend do
   """
   @callback interrupt(session()) :: :ok | {:error, term()}
 
-  @optional_callbacks interrupt: 1
+  @doc "MP-E7: non-cancelling mid-turn input, optionally pinned to the expected turn."
+  @callback steer(session(), CodingAgent.operator_payload(), expected_turn_id :: String.t() | nil) ::
+              {:ok, term()} | {:error, :no_active_turn | :turn_mismatch | term()}
+
+  @doc "MP-E2: answer a held native question on the session that asked it."
+  @callback reply_native_question(session(), native_ref :: term(), %{String.t() => [String.t()]}) ::
+              :ok | {:error, :not_pending | :session_gone | term()}
+
+  @doc "MP-E2: release a held native question with the non-interactive answer text."
+  @callback release_native_question(session(), native_ref :: term(), String.t()) ::
+              :ok | {:error, :not_pending | :session_gone | term()}
+
+  @optional_callbacks interrupt: 1, steer: 3, reply_native_question: 3, release_native_question: 3
 end
