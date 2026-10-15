@@ -1,14 +1,16 @@
 {
   "id": "build-orders",
-  "name": "Build Order graph, catalog, progress, pages",
+  "name": "Build Orders",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/build_order/**",
     "src/lib/aiur/build_order_funnel_health.ex",
     "src/lib/aiur/build_orders_cli.ex",
     "src/lib/aiur/build_progress.ex",
     "src/lib/aiur/epic_cli.ex",
+    "src/lib/aiur/feature_cli.ex",
+    "src/lib/aiur/feature_cli/**",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
     "src/lib/aiur_web/build_order_presenter/**",
@@ -19,6 +21,7 @@
     "Aiur.BuildOrder.Component",
     "Aiur.BuildOrder.DependencyChain",
     "Aiur.BuildOrder.Features",
+    "Aiur.BuildOrder.Features.LabelProjection",
     "Aiur.BuildOrder.GitHubGraph",
     "Aiur.BuildOrder.GraphProjection",
     "Aiur.BuildOrder.GraphProjection.Snapshot",
@@ -31,6 +34,7 @@
     "Aiur.BuildOrder.RootSummary",
     "Aiur.BuildOrdersCLI",
     "Aiur.EpicCLI",
+    "Aiur.FeatureCLI",
     "AiurWeb.BuildOrder.DataSource",
     "AiurWeb.BuildOrder.Runtime"
   ],
@@ -78,5 +82,22 @@
   },
   "prior": [
     "BO"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Shows ticket dependency graphs and progress across a build order.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/build-orders.md"
+  ],
+  "config": [
+    "build_order"
+  ],
+  "env": [],
+  "capabilities": [
+    "build_orders",
+    "build_orders.progress"
   ]
 }

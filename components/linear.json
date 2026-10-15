@@ -1,8 +1,8 @@
 {
   "id": "linear",
-  "name": "Linear adapter",
+  "name": "Linear integration",
   "layer": 2,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/linear/**"
   ],
@@ -26,5 +26,20 @@
   },
   "prior": [
     "LIN"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Reads Linear issues and updates their workflow state as agents work.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/quick-start.md"
+  ],
+  "config": [],
+  "env": [
+    "LINEAR_API_KEY",
+    "LINEAR_ASSIGNEE"
+  ],
+  "capabilities": []
 }

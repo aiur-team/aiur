@@ -52,6 +52,10 @@ defmodule Aiur.AgentPubSub do
     Phoenix.PubSub.subscribe(@pubsub, @fleet_refresh_topic, opts)
   end
 
+  @doc "Subscribes to payload-free fleet invalidations without running or status events."
+  @spec subscribe_fleet_invalidation() :: :ok | {:error, term()}
+  def subscribe_fleet_invalidation, do: Phoenix.PubSub.subscribe(@pubsub, @fleet_refresh_topic)
+
   @spec latest_fleet_summaries() :: [AgentEvents.agent_summary()] | nil
   def latest_fleet_summaries, do: FleetRefresh.latest(self())
 

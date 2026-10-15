@@ -1,8 +1,8 @@
 {
   "id": "init",
-  "name": "Init wizard and upgrade notice",
+  "name": "Setup wizard",
   "layer": 4,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/init.ex",
     "src/lib/aiur/init/**",
@@ -30,5 +30,21 @@
   },
   "prior": [
     "INI"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Creates workflow files and guides operators through initial setup.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/quick-start.md"
+  ],
+  "config": [
+    "upgrade"
+  ],
+  "env": [
+    "CI"
+  ],
+  "capabilities": []
 }

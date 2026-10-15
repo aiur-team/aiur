@@ -8,6 +8,59 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter
   alias AiurWeb.StreamdeckProjection
 
+  defmodule VoiceProvider do
+    @behaviour Aiur.Voice.Provider
+    @impl true
+    def transcriber, do: nil
+    @impl true
+    def synthesizer, do: nil
+    @impl true
+    def configured?, do: false
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
+  end
+
+  defmodule ConfiguredVoiceProvider do
+    @behaviour Aiur.Voice.Provider
+    @impl true
+    def transcriber, do: nil
+    @impl true
+    def synthesizer, do: nil
+    @impl true
+    def configured?, do: true
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
+  end
+
+  setup do
+    previous = Application.fetch_env(:aiur, :voice_provider)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:aiur, :voice_provider, value)
+        :error -> Application.delete_env(:aiur, :voice_provider)
+      end
+    end)
+  end
+
+  test "voice availability follows the voice port" do
+    Application.put_env(:aiur, :voice_provider, VoiceProvider)
+    assert Aiur.Voice.availability() == %{available: false, reason: :unconfigured}
+    assert StreamdeckProjection.voice() == %{available: false, reason: "Aiur has no ElevenLabs API key - transcription is off"}
+
+    Application.put_env(:aiur, :voice_provider, ConfiguredVoiceProvider)
+    assert Aiur.Voice.availability() == %{available: true, reason: nil}
+    assert StreamdeckProjection.voice() == %{available: true, reason: nil}
+
+    Application.put_env(:aiur, :voice_provider, nil)
+    assert Aiur.Voice.availability() == %{available: false, reason: :not_installed}
+    assert StreamdeckProjection.voice() == %{available: false, reason: "Aiur has no ElevenLabs API key - transcription is off"}
+  end
+
   @now ~U[2026-08-09 12:00:00Z]
 
   test "account summaries survive older observation times and session events without accepting older polls" do

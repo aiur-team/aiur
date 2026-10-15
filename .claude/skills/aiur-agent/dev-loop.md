@@ -152,11 +152,13 @@ blocking finding is the only enforcement they have.
 
 ## The loop
 
-**Resolve validation from the target repository first.** Read
-[`validation.md`](validation.md) before choosing commands. The Elixir examples
-below apply only to Aiur's Elixir core, not to every workspace Aiur operates.
-For other repositories, substitute their documented build/typecheck, formatter,
-focused test runner, test-tree paths and CI gate at each step.
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the merged `origin/main` SHA and each gate result.
+It never pushes and refuses a dirty checkout.
+
+**Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
+The Elixir examples below apply only to Aiur's Elixir core.
 
 1. Implement
 2. Add / update / run tests
@@ -453,10 +455,7 @@ when ready.
 
 ## Manual CLI verification before opening a PR
 
-Before opening the draft PR, run the CLI locally and manually exercise all new
-functionality end-to-end. If the CLI fails to run, debug and fix the issues — do
-not skip verification or give up. Only open the draft PR once the requested
-functionality is confirmed working in the CLI.
+Run the CLI and exercise new functionality before the draft PR when the workspace can do so. For workspace-inaccessible hands-on checks, do not raise a decision or pause: finish automated work and add `Post-deploy check: <exact steps>` under `## Local tests`; the Executor runs it after deployment. Name required physical equipment.
 
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until

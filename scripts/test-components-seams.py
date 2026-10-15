@@ -35,6 +35,8 @@ def check(name, source, expected=0, message='', source_component='orchestration'
     components = {c['id']: c for c in manifest['components']}
     for component in components.values():
         component['paths'] = []
+        component['status'] = 'core'
+    manifest['features'] = []
     components[source_component]['paths'] = [path]
     components['build-queue']['paths'].append('src/lib/providers/queue.ex')
     components['build-orders']['paths'].append('src/lib/providers/order.ex')

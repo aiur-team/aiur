@@ -14,6 +14,67 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     :ok
   end
 
+  defmodule QueueBoundary do
+    alias Aiur.Issue
+    alias Aiur.Orchestrator.{BuildQueueClaimProbe, State}
+    def load, do: Agent.get(__MODULE__, &{:ok, &1})
+    def save(document), do: Agent.update(__MODULE__, fn _ -> document end)
+    def open_issue_labels(_), do: {:ok, Map.new(1..12, &{to_string(&1), %{labels: ~w(agent:queued agent:todo)}}), System.system_time(:millisecond)}
+    def blocked_by(_), do: {:ok, []}
+    def ticket_pull_request(_), do: {:ok, nil}
+    def status(ids), do: Map.new(ids, &{&1, :unclaimed})
+
+    def next_set do
+      document = Agent.get(__MODULE__, & &1)
+      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: "todo", blocked_by: []}} end)
+      BuildQueueClaimProbe.next_set(%State{max_concurrent_agents: 6, effective_concurrent_agents: 6, last_polled_issues: issues})
+    end
+
+    def add_label(_, _), do: raise("ordering must not write GitHub labels")
+    def remove_label(_, _), do: raise("ordering must not write GitHub labels")
+    def notify_demand(_), do: :ok
+  end
+
+  test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
+    {document, issues, _} = fixture()
+    start_supervised!({Agent, fn -> document end}, id: :rank_store) |> Process.register(QueueBoundary)
+    owner = self()
+    :ets.delete(Hints.table_name())
+
+    pid =
+      start_supervised!(
+        {Aiur.BuildQueue.Server,
+         name: nil,
+         store: QueueBoundary,
+         tracker: QueueBoundary,
+         claim_probe: QueueBoundary,
+         settings: {:ok, Config.settings!()},
+         exchange: :absent_rank_exchange,
+         schedule: fn target, message, _ ->
+           send(owner, {target, message})
+           make_ref()
+         end}
+      )
+
+    assert_received {^pid, {:reconcile, token}}
+    send(pid, {:reconcile, token})
+    assert GenServer.call(pid, :status) == :running
+    assert Enum.all?(Aiur.BuildQueue.show(pid).queues, &(&1.counts.ready > 0))
+
+    for {name, rank} <- [{"set 2", 0}, {"set 0", 2}, {"set 1", 1}] do
+      capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, queue: name, to: rank, server: pid) == 0 end)
+    end
+
+    assert Enum.map(Agent.get(QueueBoundary, & &1.queues), &{&1.name, &1.rank}) == [{"set 2", 0}, {"set 1", 1}, {"set 0", 2}]
+    assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(10 11 12 3 8 9)
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
+    assert output == "0  set 2\n1  set 1\n2  set 0\n"
+    output = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, claim_probe: QueueBoundary) end)
+    assert output =~ "NEXT  set 2  rank 0"
+    json = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: QueueBoundary) end) |> Jason.decode!()
+    assert Enum.map(json["queues"], &{&1["set_rank"], &1["state"]}) == [{0, "next"}, {1, "waiting"}, {2, "waiting"}]
+  end
+
   test "six slots dispatch two A and four B members by set rank then position" do
     {document, issues, projections} = fixture()
     publish(document, projections)

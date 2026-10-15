@@ -61,7 +61,7 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.AllowedContributors
   alias Aiur.AllowedContributors.Candidate
   alias Aiur.Config
-  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ThreadResolver}
+  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ReadyTransition, ThreadResolver}
   alias Aiur.Events.{Publisher, Sanitizer}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Issues
@@ -114,6 +114,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.normalize(event_type, payload, opts) do
       {:publish, triples} ->
         outcome = publish_all(triples, opts)
+        ReadyTransition.record(triples, outcome.results, opts)
         maybe_wake_on_publish(triples, opts)
         outcome
 

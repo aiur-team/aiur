@@ -1,9 +1,10 @@
 {
   "id": "agent-runner",
-  "name": "Turn engine for one ticket",
+  "name": "Agent turns",
   "layer": 2,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
+    "src/lib/aiur/agent_compaction/**",
     "src/lib/aiur/agent_context_presentation.ex",
     "src/lib/aiur/agent_directory.ex",
     "src/lib/aiur/agent_event_log.ex",
@@ -41,10 +42,24 @@
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "agent_compaction_state_dir"
+    ],
     "capabilities": []
   },
   "prior": [
     "RUN"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Runs an agent on a ticket and records its conversation and tool activity.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/ticket-lifecycle.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

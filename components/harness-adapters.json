@@ -1,8 +1,8 @@
 {
   "id": "harness-adapters",
-  "name": "Harness adapter package (MP-R7)",
+  "name": "Coding agent integrations",
   "layer": 2,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_tools/**",
     "src/lib/aiur/app_server/**",
@@ -19,7 +19,8 @@
     "src/lib/aiur/open_ai_compat/**",
     "src/lib/aiur/rtk.ex",
     "src/lib/aiur/rtk_startup_check.ex",
-    "src/priv/agent_relay.py"
+    "src/priv/agent_relay.py",
+    "src/priv/claude_hook_spool.py"
   ],
   "facades": [
     "*"
@@ -53,5 +54,21 @@
   ],
   "shared_with": [
     "orchestration"
+  ],
+  "dependency_kind": "required",
+  "summary": "Connects Aiur to coding agents and supports their messaging and session controls.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/configuration.md"
+  ],
+  "config": [
+    "agent"
+  ],
+  "env": [],
+  "capabilities": [
+    "remote_control"
   ]
 }

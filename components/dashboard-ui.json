@@ -1,11 +1,12 @@
 {
   "id": "dashboard-ui",
-  "name": "LiveView pages and Operator Control Center",
+  "name": "Dashboard",
   "layer": 4,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/event_humanizer.ex",
     "src/lib/aiur/event_humanizer_helpers.ex",
+    "src/lib/aiur/post_deploy_checklist.ex",
     "src/lib/aiur_web/**",
     "src/lib/aiur_web/routes/dashboard_pages.ex",
     "src/lib/aiur_web/sockets/live_view.ex"
@@ -15,6 +16,7 @@
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "event-bus",
     "kernel",
     "orchestration",
     "projections",
@@ -42,5 +44,17 @@
   },
   "prior": [
     "WEB"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Shows run status, agent conversations, Commands and usage in a browser.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/gui.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

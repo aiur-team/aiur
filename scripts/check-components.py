@@ -11,6 +11,7 @@ import time
 from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
 from components.manifest import read_manifest, write_manifest
+from components.docs_rules import check_docs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -28,6 +29,25 @@ def validate(value, schema, document, pointer=''):
     def reject(reason):
         raise InvalidManifest(f'{pointer or "/"}: {reason}')
 
+    for child in schema.get('allOf', []):
+        validate(value, child, document, pointer)
+    if 'oneOf' in schema:
+        matches = 0
+        for child in schema['oneOf']:
+            try:
+                validate(value, child, document, pointer)
+                matches += 1
+            except InvalidManifest:
+                pass
+        if matches != 1:
+            reject('expected exactly one alternative')
+    if 'not' in schema:
+        try:
+            validate(value, schema['not'], document, pointer)
+        except InvalidManifest:
+            pass
+        else:
+            reject('forbidden public copy')
     if '$ref' in schema:
         target = document
         for part in schema['$ref'].removeprefix('#/').split('/'):
@@ -59,6 +79,8 @@ def validate(value, schema, document, pointer=''):
     if isinstance(value, list):
         if len(value) < schema.get('minItems', 0):
             reject('too few items')
+        if len(value) > schema.get('maxItems', len(value)):
+            reject('too many items')
         if schema.get('uniqueItems') and len({json.dumps(v, sort_keys=True) for v in value}) != len(value):
             reject('duplicate items')
         for index, child in enumerate(value):
@@ -76,6 +98,8 @@ def validate(value, schema, document, pointer=''):
     if isinstance(value, str):
         if len(value) < schema.get('minLength', 0):
             reject('empty string')
+        if len(value) > schema.get('maxLength', len(value)):
+            reject('string too long')
         if 'pattern' in schema and not re.search(schema['pattern'], value):
             reject('invalid string')
     if type(value) is int:
@@ -96,7 +120,14 @@ def load_manifest(root):
 
 
 def validate_manifest(manifest, document):
-    validate(manifest, document, document)
+    try:
+        validate(manifest, document, document)
+    except InvalidManifest as error:
+        match = re.match(r'/(components|features)/(\d+)/', str(error))
+        if match:
+            entry = manifest[match[1]][int(match[2])]
+            raise InvalidManifest(f'{entry.get("id", "unnamed")}: {error}') from error
+        raise
     ids = [c['id'] for c in manifest['components']]
     if len(ids) != len(set(ids)):
         raise InvalidManifest('/components: duplicate component id')
@@ -104,10 +135,12 @@ def validate_manifest(manifest, document):
         for edge in ('requires', 'optional', 'shared_with'):
             for target in component.get(edge, []):
                 if target not in ids:
-                    raise InvalidManifest(f'/components/{index}/{edge}: unknown component {target}')
+                    raise InvalidManifest(f'{component["id"]}: /components/{index}/{edge}: unknown component {target}')
         for pattern in component['paths']:
             if pattern.startswith('/') or any(p in ('', '.', '..') for p in pattern.split('/')) or '\\' in pattern:
                 raise InvalidManifest(f'/components/{index}/paths: expected repository-relative glob')
+    validate_features(manifest)
+    validate_public_metadata(manifest, document)
     for collection in ('seams', 'ports'):
         for index, edge in enumerate(manifest.get(collection, [])):
             if edge['from'] not in ids:
@@ -116,6 +149,42 @@ def validate_manifest(manifest, document):
                 if pattern.startswith('/') or any(p in ('', '.', '..') for p in pattern.split('/')) or '\\' in pattern:
                     raise InvalidManifest(f'/{collection}/{index}/only_paths: expected repository-relative glob')
     return manifest
+
+
+def validate_public_metadata(manifest, document):
+    forbidden = document['$defs']['publicCopy']['not']['pattern']
+    # Env names intentionally include TOKEN/PASSWORD; source paths and facades are private.
+    for entry in manifest['components'] + manifest['features']:
+        values = entry.get('docs', []) + list(entry.get('install', {}).values())
+        values += entry.get('capabilities', []) + entry.get('config', [])
+        if entry.get('shipped_in'):
+            values.append(entry['shipped_in'])
+        for value in values:
+            if re.search(forbidden.replace(r'|[/\\]', ''), value):
+                raise InvalidManifest(f'{entry["id"]}: forbidden public metadata')
+
+
+def validate_features(manifest):
+    components = {c['id']: c for c in manifest['components']}
+    features = manifest['features']
+    ids = [f['id'] for f in features]
+    if len(ids) != len(set(ids)):
+        raise InvalidManifest('/features: duplicate feature id')
+    for feature in features:
+        fid = feature['id']
+        if not feature['extends'] and not feature['adds']:
+            raise InvalidManifest(f'{fid}: extends/adds must name a component')
+        for target in feature['extends'] + feature['adds']:
+            if target not in components:
+                raise InvalidManifest(f'{fid}: unknown component {target}')
+        for target in feature['adds']:
+            if components[target]['status'] != 'planned':
+                raise InvalidManifest(f'{fid}: adds {target} must be planned')
+    for component in components.values():
+        if component['status'] != 'planned' or component['added_by'].startswith('MP-R'):
+            continue
+        if not any(f['id'] == component['added_by'] and component['id'] in f['adds'] for f in features):
+            raise InvalidManifest(f'{component["id"]}: missing from {component["added_by"]} adds')
 
 
 def source_files(root):
@@ -330,8 +399,10 @@ def declaration_ownership(root, manifest):
 
 
 
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--docs', action='store_true', help='validate public docs references without source checks')
     parser.add_argument('--rules', default='all', help='ownership, elixir, all, or comma-separated declared,private,down,optional')
     parser.add_argument('--require-elixir', action='store_true', help='require Elixir reference checks')
     parser.add_argument('--write-baseline', action='store_true')
@@ -351,6 +422,15 @@ def main():
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
     try:
         manifest = load_manifest(root)
+        if args.docs or (args.rules == 'all' and not args.format):
+            docs_problems = check_docs(root, manifest)
+            for message in docs_problems:
+                print(f'components: {message}')
+            if docs_problems:
+                return 1
+            if args.docs:
+                print('components: docs references valid')
+                return 0
         files = source_files(root)
         if args.format:
             write_manifest(root, manifest)
@@ -367,7 +447,10 @@ def main():
             return 1
         if args.rules != 'ownership' and check_references(root, manifest, file_owners, args.write_baseline, rules, args.prune, args.growth_base):
             return 1
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
+    except InvalidManifest as error:
+        print(f'components: components.json: {error}', file=sys.stderr)
+        return 1 if args.docs else 2
+    except Exception as error:
         print(f'components: components.json: {error}', file=sys.stderr)
         return 2
     print(f'components: all {sum(counts.values())} source files owned')

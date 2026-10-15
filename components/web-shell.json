@@ -1,8 +1,8 @@
 {
   "id": "web-shell",
-  "name": "HTTP endpoint, router, auth, sockets, JSON API",
+  "name": "HTTP and sockets",
   "layer": 4,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
@@ -50,5 +50,23 @@
   },
   "prior": [
     "WEB"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Hosts authenticated APIs, sockets and web routes for operator clients.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/gui.md"
+  ],
+  "config": [
+    "observability",
+    "server"
+  ],
+  "env": [
+    "AIUR_DASHBOARD_PASSWORD",
+    "AIUR_DASHBOARD_USERNAME"
+  ],
+  "capabilities": []
 }

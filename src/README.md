@@ -302,7 +302,7 @@ npx playwright install chromium # one-time local browser download
 npm test
 ```
 
-`npm test` runs the harness primitives followed by the LiveView smoke. The
+`npm test` runs all suites; CI splits core and home CSS into separate jobs. The
 fixture requires a synthetic, HttpOnly session path for read-only or writable
 access; it never accepts or exposes production credentials. Failures retain
 sanitized Playwright traces and screenshots beneath `src/browser/.artifacts-run-*`;
@@ -318,7 +318,7 @@ AIUR_BROWSER_KEEP_ARTIFACTS=1 npm run verify:failure-artifacts
 That command deliberately fails one assertion, verifies a trace and screenshot
 were captured, proves a parent-process sentinel is absent from trace, URL, DOM,
 and screenshot evidence, and verifies port release before printing the retained
-temporary artifact directory for inspection. The CI job runs that proof and
+temporary artifact directory for inspection. The core CI job runs that proof and
 caches the downloaded Playwright browser using `src/browser/package-lock.json`
 as its cache key.
 Playwright Test 1.61.1 (Apache-2.0) and `@axe-core/playwright` 4.11.3
