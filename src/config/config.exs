@@ -107,6 +107,11 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  # System.tmp_dir!() may be a directory inside an agent checkout. Bound Git's
+  # upward discovery there so non-repository test fixtures stay non-repositories.
+  # Git still discovers repositories initialized below TMPDIR normally.
+  System.put_env("GIT_CEILING_DIRECTORIES", System.tmp_dir!())
+
   # Install before app boot: accidental tracker/provider calls must never dial
   # public hosts. Tests opt in per request with a fake :plug/:adapter, or
   # adapter: Req.Finch for explicitly tagged live-provider checks.
