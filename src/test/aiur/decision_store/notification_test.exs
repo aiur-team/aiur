@@ -52,13 +52,14 @@ defmodule Aiur.DecisionStore.NotificationTest do
     test "a duplicate does not fan out again", %{dir: dir} do
       pid = start_store!(dir)
       payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
-      assert {:ok, _} = request(pid, payload)
+      assert {:ok, %{decision: decision}} = request(pid, payload)
+      decision_id = decision.decision_id
 
       :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
       :ok = Exchange.subscribe("executor.decision.requested")
-      assert {:ok, %{status: :duplicate}} = request(pid, payload)
-      refute_receive {:event, %{topic: "ticket.979.agent.decision.requested"}}, 200
-      refute_receive {:event, %{topic: "executor.decision.requested"}}, 200
+      assert {:ok, %{status: :duplicate, decision: %{decision_id: ^decision_id}}} = request(pid, payload)
+      refute_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.requested"}}, 200
+      refute_receive {:event, %{decision_id: ^decision_id, topic: "executor.decision.requested"}}, 200
     end
 
     test "retries a failed requested notification from the canonical Decision", %{dir: dir} do

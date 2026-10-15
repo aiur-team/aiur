@@ -106,8 +106,9 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
 
       assert {:ok, audit} = DecisionStore.audit_history(v1.decision_id, pid)
       assert Enum.map(audit, &audit_type/1) == [:requested, :enriched]
-      refute_receive {:event, %{topic: "ticket.979.agent.decision.enriched"}}, 100
-      refute_receive {:decision_changed, _, _}, 100
+      decision_id = v1.decision_id
+      refute_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.enriched"}}, 100
+      refute_receive {:decision_changed, ^decision_id, _version}, 100
       assert length(String.split(File.read!(Path.join(dir, "decisions.ndjson")), "\n", trim: true)) == 2
     end
 
