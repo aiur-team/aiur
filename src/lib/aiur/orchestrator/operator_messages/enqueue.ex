@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   @max_operator_message_chars 8_000
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
-  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, PauseResume, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
 
   @doc false
@@ -236,7 +236,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          true <- message_resumes_pause?(state, running_entry, request),
          state = remember_resume_input(state, running_entry, reply),
          {{:ok, :resumed}, resumed_state} <-
-           Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
+           TicketTransition.apply_effect(state, {:resume_paused, running_entry, true}) do
       {reply, resumed_state}
     else
       {{:error, _reason} = error, next_state} -> {error, next_state}
@@ -294,7 +294,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # transition. The fresh agent task spawned by `reactivate_issue/2`
   # will pick up the queued Executor message when it boots.
   defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, request) do
-    case Aiur.Orchestrator.reactivate_issue(state, running_entry) do
+    case TicketTransition.apply_effect(state, {:reactivate, running_entry}) do
       {{:ok, :reactivated}, next_state} ->
         reactivated_entry = State.find_running_by_identifier(next_state.running, issue_identifier)
 
@@ -313,7 +313,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          queued_entry when is_map(queued_entry) <-
            State.find_running_by_identifier(queued_state.running, issue_identifier),
          {{:ok, :resumed}, resumed_state} <-
-           Aiur.Orchestrator.resume_paused_issue(queued_state, queued_entry) do
+           TicketTransition.apply_effect(queued_state, {:resume_paused, queued_entry, true}) do
       {queued, resumed_state}
     else
       {:error, reason} -> {{:error, reason}, state}
