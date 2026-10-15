@@ -299,13 +299,11 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## API budgets
 
-Daemon admissions use one resident Python broker per Aiur process. It reuses its SQLite connection and batches queued commands before replying. Shell
-`gh` guards keep the one-shot interface against the same shared database; separate daemons never get separate quota ledgers for a shared credential.
+Aiur's resident Python broker reuses one SQLite connection and batches commands per process. Shell `gh` guards share its database, so daemons using one credential share quota ledgers.
 
-A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and
-keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`,
-`:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown
-review-thread reply is reconciled by reading the thread, never reposted.
+The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
+
+A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`, `:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.
