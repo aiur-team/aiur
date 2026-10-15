@@ -19,6 +19,6 @@ npm run vendor:elk
 npm run check:elk
 ```
 
-`vendor:elk` copies only the approved engine, license, authored worker, and DOM-free client. `check:elk` compares the committed engine/license to the exact lockfile package, checks hashes and size bounds, rejects source maps, and verifies each public URL changes with its bytes.
+`vendor:elk` copies only the approved engine, license, authored worker, and DOM-free client. The authored worker is kept as ordered parts in `src/browser/layout/worker/NN-*.js` (each at most 500 lines) and `vendor:elk` joins them byte-for-byte into the single `aiur-layout-worker.js`, so its hash and URL do not change; add a part with the next numeric prefix. `check:elk` compares the committed engine/license to the exact lockfile package, checks hashes and size bounds, rejects source maps, and verifies each public URL changes with its bytes.
 
 An ELK upgrade must be reviewed as a protocol/runtime change: verify the release, license, integrity, size, browser-worker fixtures, and packaged-release check before changing the pin. PR CI builds an actual production OTP release, validates both its and the copied platform package's asset records, then loads the packaged Worker offline under a self-only CSP. The release workflow repeats the asset validation for every publishable target.

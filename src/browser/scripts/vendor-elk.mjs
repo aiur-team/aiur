@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readWorkerSource } from './layout-worker-source.mjs'
 
 const ELK_VERSION = '0.11.1'
 const ELK_INTEGRITY = 'sha512-zxxR9k+rx5ktMwT/FwyLdPCrq7xN6e4VGGHH8hA01vVYKjTFik7nHOxBnAYtrgYUB1RpAiLvA1/U2YraWxyKKg=='
@@ -28,7 +29,7 @@ async function main() {
   const [engine, license, worker, client] = await Promise.all([
     readFile(path.join(packageRoot, 'lib', 'elk-worker.min.js')),
     readFile(path.join(packageRoot, 'LICENSE.md')),
-    readFile(path.join(layoutSourceRoot, 'aiur-layout-worker.js')),
+    readWorkerSource(layoutSourceRoot),
     readFile(path.join(layoutSourceRoot, 'aiur-layout-client.js'))
   ])
 
