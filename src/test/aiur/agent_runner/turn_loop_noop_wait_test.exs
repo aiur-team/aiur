@@ -17,6 +17,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
 
     @impl true
     def handle_call({:claim_next_queue_item, _identifier}, _from, state), do: {:reply, :empty, state}
+
+    def handle_call({:control_capabilities, _identifier}, _from, state),
+      do: {:reply, {:ok, %{queue_depth: 0}}, state}
+
     def handle_call({:consume_delivered_queue_items, _identifier}, _from, state), do: {:reply, :ok, state}
     def handle_call({:restore_delivered_queue_items, _identifier}, _from, state), do: {:reply, :ok, state}
   end
