@@ -530,7 +530,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
