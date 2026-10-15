@@ -35,13 +35,24 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             assert req.body == %{"labels" => ["sym:done"]}
             {:ok, %{status: 200}}
 
+          # State swaps re-read labels after adding the target.
+          {:get, 2} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:todo"}, %{"name" => "sym:done"}, %{"name" => "other"}]
+               }
+             }}
+
           # DELETE old label (new label excluded)
-          {:delete, 2} ->
+          {:delete, 3} ->
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
 
           # PATCH close
-          {:patch, 3} ->
+          {:patch, 4} ->
             assert req.body == %{"state" => "closed"}
             {:ok, %{status: 200}}
 
@@ -96,7 +107,26 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             assert req.body == %{"labels" => ["sym:rework"]}
             {:ok, %{status: 200}}
 
-          {:delete, 3} ->
+          # State swaps re-read labels after adding the target so concurrent
+          # state writes are included in the removal set.
+          {:get, 3} ->
+            assert req.url =~ "/issues/42"
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [
+                   %{"name" => "sym:paused"},
+                   %{"name" => "sym:todo"},
+                   %{"name" => "sym:rework"},
+                   %{"name" => "sym:watch"}
+                 ]
+               }
+             }}
+
+          {:delete, 4} ->
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
         end
@@ -318,7 +348,19 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             assert req.body == %{"labels" => ["sym:human-review"]}
             {:ok, %{status: 200}}
 
-          {:delete, 6} ->
+          {:get, 6} ->
+            assert req.url =~ "/issues/42"
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:human-review"}]
+               }
+             }}
+
+          {:delete, 7} ->
             assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
             {:ok, %{status: 200}}
         end
