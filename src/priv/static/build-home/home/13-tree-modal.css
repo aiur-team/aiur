@@ -1,0 +1,450 @@
+/* C:616 */ .ax-r {
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: .7rem;
+}
+
+/* C:617 */ .ax-k {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+/* C:618 */ .ax-l .ax-k b {
+  display: inline-block;
+  min-width: 8.6ch;
+}
+
+/* C:619 */ .ax-l .ax-k em {
+  display: inline-block;
+  min-width: 4ch;
+  margin-left: 0;
+  text-align: right;
+}
+
+/* C:620 */ .ax-rt {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  color: var(--faint);
+}
+
+/* C:621 */ .ax-rt svg {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  opacity: .8;
+}
+
+/* C:627 */ .bd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .5rem .75rem;
+}
+
+/* C:628 */ .bd-bar-l, .bd-bar-r {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex: none;
+}
+
+/* C:629 */ .bd-bar-r {
+  margin-left: auto;
+}
+
+/* C:630 */ .bd-toolbar .bd-filters {
+  position: relative;
+}
+
+/* C:631 */ .bd-toolbar .bd-filters::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 18px;
+  margin-top: -9px;
+  width: 1px;
+  background: var(--line);
+}
+
+/* C:632 */ .bd-seg.ic button {
+  padding: 0 .5rem;
+}
+
+/* C:633 */ .bd-seg.ic button svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* C:634 */ .bd-seg.bd-zoom {
+  align-items: center;
+  gap: 0;
+}
+
+/* C:635 */ .bd-seg.bd-zoom button {
+  justify-content: center;
+  padding: 0 .45rem;
+  font-size: .9rem;
+}
+
+/* C:636 */ .bd-seg.bd-zoom button:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+/* C:639 */ .bd-now-btn {
+  height: 32px;
+}
+
+/* C:640 */ .bd-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem 1.2rem;
+  padding: .55rem .25rem 0;
+}
+
+/* C:641 */ .bd-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .3rem 1rem;
+}
+
+/* C:642 */ .bd-exl {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  font: .66rem "JetBrains Mono", monospace;
+  color: var(--faint);
+}
+
+/* C:643 */ .bd-exl .bd-sel {
+  height: 26px;
+  font-size: .7rem;
+  padding: 0 .5rem;
+}
+
+@media (max-width: 720px) {
+  /* C:644 */ .bd-toolbar .bd-filters {
+    order: 3;
+    flex-basis: 100%;
+    padding-left: 0;
+  }
+  /* C:644 */ .bd-toolbar .bd-filters::before {
+    display: none;
+  }
+}
+
+/* C:647 */ .bd-now-h b i {
+  background: var(--good) !important;
+  box-shadow: 0 0 0 3px var(--good-soft), 0 0 10px 1px color-mix(in srgb, var(--good) 70%, transparent) !important;
+}
+
+/* C:650 */ .bd-card.line {
+  --r: 8px;
+}
+
+/* C:651 */ .bd-card.line .bd-in {
+  flex-direction: row;
+  align-items: center;
+  gap: .5em;
+  padding: 0 .65em;
+  overflow: hidden;
+}
+
+/* C:652 */ .bd-card.line .bd-dot {
+  width: .55em;
+  height: .55em;
+  flex: none;
+  border-radius: 2px;
+  background: var(--ec);
+}
+
+/* C:653 */ .bd-card.line .bd-id {
+  flex: none;
+  font: 600 .84em "JetBrains Mono", monospace;
+  color: var(--muted);
+}
+
+/* C:654 */ .bd-card.line .bd-title {
+  flex: 1;
+  min-width: 0;
+  font-size: .92em;
+  font-weight: 550;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+/* C:655 */ .bd-card.line .bd-lg {
+  width: 1.05em;
+  height: 1.05em;
+  flex: none;
+  object-fit: contain;
+}
+
+/* C:656 */ .bd-card.line .bd-lx {
+  flex: none;
+  display: grid;
+  color: var(--block-ink);
+}
+
+/* C:656 */ .bd-card.line .bd-lx svg {
+  width: 1em;
+  height: 1em;
+}
+
+/* C:657 */ .bd-card.line .bd-bar {
+  position: absolute;
+  left: .65em;
+  right: .65em;
+  bottom: 3px;
+  height: 2px;
+}
+
+/* C:658 */ .bd-card.line.tall .bd-in {
+  align-items: flex-start;
+  padding-top: .55em;
+}
+
+/* C:661 */ .bd-lt {
+  position: absolute;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s, transform .2s cubic-bezier(.22,1,.36,1);
+}
+
+/* C:663 */ .bd-lt.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* C:664 */ .bd-lt button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* C:665 */ .bd-lt button:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+/* C:666 */ .bd-lt button svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* C:667 */ .bd-lt [data-lt="tree"] {
+  display: none;
+}
+
+/* C:668 */ .bd-lt.locked [data-lt="tree"] {
+  display: grid;
+}
+
+/* C:669 */ .bd-lt.locked [data-lt="lock"] {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+/* C:670 */ .bd-content.scrolling .bd-lt:not(.locked) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* C:671 */ .bd-now .bd-card.hl .bd-in {
+  border-color: var(--accent-line);
+}
+
+/* C:674 */ .bd-vpw {
+  position: relative;
+}
+
+/* C:675 */ .bd-tree {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-2) 45%, transparent);
+  backdrop-filter: blur(10px) saturate(.7);
+  -webkit-backdrop-filter: blur(10px) saturate(.7);
+  animation: bdTreeIn .22s ease-out;
+}
+
+/* C:676 */ .bd-tree[hidden] {
+  display: none;
+}
+
+@keyframes bdTreeIn {
+  0% {
+    opacity: 0;
+  }
+}
+
+/* C:678 */ .bd-tree-h {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem 1.1rem;
+}
+
+/* C:679 */ .bd-tree-h b {
+  font: 700 .7rem "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+/* C:680 */ .bd-tree-h span {
+  font: .72rem "JetBrains Mono", monospace;
+  color: var(--muted);
+}
+
+/* C:681 */ .bd-tree-x {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  height: 30px;
+  padding: 0 .7rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font: 600 .74rem "Space Grotesk", sans-serif;
+  cursor: pointer;
+}
+
+/* C:682 */ .bd-tree-x svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* C:683 */ .bd-tree-s {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  padding: 8px 28px 28px;
+}
+
+/* C:684 */ .bd-tree-s > .bd-tree-c {
+  margin: auto;
+  flex: none;
+}
+
+/* C:685 */ .bd-tree-c {
+  position: relative;
+}
+
+/* C:686 */ .bd-tree-in {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* C:687 */ .bd-tree-in .bd-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+/* C:688 */ .bd-tn {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .2rem;
+  padding: 0 .7rem;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  box-shadow: inset 3px 0 0 oklch(.68 .14 var(--h));
+}
+
+/* C:690 */ .bd-tn:hover {
+  border-color: var(--accent-line);
+}
+
+/* C:691 */ .bd-tn.sel {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 oklch(.68 .14 var(--h)), 0 0 0 3px var(--accent-soft);
+}
+
+/* C:692 */ .bd-tn.plan, .bd-tn.nq {
+  border-style: dashed;
+}
+
+/* C:693 */ .bd-tn.now.ag-active {
+  border-color: var(--accent-line);
+}
+
+/* C:694 */ .bd-tn.now.ag-stuck, .bd-tn.failed {
+  border-color: var(--block-line);
+}
+
+/* C:695 */ .bd-tn1 {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 0;
+}
+
+/* C:696 */ .bd-tn1 i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
+  background: oklch(.68 .14 var(--h));
+}
+
+/* C:697 */ .bd-tn1 b {
+  flex: none;
+  font: 600 .72rem "JetBrains Mono", monospace;
+  color: var(--muted);
+}
+
+/* C:698 */ .bd-tn1 span {
+  min-width: 0;
+  font-size: .8rem;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* C:699 */ .bd-tn em {
+  font: .64rem "JetBrains Mono", monospace;
+  font-style: normal;
+  color: var(--faint);
+  padding-left: calc(6px + .4rem);
+}
+
+/* C:700 */ .bd-tn.failed em, .bd-tn.ag-stuck em {
+  color: var(--block-ink);
+}
+

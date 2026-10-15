@@ -3,7 +3,12 @@ defmodule Aiur.RunTelemetry.Sampler.ProcessTree do
 
   alias Aiur.RunTelemetry.Procfs
 
-  @metric_fields [:rss_bytes, :fd_count, :read_bytes, :write_bytes]
+  @metric_fields [
+    :rss_bytes,
+    :fd_count,
+    :read_bytes,
+    :write_bytes
+  ]
 
   @typep pid_set :: MapSet.t(pos_integer())
 

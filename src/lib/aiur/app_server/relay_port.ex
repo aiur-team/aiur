@@ -14,6 +14,18 @@ defmodule Aiur.AppServer.RelayPort do
   @spec call(pid(), term()) :: term()
   def call(pid, request), do: GenServer.call(pid, request, 15_000)
 
+  @doc "Reads live relay identity without attaching or advancing its generation."
+  @spec inspect_relay(Path.t()) :: {:ok, map()} | {:error, term()}
+  def inspect_relay(directory) do
+    with {:ok, socket} <- connect_socket(Path.join(directory, "ctl.sock"), 1) do
+      try do
+        with :ok <- send_json(socket, %{op: "hello"}), do: receive_json(socket)
+      after
+        :gen_tcp.close(socket)
+      end
+    end
+  end
+
   @spec attach(Path.t(), pos_integer(), non_neg_integer()) :: {:ok, pid()} | {:error, term()}
   def attach(directory, generation, offset) do
     GenServer.start(__MODULE__, {:attach, self(), directory, generation, offset})
@@ -32,6 +44,13 @@ defmodule Aiur.AppServer.RelayPort do
           value
       end
     end)
+  end
+
+  @doc "Advances the durable controller fence for a successor application boot."
+  @spec next_generation(Path.t()) :: pos_integer()
+  def next_generation(root) do
+    key = {__MODULE__, root, Boot.run_id()}
+    :global.trans({key, self()}, fn -> mint_generation(root, key) end)
   end
 
   defp mint_generation(root, key) do
@@ -169,7 +188,12 @@ defmodule Aiur.AppServer.RelayPort do
   defp connect_socket(_path, 0), do: {:error, :relay_socket_missing}
 
   defp connect_socket(path, attempts) do
-    case :gen_tcp.connect({:local, String.to_charlist(socket_address(path))}, 0, [:binary, packet: :line, packet_size: 134_217_728, active: false], 1_000) do
+    address = socket_address(path)
+
+    result =
+      if byte_size(address) > 100, do: {:error, :enoent}, else: :gen_tcp.connect({:local, String.to_charlist(address)}, 0, [:binary, packet: :line, packet_size: 134_217_728, active: false], 1_000)
+
+    case result do
       {:error, reason} when reason in [:enoent, :enametoolong] ->
         Process.sleep(20)
         connect_socket(path, attempts - 1)

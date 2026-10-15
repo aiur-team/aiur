@@ -1,0 +1,39 @@
+{
+  "id": "push-relay",
+  "name": "Encrypted notifications",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "commands",
+    "event-bus",
+    "identity",
+    "pairing-discovery"
+  ],
+  "optional": [
+    "build-orders",
+    "build-queue"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Sends encrypted event notifications to paired devices through a relay.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N4"
+}

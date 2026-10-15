@@ -5,7 +5,13 @@ defmodule Aiur.RunTelemetry.Dataset.Source do
   alias Aiur.RunTelemetry.Lifecycle
 
   @telemetry_filename "telemetry.ndjson"
-  @supported_kinds ~w(restart run_context lifecycle resource warning)
+  @supported_kinds ~w(
+    restart
+    run_context
+    lifecycle
+    resource
+    warning
+  )
   @tail_chunk_bytes 64 * 1024
   @max_tail_line_bytes 1 * 1024 * 1024
 
@@ -224,7 +230,9 @@ defmodule Aiur.RunTelemetry.Dataset.Source do
     end
   end
 
-  defp parse_line(line, path, line_number) do
+  @doc false
+  @spec parse_line(binary(), Path.t(), pos_integer()) :: {:ok, map()} | {:warning, map()}
+  def parse_line(line, path, line_number) do
     case Jason.decode(line) do
       {:ok, decoded} when is_map(decoded) -> validate_record(decoded, path, line_number)
       {:ok, _other} -> {:warning, warning(:invalid_record, path, line_number)}

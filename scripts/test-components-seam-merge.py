@@ -27,12 +27,15 @@ with tempfile.TemporaryDirectory(prefix='components-seam-merge-') as directory:
 
     for name in ('components.json', 'components.schema.json'):
         shutil.copyfile(REPO / name, root / name)
-    shutil.copytree(REPO / SEAMS, root / SEAMS)
+    shutil.copytree(REPO / 'components', root / 'components')
+    shutil.copytree(REPO / 'scripts/components', root / 'scripts/components',
+                    ignore=shutil.ignore_patterns('allowlist', '__pycache__'))
+    shutil.copytree(REPO / SEAMS, root / SEAMS, dirs_exist_ok=True)
     git('init', '-q', '-b', 'base')
     git('add', '.')
     git('commit', '-q', '-m', 'base')
     before = len(checker.load_manifest(root)['seams'])
-    assert before == 23, f'expected all main seams in the split registry, found {before}'
+    assert before == 44, f'expected all main seams in the split registry, found {before}'
     for branch in ('left', 'right'):
         git('switch', '-q', '-c', branch, 'base')
         seam = {'from': 'orchestration', 'to_module': f'Aiur.Fixture.{branch.title()}', 'kind': 'reference',

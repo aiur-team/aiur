@@ -29,9 +29,6 @@ defmodule Aiur.AiurAgentSkillTest do
     dictated-input.md
   )
   @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import)
-  # `aiur-meta` is an Executor meta-check driven by `aiur-run`'s timer. It audits
-  # operator surfaces and files tickets; issue workers never run it, so it stays
-  # Claude-only and is deliberately not symlinked into `.codex/skills/`.
   @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
 
   # Every skill that can reach a ticket-creation command. Each states the rule
@@ -642,7 +639,7 @@ defmodule Aiur.AiurAgentSkillTest do
     refute source =~ "mix credo --strict"
     refute source =~ "Do not run Credo locally"
     refute source =~ "Credo belongs to CI"
-    assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
+    assert source =~ "event-specific gate is authoritative: fast on PRs, full in the queue"
     refute source =~ "mix dialyzer"
 
     assert source =~ "loop on unrelated suite flakes"
@@ -696,7 +693,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "mise exec -- mix lint"
     assert repo_prompt =~ "python3 scripts/check-bare-assert-receive.py"
     refute repo_prompt =~ "Do not run Credo locally"
-    assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
+    assert repo_prompt =~ "fast on PRs after rollout, full in the merge queue or on forced-full PRs"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"
   end
@@ -713,7 +710,7 @@ defmodule Aiur.AiurAgentSkillTest do
     refute pull_skill =~ "merge origin/main"
   end
 
-  test "agent workflow marks completed PRs ready before waiting for full current-head CI" do
+  test "agent workflow marks completed PRs ready before waiting for current-head required CI" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
     turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/turn-workflow.md")))
     monitor = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md")))
@@ -730,8 +727,8 @@ defmodule Aiur.AiurAgentSkillTest do
 
     for source <- [skill, dev_loop, turn_workflow, shared_prompt, repo_prompt, example_prompt] do
       assert source =~ ~r/mark[^.]*ready[^.]*before[^.]*agent:ci-wait/i
-      assert source =~ "Drafts never pass CI"
-      assert source =~ "full required-check set"
+      assert source =~ if(source in [skill, dev_loop, turn_workflow], do: "Drafts never permit handoff", else: "Drafts never pass CI")
+      assert String.downcase(source) =~ if(source in [skill, dev_loop, turn_workflow], do: "all required checks", else: "full required-check set")
       assert source =~ "current head SHA"
       assert source =~ "agent:human-review"
       refute source =~ "keep the PR as a draft"
@@ -757,7 +754,7 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "CI-wait fallback config is documented but is not an init question" do
     config_reference =
-      File.read!(Path.join(@repo_root, "website/docs-app/reference/configuration.md"))
+      File.read!(Path.join(@repo_root, "website/docs-app/reference/configuration-agent.md"))
 
     assert config_reference =~ "`agent.ci_wait_rewake_minutes`"
     assert config_reference =~ "| 5 |"
@@ -852,10 +849,10 @@ defmodule Aiur.AiurAgentSkillTest do
       {_output, status} =
         System.cmd(
           "/bin/sh",
-          [Path.join(@repo_root, "src/priv/github_quota_guard.sh"), "issue", "create" | arguments],
+          [Aiur.AgentGitHubGuardTestSupport.write_gh_guard(root), "issue", "create" | arguments],
           # This test asserts the dispatch disposition enforcement in
           # isolation. The shared GitHub budget broker lives beside the
-          # installed wrapper, not beside the repo copy this test invokes, so
+          # installed wrapper, not beside the copy this test writes, so
           # disable it explicitly or the admission check exits 75 whenever the
           # broker is absent (CI has no broker in `src/priv`).
           env: [

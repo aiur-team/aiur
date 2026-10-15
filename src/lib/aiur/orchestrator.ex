@@ -4,11 +4,11 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake}
+  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake, Parking, TicketTransition}
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
@@ -37,24 +37,24 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_info({:tick, tick_token}, %{tick_token: tick_token} = state)
-      when is_reference(tick_token),
+      when is_reference(tick_token) and state.poll_frozen != true,
       do: Lifecycle.handle_tick(state)
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
-  def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
+  def handle_info(:tick, state), do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
-
   # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
   # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
   # token-fenced) cannot fire a live poll that would ramp the load envelope
   # mid-test.
   def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}
-
   def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
     do: {:noreply, CommentPolling.request_reconcile(state, hint)}
+
+  def handle_info({:github_pr_ready_transition, t, n, sha}, state), do: {:noreply, ReadyForReviewTransitions.observe_webhook_transition(state, t, n, sha)}
 
   def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
     do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
@@ -273,11 +273,6 @@ defmodule Aiur.Orchestrator do
   defp publish_collapsed_poll(reply), do: reply
 
   @doc false
-  @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
-  def transition_control_status(state, running_entry, new_status, reason),
-    do: PauseResume.transition_control_status(state, running_entry, new_status, reason)
-
-  @doc false
   @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
   def github_next_poll_delay_ms(state), do: TrackerHealth.github_next_poll_delay_ms(state)
 
@@ -365,16 +360,10 @@ defmodule Aiur.Orchestrator do
     do: DispatchPolicy.normalize_issue_state(state_name) == "error"
 
   def error_issue_state?(_state_name), do: false
-  @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()
-  def preserve_running_issue_on_external_error(state, issue),
-    do: RetryEngine.preserve_running_issue_on_external_error(state, issue)
 
   @spec pause_issue_for_label_override(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_label_override(%State{} = state, %Issue{} = issue),
     do: PauseResume.pause_issue_for_label_override(state, issue)
-
-  @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
-  def pause_issue_for_ci_wait(state, issue), do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
 
   @spec cleanup_terminal_issue_artifacts(binary() | term(), binary() | nil) :: :ok
   def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil),
@@ -382,13 +371,6 @@ defmodule Aiur.Orchestrator do
 
   @spec human_review_state?(term()) :: boolean()
   def human_review_state?(state_name), do: HumanReview.human_review_state?(state_name)
-  @spec maybe_deactivate_human_review_issue(State.t(), Issue.t()) :: State.t()
-  def maybe_deactivate_human_review_issue(state, issue),
-    do: HumanReview.maybe_deactivate_human_review_issue(state, issue)
-
-  @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
-  def terminate_running_issue(state, issue_id, cleanup_workspace),
-    do: AgentTeardown.terminate_running_issue(state, issue_id, cleanup_workspace)
 
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(entry, now, max_seconds),
@@ -661,6 +643,8 @@ defmodule Aiur.Orchestrator do
   def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
+  def handle_call(:prepare_handoff_snapshot, _from, state), do: Aiur.Handoff.hold_dispatch(state)
+  def handle_call(:cancel_handoff, _from, state), do: Aiur.Handoff.release_dispatch(state)
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state), do: OM.enqueue_event_digest_call(state, identifier, event)
   def handle_call({:enqueue_event_digest, id, event, %{subscribed_to: subs}}, _from, state) when is_list(subs), do: OM.enqueue_event_digest_call(state, id, event, subscribed_to: subs)
 
@@ -676,9 +660,8 @@ defmodule Aiur.Orchestrator do
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
 
-  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
-    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
-  end
+  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids), do: {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  def handle_call(:build_queue_next_set, _from, state), do: {:reply, BuildQueueClaimProbe.next_set(state), state}
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 
@@ -706,9 +689,9 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_identifier),
       do: OM.control_capabilities_call(state, issue_identifier)
 
-  def handle_call({:pause_agent, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.pause_agent_call(state, issue_identifier)
+  def handle_call({action, issue_identifier}, _from, state)
+      when action in [:pause_agent, :park_agent] and is_binary(issue_identifier),
+      do: if(action == :park_agent, do: Parking.park_agent_call(state, issue_identifier), else: PauseResume.pause_agent_call(state, issue_identifier))
 
   def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
     do: PauseResume.pause_agent_call(state, identity)
@@ -841,25 +824,23 @@ defmodule Aiur.Orchestrator do
       when is_binary(key) and is_binary(text),
       do: OM.lookup_operator_message_call(state, lookup, expected)
 
-  def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.claim_next_queue_item_call(state, issue_identifier)
+  def handle_call({:claim_next_queue_item, id}, _from, state) when is_binary(id), do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_queue_item_call(state, id) end)
 
   def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: OM.claim_next_checkpoint_queue_item_call(state, issue_identifier)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_checkpoint_queue_item_call(state, issue_identifier) end)
 
   def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: OM.claim_blocker_critical_events_digest_call(state, issue_identifier)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_blocker_critical_events_digest_call(state, issue_identifier) end)
 
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: OM.claim_next_operator_queue_item_call(state, issue_identifier)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_operator_queue_item_call(state, issue_identifier) end)
 
   def handle_call({:claim_operator_response, identifier, command}, _from, state)
       when is_binary(identifier) and is_binary(command) and command != "",
-      do: OM.claim_operator_response_call(state, identifier, command)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_operator_response_call(state, identifier, command) end)
 
   def handle_call({:mark_queue_item_consumed, item_id}, _from, state)
       when is_integer(item_id),
@@ -904,9 +885,6 @@ defmodule Aiur.Orchestrator do
     do: PauseResume.resume_label_overridden_issue(state, running_entry)
 
   @doc false
-  @spec reactivate_issue(State.t(), map()) :: {{:ok, :reactivated} | {:error, term()}, State.t()}
-  def reactivate_issue(%State{} = state, running_entry), do: PauseResume.reactivate_issue(state, running_entry)
-  @doc false
   @spec send_pause_control_message(State.t(), String.t()) :: term()
   def send_pause_control_message(state, issue_identifier), do: PauseResume.send_pause_control_message(state, issue_identifier)
   @spec pane_interrupt_action(boolean(), non_neg_integer()) :: :close_pane | :interrupt | :pause
@@ -916,11 +894,6 @@ defmodule Aiur.Orchestrator do
   @spec pane_interrupt_action_no_pane(boolean(), boolean()) :: :send_interrupt | :close_pane | :pause
   def pane_interrupt_action_no_pane(paused?, working?) when is_boolean(paused?) and is_boolean(working?),
     do: Interrupts.pane_interrupt_action_no_pane(paused?, working?)
-
-  @doc false
-  @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
-  def resume_paused_issue(%State{} = state, running_entry, operator? \\ true),
-    do: PauseResume.resume_paused_issue(state, running_entry, operator?)
 
   @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
   @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
@@ -940,7 +913,8 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
-    {:noreply, PushRouting.maybe_mark_sleeping(state, identifier)}
+    {next, effects} = PushRouting.sleeping_effects(state, identifier)
+    {:noreply, TicketTransition.apply_effects(next, effects)}
   end
 
   @doc false

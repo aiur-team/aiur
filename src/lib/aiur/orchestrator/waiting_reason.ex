@@ -1,22 +1,20 @@
 defmodule Aiur.Orchestrator.WaitingReason do
   @moduledoc """
-  Derives one explicit fleet-row waiting reason for OCC-5. Every branch names
-  a concrete cause or `:active` — never a generic "blocked".
-
-  Classification uses supplied facts. Status rows attach held dependency
-  evidence and trigger settings without tracker I/O or persistence.
+  Fleet waiting reasons and their owners, from held evidence without tracker I/O.
   """
 
   require Logger
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.{DispatchPolicy, QueueSetSlots}
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
           :waiting_for_human
           | :waiting_for_supervisor
+          | :queue_set_order
+          | :optimistic_share
           | :waiting_for_dependency
           | :waiting_for_ci
           | :waiting_for_review
@@ -42,6 +40,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
     waiting_for_human: "Executor",
     waiting_for_supervisor: "Executor",
     waiting_for_dependency: "DispatchPolicy",
+    queue_set_order: "DispatchPolicy",
+    optimistic_share: "DispatchPolicy",
     waiting_for_ci: "CiLifecycle",
     waiting_for_review: "Executor",
     paused: "PauseResume",
@@ -96,7 +96,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # carries no creation time, and the lifetime latch persists only a dispatch
   # count. They report `since: nil` ("since unknown"), never another clock.
   defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
-
+  defp evidence(:queue_set_order, facts), do: {facts[:queue_set_wait], nil}
+  defp evidence(:optimistic_share, _facts), do: {:optimistic_share, nil}
   defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
 
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
@@ -127,6 +128,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     hold = if(row[:capacity_hold_active?], do: state.capacity_hold, else: state.dispatch_hold) || %{}
 
     %{
+      queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
       global_pause: state.global_pause,
       auto_resume_cause: resume[:cause],
       auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
@@ -181,6 +183,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render_wait(_row), do: ""
 
   defp render_dependency(%{reason: :waiting_for_dependency, description: description}), do: " · #{description}"
+  defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
   defp render_dependency(_waiting), do: ""
 
   defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
@@ -246,7 +249,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
       Map.get(attrs, :workspace_retained?) -> :workspace_retained
-      Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
+      # A completed runner parked in a tracker wait is not owed another dispatch (#4174).
+      Map.get(attrs, :work_state) == :completed -> if tracker_reason == :active, do: :awaiting_dispatch, else: tracker_reason
       unresponsive?(attrs) -> :unresponsive
       # A duration-capped pause is one consistent state, never re-labelled by
       # whatever the tracker state happens to be. #2310 and #2311 paused for
@@ -282,6 +286,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @spec render(t()) :: String.t()
   def render(:waiting_for_human), do: "waiting_for_human"
   def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
+  def render(:queue_set_order), do: "queue_set_order"
+  def render(:optimistic_share), do: "optimistic_share"
   def render(:waiting_for_dependency), do: "waiting_for_dependency"
   def render(:waiting_for_ci), do: "waiting_for_ci"
   def render(:waiting_for_review), do: "waiting_for_review"
@@ -378,11 +384,17 @@ defmodule Aiur.Orchestrator.WaitingReason do
       Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
         dispatch_hold_or_tracker_state(tracker_state, opts)
 
-      Keyword.get(opts, :capacity_hold_active?, false) ->
-        capacity_or_tracker_state(tracker_state, opts)
-
       true ->
-        idle_by_tracker_state(tracker_state, opts)
+        capacity_classification(tracker_state, opts)
+    end
+  end
+
+  defp capacity_classification(tracker_state, opts) do
+    cond do
+      Keyword.get(opts, :queue_set_order?, false) -> :queue_set_order
+      Keyword.get(opts, :optimistic_share?, false) -> :optimistic_share
+      Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state, opts)
+      true -> idle_by_tracker_state(tracker_state, opts)
     end
   end
 

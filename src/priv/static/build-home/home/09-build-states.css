@@ -1,0 +1,51 @@
+/* C:437 */ .bd-lanes .bd-lane.temp span {
+  text-decoration: underline dashed oklch(.66 .14 var(--h) / .6);
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+
+/* C:440 */ .bd-card.mini {
+  --r: 6px;
+}
+
+/* C:441 */ .bd-card.mini .bd-in {
+  gap: 5px;
+  padding: 0 7px;
+  font-size: 11px;
+  justify-content: flex-start;
+}
+
+/* C:442 */ .bd-card.mini .bd-dot {
+  width: 7px;
+  height: 7px;
+}
+
+/* C:443 */ .bd-card.mini .bd-id {
+  font: 600 11px "JetBrains Mono", monospace;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* C:444 */ .bd-card.mini.tall .bd-in {
+  align-items: flex-start;
+  padding-top: 6px;
+}
+
+/* C:447 */ .bd-e.bl {
+  stroke: var(--faint);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5;
+}
+
+/* C:448 */ .bd-ea.bl {
+  fill: var(--faint);
+}
+
+/* C:449 */ .bd-e.bad {
+  stroke: var(--block);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.8;
+}
+

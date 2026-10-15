@@ -1,0 +1,66 @@
+{
+  "id": "projections",
+  "name": "Run snapshots",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/current_run_outcome_snapshot.ex",
+    "src/lib/aiur/current_run_outcome_snapshot/**",
+    "src/lib/aiur/current_run_projection/**",
+    "src/lib/aiur/current_run_projections.ex",
+    "src/lib/aiur/current_run_projections/**",
+    "src/lib/aiur/current_run_summary.ex",
+    "src/lib/aiur/current_run_summary/**",
+    "src/lib/aiur/progress_retention.ex",
+    "src/lib/aiur/progress_retention/**",
+    "src/lib/aiur/progress_tracker.ex",
+    "src/lib/aiur/projections/**",
+    "src/lib/aiur/ticket_activity.ex",
+    "src/lib/aiur/ticket_activity/**"
+  ],
+  "facades": [
+    "Aiur.CurrentRunOutcomeSnapshot",
+    "Aiur.CurrentRunProjections",
+    "Aiur.CurrentRunSummary",
+    "Aiur.ProgressRetention",
+    "Aiur.ProgressTracker",
+    "Aiur.Projections.UnitsPolicy",
+    "Aiur.Projections.UnitsRow",
+    "Aiur.Projections.UnitsRow.Sources",
+    "Aiur.TicketActivity"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "agent-runner",
+    "event-bus",
+    "kernel",
+    "orchestration",
+    "signal",
+    "tracker"
+  ],
+  "optional": [
+    "conversations",
+    "github-listeners"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [
+      "progress_retention_state_dir"
+    ],
+    "capabilities": []
+  },
+  "prior": [
+    "PRJ"
+  ],
+  "dependency_kind": "required",
+  "summary": "Builds current-run snapshots for dashboards and other operator surfaces.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

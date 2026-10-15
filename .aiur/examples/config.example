@@ -48,6 +48,9 @@ tracker:
 
 # === Coding agents ===
 agent:
+  # ci_recovery_enabled: true             # false disables automatic CI reruns
+  # ci_recovery_max_per_poll: 5
+  # ci_recovery_max_per_hour: 20
   # relay: true                         # detached transport for local Codex / headless Claude
   # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # Ordered dispatch preference (replaces `kind` + `switch_model_on_ratelimit` +
@@ -236,6 +239,18 @@ alerts:
 #     - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
+# Optional Codex-native compaction immediately before final agent handoff.
+# It synchronously calls the live app-server method and leaves the original
+# rollout and thread resume handle intact. Other providers are rejected. The
+# app-server currently exposes no auto-trigger or progress polling protocol.
+# compaction:
+#   enabled: true
+#   backends: [codex]
+#   manual_approval: true # explicit operator opt-in at terminal handoff
+#   auto_trigger:
+#     enabled: false
+#     token_threshold: 50000 # cumulative tokens required at human-review handoff
+#   timeout_ms: 30000
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
@@ -250,14 +265,20 @@ alerts:
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
-# Build queue (GitHub only; defaults shown).
+# Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:
+#   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
+#   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes
 #   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
 #   merged_open_grace_seconds: 600      # 60..86400 seconds
+#   optimistic_failure_grace_seconds: 600 # Replacement grace, 60..86400 seconds
+#   optimistic_churn_attention_threshold: 3 # Conflicts, 0 disables (0..50)
 
 # Experiment specs and audit history are stored under the repo state node.
 # experiments:
@@ -269,3 +290,20 @@ alerts:
 #   script_timeout_ms: 60000
 #   checkpoint_interval_ms: 3600000
 #   max_snapshot_observations: 50000
+
+#   auto:
+#     enabled: true
+#     version_line: true
+#     release_line: true
+#     release_tag_pattern: "v*"
+#     release_include_prereleases: false
+#     release_min_interval_days: 7
+#     feature_label: "experiment:feature"
+#     feature_live_signal: "auto"
+#     feature_quiet_hours: 6
+#     live_signal_max_wait_hours: 72
+#     before_days: 14
+#     after_days: 14
+#     after_step_days: 7
+#     after_max_days: 42
+#     metric_packs: ["delivery"]

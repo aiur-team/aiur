@@ -1,3 +1,4 @@
+Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
 Code.require_file("../support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
@@ -7,7 +8,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support build_order_source meters_live
+      support voice_provider build_order_source meters_live optimistic_control
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -42,7 +43,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
     get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
-    get("/assets/streamdeck-emulator-hook.js", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator_hook)
+    get("/assets/streamdeck-emulator-:file", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator)
     get("/assets/sortable-table-hook.js", Aiur.BrowserHarness.FixtureAssets, :sortable_table_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
@@ -52,6 +53,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/optimistic-control/:mode", Aiur.BrowserHarness.OptimisticControl, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
@@ -143,10 +145,10 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{FixtureEndpoint, VoiceSTT}
+  alias Aiur.BrowserHarness.FixtureEndpoint
+  alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.FixtureSource
-  @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
   def run do
     {:ok, _} = Application.ensure_all_started(:bandit)
@@ -174,21 +176,33 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         strategy: :one_for_one
       )
 
-    Application.put_env(
-      :aiur,
-      Aiur.BrowserHarness.FixtureEndpoint,
-      server: true,
-      http: [ip: {127, 0, 0, 1}, port: @port],
-      url: [host: "127.0.0.1", port: @port],
-      secret_key_base: String.duplicate("b", 64),
-      adapter: Bandit.PhoenixAdapter,
-      pubsub_server: Aiur.BrowserHarness.FixturePubSub,
-      live_view: [signing_salt: "browser-harness-live-view"],
-      check_origin: false
-    )
+    port = System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
-    {:ok, _} = FixtureEndpoint.start_link()
-    IO.puts("Aiur browser harness fixture ready at http://127.0.0.1:#{@port}")
+    {:ok, _pid} =
+      FixtureEndpointStart.start(
+        fn port ->
+          Application.put_env(
+            :aiur,
+            Aiur.BrowserHarness.FixtureEndpoint,
+            server: true,
+            http: [ip: {127, 0, 0, 1}, port: port],
+            url: [host: "127.0.0.1", port: port],
+            secret_key_base: String.duplicate("b", 64),
+            adapter: Bandit.PhoenixAdapter,
+            pubsub_server: Aiur.BrowserHarness.FixturePubSub,
+            live_view: [signing_salt: "browser-harness-live-view"],
+            check_origin: false
+          )
+
+          FixtureEndpoint.start_link()
+        end,
+        port
+      )
+
+    {:ok, {_ip, port}} = Bandit.PhoenixAdapter.server_info(FixtureEndpoint, :http)
+    endpoint_config = Application.fetch_env!(:aiur, FixtureEndpoint)
+    Application.put_env(:aiur, FixtureEndpoint, Keyword.update!(endpoint_config, :url, &Keyword.put(&1, :port, port)))
+    IO.puts("AIUR_BROWSER_FIXTURE_PORT=#{port}")
     Process.sleep(:infinity)
   end
 
@@ -386,30 +400,12 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
-        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1,
-        voice_stt_start_fun: fn socket ->
-          case VoiceSTT.start_link(socket.channel_pid) do
-            {:ok, pid} -> {:ok, %{pid: pid}}
-            {:error, reason} -> {:error, inspect(reason)}
-          end
-        end,
-        voice_tts_start_fun: fn socket, text ->
-          {:ok, pid} =
-            Task.start(fn ->
-              if text == "Voice reply from the agent." do
-                send(socket.channel_pid, {:voice_audio, :chunk, <<0, 0, 255, 127, 0, 0, 1, 128>>})
-                send(socket.channel_pid, {:voice_audio, :done})
-              else
-                send(socket.channel_pid, {:voice_audio, :error, "fixture received an incomplete reply"})
-              end
-            end)
-
-          {:ok, pid}
-        end
+        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
       )
       |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    Application.put_env(:aiur, :voice_provider, Aiur.BrowserHarness.VoiceProvider)
   end
 
   defp streamdeck_agent(identifier, title, backend, attrs \\ []) do

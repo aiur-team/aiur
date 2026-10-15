@@ -41,7 +41,6 @@ defmodule Aiur.MixProject do
           Aiur.Claude.EventHumanizer,
           Aiur.Codeowners,
           Aiur.Codex.CodingAgent,
-          Aiur.Codex.DynamicTool,
           Aiur.Codex.EventHumanizer,
           Aiur.EventHumanizer,
           Aiur.GitHub.Client,
@@ -131,6 +130,8 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/core_test_support.exs",
+        "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",
         "test/support/test_support.exs",
         "test/support/test_support/workflow_yaml_sections.exs",

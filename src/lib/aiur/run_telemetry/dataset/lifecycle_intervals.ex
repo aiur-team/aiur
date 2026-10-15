@@ -27,6 +27,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
          %{
            ticket: ticket,
            complexity: dispatch_complexity(ticket_events),
+           pr_facts: pr_facts(ticket_events),
            events: ticket_events,
            intervals: lifecycle_intervals(ticket_events),
            findings: Map.get(findings_by_ticket, ticket, [])
@@ -34,6 +35,12 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
       end)
 
     {tickets, findings}
+  end
+
+  @doc false
+  @spec pr_facts([map()]) :: map() | nil
+  def pr_facts(events) do
+    events |> Enum.reverse() |> Enum.find_value(fn event -> if event.event == "pr_facts", do: event.pr_facts end)
   end
 
   defp lifecycle_event(record) do
@@ -45,11 +52,17 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
       [
         %{
           ticket: ticket,
+          pr_facts: if(event == "pr_facts", do: attributes),
           event: event,
           boundary: boundary,
           attempt_id: Map.get(attributes, "attempt_id"),
           operation_id: Map.get(attributes, "operation_id"),
           outcome: Map.get(attributes, "outcome"),
+          blocker: Map.get(attributes, "blocker"),
+          non_ff: Map.get(attributes, "non_ff"),
+          start_trigger: Map.get(attributes, "start_trigger"),
+          head_start_ms: Map.get(attributes, "head_start_ms"),
+          waste_ms: Map.get(attributes, "waste_ms"),
           command_class: Map.get(attributes, "command_class"),
           cause: Map.get(attributes, "cause"),
           complexity: normalize_complexity(Map.get(attributes, "complexity")),

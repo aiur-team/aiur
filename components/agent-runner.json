@@ -1,0 +1,65 @@
+{
+  "id": "agent-runner",
+  "name": "Agent turns",
+  "layer": 2,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/agent_compaction/**",
+    "src/lib/aiur/agent_context_presentation.ex",
+    "src/lib/aiur/agent_directory.ex",
+    "src/lib/aiur/agent_event_log.ex",
+    "src/lib/aiur/agent_runner.ex",
+    "src/lib/aiur/agent_runner/**",
+    "src/lib/aiur/agent_skills.ex",
+    "src/lib/aiur/event_publication_log.ex",
+    "src/lib/aiur/issue_context.ex",
+    "src/lib/aiur/issue_log.ex",
+    "src/lib/aiur/issue_log/**",
+    "src/lib/aiur/live_conversation.ex",
+    "src/lib/aiur/live_conversation/**",
+    "src/lib/aiur/logs/**",
+    "src/lib/aiur/prompt_builder.ex",
+    "src/lib/aiur/session_handle.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "agent-sandbox",
+    "config",
+    "event-bus",
+    "harness-adapters",
+    "identity",
+    "kernel",
+    "signal",
+    "tracker",
+    "workspace"
+  ],
+  "optional": [
+    "build-orders"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [
+      "agent_compaction_state_dir"
+    ],
+    "capabilities": []
+  },
+  "prior": [
+    "RUN"
+  ],
+  "dependency_kind": "required",
+  "summary": "Runs an agent on a ticket and records its conversation and tool activity.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/ticket-lifecycle.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

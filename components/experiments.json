@@ -1,0 +1,76 @@
+{
+  "id": "experiments",
+  "name": "Experiments",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/experiments.ex",
+    "src/lib/aiur/experiments/**",
+    "src/lib/aiur/experiments_cli.ex"
+  ],
+  "facades": [
+    "Aiur.Experiments",
+    "Aiur.Experiments.Auto",
+    "Aiur.Experiments.CapabilityProvider",
+    "Aiur.Experiments.MetricPack",
+    "Aiur.Experiments.Observation",
+    "Aiur.Experiments.Predicate",
+    "Aiur.Experiments.Spec",
+    "Aiur.Experiments.TelemetryHistory",
+    "Aiur.Experiments.TelemetryReader",
+    "Aiur.ExperimentsCLI"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "agent-sandbox",
+    "config",
+    "event-bus",
+    "identity",
+    "kernel",
+    "workspace"
+  ],
+  "optional": [
+    "accounting",
+    "executor-attention",
+    "harness-adapters",
+    "telemetry",
+    "tracker"
+  ],
+  "owns": {
+    "config": [
+      "experiments"
+    ],
+    "env": [],
+    "state": [
+      "experiments_path"
+    ],
+    "capabilities": [
+      "experiments",
+      "experiments.metric_packs"
+    ]
+  },
+  "prior": [],
+  "forbid": [
+    "Aiur.GitHub",
+    "Aiur.GitHub.*",
+    "Aiur.Orchestrator",
+    "Aiur.Orchestrator.*"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Runs controlled experiments and records evidence for decisions.",
+  "docs": [
+    "concepts/experiments.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [
+    "experiments"
+  ],
+  "env": [],
+  "capabilities": [
+    "experiments",
+    "experiments.metric_packs"
+  ]
+}

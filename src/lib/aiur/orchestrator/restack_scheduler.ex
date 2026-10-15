@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   require Logger
   alias Aiur.{Config, Issue, Tracker}
   alias Aiur.Events.{BranchRefStore, Publisher}
-  alias Aiur.Orchestrator.{State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{OptimisticLedger, State, TicketTransition, TrackerTasks}
   alias Aiur.Stacking.StackBaseEvidence
   alias Aiur.Workspace.{HostLock, Layout, Ownership, Restack}
 
@@ -58,9 +58,10 @@ defmodule Aiur.Orchestrator.RestackScheduler do
     end
   end
 
-  defp schedule(state, issue, branch, %{pr: %{merged?: true, number: number, merge_commit_sha: sha}}, opts)
+  defp schedule(state, issue, branch, %{id: blocker_id, pr: %{merged?: true, number: number, merge_commit_sha: sha}}, opts)
        when is_binary(branch) and branch != "" and is_integer(number) and is_binary(sha) and sha != "" do
     key = {issue.id, sha, opts[:dependent_head]}
+    opts = Keyword.put(opts, :blocker_identifier, to_string(blocker_id))
 
     if state.restack_completed[key] == :done or TrackerTasks.running?(state, {:restack, issue.id}) do
       state
@@ -80,6 +81,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   defp schedule(state, _issue, _branch, _blocker, _opts), do: state
 
   defp complete(state, issue, key, number, {:conflict, paths}, opts) do
+    record_integration(issue, key, opts, true)
     report = Keyword.get(opts, :report, fn issue, number, paths -> report_conflict(issue, number, paths, opts) end)
 
     TrackerTasks.start(state, {:restack, issue.id}, fn -> report.(issue, number, paths) end, fn current, result ->
@@ -92,7 +94,8 @@ defmodule Aiur.Orchestrator.RestackScheduler do
     %{state | restack_completed: Map.put(state.restack_completed, key, %{issue: issue, number: number, paths: paths, steps: steps})}
   end
 
-  defp complete(state, issue, key, number, {:ok, result}, _opts) do
+  defp complete(state, issue, key, number, {:ok, result}, opts) do
+    if result != :conflict_reported, do: record_integration(issue, key, opts, false)
     Logger.info("Restack complete: issue=#{issue.identifier} blocker_pr=#{number} result=#{inspect(result)}")
     %{state | restack_completed: Map.put(state.restack_completed, key, :done)}
   end
@@ -105,6 +108,10 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   defp complete(state, issue, _key, number, result, _opts) do
     Logger.warning("Restack skipped: issue=#{issue.identifier} blocker_pr=#{number} result=#{inspect(result)}")
     state
+  end
+
+  defp record_integration(issue, {_id, sha, _head}, opts, conflict) do
+    if blocker = opts[:blocker_identifier], do: OptimisticLedger.record_integration(to_string(issue.identifier), blocker, sha, conflict, false)
   end
 
   @doc false

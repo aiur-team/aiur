@@ -15,7 +15,7 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
 
   # Run git and the helper against the REAL git binary. In an agent workspace
   # PATH, bare `git` resolves to the guard wrapper, which is a separate,
-  # deliberately-stricter surface (tested in `agent_github_guard_test.exs`).
+  # deliberately-stricter surface (tested in `agent_github_guard/git_guard_test.exs`).
   # Here the helper's own logic is the unit under test.
   defp real_git, do: System.get_env("AIUR_REAL_GIT") || System.find_executable("git")
 
