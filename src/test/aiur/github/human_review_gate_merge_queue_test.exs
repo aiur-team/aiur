@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   # #4204: a head approved at its current commit and already in the merge queue
   # (or armed to enter it) is tested merged with the base before it lands, and a
   # queued branch rejects pushes, so the hand-off gate must refuse it only for a
-  # real conflict. Every other head keeps the overlap check.
+  # real conflict. An approved current head also survives overlap-only staleness.
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.ToolExecutor
@@ -53,6 +53,13 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     assert_received {:label_written, ["agent:human-review"]}
   end
 
+  test "an approved current head behind an overlapping base hands off without integration" do
+    executor = executor(request_fun(%{"mergeQueueEntry" => nil, "autoMergeRequest" => nil}, @shared))
+
+    assert %{"success" => true} = executor.("aiur_set_ticket_state", %{"state" => "human-review"})
+    assert_received {:label_written, ["agent:human-review"]}
+  end
+
   test "approved with auto-merge armed passes, and an unreadable file list does not block a landing head" do
     capped = List.duplicate(%{"filename" => "file.ex"}, 300)
 
@@ -66,14 +73,10 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   end
 
   test "an overlapping head that is not approved at its current commit and landing keeps the overlap refusal" do
-    older = %{"nodes" => [%{"commit" => %{"oid" => "older-head"}}]}
-
     cases = [
       {"review required, queued", %{"reviewDecision" => "REVIEW_REQUIRED"}},
       {"never reviewed, queued", %{"reviewDecision" => nil, "reviews" => %{"nodes" => []}}},
       {"changes requested, queued", %{"reviewDecision" => "CHANGES_REQUESTED"}},
-      {"approved, neither queued nor armed", %{"mergeQueueEntry" => nil}},
-      {"approved at an older commit, queued", %{"reviews" => older}},
       {"approved with no approving review, queued", %{"reviews" => %{"nodes" => []}}}
     ]
 
@@ -82,6 +85,22 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
       assert {:error, {:stale_review_base, %{pr_number: 77}}} = result, label
       refute_received {:label_written, _labels}
     end
+  end
+
+  test "an approval summary without a current-head approving review keeps the overlap refusal" do
+    detail = %{"mergeQueueEntry" => nil, "autoMergeRequest" => nil, "reviews" => %{"nodes" => []}}
+    assert {:error, {:stale_review_base, %{pr_number: 77}}} = Client.update_issue_state("42", "human-review", request_fun: request_fun(detail, @shared), bot_account: "aiur-bot")
+    refute_received {:label_written, _labels}
+  end
+
+  test "an approved overlapping head still refuses a genuine conflict" do
+    assert {:error, {:stale_review_base, %{pr_number: 77}}} =
+             Client.update_issue_state("42", "human-review",
+               request_fun: request_fun(%{"mergeQueueEntry" => nil, "autoMergeRequest" => nil, "mergeable" => "CONFLICTING"}, @shared),
+               bot_account: "aiur-bot"
+             )
+
+    refute_received {:label_written, _labels}
   end
 
   test "an approved head with only a merge from main after approval hands off" do

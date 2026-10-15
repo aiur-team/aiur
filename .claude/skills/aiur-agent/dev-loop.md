@@ -177,12 +177,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
    Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
-   In every PR body, include `## Local tests` with `Policy`, the full pushed
-   `Tested head` SHA, `Base` ref and SHA, `Selection`, and exact command bullets
-   (``- `command` -> result``). Record actual failures/blockers and refresh after
-   every push. Validate with `mix pr_body.check --file <body>`; reviewers compare
-   the head and selection against the diff. Never replace evidence with checkboxes.
-   Before marking the PR ready or handing off to CI/review, run all required checks and fix any failures:
+   Follow `src/prompts/shared-agent-instructions.md` for PR body evidence,
+   pre-handoff guards, and test cleanup; validate each body with
+   `mix pr_body.check --file <body>`. Before marking the PR ready or handing
+   off to CI/review, run all required checks and fix any failures:
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
    - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
@@ -380,12 +378,14 @@ The Elixir examples below apply only to Aiur's Elixir core.
     A fetch/probe error or incomplete path list does not permit handoff.
 
     **An approved PR is exempt from integration** (`reviewDecision` is
-    `APPROVED`): never merge or rebase the base into it unless GitHub reports
-    `mergeable: CONFLICTING`, and say why in a PR comment when it does. The
-    merge queue tests the merge; a refresh push only cancels in-flight CI and
-    risks the approval, and it cannot fix a red or cancelled check. The agent
-    `git` guard refuses a push to a PR in the merge queue unless it is
-    conflicting or has changes requested.
+    `APPROVED` at the exact current head): never merge or rebase the base into
+    it solely for overlap or staleness. A genuine `mergeable: CONFLICTING`
+    verdict still requires integration; say why in a PR comment. The merge
+    queue tests the merge; a refresh push only cancels in-flight CI and risks
+    the approval, and it cannot fix a red or cancelled check. The state writer
+    still requires the exact head's full required-check gate before handoff.
+    The agent `git` guard refuses a push to a PR in the merge queue unless it
+    is conflicting or has changes requested.
 
     If paths overlap or the merge conflicts, allow up to 3 integrations per
     handoff without asking, recording the pre-merge head and rescue ref first.
