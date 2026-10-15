@@ -27,6 +27,89 @@ defmodule AiurEnginePrePrTest do
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
 
+  test "PR body refresh fixes stale head and writes plain base evidence" do
+    fixture = fixture("body-refresh")
+    repo = Path.join(fixture, "repo")
+    sha = git_output!(repo, ["rev-parse", "HEAD"])
+    pr_json = Path.join(fixture, "pr.json")
+
+    body =
+      "## Local tests\n\nPolicy: partial\nTested head: " <>
+        String.duplicate("a", 40) <>
+        "\nBase: `main` @ `" <> sha <> "`\nSelection: focused\n- `mix test` -> pass\n"
+
+    File.write!(pr_json, Jason.encode!(%{"number" => 123, "body" => body}))
+
+    File.write!(
+      Path.join(fixture, "bin/gh"),
+      """
+      #!/usr/bin/env bash
+      if [[ "$*" == *createdAt* ]]; then
+        jq -n --arg sha "#{sha}" --arg body "$(cat "#{fixture}/edited-body.md")" --arg created_at "2026-01-01T00:00:00Z" '{created_at: $created_at, body: $body, head: {sha: $sha}}'
+      elif [[ "$*" == *headRefOid* ]]; then
+        echo '{"head":{"sha":"#{sha}"}}'
+      elif [[ "$*" == *edit* ]]; then
+        [[ "${FAIL_EDIT:-0}" == 1 ]] && exit 7
+        while (($#)); do
+          if [[ "$1" == --body-file ]]; then cp "$2" "#{fixture}/edited-body.md"; exit 0; fi
+          shift
+        done
+        exit 8
+      else
+        exit 9
+      fi
+      """
+    )
+
+    File.chmod!(Path.join(fixture, "bin/gh"), 0o755)
+
+    File.write!(
+      Path.join(fixture, "refresh-wrapper.sh"),
+      """
+      source "#{@engine}"
+      python3() {
+        if [[ "$1" == scripts/check-pr-body.py ]]; then
+          [[ "$2" == --pr-json ]] || return 1
+          [[ $(jq -r '.head.sha' "$3") == $(git rev-parse HEAD) ]] || return 1
+          local body
+          body="$(jq -r '.body' "$3")"
+          [[ "$body" == *"Tested head: $(git rev-parse HEAD)"* ]] || return 1
+          [[ "$body" == *"Base: main @ #{sha}"* ]] || return 1
+        else
+          command python3 "$@"
+        fi
+      }
+      refresh_pr_body_evidence "#{pr_json}" main "#{sha}"
+      """
+    )
+
+    {output, status} =
+      System.cmd("bash", [Path.join(fixture, "refresh-wrapper.sh")],
+        cd: repo,
+        env: [{"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    refreshed = File.read!(Path.join(fixture, "edited-body.md"))
+    assert refreshed =~ "Tested head: #{sha}\n"
+    assert refreshed =~ "Base: main @ #{sha}\n"
+    refute refreshed =~ "Tested head: `"
+    refute refreshed =~ "Base: `"
+
+    {_output, failed_refresh} =
+      System.cmd("bash", [Path.join(fixture, "refresh-wrapper.sh")],
+        cd: repo,
+        env: [
+          {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")},
+          {"FAIL_EDIT", "1"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert failed_refresh == 1
+  end
+
   test "full-suite fallback is reported and matching reader tests run" do
     fixture = fixture("gate")
     repo = Path.join(fixture, "repo")
@@ -49,18 +132,30 @@ defmodule AiurEnginePrePrTest do
 
     assert status == 1
     assert output =~ "FAIL mix format --check-formatted"
-    assert output =~ "NOTE full suite recommended (fixture requires full suite); runs in merge queue"
+
+    assert output =~
+             "NOTE full suite recommended (fixture requires full suite); runs in merge queue"
+
     assert output =~ "PASS reader tests"
     assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
     refute File.read!(Path.join(fixture, "reader-tests")) =~ "changed_mention_test.exs"
     refute File.exists?(Path.join(fixture, "make-ci-ran"))
     assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
-    temp_dirs = fixture |> then(&Path.join(&1, "test-tmpdirs")) |> File.read!() |> String.split("\n", trim: true)
+
+    temp_dirs =
+      fixture
+      |> then(&Path.join(&1, "test-tmpdirs"))
+      |> File.read!()
+      |> String.split("\n", trim: true)
+
     assert length(temp_dirs) == 2
     assert Enum.all?(temp_dirs, &String.starts_with?(&1, Path.join(fixture, "aiur-pre-pr.")))
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
-    assert :binary.match(output, "--- end aiur pre-pr result ---") < :binary.match(output, "format failure")
+
+    assert :binary.match(output, "--- end aiur pre-pr result ---") <
+             :binary.match(output, "format failure")
+
     refute File.exists?(Path.join(fixture, "home/.aiur"))
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
@@ -73,7 +168,12 @@ defmodule AiurEnginePrePrTest do
     File.mkdir_p!(skill)
     File.write!(Path.join(skill, "dev-loop.md"), "worker instruction\n")
     File.mkdir_p!(Path.join(repo, "src/test"))
-    File.write!(Path.join(repo, "src/test/dev_loop_reader_test.exs"), "File.read!(Path.join(skill, \"dev-loop.md\"))\n")
+
+    File.write!(
+      Path.join(repo, "src/test/dev_loop_reader_test.exs"),
+      "File.read!(Path.join(skill, \"dev-loop.md\"))\n"
+    )
+
     git!(repo, ["add", "."])
     git!(repo, ["commit", "-m", "edit skill doc"])
 
@@ -130,7 +230,12 @@ defmodule AiurEnginePrePrTest do
     File.mkdir_p!(Path.join(repo, "src/lib"))
     File.mkdir_p!(Path.join(repo, "src/test"))
     File.write!(Path.join(repo, "src/lib/changed.ex"), "base\n")
-    File.write!(Path.join(repo, "src/test/unmodified_reader_test.exs"), "File.read!(\"src/lib/changed.ex\")\n")
+
+    File.write!(
+      Path.join(repo, "src/test/unmodified_reader_test.exs"),
+      "File.read!(\"src/lib/changed.ex\")\n"
+    )
+
     git!(repo, ["add", "."])
     git!(repo, ["commit", "-m", "base reader fixture"])
     git!(repo, ["switch", "-c", "feature"])
@@ -141,7 +246,9 @@ defmodule AiurEnginePrePrTest do
 
     assert status == 1
     assert output =~ "FAIL reader tests"
-    assert output =~ "NOTE failing test files not edited by this branch: src/test/unmodified_reader_test.exs"
+
+    assert output =~
+             "NOTE failing test files not edited by this branch: src/test/unmodified_reader_test.exs"
   end
 
   test "missing jq and rg fail closed" do
@@ -185,7 +292,12 @@ defmodule AiurEnginePrePrTest do
     File.mkdir_p!(Path.join(repo, "scripts"))
     File.write!(Path.join(repo, "src/mix.exs"), "")
 
-    for script <- ["check-pr-structure.py", "check-file-size.py", "check-config-docs.py", "check-hot-list-format.py"] do
+    for script <- [
+          "check-pr-structure.py",
+          "check-file-size.py",
+          "check-config-docs.py",
+          "check-hot-list-format.py"
+        ] do
       File.write!(Path.join(repo, "scripts/#{script}"), "")
     end
 
@@ -250,7 +362,8 @@ defmodule AiurEnginePrePrTest do
       {"PRE_PR_MISSING_TOOL", Keyword.get(opts, :missing_tool, "")}
     ]
 
-    command = "command() { if [ \"$1\" = -v ] && [ \"$2\" = \"${PRE_PR_MISSING_TOOL:-}\" ]; then return 1; fi; builtin command \"$@\"; }; source \"$AIUR_ENGINE\"; aiur_engine_main pre-pr"
+    command =
+      "command() { if [ \"$1\" = -v ] && [ \"$2\" = \"${PRE_PR_MISSING_TOOL:-}\" ]; then return 1; fi; builtin command \"$@\"; }; source \"$AIUR_ENGINE\"; aiur_engine_main pre-pr"
 
     System.cmd("bash", ["-c", command],
       cd: repo,
