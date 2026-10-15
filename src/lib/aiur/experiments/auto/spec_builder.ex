@@ -4,7 +4,7 @@ defmodule Aiur.Experiments.Auto.SpecBuilder do
 
   @spec build(Line.t(), map(), map()) :: {:ok, map()} | {:error, term()}
   def build(line, config, catalog) do
-    with :ok <- validate(line), {:ok, metrics} <- metrics(config.metric_packs, catalog) do
+    with :ok <- validate(line), {:ok, metrics} <- metrics(packs(line, config, catalog), catalog) do
       type = if line.source == :feature, do: "epic_merge", else: "release"
       at = DateTime.to_iso8601(line.at)
       before = before_window(line, config)
@@ -23,6 +23,13 @@ defmodule Aiur.Experiments.Auto.SpecBuilder do
        }}
     end
   end
+
+  defp packs(%Line{source: :repo_release}, config, catalog) do
+    auto = for {id, pack} <- catalog.packs, is_map(pack) and pack["auto"] == true, do: id
+    Enum.uniq(config.metric_packs ++ auto)
+  end
+
+  defp packs(_line, config, _catalog), do: config.metric_packs
 
   @spec ref(Line.t()) :: String.t()
   def ref(line), do: String.replace_prefix(line.key, prefix(line.source), "")
