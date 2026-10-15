@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
           :tracker_preflight
           | :dispatch_selection
           | :stale_poll
+          | :dispatch_cycle_stalled
           | :awaiting_dispatch
           | :admission
           | :ticket_supply
