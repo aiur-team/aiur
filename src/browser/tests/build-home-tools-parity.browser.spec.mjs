@@ -11,8 +11,12 @@ async function compareRegion(pair, options) {
   // View changes recreate the select; the shared allowlist records its first removal only.
   const demo = pair.allowlist.find(entry => entry.id === 'demo-data-select')
   await pair.design.locator(demo.selector).evaluateAll(nodes => nodes.forEach(node => node.remove()))
-  const styles = [], chrome = [], backgrounds = []
+  const styles = [], chrome = [], backgrounds = [], icons = [], geometry = []
   for (const side of ['design', 'product']) {
+    geometry.push(await pair[side].locator(options.region).evaluate(el => {
+      const host = el.getBoundingClientRect()
+      return [...el.querySelectorAll('svg')].map(svg => { const b = svg.getBoundingClientRect(); return [b.x - host.x, b.y - host.y, b.width, b.height] })
+    }))
     await pair[side].evaluate(() => {
       window.scrollTo(0, 0)
       document.getAnimations().forEach(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime) ? animation.finish() : animation.cancel())
@@ -33,12 +37,25 @@ async function compareRegion(pair, options) {
       background: 'var(--bg)', transform: 'translateZ(0)' })
     return original
     }))
+    icons.push(await pair[side].locator(options.region + ' svg').evaluateAll(nodes => nodes.map(el => {
+      const original = el.getAttribute('style'), box = el.getBoundingClientRect()
+      // Keep equal vector geometry while avoiding device-pixel raster origins between pixels.
+      el.style.transform = `translate(${Math.round(box.x) - box.x}px, ${Math.round(box.y) - box.y}px)`
+      return original
+    })))
+    await pair[side].evaluate(async () => {
+      document.getAnimations().forEach(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime) ? animation.finish() : animation.cancel())
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    })
   }
-  try { await expectDesignParity(pair, { ...options, preserveAnimations: true }) }
+  try { expect(geometry[1]).toEqual(geometry[0]); await expectDesignParity(pair, { ...options, preserveAnimations: true }) }
   finally {
     for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator(options.region).evaluate((el, style) => {
       if (style === null) el.removeAttribute('style'); else el.setAttribute('style', style)
     }, styles[index])
+    for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator(options.region + ' svg').evaluateAll((nodes, values) => nodes.forEach((el, i) => {
+      if (values[i] === null) el.removeAttribute('style'); else el.setAttribute('style', values[i])
+    }), icons[index])
     for (const [index, side] of ['design', 'product'].entries()) await pair[side].evaluate(background => { document.body.style.background = background }, backgrounds[index])
     for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator('.sidenav, .ax-top').evaluateAll((nodes, values) => nodes.forEach((el, i) => { el.style.visibility = values[i] }), chrome[index])
   }
