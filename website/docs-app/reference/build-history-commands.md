@@ -41,4 +41,6 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 
 Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
 
-Recovery: unsafe journals are unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides. First-write sync failure after rename leaves reads/writes unavailable until restart. Exit codes: 0 success, 1 refusal/unavailability, 64 usage, 124 RPC timeout with unknown outcome. Retrying an identical set is safe.
+Recovery: unsafe journals remain unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides.
+
+After a first-write sync failure after rename, reads and writes remain unavailable until restart. Exit codes are 0 success, 1 refusal/unavailability, 64 usage, and 124 RPC timeout with unknown outcome. Retrying the same set is safe.
