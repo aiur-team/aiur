@@ -1,7 +1,8 @@
-defmodule Aiur.Experiments.Auto.EpicMembersTest do
+defmodule Aiur.RunTelemetry.EpicMembersTest do
   use ExUnit.Case, async: true
   alias Aiur.Config.Schema.Experiments.Auto, as: Config
-  alias Aiur.Experiments.Auto.{EpicMembers, FeatureEpics, FeatureState}
+  alias Aiur.Experiments.Auto.FeatureState
+  alias Aiur.RunTelemetry.{EpicMembers, FeatureEpics}
 
   test "membership deliberately accepts a capped page while labelled discovery requires completeness" do
     rows = for n <- 1..100, do: %{"number" => n, "state" => "open", "state_reason" => nil}

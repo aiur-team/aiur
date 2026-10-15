@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Auto.FeatureState do
   @moduledoc false
 
   @spec transition(map() | nil, map(), map(), DateTime.t()) :: {map(), [atom()]}
-  def transition(%{"phase" => phase} = state, _observation, _config, _now) when phase == "cancelled", do: {state, []}
+  def transition(%{"phase" => phase} = state, _observation, _config, _now) when phase in ~w(cancelled skipped), do: {state, []}
 
   def transition(%{"phase" => "line_set"} = state, observation, _config, _now) do
     numbers = Enum.map(observation["members"], & &1["number"]) |> Enum.sort()

@@ -14,11 +14,7 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
       evidence: Map.merge(exclusion_evidence(state), %{armed: true, epic: number, baseline_coverage: state["baseline_coverage"]})
     }
 
-    with {:ok, _created} <- Creator.create(line, Keyword.get(opts, :creator, Creator)),
-         {:ok, spec} <- find(line.key),
-         :ok <- Notifier.notify(spec, "preregister", Keyword.get(opts, :notifier, Notifier)) do
-      {:ok, Map.put(state, "experiment_id", spec["id"])}
-    end
+    with {:ok, created} <- Creator.create(line, Keyword.get(opts, :creator, Creator)), do: finish_arm(state, created, line.key, opts)
   end
 
   def apply_effect(_number, state, :freeze, _config, _now, _opts) do
@@ -58,6 +54,15 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
 
     annotation = %{kind: "note", at: DateTime.to_iso8601(now), reason: "post-line scope change", scope_key: key}
     with {:ok, detail} <- Experiments.fetch(id), :ok <- scope_note(id, detail, key, annotation), do: {:ok, state}
+  end
+
+  defp finish_arm(state, :skipped, _key, _opts), do: {:ok, Map.put(state, "phase", "skipped")}
+
+  defp finish_arm(state, _created, key, opts) do
+    with {:ok, spec} <- find(key),
+         :ok <- Notifier.notify(spec, "preregister", Keyword.get(opts, :notifier, Notifier)) do
+      {:ok, Map.put(state, "experiment_id", spec["id"])}
+    end
   end
 
   defp scope_note(id, detail, key, annotation) do

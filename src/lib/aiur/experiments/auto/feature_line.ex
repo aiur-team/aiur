@@ -5,7 +5,7 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
   alias Aiur.Events.Exchange
   alias Aiur.Experiments.Auto.FeaturePoll
   alias Aiur.Experiments.Paths
-  alias Aiur.GitHub.ResourceEvents
+  alias Aiur.RunTelemetry.FeatureEpics
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -17,11 +17,10 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
   def init(opts) do
     opts = Keyword.put_new_lazy(opts, :path, fn -> Path.join(Paths.root(), "auto-features.json") end)
     repo = Keyword.get(opts, :managed_repo, Paths.repo())
-    :ok = ResourceEvents.subscribe(:issue_labels, repo)
-    :ok = ResourceEvents.subscribe(:sub_issue, repo)
+    :ok = FeatureEpics.subscribe(repo)
     :ok = Exchange.subscribe("ticket.*.pr.merged")
     if not Keyword.get(opts, :start_paused?, false), do: send(self(), :poll)
-    {:ok, %{opts: opts, task: nil, timer: nil, refresh?: false, status: :pending, epics: %{}}}
+    {:ok, %{opts: opts, task: nil, task_refresh?: false, timer: nil, refresh?: true, status: :pending, epics: %{}}}
   end
 
   @impl true
@@ -31,7 +30,7 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
   def handle_info(:poll, %{task: nil} = state) do
     if state.timer, do: Process.cancel_timer(state.timer)
     task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> FeaturePoll.run(state.opts, state.refresh?) end)
-    {:noreply, %{state | task: task, timer: nil, refresh?: false}}
+    {:noreply, %{state | task: task, task_refresh?: state.refresh?, timer: nil, refresh?: false}}
   end
 
   def handle_info(:poll, state), do: {:noreply, state}
@@ -65,12 +64,12 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
   defp finish({:ok, data}, state) do
     timer = Process.send_after(self(), :poll, if(state.refresh?, do: 0, else: 60_000))
     epics = Map.new(data["epics"], fn {number, record} -> {number, record["state"]} end)
-    {:noreply, %{state | task: nil, timer: timer, status: :available, epics: epics}}
+    {:noreply, %{state | task: nil, task_refresh?: false, timer: timer, status: :available, epics: epics}}
   end
 
   defp finish(error, state) do
     if state.status != :unavailable, do: Logger.warning("automatic feature line unavailable: #{inspect(error)}")
-    timer = Process.send_after(self(), :poll, if(state.refresh?, do: 0, else: 60_000))
-    {:noreply, %{state | task: nil, timer: timer, status: :unavailable}}
+    timer = Process.send_after(self(), :poll, 60_000)
+    {:noreply, %{state | task: nil, task_refresh?: false, refresh?: state.refresh? or state.task_refresh?, timer: timer, status: :unavailable}}
   end
 end

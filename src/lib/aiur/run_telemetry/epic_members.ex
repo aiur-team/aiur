@@ -1,4 +1,4 @@
-defmodule Aiur.Experiments.Auto.EpicMembers do
+defmodule Aiur.RunTelemetry.EpicMembers do
   @moduledoc false
   alias Aiur.GitHub.{Errors, ResourceStore, Transport}
 

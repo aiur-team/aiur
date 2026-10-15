@@ -32,7 +32,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
          end}
       )
 
-    {:ok, upstream} = Agent.start_link(fn -> %{now: ~U[2026-10-10 00:00:00Z], labelled: true, members: [member(1)], merged: false, deny: false} end)
+    {:ok, upstream} = Agent.start_link(fn -> %{now: ~U[2026-10-10 00:00:00Z], labelled: true, members: [member(1)], merged: false, merge_at: "2026-10-13T00:00:00Z", deny: false} end)
 
     request = fn req ->
       assert req.caller == "experiments_auto"
@@ -47,7 +47,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
                 "repository" => %{
                   "issue" => %{
                     "closedByPullRequestsReferences" => %{
-                      "nodes" => if(snapshot.merged, do: [%{"mergedAt" => "2026-10-13T00:00:00Z", "mergeCommit" => %{"oid" => "abc"}}], else: []),
+                      "nodes" => if(snapshot.merged, do: [%{"mergedAt" => snapshot.merge_at, "mergeCommit" => %{"oid" => "abc"}}], else: []),
                       "pageInfo" => %{"hasNextPage" => false}
                     }
                   }
@@ -167,7 +167,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
 
   test "a merge refresh inside the throttle is retained until five minutes", %{opts: opts, upstream: upstream} do
     assert {:ok, _data} = FeaturePoll.run(opts, false)
-    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:01:00Z], merged: true, members: [%{member(1) | "state" => "closed"}]})
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:01:00Z], merge_at: "2026-10-10T00:01:00Z", merged: true, members: [%{member(1) | "state" => "closed"}]})
     assert {:ok, deferred} = FeaturePoll.run(opts, true)
     assert deferred["epics"]["42"]["state"]["phase"] == "armed"
     Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:05:00Z]})
@@ -220,7 +220,43 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
     assert length(detail.snapshots) == 2
   end
 
-  defp worker_poll(worker, trigger) do
+  test "worker retries a merge refresh after discovery fails", %{opts: opts, upstream: upstream} do
+    worker = start_supervised!({FeatureLine, Keyword.put(opts, :start_paused?, true)})
+    worker_poll(worker, fn -> send(worker, :poll) end)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:55:00Z]})
+
+    worker_poll(worker, fn ->
+      ResourceStore.put_resource(ResourceStore.key(:sub_issue, "owner", "repo", "42:1"), %{"present" => true, "parent_issue_number" => 42, "sub_issue_number" => 1}, version: "2026-10-10T00:55:00Z")
+    end)
+
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 01:00:00Z], merge_at: "2026-10-10T01:00:00Z", deny: true, merged: true, members: [%{member(1) | "state" => "closed"}]})
+    worker_poll(worker, fn -> Exchange.publish("ticket.1.pr.merged", %{topic: "ticket.1.pr.merged"}) end, :unavailable)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 01:01:00Z], deny: false})
+    worker_poll(worker, fn -> send(worker, :poll) end)
+    assert %{epics: %{"42" => %{"phase" => "merging"}}} = FeatureLine.status(worker)
+    assert {:ok, [_one_experiment]} = Experiments.list()
+  end
+
+  test "disabled capture skips a feature once without an experiment or notification", %{opts: opts, root: root} do
+    stop_supervised!(Creator)
+    creator = start_supervised!({Creator, path: Path.join(root, "creator.json"), telemetry: fn -> false end})
+    opts = Keyword.put(opts, :creator, creator)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, data} = FeaturePoll.run(opts, false)
+        assert data["epics"]["42"]["state"]["phase"] == "skipped"
+        refute data["epics"]["42"]["state"]["experiment_id"]
+        assert {:ok, again} = FeaturePoll.run(opts, false)
+      assert again["epics"]["42"]["state"]["phase"] == "skipped"
+      end)
+
+    assert length(Regex.scan(~r/automatic experiment skipped: telemetry disabled/, log)) == 1
+    assert {:ok, []} = Experiments.list()
+    refute_received {:published, _topic, _payload}
+  end
+
+  defp worker_poll(worker, trigger, expected \\ :available) do
     owner = self()
     token = make_ref()
 
@@ -242,7 +278,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
     trigger.()
     receive_barrier({:worker_finished, ^token})
     :ok = :sys.remove(worker, hook)
-    assert %{status: :available} = FeatureLine.status(worker)
+    assert %{status: ^expected} = FeatureLine.status(worker)
   end
 
   defp drain(acc) do

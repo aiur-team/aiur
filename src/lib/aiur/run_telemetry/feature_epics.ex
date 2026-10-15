@@ -1,7 +1,13 @@
-defmodule Aiur.Experiments.Auto.FeatureEpics do
+defmodule Aiur.RunTelemetry.FeatureEpics do
   @moduledoc false
-  alias Aiur.Experiments.Auto.EpicMembers
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{ResourceEvents, ResourceStore}
+  alias Aiur.RunTelemetry.EpicMembers
+
+  @spec subscribe(String.t()) :: :ok
+  def subscribe(repo) do
+    :ok = ResourceEvents.subscribe(:issue_labels, repo)
+    ResourceEvents.subscribe(:sub_issue, repo)
+  end
 
   @spec discover(String.t(), String.t(), keyword()) :: {:ok, [integer()]} | {:error, term()}
   def discover(repo, label, opts) do

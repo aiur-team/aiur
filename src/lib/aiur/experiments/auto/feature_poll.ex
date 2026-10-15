@@ -1,7 +1,8 @@
 defmodule Aiur.Experiments.Auto.FeaturePoll do
   @moduledoc false
-  alias Aiur.Experiments.Auto.{EpicMembers, FeatureEpics, FeatureExperiment, FeatureState}
+  alias Aiur.Experiments.Auto.{FeatureExperiment, FeatureState}
   alias Aiur.Experiments.Paths
+  alias Aiur.RunTelemetry.{EpicMembers, FeatureEpics}
 
   @spec run(keyword(), boolean()) :: {:ok, map()} | {:error, term()}
   def run(opts, refresh?) do
