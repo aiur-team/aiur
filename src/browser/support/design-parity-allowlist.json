@@ -147,7 +147,7 @@
   {
     "id": "history-page-error",
     "kind": "copy",
-    "selector": "#bd-sec-hist .bd-sech",
+    "selector": "#bd-vp",
     "cells": {},
     "reason": "earlier days could not load \u00b7 scroll up to retry",
     "approval": {
@@ -160,7 +160,7 @@
   {
     "id": "history-total-unknown",
     "kind": "copy",
-    "selector": "#bd-sec-hist .bd-sech",
+    "selector": "#bd-vp",
     "cells": {},
     "reason": "loaded \u00b7 total unknown",
     "approval": {
@@ -173,7 +173,7 @@
   {
     "id": "history-unavailable",
     "kind": "copy",
-    "selector": "#bd-sec-hist .bd-sech",
+    "selector": "#bd-vp",
     "cells": {},
     "reason": "History unavailable",
     "approval": {

@@ -3,6 +3,9 @@ import { test, expect } from '@playwright/test'
 import { openParityPair, expectDesignParity, applyAllowlist, FIXTURE_META, waitParityReady } from '../support/design-parity.mjs'
 import { runOn, compareRecords } from '../support/build-home-motion.mjs'
 
+// Two page openings plus three windows in each section; this is not a perf budget.
+test.setTimeout(60_000)
+
 const source = await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8')
 const anchor = '  window.AiurBuild = {'
 expect(source.split(anchor)).toHaveLength(2)
