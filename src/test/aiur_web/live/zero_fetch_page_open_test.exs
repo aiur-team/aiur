@@ -45,6 +45,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
+  alias Aiur.Orchestrator.CommentPolling
   alias Aiur.RunTelemetry.FactsCapture
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
@@ -319,7 +320,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
         )
 
       _poll_result =
-        Aiur.Orchestrator.CommentPolling.poll_github_comments(probe_state,
+        CommentPolling.poll_github_comments(probe_state,
           review_issue_fetcher: fn _states -> {:ok, []} end
         )
 
