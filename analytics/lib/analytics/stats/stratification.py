@@ -9,9 +9,13 @@ from .strata import composition, pooled, standardized
 
 def declaration(spec):
     fields = spec.get("strata", spec.get("stratify_by", []))
+    if isinstance(fields, list) and len(fields) == 1 and isinstance(fields[0], list):
+        fields = fields[0]
+    elif isinstance(fields, list) and len(fields) > 1:
+        raise ValueError("crossed strata require an explicit tuple, e.g. a nested attribute-name array")
     if (not isinstance(fields, list) or any(not isinstance(f, str) or not f for f in fields)
             or len(set(fields)) != len(fields)):
-        raise ValueError("strata must be an array of unique nonempty attribute names")
+        raise ValueError("strata must contain one attribute or one tuple of unique attribute names")
     return fields
 
 
@@ -28,11 +32,16 @@ def partition(rows, fields, excluded, groups):
             value = attrs.get(field, row.get(field))
             if value is None:
                 value = "unknown"
-            if not isinstance(value, (str, int, float, bool)):
-                raise ValueError("stratum values must be scalar or null")
+            if isinstance(value, list):
+                if any(not isinstance(item, (str, int, float, bool)) for item in value):
+                    raise ValueError("stratum list values must contain scalars")
+                value = sorted(value, key=lambda item: json.dumps(item, sort_keys=True))
+            elif not isinstance(value, (str, int, float, bool)):
+                raise ValueError("stratum values must be scalar, tag lists or null")
             values.append(value)
         # Single-field labels are readable; JSON tuples keep crossed labels unambiguous.
-        label = str(values[0]) if len(values) == 1 else json.dumps(values, separators=(",", ":"))
+        label = (json.dumps(values[0], separators=(",", ":")) if isinstance(values[0], list)
+                 else str(values[0])) if len(values) == 1 else json.dumps(values, separators=(",", ":"))
         identity = json.dumps(values, separators=(",", ":"))
         if label in identities and identities[label] != identity:
             raise ValueError("stratum labels collide across attribute types")
@@ -41,14 +50,14 @@ def partition(rows, fields, excluded, groups):
     return dict(sorted(result.items()))
 
 
-def _submetric(metric, rows, groups):
+def submetric(metric, rows, groups):
     return {**metric, "primary": False,
             "values": {g: [r["value"] for r in rows[g] if not r.get("censored", False)] for g in groups},
             "censored": {g: sum(r.get("censored", False) for r in rows[g]) for g in groups},
             "excluded": {g: 0 for g in groups}}
 
 
-def stratify(result, metric, groups, annotations, settings, seed, evaluate, label_result, *, children=True):
+def stratify(result, metric, groups, annotations, settings, seed, evaluate, *, children=True):
     strata = metric["strata_rows"]
     result["unstratified"] = {key: deepcopy(result[key]) for key in
                               ("groups", "tests", "effects", "p_raw", "flags") if key in result}
@@ -56,14 +65,14 @@ def stratify(result, metric, groups, annotations, settings, seed, evaluate, labe
     if children:
         children_results = {}
         for name, rows in strata.items():
-            child = _submetric(metric, rows, groups)
+            child = submetric(metric, rows, groups)
             child_seed = seed_from(str(seed), name)
             children_results[name] = evaluate(child, groups, annotations, settings, child_seed)
             # Censored strata need the same pooled score and total-unit guard.
             if any(child["censored"].values()):
                 child["strata_rows"] = {name: rows}
                 stratify(children_results[name], child, groups, annotations, settings,
-                         child_seed, evaluate, label_result, children=False)
+                         child_seed, evaluate, children=False)
         result["strata"] = children_results
     result["composition"] = composition(strata, groups)
     flags = set(result["flags"])
@@ -85,7 +94,10 @@ def stratify(result, metric, groups, annotations, settings, seed, evaluate, labe
         flags.discard("censoring_ignored")
         flags.add("standardized_effect_unavailable")
         for g in groups:
-            result["groups"][g] = {**result["groups"][g], "n": sum(len(rows[g]) for rows in strata.values())}
+            if metric["censored"][g]:
+                # Completed-only quantiles cannot describe the total at-risk population.
+                result["groups"][g] = {"n_censored": metric["censored"][g]}
+            result["groups"][g]["n"] = sum(len(rows[g]) for rows in strata.values())
     # The guard applies to the population actually entering the pooled test.
     for key in ("tests", "effects", "primary_effect", "p_raw", "p_adj"):
         result.pop(key, None)

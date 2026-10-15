@@ -104,6 +104,15 @@ def normalize(snapshot, spec, annotations):
             warnings.append(f"{metric_id}: added after frozen_at; exploratory")
         metric = {**definition, "id": metric_id, "kind": kind, "direction": direction,
                   "mde": number(definition.get("mde", .2), "mde"), "primary": primary}
+        metadata = snapshot.get("metric_metadata", {})
+        if not isinstance(metadata, dict) or not isinstance(metadata.get(metric_id, {}), dict):
+            raise ValueError("metric_metadata must map metric IDs to objects")
+        strata_metadata = definition.get("strata_metadata", metadata.get(metric_id, {}).get("strata_metadata", {}))
+        if (not isinstance(strata_metadata, dict)
+                or any(not isinstance(value, dict) or not isinstance(value.get("post_treatment"), bool)
+                       for value in strata_metadata.values())):
+            raise ValueError("strata_metadata must map attributes to post_treatment booleans")
+        metric["strata_metadata"] = strata_metadata
         grouped = {g: [] for g in groups}
         counts = {g: 0 for g in groups}
         censored = {g: 0 for g in groups}

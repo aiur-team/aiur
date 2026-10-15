@@ -117,7 +117,11 @@ Pack ids cannot shadow built-ins, including
 
 Each metric declares its label, unit, unit of analysis, kind (`duration`,
 `count`, `binary`, `rate` or `bucketed`), preferred direction, group and
-required capture facts.
+required capture facts. Optional `strata_metadata` identifies attributes that treatment
+may change, for example `"strata_metadata": {"backend": {"post_treatment": true}}`.
+The analysis export carries this catalog metadata under `metric_metadata`, keyed by
+metric reference, without changing the registered spec; stratifying on a marked
+attribute raises `stratum_may_be_affected_by_treatment`.
 
 Sources are `event_interval` (first start and first
 subsequent end per unit), `event_count` (matches per unit or hour/day),

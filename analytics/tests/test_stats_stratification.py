@@ -70,9 +70,10 @@ class StratificationTest(unittest.TestCase):
     def test_x2_adapter_and_post_treatment_warning(self):
         snapshot, spec = simpson()
         spec['stratify_by'] = spec.pop('strata')
-        spec['metrics'][0]['strata_metadata'] = {'complexity': {'post_treatment': True}}
+        snapshot['metric_metadata'] = {'latency': {'strata_metadata': {'complexity': {'post_treatment': True}}}}
         flat = {'experiment_id': 'simpson', 'groups': ['a', 'b'],
-                'rows': [dict(row, metric='latency') for row in snapshot['metrics']['latency']['rows']]}
+                'rows': [dict(row, metric='latency') for row in snapshot['metrics']['latency']['rows']],
+                'metric_metadata': snapshot['metric_metadata']}
         result = analyze(flat, spec)['metrics']['latency']
         self.assertIn('stratum_may_be_affected_by_treatment', result['flags'])
         self.assertEqual(result['strata_fields'], ['complexity'])
@@ -138,6 +139,7 @@ class StratificationTest(unittest.TestCase):
         self.assertEqual(result['groups']['b']['n'], 40)
         self.assertEqual(result['groups']['b']['n_censored'], 40)
         self.assertEqual(result['unstratified']['groups']['b']['n'], 0)
+        self.assertNotIn('median', result['groups']['b'])
         self.assertEqual(result['strata']['1']['groups']['b']['n'], 32)
         self.assertNotIn('censoring_ignored', result['flags'])
         self.assertIn('standardized_effect_unavailable', result['flags'])
@@ -159,7 +161,7 @@ class StratificationTest(unittest.TestCase):
 
     def test_crossed_fields_and_zero_baseline(self):
         snapshot, spec = simpson()
-        spec['strata'] = ['complexity', 'backend']
+        spec['strata'] = [['complexity', 'backend']]
         for row in snapshot['metrics']['latency']['rows']:
             row['backend'] = 'codex'
             row['value'] = 0
@@ -168,6 +170,16 @@ class StratificationTest(unittest.TestCase):
         self.assertEqual(result['primary_effect'], 'median_difference')
         self.assertIn('relative_effect_undefined', result['flags'])
         self.assertNotIn('median_ratio', result['effects'])
+
+    def test_feature_tags_use_canonical_list_stratum(self):
+        snapshot, spec = simpson()
+        spec['stratify_by'] = ['feature_tags']
+        del spec['strata']
+        for i, row in enumerate(snapshot['metrics']['latency']['rows']):
+            row['strata'] = {'feature_tags': ['one', 'two'] if i % 2 else ['two', 'one']}
+        result = analyze(snapshot, spec)['metrics']['latency']
+        self.assertEqual(list(result['strata']), ['["one","two"]'])
+        self.assertEqual(result['strata']['["one","two"]']['groups']['a']['n'], 40)
 
     def test_aggregate_rate_stratification_is_explicitly_unavailable(self):
         snapshot, spec = simpson()
@@ -191,7 +203,7 @@ class StratificationTest(unittest.TestCase):
         self.assertNotIn('stratified', explicit['metrics']['latency'])
 
     def test_invalid_declarations_and_attribute_values_rejected(self):
-        for fields in ['complexity', [None], ['complexity', 'complexity']]:
+        for fields in ['complexity', [None], ['complexity', 'backend'], [['complexity', 'complexity']]]:
             snapshot, spec = simpson()
             spec['strata'] = fields
             with self.assertRaises(ValueError):
