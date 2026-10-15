@@ -4,7 +4,11 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
   alias Aiur.BuildOrder.{Component, Features, History}
   alias Aiur.BuildOrder.Features.LabelProjection, as: Projection
   alias Aiur.TestSupport.FeatureLabelFixture, as: F
-  setup do: F.setup()
+
+  setup do
+    assert :ok = Aiur.TestSupport.ensure_pubsub_running()
+    F.setup()
+  end
 
   test "registry and History subscriptions reconcile without a periodic tick", ctx do
     pid = F.start(ctx)
