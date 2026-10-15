@@ -42,14 +42,15 @@ assert.ok(jobs.get('ci-gate').includes('always()'), 'aggregate must run after fa
 assert.ok(jobs.get('ci-gate').includes("github.event_name != 'schedule'"), 'schedule does not need the blocking gate');
 assert.ok(jobs.get('affected-tests').includes("github.event_name == 'pull_request'"), 'scoped selector only runs for PRs');
 assert.ok(jobs.get('changes').includes('affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"'));
+assert.ok(jobs.get('changes').includes('dialyzer: "${{ steps.classify.outputs.dialyzer }}"'));
 assert.ok(jobs.get('affected-tests').includes('AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}'));
 for (const job of [...fullJobs.filter((job) => job !== 'quarantine'), ...fastJobs.filter((job) => job !== 'ci-gate')]) {
   assert.ok(jobs.get('ci-gate').includes(job), `gate needs ${job}`);
 }
-function gate(event, full, failedJob, result = 'failure') {
+function gate(event, full, dialyzer, failedJob, result = 'failure', dialyzerOutput = String(dialyzer)) {
   const needs = Object.fromEntries([...jobs.keys()].map((job) => [job, { result: 'skipped' }]));
-  for (const job of selected(event, full, event === 'pull_request' && failedJob === 'dialyzer')) needs[job].result = 'success';
-  needs.changes.outputs = { full_ci: String(full), dialyzer: String(event === 'pull_request' && failedJob === 'dialyzer') };
+  for (const job of selected(event, full, dialyzer)) needs[job].result = 'success';
+  needs.changes.outputs = { full_ci: String(full), dialyzer: dialyzerOutput };
   if (failedJob) needs[failedJob].result = result;
   return spawnSync('python3', ['scripts/check-ci-gate.py'], {
     encoding: 'utf8', env: { ...process.env, EVENT_NAME: event, NEEDS_JSON: JSON.stringify(needs) },
@@ -60,10 +61,10 @@ for (const [event, full, required] of [
   ['merge_group', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
   ['pull_request', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
 ]) {
-  assert.equal(gate(event, full).status, 0, `${event} passes with selected set successful`);
+  assert.equal(gate(event, full, false).status, 0, `${event} passes with selected set successful`);
   for (const job of required) {
     for (const result of ['failure', 'skipped', 'cancelled', '']) {
-      const run = gate(event, full, job, result);
+      const run = gate(event, full, false, job, result);
       assert.notEqual(run.status, 0, `${event} rejects ${job}=${result}`);
       const cancelledAffected = event === 'pull_request' && !full && job === 'affected-tests' && result === 'cancelled';
       assert.ok(run.stderr.includes(cancelledAffected
@@ -72,8 +73,16 @@ for (const [event, full, required] of [
     }
   }
 }
-assert.notEqual(gate('merge_group', false).status, 0, 'queue cannot claim fast evidence');
-assert.notEqual(gate('schedule', true).status, 0, 'gate refuses unsupported event');
+assert.equal(gate('pull_request', false, false).status, 0, 'fast docs PR passes with skipped dialyzer');
+for (const result of ['failure', 'skipped', 'cancelled', '']) {
+  const run = gate('pull_request', false, true, 'dialyzer', result);
+  assert.notEqual(run.status, 0, `fast source PR rejects dialyzer=${result}`);
+  assert.ok(run.stderr.includes('CI gate failed: dialyzer'), run.stderr);
+}
+assert.notEqual(gate('pull_request', false, false, null, 'failure', 'missing').status, 0, 'gate rejects missing dialyzer output');
+assert.notEqual(gate('pull_request', false, false, null, 'failure', 'sometimes').status, 0, 'gate rejects malformed dialyzer output');
+assert.notEqual(gate('merge_group', false, false).status, 0, 'queue cannot claim fast evidence');
+assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupported event');
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github.ref == 'refs/heads/main'"));
