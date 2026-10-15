@@ -31,7 +31,7 @@ defmodule Aiur.AgentControlCLI do
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.GitHub.{CiReadiness, CodeOwners, ResourceStore}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, HoldPressure}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, OptimisticSlots, StatusObservation, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
@@ -192,10 +192,7 @@ defmodule Aiur.AgentControlCLI do
     print_ci_readiness()
     print_build_gate_status()
 
-    if Config.tracker_kind() == "github" do
-      ResourceStore.Memory.print_status()
-      IO.puts(HoldPressure.status_line())
-    end
+    if Config.tracker_kind() == "github", do: HoldPressure.print_status()
 
     print_prewarm_status()
     print_blocking_asks(opts)

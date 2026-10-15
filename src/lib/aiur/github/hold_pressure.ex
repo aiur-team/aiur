@@ -58,6 +58,13 @@ defmodule Aiur.GitHub.HoldPressure do
     end
   end
 
+  @doc false
+  @spec print_status() :: :ok
+  def print_status do
+    Aiur.GitHub.ResourceStore.Memory.print_status()
+    IO.puts(status_line())
+  end
+
   @doc """
   Records one hold-caused dispatch decline for `issue_id` and says whether the
   ticket has now been declined often enough in a row to need the Executor.
