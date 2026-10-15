@@ -58,6 +58,24 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     assert Process.alive?(empty)
   end
 
+  test "names a delayed first catalog read and renders its elapsed age" do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    clock = start_supervised!({Agent, fn -> observed_at end})
+    Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
+    install_source(catalog: nil)
+
+    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert html =~ ~s(data-build-order-catalog-state="loading")
+
+    Agent.update(clock, &DateTime.add(&1, 6, :second))
+    send(view.pid, :build_order_ui_tick)
+    html = render(view)
+
+    assert html =~ ~s(data-build-order-catalog-state="late")
+    assert html =~ "Build Order catalog is taking longer than expected"
+    assert html =~ "No Build Order list has arrived after 6 seconds"
+  end
+
   test "an empty catalog names the directories it searched" do
     catalog = catalog_snapshot([], 1, :healthy)
     catalog = put_in(catalog.data.search_paths, [".aiur/build_orders", "/var/lib/aiur/builds"])

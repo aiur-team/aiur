@@ -4,8 +4,8 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
   alias Mix.Tasks.Aiur.AffectedTests
 
   test "full fallback is runnable from the repository root" do
-    assert AffectedTests.command({:full, "unsafe change"}) == [
-             "# full suite recommended: unsafe change",
+    assert AffectedTests.command({:full, "unsafe change", ["src/test/support/helper.exs"]}) == [
+             "# full suite recommended: unsafe change; changed paths: src/test/support/helper.exs",
              "cd src && mise exec -- make ci"
            ]
   end
@@ -20,6 +20,46 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
     assert AffectedTests.command({:scoped, []}) == [
              "# no affected test files detected for the documentation-only change"
            ]
+  end
+
+  test "JSON selection reports full fallback and scoped test files as data" do
+    assert Jason.decode!(AffectedTests.selection_json({:full, "shared support changed"})) == %{
+             "status" => "full",
+             "reason" => "shared support changed"
+           }
+
+    assert Jason.decode!(AffectedTests.selection_json({:scoped, ["src/test/engine_test.exs"]})) == %{
+             "status" => "scoped",
+             "tests" => ["src/test/engine_test.exs"]
+           }
+  end
+end
+
+defmodule Mix.Tasks.Aiur.AffectedTests.ChangedPathsTest do
+  use ExUnit.Case, async: false
+
+  alias Mix.Tasks.Aiur.AffectedTests
+
+  test "uses the classifier's changed paths even when the checkout has extra base changes" do
+    paths = ["src/test/aiur/one_test.exs"]
+    System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64(Jason.encode!(paths)))
+
+    try do
+      assert AffectedTests.changed_files("/not-a-repository", "stale-base-sha") == {:ok, paths}
+    after
+      System.delete_env("AIUR_CI_CHANGED_PATHS_B64")
+    end
+  end
+
+  test "rejects malformed classifier changed paths" do
+    System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64("{}"))
+
+    try do
+      assert {:error, "AIUR_CI_CHANGED_PATHS_B64 must encode a JSON array of paths"} =
+               AffectedTests.changed_files("/not-a-repository", "stale-base-sha")
+    after
+      System.delete_env("AIUR_CI_CHANGED_PATHS_B64")
+    end
   end
 end
 

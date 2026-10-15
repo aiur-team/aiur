@@ -7,9 +7,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   require Logger
 
-  alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, SessionLifecycle}
+  alias Aiur.AgentRunner.{CiWaitTransition, DecisionLifecycleFailureAlert, EpicSetter, FeatureWriter, SessionLifecycle}
 
-  alias Aiur.{Alerts, Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue}
+  alias Aiur.{Boot, CodingAgent, Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
@@ -58,8 +58,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
       unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
       # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
-      # so an agent never has to name (and never has to guess) the label to
-      # remove.
+      # Agents need not guess the label to remove.
       set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool)),
       ci_wait_pr_fetcher: Keyword.get(opts, :ci_wait_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
     }
@@ -101,7 +100,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           # pre-build the full topic) aren't double-prefixed.
           topic = prefix_with_ticket_namespace(name, issue)
 
-          Alerts.emit_custom(topic, message,
+          Signal.agent_alert(topic, message,
             issue: issue,
             workspace: workspace,
             worker_host: worker_host,
@@ -125,6 +124,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         unblocker: fn blocker_number ->
           unblock_for_issue(issue, blocker_number, coordination)
         end,
+        feature_writer: fn args -> FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, [])) end,
         epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
         ticket_state_setter: fn state_name ->
           set_ticket_state_for_issue(issue, state_name, coordination)
@@ -380,11 +380,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{issue: issue} = event_context
     identifier = issue_identifier(issue)
 
-    topic =
-      case identifier do
-        nil -> "agent.#{name}"
-        id -> "ticket.#{id}.agent.#{name}"
-      end
+    topic = DynamicTool.EmitEvent.topic(identifier, name)
 
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}

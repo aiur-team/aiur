@@ -1,8 +1,8 @@
 {
   "id": "identity",
-  "name": "Identity and capabilities (MP-R1)",
+  "name": "Identity and capabilities",
   "layer": 1,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/capabilities.ex",
     "src/lib/aiur/capabilities/**",
@@ -22,6 +22,7 @@
     "config",
     "event-bus",
     "kernel",
+    "signal",
     "web-kit"
   ],
   "optional": [],
@@ -34,5 +35,18 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Identifies each machine and run so clients can discover available capabilities.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [
+    "AIUR_INSTANCE_KEY",
+    "USER"
+  ],
+  "capabilities": []
 }

@@ -114,6 +114,7 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     git(repo, 'update-ref', 'refs/remotes/origin/main', head)
     (repo / 'scripts').mkdir()
     (repo / 'scripts/check-file-size.py').write_bytes(checker.read_bytes())
+    (repo / 'scripts/file_size_census.py').write_bytes((checker.parent / 'file_size_census.py').read_bytes())
     env = dict(os.environ, PR_BASE=base, MERGE_BASE=base, PUSH_BEFORE=base)
     for event, before in [('pull_request', base), ('merge_group', base), ('push', base), ('push', '0' * 40)]:
         result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=repo,
@@ -186,4 +187,82 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
               'lockfile unverified', no_tools)
     lock_case('501-line non-lockfile JSON still fails', {'pkg/data.json': lines(501)}, 1,
               'pkg/data.json: base 0 -> head 501', with_tools)
+
+    # Census fixtures use unique lines so rename similarity and edit churn are real.
+    import json
+    content = b''.join(f'line {i}\n'.encode() for i in range(100))
+    edited = content.replace(b'line ', b'edit ', 10)
+    census_cases = [
+        ('delete source', {'src/lib/a.ex': content}, {'src/lib/a.ex': None},
+         {'source': (100, 0, 0, 100, 0)}, 0),
+        ('unchanged rename', {'src/lib/a.ex': content}, {'src/lib/a.ex': None, 'src/lib/b.ex': content},
+         {'source': (100, 100, 0, 0, 100)}, 0),
+        ('rename with edits', {'src/lib/a.ex': content}, {'src/lib/a.ex': None, 'src/lib/b.ex': edited},
+         {'source': (100, 100, 10, 10, 90)}, 0),
+        ('cross-area rename', {'src/lib/a.ex': content}, {'src/lib/a.ex': None, 'src/test/a_test.exs': content},
+         {'source': (100, 0, 0, 0, 100), 'test': (0, 100, 0, 0, 0)}, 0),
+        ('unchanged copy', {'src/lib/a.ex': content}, {'src/lib/b.ex': content},
+         {'source': (100, 200, 0, 0, 100)}, 0),
+        ('copy with edits', {'src/lib/a.ex': content}, {'src/lib/b.ex': edited},
+         {'source': (100, 200, 10, 10, 90)}, 0),
+        ('areas and counter', {}, {'vendor/a.min.js': b'x', 'src/priv/static/vendor/a.js': b'v\n',
+                                  'pkg/package-lock.json': b'{}\n', 'mix.lock': b'{}\n',
+                                  'pkg/pnpm-lock.yaml': b'p\n', 'pkg/bun.lockb': b'b\n',
+                                  'spec/widget.test.js': b't\n', 'docs/a.txt': b'd\n',
+                                  'website/docs-app/a.txt': b'w\n', 'README.md': b'r\n', 'misc': b'm\r\n'},
+         {'generated/vendor': (0, 6, 6, 0, 0), 'test': (0, 1, 1, 0, 0),
+          'docs': (0, 3, 3, 0, 0), 'other': (0, 1, 1, 0, 0)}, 0),
+        ('binary changes', {'image': b'\0old', 'src/lib/a.ex': b'x\n'},
+         {'image': b'\0new', 'src/lib/a.ex': b'\xff', 'new.bin': b'\0'},
+         {'source': (1, 0, 0, 1, 0)}, 3),
+        ('binary to text', {'misc': b'\0'}, {'misc': b'x'}, {'other': (0, 1, 1, 0, 0)}, 1),
+        ('text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n', 'src/lib/a.ex': content},
+         {'src/lib/a.ex': edited}, {'source': (100, 100, 10, 10, 0), 'other': (1, 1, 0, 0, 0)}, 0),
+        ('add text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n'},
+         {'src/lib/a.ex': content}, {'source': (0, 100, 100, 0, 0), 'other': (1, 1, 0, 0, 0)}, 0),
+        ('delete text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n', 'src/lib/a.ex': content},
+         {'src/lib/a.ex': None}, {'source': (100, 0, 0, 100, 0), 'other': (1, 1, 0, 0, 0)}, 0),
+        ('unusual rename paths', {'src/lib/tab\tline\na.ex': content},
+         {'src/lib/tab\tline\na.ex': None, 'docs/tab\tline\nb.md': content},
+         {'source': (100, 0, 0, 0, 100), 'docs': (0, 100, 0, 0, 0)}, 0),
+    ]
+    for index, (title, before, after, expected_rows, binary) in enumerate(census_cases):
+        fixture = root / f'census-{index}'
+        fixture.mkdir()
+        git(fixture, 'init', '-q')
+        git(fixture, 'config', 'user.email', 'fixture@example.invalid')
+        git(fixture, 'config', 'user.name', 'Fixture')
+        write(fixture, before)
+        base = commit(fixture)
+        write(fixture, after)
+        head = commit(fixture)
+        report = json.loads(run(fixture, 0, '', '--census', base, head, '--json'))
+        assert report['binary_changes'] == binary, (title, report)
+        for label, row in report['areas'].items():
+            values = tuple(row[key] for key in ('base', 'head', 'added', 'removed', 'moved'))
+            assert values == expected_rows.get(label, (0, 0, 0, 0, 0)), (title, label, values)
+        markdown = run(fixture, 0, '| Area | Base | Head | Added | Removed | Moved |', '--census', base, head)
+        assert f'Binary changes: {binary} (files, not lines).' in markdown
+        print(f'PASS: census {title}')
+
+    # Symlink target content is excluded; changing it to regular text counts that text.
+    fixture = root / 'census-link'
+    fixture.mkdir()
+    git(fixture, 'init', '-q')
+    git(fixture, 'config', 'user.email', 'fixture@example.invalid')
+    git(fixture, 'config', 'user.name', 'Fixture')
+    base = commit(fixture)
+    (fixture / 'link').symlink_to(root / 'outside')
+    head = commit(fixture)
+    report = json.loads(run(fixture, 0, '', '--census', base, head, '--json'))
+    assert all(value == 0 for row in report['areas'].values() for value in row.values()), report
+    assert report['binary_changes'] == 0
+    (fixture / 'link').unlink()
+    write(fixture, {'link': b'x\n'})
+    text_head = commit(fixture)
+    report = json.loads(run(fixture, 0, '', '--census', head, text_head, '--json'))
+    assert report['areas']['other'] == dict(base=0, head=1, added=1, removed=0, moved=0), report
+    run(fixture, 1, 'base not available', '--census', 'missing', text_head)
+    run(fixture, 2, '--json requires --census', '--json')
+    print('PASS: census symlink exclusion, text transition and invalid arguments')
 PY

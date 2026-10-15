@@ -1,8 +1,8 @@
 {
   "id": "telemetry",
-  "name": "Run telemetry and host health",
+  "name": "Run telemetry",
   "layer": 2,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/background_cpu.ex",
     "src/lib/aiur/daemon_heartbeat.ex",
@@ -52,5 +52,23 @@
   },
   "prior": [
     "TEL"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Records run activity and host health so operators can investigate interruptions.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/operating-aiur.md"
+  ],
+  "config": [
+    "monitoring"
+  ],
+  "env": [
+    "AIUR_LOGS_ROOT",
+    "AIUR_NOFILE_SOFT_LIMIT",
+    "AIUR_TELEMETRY_CALLER_CWD"
+  ],
+  "capabilities": []
 }

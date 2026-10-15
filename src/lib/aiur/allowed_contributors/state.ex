@@ -76,7 +76,7 @@ defmodule Aiur.AllowedContributors.State do
       token_fun: Keyword.get(opts, :token_fun, &Config.token/0),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       publish_fun: Keyword.get(opts, :publish_fun, &Publisher.publish/3),
-      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Signal.agent_alert/3),
       clock_fun: Keyword.get(opts, :clock_fun, fn -> System.os_time(:millisecond) end),
       aiur_logins_fun: Keyword.get(opts, :aiur_logins_fun, &aiur_logins/0)
     }

@@ -2,6 +2,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
+  alias Aiur.AgentCompaction.Handoff
   alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -334,6 +335,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       {:done, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
 
+        Handoff.run(turn_context, app_session, refreshed_issue)
         return_completed(turn_context, refreshed_issue)
 
       {:error, reason} ->
@@ -341,11 +343,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  # #2806: the state label alone is not a licence to re-prompt. Fold this
-  # turn's observable-progress witness into the run's consecutive-no-op counter
-  # and stop the loop — loudly, and without mutating the ticket — once a run of
-  # turns that changed nothing reaches the cap. A productive turn zeroes the
-  # counter, so a long run of real work is never bounded by this path.
+  # #2806: fold turn progress into the no-op counter and stop without mutating
+  # the ticket once an unproductive run reaches its cap. Productive turns reset it.
   defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler) do
     %{
       workspace: workspace,

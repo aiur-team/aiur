@@ -1,8 +1,8 @@
 {
   "id": "accounting",
-  "name": "Provider meters and usage ledger",
+  "name": "Usage and account meters",
   "layer": 2,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/accounts.ex",
     "src/lib/aiur/accounts/**",
@@ -58,5 +58,24 @@
   "prior": [
     "PM",
     "USG"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Shows provider balances and records usage so operators can track costs.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/units.md"
+  ],
+  "config": [],
+  "env": [
+    "DEEPSEEK_API_KEY",
+    "MOONSHOT_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MANAGEMENT_KEY"
+  ],
+  "capabilities": [
+    "accounting.meters"
   ]
 }

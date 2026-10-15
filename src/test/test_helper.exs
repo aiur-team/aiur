@@ -11,6 +11,7 @@ contaminating_env_vars = [
   "AIUR_TMUX_CONF",
   "AIUR_TMUX_SESSION",
   "AIUR_TMUX_SOCKET",
+  "AIUR_AGENT_TMUX_SOCKET",
   "AIUR_LOGS_ROOT"
 ]
 
@@ -61,6 +62,12 @@ test_run_root =
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
 
+suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
+
+unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
+  raise "alert ledger must use the suite runtime state root #{suite_runtime_state_dir}"
+end
+
 ExUnit.after_suite(fn _result ->
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
   # recreate the counter file after this — a small leftover under the
@@ -81,10 +88,18 @@ Code.require_file("support/orchestrator_status_support.ex", __DIR__)
 Code.require_file("support/agent_control_cli_todo.ex", __DIR__)
 Code.require_file("support/turn_loop_test_support.ex", __DIR__)
 Code.require_file("support/account_generation_test_support.ex", __DIR__)
+Code.require_file("support/ci_lifecycle_test_support.ex", __DIR__)
+Code.require_file("support/auto_resume_test_support.ex", __DIR__)
+Code.require_file("support/global_pause_test_support.ex", __DIR__)
 Code.require_file("support/live_view_async.ex", __DIR__)
 Code.require_file("support/refresh_trace.ex", __DIR__)
 Code.require_file("support/github_client_test_support.ex", __DIR__)
 Code.require_file("support/event_ticket.ex", __DIR__)
+
+# These imports must load before the glob, which sorts cache support before its dependency.
+Code.require_file("support/agent_github_guard_test_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_cache_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_case.ex", __DIR__)
 
 # Support loads by glob, so a new support file needs no line here. The explicit list below
 # stays only until the queue of open PRs has drained (#4219); do not add to it.
@@ -104,7 +119,11 @@ Code.require_file("support/dashboard_font_assertions.ex", __DIR__)
 Code.require_file("support/muse_fixture.exs", __DIR__)
 Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
 Code.require_file("support/init_case.ex", __DIR__)
+Code.require_file("support/repo_base_case.ex", __DIR__)
+Code.require_file("support/wip_preservation_fixtures.ex", __DIR__)
 Code.require_file("support/rejected_workflow.ex", __DIR__)
+Code.require_file("support/dispatcher_test_support.ex", __DIR__)
+Code.require_file("support/dispatcher_blocked_by_cost_support.ex", __DIR__)
 Code.require_file("support/claude_meter_test_support.exs", __DIR__)
 Code.require_file("support/build_order_github_graph_test_adapter.ex", __DIR__)
 Code.require_file("support/build_order_github_graph_fixtures.ex", __DIR__)
@@ -128,6 +147,8 @@ Code.require_file("support/webhook_mode_contract.exs", __DIR__)
 
 Code.require_file("support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("support/build_home/protocol_case.ex", __DIR__)
+Code.require_file("support/streamdeck_live_case.ex", __DIR__)
+Code.require_file("support/streamdeck_channel_case.ex", __DIR__)
 Code.require_file("support/webhook_deliveries.ex", __DIR__)
 Code.require_file("support/comments_poller_fixture.ex", __DIR__)
 Code.require_file("support/ci_poller_fixture.ex", __DIR__)
@@ -141,6 +162,9 @@ Code.require_file("support/webhook_tail_case.ex", __DIR__)
 Code.require_file("support/github_webhook_receiver_case.ex", __DIR__)
 Code.require_file("support/mutation_fixture.ex", __DIR__)
 Code.require_file("support/deposit_fixture.ex", __DIR__)
+Code.require_file("support/current_run_projections_support.ex", __DIR__)
+Code.require_file("support/current_run_membership_store_support.ex", __DIR__)
+Code.require_file("support/feature_label_fixture.ex", __DIR__)
 Code.require_file("support/build_home/usage_inputs.ex", __DIR__)
 Code.require_file("support/build_order_live_case.ex", __DIR__)
 Code.require_file("support/planning_source_case.ex", __DIR__)
@@ -151,3 +175,7 @@ Code.require_file("support/deposit_case.ex", __DIR__)
 Code.require_file("support/live_conversation_support.ex", __DIR__)
 Code.require_file("support/live_e2e/linear_api.ex", __DIR__)
 Code.require_file("support/live_e2e/worker_setup.ex", __DIR__)
+
+# Keep plain ExUnit.Case modules and between-case application timers from
+# publishing Orchestrator poll state or alerts into the suite-wide ledger.
+Aiur.TestSupport.quiesce_live_orchestrator()

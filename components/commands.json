@@ -1,8 +1,8 @@
 {
   "id": "commands",
-  "name": "Commands (code: Decisions) and Asks",
+  "name": "Commands",
   "layer": 3,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/asks.ex",
     "src/lib/aiur/asks_store.ex",
@@ -57,5 +57,22 @@
   "prior": [
     "DEC",
     "EXE"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Routes agent questions to the right responder and delivers their answers.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/commands.md"
+  ],
+  "config": [
+    "decisions"
+  ],
+  "env": [
+    "AIUR_CI_READINESS_TOKEN",
+    "AIUR_SUPERVISOR_TOKEN"
+  ],
+  "capabilities": []
 }

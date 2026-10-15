@@ -32,7 +32,7 @@ defmodule AiurWeb.AnalyticsLive do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> NavState.assign_nav()
+     |> DashboardShell.mount()
      |> AwaitingCommands.mount(connected?(socket))
      |> assign(:current_route, RouteRegistry.current_route(:analytics))
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
@@ -99,9 +99,9 @@ defmodule AiurWeb.AnalyticsLive do
   def handle_async(:analytics_model, _result, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
-  @impl true
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
 
   @impl true
@@ -152,7 +152,7 @@ defmodule AiurWeb.AnalyticsLive do
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
-      nav_counts={@nav_counts}
+      nav_counts={@nav_counts} pause_state={DashboardShell.pause_state(assigns)}
     >
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />
@@ -494,7 +494,7 @@ defmodule AiurWeb.AnalyticsLive do
       %{
         label: "Wasted capacity",
         val: Presenter.wasted_slot_hours_label(k.wasted_slot_hours),
-        sub: "idle unit-slots",
+        sub: if(k.wasted_slot_hours_partial, do: "idle unit-slots (partial; missing cap observations)", else: "idle unit-slots"),
         tone: "block"
       }
     ]

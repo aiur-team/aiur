@@ -5,7 +5,7 @@ defmodule Aiur.Experiments.Evaluation do
   def start(%{evaluation: nil} = state, from, prepare, finish) do
     owner = self()
     token = make_ref()
-    {:ok, pid} = Task.start(fn -> send(owner, {:evaluation_finished, token, protected(prepare)}) end)
+    {:ok, pid} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> send(owner, {:evaluation_finished, token, protected(prepare)}) end)
     monitor = Process.monitor(pid)
     timer = Process.send_after(owner, {:evaluation_timeout, token}, state.evaluation_timeout_ms)
     job = %{pid: pid, token: token, monitor: monitor, timer: timer, from: from, finish: finish}

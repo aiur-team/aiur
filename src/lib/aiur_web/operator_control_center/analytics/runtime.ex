@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
 
   alias Aiur.PollCadence
   alias AiurWeb.OperatorControlCenter.Analytics.Presenter
-  alias AiurWeb.OperatorControlCenter.AwaitingCommands
+  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell}
 
   @load_timeout_ms 15_000
   @load_tick_ms 1_000
@@ -57,5 +57,5 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
 
   def handle_info({:decision_changed, _decision_id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
 end

@@ -6,6 +6,7 @@ defmodule Aiur.ExperimentsCLI do
     status: :string,
     kind: :string,
     json: :boolean,
+    refresh: :boolean,
     spec_json: :string,
     draft: :boolean,
     no_freeze: :boolean,
@@ -17,6 +18,7 @@ defmodule Aiur.ExperimentsCLI do
     reason: :string
   ]
   @allowed %{
+    events: [:json, :refresh],
     freeze: [:window, :reason, :json],
     metrics: [:json],
     list: [:status, :kind, :json],
@@ -42,6 +44,17 @@ defmodule Aiur.ExperimentsCLI do
   end
 
   defp dispatch(:metrics, flags, []), do: result({:ok, Experiments.metric_catalog()}, flags, :metrics)
+
+  defp dispatch(:events, flags, [id]) do
+    case Experiments.events(id, Keyword.take(flags, [:refresh])) do
+      {:ok, snapshot} ->
+        if snapshot["incomplete_sources"] != [], do: flags[:error_fun].("warning: incomplete event sources: " <> Enum.join(snapshot["incomplete_sources"], ", "))
+        result({:ok, snapshot}, flags, :events)
+
+      error ->
+        result(error, flags, {:show, id})
+    end
+  end
 
   defp dispatch(:show, flags, [id]) do
     case Experiments.fetch(id) do
@@ -186,7 +199,7 @@ defmodule Aiur.ExperimentsCLI do
     error_fun = Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))
 
     error_fun.(
-      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, freeze <id> [--window before|after|observation] [--reason r] [--json], metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]"
+      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, events <id> [--json] [--refresh], freeze <id> [--window before|after|observation] [--reason r] [--json], metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]"
     )
 
     64

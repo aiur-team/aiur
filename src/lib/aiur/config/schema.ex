@@ -14,6 +14,7 @@ defmodule Aiur.Config.Schema do
     BuildOrder,
     BuildQueue,
     Codex,
+    Compaction,
     Decisions,
     ElevenLabs,
     EnvResolver,
@@ -41,6 +42,7 @@ defmodule Aiur.Config.Schema do
   require Agent
   require Tracker
   require BuildQueue
+  require Experiments
 
   @primary_key false
 
@@ -62,6 +64,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:compaction, Compaction, on_replace: :update, defaults_to_struct: true)
     embeds_one(:decisions, Decisions, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:merge_policy, MergePolicy, on_replace: :update, defaults_to_struct: true)
@@ -195,6 +198,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
+    |> cast_embed(:compaction, with: &Compaction.changeset/2)
     |> cast_embed(:decisions, with: &Decisions.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:merge_policy, with: &MergePolicy.changeset/2)

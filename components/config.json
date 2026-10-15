@@ -1,8 +1,8 @@
 {
   "id": "config",
-  "name": "Config and workflow",
+  "name": "Configuration and workflows",
   "layer": 0,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_config.ex",
     "src/lib/aiur/config.ex",
@@ -24,10 +24,12 @@
   "optional": [],
   "owns": {
     "config": [
+      "compaction",
       "merge_policy",
       "prompt_file"
     ],
     "env": [
+      "AIUR_CI_CHANGED_PATHS_B64",
       "HOME",
       "XDG_CONFIG_HOME",
       "XDG_STATE_HOME"
@@ -39,5 +41,23 @@
   },
   "prior": [
     "CFG"
+  ],
+  "dependency_kind": "required",
+  "summary": "Loads workflow settings and applies the configured rules for a run.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/configuration.md"
+  ],
+  "config": [],
+  "env": [
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_STATE_HOME"
+  ],
+  "capabilities": [
+    "merge_policy"
   ]
 }
