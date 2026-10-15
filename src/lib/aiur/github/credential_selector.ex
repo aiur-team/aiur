@@ -127,7 +127,9 @@ defmodule Aiur.GitHub.CredentialSelector do
   # resolve. A pool whose legacy token was missing could hand a write to a human.
   defp select_from([], _resource, _opts), do: nil
   defp select_from([only], _resource, _opts), do: only
-  defp select_from(eligible, resource, opts), do: best(eligible, resource, fallback(eligible), opts)
+
+  defp select_from(eligible, resource, opts),
+    do: best(eligible, resource, fallback(eligible), opts)
 
   defp fallback(eligible), do: Enum.find(eligible, & &1.primary?) || List.first(eligible)
 
@@ -207,7 +209,10 @@ defmodule Aiur.GitHub.CredentialSelector do
   # expired. `snapshot/1` above drops expired windows; this keeps the last one
   # so a stale meter can carry how long ago the credential was observed.
   defp last_observed(token_key) do
-    Map.new(CredentialHeadroom.resources(), &{&1, CredentialHeadroom.last_observed(token_key, &1)})
+    Map.new(
+      CredentialHeadroom.resources(),
+      &{&1, CredentialHeadroom.last_observed(token_key, &1)}
+    )
   end
 
   # A document we cannot read is a write. Misreading a read as a write only
@@ -247,9 +252,12 @@ defmodule Aiur.GitHub.CredentialSelector do
   defp pick(candidates, primary) do
     {best_credential, best_score} = Enum.max_by(candidates, fn {_credential, score} -> score end)
 
-    if primary && Enum.any?(candidates, fn {credential, score} -> credential.id == primary.id and score == best_score end),
-      do: primary,
-      else: best_credential
+    if primary &&
+         Enum.any?(candidates, fn {credential, score} ->
+           credential.id == primary.id and score == best_score
+         end),
+       do: primary,
+       else: best_credential
   end
 
   # `:blocked` when the credential's own window says it has nothing left and has
@@ -278,6 +286,7 @@ defmodule Aiur.GitHub.CredentialSelector do
         request
         |> Map.put(:token, token)
         |> Map.put(:credential_id, credential.id)
+        |> Map.put(:credential_class, credential_class(credential))
         |> Map.put(:credential_key, Credential.identity_key(credential))
 
       _unavailable ->
@@ -287,13 +296,20 @@ defmodule Aiur.GitHub.CredentialSelector do
 
   defp attach_accounting_identity(request, credential) do
     if Credential.token(credential) == Map.get(request, :token),
-      do: Map.put(request, :credential_key, Credential.identity_key(credential)),
+      do:
+        request
+        |> Map.put(:credential_class, credential_class(credential))
+        |> Map.put(:credential_key, Credential.identity_key(credential)),
       else: request
   end
 
   defp attach_pinned_identity(request, credential) do
     request
     |> Map.put(:credential_id, credential.id)
+    |> Map.put(:credential_class, credential_class(credential))
     |> Map.put(:credential_key, Credential.identity_key(credential))
   end
+
+  defp credential_class(%Credential{kind: :app_installation}), do: "github_app_installation"
+  defp credential_class(%Credential{}), do: "github_token"
 end

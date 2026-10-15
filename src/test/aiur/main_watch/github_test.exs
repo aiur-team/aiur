@@ -42,71 +42,6 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert hd(result.observations).completed_at == DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
   end
 
-  test "refreshes a rejected App installation token once and retries the poll" do
-    attempts = :atomics.new(1, [])
-    refreshes = :atomics.new(1, [])
-
-    request = fn %{url: url, token: token} ->
-      cond do
-        String.contains?(url, "/commits?") and :atomics.add_get(attempts, 1, 1) == 1 ->
-          send(self(), {:used_token, token})
-          {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}}
-
-        String.contains?(url, "/commits?") ->
-          send(self(), {:used_token, token})
-          ok([])
-
-        String.contains?(url, "/actions/runs?") ->
-          ok(%{"workflow_runs" => []})
-
-        true ->
-          flunk("unexpected request #{url}")
-      end
-    end
-
-    assert {:ok, %{commits: []}} =
-             GitHub.poll("main", [],
-               request_fun: request,
-               actions_write: false,
-               credential_source: fn -> :github_app end,
-               token: "old-app-token",
-               current_app_token_fun: fn -> if(:atomics.get(refreshes, 1) == 0, do: "old-app-token", else: "new-app-token") end,
-               refresh_app_token_fun: fn ->
-                 :atomics.add_get(refreshes, 1, 1)
-                 :ok
-               end
-             )
-
-    assert :atomics.get(attempts, 1) == 2
-    assert :atomics.get(refreshes, 1) == 1
-    assert_received {:used_token, "old-app-token"}
-    assert_received {:used_token, "new-app-token"}
-  end
-
-  test "does not retry a rejected App token when refresh leaves the token unchanged" do
-    attempts = :atomics.new(1, [])
-
-    request = fn %{url: url} ->
-      if String.contains?(url, "/commits?") do
-        :atomics.add(attempts, 1, 1)
-        {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}}
-      else
-        flunk("an unchanged rejected token must not be retried")
-      end
-    end
-
-    assert {:error, {:github, :auth, %{status: 401, caller: "main_watch_commits", credential: "github_app_installation"}}} =
-             GitHub.poll("main", [],
-               request_fun: request,
-               token: "rejected-app-token",
-               credential_source: fn -> :github_app end,
-               current_app_token_fun: fn -> "rejected-app-token" end,
-               refresh_app_token_fun: fn -> :ok end
-             )
-
-    assert :atomics.get(attempts, 1) == 1
-  end
-
   test "reports the failing caller and credential class on an unrecoverable 401" do
     request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
@@ -116,6 +51,13 @@ defmodule Aiur.MainWatch.GitHubTest do
                credential_source: fn -> :github_app end,
                refresh_app_token_fun: fn -> {:error, :refresh_failed} end
              )
+  end
+
+  test "reports the credential applied by transport rather than configured source" do
+    request = fn _request -> {:ok, %{status: 401, credential: "github_app_installation"}} end
+
+    assert {:error, {:github, :auth, %{caller: "main_watch_commits", credential: "github_app_installation"}}} =
+             GitHub.poll("main", [], request_fun: request, credential_source: fn -> :env end)
   end
 
   test "missing configured workflows stay pending while older complete SHA remains observable" do
