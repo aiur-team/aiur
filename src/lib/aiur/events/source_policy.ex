@@ -1,4 +1,5 @@
 defmodule Aiur.Events.SourcePolicy do
+  # aiur:event-bus-boundary-member
   @moduledoc """
   Source-owned publication policy. Publisher retains gate ordering and calls
   observation before branching, then marks resources only after fan-out.

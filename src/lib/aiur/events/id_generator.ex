@@ -55,7 +55,7 @@ defmodule Aiur.Events.IdGenerator do
   events do so via RPC to the orchestrator's `Aiur.Events.Exchange`. There
   is no multi-node ID coordination problem to solve here.
   """
-
+  # aiur:event-bus-boundary-member
   use GenServer
 
   require Logger
