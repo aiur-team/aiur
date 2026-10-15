@@ -90,6 +90,7 @@ for (const fallback of ['main', 'body']) {
     await page.evaluate(useMain => {
       document.getElementById('after-banner')!.remove();
       document.getElementById('buttons')!.remove();
+      document.getElementById('footer')?.remove();
       if (useMain) document.body.append(document.createElement('main'));
     }, fallback === 'main');
     await page.locator('.aiur-banner__close').click();
