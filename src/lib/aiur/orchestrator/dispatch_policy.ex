@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   require Logger
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
+  alias Aiur.{Issue, MergePolicy, SystemCpu, SystemFileDescriptors}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
@@ -128,10 +128,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
-        {downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 
       _ ->
-        {0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
+        {1, 0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
     end)
   end
 

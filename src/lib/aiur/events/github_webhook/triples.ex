@@ -9,7 +9,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   `Aiur.Events.GithubWebhook.Normalizer` for why one shape has two producers.
   """
 
-  alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity}
+  alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, PostDeployChecks}
   alias Aiur.Events.GithubWebhook.Identity
   alias Aiur.GitHub.ResourceStore
 
@@ -289,7 +289,16 @@ defmodule Aiur.Events.GithubWebhook.Triples do
         dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha)
       ]
 
-      {:publish, [{topic, %{action: action, pr: pr, timestamp: pull_request_timestamp(pr)}, publish_opts}]}
+      event = %{
+        action: action,
+        pr: pr,
+        timestamp: pull_request_timestamp(pr),
+        repository: get_in(payload, ["repository", "full_name"])
+      }
+
+      event = if merged?, do: Map.put(event, :post_deploy_checks, PostDeployChecks.from_pr_body(Map.get(pr, "body"))), else: event
+
+      {:publish, [{topic, event, publish_opts}]}
     else
       {:drop, _reason} = drop -> drop
       {:error, _reason} = error -> error

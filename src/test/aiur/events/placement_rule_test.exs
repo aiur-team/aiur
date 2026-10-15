@@ -19,7 +19,7 @@ defmodule Aiur.Events.PlacementRuleTest do
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.timeline_unreadable"},
     {"aiur/orchestrator/retry_engine/poll_failure.ex", "orchestrator.claim_released"}
   ]
-  @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex", "aiur/build_queue/server.ex"]
+  @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex", "aiur/build_queue/server.ex", "aiur/post_deploy_checklist.ex"]
   @reverse_bridges []
   @topic_calls ~r/\b(?:emit_custom|emit_system|Signal\.(?:agent_alert|alert)|Publisher\.publish(?:_persisted)?|ExecutorEvents\.publish|Exchange\.publish)\(\s*"([^"#]*)"/s
   @exchange_subscriber ~r/\bExchange\.subscribe\s*(?:\(|\/)|\bexchange_subscribe_fun\b/

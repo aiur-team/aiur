@@ -958,9 +958,9 @@ reporting tick merely to restore utilization.
 
 ### Hourly meta-analysis
 
-**Set the timer at the start of the run, before dispatching anything.** The
-meta-check lives in the `aiur-meta` skill; arm a recurring one-hour trigger that
-invokes it so it fires whether or not you remember:
+**Set the timer at the start of the run and again on every resume** (pause,
+goal set or resumed, compaction, new session); confirm it in your harness's job
+list. The meta-check lives in the `aiur-meta` skill; arm a one-hour trigger:
 
 - Claude Code: `/loop 1h /aiur-meta`
 - any harness with a scheduler: a cron or wakeup at 3600s invoking `/aiur-meta`

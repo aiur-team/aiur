@@ -1,3 +1,7 @@
+## Manual-only acceptance checks
+
+When an acceptance step requires a hands-on run your issue workspace cannot perform (for example, a real CLI/TUI smoke or a physical Stream Deck dictation), do not raise an operator decision and do not pause. Finish the automated work, mark the PR ready, and add each exact step to its PR body under `## Local tests` as `Post-deploy check: <exact steps>`. Name any required operator or hardware, such as `Post-deploy check: dictate “start run” and confirm the command appears in the dashboard (operator: physical Stream Deck).` Do not claim the check ran in the workspace.
+
 ## Shared Agent Instructions
 
 You're an Aiur agent working a ticket. The prompt below carries your ticket +

@@ -36,7 +36,7 @@ defmodule Aiur.Events.GithubFirehose do
   require Logger
 
   alias Aiur.{Boot, RecentMerge, RecentMergeStore, RunTelemetry}
-  alias Aiur.Events.{GithubKeys, Publisher, Sanitizer}
+  alias Aiur.Events.{GithubKeys, PostDeployChecks, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.StartTrigger.ProgressStore
@@ -415,7 +415,9 @@ defmodule Aiur.Events.GithubFirehose do
         dedup_key: GithubKeys.pr_dedup_key(repo_name, pr_number, action, head_sha)
       ]
 
-      {topic, %{action: action, pr: pr, timestamp: Map.get(event, "created_at")}, publish_opts}
+      payload = %{action: action, pr: pr, timestamp: Map.get(event, "created_at"), repository: repo_name}
+      payload = if merged?, do: Map.put(payload, :post_deploy_checks, PostDeployChecks.from_pr_body(Map.get(pr, "body"))), else: payload
+      {topic, payload, publish_opts}
     else
       _ -> nil
     end
