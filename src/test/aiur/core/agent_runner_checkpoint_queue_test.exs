@@ -292,7 +292,7 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
       assert log =~ "request_id="
       assert log =~ "reason=:response_timeout"
       assert log =~ "decision=requeue_after_parent_turn_completed"
-      refute log =~ "Agent run failed for issue_id=issue-checkpoint-completion-race"
+      refute log =~ "Agent run failed"
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
