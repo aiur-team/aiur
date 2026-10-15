@@ -75,20 +75,17 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     # Clear prior comment work and finish startup cleanup before counting.
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
-    Aiur.TestSupport.await_orchestrator_state(orchestrator, &(map_size(&1.tracker_tasks) == 0))
 
-    # PRHealthScanner owns its timer independently of Orchestrator.tracker_tasks.
-    # If its opt-in scan becomes due during this test, its repo-wide open-PR
-    # listing is counted as though the dashboard had fetched it. Park that
-    # periodic worker for the test and restore it on exit.
-    scanner_was_running? = is_pid(Process.whereis(Aiur.PRLifecycle.HealthScanner))
-    if scanner_was_running?, do: :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.PRLifecycle.HealthScanner)
-    refute Process.whereis(Aiur.PRLifecycle.HealthScanner), "PR health polling must not share the dashboard's GitHub counter"
+    # The GitHub comment poll's pull-request discovery uses CommentPollBatch and
+    # POSTs /graphql. It is an Orchestrator poll, but its owned async task is not
+    # in tracker_tasks, so waiting on that map alone can leave it racing this
+    # transport counter. Freeze the source poll cycle and drain its outstanding
+    # comment batch before installing the counter below. The delayed startup
+    # cycle is fenced by poll_frozen too.
+    _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
 
-    on_exit(fn ->
-      if scanner_was_running? and Process.whereis(Aiur.PRLifecycle.HealthScanner) == nil do
-        {:ok, _scanner} = Supervisor.restart_child(Aiur.Supervisor, Aiur.PRLifecycle.HealthScanner)
-      end
+    Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
+      map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
     end)
 
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
