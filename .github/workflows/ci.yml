@@ -463,93 +463,37 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (1/3)
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    name: browser smoke (1/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up browser harness
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-browser
-      - name: Run browser, accessibility, and performance smoke
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/run-browser-smoke-shard.mjs 1
-      - name: Check browser fixtures and vendored assets
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/check-vendored-elk.mjs && npm run check:build-home-fixtures
-      - name: Upload browser evidence
-        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: browser-harness-artifacts-1
-          path: src/browser/.artifacts-run-*/
-          if-no-files-found: ignore
-          include-hidden-files: true
+    uses: ./.github/workflows/browser-smoke.yml
+    with:
+      shard: 1
+      verify_fixtures: true
+      upload_evidence: true
   browser-2:
-    name: browser smoke (2/3)
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    name: browser smoke (2/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up browser harness
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-browser
-      - name: Run browser smoke shard 2
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/run-browser-smoke-shard.mjs 2
-      - name: Run first visual regression baseline
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm run test:visual
-
+    uses: ./.github/workflows/browser-smoke.yml
+    with:
+      shard: 2
+      visual_regression: first
   browser-3:
-    name: browser smoke (3/3)
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    name: browser smoke (3/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up browser harness
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-browser
-      - name: Run browser smoke shard 3
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/run-browser-smoke-shard.mjs 3
-      - name: Run second visual regression baseline and verify failure evidence
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm run test:visual && npm run verify:failure-artifacts
-
+    uses: ./.github/workflows/browser-smoke.yml
+    with:
+      shard: 3
+  browser-4:
+    name: browser smoke (4/4)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
+    uses: ./.github/workflows/browser-smoke.yml
+    with:
+      shard: 4
+      visual_regression: second
   streamdeck:
     name: streamdeck
     needs: changes
@@ -699,7 +643,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, browser-4, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2

@@ -1,0 +1,59 @@
+name: Browser smoke shard
+
+on:
+  workflow_call:
+    inputs:
+      shard:
+        required: true
+        type: number
+      verify_fixtures:
+        required: false
+        type: boolean
+        default: false
+      upload_evidence:
+        required: false
+        type: boolean
+        default: false
+      visual_regression:
+        required: false
+        type: string
+        default: none
+
+jobs:
+  browser-smoke:
+    name: shard ${{ inputs.shard }}
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Set up browser harness
+        uses: ./.github/actions/setup-browser
+      - name: Run browser smoke shard
+        working-directory: src/browser
+        run: node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}
+      - name: Check browser fixtures and vendored assets
+        if: ${{ inputs.verify_fixtures }}
+        working-directory: src/browser
+        run: node scripts/check-vendored-elk.mjs && npm run check:build-home-fixtures
+      - name: Run first visual regression baseline
+        if: ${{ inputs.visual_regression == 'first' }}
+        working-directory: src/browser
+        run: npm run test:visual
+      - name: Run second visual regression baseline and verify failure evidence
+        if: ${{ inputs.visual_regression == 'second' }}
+        working-directory: src/browser
+        run: npm run test:visual && npm run verify:failure-artifacts
+      - name: Upload browser evidence
+        if: ${{ always() && inputs.upload_evidence }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-harness-artifacts-${{ inputs.shard }}
+          path: src/browser/.artifacts-run-*/
+          if-no-files-found: ignore
+          include-hidden-files: true
