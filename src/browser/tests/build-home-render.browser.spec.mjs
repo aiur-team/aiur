@@ -169,6 +169,7 @@ for (const kind of ['card', 'band']) test(`live move keeps ${kind} anchor and su
     return { a, id: row.id, passes: performance.getEntriesByName('build-home-live-pass').length }
   }, kind)
   expect(before.a.kind).toBe(kind === 'band' ? 'band' : 'cards')
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   await page.request.get(`/build-control/diff?op=move&id=${before.id}&to=${kind === 'band' ? 'hist' : 'now'}`)
   await expect.poll(() => page.evaluate(() => performance.getEntriesByName('build-home-live-pass').length)).toBeGreaterThan(before.passes)
   const result = await page.evaluate(a => {
