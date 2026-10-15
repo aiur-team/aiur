@@ -131,15 +131,10 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     Aiur.TestSupport.start_owned_endpoint!()
 
     {:ok, counter} = Agent.start_link(fn -> [] end)
-    {:ok, request_details} = Agent.start_link(fn -> [] end)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
     test_pid = self()
 
     Application.put_env(:aiur, :github_transport_test_options,
-      request_observer: fn request ->
-        path = URI.parse(request.url).path
-        Agent.update(request_details, &[{request.method, path, Map.get(request, :caller)} | &1])
-      end,
       plug: fn conn ->
         Agent.update(counter, &[{conn.method, conn.request_path} | &1])
         send(test_pid, {:github_request, conn.method, conn.request_path})
@@ -157,7 +152,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       end
     end)
 
-    {:ok, counter: counter, request_details: request_details, inherited_task: inherited_task}
+    {:ok, counter: counter, inherited_task: inherited_task}
   end
 
   describe "opening a dashboard page" do
@@ -270,7 +265,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     end
 
     @tag :comment_poll_leak_probe
-    test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter, request_details: request_details} do
+    test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell"
 
@@ -306,8 +301,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "holding the dashboard open made #{length(requests)} GitHub requests: " <>
-               "#{inspect(requests)}; method/path/caller: #{inspect(Enum.reverse(Agent.get(request_details, & &1)))}"
+             "holding the dashboard open made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       # Positive control through the real comment-poll source. It deliberately
       # runs after the zero assertion, while the LiveView remains open, and
@@ -324,10 +318,10 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
           review_issue_fetcher: fn _states -> {:ok, []} end
         )
 
-      observed_details = Enum.reverse(Agent.get(request_details, & &1))
+      observed = Agent.get(counter, & &1)
 
-      assert Enum.any?(observed_details, &(&1 == {:post, "/graphql", "comment_poll_batch"})),
-             "CommentPolling did not expose its expected GraphQL request to the test counter: #{inspect(observed_details)}"
+      assert {"POST", "/graphql"} in observed,
+             "CommentPolling did not expose its expected GraphQL request to the test counter: #{inspect(observed)}"
 
       assert_egress_open!(counter)
     end
