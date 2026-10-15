@@ -2,7 +2,7 @@ defmodule AiurWeb.ExperimentsLive do
   @moduledoc "Read-only experiment index and evidence shell."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias AiurWeb.Experiments.{Source, Styles}
+  alias AiurWeb.Experiments.{Report, Source, Styles}
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, Overview, RouteRegistry}
 
   @impl true
@@ -109,7 +109,7 @@ defmodule AiurWeb.ExperimentsLive do
                 </tr></tbody>
               </table>
               <div id="exp-charts"></div>
-              <div id="exp-report"></div>
+              <Report.card report={@detail.report} />
             </div>
           </section>
         </div>

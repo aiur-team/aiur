@@ -1,15 +1,15 @@
 defmodule AiurWeb.Markdown do
   @moduledoc """
   Minimal, dependency-free Markdown renderer for bounded, already-sanitized
-  ticket and pull-request description text.
+  ticket, pull-request description and analyst report text.
 
   The source has already passed `Aiur.DisplaySanitizer`, which
   redacts credentials and local paths while preserving Markdown source. This
   renderer detects block structure on the raw source, then HTML-escapes every
   content run before emitting any tag, converting a small block and inline
   subset — headings, paragraphs, fenced code blocks, blockquotes, unordered and
-  ordered lists, inline code, emphasis, and links — into safe HTML. Everything
-  else is preserved as escaped text.
+  ordered lists, pipe tables, inline code, emphasis, and links — into safe HTML.
+  Everything else is preserved as escaped text.
   """
 
   import Phoenix.HTML, only: [raw: 1]
@@ -25,19 +25,22 @@ defmodule AiurWeb.Markdown do
   @em ~r/(?<!\*)\*([^*]+)\*(?!\*)/
   @safe_link_schemes ~w(http https)
 
-  @spec render(String.t() | nil) :: Phoenix.HTML.Safe.t()
-  def render(nil), do: raw("")
+  @spec render(term(), keyword()) :: Phoenix.HTML.Safe.t()
+  def render(text, options \\ [])
+  def render(nil, _options), do: raw("")
 
-  def render(text) when is_binary(text) do
+  def render(text, options) when is_binary(text) do
+    offset = Keyword.get(options, :heading_offset, 0) |> max(0) |> min(5)
+
     text
     |> strip_null()
     |> String.split("\n")
     |> split_fences([], [])
-    |> Enum.map_join("\n", &render_segment/1)
+    |> Enum.map_join("\n", &render_segment(&1, offset))
     |> raw()
   end
 
-  def render(_other), do: raw("")
+  def render(_other, _options), do: raw("")
 
   defp split_fences([], text_buf, segments) do
     Enum.reverse(emit_text(text_buf, segments))
@@ -61,20 +64,50 @@ defmodule AiurWeb.Markdown do
   defp emit_text([], segments), do: segments
   defp emit_text(text_buf, segments), do: [{:text, Enum.reverse(text_buf)} | segments]
 
-  defp render_segment({:code, lines}) do
+  defp render_segment({:code, lines}, _offset) do
     "<pre><code>#{escape(Enum.join(lines, "\n"))}</code></pre>"
   end
 
-  defp render_segment({:text, lines}) do
+  defp render_segment({:text, lines}, offset) do
     lines
     |> Enum.chunk_by(&(&1 == ""))
     |> Enum.reject(&match?(["" | _], &1))
-    |> Enum.map_join("\n", &render_block/1)
+    |> Enum.map_join("\n", &render_blocks(&1, offset))
   end
 
-  defp render_block([first | _] = lines) do
+  defp render_blocks([], _offset), do: ""
+
+  defp render_blocks([header, delimiter | rest] = lines, offset) do
+    case AiurWeb.Markdown.Table.alignments(header, delimiter) do
+      nil ->
+        render_non_table(lines, offset)
+
+      alignments ->
+        {rows, remaining} = Enum.split_while(rest, &AiurWeb.Markdown.Table.row?/1)
+        AiurWeb.Markdown.Table.render(header, rows, alignments, &inline(escape(&1))) <> render_blocks(remaining, offset)
+    end
+  end
+
+  defp render_blocks(lines, offset), do: render_non_table(lines, offset)
+
+  defp render_non_table(lines, offset) do
+    {before, remaining} = take_until_table(lines, [])
+    render_block(before, offset) <> render_blocks(remaining, offset)
+  end
+
+  defp take_until_table([header, delimiter | rest] = lines, acc) do
+    if AiurWeb.Markdown.Table.alignments(header, delimiter) do
+      {Enum.reverse(acc), lines}
+    else
+      take_until_table([delimiter | rest], [header | acc])
+    end
+  end
+
+  defp take_until_table(lines, acc), do: {Enum.reverse(acc) ++ lines, []}
+
+  defp render_block([first | _] = lines, offset) do
     cond do
-      Enum.count(lines) == 1 and Regex.match?(@heading, first) -> render_heading(first)
+      Enum.count(lines) == 1 and Regex.match?(@heading, first) -> render_heading(first, offset)
       list_block?(lines) -> render_list(lines)
       blockquote_block?(lines) -> render_blockquote(lines)
       true -> render_paragraph(lines)
@@ -85,9 +118,9 @@ defmodule AiurWeb.Markdown do
 
   defp blockquote_block?(lines), do: Enum.all?(lines, &Regex.match?(@blockquote, &1))
 
-  defp render_heading(line) do
+  defp render_heading(line, offset) do
     [_, hashes, text] = Regex.run(@heading, line)
-    level = byte_size(hashes)
+    level = min(byte_size(hashes) + offset, 6)
 
     "<h#{level}>#{inline(escape(text))}</h#{level}>"
   end

@@ -210,3 +210,6 @@ SHA-256 hash. A warning identifies metric packs that changed since the freeze.
 When a frozen analysis `result.json` is present in an experiment directory, the
 page shows its group summaries, sample counts and analyst labels. Below the
 analysis minimum, interval, p-value and effect cells say **not enough data**.
+The **Analyst report** card shows the analyst's Markdown, including tables. A
+pending message appears until a report exists. Reports may lag the evidence;
+the card identifies newer results with both report and result times.
