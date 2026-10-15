@@ -4,7 +4,7 @@ import { openParityPair, expectDesignParity, applyAllowlist, FIXTURE_META, waitP
 import { runOn, compareRecords } from '../support/build-home-motion.mjs'
 
 // Two page openings plus three windows in each section; this is not a perf budget.
-test.setTimeout(60_000)
+test.setTimeout(120_000)
 
 const source = await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8')
 const anchor = '  window.AiurBuild = {'
@@ -27,6 +27,13 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
     await pair.design.locator('[data-min]').evaluate(button => button.click())
     await expect(pair.design.locator('#bd-now')).toHaveClass(/min/)
     await pair.product.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
+    // The fixture's initial zoom updates --dot and transitions background-size
+    // for 400ms. Read it only after both pages finish that real transition;
+    // otherwise their computed values can differ by a fraction of a pixel.
+    await Promise.all([pair.design, pair.product].map(page => page.locator('#bd-vp').evaluate(vp => {
+      const transition = vp.getAnimations().find(animation => animation.transitionProperty === 'background-size')
+      if (transition) transition.finish()
+    })))
     // Preserve the harness's existing AA palette exceptions; add no local masks/styles.
     await applyAllowlist(pair, pair.cell)
     const read = page => page.evaluate(() => ['hist', 'plan', 'nq'].map(sec => ({

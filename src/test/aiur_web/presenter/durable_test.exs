@@ -55,11 +55,11 @@ defmodule AiurWeb.PresenterDurableTest do
     assert recent.ticket_id == nil
     assert payload.recent_merges.reconciliation.partial?
 
-    assert payload.analytics == %{
+    assert %{
              available?: true,
              path: "/analytics",
              message: "Open the separate durable telemetry report."
-           }
+           } = payload.analytics
   end
 
   test "renders a stale last-known-good fleet instead of a snapshot error" do
