@@ -299,7 +299,7 @@ class Relay:
         self.provider = await asyncio.create_subprocess_exec(
             *self.spec['argv'], cwd=self.spec['cwd'], env=self.spec['env'],
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, start_new_session=True)
+            stderr=asyncio.subprocess.STDOUT, start_new_session=True)
         self.provider_start = None
         try:
             self.provider_start = Path(f'/proc/{self.provider.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
@@ -309,8 +309,7 @@ class Relay:
         self.manifest.update(protocol=PROTOCOL, relay_pid=os.getpid(), provider_pid=self.provider.pid,
                              pgid=self.provider.pid, created_at=datetime.now(timezone.utc).isoformat())
         self.persist()
-        self.readers = [asyncio.create_task(self.output(self.provider.stdout)),
-                        asyncio.create_task(self.output(self.provider.stderr))]
+        self.readers = [asyncio.create_task(self.output(self.provider.stdout))]
         path = self.directory / 'ctl.sock'
         server = await asyncio.start_unix_server(self.receive, path='ctl.sock', limit=self.cap * 2)
         os.chmod(path, 0o600)

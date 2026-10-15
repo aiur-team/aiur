@@ -45,6 +45,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       now_ms: 1_800_000_000_000,
       request_fun: request,
       journal_path: journal,
@@ -102,6 +103,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, [pr]} end,

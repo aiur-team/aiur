@@ -15,6 +15,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureFetchTest do
     assert :ok =
              MergeGroups.cancel_stale([],
                base_branch: "main",
+               token: "test-gh-token",
                request_fun: request,
                live_observations_fun: fn _, _ -> {:ok, []} end,
                job_log_fun: fn _, _ -> {:ok, "failed test ExampleTest regression"} end,
@@ -55,6 +56,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureFetchTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, []} end,
@@ -100,6 +102,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureFetchTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, []} end,

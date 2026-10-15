@@ -47,6 +47,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     assert :ok =
              MergeGroups.cancel_stale(observations,
                base_branch: "main",
+               token: "test-gh-token",
                request_fun: request,
                live_observations_fun: fn _, _ -> {:ok, observations} end
              )
@@ -103,6 +104,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     assert :ok =
              MergeGroups.cancel_stale(observations,
                base_branch: "main",
+               token: "test-gh-token",
                request_fun: request,
                live_observations_fun: fn _, _ -> {:ok, observations} end
              )
@@ -147,6 +149,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     assert :ok =
              MergeGroups.cancel_stale([],
                base_branch: "main",
+               token: "test-gh-token",
                request_fun: request,
                live_observations_fun: fn _, _ -> {:ok, newly_enqueued} end
              )

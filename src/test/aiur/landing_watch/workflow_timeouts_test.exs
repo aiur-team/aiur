@@ -28,6 +28,6 @@ defmodule Aiur.LandingWatch.WorkflowTimeoutsTest do
     run = %{"path" => ".github/workflows/ci.yml", "head_sha" => "merge-sha"}
 
     assert %{"browser smoke (3/3)" => 15, "lint" => 360} =
-             WorkflowTimeouts.for_jobs(run, jobs, request_fun: request)
+             WorkflowTimeouts.for_jobs(run, jobs, token: "test-gh-token", request_fun: request)
   end
 end

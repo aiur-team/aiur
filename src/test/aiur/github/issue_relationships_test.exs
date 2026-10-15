@@ -12,13 +12,14 @@ defmodule Aiur.GitHub.IssueRelationshipsTest do
     assert {:ok, %{nodes: [], truncated?: false}} =
              IssueRelationships.fetch_linked_pull_requests(@identity, @repository,
                limit: 7,
+               token: "test-gh-token",
                request_fun: request_fun(7)
              )
   end
 
   test "linked PR fetch without a limit fails loudly" do
     assert_raise KeyError, fn ->
-      IssueRelationships.fetch_linked_pull_requests(@identity, @repository, request_fun: request_fun(7))
+      IssueRelationships.fetch_linked_pull_requests(@identity, @repository, token: "test-gh-token", request_fun: request_fun(7))
     end
   end
 
@@ -26,6 +27,7 @@ defmodule Aiur.GitHub.IssueRelationshipsTest do
     assert {:ok, %{nodes: [], truncated?: false}} =
              Repository.fetch_linked_pull_requests(@identity, @repository,
                limit: 7,
+               token: "test-gh-token",
                relationship_request_fun: request_fun(20)
              )
   end

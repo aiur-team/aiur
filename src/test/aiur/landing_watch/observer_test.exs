@@ -52,7 +52,7 @@ defmodule Aiur.LandingWatch.ObserverTest do
       end
     end
 
-    assert {:ok, [pr]} = Observer.observe(request_fun: request)
+    assert {:ok, [pr]} = Observer.observe(token: "test-gh-token", request_fun: request)
     assert pr.number == 17
     assert pr.head == "head-17"
     assert pr.head_committed_at == "2026-10-14T00:00:00Z"
@@ -72,15 +72,15 @@ defmodule Aiur.LandingWatch.ObserverTest do
        }}
     end
 
-    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "old-head", request_fun: base_request)
-    assert :ok = Observer.revalidate_approved_head(17, "new-head", request_fun: base_request)
+    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "old-head", token: "test-gh-token", request_fun: base_request)
+    assert :ok = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: base_request)
 
     queued_request = fn graphql_request ->
       {:ok, response} = base_request.(graphql_request)
       {:ok, put_in(response, [:body, "data", "repository", "pullRequest", "mergeQueueEntry"], %{"id" => "entry-17"})}
     end
 
-    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "new-head", request_fun: queued_request)
+    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: queued_request)
   end
 
   test "queue refresh batches only approved or already queued PRs" do
@@ -125,7 +125,7 @@ defmodule Aiur.LandingWatch.ObserverTest do
       %{number: 18, raw: %{"reviewDecision" => "CHANGES_REQUESTED", "headRefOid" => "head-18"}, merge_queue_entry: nil}
     ]
 
-    assert {:ok, [%{number: 17}]} = Observer.refresh_queue(observations, request_fun: request)
+    assert {:ok, [%{number: 17}]} = Observer.refresh_queue(observations, token: "test-gh-token", request_fun: request)
     assert_received {:query, query}
     assert query =~ "pullRequest(number: 17)"
     refute query =~ "pullRequest(number: 18)"

@@ -56,6 +56,7 @@ defmodule Aiur.StartTrigger.ProgressWritersTest do
 
     assert {:ok, _result} =
              GithubFirehose.poll(
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: [event], headers: []}} end,
                recent_merge_fun: fn merge -> {:ok, %{status: :accepted, merge: merge}} end,
                boot_time: 0
@@ -67,7 +68,12 @@ defmodule Aiur.StartTrigger.ProgressWritersTest do
     fork = event |> put_in(["id"], "fork-event-#{fork_id}") |> put_in(["payload", "pull_request", "head"], %{"ref" => "aiur/#{fork_id}-progress", "repo" => %{"full_name" => "fork/repo"}})
 
     assert {:ok, _result} =
-             GithubFirehose.poll(request_fun: fn _ -> {:ok, %{status: 200, body: [fork], headers: []}} end, recent_merge_fun: fn merge -> {:ok, %{status: :accepted, merge: merge}} end, boot_time: 0)
+             GithubFirehose.poll(
+               token: "test-gh-token",
+               request_fun: fn _ -> {:ok, %{status: 200, body: [fork], headers: []}} end,
+               recent_merge_fun: fn merge -> {:ok, %{status: :accepted, merge: merge}} end,
+               boot_time: 0
+             )
 
     :sys.get_state(ProgressStore)
     assert ProgressStore.lookup(fork_id) == nil

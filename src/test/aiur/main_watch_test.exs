@@ -2,7 +2,9 @@ defmodule Aiur.MainWatchTest do
   use Aiur.TestSupport
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch
+  alias Aiur.MainWatch.GitHub, as: MainWatchGitHub
   alias Aiur.MainWatch.{Persistence, State}
 
   setup do
@@ -55,6 +57,36 @@ defmodule Aiur.MainWatchTest do
     green = %{observation("recovered", 2) | checks: [%{name: "test", conclusion: "success"}]}
     finish_poll(server, {:ok, result([green])})
     assert %{watcher: :running, status: :green, sha: "recovered", last_error: nil} = MainWatch.state(server)
+    stop_supervised!(MainWatch)
+  end
+
+  test "bounded production request wrapper preserves the configured GitHub token" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    token_key = {GitHubConfig, :resolved_token}
+    source_key = {GitHubConfig, :resolved_token_source}
+    previous_token = :persistent_term.get(token_key, :unset)
+    previous_source = :persistent_term.get(source_key, :unset)
+
+    on_exit(fn ->
+      restore_persistent_term(token_key, previous_token)
+      restore_persistent_term(source_key, previous_source)
+    end)
+
+    :persistent_term.put(token_key, "runtime-pat")
+    :persistent_term.put(source_key, :env)
+    parent = self()
+
+    request = fn call ->
+      send(parent, {:actual_request_token, call.token})
+      {:ok, %{status: 200, body: []}}
+    end
+
+    launch(Persistence.empty(),
+      poll_fun: fn branch, workflows, opts -> MainWatchGitHub.poll(branch, workflows, opts) end,
+      request_fun: request
+    )
+
+    assert_receive {:actual_request_token, "runtime-pat"}, 1_000
     stop_supervised!(MainWatch)
   end
 
@@ -326,4 +358,7 @@ defmodule Aiur.MainWatchTest do
   end
 
   defp run(conclusion, at), do: %{id: 3, sha: "old", attempt: 1, status: "completed", conclusion: conclusion, completed_at: at, url: "run"}
+
+  defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
+  defp restore_persistent_term(key, value), do: :persistent_term.put(key, value)
 end

@@ -1,4 +1,5 @@
 """Exercise the real detached relay through its Unix socket."""
+# Cohesion: black-box coverage for one detached-relay socket/journal protocol.
 import base64
 import json
 import importlib.util
@@ -92,6 +93,20 @@ class RelayTest(unittest.TestCase):
         journal = (self.directory / "out.journal").read_text().splitlines()
         self.assertCountEqual(journal, ["hello", "diagnostic"])
         self.assertFalse((self.directory / "err.log").exists())
+
+    def test_stdout_and_stderr_frames_preserve_child_write_order(self):
+        code = (
+            "import os\n"
+            "for index in range(100):\n"
+            " os.write(2, f'warning-{index}\\n'.encode())\n"
+            " os.write(1, f'frame-{index}\\n'.encode())"
+        )
+        self.start(code)
+        self.wait(lambda: json.loads((self.directory / "relay.json").read_text())["exit_status"] == 0)
+        _, stream, _ = self.connect(1)
+        frames = [self.read(stream) for _ in range(200)]
+        expected = [line for index in range(100) for line in (f"warning-{index}", f"frame-{index}")]
+        self.assertEqual([frame["line"] for frame in frames], expected)
 
     def test_provider_environment_is_exactly_the_scrubbed_spec(self):
         previous = os.environ.get("AIUR_RELAY_SECRET_TEST")

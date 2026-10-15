@@ -29,6 +29,7 @@
     "signal"
   ],
   "optional": [
+    "build-queue",
     "conversations"
   ],
   "owns": {

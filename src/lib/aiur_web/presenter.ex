@@ -31,9 +31,12 @@ defmodule AiurWeb.Presenter do
     |> Map.merge(auxiliary_payload(opts))
   end
 
-  @doc "Returns the current dashboard navigation contract for telemetry analytics."
+  @doc "Returns the current dashboard navigation contract and optional page capabilities."
   @spec analytics_navigation(keyword()) :: map()
-  def analytics_navigation(opts \\ []), do: analytics_payload(opts)
+  def analytics_navigation(opts \\ []) do
+    report = Aiur.Capabilities.report(opts)
+    Map.put(analytics_payload(opts), :experiments_available?, get_in(report, [:capabilities, "experiments", :state]) in [:available, :degraded])
+  end
 
   defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
@@ -91,7 +94,7 @@ defmodule AiurWeb.Presenter do
     %{
       decision_history: decision_history_payload(opts),
       recent_merges: recent_merges_payload(opts),
-      analytics: analytics_payload(opts)
+      analytics: analytics_navigation(opts)
     }
   end
 
@@ -190,11 +193,7 @@ defmodule AiurWeb.Presenter do
   end
 
   defp analytics_unavailable do
-    %{
-      available?: false,
-      path: nil,
-      message: "Telemetry analytics are available after a run telemetry run."
-    }
+    %{available?: false, path: nil, message: "Telemetry analytics are available after a run telemetry run."}
   end
 
   defp safe_call(fun) when is_function(fun, 0) do
