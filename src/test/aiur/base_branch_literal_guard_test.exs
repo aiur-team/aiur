@@ -32,7 +32,7 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
     ],
     "aiur/merge_policy_cli.ex" => [
       ~S|labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"|,
-      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{main}")|,
+      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher} landing_watcher=#{landing.watcher}#{main}")|,
       ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,
