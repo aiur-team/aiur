@@ -191,9 +191,7 @@ defmodule Aiur.AgentControlCLI do
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
     print_build_gate_status()
-
     if Config.tracker_kind() == "github", do: HoldPressure.print_status()
-
     print_prewarm_status()
     print_blocking_asks(opts)
     exit_marker(supervision_exit_code)
