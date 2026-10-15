@@ -38,7 +38,9 @@ Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding br
 
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
-Each CI batch reads branch rules (`ci_required_checks`) and requires every check on the PR head; the landing watcher uses the same policy. Startup readiness refreshes workflows and required checks using operator-only `AIUR_CI_READINESS_TOKEN`; this repo requires `ci gate`. Without that variable, readiness is reported as unavailable instead of trusting a stored assessment. Main-watch polls use the daemon's App installation credential (or its configured PAT); after a 401, App auth is refreshed once and the poll retried. Persistent failures appear in `aiur status` as `watcher_error` with the failed request and credential class. Lookup failures keep green aggregates pending; missing or skipped checks never pass.
+Each CI batch reads branch rules (`ci_required_checks`) and requires every check on the PR head; the landing watcher uses the same policy. Startup readiness refreshes workflows and required checks using operator-only `AIUR_CI_READINESS_TOKEN`; this repo requires `ci gate`. Without that variable, readiness is reported as unavailable instead of trusting a stored assessment.
+
+Main-watch polls use the daemon's App installation credential (or its configured PAT); after a 401, App auth is refreshed once and the poll retried. Persistent failures appear in `aiur status` as `watcher_error` with the failed request and credential class. Lookup failures keep green aggregates pending; missing or skipped checks never pass.
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
