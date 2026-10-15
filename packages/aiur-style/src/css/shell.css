@@ -11,7 +11,12 @@
     --aiur-shell-hairline: rgba(42, 37, 26, 0.1);
     --aiur-shell-pill-bg: rgba(42, 37, 26, 0.04);
   }
-  .aiur-shell__tool:disabled {
+  .aiur-shell__pause[aria-pressed="true"] {
+    border-color: var(--aiur-color-warning, #d08a2a);
+    color: var(--aiur-color-warning, #d08a2a);
+    background: color-mix(in srgb, var(--aiur-color-warning, #d08a2a) 16%, transparent);
+  }
+  .aiur-shell__pause:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
