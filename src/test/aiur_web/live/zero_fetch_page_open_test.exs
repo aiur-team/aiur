@@ -45,6 +45,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
+  alias Aiur.RunTelemetry.FactsCapture
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
@@ -76,20 +77,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
     Aiur.TestSupport.await_orchestrator_state(orchestrator, &(map_size(&1.tracker_tasks) == 0))
-
-    # PRHealthScanner owns its timer independently of Orchestrator.tracker_tasks.
-    # If its opt-in scan becomes due during this test, its repo-wide open-PR
-    # listing is counted as though the dashboard had fetched it. Park that
-    # periodic worker for the test and restore it on exit.
-    scanner_was_running? = is_pid(Process.whereis(Aiur.PRLifecycle.HealthScanner))
-    if scanner_was_running?, do: :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.PRLifecycle.HealthScanner)
-    refute Process.whereis(Aiur.PRLifecycle.HealthScanner), "PR health polling must not share the dashboard's GitHub counter"
-
-    on_exit(fn ->
-      if scanner_was_running? and Process.whereis(Aiur.PRLifecycle.HealthScanner) == nil do
-        {:ok, _scanner} = Supervisor.restart_child(Aiur.Supervisor, Aiur.PRLifecycle.HealthScanner)
-      end
-    end)
 
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
     # and asserts it reaches the transport. That URL is now cacheable
@@ -126,10 +113,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
     {:ok, counter} = Agent.start_link(fn -> [] end)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
+    test_pid = self()
 
     Application.put_env(:aiur, :github_transport_test_options,
       plug: fn conn ->
         Agent.update(counter, &[{conn.method, conn.request_path} | &1])
+        send(test_pid, {:github_request, conn.method, conn.request_path})
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -272,6 +261,13 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
         send(view.pid, tick)
         _rendered = render(view)
       end)
+
+      # The shared app's FactsCapture retries tickets that earlier tests queued on
+      # its own 5 s tick, and each retry is a `POST /graphql` once a token is set
+      # (#3505). Queue one now instead of waiting for the tick: if the shared app
+      # runs that worker, wait for its fetch so the count below includes it.
+      FactsCapture.capture("3505")
+      if Process.whereis(FactsCapture), do: receive_barrier({:github_request, "POST", "/graphql"})
 
       requests = Agent.get(counter, & &1)
 
