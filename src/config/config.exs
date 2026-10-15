@@ -39,6 +39,8 @@ config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :experiment_metric_packs, [Aiur.Experiments.Packs.DeliverySpeed]
 
+config :aiur, :init_contributions, [Aiur.Voice]
+
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
   Aiur.Capabilities.MergePolicyProvider,
