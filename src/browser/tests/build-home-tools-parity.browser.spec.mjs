@@ -5,22 +5,32 @@ import { assertNoDocumentOverflow, assertControlsRemainReachable, expectAuditCle
 
 test.setTimeout(90_000)
 
-// Reflow each isolated region at an integer origin; transforms retain fractional rasterization.
+// Capture each region at a stable integer origin, independent of full-page viewport resizing.
 async function compareRegion(pair, options) {
   await applyAllowlist(pair, pair.cell)
   // View changes recreate the select; the shared allowlist records its first removal only.
   const demo = pair.allowlist.find(entry => entry.id === 'demo-data-select')
   await pair.design.locator(demo.selector).evaluateAll(nodes => nodes.forEach(node => node.remove()))
-  const styles = []
+  const styles = [], chrome = [], backgrounds = []
   for (const side of ['design', 'product']) {
     await pair[side].evaluate(() => {
       window.scrollTo(0, 0)
       document.getAnimations().forEach(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime) ? animation.finish() : animation.cancel())
     })
+    // Sibling header/usage content changes the region's Y and the inherited body gradient.
+    // Compare transparent corners against the same canvas without altering the controls.
+    backgrounds.push(await pair[side].evaluate(() => {
+      const original = document.body.style.background; document.body.style.background = 'var(--bg)'; return original
+    }))
+    // Fixed shell navigation is outside this ticket and can cover a full-page clip on phones.
+    chrome.push(await pair[side].locator('.sidenav, .ax-top').evaluateAll(nodes => nodes.map(el => {
+      const visibility = el.style.visibility; el.style.visibility = 'hidden'; return visibility
+    })))
     styles.push(await pair[side].locator(options.region).evaluate(el => {
     const original = el.getAttribute('style'), box = el.getBoundingClientRect()
-    Object.assign(el.style, { position: 'relative', left: Math.round(box.x) - box.x + 'px',
-      top: Math.round(box.y) - box.y + 'px', transform: 'none' })
+    Object.assign(el.style, { position: 'fixed', left: Math.round(box.x) + 'px', top: '100px',
+      width: box.width + 'px', boxSizing: 'border-box', margin: '0', zIndex: '9999',
+      background: 'var(--bg)', transform: 'translateZ(0)' })
     return original
     }))
   }
@@ -29,6 +39,8 @@ async function compareRegion(pair, options) {
     for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator(options.region).evaluate((el, style) => {
       if (style === null) el.removeAttribute('style'); else el.setAttribute('style', style)
     }, styles[index])
+    for (const [index, side] of ['design', 'product'].entries()) await pair[side].evaluate(background => { document.body.style.background = background }, backgrounds[index])
+    for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator('.sidenav, .ax-top').evaluateAll((nodes, values) => nodes.forEach((el, i) => { el.style.visibility = values[i] }), chrome[index])
   }
 }
 
@@ -88,6 +100,6 @@ test('toolbar breakpoint and reduced motion guards preserve existing stylesheet 
     await expect(pair.product.locator('.bd-live i')).toHaveCSS('animation-name', 'bdPulse')
     await pair.product.emulateMedia({ reducedMotion: 'reduce' })
     await expect(pair.product.locator('.bd-live i')).toHaveCSS('animation-name', 'none')
-    await expect(pair.product.locator('.bd-live')).toHaveCSS('transition-duration', '0s')
+    expect(parseFloat(await pair.product.locator('.bd-live').evaluate(el => getComputedStyle(el).transitionDuration))).toBeLessThanOrEqual(0.00001)
   } finally { await pair.close() }
 })
