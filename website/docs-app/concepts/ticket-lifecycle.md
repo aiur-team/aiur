@@ -94,9 +94,10 @@ read (`GitHub.IssueState.swap_labels/4`); naming an old label to remove can race
 with an orchestrator transition and leave contradictory labels behind.
 
 For `human-review`, the writer also checks review threads and the exact PR head
-against `tracker.base_branch`. Stale heads pass only with no conflicts or
+against `tracker.base_branch`. An approved exact head tolerates overlap-only
+staleness; an unapproved stale head passes only with no conflicts or
 changed-file overlap since the merge base, including both paths of renames.
-Incomplete evidence, mismatched heads or bases, conflicts and overlap leave
+Incomplete evidence, mismatched heads or bases, and genuine conflicts leave
 labels unchanged.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
