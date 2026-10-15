@@ -6,13 +6,15 @@ defmodule AiurWeb.Markdown.Table do
     cells = cells(delimiter)
 
     if cells != [] and row?(header) and length(cells(header)) == length(cells) and Enum.all?(cells, &Regex.match?(~r/^:?-{3,}:?$/, &1)) do
-      Enum.map(cells, fn cell ->
-        cond do
-          String.starts_with?(cell, ":") and String.ends_with?(cell, ":") -> "md-al-c"
-          String.ends_with?(cell, ":") -> "md-al-r"
-          true -> "md-al-l"
-        end
-      end)
+      Enum.map(cells, &alignment/1)
+    end
+  end
+
+  defp alignment(cell) do
+    cond do
+      String.starts_with?(cell, ":") and String.ends_with?(cell, ":") -> "md-al-c"
+      String.ends_with?(cell, ":") -> "md-al-r"
+      true -> "md-al-l"
     end
   end
 

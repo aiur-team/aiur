@@ -13,6 +13,7 @@ defmodule AiurWeb.Markdown do
   """
 
   import Phoenix.HTML, only: [raw: 1]
+  alias AiurWeb.Markdown.Table
 
   @heading ~r/^\s*(\#{1,6})\s+(.+)$/
   @fence ~r/^\s*(?:```|~~~)/
@@ -78,13 +79,13 @@ defmodule AiurWeb.Markdown do
   defp render_blocks([], _offset), do: ""
 
   defp render_blocks([header, delimiter | rest] = lines, offset) do
-    case AiurWeb.Markdown.Table.alignments(header, delimiter) do
+    case Table.alignments(header, delimiter) do
       nil ->
         render_non_table(lines, offset)
 
       alignments ->
-        {rows, remaining} = Enum.split_while(rest, &AiurWeb.Markdown.Table.row?/1)
-        AiurWeb.Markdown.Table.render(header, rows, alignments, &inline(escape(&1))) <> render_blocks(remaining, offset)
+        {rows, remaining} = Enum.split_while(rest, &Table.row?/1)
+        Table.render(header, rows, alignments, &inline(escape(&1))) <> render_blocks(remaining, offset)
     end
   end
 
@@ -96,7 +97,7 @@ defmodule AiurWeb.Markdown do
   end
 
   defp take_until_table([header, delimiter | rest] = lines, acc) do
-    if AiurWeb.Markdown.Table.alignments(header, delimiter) do
+    if Table.alignments(header, delimiter) do
       {Enum.reverse(acc), lines}
     else
       take_until_table([delimiter | rest], [header | acc])
