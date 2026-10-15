@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { test, expect } from '@playwright/test'
-import { openParityPair, expectDesignParity, FIXTURE_META, waitParityReady } from '../support/design-parity.mjs'
+import { openParityPair, expectDesignParity, applyAllowlist, FIXTURE_META, waitParityReady } from '../support/design-parity.mjs'
 import { runOn, compareRecords } from '../support/build-home-motion.mjs'
 
 const source = await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8')
@@ -12,7 +12,7 @@ const probe = source.replace(anchor, `window.__E8Render = { stop: () => { S.read
 } };\n${anchor}`)
 
 for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) test(`section headers and vertical geometry match the design: ${dataset} ${width} ${theme}`, async ({ browser }) => {
-  const cell = { viewport: { width, height: width === 390 ? 844 : 900 }, theme, palette: 'aiur', dataset }
+  const cell = { viewport: { width, height: width === 390 ? 844 : 900 }, theme, palette: 'aiur', dataset, ...(width === 390 ? { deviceScaleFactor: 3, isMobile: true, hasTouch: true } : {}) }
   const pair = await openParityPair(browser, cell, { motion: true })
   try {
     await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: probe }))
@@ -21,12 +21,19 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
     await pair.design.evaluate(() => window.__E8Render.stop())
     // Collapse the separately owned sticky Now band through its actual UI, so
     // it cannot cover section headers while their natural pixels are captured.
-    await pair.design.locator('[data-min]').click({ force: true })
+    await pair.design.locator('[data-min]').evaluate(button => button.click())
+    await expect(pair.design.locator('#bd-now')).toHaveClass(/min/)
     await pair.product.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
+    // Preserve the harness's existing AA palette exceptions; add no local masks/styles.
+    await applyAllowlist(pair, pair.cell)
     const read = page => page.evaluate(() => ['hist', 'plan', 'nq'].map(sec => ({
       sec, h: document.querySelector('#bd-sec-' + sec).style.height,
       contentWidth: document.querySelector('#bd-content').style.width, dot: getComputedStyle(document.querySelector('#bd-vp')).backgroundSize,
       head: document.querySelector('#bd-sec-' + sec + ' .bd-sech').innerHTML,
+      typography: Array.from(document.querySelectorAll('#bd-sec-' + sec + ' .bd-sech, #bd-sec-' + sec + ' .bd-sech em'), el => {
+        const style = getComputedStyle(el)
+        return Object.fromEntries(['font', 'color', 'letterSpacing', 'textTransform', 'whiteSpace'].map(key => [key, style[key]]))
+      }),
       cards: Array.from(document.querySelectorAll('#bd-sec-' + sec + ' .bd-card'), el => ({ id: el.dataset.id.replace('AIUR-', ''), top: parseFloat(el.style.top), height: parseFloat(el.style.height) })).sort((a, b) => a.id.localeCompare(b.id)),
       marks: Array.from(document.querySelectorAll('#bd-sec-' + sec + ' .bd-mk, #bd-sec-' + sec + ' .bd-lbl, #bd-sec-' + sec + ' .bd-dl'), el => ({
         cls: el.className, text: el.textContent, ...Object.fromEntries(['top', 'height', 'left', 'width'].map(key => [key, parseFloat(getComputedStyle(el)[key])]))
@@ -38,6 +45,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
     // Compare every owned card/mark, with exact identity (never an intersection).
     for (let i = 0; i < design.length; i++) {
       expect(product[i].h).toBe(design[i].h); expect(product[i].head).toBe(design[i].head)
+      expect(product[i].typography).toEqual(design[i].typography)
       expect(product[i].contentWidth).toBe(design[i].contentWidth); expect(product[i].dot).toBe(design[i].dot)
       const h = parseFloat(design[i].h)
       for (const offset of [Math.max(0, h - 46), Math.max(0, h - 2046), 0]) {
@@ -54,12 +62,14 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
       }
       for (const page of [pair.design, pair.product]) {
         await page.clock.setSystemTime(FIXTURE_META.now)
-        await page.locator('#bd-vp').evaluate((vp, sec) => { vp.scrollTop = document.querySelector('#bd-sec-' + sec).offsetTop - 160 }, design[i].sec)
+        await page.locator('#bd-vp').evaluate((vp, sec) => { vp.scrollIntoView({ block: 'start' }); vp.scrollTop = document.querySelector('#bd-sec-' + sec).offsetTop - 160 }, design[i].sec)
       }
-      // Snapshot the natural history boundary em, which is unaffected by the
-      // deferred sticky band and viewport backdrop. All three complete headers
-      // are compared character-for-character above; no pixels are repainted.
-      if (design[i].sec === 'hist') await expectDesignParity(pair, { name: `header-hist-${dataset}-${width}-${theme}`, region: '#bd-sec-hist .bd-sech em:first-child' })
+      // Accepted scope decision dec_2043ed93d73bbe63: mobile uses exact DOM,
+      // geometry and typography. C9-T08 owns composed mobile header pixels,
+      // without masks. Retain the existing unmodified desktop element capture.
+      if (width === 1440 && design[i].sec === 'hist') await expectDesignParity(pair, {
+        name: `header-hist-${dataset}-${width}-${theme}`, region: '#bd-sec-hist .bd-sech em:first-child'
+      })
     }
   } finally { await pair.close() }
 })

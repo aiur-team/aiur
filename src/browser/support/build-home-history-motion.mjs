@@ -40,16 +40,26 @@ async function sample(page, ids) {
 export async function historySequence(page, ctx, name) {
   const ids = ctx.ids ?? FIXTURE_META.ids
   if (name === 'load-earlier') {
-    const before = await page.locator('#bd-sec-hist').evaluate(el => el.offsetHeight)
-    await scroll(page, 200)
-    await expect.poll(async () => {
-      await page.clock.runFor(16)
-      return page.locator('#bd-sec-hist').evaluate(el => el.offsetHeight)
-    }).toBeGreaterThan(before)
-    await page.clock.runFor(48)
-    const state = await sample(page, ids)
-    expect(state.transitions, 'paging must not animate history cards').toEqual([])
-    return { samples: [state] }
+    // Settle cards just outside the paging trigger before moving to 200. Cards
+    // created by that same scroll still have noanim and cannot expose a slide.
+    await scroll(page, 260)
+    const thumb = await page.locator('#bd-sb i').boundingBox()
+    await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + 3)
+    await page.mouse.down()
+    try {
+      await page.clock.runFor(80)
+      await page.locator('.bd-card').evaluateAll(cards => cards.forEach(card => getComputedStyle(card).top))
+      const before = await page.locator('#bd-sec-hist').evaluate(el => el.offsetHeight)
+      await scroll(page, 200)
+      await expect.poll(async () => {
+        await page.clock.runFor(16)
+        return page.locator('#bd-sec-hist').evaluate(el => el.offsetHeight)
+      }).toBeGreaterThan(before)
+      await page.clock.runFor(48)
+      const state = await sample(page, ids)
+      expect(state.transitions, 'paging must not animate history cards').toEqual([])
+      return { samples: [state] }
+    } finally { await page.mouse.up() }
   }
   const band = await page.locator('#bd-sec-hist').evaluate(el => el.offsetTop + el.offsetHeight)
   const positions = []

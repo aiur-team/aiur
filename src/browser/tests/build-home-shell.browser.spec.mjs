@@ -219,6 +219,8 @@ test('B11 remount resets state and disposes old listeners and intervals', async 
   expect(await page.evaluate(() => window.buildIntervals.size)).toBe(0)
   await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?view=list', null))
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-home-hook', 'mounted')
+  // The initial snapshot creates the viewport and clears its lock after mounting.
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
   expect((await state(page)).view).toBe('list')
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js'); ctx.lockId = '1'; window.unlocks = 0; fx.unlock = () => window.unlocks++
@@ -290,7 +292,8 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
 })
 
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
-  await ready(page); await isolateScrollbar(page); await page.clock.install(); await page.clock.pauseAt(new Date())
+  await ready(page); await isolateScrollbar(page)
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') }); await page.clock.pauseAt(new Date('2030-01-01T00:00:01Z'))
   const measure = () => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'); (await import('/build-home/shell.js')).syncSB()
     const sb = document.querySelector('#bd-sb'), th = sb.querySelector('i')
@@ -335,7 +338,8 @@ test('store moves rows, removes ids, replaces blocks and merges older pages with
 })
 
 test('destroy cancels timers, frames and late replies without mutating a new mount', async ({ page }) => {
-  await ready(page); await isolateScrollbar(page); await page.clock.install(); await page.clock.pauseAt(new Date())
+  await ready(page); await isolateScrollbar(page)
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') }); await page.clock.pauseAt(new Date('2030-01-01T00:00:01Z'))
   expect(await page.evaluate(async () => {
     const { ctx, resetState } = await import('/build-home/state.js'), { resync, createBuildHomeHook } = await import('/build-home/hook.js')
     const { createLife } = await import('/build-home/life.js'); let resolve, calls = 0
