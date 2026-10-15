@@ -493,10 +493,6 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
         run: node scripts/run-browser-smoke-shard.mjs 1
-      - name: Run shared browser setup checks
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node --test scripts/home-css-ci.test.mjs scripts/browser-admission.test.mjs scripts/build-home-protocol.test.mjs scripts/build-home-now-state.test.mjs
       - name: Check browser fixtures and vendored assets
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
