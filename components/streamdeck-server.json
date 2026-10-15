@@ -1,15 +1,17 @@
 {
   "id": "streamdeck-server",
-  "name": "Daemon side of the Stream Deck (MP-R6)",
+  "name": "Stream Deck connection",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur_web/controllers/streamdeck*.ex",
     "src/lib/aiur_web/routes/streamdeck.ex",
     "src/lib/aiur_web/sockets/streamdeck.ex",
     "src/lib/aiur_web/stream_deck_grid.ex",
     "src/lib/aiur_web/streamdeck*.ex",
-    "src/lib/aiur_web/streamdeck_logs/*.ex"
+    "src/lib/aiur_web/streamdeck_channel/*.ex",
+    "src/lib/aiur_web/streamdeck_logs/*.ex",
+    "src/lib/aiur_web/streamdeck_projection/*.ex"
   ],
   "facades": [
     "*"
@@ -36,5 +38,19 @@
   },
   "prior": [
     "SD"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Serves agent status, Commands and conversations to connected Stream Deck clients.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/stream-deck.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [
+    "streamdeck"
   ]
 }

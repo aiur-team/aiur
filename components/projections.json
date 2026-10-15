@@ -1,8 +1,8 @@
 {
   "id": "projections",
-  "name": "Current-run read models",
+  "name": "Run snapshots",
   "layer": 3,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/current_run_outcome_snapshot.ex",
     "src/lib/aiur/current_run_outcome_snapshot/**",
@@ -12,6 +12,7 @@
     "src/lib/aiur/current_run_summary.ex",
     "src/lib/aiur/current_run_summary/**",
     "src/lib/aiur/progress_retention.ex",
+    "src/lib/aiur/progress_retention/**",
     "src/lib/aiur/progress_tracker.ex",
     "src/lib/aiur/projections/**",
     "src/lib/aiur/ticket_activity.ex",
@@ -51,5 +52,15 @@
   },
   "prior": [
     "PRJ"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Builds current-run snapshots for dashboards and other operator surfaces.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

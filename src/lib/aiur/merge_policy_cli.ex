@@ -7,8 +7,9 @@ defmodule Aiur.MergePolicyCLI do
     watch = if policy.main_watch.enabled, do: "on(#{policy.main_watch.on_red})", else: "off"
     labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"
     state = Aiur.MainWatch.state()
+    landing = Aiur.LandingWatch.state()
     main = if policy.main_watch.enabled or state.watcher != :not_running, do: " " <> main_state(state), else: ""
-    IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{main}")
+    IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher} landing_watcher=#{landing.watcher}#{main}")
   end
 
   @spec main_state(map(), integer()) :: String.t()

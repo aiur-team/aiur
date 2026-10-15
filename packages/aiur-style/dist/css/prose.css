@@ -1,0 +1,69 @@
+@layer aiur {
+  .aiur-summary {
+    max-width: 880px;
+    text-align: center;
+    text-wrap: balance;
+    font-family: var(--aiur-font-body);
+    font-weight: 500;
+    font-size: var(--aiur-text-summary);
+    line-height: 1.26;
+    letter-spacing: -0.015em;
+    color: var(--aiur-color-fg);
+    transition: color 0.5s ease;
+  }
+  .aiur-hl { color: var(--aiur-color-accent); }
+  .aiur-signoff {
+    margin-inline: auto;
+    max-width: 17ch;
+    text-align: center;
+    text-wrap: balance;
+    font-family: var(--aiur-font-body);
+    font-weight: 600;
+    font-size: var(--aiur-text-signoff);
+    line-height: 1.16;
+    letter-spacing: -0.02em;
+    color: var(--aiur-color-fg);
+  }
+  .aiur-hint {
+    font-family: var(--aiur-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--aiur-color-muted);
+  }
+  .aiur-lockup {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(14px, 2.4vw, 30px);
+  }
+  .aiur-lockup__logo {
+    height: var(--aiur-lockup-logo-size, clamp(120px, 18vw, 224px));
+    width: auto;
+    display: block;
+  }
+  .aiur-wordmark {
+    font-family: var(--aiur-font-display);
+    font-size: var(--aiur-wordmark-size, clamp(40px, 8vw, 96px));
+    line-height: 0.82;
+    letter-spacing: 0.01em;
+    color: var(--aiur-color-fg);
+    display: flex;
+    transition: color 0.5s ease;
+  }
+  .aiur-wordmark span {
+    display: inline-block;
+    transform: translateY(18px);
+    opacity: 0;
+    animation: aiur-rise 0.7s cubic-bezier(.2,.85,.3,1) forwards;
+  }
+  .aiur-wordmark span:nth-child(1){ animation-delay: .35s; }
+  .aiur-wordmark span:nth-child(2){ animation-delay: .45s; }
+  .aiur-wordmark span:nth-child(3){ animation-delay: .55s; }
+  .aiur-wordmark span:nth-child(4){ animation-delay: .65s; }
+
+  .aiur-wordmark { margin: 0; font-weight: 400; }
+  @keyframes aiur-rise { to { transform: translateY(0); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .aiur-wordmark span { animation: none; opacity: 1; transform: none; }
+  }
+}

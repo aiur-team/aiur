@@ -33,7 +33,7 @@ def edge_rules(component, provider, target):
         rules.append('R-private')
     if provider['layer'] > component['layer']:
         rules.append('R-down')
-    if component['kind'] == 'required' and provider['kind'] == 'optional':
+    if component['dependency_kind'] == 'required' and provider['dependency_kind'] == 'optional':
         rules.append('R-optional')
     return rules
 

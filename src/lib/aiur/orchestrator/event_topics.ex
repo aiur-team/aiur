@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
-  alias Aiur.Orchestrator.{BlockerPropagation, CiLifecycle, CommentWake, Dispatcher, Lifecycle, MergeOrderAudit, OptimisticGuardEffects, PushRouting, RestackScheduler, State}
+  alias Aiur.Orchestrator.{BlockerPropagation, CiLifecycle, CommentWake, Dispatcher, Lifecycle, MergeOrderAudit, OptimisticEvents, OptimisticGuardEffects, PushRouting, RestackScheduler, State}
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
@@ -17,7 +17,12 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
   defp route_classified(state, {:pr_merged, identifier}, event),
-    do: state |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event)) |> RestackScheduler.merged(identifier, event) |> MergeOrderAudit.merged(identifier, event)
+    do:
+      state
+      |> OptimisticEvents.merged(identifier, event)
+      |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event))
+      |> RestackScheduler.merged(identifier, event)
+      |> MergeOrderAudit.merged(identifier, event)
 
   defp route_classified(state, {:optimistic_blocker_changed, identifier}, _event),
     do: OptimisticGuardEffects.reconcile(state, force_blocker: identifier)
@@ -51,10 +56,12 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
+  defp route_classified(state, {:optimistic_integrated, identifier}, event), do: OptimisticEvents.integrated(state, identifier, event)
+
   defp route_classified(state, {:branch_push, blocker_identifier}, event) do
     if Map.get(Map.get(event, :payload, event), :superseded, false),
       do: state,
-      else: state |> PushRouting.record_blocker_branch_push(blocker_identifier, event) |> BlockerPropagation.pushed(blocker_identifier, event)
+      else: state |> PushRouting.record_blocker_branch_push(blocker_identifier, event) |> OptimisticEvents.pushed(blocker_identifier, event) |> BlockerPropagation.pushed(blocker_identifier, event)
   end
 
   defp route_classified(state, {:system_branch_push, branch}, event),
@@ -182,6 +189,7 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
          :nomatch <- tag_topic(:decision_answered, parse_decision_answered_topic(topic)),
          :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
+         :nomatch <- tag_topic(:optimistic_integrated, parse_optimistic_integrated_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
     end
@@ -190,6 +198,14 @@ defmodule Aiur.Orchestrator.EventTopics do
   @spec parse_optimistic_blocker_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_optimistic_blocker_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.pr\.(?:closed_unmerged|reopened|opened)\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
+  @spec parse_optimistic_integrated_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_optimistic_integrated_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.optimistic\.integrated\z}, topic) do
       [_, identifier] -> {:ok, identifier}
       _ -> :nomatch
     end

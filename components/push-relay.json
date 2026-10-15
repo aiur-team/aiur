@@ -1,8 +1,8 @@
 {
   "id": "push-relay",
-  "name": "Encrypted notification relay client (MP-N4, new)",
+  "name": "Encrypted notifications",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [],
   "facades": [
     "*"
@@ -24,5 +24,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Sends encrypted event notifications to paired devices through a relay.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N4"
 }

@@ -1,8 +1,8 @@
 {
   "id": "github-listeners",
-  "name": "GitHub event ingestion (webhook + pollers)",
+  "name": "GitHub event ingestion",
   "layer": 2,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/events/branch_ref_store.ex",
     "src/lib/aiur/events/branch_rewrite_classifier.ex",
@@ -53,5 +53,23 @@
   },
   "prior": [
     "ING"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Turns GitHub webhook deliveries and polling observations into ticket events.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "apis/github.md"
+  ],
+  "config": [
+    "webhooks"
+  ],
+  "env": [
+    "AIUR_GITHUB_WEBHOOK_SECRET"
+  ],
+  "capabilities": [
+    "webhook_ingress"
   ]
 }

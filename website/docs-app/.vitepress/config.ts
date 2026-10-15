@@ -137,7 +137,10 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'TUI', link: '/guide/tui' },
             { text: 'CLI', link: '/reference/cli' },
+            { text: 'Build History Commands', link: '/reference/build-history-commands' },
+            { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
+            { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
             { text: 'Stream Deck', link: '/guide/stream-deck' }
           ]
         },
@@ -149,7 +152,9 @@ export default withMermaid(defineConfig({
             { text: 'Commands', link: '/concepts/commands' },
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
+            { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
+            { text: 'Operating with aiurdev', link: '/concepts/operating-with-aiurdev' },
             { text: 'Headroom dispatch', link: '/concepts/headroom-dispatch' },
             { text: 'Capabilities', link: '/concepts/capabilities' },
             { text: 'Experiments', link: '/concepts/experiments' },
@@ -169,6 +174,9 @@ export default withMermaid(defineConfig({
           text: 'Reference',
           items: [
             { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Configuration: agent', link: '/reference/configuration-agent' },
+            { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
+            { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]

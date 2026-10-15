@@ -45,6 +45,7 @@ reap_aiur_agents() {
 
   if [ -n "$tmux_bin" ] && [ -n "$socket" ]; then
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+    "$tmux_bin" -L "${socket}-agents" kill-server 2>/dev/null || true
   fi
 
   [ -n "$pidfile" ] && [ -r "$pidfile" ] || return 0

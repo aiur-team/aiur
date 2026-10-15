@@ -64,7 +64,10 @@ defmodule Aiur.SessionHandle do
       "updated_at" => timestamp()
     }
 
-    JsonStore.write!(path_for(identifier, opts), payload)
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      existing = read_payload(identifier, opts)
+      JsonStore.write!(path_for(identifier, opts), Map.merge(existing, payload))
+    end)
   end
 
   @doc """
@@ -87,6 +90,37 @@ defmodule Aiur.SessionHandle do
       {:error, reason} ->
         Logger.warning("SessionHandle(#{identifier}) unreadable handle, treating as clean start: #{inspect(reason)}")
         :none
+    end
+  end
+
+  @doc "Read the durable hook spool cursor, including its rotation generation."
+  @spec hook_cursor(String.t(), keyword()) :: map()
+  def hook_cursor(identifier, opts \\ []) do
+    case read_payload(identifier, opts)["hook_cursor"] do
+      %{"offset" => offset, "generation" => generation, "seen" => seen} = cursor
+      when is_integer(offset) and offset >= 0 and (is_binary(generation) or is_nil(generation)) and is_list(seen) ->
+        if Enum.all?(seen, &is_binary/1), do: cursor, else: empty_hook_cursor()
+
+      _ ->
+        empty_hook_cursor()
+    end
+  end
+
+  defp empty_hook_cursor, do: %{"offset" => 0, "generation" => nil, "seen" => []}
+
+  @doc "Persist the processed hook cursor without replacing the resumable thread."
+  @spec save_hook_cursor(String.t(), map(), keyword()) :: :ok
+  def save_hook_cursor(identifier, cursor, opts \\ []) do
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      payload = Map.put(read_payload(identifier, opts), "hook_cursor", cursor)
+      JsonStore.write!(path_for(identifier, opts), payload)
+    end)
+  end
+
+  defp read_payload(identifier, opts) do
+    case JsonStore.read(path_for(identifier, opts)) do
+      {:ok, payload} when is_map(payload) -> payload
+      _ -> %{}
     end
   end
 

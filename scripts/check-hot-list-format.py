@@ -9,7 +9,7 @@ from components.manifest import format_json, read_manifest
 
 CODE_LISTS = {
     'src/lib/aiur/run_telemetry/lifecycle.ex': ('events', 'boundaries', 'metadata_fields'),
-    'src/test/aiur/application_test.exs': ('terminal_only', 'dashboard', 'always'),
+    'src/test/aiur/application/children_test.exs': ('terminal_only', 'dashboard', 'always'),
     'src/test/aiur/application_child_order_test.exs': ('existing_children', 'flags'),
     'src/lib/aiur/run_telemetry/run_context.ex': ('volatile',),
     'src/lib/aiur/run_telemetry/dataset.ex': ('carried_point_events',),
@@ -51,7 +51,8 @@ def check(root):
         text = path.read_text()
         entries = re.findall(r'^  \{([^,]+),\s*(:[^,]+),', text, re.M)
         total = len(re.findall(r'\{\s*[A-Z][\w.]*\s*,', text))
-        if len(entries) != total or entries != sorted(set(entries)):
+        keys = [tuple(part.strip() for part in entry) for entry in entries]
+        if len(entries) != total or keys != sorted(set(keys)):
             errors.append(f'{path.relative_to(root)}: writers need one tuple per line, with sorted unique keys')
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(str(error))
