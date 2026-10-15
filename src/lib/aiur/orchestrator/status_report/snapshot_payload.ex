@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.PollCadence
+  alias Aiur.Tmux.Socket
   alias Aiur.Workspace.Ownership.Retention
 
   @doc false
@@ -133,6 +134,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     %{
       issue_id: issue_id,
+      adopted_from: Map.get(metadata, :adopted_from),
       identifier: metadata.identifier,
       tracker_identity: Issue.tracker_identity(metadata.issue),
       state: metadata.issue.state,
@@ -142,6 +144,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       worker_host: Map.get(metadata, :worker_host),
       workspace_path: Map.get(metadata, :workspace_path),
       session_id: Map.get(metadata, :session_id),
+      repl_attach_command: Socket.attach_command(metadata),
       live_conversation: Map.get(metadata, :live_conversation),
       codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
       agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),

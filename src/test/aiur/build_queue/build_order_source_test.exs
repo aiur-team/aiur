@@ -114,12 +114,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        assert Aiur.BuildQueueCLI.run(verb: :add, build_order: 99, queue: "roadmap", server: pid) == 1
+        assert Aiur.BuildQueueCLI.run(verb: :add, build_order: 99, queue: "roadmap", rank: 0, server: pid) == 1
       end)
 
     assert output =~ "Build Order #99: ok"
     assert output =~ "#1: already in queue paseo"
-    assert Enum.find(get(:document).queues, &(&1.root == 99)).name == "roadmap"
+    assert Enum.map(get(:document).queues, &{&1.name, &1.rank}) == [{"roadmap", 0}, {"paseo", 1}]
     assert Enum.find(get(:document).items, &(&1.issue_id == "2")).queue_id == Enum.find(get(:document).queues, &(&1.name == "roadmap")).id
     assert {:ok, [{"Build Order #99", {:error, :already_adopted}}]} = MutationCLI.execute(verb: :add, build_order: 99, server: pid)
   end
@@ -216,6 +216,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     pid = server(projection)
     assert :ok = Aiur.BuildQueue.add(["1"], "list")
     assert {:ok, [{"1", :already_queued}]} = Aiur.BuildQueue.adopt(99)
+    assert Enum.map(get(:document).queues, &{&1.kind, &1.rank}) == [{:list, 0}, {:build_order, 1}]
     assert Enum.count(get(:document).items, &(&1.issue_id == "1")) == 1
     reconcile(pid)
     changed = snapshot([member(1), member(2), member(4)])

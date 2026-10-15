@@ -40,6 +40,9 @@ class PrBodyGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='pr-body-history-') as scratch:
             root = Path(scratch)
             self.git(root, 'init', '-b', 'main')
+            self.git(root, 'config', 'gc.auto', '0')
+            self.git(root, 'config', 'maintenance.auto', 'false')
+            self.git(root, 'config', 'gc.autoDetach', 'false')
             self.git(root, 'config', 'user.name', 'Test')
             self.git(root, 'config', 'user.email', 'test@example.invalid')
             (root / 'README').write_text('before rollout')

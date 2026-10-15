@@ -43,8 +43,9 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ElevenLabs.Quota,
     {Aiur.BuildOrder.TicketDetailCoordinator, [runtime_config?: true]},
     {Aiur.BuildOrder.GraphProjection, [runtime_config?: true]},
-    Aiur.Events.IdGenerator,
+    {Aiur.Events.IdGenerator, [floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
+    Aiur.PostDeployChecklist,
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,
     Aiur.GitHub.ResourceStore,
@@ -73,6 +74,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Events.SubscriptionStoreSupervisor,
     Aiur.DecisionAttention,
     Aiur.OperatorWaitLog,
+    Aiur.Orchestrator.OptimisticLedger,
     Aiur.Orchestrator.TrackedSet,
     Aiur.Orchestrator.SnapshotCache,
     Aiur.Orchestrator.SnapshotStore,
@@ -127,7 +129,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
-    Aiur.Experiments.Store
+    Aiur.Experiments.Store,
+    Aiur.Experiments.Capture,
+    Aiur.Experiments.Checkpointer,
+    {Aiur.Experiments.Auto, [recording?: true]},
+    Aiur.BuildOrder.Features.LabelProjection,
+    Aiur.LandingWatch,
+    Aiur.Experiments.Auto.Notifier,
+    Aiur.Experiments.Auto.WindowManager
   ]
 
   setup do
@@ -167,7 +176,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "application composition names only the declared build-order facade" do
-    source = File.read!(Path.expand("../../../lib/aiur.ex", __DIR__))
+    source = File.read!(Path.expand("../../../lib/aiur/application/children.ex", __DIR__))
     assert Regex.scan(~r/Aiur\.BuildOrder\.[A-Za-z.]+/, source) == [["Aiur.BuildOrder.Component"]]
     assert source =~ "Aiur.TicketContext.child_specs(:early, opts)"
     assert source =~ "Aiur.TicketContext.child_specs(:late, opts)"

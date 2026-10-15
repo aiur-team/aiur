@@ -11,7 +11,8 @@ import tempfile
 REPO = Path(__file__).resolve().parent.parent
 CHECKER = REPO / 'scripts/check-components.py'
 SCHEMA = (REPO / 'components.schema.json').read_text()
-MANIFEST = json.loads((REPO / 'components.json').read_text())
+from components.manifest import read_manifest
+MANIFEST = read_manifest(REPO)
 SELECTED = set(sys.argv[1:])
 RAN = set()
 
@@ -34,6 +35,8 @@ def check(name, source, expected=0, message='', source_component='orchestration'
     components = {c['id']: c for c in manifest['components']}
     for component in components.values():
         component['paths'] = []
+        component['status'] = 'core'
+    manifest['features'] = []
     components[source_component]['paths'] = [path]
     components['build-queue']['paths'].append('src/lib/providers/queue.ex')
     components['build-orders']['paths'].append('src/lib/providers/order.ex')

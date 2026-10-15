@@ -48,11 +48,19 @@ class GithubReconciliationTests(GithubProjectionCase):
     def test_reconciliation_rejects_unprojected_routing_families(self) -> None:
         for label in (
             "human:todo", "model:claude", "phase:999",
-            "complexity:999",
+            "complexity:999", "feature:other",
         ):
             data = self.materialized()
             data["github_reconciliation"]["observed_labels"]["BO-001"].append(label)
             self.assert_error(data, "unexpected observed labels for BO-001")
+
+    def test_projected_feature_label_future_regression_guard(self) -> None:
+        data = self.materialized()
+        data["label_projection"]["required_ticket_labels"].append("feature:auth")
+        for field in ("projected_labels", "observed_labels"):
+            for ticket_id in ("BO-001", "BO-002"):
+                data["github_reconciliation"][field][ticket_id].append("feature:auth")
+        self.assert_clean(data)
 
     def test_queued_replaces_todo_for_member_with_prerequisites(self) -> None:
         data = self.materialized()

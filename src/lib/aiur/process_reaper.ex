@@ -49,7 +49,7 @@ defmodule Aiur.ProcessReaper do
   require Logger
 
   @type kind :: :agent | :serve
-  @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()}
+  @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()} | {:pane, String.t(), String.t()}
 
   # ------------------------------------------------------------------ API
 
@@ -140,6 +140,10 @@ defmodule Aiur.ProcessReaper do
     safe_call(server, {:reap, kinds, Map.new(opts)}, 25_000)
   end
 
+  @doc "Protect only the recorded agent references during orderly handoff."
+  @spec handoff([ref()], GenServer.server()) :: :ok
+  def handoff(refs, server \\ __MODULE__), do: safe_call(server, {:handoff, MapSet.new(refs)})
+
   # The reaper lives near the top of the supervision tree; callers (backends,
   # shutdown layers) must never crash because it is missing or already dead.
   defp safe_call(server, msg, timeout \\ 5_000) do
@@ -164,6 +168,7 @@ defmodule Aiur.ProcessReaper do
   end
 
   defp normalize_ref({:pane, pane_id}) when is_binary(pane_id) and pane_id != "", do: {:pane, pane_id}
+  defp normalize_ref({:pane, pane_id, socket}) when is_binary(pane_id) and pane_id != "" and is_binary(socket) and socket != "", do: {:pane, pane_id, socket}
   defp normalize_ref(_other), do: nil
 
   # ------------------------------------------------------------- callbacks
@@ -173,7 +178,7 @@ defmodule Aiur.ProcessReaper do
     # Trap exits so a supervised shutdown lands in terminate/2 — the backstop
     # reap that runs on EVERY tree teardown, including SIGTERM.
     Process.flag(:trap_exit, true)
-    {:ok, %{entries: %{}, draining: false}}
+    {:ok, %{entries: %{}, draining: false, handoff: MapSet.new()}}
   end
 
   @impl true
@@ -194,6 +199,8 @@ defmodule Aiur.ProcessReaper do
     {:reply, :ok, %{state | entries: Map.delete(state.entries, ref)}}
   end
 
+  def handle_call({:handoff, refs}, _from, state), do: {:reply, :ok, %{state | handoff: refs}}
+
   def handle_call(:entries, _from, state) do
     entries =
       Enum.map(state.entries, fn {ref, {kind, meta}} ->
@@ -207,7 +214,7 @@ defmodule Aiur.ProcessReaper do
     killers = Map.merge(default_killers(), Map.take(opts, [:kill_tree, :kill_pane, :cmdline_reader]))
 
     {to_reap, keep} =
-      Enum.split_with(state.entries, fn {_ref, {kind, _meta}} -> kind in kinds end)
+      Enum.split_with(state.entries, fn {ref, {kind, _meta}} -> kind in kinds and not MapSet.member?(state.handoff, ref) end)
 
     Enum.each(to_reap, fn {ref, {kind, meta}} -> kill_entry({ref, kind, meta}, killers) end)
 
@@ -232,7 +239,7 @@ defmodule Aiur.ProcessReaper do
     # paths (Shutdown.cleanup / Application.prep_stop), so killing :serve
     # entries here is correct, not premature.
     Enum.each(state.entries, fn {ref, {kind, meta}} ->
-      kill_entry({ref, kind, meta}, default_killers())
+      unless MapSet.member?(state.handoff, ref), do: kill_entry({ref, kind, meta}, default_killers())
     end)
 
     :ok
@@ -269,6 +276,7 @@ defmodule Aiur.ProcessReaper do
   defp pidfile_line({:os_pid, pid}, _meta), do: "pid #{pid}"
   # Pane lines are recorded for diagnostics/symmetry; the launcher reaps panes via
   # `tmux kill-server`, not this pidfile, so it reads only `pid` lines.
+  defp pidfile_line({:pane, pane_id, socket}, _meta), do: "pane #{pane_id} #{socket}"
   defp pidfile_line({:pane, pane_id}, _meta), do: "pane #{pane_id}"
 
   defp append_pidfile_line(path, line) do
@@ -315,6 +323,15 @@ defmodule Aiur.ProcessReaper do
   catch
     outcome, reason ->
       Logger.warning("process_reaper kill_failed pid=#{pid} caught=#{inspect({outcome, reason})}")
+      :ok
+  end
+
+  defp kill_entry({{:pane, pane_id, socket}, _kind, _meta}, killers) do
+    killers.kill_pane.({pane_id, socket})
+    :ok
+  catch
+    outcome, reason ->
+      Logger.warning("process_reaper kill_failed pane=#{pane_id} socket=#{socket} caught=#{inspect({outcome, reason})}")
       :ok
   end
 

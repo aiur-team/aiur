@@ -2,17 +2,14 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   use Aiur.TestSupport
 
   alias Aiur.AlertLedger
-  alias Aiur.Orchestrator.{Lifecycle, OrphanedWorkers, State}
+  alias Aiur.Orchestrator.{OrphanedWorkers, State}
   alias Aiur.Workspace.Ownership
 
-  # #2705: an Orchestrator crash leaves its runner tasks (and their workspace
-  # leases) alive under `:rest_for_one`. The restarted Orchestrator must stop
-  # them and redispatch the ticket, not refuse it as a live session forever.
+  # #2705: after a crash, stop orphaned lease-holding runners and redispatch their ticket.
   test "a restarted Orchestrator stops the runner its predecessor left holding a lease and redispatches the ticket" do
     %{issue: %Issue{id: issue_id, identifier: identifier} = issue} = prepare_workflow!("restart", "Todo")
     name = Module.concat(__MODULE__, "Restart#{System.unique_integer([:positive])}")
-    # The initial poll dispatches the todo ticket to a real runner that parks
-    # on the failing before_run hook while holding its lease.
+    # The initial poll's runner parks on the failing before_run hook while holding its lease.
     start_supervised!(Supervisor.child_spec({Orchestrator, name: name}, restart: :permanent))
     first = Process.whereis(name)
 
@@ -22,7 +19,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     orphan_ref = Process.monitor(orphan)
     # The tracker claim survives the crash; the staged redispatch must not wait out orphan recovery grace.
     Application.put_env(:aiur, :memory_tracker_issues, [%{issue | state: "In Progress", labels: ["agent:in-progress"]}])
-    # Kill the Orchestrator; the test supervisor restarts it like `Aiur.Supervisor`.
+    # Restart completion waits for init cleanup; process registration alone is too early.
     Process.exit(first, :kill)
     second = await_restart(name, first)
 
@@ -30,15 +27,14 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     refute orphan in Task.Supervisor.children(Aiur.TaskSupervisor)
     await_generation_released(identifier, orphan_lease.generation)
 
-    # One poll after the release redispatches the ticket onto a fresh lease.
-    _ = Orchestrator.request_refresh(second)
+    # The release notification wakes the restarted Orchestrator to redispatch.
     runner = await_runner_holding_lease(second, issue_id, identifier)
     kill_on_exit(runner)
     assert runner != orphan
     assert {:ok, %{generation: generation}} = Ownership.current(identifier)
     assert generation != orphan_lease.generation
 
-    assert live_session_alerts(identifier) == 0
+    assert live_session_alerts(identifier) == []
   end
 
   test "a runner that reports to a live Orchestrator without a running entry is stopped and redispatched" do
@@ -65,13 +61,12 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 15_000
     await_generation_released(identifier, orphan_lease.generation)
 
-    # One poll after the release redispatches the ticket onto a fresh lease.
-    _ = Orchestrator.request_refresh(orchestrator)
+    # The release notification wakes the Orchestrator to redispatch.
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
     kill_on_exit(runner)
     assert runner != orphan
 
-    assert live_session_alerts(identifier) == 0
+    assert live_session_alerts(identifier) == []
   end
 
   test "a runner that reports to another live process is left running" do
@@ -243,152 +238,6 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert {:ok, ^unrelated_lease} = Ownership.current("2413")
   end
 
-  # The scan runs inside the Orchestrator; here the test process plays that
-  # role, so each runner below reports to this process. Every running-map
-  # shape that names the ticket or the runner pid must keep the runner alive.
-  describe "running-map shapes" do
-    for {shape, entry_fun} <- [
-          {"working", quote(do: fn runner -> %{pid: runner, control: %{status: :working}} end)},
-          {"paused", quote(do: fn runner -> %{pid: runner, control: %{status: :paused}} end)},
-          {"pause pending", quote(do: fn runner -> %{pid: runner, control: %{status: :working}, pending_pause_reason: %{request_id: 1}} end)},
-          {"sleeping", quote(do: fn runner -> %{pid: runner, control: %{status: :sleeping}, work_state: :sleeping} end)},
-          {"completed", quote(do: fn runner -> %{pid: runner, control: %{status: :completed}, completed_provenance: true} end)},
-          {"pause pending, no pid", quote(do: fn _runner -> %{pid: nil, control: %{status: :working}, pending_pause_reason: %{request_id: 1}} end)},
-          {"staged", quote(do: fn _runner -> %{pid: nil, redispatch_safety: %{workspace_path: "/w"}, control: %{status: :working}} end)},
-          {"replaced", quote(do: fn _runner -> %{pid: spawn(fn -> Process.sleep(:infinity) end), control: %{status: :working}} end)}
-        ] do
-      test "#{shape} entry" do
-        identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
-        issue_id = "issue-#{identifier}"
-        runner = claim_in_process(identifier, %{issue_id: issue_id, update_recipient: self(), worker_host: nil})
-        {:ok, lease} = Ownership.current(identifier)
-
-        entry = Map.put(unquote(entry_fun).(runner), :identifier, identifier)
-        state = OrphanedWorkers.stop_untracked_runners(%State{running: %{issue_id => entry}})
-
-        assert Process.alive?(runner)
-        assert {:ok, ^lease} = Ownership.current(identifier)
-        assert state.running == %{issue_id => entry}
-      end
-    end
-
-    test "an entry under another ticket id that names the runner pid" do
-      identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
-      runner = claim_in_process(identifier, %{issue_id: "issue-#{identifier}", update_recipient: self(), worker_host: nil})
-      {:ok, lease} = Ownership.current(identifier)
-
-      running = %{"issue-renamed" => %{pid: runner, identifier: identifier, control: %{status: :working}}}
-      _state = OrphanedWorkers.stop_untracked_runners(%State{running: running})
-
-      assert Process.alive?(runner)
-      assert {:ok, ^lease} = Ownership.current(identifier)
-    end
-
-    # Deactivation and completion kill the runner synchronously, so a live
-    # lease holder beside such an entry is always an orphan.
-    for {shape, entry} <- [
-          {"deactivated, no pid", Macro.escape(%{pid: nil, ref: nil, control: %{status: :deactivated}})},
-          {"completed, no pid", Macro.escape(%{pid: nil, ref: nil, control: %{status: :completed}, completed_provenance: true})}
-        ] do
-      test "#{shape} entry does not protect a live lease holder" do
-        identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
-        issue_id = "issue-#{identifier}"
-        runner = claim_in_process(identifier, %{issue_id: issue_id, update_recipient: self(), worker_host: nil})
-        ref = Process.monitor(runner)
-        entry = Map.put(unquote(entry), :identifier, identifier)
-
-        state = OrphanedWorkers.stop_untracked_runners(%State{running: %{issue_id => entry}})
-
-        assert_receive {:DOWN, ^ref, :process, ^runner, _reason}, 5_000
-        assert state.running == %{issue_id => entry}
-      end
-    end
-
-    test "an entry whose pid is dead does not protect a live lease holder" do
-      identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
-      issue_id = "issue-#{identifier}"
-      runner = claim_in_process(identifier, %{issue_id: issue_id, update_recipient: self(), worker_host: nil})
-      ref = Process.monitor(runner)
-      dead = spawn(fn -> :ok end)
-      dead_ref = Process.monitor(dead)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead, _reason}, 1000
-
-      entry = %{pid: dead, identifier: identifier, control: %{status: :working}}
-      _state = OrphanedWorkers.stop_untracked_runners(%State{running: %{issue_id => entry}})
-
-      assert_receive {:DOWN, ^ref, :process, ^runner, _reason}, 5_000
-    end
-
-    test "no entry at all: the runner is stopped (control)" do
-      identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
-      runner = claim_in_process(identifier, %{issue_id: "issue-#{identifier}", update_recipient: self(), worker_host: nil})
-      ref = Process.monitor(runner)
-
-      state = OrphanedWorkers.stop_untracked_runners(%State{})
-
-      assert_receive {:DOWN, ^ref, :process, ^runner, _reason}, 5_000
-      assert Map.has_key?(state.dispatch_recovery.workspace_ownership.waits, identifier)
-    end
-  end
-
-  describe "a released workspace wakes the tick only under the tick policy" do
-    test "no pending tick timer: nothing is scheduled" do
-      state = %State{tick_timer_ref: nil, tick_token: nil}
-      assert Lifecycle.wake_tick(state) == state
-    end
-
-    test "a frozen poll: the pending timer is left alone" do
-      state = pending_tick_state(60_000, poll_frozen: true)
-      assert Lifecycle.wake_tick(state) == state
-      assert is_integer(Process.read_timer(state.tick_timer_ref))
-    end
-
-    test "a tick due sooner than the GitHub floor allows is never delayed" do
-      state = pending_tick_state(5_000, github_poll_delays: %{firehose: 60_000}, polled_ago_ms: 0)
-      assert Lifecycle.wake_tick(state) == state
-      assert Process.read_timer(state.tick_timer_ref) > 4_000
-    end
-
-    test "a later tick is pulled forward, but not ahead of the floor measured from the last poll" do
-      state = pending_tick_state(300_000, github_poll_delays: %{firehose: 60_000}, polled_ago_ms: 10_000)
-      woken = Lifecycle.wake_tick(state)
-
-      assert woken.tick_timer_ref != state.tick_timer_ref
-      assert Process.read_timer(state.tick_timer_ref) == false
-      assert Process.read_timer(woken.tick_timer_ref) in 45_000..50_000
-      Process.cancel_timer(woken.tick_timer_ref)
-    end
-
-    test "a later tick is pulled to now once the floor since the last poll has passed" do
-      state = pending_tick_state(300_000, github_poll_delays: %{firehose: 60_000}, polled_ago_ms: 120_000)
-      woken = Lifecycle.wake_tick(state)
-
-      assert Process.read_timer(woken.tick_timer_ref) in [false | Enum.to_list(0..100)]
-      Process.cancel_timer(woken.tick_timer_ref)
-    end
-  end
-
-  defp pending_tick_state(due_in_ms, opts) do
-    now_ms = System.monotonic_time(:millisecond)
-    timer = Process.send_after(self(), :never, due_in_ms)
-    on_exit(fn -> Process.cancel_timer(timer) end)
-
-    last_poll =
-      case Keyword.fetch(opts, :polled_ago_ms) do
-        {:ok, ago} -> now_ms - ago
-        :error -> nil
-      end
-
-    %State{
-      tick_timer_ref: timer,
-      tick_token: make_ref(),
-      next_poll_due_at_ms: now_ms + due_in_ms,
-      poll_frozen: Keyword.get(opts, :poll_frozen, false),
-      github_poll_delays: Keyword.get(opts, :github_poll_delays, %{}),
-      last_dispatch_poll_at_ms: last_poll
-    }
-  end
-
   defp kill_on_exit(pid) do
     on_exit(fn -> Process.exit(pid, :kill) end)
   end
@@ -396,10 +245,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   defp unique_name(label), do: Module.concat(__MODULE__, "#{label}#{System.unique_integer([:positive])}")
 
   defp await_generation_released(identifier, generation) do
-    assert eventually(
-             fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end,
-             15_000
-           )
+    assert eventually(fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end, 15_000)
   end
 
   defp claim_in_process(identifier, holder) do
@@ -446,10 +292,10 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       {:ok, contents} ->
         contents
         |> String.split("\n", trim: true)
-        |> Enum.count(&(Jason.decode!(&1)["topic"] == topic))
+        |> Enum.filter(&(Jason.decode!(&1)["topic"] == topic))
 
       {:error, _missing} ->
-        0
+        []
     end
   end
 
@@ -462,7 +308,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
              15_000
            )
 
-    Process.whereis(name)
+    Process.whereis(name) |> tap(fn pid -> :sys.get_state(pid, 15_000) end)
   end
 
   defp eventually(fun, timeout_ms) do

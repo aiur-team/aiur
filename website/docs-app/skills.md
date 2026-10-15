@@ -33,6 +33,18 @@ For Aiur changes, workers run `mise exec -- python3 scripts/check-pr-structure.p
 
 In a clean worktree it checks file size, docs paragraph/table prose, component ownership and reference boundaries, bare receives, formatting and the `State` writer allowlist — the cheap gates CI would otherwise fail a full cycle on.
 
+For refactor reports, run `python3 scripts/check-file-size.py --census <base> <head>`
+from the repository root; add `--json` for machine-readable output. The table
+reports tracked-text totals and added, removed and moved lines by source, test,
+docs, generated/vendor and other areas.
+
+Git-detected rename/copy pairs credit
+unchanged lines as moved to the original area; edits count as added/removed.
+
+Copies and cross-area moves can change area totals without text churn. Binary
+changes are file counts; symlink blobs are excluded. This report does not enforce
+a CI limit or claim savings.
+
 The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is
 resumed automatically; it does not raise a credential attention for a healthy
@@ -49,6 +61,8 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 ## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.
+
+`aiur-run` follows the status-reported merge policy and local-test evidence through `aiur pr merge`; `aiur-handoff` records that policy and watcher state.
 
 | Skill | Trigger | Covers |
 | --- | --- | --- |

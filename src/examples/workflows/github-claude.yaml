@@ -130,6 +130,9 @@ hooks:
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
 agent:
+  # ci_recovery_enabled: true             # false disables automatic CI reruns
+  # ci_recovery_max_per_poll: 5
+  # ci_recovery_max_per_hour: 20
   # relay: true                         # detached transport for local Codex / headless Claude
   # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
@@ -143,14 +146,20 @@ claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md
 
-# Build queue (GitHub only; defaults shown).
+# Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:
+#   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
+#   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes
 #   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
 #   merged_open_grace_seconds: 600      # 60..86400 seconds
+#   optimistic_failure_grace_seconds: 600 # Replacement grace, 60..86400 seconds
+#   optimistic_churn_attention_threshold: 3 # Conflicts, 0 disables (0..50)
 
 # Experiment specs and audit history are stored under the repo state node.
 # experiments:
@@ -162,3 +171,20 @@ prompt_file: github-claude.prompt.md
 #   script_timeout_ms: 60000
 #   checkpoint_interval_ms: 3600000
 #   max_snapshot_observations: 50000
+
+#   auto:
+#     enabled: true
+#     version_line: true
+#     release_line: true
+#     release_tag_pattern: "v*"
+#     release_include_prereleases: false
+#     release_min_interval_days: 7
+#     feature_label: "experiment:feature"
+#     feature_live_signal: "auto"
+#     feature_quiet_hours: 6
+#     live_signal_max_wait_hours: 72
+#     before_days: 14
+#     after_days: 14
+#     after_step_days: 7
+#     after_max_days: 42
+#     metric_packs: ["delivery"]

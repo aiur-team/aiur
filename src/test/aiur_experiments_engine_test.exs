@@ -23,9 +23,27 @@ defmodule AiurExperimentsEngineTest do
     refute output =~ title
   end
 
+  test "metrics and events JSON dispatch reach the control RPC" do
+    {output, 0} = run_engine(["experiments", "metrics", "--json"])
+    assert output =~ "verb: :metrics"
+    assert output =~ Base.encode64("--json")
+    {output, 0} = run_engine(["experiments", "events", "delivery-change", "--json", "--refresh"])
+
+    assert output ==
+             "RPC:Aiur.AgentControlCLI.experiments([verb: :events, argv: [ Base.decode64!(\"#{Base.encode64("delivery-change")}\"), Base.decode64!(\"#{Base.encode64("--json")}\"), Base.decode64!(\"#{Base.encode64("--refresh")}\")]])\n"
+  end
+
+  test "freeze transports the window, revision reason and JSON option through RPC" do
+    args = ["baseline", "--window", "before", "--reason", ~s|$(touch unwanted); "reason"|, "--json"]
+    {output, 0} = run_engine(["experiments", "freeze" | args])
+    assert output =~ "verb: :freeze"
+    for arg <- args, do: assert(output =~ Base.encode64(arg))
+    refute output =~ "$(touch unwanted)"
+  end
+
   test "rejects absent verbs and a line lacking its reference before invoking RPC" do
     assert {output, 64} = run_engine(["experiments"])
-    assert output =~ "expects list, show or create"
+    assert output =~ "expects list, show, events, metrics, create or freeze"
     assert {output, 64} = run_engine(["experiments", "create", "--line", "release"])
     assert output =~ "requires type:ref"
     refute output =~ "RPC:"

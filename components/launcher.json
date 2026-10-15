@@ -1,0 +1,67 @@
+{
+  "id": "launcher",
+  "name": "CLI launcher",
+  "layer": 4,
+  "kind": "in-app",
+  "paths": [
+    "packaging/**",
+    "scripts/aiurdev"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "control-cli"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [
+      "AIUR_AGENT_TMPFILE",
+      "AIUR_ALERT_LEDGER_PATH_FILE",
+      "AIUR_BG_STATE_DIR",
+      "AIUR_ERLANG_COOKIE",
+      "AIUR_LAUNCHER_PID",
+      "AIUR_OPERATOR_PID",
+      "AIUR_RELEASE_DIR",
+      "AIUR_RELEASE_NODE",
+      "AIUR_SESSION_TMPFILE",
+      "AIUR_WORKSPACE_ROOT_FILE",
+      "ELIXIR_ERL_OPTIONS",
+      "ERL_EPMD_ADDRESS",
+      "MISE_DATA_DIR"
+    ],
+    "state": [
+      "runtime_state_dir"
+    ],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Launches Aiur and manages the terminal session that holds a run.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/cli.md"
+  ],
+  "config": [],
+  "env": [
+    "AIUR_AGENT_TMPFILE",
+    "AIUR_ALERT_LEDGER_PATH_FILE",
+    "AIUR_BG_STATE_DIR",
+    "AIUR_ERLANG_COOKIE",
+    "AIUR_LAUNCHER_PID",
+    "AIUR_OPERATOR_PID",
+    "AIUR_RELEASE_DIR",
+    "AIUR_RELEASE_NODE",
+    "AIUR_SESSION_TMPFILE",
+    "AIUR_WORKSPACE_ROOT_FILE",
+    "ELIXIR_ERL_OPTIONS",
+    "ERL_EPMD_ADDRESS",
+    "MISE_DATA_DIR"
+  ],
+  "capabilities": []
+}

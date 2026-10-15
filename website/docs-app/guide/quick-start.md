@@ -17,7 +17,7 @@ npm install -g aiur-cli
 | `tmux` | The launcher runs each Aiur daemon in its own detached tmux session. |
 | A tracker repository | The repository `aiur init` is pointed at, with issues carrying `agent:todo`. |
 
-`python3` is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
+`python3` is required for `claude-repl` agents to durably spool lifecycle hooks. For other agents it is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. See [Optional Optimizations](/reference/optional-optimizations) for other optional features.
 
 ### Codex on Linux
 
@@ -67,7 +67,7 @@ Add `agent:todo` to the issues you want worked. If agents are hitting rate limit
 
 GitHub Free does not expose rulesets or classic branch protection for private repositories. When GitHub reports that plan limit during CI-readiness setup, `aiur init` shows GitHub's explanation and continues without saving a full readiness assessment. Make the repository public or upgrade its plan to enable that verification.
 
-For native Muse, install and authenticate its CLI before selecting `muse` in the wizard. Workspace trust is a separate opt-in that lets Muse load the installed skills and repository rules; see [Muse configuration](/reference/configuration#agent-backend-configs-muse).
+For native Muse, install and authenticate its CLI before selecting `muse` in the wizard. Workspace trust is a separate opt-in that lets Muse load the installed skills and repository rules; see [Muse configuration](/reference/configuration-agent#agent-backend-configs-muse).
 
 ## First run
 

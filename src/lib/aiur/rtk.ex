@@ -14,7 +14,7 @@ defmodule Aiur.Rtk do
 
   rtk ships a Claude Code `PreToolUse` hook that rewrites *every* bash command
   an agent runs, `gh` included. `gh` in an agent workspace is not the real
-  `gh`: it is `priv/github_quota_guard.sh`, the wrapper that meters GitHub
+  `gh`: it is `priv/github_guard/gh/`, the wrapper that meters GitHub
   spend, stamps agent comment markers, and validates that a filed ticket
   carries a dispatch disposition. Anything that reshapes an agent's `gh` calls
   is therefore reshaping the governance path. The operator must configure the

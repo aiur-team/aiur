@@ -97,6 +97,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_AGENT_SOCKET=%q\n' "${AIUR_AGENT_TMUX_SOCKET:-${socket}-agents}"
     printf 'AIUR_RECORD_AGENT_TMPFILE=%q\n' "${AIUR_AGENT_TMPFILE:-}"
     printf 'AIUR_RECORD_SURFACE_MODE=%q\n' "$surface_mode"
     printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"

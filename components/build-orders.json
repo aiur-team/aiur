@@ -1,0 +1,103 @@
+{
+  "id": "build-orders",
+  "name": "Build Orders",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/build_order/**",
+    "src/lib/aiur/build_order_funnel_health.ex",
+    "src/lib/aiur/build_orders_cli.ex",
+    "src/lib/aiur/build_progress.ex",
+    "src/lib/aiur/epic_cli.ex",
+    "src/lib/aiur/feature_cli.ex",
+    "src/lib/aiur/feature_cli/**",
+    "src/lib/aiur_web/build_order*.ex",
+    "src/lib/aiur_web/build_order/**",
+    "src/lib/aiur_web/build_order_presenter/**",
+    "src/lib/aiur_web/live/build_order*.ex"
+  ],
+  "facades": [
+    "Aiur.BuildOrder.Catalog",
+    "Aiur.BuildOrder.Component",
+    "Aiur.BuildOrder.DependencyChain",
+    "Aiur.BuildOrder.Features",
+    "Aiur.BuildOrder.Features.LabelProjection",
+    "Aiur.BuildOrder.GitHubGraph",
+    "Aiur.BuildOrder.GraphProjection",
+    "Aiur.BuildOrder.GraphProjection.Snapshot",
+    "Aiur.BuildOrder.History",
+    "Aiur.BuildOrder.History.Timing",
+    "Aiur.BuildOrder.Metadata",
+    "Aiur.BuildOrder.ProgressRenderer",
+    "Aiur.BuildOrder.ProviderHealth",
+    "Aiur.BuildOrder.Readiness",
+    "Aiur.BuildOrder.RootSummary",
+    "Aiur.BuildOrdersCLI",
+    "Aiur.EpicCLI",
+    "Aiur.FeatureCLI",
+    "AiurWeb.BuildOrder.DataSource",
+    "AiurWeb.BuildOrder.Runtime"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "accounting",
+    "agent-runner",
+    "commands",
+    "config",
+    "event-bus",
+    "github",
+    "github-listeners",
+    "identity",
+    "kernel",
+    "orchestration",
+    "projections",
+    "signal",
+    "tracker",
+    "web-kit",
+    "workspace"
+  ],
+  "optional": [
+    "build-queue",
+    "conversations",
+    "dashboard-ui",
+    "executor-attention",
+    "telemetry",
+    "ticket-context",
+    "web-shell"
+  ],
+  "owns": {
+    "config": [
+      "build_order"
+    ],
+    "env": [],
+    "state": [
+      "build_features_state_dir",
+      "build_history_state_dir",
+      "epic_overrides_state_dir"
+    ],
+    "capabilities": [
+      "build_orders",
+      "build_orders.progress"
+    ]
+  },
+  "prior": [
+    "BO"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Shows ticket dependency graphs and progress across a build order.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/build-orders.md"
+  ],
+  "config": [
+    "build_order"
+  ],
+  "env": [],
+  "capabilities": [
+    "build_orders",
+    "build_orders.progress"
+  ]
+}

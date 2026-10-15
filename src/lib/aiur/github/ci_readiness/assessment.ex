@@ -28,6 +28,15 @@ defmodule Aiur.GitHub.CiReadiness.Assessment do
   def cached_result(opts \\ []) do
     scope = cache_scope(nil, opts)
 
+    if Keyword.get(opts, :force_refresh, false) do
+      delete_cached_scope(scope)
+      :unavailable
+    else
+      read_cached_result(scope, opts)
+    end
+  end
+
+  defp read_cached_result(scope, opts) do
     memory_assessment =
       case :persistent_term.get(@cache_key, %{}) do
         %{^scope => assessment} -> fresh_assessment(assessment, opts)

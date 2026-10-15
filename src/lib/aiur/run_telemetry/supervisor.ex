@@ -15,10 +15,14 @@ defmodule Aiur.RunTelemetry.Supervisor do
   def init(opts) do
     writer_opts = Keyword.get(opts, :writer_opts, [])
     sampler_opts = Keyword.get(opts, :sampler_opts, [])
+    facts_opts = Keyword.get(opts, :facts_opts, [])
+    timeline_opts = Keyword.get(opts, :timeline_opts, [])
     name = Keyword.get(opts, :name, __MODULE__)
 
     children = [
       {Writer, writer_opts},
+      {Aiur.RunTelemetry.FactsCapture, facts_opts},
+      {Aiur.RunTelemetry.RepoTimeline, timeline_opts},
       {Sampler, sampler_opts},
       {UsageCapture, name: child_name(name, UsageCapture)},
       {Task.Supervisor, name: child_name(name, :UsageTasks)}

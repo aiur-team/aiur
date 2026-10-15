@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry do
 
   alias Aiur.Config
   alias Aiur.LogFile
-  alias Aiur.RunTelemetry.{CaptureGaps, Lifecycle, UsageCapture, Writer}
+  alias Aiur.RunTelemetry.{CaptureGaps, Lifecycle, UsageCapture, WindowEventSources, Writer}
 
   @filename "telemetry.ndjson"
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
@@ -23,6 +23,10 @@ defmodule Aiur.RunTelemetry do
     if Lifecycle.enabled?(), do: UsageCapture.capture(ticket, identity)
     :ok
   end
+
+  @doc "Quota-accounted GitHub evidence for an experiment window."
+  @spec window_event_sources(String.t(), map(), map(), keyword()) :: {map(), [String.t()]}
+  def window_event_sources(repo, sources, range, opts), do: WindowEventSources.fetch(repo, sources, range, opts)
 
   @doc "Current durable telemetry schema version."
   @spec schema_version() :: pos_integer()

@@ -1,0 +1,35 @@
+{
+  "id": "pairing-discovery",
+  "name": "Pairing and discovery",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "identity",
+    "machine-gateway",
+    "web-kit"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Pairs devices with a machine and discovers its Aiur instances.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N2"
+}

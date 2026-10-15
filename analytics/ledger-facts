@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Invoke the canonical governed query without starting an Aiur run.
+set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$script_dir/../src"
+exec mise exec -- mix run --no-start -e 'Application.ensure_all_started(:req); Aiur.RunTelemetry.FactsCLI.main(System.argv())' -- "$@"

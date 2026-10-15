@@ -1,5 +1,5 @@
 defmodule Aiur.RunTelemetry.WriterTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Writer

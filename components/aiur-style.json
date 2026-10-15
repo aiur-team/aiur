@@ -1,0 +1,32 @@
+{
+  "id": "aiur-style",
+  "name": "Shared styles",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    "packages/aiur-style/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides consistent styles and UI elements for Aiur sites and clients.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

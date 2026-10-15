@@ -3,7 +3,8 @@ defmodule Aiur.Experiments.Store do
   use GenServer
   require Logger
 
-  alias Aiur.Experiments.{Journal, Paths, Persistence, Reader, Registration, Schema, Spec}
+  alias Aiur.Experiments.{AnalysisInput, Catalog, Checkpoint, Evaluation, Journal, Paths, Persistence, Reader, Registration, Schema, Snapshot, SnapshotPersistence, Spec, WindowData, WindowEvents}
+  alias Aiur.Experiments.Auto.WindowTransition
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -16,7 +17,14 @@ defmodule Aiur.Experiments.Store do
     :persistent_term.erase({__MODULE__, :startup_failure})
 
     with :ok <- Aiur.Journal.ensure_directory(Paths.root()), :ok <- Persistence.recover() do
-      {:ok, %{append: Keyword.get(opts, :journal_writer, &Journal.append/2), defaults: Map.new(Keyword.get(opts, :defaults, config_defaults())) |> Map.put_new(:repo_slug, Paths.repo())}}
+      {:ok,
+       %{
+         evaluation: nil,
+         evaluation_timeout_ms: Keyword.get(opts, :evaluation_timeout_ms, 120_000),
+         append: Keyword.get(opts, :journal_writer, &Journal.append/2),
+         catalog_context: Keyword.get(opts, :catalog_context, %{}),
+         defaults: Map.new(Keyword.get(opts, :defaults, config_defaults())) |> Map.put_new(:repo_slug, Paths.repo())
+       }}
     else
       {:error, reason} ->
         :persistent_term.put({__MODULE__, :startup_failure}, reason)
@@ -26,9 +34,11 @@ defmodule Aiur.Experiments.Store do
   end
 
   @impl true
-  def handle_call({:create, attrs, opts}, _from, state) do
-    result = create(attrs, opts, state)
-    {:reply, result, state}
+  def handle_call({:create, attrs, opts}, from, state) do
+    case create(attrs, opts, state) do
+      {:new, spec} -> Evaluation.start(state, from, fn -> prepare_create(spec, opts, state.catalog_context) end, &commit_create(&1, opts, state))
+      result -> {:reply, result, state}
+    end
   end
 
   def handle_call({:amend, id, changes, actor, kind}, _from, state) do
@@ -39,6 +49,52 @@ defmodule Aiur.Experiments.Store do
   def handle_call({:annotate, id, annotation, actor}, _from, state) do
     {:reply, annotate(id, annotation, actor), state}
   end
+
+  def handle_call({:manage_window, id, samples, config, now, truncation}, _from, state) do
+    result =
+      case WindowTransition.prepare(id, samples, config, now, truncation) do
+        {:ok, changes, kind} -> amend(id, changes, "window_manager", kind, state)
+        result -> result
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:window_spec, id}, _from, state), do: {:reply, Reader.spec(id), state}
+
+  def handle_call({:events_snapshot, id, snapshot, refresh?}, _from, state) do
+    {:reply, WindowEvents.freeze(id, snapshot, refresh?), state}
+  end
+
+  def handle_call({:freeze, id, window, opts}, from, state) do
+    opts = Keyword.put_new(opts, :context, state.catalog_context)
+
+    case Persistence.recover_one(id) do
+      :ok -> Evaluation.start(state, from, fn -> Snapshot.prepare(id, window, opts) end, fn result -> commit_result(result, &Snapshot.commit_prepared/1) end)
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:export_analysis_input, id}, from, state) do
+    Evaluation.start(state, from, fn -> AnalysisInput.prepare(id, context: state.catalog_context) end, fn result -> commit_result(result, &AnalysisInput.commit/1) end)
+  end
+
+  def handle_call({:checkpoint, id, now}, from, state) do
+    Evaluation.start(state, from, fn -> Checkpoint.prepare(id, now, state.catalog_context) end, fn prepared ->
+      result = commit_result(prepared, &Checkpoint.commit/1)
+      Checkpoint.error_record(id, now, result)
+      result
+    end)
+  end
+
+  @impl true
+  def handle_info(message, state), do: Evaluation.handle(message, state)
+
+  @impl true
+  def terminate(_reason, state), do: Evaluation.stop(state)
+
+  defp commit_result({:ok, prepared}, commit), do: commit.(prepared)
+  defp commit_result(error, _commit), do: error
 
   @impl true
   def handle_cast(:rebuild_index, state) do
@@ -54,10 +110,11 @@ defmodule Aiur.Experiments.Store do
     attrs = stringify(attrs) |> with_origin(opts)
 
     with :ok <- Persistence.recover(),
-         {:ok, spec} <- Spec.new(attrs, state.defaults) do
+         {:ok, spec} <- Spec.new(attrs, state.defaults),
+         :ok <- Catalog.validate_refs(spec.metrics, state.catalog_context) do
       case existing(spec.key) do
         {:error, _reason} = error -> error
-        {:ok, nil} -> create_new(spec, opts, state)
+        {:ok, nil} -> create_new(spec)
         {:ok, id} -> existing_spec(id)
       end
     end
@@ -69,21 +126,47 @@ defmodule Aiur.Experiments.Store do
     end
   end
 
-  defp create_new(spec, opts, state) do
+  defp create_new(spec) do
     spec = Registration.mark(spec)
     id = spec.id || next_id(spec.title)
 
     cond do
-      not Paths.valid_id?(id) ->
-        {:error, [%{path: "id", message: "invalid experiment id"}]}
+      not Paths.valid_id?(id) -> {:error, [%{path: "id", message: "invalid experiment id"}]}
+      File.exists?(Paths.experiment(id)) -> {:error, :id_exists}
+      true -> {:new, %{spec | id: id}}
+    end
+  end
 
-      File.exists?(Paths.experiment(id)) ->
-        {:error, :id_exists}
+  defp prepare_create(spec, opts, context) do
+    if spec.design["kind"] == "before_after" and Keyword.get(opts, :freeze, true) do
+      raw = Spec.to_map(spec)
 
-      true ->
-        spec = %{spec | id: id}
-        entry = entry("created", Keyword.get(opts, :actor, "operator"), spec.updated_at, %{"origin" => Keyword.get(opts, :origin)})
-        with :ok <- Persistence.commit(id, Spec.to_map(spec), entry, state.append), do: {:ok, spec}
+      with {:ok, data} <- WindowData.evaluate(raw, "before", context),
+           {:ok, snapshot} <- Snapshot.prepare_spec(raw, "before", nil, data, context: context) do
+        {:ok, {spec, snapshot}}
+      end
+    else
+      {:ok, {spec, nil}}
+    end
+  end
+
+  defp commit_create({:ok, {spec, snapshot}}, opts, state) do
+    entry = entry("created", Keyword.get(opts, :actor, "operator"), spec.updated_at, %{"origin" => Keyword.get(opts, :origin)})
+    with :ok <- Persistence.commit(spec.id, Spec.to_map(spec), entry, state.append), do: commit_baseline(spec, snapshot)
+  end
+
+  defp commit_create(error, _opts, _state), do: error
+  defp commit_baseline(spec, nil), do: {:ok, spec}
+
+  defp commit_baseline(spec, snapshot) do
+    case SnapshotPersistence.commit(spec.id, "before", snapshot, []) do
+      :ok ->
+        {:ok, spec}
+
+      error ->
+        File.rm_rf(Paths.experiment(spec.id))
+        Persistence.index()
+        error
     end
   end
 
@@ -118,12 +201,17 @@ defmodule Aiur.Experiments.Store do
            :ok <- Persistence.recover_one(id),
            {:ok, old, _read_only?} <- Reader.spec(id),
            {:ok, updated} <- changed_spec(old, changes, state.defaults),
+           :ok <- validate_changed_metrics(old, updated, state.catalog_context),
            :ok <- status_transition(old["status"], updated.status) do
         persist_amendment(id, old, updated, actor, kind, state.append)
       end
     else
       {:error, :not_found}
     end
+  end
+
+  defp validate_changed_metrics(old, updated, context) do
+    if old["metrics"] == updated.metrics, do: :ok, else: Catalog.validate_refs(updated.metrics, context)
   end
 
   defp persist_amendment(id, old, updated, actor, kind, append) do
@@ -148,6 +236,9 @@ defmodule Aiur.Experiments.Store do
   end
 
   defp status_transition(status, status), do: :ok
+  defp status_transition("active", "report_due"), do: :ok
+  defp status_transition("report_due", "reported"), do: :ok
+  defp status_transition(from, "cancelled") when from in ~w(draft active), do: :ok
   defp status_transition(_status, "abandoned"), do: :ok
   defp status_transition("draft", "active"), do: :ok
   defp status_transition("active", "concluded"), do: :ok

@@ -8,14 +8,17 @@ import subprocess
 import tempfile
 
 REPO = Path(__file__).resolve().parent.parent
-MANIFEST = json.loads((REPO / 'components.json').read_text())
+from components.manifest import read_manifest
+MANIFEST = read_manifest(REPO)
 
 
 def check(name, source_component, source, expected, message):
     manifest = copy.deepcopy(MANIFEST)
     paths = {'pr-lifecycle': 'src/lib/aiur/pr_lifecycle/health_scanner.ex',
              'orchestration': 'src/lib/aiur/orchestrator/state.ex'}
+    manifest['features'] = []
     for component in manifest['components']:
+        component['status'] = 'core'
         component['paths'] = [paths[component['id']]] if component['id'] in paths else []
     with tempfile.TemporaryDirectory(prefix='pr-lifecycle-', dir=os.environ.get('TMPDIR')) as directory:
         root = Path(directory)

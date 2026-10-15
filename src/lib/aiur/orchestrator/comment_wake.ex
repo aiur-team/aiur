@@ -14,10 +14,9 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
-  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, ReviewFindings, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -25,10 +24,8 @@ defmodule Aiur.Orchestrator.CommentWake do
   @comment_rework_max_attempts 5
 
   # Where a merged PR that never claimed to close its ticket leaves that ticket:
-  # open, and back in front of a human. Never `done` — see
-  # `merged_pr_closes_ticket?/2`.
+  # open, back in front of a human. Never `done` — see `merged_pr_closes_ticket?/2`.
   @non_closing_merge_state "human-review"
-  # See `refresh_other_closed_issues/2`.
   @max_closing_refreshes 10
 
   @spec maybe_reactivate_on_comment(
@@ -53,6 +50,8 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
+    OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
+
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
@@ -63,7 +62,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
 
     terminate_running_issue_fun =
-      Keyword.get(opts, :terminate_running_issue_fun, &Orchestrator.terminate_running_issue/3)
+      Keyword.get(opts, :terminate_running_issue_fun, &TicketTransition.apply_effect(&1, {:terminate, &2, &3}))
 
     mark_reconciled_fun =
       Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
@@ -772,7 +771,7 @@ defmodule Aiur.Orchestrator.CommentWake do
        when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
     remedy =
       case reason do
-        :parked -> "unpark the issue and assign its intended agent state"
+        :parked -> "resume the issue explicitly to clear the park marker"
         :unlabeled_issue -> "assign an agent state if this issue should be worked"
         :no_open_pr -> "open a pull request before requesting rework"
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
@@ -1079,7 +1078,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
 
   defp dispatch_decline_reason("issue is parked", _issue),
-    do: "Dispatch policy refused to wake the parked issue. Remedy: unpark it and assign its intended agent state."
+    do: "Dispatch policy refused to wake the parked issue. Remedy: resume it explicitly to clear the park marker."
 
   defp dispatch_decline_reason("issue is already running", _issue),
     do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."
@@ -1486,7 +1485,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
 
-    case Orchestrator.reactivate_issue(state, refreshed_entry) do
+    case TicketTransition.apply_effect(state, {:reactivate, refreshed_entry}) do
       {{:ok, :reactivated}, next_state} ->
         next_state
 

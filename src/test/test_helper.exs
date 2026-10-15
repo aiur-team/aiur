@@ -11,6 +11,7 @@ contaminating_env_vars = [
   "AIUR_TMUX_CONF",
   "AIUR_TMUX_SESSION",
   "AIUR_TMUX_SOCKET",
+  "AIUR_AGENT_TMUX_SOCKET",
   "AIUR_LOGS_ROOT"
 ]
 
@@ -61,6 +62,12 @@ test_run_root =
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
 
+suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
+
+unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
+  raise "alert ledger must use the suite runtime state root #{suite_runtime_state_dir}"
+end
+
 ExUnit.after_suite(fn _result ->
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
   # recreate the counter file after this — a small leftover under the
@@ -81,14 +88,20 @@ Code.require_file("support/orchestrator_status_support.ex", __DIR__)
 Code.require_file("support/agent_control_cli_todo.ex", __DIR__)
 Code.require_file("support/turn_loop_test_support.ex", __DIR__)
 Code.require_file("support/account_generation_test_support.ex", __DIR__)
+Code.require_file("support/ci_lifecycle_test_support.ex", __DIR__)
+Code.require_file("support/auto_resume_test_support.ex", __DIR__)
+Code.require_file("support/global_pause_test_support.ex", __DIR__)
 Code.require_file("support/live_view_async.ex", __DIR__)
 Code.require_file("support/refresh_trace.ex", __DIR__)
 Code.require_file("support/github_client_test_support.ex", __DIR__)
 Code.require_file("support/event_ticket.ex", __DIR__)
 
-# Support loads by glob, so a new support file needs no line here. The explicit list below
-# stays only until the queue of open PRs has drained (#4219); do not add to it.
-# Sorted order puts some callers ahead of the support module they call at runtime.
+# These imports must load before the glob, which sorts cache support before its dependency.
+Code.require_file("support/agent_github_guard_test_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_cache_support.ex", __DIR__)
+Code.require_file("support/agent_github_guard_case.ex", __DIR__)
+
+# Support loads by glob, so a new support file needs no line here.
 Code.put_compiler_option(:no_warn_undefined, :all)
 
 for file <- Enum.sort(Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))) do
@@ -97,50 +110,6 @@ end
 
 Code.put_compiler_option(:no_warn_undefined, [])
 
-Code.require_file("support/engine_source.ex", __DIR__)
-Code.require_file("support/engine_case.ex", __DIR__)
-Code.require_file("support/wake_inbox_ack.ex", __DIR__)
-Code.require_file("support/dashboard_font_assertions.ex", __DIR__)
-Code.require_file("support/muse_fixture.exs", __DIR__)
-Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
-Code.require_file("support/init_case.ex", __DIR__)
-Code.require_file("support/rejected_workflow.ex", __DIR__)
-Code.require_file("support/claude_meter_test_support.exs", __DIR__)
-Code.require_file("support/build_order_github_graph_test_adapter.ex", __DIR__)
-Code.require_file("support/build_order_github_graph_fixtures.ex", __DIR__)
-Code.require_file("support/build_order_graph_projection_support.ex", __DIR__)
-Code.require_file("support/build_order_shared_resource_store_support.ex", __DIR__)
-Code.require_file("support/history_backfill_fixture.ex", __DIR__)
-Code.require_file("support/browser_harness/fixtures.ex", __DIR__)
-Code.require_file("support/usage_ledger_support.ex", __DIR__)
-Code.require_file("support/usage_aggregate_support.ex", __DIR__)
-Code.require_file("support/usage_ledger_recovery_support.ex", __DIR__)
-Code.require_file("support/price_table_support.ex", __DIR__)
-Code.require_file("support/provider_account_generation_support.ex", __DIR__)
-Code.require_file("support/allowed_contributors_fixture.ex", __DIR__)
-Code.require_file("support/fake_usage_adapter.ex", __DIR__)
-Code.require_file("support/grouped_scopes_support.ex", __DIR__)
-Code.require_file("support/awaiting_commands_support.ex", __DIR__)
-Code.require_file("support/snapshot_fence_support.ex", __DIR__)
-Code.require_file("support/orchestrator_deactivate_support.ex", __DIR__)
-Code.require_file("support/tracker_task_drain_support.ex", __DIR__)
-Code.require_file("support/webhook_mode_contract.exs", __DIR__)
-
-Code.require_file("support/build_home/fixture_source.ex", __DIR__)
-Code.require_file("support/build_home/protocol_case.ex", __DIR__)
-Code.require_file("support/webhook_deliveries.ex", __DIR__)
-Code.require_file("support/comments_poller_fixture.ex", __DIR__)
-Code.require_file("support/ci_poller_fixture.ex", __DIR__)
-Code.require_file("support/webhook_equivalence_fixture.ex", __DIR__)
-Code.require_file("support/webhook_poll_fixture.ex", __DIR__)
-Code.require_file("support/webhook_tail_case.ex", __DIR__)
-Code.require_file("support/github_webhook_receiver_case.ex", __DIR__)
-Code.require_file("support/mutation_fixture.ex", __DIR__)
-Code.require_file("support/deposit_fixture.ex", __DIR__)
-Code.require_file("support/build_home/usage_inputs.ex", __DIR__)
-Code.require_file("support/build_order_live_case.ex", __DIR__)
-Code.require_file("support/planning_source_case.ex", __DIR__)
-Code.require_file("support/pack_status_case.ex", __DIR__)
-Code.require_file("support/build_order_presenter_case.ex", __DIR__)
-Code.require_file("support/open_ai_compat_agent_support.ex", __DIR__)
-Code.require_file("support/deposit_case.ex", __DIR__)
+# Keep plain ExUnit.Case modules and between-case application timers from
+# publishing Orchestrator poll state or alerts into the suite-wide ledger.
+Aiur.TestSupport.quiesce_live_orchestrator()

@@ -1,9 +1,10 @@
 # Dev loop
 
 In every repository, mark completed, self-reviewed work ready **before**
-entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
-Only the full required-check set passing on the current head SHA permits
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+All required checks passing on the current head SHA permit
 `agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
+Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.
 
 ## Branch
 
@@ -151,11 +152,13 @@ blocking finding is the only enforcement they have.
 
 ## The loop
 
-**Resolve validation from the target repository first.** Read
-[`validation.md`](validation.md) before choosing commands. The Elixir examples
-below apply only to Aiur's Elixir core, not to every workspace Aiur operates.
-For other repositories, substitute their documented build/typecheck, formatter,
-focused test runner, test-tree paths and CI gate at each step.
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the merged `origin/main` SHA and each gate result.
+It never pushes and refuses a dirty checkout.
+
+**Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
+The Elixir examples below apply only to Aiur's Elixir core.
 
 1. Implement
 2. Add / update / run tests
@@ -197,7 +200,7 @@ focused test runner, test-tree paths and CI gate at each step.
    crash. An earlier startup requires a commented `@early_start_exceptions`
    entry in that test explaining the dependency; never extend its baseline.
 
-   CI's `make ci` is the authoritative full lint and full-suite gate.
+   CI's event-specific gate is authoritative: fast on PRs, full in the queue.
 
    **Use `--trace` only with a specific `file:line`, never with a bare file or
    directory.** `--trace` silently forces `max_cases: 1` in ExUnit, overriding
@@ -226,7 +229,7 @@ focused test runner, test-tree paths and CI gate at each step.
 
    Do not loop on unrelated suite flakes. Use the target repository's required
    CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
-   PR-opening on a clean full-suite `mix test` run: CI runs the full `make ci`.
+   PR-opening on a clean full-suite `mix test` run: the merge queue runs full CI.
 
    **For an Elixir failure that looks impossible, rule out a stale test
    build.** `mix compile --force` rebuilds `dev`, **not** `test`, so a stale
@@ -452,10 +455,7 @@ when ready.
 
 ## Manual CLI verification before opening a PR
 
-Before opening the draft PR, run the CLI locally and manually exercise all new
-functionality end-to-end. If the CLI fails to run, debug and fix the issues — do
-not skip verification or give up. Only open the draft PR once the requested
-functionality is confirmed working in the CLI.
+Run the CLI and exercise new functionality before the draft PR when the workspace can do so. For workspace-inaccessible hands-on checks, do not raise a decision or pause: finish automated work and add `Post-deploy check: <exact steps>` under `## Local tests`; the Executor runs it after deployment. Name required physical equipment.
 
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until
@@ -465,8 +465,8 @@ use compile, format and affected tests with the four-case cap, plus
 `python3 scripts/check-bare-assert-receive.py` and
 `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` from the repository root
 (resolve `base` as above and check the committed head).
-Use the target repository's full CI gate, which is
-`make ci` for Aiur's Elixir core; do not loop locally on unrelated suite flakes.
+Use the target repository's required CI gate; Aiur runs fast checks on PRs and
+full CI in the merge queue. Do not loop locally on unrelated suite flakes.
 
 ## Closing keyword in the PR description
 

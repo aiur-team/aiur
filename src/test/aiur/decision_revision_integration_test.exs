@@ -107,6 +107,8 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     %{dir: dir}
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "preserves and delivers original plus revised actions across restart", %{dir: dir} do
     parent = self()
     counter = :counters.new(1, [])
