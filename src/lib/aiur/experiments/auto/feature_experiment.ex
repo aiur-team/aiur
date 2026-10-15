@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
   @moduledoc false
   alias Aiur.Experiments
   alias Aiur.Experiments.Auto.{Creator, Line, LiveSignal, Notifier}
-  alias Aiur.Experiments.{Reader, Snapshot, Spec}
+  alias Aiur.Experiments.{Paths, Reader, Snapshot, Spec}
 
   @spec apply_effect(String.t(), map(), atom(), map(), DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def apply_effect(number, state, :arm, _config, _now, opts) do
@@ -55,13 +55,12 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
     id = state["experiment_id"]
     key = "post_line_scope:" <> Jason.encode!(state["member_numbers"])
 
-    with {:ok, detail} <- Experiments.fetch(id) do
-      if Enum.any?(detail.annotations, &(&1["scope_key"] == key)) do
-        {:ok, state}
-      else
-        with :ok <- Experiments.annotate(id, %{kind: "note", at: DateTime.to_iso8601(now), reason: "post-line scope change", scope_key: key}, "auto_feature"), do: {:ok, state}
-      end
-    end
+    annotation = %{kind: "note", at: DateTime.to_iso8601(now), reason: "post-line scope change", scope_key: key}
+    with {:ok, detail} <- Experiments.fetch(id), :ok <- scope_note(id, detail, key, annotation), do: {:ok, state}
+  end
+
+  defp scope_note(id, detail, key, annotation) do
+    if Enum.any?(detail.annotations, &(&1["scope_key"] == key)), do: :ok, else: Experiments.annotate(id, annotation, "auto_feature")
   end
 
   defp set_line(state, live, config) do
@@ -87,11 +86,15 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
       if snapshot && snapshot["window"] == window do
         :ok
       else
-        case Experiments.freeze(id, "before", reason: "first feature member merge") do
-          {:ok, _snapshot} -> :ok
-          error -> error
-        end
+        freeze(id)
       end
+    end
+  end
+
+  defp freeze(id) do
+    case Experiments.freeze(id, "before", reason: "first feature member merge") do
+      {:ok, _snapshot} -> :ok
+      error -> error
     end
   end
 
@@ -100,16 +103,17 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
   end
 
   defp find(key) do
-    with {:ok, ids} <- Experiments.Paths.ids() do
-      result =
-        Enum.find_value(ids, fn id ->
-          case Reader.spec(id) do
-            {:ok, %{"key" => ^key} = spec, false} -> spec
-            _other -> nil
-          end
-        end)
+    with {:ok, ids} <- Paths.ids() do
+      result = Enum.find_value(ids, &matching_spec(&1, key))
 
       if result, do: {:ok, result}, else: {:error, :feature_experiment_missing}
+    end
+  end
+
+  defp matching_spec(id, key) do
+    case Reader.spec(id) do
+      {:ok, %{"key" => ^key} = spec, false} -> spec
+      _other -> nil
     end
   end
 

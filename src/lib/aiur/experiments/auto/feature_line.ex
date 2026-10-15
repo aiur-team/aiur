@@ -2,6 +2,7 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
   @moduledoc false
   use GenServer
   require Logger
+  alias Aiur.Events.Exchange
   alias Aiur.Experiments.Auto.FeaturePoll
   alias Aiur.Experiments.Paths
   alias Aiur.GitHub.ResourceEvents
@@ -18,7 +19,7 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
     repo = Keyword.get(opts, :managed_repo, Paths.repo())
     :ok = ResourceEvents.subscribe(:issue_labels, repo)
     :ok = ResourceEvents.subscribe(:sub_issue, repo)
-    :ok = Aiur.Events.Exchange.subscribe("ticket.*.pr.merged")
+    :ok = Exchange.subscribe("ticket.*.pr.merged")
     if not Keyword.get(opts, :start_paused?, false), do: send(self(), :poll)
     {:ok, %{opts: opts, task: nil, timer: nil, refresh?: false, status: :pending, epics: %{}}}
   end

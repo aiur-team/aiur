@@ -1,11 +1,13 @@
 defmodule Aiur.Experiments.Auto.LiveSignal do
   @moduledoc false
+  alias Aiur.Experiments.Paths
+  alias Aiur.RepoBase
   alias Aiur.Experiments.Auto.{BuildStamp, DeployLedger, RepoReleaseLine, TagReader}
   alias Aiur.Workspace.WipPreservation.Command
 
   @spec resolve(map(), map(), DateTime.t(), keyword()) :: {:ok, map()} | :pending | {:error, term()}
   def resolve(merge, config, now, opts \\ []) do
-    repo = Keyword.get_lazy(opts, :repo, fn -> Aiur.RepoBase.base_path(Aiur.Experiments.Paths.repo()) end)
+    repo = Keyword.get_lazy(opts, :repo, fn -> RepoBase.base_path(Paths.repo()) end)
     signal = signal(config.feature_live_signal, repo, opts)
     result = find(signal, merge, now, repo, Keyword.put(opts, :config, config))
 
@@ -17,12 +19,11 @@ defmodule Aiur.Experiments.Auto.LiveSignal do
   end
 
   @spec signal(String.t(), Path.t(), keyword()) :: String.t()
-  def signal("auto", repo, opts) do
+  def signal("auto", _repo, opts) do
     stamp = Keyword.get_lazy(opts, :stamp, &BuildStamp.read/0)
-    managed = Keyword.get(opts, :managed_repo, Aiur.Experiments.Paths.repo()) |> String.downcase()
+    managed = Keyword.get(opts, :managed_repo, Paths.repo()) |> String.downcase()
     build_repo = Keyword.get_lazy(opts, :build_repo, &BuildStamp.repo_root/0)
     origin = if is_binary(build_repo), do: git(build_repo, ["remote", "get-url", "origin"]), else: {:error, :unknown_build}
-    _warm_repo = repo
     if stamp.source_sha && matches?(origin, managed), do: "daemon_boot", else: "merge"
   end
 
@@ -47,24 +48,27 @@ defmodule Aiur.Experiments.Auto.LiveSignal do
   end
 
   defp find("release", merge, _now, repo, opts) do
-    path = Keyword.get(opts, :release_path, Path.join(Aiur.Experiments.Paths.root(), "auto-release-seen.json"))
+    path = Keyword.get(opts, :release_path, Path.join(Paths.root(), "auto-release-seen.json"))
 
-    with {:ok, tags} when is_list(tags) <- Aiur.JsonStore.read(path, []) do
-      dates =
-        for tag <- tags,
-            RepoReleaseLine.eligible?(tag, Keyword.fetch!(opts, :config)),
-            {:ok, at} <- [TagReader.date(repo, tag)],
-            contains?(repo, merge["sha"], "refs/tags/" <> tag),
-            DateTime.compare(at, time(merge["at"])) != :lt,
-            do: {at, tag}
-
-      case Enum.sort_by(dates, fn {at, _tag} -> DateTime.to_unix(at) end) do
-        [{at, tag} | _rest] -> {:ok, %{"at" => DateTime.to_iso8601(at), "tag" => tag}}
-        [] -> :pending
-      end
-    else
+    case Aiur.JsonStore.read(path, []) do
+      {:ok, tags} when is_list(tags) -> release_line(tags, merge, repo, opts)
       {:ok, _invalid} -> {:error, :invalid_seen_tags}
       error -> error
+    end
+  end
+
+  defp release_line(tags, merge, repo, opts) do
+    dates =
+      for tag <- tags,
+          RepoReleaseLine.eligible?(tag, Keyword.fetch!(opts, :config)),
+          {:ok, at} <- [TagReader.date(repo, tag)],
+          contains?(repo, merge["sha"], "refs/tags/" <> tag),
+          DateTime.compare(at, time(merge["at"])) != :lt,
+          do: {at, tag}
+
+    case Enum.sort_by(dates, fn {at, _tag} -> DateTime.to_unix(at) end) do
+      [{at, tag} | _rest] -> {:ok, %{"at" => DateTime.to_iso8601(at), "tag" => tag}}
+      [] -> :pending
     end
   end
 

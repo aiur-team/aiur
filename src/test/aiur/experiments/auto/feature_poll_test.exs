@@ -2,7 +2,8 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
   use Aiur.TestSupport
   alias Aiur.Config.Schema.Experiments.Auto, as: Config
   alias Aiur.Experiments
-  alias Aiur.Experiments.Auto.{Creator, FeaturePoll, Notifier, WindowRules}
+  alias Aiur.Experiments.Auto.{Creator, FeatureLine, FeaturePoll, Notifier, WindowRules}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Experiments.Store
 
   setup do
@@ -94,9 +95,25 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
     assert length(detail.snapshots) == 1
     stop_supervised!(Creator)
     stop_supervised!(Notifier)
-    creator = start_supervised!({Creator, catalog_context: %{repo_path: Path.join(Path.dirname(opts[:path]), "repo")}, config: opts[:config], telemetry: fn -> true end, path: Path.join(Path.dirname(opts[:path]), "creator.json")})
+
+    creator =
+      start_supervised!(
+        {Creator,
+         catalog_context: %{repo_path: Path.join(Path.dirname(opts[:path]), "repo")}, config: opts[:config], telemetry: fn -> true end, path: Path.join(Path.dirname(opts[:path]), "creator.json")}
+      )
+
     owner = self()
-    notifier = start_supervised!({Notifier, path: Path.join(Path.dirname(opts[:path]), "latches.json"), publish: fn topic, payload -> send(owner, {:published, topic, payload}); :ok end})
+
+    notifier =
+      start_supervised!(
+        {Notifier,
+         path: Path.join(Path.dirname(opts[:path]), "latches.json"),
+         publish: fn topic, payload ->
+           send(owner, {:published, topic, payload})
+           :ok
+         end}
+      )
+
     opts = opts |> Keyword.put(:creator, creator) |> Keyword.put(:notifier, notifier)
     assert {:ok, _data} = FeaturePoll.run(opts, false)
     assert {:ok, detail} = Experiments.fetch(id)
@@ -145,6 +162,86 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
     assert {:ok, data} = FeaturePoll.run(opts, false)
     assert data["epics"]["42"]["state"]["phase"] == "not_an_epic"
     assert {:ok, []} = Experiments.list()
+  end
+
+  test "a merge refresh inside the throttle is retained until five minutes", %{opts: opts, upstream: upstream} do
+    assert {:ok, _data} = FeaturePoll.run(opts, false)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:01:00Z], merged: true, members: [%{member(1) | "state" => "closed"}]})
+    assert {:ok, deferred} = FeaturePoll.run(opts, true)
+    assert deferred["epics"]["42"]["state"]["phase"] == "armed"
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:05:00Z]})
+    assert {:ok, refreshed} = FeaturePoll.run(opts, false)
+    assert refreshed["epics"]["42"]["state"]["phase"] == "merging"
+    assert refreshed["epics"]["42"]["refresh_requested"] == false
+  end
+
+  test "recovered pending live resolution revalidates removal and reopened membership", %{opts: opts, upstream: upstream} do
+    assert {:ok, _data} = FeaturePoll.run(opts, false)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-13 00:00:00Z], merged: true, members: [%{member(1) | "state" => "closed"}]})
+    assert {:ok, _data} = FeaturePoll.run(opts, false)
+    waiting = opts |> Keyword.put(:config, %{opts[:config] | feature_live_signal: "daemon_boot"}) |> Keyword.put(:deploys, fn _range -> {:error, :offline} end)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-13 06:00:00Z]})
+    assert {:error, :offline} = FeaturePoll.run(waiting, false)
+    assert {:ok, pending} = Aiur.JsonStore.read(opts[:path])
+    assert pending["epics"]["42"]["pending"] == ["resolve_live"]
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-13 07:00:00Z], members: [member(1)]})
+    assert {:ok, reopened} = FeaturePoll.run(opts, false)
+    assert reopened["epics"]["42"]["state"]["phase"] == "merging"
+    id = reopened["epics"]["42"]["state"]["experiment_id"]
+    assert {:ok, detail} = Experiments.fetch(id)
+    assert detail.spec["status"] == "draft"
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-13 08:00:00Z], labelled: false})
+    assert {:ok, removed} = FeaturePoll.run(opts, false)
+    assert removed["epics"]["42"]["state"]["phase"] == "cancelled"
+    assert {:ok, detail} = Experiments.fetch(id)
+    assert detail.spec["status"] == "cancelled"
+  end
+
+  test "supervised worker consumes membership, merge and label deposits without hourly discovery", %{opts: opts, upstream: upstream} do
+    worker = start_supervised!({FeatureLine, Keyword.put(opts, :start_paused?, true)})
+    worker_poll(worker, fn -> send(worker, :poll) end)
+    assert %{epics: %{"42" => %{"phase" => "armed", "experiment_id" => id}}} = FeatureLine.status(worker)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-10 00:05:00Z], members: [member(1), member(2)]})
+
+    worker_poll(worker, fn ->
+      key = ResourceStore.key(:sub_issue, "owner", "repo", "42:2")
+      ResourceStore.put_resource(key, %{"present" => true, "parent_issue_number" => 42, "sub_issue_number" => 2}, version: "2026-10-10T00:05:00Z")
+    end)
+
+    assert %{epics: %{"42" => %{"member_numbers" => [1, 2]}}} = FeatureLine.status(worker)
+    Agent.update(upstream, &%{&1 | now: ~U[2026-10-13 00:00:00Z], merged: true, members: [%{member(1) | "state" => "closed"}, member(2)]})
+    worker_poll(worker, fn -> Aiur.Events.Exchange.publish("ticket.1.pr.merged", %{topic: "ticket.1.pr.merged"}) end)
+    assert %{epics: %{"42" => %{"phase" => "merging"}}} = FeatureLine.status(worker)
+    worker_poll(worker, fn -> ResourceStore.put_resource(ResourceStore.key(:issue_labels, "owner", "repo", 42), [], version: "2026-10-13T00:01:00Z") end)
+    assert %{epics: %{"42" => %{"phase" => "cancelled"}}} = FeatureLine.status(worker)
+    assert {:ok, detail} = Experiments.fetch(id)
+    assert detail.spec["status"] == "cancelled"
+    assert length(detail.snapshots) == 2
+  end
+
+  defp worker_poll(worker, trigger) do
+    owner = self()
+    token = make_ref()
+
+    hook = fn state, event, _process_state ->
+      case {state, event} do
+        {_, {:noreply, %{task: task}}} when not is_nil(task) ->
+          :running
+
+        {:running, {:noreply, %{task: nil}}} ->
+          send(owner, {:worker_finished, token})
+          :done
+
+        _other ->
+          state
+      end
+    end
+
+    :ok = :sys.install(worker, {hook, :waiting})
+    trigger.()
+    receive_barrier({:worker_finished, ^token})
+    :ok = :sys.remove(worker, hook)
+    assert %{status: :available} = FeatureLine.status(worker)
   end
 
   defp drain(acc) do
