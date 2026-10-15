@@ -1,0 +1,36 @@
+{
+  "id": "voice-conversation-core",
+  "name": "Voice conversation core",
+  "layer": 3,
+  "kind": "package",
+  "paths": [
+    ".github/workflows/voice-converse-standalone.yml",
+    "packages/elixir/voice_converse/**",
+    "scripts/check-voice-converse-isolation.sh"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides a reusable voice assistant engine for conversation hosts.",
+  "docs": [
+    "guide/gui.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

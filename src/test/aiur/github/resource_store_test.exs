@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     File.mkdir_p!(dir)
     path = Path.join(dir, "github_resources.json")
 
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     {:ok, path: path, dir: dir}
   end

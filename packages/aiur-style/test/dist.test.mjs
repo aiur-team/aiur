@@ -15,7 +15,7 @@ const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
 describe('dist/ validation', () => {
   test('all export targets exist', () => {
     assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
-      ['.', './aiur-style.css', './css/*', './package.json'].sort());
+      ['.', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css'].sort());
     const targets = Object.values(pkgJson.exports).flatMap(value =>
       typeof value === 'object' ? Object.values(value) : [value]);
     for (const target of targets) {

@@ -9,7 +9,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
   test "executor: roster read does not record an observation" do
     path = Path.join(Aiur.TestSupport.tmp_root!("core-provider-claims"), "claims.json")
     File.mkdir_p!(Path.dirname(path))
-    on_exit(fn -> File.rm_rf!(Path.dirname(path)) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
     now = DateTime.utc_now()
     assert {:ok, _claim} = Claims.claim("owner", path: path, now: now)
     Roster.build(path: path, now: now, cursor: 0, pending_count: 0)

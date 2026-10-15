@@ -17,10 +17,21 @@ defmodule Aiur.Workspace.Ownership.Reconciler do
     guardian_opts = Keyword.get(opts, :guardian_opts, []) |> Keyword.put(:store, store)
 
     with {:ok, receipts} <- Store.all(store),
-         {:ok, guardians} <- restore_all(receipts, registry, guardian_opts) do
+         {:ok, guardians} <- restore_all(pending_receipts(receipts, opts), registry, guardian_opts) do
       {:ok, %{guardians: guardians}}
     else
       {:error, reason} -> {:stop, {:workspace_ownership_reconciliation_failed, reason}}
+    end
+  end
+
+  defp pending_receipts(receipts, opts) do
+    case Aiur.Handoff.Record.read(Keyword.get(opts, :handoff_opts, [])) do
+      {:ok, record} ->
+        identifiers = MapSet.new(record["agents"], &(&1["identifier"] || &1["issue_id"]))
+        Map.reject(receipts, fn {ticket, _receipt} -> MapSet.member?(identifiers, ticket) end)
+
+      _ ->
+        receipts
     end
   end
 

@@ -14,7 +14,7 @@ defmodule Aiur.GitHub.BudgetTest do
     CredentialHeadroom.reset()
 
     on_exit(fn ->
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
       restore_env(:github_budget_enabled?, previous)
       CredentialHeadroom.reset()
     end)
@@ -140,7 +140,7 @@ defmodule Aiur.GitHub.BudgetTest do
   end
 
   test "a configured broker failure is not reported as shared quota exhaustion", %{root: root} do
-    opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 10]
+    opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 1_000]
 
     assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
@@ -183,19 +183,25 @@ defmodule Aiur.GitHub.BudgetTest do
   test "database lock cannot hold admission beyond its wall-clock budget", %{root: root} do
     broker_pid_path = Path.join(root, "broker.pid")
     python = broker_wrapper(root, broker_pid_path)
-    opts = [state_dir: root, enabled?: true]
+
+    opts = [
+      state_dir: root,
+      enabled?: true,
+      kill_fun: fn pid ->
+        Process.sleep(500)
+        System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+      end
+    ]
+
     token = "locked-budget-token"
 
-    # Create the schema before taking an exclusive lock so the broker blocks
-    # specifically on SQLite admission rather than setup.
+    # Create schema first so the exclusive lock blocks admission, not setup.
     assert %{inflight: %{}} = Budget.snapshot(token, opts)
     lock = lock_database(Budget.database_path(opts))
 
     started_at = System.monotonic_time(:millisecond)
 
-    # The broker never answers within the 300 ms deadline, so this is the
-    # distinguishable timeout verdict rather than the malformed-reply
-    # `:github_budget_broker_unavailable` (#2286).
+    # A lock beyond the 300 ms deadline must classify as timeout, not malformed (#2286).
     assert {:error, :github_budget_broker_timeout} =
              Budget.acquire(
                request(token, "/repos/owner/repo/issues/1477"),
@@ -206,7 +212,7 @@ defmodule Aiur.GitHub.BudgetTest do
     assert elapsed_ms >= 250
     assert elapsed_ms < 1_000
     broker_pid = broker_pid_path |> File.read!() |> String.trim()
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
 
     close_port(lock)
   end
@@ -217,10 +223,8 @@ defmodule Aiur.GitHub.BudgetTest do
     opts = [state_dir: root, enabled?: true]
     request = request("locked-release-token", "/repos/owner/repo/issues/1477")
 
-    # The setup acquire spawns `python3` and creates the broker database. That is
-    # not the window under test, so it must not be charged the 300 ms deadline
-    # the release is measured against. A loaded runner can spend more than that
-    # on one admission before the database lock is even taken (#1983).
+    # Exclude setup acquire from the 300 ms release deadline; loaded runners can
+    # spend longer than that creating the broker database (#1983).
     assert {:ok, lease} = Budget.acquire(request, opts)
     lock = lock_database(Budget.database_path(opts))
     deadline_at = System.monotonic_time(:millisecond) + 300
@@ -239,7 +243,7 @@ defmodule Aiur.GitHub.BudgetTest do
     assert elapsed_ms >= 250
     assert elapsed_ms < 1_000
     broker_pid = broker_pid_path |> File.read!() |> String.trim()
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
 
     close_port(lock)
   end
@@ -266,7 +270,7 @@ defmodule Aiur.GitHub.BudgetTest do
     Process.exit(caller, :kill)
 
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}, 2_000
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
     close_port(lock)
   end
 
@@ -830,6 +834,7 @@ defmodule Aiur.GitHub.BudgetTest do
       requests_per_minute: 100,
       stagger_ms: 0,
       timeout_ms: 500,
+      broker_server: start_supervised!({Aiur.GitHub.BudgetBroker, name: nil}),
       consumer_key: "workspace:/contradictory-reader",
       agent_core_limit_per_hour: 2,
       agent_graphql_limit_per_hour: 2,
@@ -844,14 +849,13 @@ defmodule Aiur.GitHub.BudgetTest do
     observe_headroom(request, limit: 10, remaining: 10, reset: reset)
 
     for _ <- 1..2 do
-      assert {:ok, lease} = Budget.acquire(request, opts)
+      assert {:ok, lease} = acquire_retrying_timeout(request, opts)
       assert :ok = Budget.release(lease, opts)
     end
 
     hold_opts = Keyword.put(opts, :timeout_ms, 200)
 
-    # The actor is already at its ceiling, so every attempt either holds or
-    # times out; the retry never grants a lease it could double-consume
+    # At its ceiling, each attempt holds or times out; retries cannot double-consume
     # (#2286).
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}, 1000
@@ -1227,18 +1231,13 @@ defmodule Aiur.GitHub.BudgetTest do
     path
   end
 
-  defp os_process_alive?(pid) do
-    case System.cmd("ps", ["-o", "stat=", "-p", pid], stderr_to_stdout: true) do
-      {status, 0} -> not String.starts_with?(String.trim(status), "Z")
-      {_output, _status} -> false
-    end
-  end
+  defp assert_process_exits(pid),
+    do:
+      assert(
+        {_, 0} =
+          System.cmd("timeout", ["3s", "bash", "-c", "while IFS= read -r s < /proc/$1/stat; do s=${s##*) }; s=${s%% *}; [[ $s == Z ]] && exit 0; sleep 0.01; done", "_", pid], stderr_to_stdout: true)
+      )
 
-  # The window is generous (3s at 10ms a tick) because every caller waits on
-  # broker-subprocess lifecycle — spawning, or reaping after a deadline kill —
-  # and each `ps`/`File` probe is itself a subprocess that can stall under the
-  # four-way parallel coverage load that this file's flakes were filed against
-  # (#2286).
   defp wait_until(predicate, attempts \\ 300) do
     cond do
       predicate.() -> :ok

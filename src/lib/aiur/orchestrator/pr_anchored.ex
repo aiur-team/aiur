@@ -8,8 +8,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   alias Aiur.{Alerts, Config, Issue, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TicketTransition, TrackerTasks, WorkspaceCleanup}
 
   @pr_anchored_state "pr-watch"
 
@@ -307,7 +306,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
     # without this, a reopened PR would --resume the finished thread now that
     # claude-repl is resumable (#613).
     identifier = Map.get(running_entry, :identifier)
-    Orchestrator.clear_session_handle(identifier)
+    WorkspaceCleanup.clear_session_handle(identifier)
     # The workspace lease is keyed by the identifier, so the cleanup names it
     # as the ticket to re-check the lease before the delete.
     ticket = if is_binary(identifier), do: identifier, else: issue_id
@@ -371,7 +370,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
         if TrackerTasks.same_runner?(entry, running_entry) do
           Logger.warning("PR-anchored PR is no longer open; stopping: issue_id=#{issue_id} pr=#{pr_number}")
 
-          current = Orchestrator.terminate_running_issue(current, issue_id, false)
+          current = TicketTransition.apply_effect(current, {:terminate, issue_id, false})
           cleanup_pr_anchored_workspace(issue_id, entry)
           current
         else

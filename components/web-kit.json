@@ -1,0 +1,42 @@
+{
+  "id": "web-kit",
+  "name": "Web helpers",
+  "layer": 1,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur_web/capability_error.ex",
+    "src/lib/aiur_web/kit.ex",
+    "src/lib/aiur_web/provider_meter_windows.ex",
+    "src/lib/aiur_web/refresh_relay.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [
+    "WEB"
+  ],
+  "dependency_kind": "required",
+  "summary": "Provides shared helpers for components that offer web pages or APIs.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-R1"
+}

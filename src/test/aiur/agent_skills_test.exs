@@ -12,7 +12,7 @@ defmodule Aiur.AgentSkillsTest do
   setup do
     tmp = Aiur.TestSupport.tmp_root!("aiur_skills")
     File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
     {:ok, workspace: tmp}
   end
 
@@ -131,7 +131,7 @@ defmodule Aiur.AgentSkillsTest do
 
   test "refuses skill roots redirected outside the workspace", %{workspace: ws} do
     external = Aiur.TestSupport.tmp_root!("aiur_skills_external")
-    on_exit(fn -> File.rm_rf!(external) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(external) end)
     File.mkdir_p!(external)
     File.mkdir_p!(Path.join(ws, ".claude"))
     File.ln_s!(external, Path.join([ws, ".claude", "skills"]))
@@ -227,7 +227,7 @@ defmodule Aiur.AgentSkillsTest do
 
   test "does not write exclusions through an external gitdir", %{workspace: ws} do
     git_dir = Aiur.TestSupport.tmp_root!("aiur_skills_gitdir")
-    on_exit(fn -> File.rm_rf!(git_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(git_dir) end)
 
     assert {_output, 0} =
              System.cmd("git", ["init", "--quiet", "--separate-git-dir=#{git_dir}", ws], stderr_to_stdout: true)
@@ -243,7 +243,7 @@ defmodule Aiur.AgentSkillsTest do
   test "remote install does not write exclusions through an external gitdir", %{workspace: ws} do
     remote_workspace = Path.join(ws, "remote linked workspace")
     git_dir = Aiur.TestSupport.tmp_root!("aiur_remote_skills_gitdir")
-    on_exit(fn -> File.rm_rf!(git_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(git_dir) end)
 
     File.mkdir_p!(remote_workspace)
 

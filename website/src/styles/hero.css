@@ -1,0 +1,270 @@
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    /* sized by the fold's second row: the viewport less the announcement strip,
+       and free to grow past it when the lockup needs more room */
+    grid-row: 2;
+    grid-column: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow-x: clip;
+  }
+  #field {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    /* extend past the fold so the diagonal lines can fade out below it */
+    height: calc(100% + 260px);
+    z-index: 1;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 260px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 260px), transparent 100%);
+  }
+
+  .stage {
+    position: relative;
+    /* above the terminal peek (z-index 5) so the install box's drop-down
+       panel can overlay it cleanly when the next-steps reveal opens */
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 24px;
+  }
+
+  .lockup {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(14px, 2.4vw, 30px);
+  }
+  .lockup .logo {
+    height: clamp(120px, 18vw, 224px);
+    width: auto;
+    display: block;
+  }
+  .wordmark {
+    font-family: "Bungee", sans-serif;
+    font-size: clamp(40px, 8vw, 96px);
+    line-height: 0.82;
+    letter-spacing: 0.01em;
+    color: var(--fg);
+    display: flex;
+    transition: color 0.5s ease;
+  }
+  .wordmark span {
+    display: inline-block;
+    transform: translateY(18px);
+    opacity: 0;
+    animation: rise 0.7s cubic-bezier(.2,.85,.3,1) forwards;
+  }
+  .wordmark span:nth-child(1){ animation-delay: .35s; }
+  .wordmark span:nth-child(2){ animation-delay: .45s; }
+  .wordmark span:nth-child(3){ animation-delay: .55s; }
+  .wordmark span:nth-child(4){ animation-delay: .65s; }
+
+  /* secondary block (placeholder copy — easy to revise) */
+  .sub {
+    margin-top: clamp(28px, 5vh, 52px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.95s forwards;
+  }
+  .tagline {
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(16px, 2.2vw, 22px);
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-align: center;
+  }
+
+  /* anchor only — holds the in-flow box + the absolutely-dropped next-steps so
+     the reveal never changes layout height (hero stays centered, no drift) */
+  .install-wrap { position: relative; }
+  /* tabs + command joined into one panel: box owns the border/pill */
+  .install-box {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    border: 1px solid var(--pill-bd);
+    background: var(--pill-bg);
+    border-radius: 11px;
+    overflow: hidden;
+    backdrop-filter: blur(3px);
+    transition: border-radius 0.2s ease;
+  }
+  .install-wrap.show-next .install-box {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .pm-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--pill-bd);
+  }
+  .pm-tab {
+    flex: 1;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--pill-bd);
+    padding: 8px 13px;
+    cursor: pointer;
+    transition: color 0.2s, background-color 0.2s;
+  }
+  .pm-tab:last-child { border-right: 0; }
+  .pm-tab:hover { color: var(--fg); }
+  .pm-tab.is-active {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 10%, transparent);
+  }
+  .install {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 11px 14px 11px 18px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: var(--fg);
+  }
+  .install .prompt { color: var(--accent); }
+  /* the prompt line is pasted into an agent, not a shell — no "$" */
+  .install.is-prompt .prompt { display: none; }
+  /* long lines (the prompt) wrap inside the box at phone widths instead of
+     pushing the page wider than the viewport */
+  .install .cmd { letter-spacing: 0.01em; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .install .copy { flex-shrink: 0; }
+  .install .copy {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    display: grid; place-items: center;
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    transition: background-color .2s, color .2s;
+  }
+  .install .copy:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 9%, transparent); }
+  .install .copy svg { width: 15px; height: 15px; }
+  .install .copy.copied { color: var(--accent); }
+
+  /* post-install commands — drop below the box without affecting layout.
+     absolute + top:100% so the hero never re-centers when it opens. */
+  .next-steps {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: -1px; /* merge the panel's top border with the box's bottom */
+    z-index: 2;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.34s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .install-wrap.show-next .next-steps { grid-template-rows: 1fr; }
+  .next-inner { overflow: hidden; }
+  .next-panel {
+    border: 1px solid var(--pill-bd);
+    border-radius: 0 0 11px 11px;
+    /* opaque (matches the box's frosted tint) so it fully covers the
+       terminal peek it drops over, rather than letting it bleed through */
+    background: color-mix(in srgb, var(--fg) 3%, var(--bg));
+  }
+  .next-hint {
+    text-align: center;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--muted) 62%, transparent);
+    padding: 10px 14px 3px;
+  }
+  .next-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 14px 9px 18px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .next-row .prompt { color: var(--accent); }
+  .next-panel > * {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .install-wrap.show-next .next-panel > * { opacity: 1; transform: none; }
+  .install-wrap.show-next .next-panel > :nth-child(2) { transition-delay: 0.06s; }
+  .install-wrap.show-next .next-panel > :nth-child(3) { transition-delay: 0.12s; }
+  @media (prefers-reduced-motion: reduce) {
+    .next-steps { transition: none; }
+    .next-panel > * { transition: none; }
+  }
+
+  .scrollcue {
+    position: fixed;
+    /* sit in the gap above the terminal peek (which occupies the bottom
+       clamp(64px,9vh,104px) of the first screen), not overlapping its title */
+    bottom: clamp(92px, 14vh, 136px);
+    /* center without transform: the fadeUp animation animates transform, which
+       would otherwise clobber a translateX(-50%) and shove the cue off-center */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
+    width: max-content;
+    z-index: 30;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--term-dim);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    opacity: 0;
+    pointer-events: none;
+    animation: fadeUp 0.8s ease 1.25s forwards;
+    transition: opacity 0.4s ease;
+  }
+  .scrollcue.gone { opacity: 0 !important; }
+  .scrollcue .chev {
+    width: 16px; height: 16px;
+    animation: nudge 1.8s ease-in-out infinite;
+  }
+
+  @keyframes floaty {
+    0%,100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes rise {
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes nudge {
+    0%,100% { transform: translateY(-2px); }
+    50% { transform: translateY(3px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lockup .logo { animation: none; }
+    .scrollcue .chev { animation: none; }
+    /* reveal the fade-in content immediately instead of leaving it hidden */
+    .wordmark span, .sub, .scrollcue {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    /* freeze the Executor’s input cursor on the static beat frame */
+    .term-screen .cursor { animation: none; opacity: 1; }
+  }
+

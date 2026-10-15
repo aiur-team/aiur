@@ -1,0 +1,65 @@
+{
+  "id": "config",
+  "name": "Configuration and workflows",
+  "layer": 0,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/agent_config.ex",
+    "src/lib/aiur/config.ex",
+    "src/lib/aiur/config/**",
+    "src/lib/aiur/env.ex",
+    "src/lib/aiur/env/**",
+    "src/lib/aiur/handoff/record.ex",
+    "src/lib/aiur/merge_policy.ex",
+    "src/lib/aiur/workflow.ex",
+    "src/lib/aiur/workflow_store.ex",
+    "src/lib/aiur/workflow_store/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [
+      "compaction",
+      "merge_policy",
+      "prompt_file"
+    ],
+    "env": [
+      "AIUR_CI_CHANGED_PATHS_B64",
+      "GITHUB_EVENT_NAME",
+      "HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_STATE_HOME"
+    ],
+    "state": [],
+    "capabilities": [
+      "merge_policy"
+    ]
+  },
+  "prior": [
+    "CFG"
+  ],
+  "dependency_kind": "required",
+  "summary": "Loads workflow settings and applies the configured rules for a run.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/configuration.md"
+  ],
+  "config": [],
+  "env": [
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_STATE_HOME"
+  ],
+  "capabilities": [
+    "merge_policy"
+  ]
+}

@@ -10,7 +10,29 @@ defmodule Aiur.Orchestrator.TicketTransition do
   """
 
   require Logger
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, Effect, HumanReview, PauseResume, RetryEngine, State}
   alias Aiur.Tracker
+
+  @doc "Apply requests in order, before the caller reads transition output."
+  @spec apply_effects(State.t(), [Effect.t()]) :: State.t()
+  def apply_effects(state, effects) do
+    Enum.reduce(effects, state, fn effect, current ->
+      case apply_effect(current, effect) do
+        {_result, %State{} = next} -> next
+        %State{} = next -> next
+      end
+    end)
+  end
+
+  @doc "Apply one effect, preserving resume/reactivate outcomes for dependent actions."
+  @spec apply_effect(State.t(), Effect.t()) :: State.t() | {term(), State.t()}
+  def apply_effect(state, {:terminate, id, cleanup?}), do: AgentTeardown.terminate_running_issue(state, id, cleanup?)
+  def apply_effect(state, {:resume_paused, entry, operator?}), do: PauseResume.resume_paused_issue(state, entry, operator?)
+  def apply_effect(state, {:reactivate, entry}), do: PauseResume.reactivate_issue(state, entry)
+  def apply_effect(state, {:transition_control, entry, status, reason}), do: PauseResume.transition_control_status(state, entry, status, reason)
+  def apply_effect(state, {:preserve_on_external_error, issue}), do: RetryEngine.preserve_running_issue_on_external_error(state, issue)
+  def apply_effect(state, {:pause_for_ci_wait, issue}), do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
+  def apply_effect(state, {:maybe_deactivate_human_review, issue}), do: HumanReview.maybe_deactivate_human_review_issue(state, issue)
 
   @spec write_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def write_state(issue_id, to_state, opts) do

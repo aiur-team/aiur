@@ -14,9 +14,7 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
   @now ~U[2026-07-27 12:00:00Z]
 
   setup do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     {:ok, owner} = ProviderAccountGeneration.start_link(name: nil, mint: sequence_mint())
     {:ok, store} = Store.start_link(name: nil, account_generation_owner: owner, clock: fn -> @now end)

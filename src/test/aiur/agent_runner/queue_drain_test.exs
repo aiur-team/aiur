@@ -1,5 +1,6 @@
 defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
+  @moduletag :r7_characterization
 
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
   alias Aiur.{AlertFeed, Issue, LiveConversation, PauseContainment, TrackerIdentity}
@@ -26,7 +27,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       # A late log writer can recreate an entry between rm_rf's directory
       # listing and final rmdir under CI load. As documented in #461/#480,
       # tolerate that race for this unique test root instead of raising.
-      File.rm_rf(log_root)
+      Aiur.TestCleanup.rm_rf!(log_root, unset: [:runtime_state_dir])
     end)
 
     %{log_root: log_root}
@@ -216,60 +217,6 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
       assert QueueDrain.record_provider_delivery(correlated_item(), issue, store) == :ok
       assert_receive {:decision_delivery, %{action_id: "act_9"}}, 1000
-    end
-  end
-
-  describe "queue_item_text/1" do
-    test "extracts body text from an operator_message item" do
-      item = %{category: :operator_message, body: %{text: "hello operator"}}
-
-      assert QueueDrain.queue_item_text(item) == "hello operator"
-    end
-
-    test "renders an events_digest coordination event via EventsDigest" do
-      event = %{id: 1, topic: "ticket.QD-01.agent.progress", source: :agent, message: "progress note"}
-      item = %{category: :coordination_event, event_type: :events_digest, body: %{events: [event]}}
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert result =~ "<aiur:events>"
-      assert result =~ "progress note"
-    end
-
-    test "renders an urgent events_digest with the urgent attribute" do
-      event = %{id: 1, topic: "ticket.QD-01.agent.progress", source: :agent, message: "blocker note"}
-
-      item = %{
-        category: :coordination_event,
-        event_type: :events_digest,
-        body: %{events: [event], urgent: true}
-      }
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert result =~ ~s(<aiur:events urgent="true">)
-      assert result =~ "blocker note"
-    end
-
-    test "returns summary for other coordination events" do
-      item = %{
-        category: :coordination_event,
-        event_type: :some_kind,
-        body: %{summary: "coordination summary"}
-      }
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert result =~ "coordination summary"
-      assert result =~ "some_kind"
-    end
-
-    test "falls back to inspect for unknown item shapes" do
-      item = %{category: :unknown}
-
-      result = QueueDrain.queue_item_text(item)
-
-      assert is_binary(result)
     end
   end
 

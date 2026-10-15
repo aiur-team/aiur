@@ -1,0 +1,394 @@
+.bo-adhoc {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.35rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid var(--line);
+}
+
+.bo-adhoc-body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.bo-adhoc-total {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.bo-adhoc-total .num {
+  font-weight: 800;
+  color: var(--fg);
+}
+
+.bo-adhoc-ticket {
+  font-weight: 600;
+}
+
+.bo-adhoc-ticket a {
+  color: var(--accent-ink);
+}
+
+.bo-adhoc-state {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--pill-bg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bo-adhoc-state-live {
+  border-color: var(--ok-ink, var(--accent-ink));
+  color: var(--ok-ink, var(--accent-ink));
+}
+
+.bo-adhoc-state-done {
+  color: var(--fg-muted);
+}
+
+.bo-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--fg);
+  background: var(--pill-bg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.bo-layout-card-idline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.bo-cx {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0.1rem 0.44rem;
+  border-radius: 999px;
+  border: 1px solid var(--super-line);
+  background: var(--super-soft);
+  color: var(--super-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.bo-layout-card-meta-line {
+  margin: 0.35rem 0 0 !important;
+  color: var(--muted) !important;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+}
+
+.bo-layout-card-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+}
+
+.bo-layout-card-progress .bo-bar {
+  height: 3px;
+}
+
+.bo-layout-card-pct {
+  flex: none;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.bo-layout-card-warnings,
+.bo-diagnostics {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--attention-ink);
+  font-size: 0.62rem;
+}
+
+.bo-card-context-trigger {
+  align-self: flex-start;
+  margin-top: 0.4rem;
+  min-height: 24px;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  cursor: pointer;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.bo-card-context-trigger:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.bo-layout-edge-kind {
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+}
+
+.bo-layout-root {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.bo-layout-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.bo-layout-heading h2,
+.bo-layout-lane-heading,
+.bo-layout-dependency-summary h3 {
+  margin: 0;
+}
+
+.bo-layout-heading p,
+.bo-layout-card-id,
+.bo-layout-card-meta,
+.bo-layout-edge-state {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+}
+
+.bo-layout-heading p {
+  margin: 0;
+  text-align: right;
+}
+
+.bo-layout-cards {
+  position: relative;
+  min-width: min-content;
+}
+
+.bo-layout-lane {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 10.5rem);
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.bo-layout-lane-heading {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bo-layout-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 10.5rem;
+  min-width: 0;
+  padding: 0.6rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.bo-layout-card header {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.bo-layout-card h4,
+.bo-layout-card p {
+  margin: 0;
+}
+
+.bo-layout-card h4 {
+  color: var(--fg);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.bo-layout-card > p:not(.bo-layout-card-meta) {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* Compact overrides for the square Build Order node (base rules above) */
+.bo-layout-card-id {
+  font-weight: 700;
+}
+
+.bo-layout-card-kicker {
+  gap: 0.4rem;
+}
+
+.bo-layout-card-status {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 0.3rem;
+  font-size: 0.58rem;
+}
+
+.bo-layout-card-meta {
+  margin-top: 0.4rem !important;
+}
+
+.bo-layout-edges {
+  position: absolute;
+  z-index: 0;
+  top: 3.55rem;
+  left: 1rem;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bo-layout-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.bo-layout-edge.is-cleared {
+  stroke: var(--good);
+}
+
+.bo-layout-edge-marker.is-cleared {
+  fill: var(--good);
+}
+
+.bo-layout-edge.is-blocking {
+  stroke: var(--blocking);
+}
+
+.bo-layout-edge-marker.is-blocking {
+  fill: var(--blocking);
+}
+
+.bo-layout-edge.is-terminal_unsatisfied {
+  stroke: var(--attention);
+}
+
+.bo-layout-edge-marker.is-terminal_unsatisfied {
+  fill: var(--attention);
+}
+
+.bo-layout-edge.is-unknown {
+  stroke: var(--muted);
+}
+
+.bo-layout-edge-marker.is-unknown {
+  fill: var(--muted);
+}
+
+.bo-layout-edge.is-cyclic {
+  stroke: var(--super);
+}
+
+.bo-layout-edge-marker.is-cyclic {
+  fill: var(--super);
+}
+
+.bo-layout-dependency-summary {
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.bo-layout-dependency-summary ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.bo-layout-edge-state {
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: var(--muted);
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-heading,
+.bo-layout-root.is-layout-ready .bo-layout-dependency-summary,
+.bo-layout-root.is-layout-ready .bo-layout-lane-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-lane {
+  display: contents;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-edges {
+  top: 1rem;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-card {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: var(--bo-layout-width, min(18rem, calc(100vw - 4rem)));
+  height: var(--bo-layout-height, auto);
+  transform: translate3d(var(--bo-layout-x), var(--bo-layout-y), 0);
+  transition: transform 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bo-layout-root.is-layout-ready .bo-layout-card {
+    transition: none;
+  }
+}
+

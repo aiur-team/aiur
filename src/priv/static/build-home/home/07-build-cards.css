@@ -1,0 +1,86 @@
+/* C:282 */ .hist .bd-ag {
+  filter: grayscale(1);
+  opacity: .7;
+  width: 1.6em;
+  height: 1.6em;
+  top: -.5em;
+  right: -.5em;
+}
+
+/* C:287 */ .bd-glow {
+  position: absolute;
+  inset: -3px;
+  z-index: 0;
+  border-radius: calc(var(--r) + 3px);
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* C:288 */ .ag-active .bd-glow {
+  opacity: .9;
+  background: conic-gradient(from var(--bd-a), transparent 0deg, var(--accent) 60deg, transparent 140deg, transparent 190deg, color-mix(in srgb, var(--accent) 65%, transparent) 260deg, transparent 330deg);
+  filter: blur(6px);
+  animation: bdRot 9s linear infinite;
+}
+
+/* C:289 */ .ag-stuck .bd-glow {
+  opacity: 1;
+  animation: bdStuck 3.2s ease-in-out infinite;
+}
+
+/* C:290 */ .ag-stuck .bd-in {
+  border-color: var(--block-line);
+}
+
+/* C:291 */ .ag-stuck .bd-status {
+  color: var(--block-ink);
+}
+
+/* C:292 */ .ag-active .bd-status {
+  color: var(--good-ink);
+}
+
+/* C:293 */ .ag-idle .bd-in {
+  filter: grayscale(1);
+  opacity: .8;
+  background: var(--surface-2);
+}
+
+/* C:294 */ .ag-idle .bd-ag {
+  filter: grayscale(1);
+}
+
+@keyframes bdRot {
+  100% {
+    --bd-a: 360deg;
+  }
+}
+
+@keyframes bdStuck {
+  50% {
+    box-shadow: 0 0 0 1px var(--block-line), 0 0 10px 0 color-mix(in srgb, var(--block) 28%, transparent);
+  }
+}
+
+/* C:297 */ .bd-root.rm .ag-active .bd-glow {
+  animation: none;
+  background: none;
+  filter: none;
+  box-shadow: 0 0 0 1.5px var(--accent), 0 0 14px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* C:298 */ .bd-root.rm .ag-stuck .bd-glow, .bd-root.rm .bd-skel i {
+  animation: none;
+}
+
+/* C:299 */ .bd-root.stale .bd-glow {
+  animation-play-state: paused;
+  filter: grayscale(1) blur(5px);
+  opacity: .35;
+}
+
+/* C:301 */ .bd-root.stale .bd-now {
+  border-color: var(--line-strong);
+  background: var(--bg-2);
+}
+

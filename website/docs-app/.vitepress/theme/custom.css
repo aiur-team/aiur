@@ -82,7 +82,7 @@ body {
   display: none;
 }
 
-/* The wordmark uses the homepage lockup font (website/src/styles.css .wordmark)
+/* The wordmark uses the homepage lockup font (website/src/styles/ .wordmark)
    so the docs nav and aiur.team read as one brand. */
 .VPNavBarTitle .title {
   gap: 10px;

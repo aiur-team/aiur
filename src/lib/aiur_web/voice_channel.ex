@@ -1,11 +1,11 @@
 defmodule AiurWeb.VoiceChannel do
   @moduledoc """
   Browser dictation channel: the second producer feeding the shared
-  ElevenLabs transcription path.
+  provider-neutral transcription path.
 
   The browser captures audio with `getUserMedia` (it cannot run the Node
   sidecar's PipeWire capture), pushes raw PCM chunks here, and this channel
-  owns a server-side `Aiur.ElevenLabs.Realtime` session. Transcript frames are
+  owns a server-side `Aiur.Voice` session. Transcript frames are
   streamed back to the browser so the composer shows live partial text and
   settles to finals. Dictation waits for the operator to press Send; the
   separate conversation topic uses the same normal send path after an explicit
@@ -19,7 +19,7 @@ defmodule AiurWeb.VoiceChannel do
 
   require Logger
 
-  alias Aiur.ElevenLabs.{Realtime, TTS}
+  alias Aiur.Voice
   alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter}
 
   # An audio chunk larger than this is rejected outright: at 16 kHz mono PCM16,
@@ -62,11 +62,11 @@ defmodule AiurWeb.VoiceChannel do
   def join(_topic, _payload, _socket), do: {:error, %{reason: "invalid_topic"}}
 
   defp join_stt(socket, generation, lease, topic) do
-    case start_stt(socket) do
-      {:ok, %{pid: pid}} ->
+    case start_stt() do
+      {:ok, session} ->
         {:ok,
          socket
-         |> assign(:stt, %{pid: pid})
+         |> assign(:stt, session)
          |> assign(:voice_mode, if(topic == "voice:conversation", do: :conversation, else: :dictation))
          |> assign(:voice_tts, nil)
          |> assign(:voice_tts_spoken?, false)
@@ -87,7 +87,7 @@ defmodule AiurWeb.VoiceChannel do
         audio_bytes = socket.assigns.voice_audio_bytes + byte_size(pcm)
 
         if audio_bytes <= max_session_audio_bytes() do
-          Realtime.push(socket.assigns.stt.pid, data)
+          Voice.push(socket.assigns.stt, data)
           {:noreply, assign(socket, :voice_audio_bytes, audio_bytes)}
         else
           push(socket, "error", %{"reason" => "Dictation reached the five-minute limit. Review the text and start again."})
@@ -108,7 +108,7 @@ defmodule AiurWeb.VoiceChannel do
   @impl true
   def handle_in("stop", _payload, socket) do
     case socket.assigns.stt do
-      %{pid: pid} -> Realtime.commit(pid)
+      %{pid: _pid} = session -> Voice.commit(session)
       nil -> push(socket, "stopped", %{"text" => ""})
     end
 
@@ -151,32 +151,32 @@ defmodule AiurWeb.VoiceChannel do
   def handle_in(_event, _payload, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({:elevenlabs_transcript, kind, text}, socket) when kind in [:partial, :final] and is_binary(text) do
+  def handle_info({:voice_transcript, kind, text}, socket) when kind in [:partial, :final] and is_binary(text) do
     push(socket, "transcript", %{"kind" => Atom.to_string(kind), "text" => text})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_error, reason}, socket) when is_binary(reason) do
+  def handle_info({:voice_error, %{message: reason}}, socket) when is_binary(reason) do
     push(socket, "error", %{"reason" => reason})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_closed}, socket) do
+  def handle_info({:voice_closed}, socket) do
     push(socket, "stopped", %{})
     {:noreply, release_stt(socket)}
   end
 
-  def handle_info({:elevenlabs_audio, :chunk, data}, socket) when is_binary(data) do
+  def handle_info({:voice_audio, :chunk, data}, socket) when is_binary(data) do
     push(socket, "audio", %{"data" => Base.encode64(data), "format" => "pcm_44100"})
     {:noreply, socket}
   end
 
-  def handle_info({:elevenlabs_audio, :done}, socket) do
+  def handle_info({:voice_audio, :done}, socket) do
     push(socket, "audio_done", %{})
     {:noreply, socket |> assign(:voice_tts, nil) |> release_voice_lease()}
   end
 
-  def handle_info({:elevenlabs_audio, :error, reason}, socket) when is_binary(reason) do
+  def handle_info({:voice_audio, :error, reason}, socket) when is_binary(reason) do
     push(socket, "audio_error", %{"reason" => reason})
     {:noreply, socket |> assign(:voice_tts, nil) |> release_voice_lease()}
   end
@@ -195,8 +195,8 @@ defmodule AiurWeb.VoiceChannel do
   @impl true
   def terminate(_reason, socket) do
     case socket.assigns[:stt] do
-      %{pid: pid} when is_pid(pid) ->
-        Realtime.stop(pid)
+      %{pid: pid} = session when is_pid(pid) ->
+        Voice.stop(session)
 
       _ ->
         :ok
@@ -232,60 +232,29 @@ defmodule AiurWeb.VoiceChannel do
 
   # --- helpers -------------------------------------------------------------
 
-  # The STT session is injected through the endpoint config so channel tests
-  # drive a fake transcriber; production uses the same
-  # `Aiur.ElevenLabs.Realtime` session as Stream Deck voice input.
-  defp start_stt(socket) do
-    case Endpoint.config(:voice_stt_start_fun) do
-      fun when is_function(fun, 1) ->
-        safe_start(fun, socket)
-
-      _ ->
-        start_realtime()
-    end
-  end
-
-  defp start_realtime do
-    case Realtime.start(owner: self()) do
-      {:ok, pid} ->
-        {:ok, %{pid: pid}}
+  defp start_stt do
+    case Voice.start_transcription(owner: self()) do
+      {:ok, session} ->
+        {:ok, session}
 
       {:error, :unconfigured} ->
         {:error, "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."}
 
       {:error, reason} ->
-        Logger.warning("voice dictation: ElevenLabs realtime session failed to start: #{inspect(reason)}")
+        Logger.warning("voice dictation: transcription session failed to start: #{inspect(reason)}")
         {:error, "Speech-to-text could not start. Check the daemon log and retry."}
     end
   rescue
     error ->
-      Logger.warning("voice dictation: ElevenLabs STT setup failed: #{inspect(error)}")
+      Logger.warning("voice dictation: STT setup failed: #{inspect(error)}")
       {:error, "Speech-to-text is unavailable right now."}
   catch
     _kind, _reason ->
       {:error, "Speech-to-text is unavailable right now."}
   end
 
-  defp safe_start(fun, socket) do
-    case fun.(socket) do
-      {:ok, %{pid: pid}} when is_pid(pid) ->
-        {:ok, %{pid: pid}}
-
-      {:error, _reason} = error ->
-        error
-
-      _other ->
-        {:error, "Speech-to-text could not start."}
-    end
-  catch
-    _kind, _reason -> {:error, "Speech-to-text could not start."}
-  end
-
-  defp start_tts(socket, text) do
-    case Endpoint.config(:voice_tts_start_fun) do
-      fun when is_function(fun, 2) -> fun.(socket, text)
-      _ -> TTS.start(self(), text)
-    end
+  defp start_tts(text) do
+    Voice.start_speech(self(), text, [])
   catch
     _kind, _reason -> {:error, :unavailable}
   end
@@ -294,7 +263,7 @@ defmodule AiurWeb.VoiceChannel do
     authority = socket.assigns.voice_authority.connection_generation
 
     with {:ok, lease} <- VoiceSessionLimiter.acquire(authority) do
-      case start_tts(socket, text) do
+      case start_tts(text) do
         {:ok, pid} ->
           {:ok, pid, lease}
 

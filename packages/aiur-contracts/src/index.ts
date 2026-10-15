@@ -20,6 +20,8 @@ export const KNOWN_CAPABILITY_IDS = [
   "executor.conversation",
   "executor.background_agents",
   "events.export",
+  "experiments",
+  "experiments.metric_packs",
   "listener_modes",
   "voice.stt",
   "voice.tts",
@@ -32,7 +34,8 @@ export const KNOWN_CAPABILITY_IDS = [
   "runtime.crypto",
   "tracker.github",
   "tracker.linear",
-  "accounting.meters"
+  "accounting.meters",
+  "merge_policy"
 ] as const;
 
 export const KNOWN_CAPABILITY_ID_PATTERNS = [/^harness\.[a-z0-9_]+\.native_question$/] as const;

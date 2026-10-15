@@ -1,0 +1,75 @@
+{
+  "id": "github-listeners",
+  "name": "GitHub event ingestion",
+  "layer": 2,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/events/branch_ref_store.ex",
+    "src/lib/aiur/events/branch_rewrite_classifier.ex",
+    "src/lib/aiur/events/comment_filter.ex",
+    "src/lib/aiur/events/github*.ex",
+    "src/lib/aiur/events/github_ci_poller/**",
+    "src/lib/aiur/events/github_comments_poller/**",
+    "src/lib/aiur/events/ls_remote_ticker.ex",
+    "src/lib/aiur/events/pr_command_scanner.ex",
+    "src/lib/aiur/events/sanitizer.ex",
+    "src/lib/aiur/main_watch.ex",
+    "src/lib/aiur/main_watch/**",
+    "src/lib/aiur/orchestrator/comment_polling*.ex",
+    "src/lib/aiur/poll_cadence.ex",
+    "src/lib/aiur/poll_cadence/**",
+    "src/lib/aiur/stacking/**",
+    "src/lib/aiur/webhooks.ex",
+    "src/lib/aiur/webhooks/**",
+    "src/lib/aiur_web/controllers/github_webhook_controller.ex",
+    "src/lib/aiur_web/github_webhook*",
+    "src/lib/aiur_web/routes/github_webhook.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "config",
+    "event-bus",
+    "github",
+    "identity",
+    "kernel",
+    "signal",
+    "web-kit"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [
+      "webhooks"
+    ],
+    "env": [
+      "AIUR_GITHUB_WEBHOOK_SECRET"
+    ],
+    "state": [],
+    "capabilities": [
+      "webhook_ingress"
+    ]
+  },
+  "prior": [
+    "ING"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Turns GitHub webhook deliveries and polling observations into ticket events.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "apis/github.md"
+  ],
+  "config": [
+    "webhooks"
+  ],
+  "env": [
+    "AIUR_GITHUB_WEBHOOK_SECRET"
+  ],
+  "capabilities": [
+    "webhook_ingress"
+  ]
+}

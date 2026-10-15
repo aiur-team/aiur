@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from components.public_fixtures import public_fields
 
 REPO = Path(__file__).resolve().parent.parent
 CHECKER = REPO / 'scripts/check-components.py'
@@ -21,6 +22,10 @@ class RatchetTests(unittest.TestCase):
         shutil.copytree(REPO / 'scripts/components/fixtures/allowlisted_violation_passes',
                         self.root, dirs_exist_ok=True)
         shutil.copyfile(REPO / 'components.schema.json', self.root / 'components.schema.json')
+        manifest_path = self.root / 'components.json'
+        manifest = json.loads(manifest_path.read_text())
+        manifest.update(directory_published=False, components=[public_fields(c) for c in manifest['components']], features=[])
+        manifest_path.write_text(json.dumps(manifest))
         self.path = self.root / 'scripts/components/allowlist/a.tsv'
         self.original = self.path.read_text()
 
@@ -39,6 +44,9 @@ class RatchetTests(unittest.TestCase):
 
     def base(self):
         self.git('init', '-q')
+        self.git('config', 'gc.auto', '0')
+        self.git('config', 'maintenance.auto', 'false')
+        self.git('config', 'gc.autoDetach', 'false')
         self.git('add', '.')
         self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                  'commit', '-qm', 'Fixture baseline')
@@ -115,6 +123,9 @@ class RatchetTests(unittest.TestCase):
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(remote), *args], text=True).strip()
             git('init', '-q')
+            git('config', 'gc.auto', '0')
+            git('config', 'maintenance.auto', 'false')
+            git('config', 'gc.autoDetach', 'false')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                 'commit', '-qm', 'Remote fixture baseline')

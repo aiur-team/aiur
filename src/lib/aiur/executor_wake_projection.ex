@@ -8,11 +8,24 @@ defmodule Aiur.ExecutorWakeProjection do
   @spec project(map()) :: {:ok, map()} | :ignore
   def project(event) when is_map(event) do
     topic = value(event, :topic)
+    pr = typed_map(value(event, :pr))
+    head = typed_map(value(pr, :head))
+    head_sha = valid_sha(value(head, :sha) || value(event, :head_sha) || value(event, :sha))
+    last_review_sha = valid_sha(value(pr, :last_review_sha) || value(event, :last_review_sha))
 
+    if is_binary(topic) and String.ends_with?(topic, ".pr.ready_for_review") and head_sha != nil and
+         head_sha == last_review_sha do
+      :ignore
+    else
+      project(topic, event, pr, head_sha, last_review_sha)
+    end
+  end
+
+  def project(_event), do: :ignore
+
+  defp project(topic, event, pr, head_sha, last_review_sha) do
     if is_binary(topic) and not String.starts_with?(topic, "executor.") do
       now = DateTime.utc_now() |> DateTime.to_iso8601()
-      pr = typed_map(value(event, :pr))
-      head = typed_map(value(pr, :head))
 
       {:ok,
        %{
@@ -22,7 +35,8 @@ defmodule Aiur.ExecutorWakeProjection do
          "event_id" => typed_id(value(event, :id)),
          "ticket" => ticket_from_topic(topic),
          "pr_number" => positive_integer(value(pr, :number) || value(event, :pr_number) || value(event, :pull_request_number)),
-         "head_sha" => valid_sha(value(head, :sha) || value(event, :head_sha) || value(event, :sha)),
+         "head_sha" => head_sha,
+         "last_review_sha" => last_review_sha,
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
          "author_trusted?" => trusted_github_author?(event),
@@ -38,8 +52,6 @@ defmodule Aiur.ExecutorWakeProjection do
       :ignore
     end
   end
-
-  def project(_event), do: :ignore
 
   defp observation_marker(record, event) do
     case value(event, :observation) do
