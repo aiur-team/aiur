@@ -1182,6 +1182,9 @@ What a review agent needs in its prompt, every time:
   guard` and `Computed ages and collapsed causes`); cross-reference those
   sections rather than restating them, so the reviewer's check is a formality,
   not the first time it is performed.
+- **Local tests evidence.** Compare `Policy`, `Tested head`, `Base`, `Selection`
+  and command results with the diff and `aiur status` policy; stale SHAs, unsafe
+  selection or unrun/failed commands are blocking, even if the body gate passes.
 - **The test-run hazard.** `mix test test/some_dir/` silently excludes
   `test/aiur/*.exs` one level up. Require the exact command run to be reported.
 - **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,
@@ -1219,22 +1222,17 @@ merge refusal, read the failed rule suite with the operator-only credential and
 emit GitHub's exact active-rule detail as a `merge.rule-violation` alert. Do not
 use `--admin` as a diagnostic probe. Before every merge run `scripts/check-stack-order.sh <pr> <owner/repo> --repo-dir <clone>` (`references/merge-order-gate.md`); any exit other than 0 means do not merge.
 
-The declaration requires every blocking CI job as required status checks,
-including `build`, `test`, and `workflow security`, with strict status checks
-enabled, and the gate is enforced once that declaration is applied to the live
-ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
-that declaration on every PR and merge, so a regressed gate fails CI visibly.
-The Executor must wait for the required checks and the review conditions before
-merging; never merge a pending, failing, or stale head. A solo operator also
-cannot merge a branch they authored through the review gate (issue #1437): with
-a two-owner CODEOWNERS plus `require_code_owner_review` and
-`require_last_push_approval`, `--admin` does not bypass it. This used to bite
-hardest on the periodic `develop` -> `main` promotion; that promotion is retired
-now that `main` is the single base branch, but the rule still governs any
-Executor-authored branch. Any maintenance
-procedure for that issue must preserve the required-status-check rule; never
-disable the whole ruleset as a merge workaround. Re-read the live ruleset after
-any approved review-side maintenance change instead of trusting the write.
+Read `aiur status` for the active `merge_policy`; do not inherit a CI rule
+from memory or a reviewer brief. Merge only with
+`aiur pr merge <N> --reviewed-sha <full-reviewed-head-sha>`; never substitute
+`gh pr merge`, `--admin`, or a scratch script. The command rechecks policy,
+current-head approval, failed checks, full-CI exceptions and queue requirements.
+With `ci: wait`, wait for every required check on that head. With `pending_ok`,
+pending checks may proceed only on reviewed `Local tests` evidence for that
+head and the configured local-test mode, with main watching enabled; failed
+checks and full-CI labels/paths still block. Refusals are not bypass authority.
+On `system.main.ci.failed`, inspect the watcher’s fixer ticket and progress;
+do not repair main by hand unless the fixer is stalled and takeover is authorized.
 
 ### Ticket close-out
 

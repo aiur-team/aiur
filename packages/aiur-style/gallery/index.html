@@ -9,7 +9,6 @@
   <style>
     * {
       margin: 0;
-      padding: 0;
       box-sizing: border-box;
     }
 
@@ -79,6 +78,10 @@
     .swatch-value { color: var(--aiur-color-muted); margin: 4px 0 8px; }
     .swatch-sample { padding: 8px; border-radius: 4px; }
     .swatch-note { margin-top: 8px; font-size: 12px; }
+    .button-matrix { display: grid; gap: 18px; margin-top: 20px; }
+    .button-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .button-row code { flex: 0 0 150px; font-size: 12px; }
+    .button-shapes { display: flex; align-items: center; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
     @media (max-width: 480px) { body { padding: 16px; } .section { padding: 16px; } .gallery-header { gap: 16px; } }
   </style>
 </head>
@@ -96,7 +99,21 @@
       <p>Switch themes to inspect the fixed palette. Text samples use readable-text tokens where required.</p>
       <div class="swatches" id="swatches"></div>
     </section>
-    <div class="section">
+    <section class="section" id="buttons">
+      <h2>Buttons</h2>
+      <p>Each row: rest, hover, pressed, focus, toggled, disabled, aria-disabled. Toggle the theme to compare.</p>
+      <div class="button-matrix" id="button-matrix"></div>
+      <div class="button-shapes">
+        <button type="button" class="aiur-button aiur-button--rounded">Rounded</button>
+        <button type="button" class="aiur-button aiur-button--icon" aria-label="Copy">
+          <svg class="aiur-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></svg>
+        </button>
+        <a class="aiur-button aiur-button--lg" href="#buttons" id="button-cta">Example Doc <svg class="aiur-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></a>
+        <a href="#buttons" id="focus-link">Plain link</a>
+        <span tabindex="0" id="focus-tabindex">Focusable element</span>
+      </div>
+    </section>
+    <div class="section" id="coming-soon">
       <h2>Components Coming Soon</h2>
       <p>This gallery scaffolding will be populated with component examples as they are added to the package.</p>
     </div>

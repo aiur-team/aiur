@@ -69,7 +69,7 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
 
     receive_barrier(:saved)
     assert %{watcher: :unavailable, unavailable: true} = Aiur.MainWatch.state()
-    assert status_output() =~ "main_watch=off watcher=unavailable landing_watcher=unavailable main=unavailable last_known=unknown\n"
+    assert status_output() =~ "main_watch=off watcher=unavailable watcher_error=denied landing_watcher=unavailable main=unavailable last_known=unknown\n"
   end
 
   defp launch_watcher(overrides \\ []) do

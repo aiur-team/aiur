@@ -12,6 +12,7 @@ cli_reference_pages=("$page")
 for command_page in "$docs_dir"/reference/*commands*.md; do
   [ -f "$command_page" ] && cli_reference_pages+=("$command_page")
 done
+cli_reference_pages+=("$docs_dir/reference/experiment-statistics.md")
 source_dev_commands="$(sed -n 's/^if \[ "${1:-}" = "\([a-z-]*\)" \]; then$/\1/p' "$dev_shim" "$dev_harness" | sort -u)"
 
 fail=0
@@ -52,6 +53,10 @@ source_flags="$(
     sed -n '/^  @switches \[/,/^  \]/p' "$repo_root/src/lib/aiur/experiments_cli.ex" \
       | sed -n 's/^[[:space:]]*\([a-z_][a-z_]*\):.*/\1/p' \
       | sed '/^spec_json$/d; s/^/--/; s/_/-/g'
+
+    # The offline statistics CLI owns its arguments in argparse declarations.
+    sed -n 's/.*add_argument("\(--[a-z][a-z-]*\)".*/\1/p' \
+      "$repo_root/analytics/lib/analytics/experiment_stats_cmd.py"
 
     sed -n 's/^  @usage "\(.*\)"$/\1/p' "$repo_root/src/lib/aiur/pr_merge_cli.ex" \
       | grep -oE -- '--[a-z][a-z0-9-]*'

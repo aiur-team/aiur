@@ -5,6 +5,7 @@ defmodule Aiur.AppServer.ToolCallLedger do
   A claim is persisted before its tool executes. Completed results are
   persisted before the provider response is written, while an owner or ledger
   failure leaves a durable uncertain tombstone that refuses re-execution.
+  Execution stays in the caller unless a provider RPC opts into a cancellable worker.
   """
 
   use GenServer
@@ -31,11 +32,46 @@ defmodule Aiur.AppServer.ToolCallLedger do
   def execute(_identity, nil, _fun, _server), do: {:error, :invalid_fingerprint}
 
   def execute(identity, fingerprint, fun, server)
-      when is_binary(fingerprint) and is_function(fun, 0) do
+      when is_binary(fingerprint) and is_function(fun, 0),
+      do: execute_tracked(identity, fingerprint, fun, server, &execute_claim/4)
+
+  @doc "Executes a dynamic RPC tool in a cancellable worker while preserving caller context."
+  @spec execute_cancellable(identity() | nil, fingerprint() | nil, (-> result), GenServer.server()) ::
+          result | {:error, term()}
+        when result: term()
+  def execute_cancellable(identity, fingerprint, fun, server \\ __MODULE__)
+  def execute_cancellable(nil, _fingerprint, fun, _server) when is_function(fun, 0), do: fun.()
+  def execute_cancellable(_identity, nil, _fun, _server), do: {:error, :invalid_fingerprint}
+
+  def execute_cancellable(identity, fingerprint, fun, server)
+      when is_binary(fingerprint) and is_function(fun, 0),
+      do: execute_tracked(identity, fingerprint, fun, server, &execute_cancellable_claim/4)
+
+  defp execute_tracked(identity, fingerprint, fun, server, execute) do
     case GenServer.call(server, {:claim, identity, fingerprint}, :infinity) do
       {:cached, result} -> result
-      {:execute, token} -> execute_claim(server, identity, token, fun)
+      {:execute, token} -> execute.(server, identity, token, fun)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Waits for active executions, then fences unfinished claims as uncertain."
+  @spec quiesce(non_neg_integer(), GenServer.server()) :: :ok
+  def quiesce(timeout_ms, server \\ __MODULE__) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_quiescent(server, deadline)
+  end
+
+  defp await_quiescent(server, deadline) do
+    expired? = System.monotonic_time(:millisecond) >= deadline
+
+    case GenServer.call(server, {:quiesce, expired?}) do
+      :ok ->
+        :ok
+
+      :busy ->
+        Process.sleep(10)
+        await_quiescent(server, deadline)
     end
   end
 
@@ -53,6 +89,17 @@ defmodule Aiur.AppServer.ToolCallLedger do
   end
 
   @impl true
+  def handle_call({:quiesce, expired?}, _from, state) do
+    running = for {key, {:running, _, token, _, _, _}} <- state.entries, do: {key, token}
+
+    if expired? do
+      next = Enum.reduce(running, state, fn {key, token}, acc -> mark_uncertain(acc, key, token) end)
+      {:reply, :ok, next}
+    else
+      {:reply, if(running == [], do: :ok, else: :busy), state}
+    end
+  end
+
   def handle_call({:claim, key, fingerprint}, from, state) do
     case Map.get(state.entries, key) do
       {:done, ^fingerprint, result} ->
@@ -139,8 +186,9 @@ defmodule Aiur.AppServer.ToolCallLedger do
 
   defp mark_uncertain(state, key, token) do
     case Map.get(state.entries, key) do
-      {:running, fingerprint, ^token, _owner, monitor, waiters} ->
+      {:running, fingerprint, ^token, owner, monitor, waiters} ->
         _ = Storage.put(state.storage, key, {:uncertain, fingerprint})
+        send(owner, {:tool_call_uncertain, key, token})
         Process.demonitor(monitor, [:flush])
         Enum.each(waiters, &GenServer.reply(&1, {:error, :outcome_uncertain}))
 
@@ -164,6 +212,75 @@ defmodule Aiur.AppServer.ToolCallLedger do
     kind, reason ->
       mark_uncertain_safely(server, key, token)
       :erlang.raise(kind, reason, __STACKTRACE__)
+  after
+    receive do
+      {:tool_call_uncertain, ^key, ^token} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp execute_cancellable_claim(server, key, token, fun) do
+    caller = self()
+    dictionary = Process.get()
+    {worker, monitor} = spawn_monitor(fn -> execute_worker(caller, token, fun, dictionary) end)
+    await_execution(server, key, token, worker, monitor, dictionary)
+  end
+
+  defp await_execution(server, key, token, worker, monitor, dictionary) do
+    receive do
+      {^token, {:ok, result, updated_dictionary}} ->
+        Enum.each(dictionary, fn {name, _value} -> Process.delete(name) end)
+        Enum.each(updated_dictionary, fn {name, value} -> Process.put(name, value) end)
+
+        case GenServer.call(server, {:complete, key, token, result}, :infinity) do
+          :ok -> result
+          {:error, reason} -> {:error, reason}
+        end
+
+      {^token, {:raised, kind, reason, stacktrace}} ->
+        :erlang.raise(kind, reason, stacktrace)
+
+      {:tool_call_uncertain, ^key, ^token} ->
+        Process.exit(worker, :kill)
+        {:error, :outcome_uncertain}
+
+      {:DOWN, ^monitor, :process, ^worker, reason} ->
+        mark_uncertain_safely(server, key, token)
+        {:error, {:tool_execution_exit, reason}}
+    end
+  catch
+    kind, reason ->
+      mark_uncertain_safely(server, key, token)
+      :erlang.raise(kind, reason, __STACKTRACE__)
+  after
+    Process.demonitor(monitor, [:flush])
+  end
+
+  defp execute_worker(caller, token, fun, dictionary) do
+    worker = self()
+    spawn(fn -> watch_execution(caller, worker) end)
+    Enum.each(dictionary, fn {name, value} -> Process.put(name, value) end)
+
+    result =
+      try do
+        value = fun.()
+        {:ok, value, Process.get()}
+      catch
+        kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+      end
+
+    send(caller, {token, result})
+  end
+
+  defp watch_execution(caller, worker) do
+    owner_monitor = Process.monitor(caller)
+    worker_monitor = Process.monitor(worker)
+
+    receive do
+      {:DOWN, ^owner_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
+      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
+    end
   end
 
   defp mark_uncertain_safely(server, key, token) do

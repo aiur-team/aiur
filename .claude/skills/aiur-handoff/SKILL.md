@@ -42,6 +42,11 @@ incoming Executor resuming a loop the operator ended.
 unverifiable. "`status` 220 ms, was timing out at 5.2 s, measured with 15 agents
 running" can be re-checked and disproved.
 
+**Record the active merge policy from `aiur status`.** Include CI mode, local-test
+mode and watcher state with the observation time; the next Executor rereads
+status rather than treating a memory note as policy. Within recorded authority,
+merge only with `aiur pr merge <N> --reviewed-sha <full-reviewed-head-sha>`.
+
 **Distinguish merged from verified.** They are different claims and the
 difference is where this project keeps getting hurt. Say which surfaces you
 checked on the running system and which you only merged.

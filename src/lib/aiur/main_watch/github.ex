@@ -1,10 +1,20 @@
 defmodule Aiur.MainWatch.GitHub do
   @moduledoc "Bounded base-branch Actions observations through the governed GitHub transport."
   alias Aiur.CI.FailureDigest
-  alias Aiur.GitHub.{AppCredentials, AppToken, Errors, PullRequests, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, Config, Errors, PullRequests, Transport}
 
   @spec poll(String.t(), [String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def poll(branch, workflows, opts \\ []) do
+    case poll_once(branch, workflows, opts) do
+      {:error, {:github, :auth, %{status: 401}} = reason} ->
+        retry_after_app_refresh(branch, workflows, opts, reason)
+
+      result ->
+        result
+    end
+  end
+
+  defp poll_once(branch, workflows, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
          {:ok, commit_window} <- commits(owner, repo, branch, token, opts),
@@ -12,6 +22,27 @@ defmodule Aiur.MainWatch.GitHub do
          {:ok, runs} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
          {:ok, observations} <- observations(commits, runs, workflows, opts) do
       {:ok, %{observations: observations, runs: runs, commits: commits, actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)}}
+    end
+  end
+
+  defp retry_after_app_refresh(branch, workflows, opts, reason) do
+    if Keyword.get(opts, :app_token_refreshed?, false) do
+      {:error, reason}
+    else
+      refresh_if_app_token(branch, workflows, opts, reason)
+    end
+  end
+
+  defp refresh_if_app_token(branch, workflows, opts, reason) do
+    if credential_source(opts) == "github_app_installation" do
+      refresh = Keyword.get(opts, :refresh_app_token_fun, &AppTokenRefresher.refresh_now/0)
+
+      case refresh.() do
+        :ok -> poll_once(branch, workflows, Keyword.put(opts, :app_token_refreshed?, true))
+        _ -> {:error, reason}
+      end
+    else
+      {:error, reason}
     end
   end
 
@@ -61,7 +92,7 @@ defmodule Aiur.MainWatch.GitHub do
         end
 
       {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, request_error(response, "main_watch_commits", opts)}
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
@@ -90,7 +121,7 @@ defmodule Aiur.MainWatch.GitHub do
         {:error, :invalid_main_runs}
 
       {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, request_error(response, "main_watch_runs", opts)}
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
@@ -201,4 +232,23 @@ defmodule Aiur.MainWatch.GitHub do
   defp timestamp(_), do: nil
 
   defp request_fun(opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+
+  defp request_error(%{status: 401}, caller, opts) do
+    {:github, :auth, %{status: 401, message: "Bad credentials", caller: caller, credential: credential_source(opts)}}
+  end
+
+  defp request_error(response, _caller, _opts), do: Errors.github_status_error(response)
+
+  defp credential_source(opts) do
+    case Keyword.get(opts, :credential_source, &Config.token_source/0).() do
+      :github_app -> "github_app_installation"
+      :env -> "github_token"
+      :keyring -> "github_keyring"
+      _ -> "unknown"
+    end
+  rescue
+    _ -> "unknown"
+  catch
+    _, _ -> "unknown"
+  end
 end

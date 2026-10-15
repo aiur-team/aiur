@@ -93,7 +93,13 @@ Session lookup is per repository, so concurrent runs in different directories at
 Claude REPL agents use a separate tmux server named `<daemon-socket>-agents`;
 chat panes stay on the daemon server. `aiur agents` and the dashboard show the
 REPL attach command. Normal `aiur stop` and unexpected daemon death clean up
-both servers. Pane isolation alone does not enable reconnecting after restart.
+both servers.
+
+A prepared daemon handoff can instead rebind compatible local REPL
+panes and replay their hook spool before polling resumes. Incompatible agents
+stop and resume through ordinary dispatch; adoption retains their existing claims
+and does not count as a new dispatch. The restart launcher controls whether a
+handoff is prepared.
 
 Lifecycle hooks spool locally before posting to the dashboard and replay when the
 turn consumer reconnects. Each spool is capped at 16 MiB; reaching the cap rotates

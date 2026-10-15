@@ -13,7 +13,7 @@ fail() {
 
 scaffold() {
   local root="$1"
-  mkdir -p "$root/website/docs-app" "$root/packaging/npm/aiur-cli" "$root/src/lib/aiur" "$root/scripts/lib"
+  mkdir -p "$root/website/docs-app" "$root/packaging/npm/aiur-cli" "$root/src/lib/aiur" "$root/scripts/lib" "$root/analytics/lib/analytics"
   cp -R "$repo_root/website/docs-app/scripts" "$root/website/docs-app/"
   cp -R "$repo_root/website/docs-app/reference" "$root/website/docs-app/"
   cp -R "$repo_root/packaging/npm/aiur-cli/libexec" "$root/packaging/npm/aiur-cli/"
@@ -21,6 +21,7 @@ scaffold() {
   cp "$repo_root/src/lib/aiur/experiments_cli.ex" "$repo_root/src/lib/aiur/alerts_cli.ex" "$repo_root/src/lib/aiur/pr_merge_cli.ex" "$root/src/lib/aiur/"
   cp "$repo_root/scripts/aiurdev" "$root/scripts/"
   cp "$repo_root/scripts/lib/aiurdev-harness.sh" "$root/scripts/lib/"
+  cp "$repo_root/analytics/lib/analytics/experiment_stats_cmd.py" "$root/analytics/lib/analytics/"
 }
 
 run_check() {

@@ -95,7 +95,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp prequeued_mark?(f) do
     Enum.any?(f.context.input.intents, fn intent ->
       intent.issue_id == f.item.issue_id and intent.action == :mark and intent.outcome in [nil, :ok] and
-        "#{f.prefix}:todo" in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+        "#{f.prefix}:queued" in intent.target_labels and intent.preexisting_todo? and intent.recorded_at_ms <= f.observation.observed_at_ms
     end)
   end
 

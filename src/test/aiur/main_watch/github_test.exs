@@ -42,6 +42,52 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert hd(result.observations).completed_at == DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
   end
 
+  test "refreshes a rejected App installation token once and retries the poll" do
+    attempts = :atomics.new(1, [])
+    refreshes = :atomics.new(1, [])
+
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/commits?") and :atomics.add_get(attempts, 1, 1) == 1 ->
+          {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}}
+
+        String.contains?(url, "/commits?") ->
+          ok([])
+
+        String.contains?(url, "/actions/runs?") ->
+          ok(%{"workflow_runs" => []})
+
+        true ->
+          flunk("unexpected request #{url}")
+      end
+    end
+
+    assert {:ok, %{commits: []}} =
+             GitHub.poll("main", [],
+               request_fun: request,
+               actions_write: false,
+               credential_source: fn -> :github_app end,
+               refresh_app_token_fun: fn ->
+                 :atomics.add_get(refreshes, 1, 1)
+                 :ok
+               end
+             )
+
+    assert :atomics.get(attempts, 1) == 2
+    assert :atomics.get(refreshes, 1) == 1
+  end
+
+  test "reports the failing caller and credential class on an unrecoverable 401" do
+    request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
+
+    assert {:error, {:github, :auth, %{status: 401, caller: "main_watch_commits", credential: "github_app_installation"}}} =
+             GitHub.poll("main", [],
+               request_fun: request,
+               credential_source: fn -> :github_app end,
+               refresh_app_token_fun: fn -> {:error, :refresh_failed} end
+             )
+  end
+
   test "missing configured workflows stay pending while older complete SHA remains observable" do
     request = fn %{url: url} ->
       cond do
