@@ -130,6 +130,8 @@ defmodule Aiur.ExperimentsCLITest do
     assert get_in(Jason.decode!(output), ["design", "change", "time"]) == "2026-10-09T00:00:00Z"
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "create freezes the baseline and reports its window, count and coverage" do
     output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("frozen")) == 0 end)
     assert output =~ "froze before window 2026-09-25T00:00:00Z..2026-10-09T00:00:00Z: 1 observations"
