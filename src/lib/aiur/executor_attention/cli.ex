@@ -1,8 +1,9 @@
 defmodule Aiur.ExecutorAttention.CLI do
   @moduledoc false
   alias Aiur.ControlCLI.Reasons
+  alias Aiur.DecisionExpiry
   alias Aiur.Executor.{Claims, Roster}
-  alias Aiur.{DecisionExpiry, ExecutorEvents, ExecutorWakeInbox}
+  alias Aiur.{ExecutorEvents, ExecutorWakeInbox}
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1]
 

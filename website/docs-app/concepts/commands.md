@@ -66,10 +66,13 @@ upstream misclassification; they do not weaken the answer-authorization floor.
 A blocking Command never waits in silence. When it is created, the Executor gets
 one `ticket.<N>.agent.attention.operator-decision` wake with the decision id,
 the question, the recommended option and the number of open tickets it gates.
+
 While it stays open, Aiur wakes the Executor again at 15 and 30 minutes and
 alerts the operator at 45 minutes, then every hour. A Command that gates 10 or
 more open tickets alerts the operator at 15 minutes. Answering the Command
-resolves the alert and stops the ladder. The ladder is computed from the
+resolves the alert and stops the ladder.
+
+The ladder is computed from the
 Command's age, so a restart continues it. `aiur status` prints
 `DECISIONS open N oldest <age> (#ticket, gates M)` and marks it `ATTENTION`
 when the oldest blocking Command is older than 15 minutes.

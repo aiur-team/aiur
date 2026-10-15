@@ -11,9 +11,10 @@ defmodule Aiur.ExecutorListener do
 
   require Logger
 
+  alias Aiur.DecisionEscalation
   alias Aiur.Events.{Exchange, Topic}
   alias Aiur.Executor.StatePaths
-  alias Aiur.{DecisionEscalation, ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
+  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
   alias Aiur.Signal
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
