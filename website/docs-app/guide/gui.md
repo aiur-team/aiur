@@ -80,6 +80,11 @@ The `sort` query parameter preserves the selected table, column, and direction i
 The temporary, unlinked `/build` route previews the build timeline loading shell.
 It requires dashboard authentication; the production data source is not wired yet.
 
+The toolbar selects Timeline, Gantt or List and retains the view in the URL.
+Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
+to select. The status line shows the daemon state, including unknown before
+the first snapshot, and the legend for the selected view.
+
 Its links retain view, span, feature focus, filters and ticket selection in
 `view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
 `live`, `trees` and `ticket`. Invalid values are removed.

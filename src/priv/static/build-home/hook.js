@@ -7,6 +7,7 @@ import { fromServer, flushURL } from './url.js';
 import './clock.js';
 import './layout.js';
 import './offline.js';
+import './tools.js';
 
 export function writeOwnData() {
   Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', buildSocket: ctx.socket });
@@ -63,9 +64,12 @@ export function resync() {
   }, () => { if (current()) ctx.proto.inFlight = false; });
 }
 function onServerURL({ state }) {
-  const span = S.span;
-  fromServer(state); repaint();
-  if (span !== S.span) fx.jumpNow(true);
+  const view = S.view, span = S.span;
+  fromServer(state);
+  renderChrome();
+  if (view !== S.view && !S.loading) fx.viewport();
+  fx.relayout(); fx.update();
+  if (span !== S.span || view !== S.view) fx.jumpNow(true);
 }
 export function createBuildHomeHook() {
   return {
@@ -78,6 +82,7 @@ export function createBuildHomeHook() {
       this.buildLife = ctx.life;
       this.buildActive = shell();
       if (!this.buildActive) return;
+      fx.renderTools();
       writeOwnData();
       this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
       showServerState(this.el.dataset); resync();
