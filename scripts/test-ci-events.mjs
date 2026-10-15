@@ -15,16 +15,18 @@ const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([
   .map(([, id, body]) => [id, body]));
 const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'browser-2', 'browser-3', 'home-css', 'layout-release', 'analytics', 'streamdeck'];
 const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate'];
-function selected(event, full) {
+function selected(event, full, dialyzer = false) {
   return [...jobs].filter(([, body]) => {
     const expression = body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
     return !expression || runInNewContext(expression, {
       github: { event_name: event, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
-      needs: { changes: { result: 'success', outputs: { full_ci: String(full) } } },
+      needs: { changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } },
     });
   }).map(([id]) => id);
 }
-assert.deepEqual(selected('pull_request', false).sort(), fastJobs.sort(), 'PR selects only five fast jobs');
+assert.deepEqual(selected('pull_request', false).sort(), fastJobs.sort(), 'PR without Elixir source changes selects only fast jobs');
+assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
+assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);
 assert.ok(selected('push', false).includes('quarantine'), 'main push selects quarantine');
 assert.ok(selected('schedule', false).includes('quarantine'), 'schedule selects quarantine');
@@ -46,8 +48,8 @@ for (const job of [...fullJobs.filter((job) => job !== 'quarantine'), ...fastJob
 }
 function gate(event, full, failedJob, result = 'failure') {
   const needs = Object.fromEntries([...jobs.keys()].map((job) => [job, { result: 'skipped' }]));
-  for (const job of selected(event, full)) needs[job].result = 'success';
-  needs.changes.outputs = { full_ci: String(full) };
+  for (const job of selected(event, full, event === 'pull_request' && failedJob === 'dialyzer')) needs[job].result = 'success';
+  needs.changes.outputs = { full_ci: String(full), dialyzer: String(event === 'pull_request' && failedJob === 'dialyzer') };
   if (failedJob) needs[failedJob].result = result;
   return spawnSync('python3', ['scripts/check-ci-gate.py'], {
     encoding: 'utf8', env: { ...process.env, EVENT_NAME: event, NEEDS_JSON: JSON.stringify(needs) },
