@@ -78,13 +78,13 @@ for (const mode of ['fail=1', 'stall=1']) test(`paging error and retry: ${mode}`
 
 for (const mode of ['epoch', 'destroy', 'reject']) test(`paging late reply: ${mode}`, async ({ page }) => {
   const result = await page.evaluate(async mode => {
-    const oldFrom = S.histFrom
+    const oldFrom = S.histFrom, epoch = ctx.proto.epoch
     ctx.push = () => new Promise((resolve, reject) => { window.complete = resolve; window.reject = reject })
     const flight = hist.loadEarlier(); await Promise.resolve()
     if (mode === 'epoch') ctx.proto.epoch = 'new-epoch'
     if (mode === 'destroy') ctx.life.dispose()
     if (mode === 'reject') reject(new Error('socket gone'))
-    else complete({ kind: 'earlier', epoch: 'old-epoch', history: { from: 1 }, rows: [] })
+    else complete({ kind: 'earlier', epoch, history: { ...ctx.snap.history, from: 1 }, rows: [] })
     const ok = await flight
     return { ok, from: S.histFrom, oldFrom, state: hist.H.state }
   }, mode)
@@ -152,15 +152,21 @@ test('span ensures days via server days parameter; no board anchor is safe', asy
 })
 
 for (const kind of ['card', 'band']) test(`live move keeps ${kind} anchor and suppresses sliding`, async ({ page }) => {
-  const before = await page.evaluate(kind => {
+  const before = await page.evaluate(async kind => {
     if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 100
     else ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop - 40
     ren.update();
     const a = ren.takeAnchor()
-    const row = kind === 'band' ? ctx.D.now[0] : ctx.D.plan[0]
+    const layout = await import('/build-home/layout.js')
+    const row = kind === 'band' ? ctx.D.now[0] : ctx.D.plan.find(row => {
+      const D = { ...ctx.D, plan: ctx.D.plan.filter(t => t.id !== row.id) }
+      return layout.computeLayout(D, S, { vpH: ctx.vp.clientHeight }, ctx.snap.sources).secs.plan.h < ctx.L.secs.plan.h
+    })
+    if (!row) throw new Error('fixture needs a move that changes section height')
     window.kept = new Map(ctx.R)
     return { a, id: row.id, passes: performance.getEntriesByName('build-home-live-pass').length }
   }, kind)
+  expect(before.a.kind).toBe(kind === 'band' ? 'band' : 'cards')
   await page.request.get(`/build-control/diff?op=move&id=${before.id}&to=${kind === 'band' ? 'hist' : 'now'}`)
   await expect.poll(() => page.evaluate(() => performance.getEntriesByName('build-home-live-pass').length)).toBeGreaterThan(before.passes)
   const result = await page.evaluate(a => {
