@@ -21,7 +21,7 @@ defmodule Aiur.Orchestrator.Status.CompletedRunnerTest do
       %Issue{
         id: "issue-completed",
         identifier: "MT-COMPLETED",
-        state: "rework",
+        state: "in-progress",
         title: "Completed message replacement"
       }
 
@@ -106,7 +106,7 @@ defmodule Aiur.Orchestrator.Status.CompletedRunnerTest do
     issue = %Issue{
       id: "issue-completed-resume",
       identifier: "MT-COMPLETED-RESUME",
-      state: "rework",
+      state: "in-progress",
       title: "Completed explicit resume"
     }
 

@@ -23,6 +23,10 @@ defmodule Aiur.Orchestrator do
   @impl true
   def init(opts), do: Lifecycle.init(opts, &issue_tracked?/1)
 
+  @doc false
+  @spec has_live_owner?(String.t()) :: boolean() | :unknown
+  def has_live_owner?(identifier), do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+
   @impl true
   def terminate(reason, state), do: Lifecycle.terminate(reason, state)
 
@@ -44,10 +48,7 @@ defmodule Aiur.Orchestrator do
 
   def handle_info(:tick, state), do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
-  # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
-  # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
-  # token-fenced) cannot fire a live poll that would ramp the load envelope
-  # mid-test.
+  # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
   def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}
   def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
@@ -98,9 +99,7 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
 
-  # The runner confirms it survived provisioning; bill exactly one lifetime
-  # dispatch unit (#1453). Preflight/prewarm/tracker-auth failures never reach
-  # this message, so they leave the lifetime budget unchanged.
+  # Only runners surviving provisioning bill one lifetime dispatch unit (#1453); preflight failures do not.
   def handle_info({:dispatch_committed, issue_id}, state) when is_binary(issue_id) do
     state = Dispatcher.record_dispatch_committed(state, issue_id)
     {:noreply, state}
@@ -123,16 +122,14 @@ defmodule Aiur.Orchestrator do
     {:noreply, Lifecycle.wake_tick(state)}
   end
 
-  # A waiter that observed the registry empty has no guardian generation to
-  # bind. Its observation is safe only as a fresh availability probe; any
-  # subsequent owner will make the redispatch contend and subscribe again.
+  # A waiter without a guardian retries availability; any new owner makes
+  # redispatch contend and subscribe again.
   def handle_info({:workspace_ownership_available, identifier, :none, nil}, state) when is_binary(identifier) do
     state = RetryEngine.release_workspace_wait(state, identifier)
     {:noreply, Lifecycle.wake_tick(state)}
   end
 
-  # Never let a pre-generation waiter from an older process release a current
-  # wait row. A guardian-bound waiter emits the four-element message above.
+  # A pre-generation waiter cannot release a current guardian-bound wait row.
   def handle_info({:workspace_ownership_available, _identifier}, state), do: {:noreply, state}
 
   def handle_info({:repl_session_runtime, issue_id, info}, state)
@@ -261,10 +258,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # A wake that collapsed a widened timer changes the countdown `aiur status`
-  # reads from the snapshot store, so republish it: otherwise the status line
-  # keeps showing the old 600s countdown after `aiur --todo` until the woken
-  # tick itself renders (#2640). A coalesced request changed nothing.
+  # Republish a collapsed timer wake so status shows its new countdown (#2640).
+  # Coalesced requests do not change the countdown.
   defp publish_collapsed_poll({:reply, %{coalesced: false} = result, state}) do
     StatusReport.notify_dashboard(state)
     {:reply, result, state}
@@ -626,10 +621,8 @@ defmodule Aiur.Orchestrator do
   def snapshot(server, timeout), do: StatusReport.snapshot_api(server, timeout)
 
   @doc """
-  Reads the dashboard snapshot from its read model without calling the
-  Orchestrator process. Before the first published snapshot it returns an
-  explicit unavailable result rather than joining the dispatch mailbox.
-  See `SnapshotStore.read/2` for result states.
+  Reads the published dashboard snapshot without querying the Orchestrator;
+  before first publication it returns unavailable. See `SnapshotStore.read/2`.
   """
   @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
   def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout)
@@ -660,7 +653,12 @@ defmodule Aiur.Orchestrator do
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
 
-  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids), do: {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  def handle_call({:has_live_owner, identifier}, _from, state), do: StatusReport.has_live_owner(state, identifier)
+
+  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
+    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  end
+
   def handle_call(:build_queue_next_set, _from, state), do: {:reply, BuildQueueClaimProbe.next_set(state), state}
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
