@@ -38,7 +38,7 @@ Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding br
 
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
-CI batches and landing require ruleset checks on PR heads. Startup readiness uses `AIUR_CI_READINESS_TOKEN` and reports unavailable without it.
+CI batches and landing need ruleset checks on PR heads. Startup readiness uses `AIUR_CI_READINESS_TOKEN` and reports unavailable without it.
 
 Main-watch status names the credential actually applied after a 401. Transport logs include a short token fingerprint without exposing the token. Missing/skipped checks fail; lookup errors keep green aggregates pending.
 
