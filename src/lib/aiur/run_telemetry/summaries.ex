@@ -69,6 +69,10 @@ defmodule Aiur.RunTelemetry.Summaries do
   @spec runs_dir() :: Path.t()
   def runs_dir, do: Path.join(analytics_dir(), "runs")
 
+  @doc "`<state-node>/analytics/tickets` — durable records across launches."
+  @spec ledger_dir() :: Path.t()
+  def ledger_dir, do: Path.join(analytics_dir(), "tickets")
+
   @doc "`<state-node>/builds` — `RepoBase.builds_path/1`, the real writer target for build rollups."
   @spec builds_dir() :: Path.t()
   def builds_dir, do: RepoBase.builds_path(repo_url())
@@ -116,6 +120,13 @@ defmodule Aiur.RunTelemetry.Summaries do
     :ok
   end
 
+  @doc false
+  @spec materialize_if_facts([{atom() | String.t(), map(), DateTime.t()}]) :: :ok
+  def materialize_if_facts(records) do
+    if Enum.any?(records, fn {_kind, attrs, _at} -> Map.get(attrs, :event, Map.get(attrs, "event")) in ["pr_facts", :pr_facts] end), do: materialize_async()
+    :ok
+  end
+
   defp run_reduce_background(script, args) do
     case System.cmd(script, args, stderr_to_stdout: true) do
       {_output, 0} ->
@@ -159,16 +170,24 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc false
   @spec reduce_command(keyword()) :: {:ok, {Path.t(), [String.t()]}} | :unavailable
   def reduce_command(opts \\ []) do
-    with {:ok, dir} <- reduce_dir(Keyword.get(opts, :reduce_dir)),
+    with true <- RunTelemetry.telemetry_enabled?(),
+         {:ok, dir} <- reduce_dir(Keyword.get(opts, :reduce_dir)),
          script when is_binary(script) and script != "" <- Path.join(dir, @reduce_tool),
          true <- File.regular?(script),
          telemetry when is_binary(telemetry) and telemetry != "" <- telemetry_file(opts),
          state when is_binary(state) and state != "" <- state_node() do
-      args = ["--all", "--all-builds", "--telemetry", telemetry, "--state-node", state]
+      logs_root = Keyword.get(opts, :logs_root, retained_logs_root(telemetry))
+      glob = Path.join([logs_root, "*", "log", "telemetry.ndjson*"])
+      args = ["--all", "--all-builds", "--ledger", "--telemetry-glob", glob, "--telemetry", telemetry, "--state-node", state, "--repo", repo_url()]
       {:ok, {script, args}}
     else
       _other -> :unavailable
     end
+  end
+
+  defp retained_logs_root(telemetry) do
+    directory = telemetry |> Path.expand() |> Path.dirname()
+    if Path.basename(directory) == "log", do: directory |> Path.dirname() |> Path.dirname(), else: directory
   end
 
   defp telemetry_file(opts) do
@@ -287,7 +306,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   )
   @resource_evidence ~w(
     fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms
-    fleet_admission_signal
+    fleet_admission_signal fleet_binding_kind
     build_gate_enabled build_gate_status build_gate_observed_at_ms
   )a
 

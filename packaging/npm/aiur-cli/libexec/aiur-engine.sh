@@ -95,10 +95,18 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur epic clear <ids...> [--as <who>] [--json]
        aiur epic show [<ids...>] [--json]
        aiur epic list [--json]
+       aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--as <who>] [--json]
+       aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
+       aiur feature remove <slug> <ids...> [--as <who>] [--json]
+       aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
+       aiur feature baseline <slug> [--replace] [--as <who>] [--json]
+       aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
+       aiur feature show [<slug>] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
+       aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
@@ -106,13 +114,13 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
        aiur executor-listen [--topic <pattern>]  deprecated alias for listen
-       aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
+       aiur executor-wait [--timeout <seconds>] [--session-id <uuid> [--harness codex]] [--json]  block until Executor work arrives
        aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
        aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
-       aiur executor-roster [--json]  list Executor consumers with their liveness evidence
+       aiur executor-roster [--json]  list Executor consumers; executor-session [--json] reads the live Executor harness session
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
@@ -253,6 +261,7 @@ aiur_engine_main() {
       cmd_queue "$@"
       ;;
     epic) shift; cmd_epic "$@" ;;
+    feature) shift; cmd_feature "$@" ;;
     build-orders)
       shift
       cmd_build_orders "$@"
@@ -294,10 +303,8 @@ aiur_engine_main() {
       shift
       cmd_executor_subscriptions "$@"
       ;;
-    executor-roster)
-      shift
-      cmd_executor_roster "$@"
-      ;;
+    executor-roster | executor-session)
+      shift; "cmd_${cmd//-/_}" "$@" ;;
     executor-fast-forward)
       shift
       cmd_executor_fast_forward "$@"
@@ -376,7 +383,9 @@ aiur_engine_main() {
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-executor-session.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-experiments.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"

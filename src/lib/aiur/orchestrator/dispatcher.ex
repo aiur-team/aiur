@@ -24,6 +24,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
   alias Aiur.Orchestrator.PausedCandidatePoll
+  alias Aiur.Orchestrator.PollTiming
   alias Aiur.Orchestrator.PrAnchored
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.Slots
@@ -177,8 +178,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
       # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
-      # The GitHub poll floor is measured from here, so an event that pulls
-      # the next tick forward cannot land it closer than the floor allows.
+      # Measure the GitHub poll floor here so pulled-forward ticks still respect it.
       |> Map.put(:last_dispatch_poll_at_ms, System.monotonic_time(:millisecond))
       # Counted first, then pruned: a hint whose budget this cycle exhausted
       # is dropped here, and a ticket this poll finally showed is dropped
@@ -225,6 +225,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerTasks.start(state, :dispatch_poll, fn -> fetch_fun.(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &Candidates.apply_candidate_result(&1, result))
+      |> PollTiming.complete(result)
       |> finish_poll_cycle()
     end)
   end
@@ -391,7 +392,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states, Map.values(state.last_polled_issues)), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    {candidates, held} =
+      DispatchCandidates.partition(issues, terminal_states, Map.values(state.last_polled_issues))
+
+    state = Candidates.hold_cached_dependencies(state, held, active_states, terminal_states)
+    choose_issues_in_order(state, candidates, opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),

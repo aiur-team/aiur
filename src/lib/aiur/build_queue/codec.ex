@@ -27,7 +27,16 @@ defmodule Aiur.BuildQueue.Codec do
        added_at: :datetime
      ]},
     {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :native]}]},
-    {:intents, Intent, [id: :string, issue_id: :issue_id, action: {:enum, [:promote, :withdraw, :mark, :unmark]}, target_labels: :strings, recorded_at_ms: :nonnegative, outcome: :outcome]},
+    {:intents, Intent,
+     [
+       id: :string,
+       issue_id: :issue_id,
+       action: {:enum, [:promote, :withdraw, :mark, :unmark]},
+       target_labels: :strings,
+       recorded_at_ms: :nonnegative,
+       preexisting_todo?: {:default, :boolean, false},
+       outcome: :outcome
+     ]},
     {:latches, Latch, [key: :key, opened_at_ms: :nonnegative, emitted?: {:default, :boolean, true}]}
   ]
 

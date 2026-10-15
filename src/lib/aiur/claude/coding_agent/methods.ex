@@ -6,7 +6,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
 
   require Logger
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, Transport, TurnState}
+  alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, ToolCallIdentity, ToolCallLedger, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountMeters, CodingAgent, NotificationPolicy}
 
@@ -52,12 +52,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
       ) do
     metadata = metadata_from_message(session.port, payload)
     tool_name = Messages.tool_call_name(params)
-    arguments = Messages.tool_call_arguments(params)
-
-    result =
-      state.tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
+    result = execute_tool_call(session, state, params, id, metadata)
 
     CodingAgent.send_frame(session.port, %{
       "id" => id,
@@ -125,6 +120,43 @@ defmodule Aiur.Claude.CodingAgent.Methods do
 
     {:continue, state}
   end
+
+  defp execute_tool_call(session, state, params, id, metadata) do
+    tool_name = Messages.tool_call_name(params)
+    arguments = Messages.tool_call_arguments(params)
+    invocation_id = Messages.tool_call_id(params, id)
+    params = Map.put(params, "callId", invocation_id)
+    scope = {:claude, Map.get(state, :issue_identifier, session.workspace), metadata[:relay_id] || metadata[:provider_pid]}
+
+    execute = fn ->
+      state.tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, invocation_id)
+      |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
+    end
+
+    case ToolCallIdentity.resolve(scope, params, tool_name, arguments, session.thread_id) do
+      {:ok, identity, fingerprint} ->
+        ToolCallLedger.execute_cancellable(identity, fingerprint, execute, Map.get(state, :tool_call_ledger, ToolCallLedger))
+
+      {:error, reason} ->
+        {:error, reason}
+
+      :untracked ->
+        {:error, :missing_tool_call_identity}
+    end
+    |> normalize_ledger_result()
+  end
+
+  defp normalize_ledger_result({:error, :outcome_uncertain}),
+    do: %{"success" => false, "output" => "Dynamic tool outcome is uncertain; refusing to execute it again."}
+
+  defp normalize_ledger_result({:error, :conflicting_invocation}),
+    do: %{"success" => false, "output" => "Refusing conflicting reuse of a dynamic tool call identity."}
+
+  defp normalize_ledger_result({:error, reason}),
+    do: %{"success" => false, "output" => "Dynamic tool ledger unavailable: #{inspect(reason)}"}
+
+  defp normalize_ledger_result(result), do: result
 
   defp classify_unattributed_failure(session, params) do
     legacy_params = Map.delete(params, "provider_error")

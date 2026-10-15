@@ -267,5 +267,14 @@ defmodule Aiur.Events.SanitizerTest do
       assert sanitized.source == :github
       assert sanitized.author_trusted? == false
     end
+
+    test "sanitizes extracted post-deploy lines without the PR-body truncation limit" do
+      check = "run command " <> String.duplicate("x", 550) <> " ghp_" <> String.duplicate("a", 36)
+      sanitized = Sanitizer.github_payload(%{post_deploy_checks: [check, "<!-- hidden -->visible"]}, "octocat")
+
+      assert [clean_check, "visible"] = sanitized.post_deploy_checks
+      assert String.length(clean_check) > 500
+      assert clean_check =~ "[REDACTED:ghp]"
+    end
   end
 end

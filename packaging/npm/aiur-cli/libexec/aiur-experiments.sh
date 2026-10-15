@@ -1,7 +1,7 @@
 # All caller text crosses the control RPC as base64, including stdin JSON.
 cmd_experiments() {
   local verb="${1:-}" arg value encoded opts="" argv="" separator=""
-  case "$verb" in list|show|create|metrics|freeze) shift ;; *) echo "aiur: experiments expects list, show, metrics, create or freeze" >&2; exit 64 ;; esac
+  case "$verb" in list|show|create|metrics|freeze|events) shift ;; *) echo "aiur: experiments expects list, show, events, metrics, create or freeze" >&2; exit 64 ;; esac
   while [ "$#" -gt 0 ]; do
     arg="$1"; shift
     case "$arg" in

@@ -1,12 +1,29 @@
 defmodule Aiur.BuildQueue.CompetingWritersTest do
   @moduledoc "Integration coverage for queue and tracker writers racing over ticket state."
   use ExUnit.Case, async: false
-  alias Aiur.BuildQueue.{Hints, Model, Server}
+  alias Aiur.BuildQueue.{Bookkeeping, Hints, Model, Server}
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
 
   defmodule Boundary do
-    def open_issue_labels(_age), do: Agent.get(__MODULE__, fn s -> {:ok, Map.new(s.labels, fn {id, labels} -> {id, %{labels: labels}} end), s.now} end)
+    def open_issue_labels(_age) do
+      Agent.get_and_update(__MODULE__, fn s ->
+        labels = if s.observation_calls == 0, do: Map.get(s, :observation_labels, s.labels), else: s.labels
+        result = observation_result(s, labels)
+        {result, %{s | observation_calls: s.observation_calls + 1}}
+      end)
+    end
+
+    defp observation_result(state, labels) do
+      if Map.get(state, :observation_unavailable?, false), do: {:error, :offline}, else: {:ok, Map.new(labels, fn {id, issue_labels} -> {id, %{labels: issue_labels}} end), state.now}
+    end
+
+    def issue_closure(id, _age) do
+      Agent.get(__MODULE__, fn s ->
+        if id in Map.get(s, :closed_ids, []), do: {:ok, %{open?: false, state_reason: "completed"}}, else: {:ok, %{open?: true, state_reason: nil}}
+      end)
+    end
+
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
     def blocked_by(_id), do: {:ok, []}
@@ -33,7 +50,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     def ensure_labels(_labels), do: :ok
 
     def remove_label(id, label) do
-      Agent.update(__MODULE__, &%{&1 | calls: &1.calls ++ [{:remove_label, id, label}], labels: Map.update!(&1.labels, id, fn labels -> List.delete(labels, label) end)})
+      Agent.update(__MODULE__, &%{&1 | calls: &1.calls ++ [{:remove_label, id, label}], labels: Map.update(&1.labels, id, [], fn labels -> List.delete(labels, label) end)})
     end
   end
 
@@ -41,7 +58,24 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     queue = %Model.Queue{id: "q", name: "Q", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
     items = for id <- ["1", "2"], do: %Model.Item{issue_id: id, queue_id: "q", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
     document = %{queues: [queue], items: items, edges: [%Model.Edge{prerequisite: "1", dependent: "2", source: :native}], intents: [], latches: []}
-    pid = start_supervised!({Agent, fn -> %{document: document, now: 1_000, labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]}, calls: [], save_error: nil} end})
+
+    pid =
+      start_supervised!(
+        {Agent,
+         fn ->
+           %{
+             document: document,
+             now: 1_000,
+             labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]},
+             calls: [],
+             save_error: nil,
+             closed_ids: [],
+             observation_labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]},
+             observation_calls: 0
+           }
+         end}
+      )
+
     Process.register(pid, Boundary)
     :ok
   end
@@ -66,6 +100,8 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
 
   test "manual todo on a waiting item persists override without withdrawing" do
     labels("2", ~w(agent:queued agent:todo))
+    intent = %Model.Intent{id: "queue-add-marker", issue_id: "2", action: :mark, target_labels: ~w(agent:queued), recorded_at_ms: 999, preexisting_todo?: false, outcome: :ok}
+    change_document(&%{&1 | intents: [intent]})
     pid = server()
     reconcile(pid)
     assert item("2").override == :manual_promotion
@@ -79,7 +115,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert item("2").override == nil
   end
 
-  test "queue add withdraws pre-existing todo from an unclaimed list item with unmet prerequisites" do
+  test "queue add with after withdraws pre-existing todo from an unclaimed list item with unmet prerequisites" do
     change_document(fn document -> %{document | items: Enum.reject(document.items, &(&1.issue_id == "2")), edges: [], intents: []} end)
     labels("2", ["agent:todo"])
     pid = server()
@@ -99,6 +135,34 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
 
     assert labels_for("2") == ~w(agent:queued agent:todo)
     assert projection(pid, "2").state == :overridden
+  end
+
+  test "after add withdraws a todo missed by the queue observation, then promotes after prerequisite completion" do
+    change_document(fn document -> %{document | items: Enum.reject(document.items, &(&1.issue_id == "2")), edges: [], intents: []} end)
+    labels("2", ["agent:todo"])
+    Agent.update(Boundary, &Map.put(&1, :observation_labels, %{"1" => ["agent:queued"]}))
+    pid = server()
+    reconcile(pid)
+    Agent.update(Boundary, &Map.put(&1, :observation_calls, 0))
+
+    assert :ok = GenServer.call(pid, {:mutate, {:add, ["2"], [queue: "Q", after: "1"]}})
+    mark = Enum.find(document().intents, &(&1.issue_id == "2" and &1.action == :mark))
+    assert mark.target_labels == ["agent:queued"]
+    assert mark.preexisting_todo?
+    reconcile(pid)
+    reconcile(pid)
+
+    assert labels_for("2") == ["agent:queued"]
+    assert {:remove_label, "2", "agent:todo"} in calls()
+    assert projection(pid, "2").state == :waiting
+
+    Agent.update(Boundary, fn state -> %{state | closed_ids: ["1"], labels: Map.delete(state.labels, "1")} end)
+    reconcile(pid)
+    for _ <- 1..5, do: reconcile(pid)
+
+    assert labels_for("2") == ~w(agent:queued agent:todo)
+    assert {:promote, "2"} in calls()
+    assert projection(pid, "2").state == :promoted
   end
 
   test "marker removal dequeues item and drops edges before replanning its dependent" do
@@ -169,6 +233,33 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert calls() == []
   end
 
+  test "queue release clears its hold and reports members without observations" do
+    change_document(fn document -> %{document | queues: Enum.map(document.queues, &%{&1 | held: true})} end)
+    Agent.update(Boundary, &Map.put(&1, :observation_unavailable?, true))
+    pid = server()
+
+    assert {:ok, ["1", "2"]} = Aiur.BuildQueue.release("q", pid)
+    assert hd(document().queues).held == false
+    assert item("1").hold == nil
+    assert item("2").hold == nil
+  end
+
+  test "bookkeeping reports only the set members missing from a partial snapshot" do
+    document = %{document() | queues: Enum.map(document().queues, &%{&1 | held: true})}
+    observation = %Model.Observation{issue_id: "1", open?: true, labels: ["agent:todo"], state_reason: nil, pr: nil, observed_at_ms: 1_000}
+
+    assert {:ok, released, ["2"]} = Bookkeeping.release(document, "q", %{"1" => observation}, 1_000, "agent:todo")
+    assert hd(released.queues).held == false
+  end
+
+  test "releasing an unobserved closed member succeeds as a no-op with a notice" do
+    Agent.update(Boundary, &Map.put(&1, :observation_unavailable?, true))
+    pid = server()
+
+    assert {:ok, ["2"]} = Aiur.BuildQueue.release("2", pid)
+    assert item("2").hold == nil
+  end
+
   test "failed bookkeeping save stops batch without changing durable state" do
     labels("1", [])
     labels("2", ~w(agent:queued agent:todo))
@@ -198,7 +289,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     reconcile(pid)
     assert Aiur.BuildQueue.release("missing", pid) == {:error, :not_found}
     Agent.update(Boundary, &%{&1 | labels: %{}})
-    assert Aiur.BuildQueue.release("1", pid) == {:error, :observation_unavailable}
+    assert Aiur.BuildQueue.release("1", pid) == {:ok, ["1"]}
     labels("1", ["agent:queued"])
     Agent.update(Boundary, &%{&1 | save_error: :disk_full})
     assert Aiur.BuildQueue.release("1", pid) == {:error, :disk_full}

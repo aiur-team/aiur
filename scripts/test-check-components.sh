@@ -36,7 +36,7 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
                 'src/lib/aiur/config/paths.ex': '  def fixture_dir, do: "/fixture"\n'}
             components[0]['paths'].extend(declarations)
             components[0]['owns'].update(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'], state=['fixture_dir'])
-        manifest = dict(manifest_version=1, components=components, features=[])
+        manifest = dict(manifest_version=1, directory_published=False, components=components, features=[])
         if change:
             change(manifest)
         (root / 'components.json').write_text(json.dumps(manifest))
@@ -238,7 +238,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '24 sections, 7 fields, 74 env vars, 28 state paths owned once' in result.stdout
+    assert '24 sections, 7 fields, 77 env vars, 28 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -256,6 +256,7 @@ if with_node and (not selected or 'missing_typescript_exits_2' in selected):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copyfile(checker, root / 'check-components.py')
+        shutil.copyfile(repo / 'scripts/check-env-example.py', root / 'check-env-example.py')
         shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
         result = subprocess.run([sys.executable, str(root / 'check-components.py')],
                                 env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
@@ -485,6 +486,8 @@ else:
             assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
             print('PASS: missing_elixir_exits_2')
 
+from components.docs_fixtures import run as docs_fixtures
+ran.update(docs_fixtures(repo, selected))
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
@@ -492,4 +495,5 @@ PY
 if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-components-seams.py"
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
+  python3 "$repo_root/scripts/test-github-components.py"
 fi

@@ -29,6 +29,7 @@
     "signal"
   ],
   "optional": [
+    "build-queue",
     "conversations"
   ],
   "owns": {
@@ -56,9 +57,7 @@
     "concepts/executor.md"
   ],
   "config": [
-    "alerts",
-    "executor_takeover_continuous_alert_hours",
-    "executor_takeover_first_alert_hours"
+    "alerts"
   ],
   "env": [],
   "capabilities": []

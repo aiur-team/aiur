@@ -1,0 +1,29 @@
+@layer aiur.components {
+  .aiur-button {
+    --aiur-button-bg: var(--aiur-color-fill); --aiur-button-hover: var(--aiur-color-fill-hover); --aiur-button-pressed: var(--aiur-color-fill-pressed);
+    --aiur-button-fg: var(--aiur-color-on-fill); --aiur-button-hover-fg: var(--aiur-button-fg); --aiur-button-border: transparent;
+    display: inline-flex; align-items: center; justify-content: center; gap: .42rem;
+    padding: .6rem 1.1rem; border: 1px solid var(--aiur-button-border); border-radius: var(--aiur-radius-pill); background: var(--aiur-button-bg); color: var(--aiur-button-fg);
+    font: 500 15px/1 var(--aiur-font-body); text-decoration: none; cursor: pointer; transition: background-color var(--aiur-motion-fast), color var(--aiur-motion-fast);
+  }
+  .aiur-button--sm { padding: .55rem 1rem; font-size: .95rem; }
+  .aiur-button--lg { padding: 13px 22px; }
+  .aiur-button--rounded { border-radius: var(--aiur-radius-md); }
+  .aiur-button--icon { padding: .6rem; aspect-ratio: 1; }
+  .aiur-button--icon.aiur-button--sm { padding: .55rem; }
+  .aiur-button--icon.aiur-button--lg { padding: 13px; }
+  .aiur-button--ghost { --aiur-button-bg: transparent; --aiur-button-fg: var(--aiur-color-muted); --aiur-button-hover-fg: var(--aiur-color-fg); --aiur-button-hover: color-mix(in srgb, var(--aiur-color-fg) 8%, transparent); --aiur-button-pressed: var(--aiur-button-hover); }
+  .aiur-button--danger { --aiur-button-bg: var(--aiur-color-blocking); --aiur-button-hover: var(--aiur-color-blocking-ink); --aiur-button-pressed: var(--aiur-color-blocking-ink); --aiur-button-fg: var(--aiur-color-on-blocking); }
+  .aiur-button--tool { --aiur-button-bg: var(--aiur-color-pill-bg); --aiur-button-fg: var(--aiur-color-muted); --aiur-button-hover-fg: var(--aiur-color-fg); --aiur-button-hover: var(--aiur-color-surface-2); --aiur-button-pressed: var(--aiur-color-surface-2); --aiur-button-border: var(--aiur-color-line); min-height: 1.9rem; padding: .3rem .7rem; font: 600 .7rem/1 var(--aiur-font-mono); letter-spacing: .02em; }
+  .aiur-button:where(:hover, .is-hover):not(:disabled, [aria-disabled="true"]) { background: var(--aiur-button-hover); color: var(--aiur-button-hover-fg); }
+  .aiur-button:where(:active, [aria-pressed="true"], .is-active):not(:disabled, [aria-disabled="true"]) { background: var(--aiur-button-pressed); color: var(--aiur-button-hover-fg); }
+  .aiur-button:where(:focus-visible, .is-focus) { outline: 2px solid var(--aiur-color-focus); outline-offset: 3px; }
+  .aiur-button:where(:disabled, [aria-disabled="true"]) { opacity: .45; cursor: not-allowed; }
+  .aiur-button__icon { width: 1em; height: 1em; flex: none; }
+  .aiur-button--lg .aiur-button__icon { transition: transform var(--aiur-motion-fast); }
+  .aiur-button--lg:where(:hover, .is-hover):not(:disabled, [aria-disabled="true"]) .aiur-button__icon { transform: translateX(3px); }
+  @media (prefers-reduced-motion: reduce) {
+  .aiur-button, .aiur-button__icon { transition: none; }
+  .aiur-button--lg:where(:hover, .is-hover):not(:disabled, [aria-disabled="true"]) .aiur-button__icon { transform: none; }
+  }
+}

@@ -218,6 +218,7 @@ defmodule Aiur.Events.GithubWebhookTest do
         "pull_request" => %{
           "number" => 901,
           "merged" => true,
+          "body" => "#### Context\ntext\n## Local tests\nPolicy: partial\nPost-deploy check: open /post-deploy and verify this merge appears\n## Docs\ntext",
           "updated_at" => "2026-06-24T12:00:00Z",
           "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "deadbeef"}
         }
@@ -227,6 +228,7 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("pull_request", delivery, repo: @repo)
 
       assert payload.action == "closed"
+      assert payload.post_deploy_checks == ["open /post-deploy and verify this merge appears"]
       assert opts[:bypass_contamination] == true
       assert opts[:dedup_key] == {@repo, "pr:closed:901", "deadbeef"}
     end

@@ -190,7 +190,7 @@ Plus `blocking`, `question`, `options` (2–5 bounded alternatives,
 
 The Executor may answer a Command directly, but only within a floor the code
 enforces rather than one the Executor's prompt is trusted to observe
-(`src/lib/aiur/decision_store.ex:1283-1303`). A non-operator answer is accepted
+(`decision_store/answers.ex`). A non-operator answer is accepted
 **only if both** hold:
 
 - `authority` is `supervisor_allowed` or `supervisor_preferred` —
@@ -226,7 +226,7 @@ irreversible, involves spend, or changes product direction must declare
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it
 fails `{:supervisor_basis, :decision_mismatch}`
-(`decision_store.ex:1263-1281`).
+(`decision_store/answers.ex`).
 
 **Operator-facing consequence:** if a Command is irreversible or marked
 `human_required`, your Executor cannot answer it — it will escalate, and the
@@ -238,16 +238,16 @@ ticket stays paused until you answer. The CLI even tells you so: on
 
 - **Escalation does not change the Command's status.** It appends an attributed
   `:executor_escalated` event and the Command stays exactly as answerable as
-  before (`decision_store.ex:158-173`), so the operator can still answer it. A
+  before (`decision_store/requests.ex`), so the operator can still answer it. A
   durable operator attention is opened idempotently on topic
   `ticket.<id>.agent.attention.executor-command-<digest>` and cleared on any
   terminal decision (`src/lib/aiur/executor_command_attention.ex:7-30`).
 - **A blocking Command cannot be dismissed.**
-  `{:error, {:conflict, :blocking_requires_answer}}` (`decision_store.ex:1518-1548`)
+  `{:error, {:conflict, :blocking_requires_answer}}` (`decision_store/withdrawals.ex`)
   — the answer path, including a custom response, is what releases the agent.
 - **The pause is a dispatch gate, not an in-process block.** `blocked_ticket_ids`
-  collects tickets with an open blocking Command (`decision_store.ex:938-950,
-  :1570-1587`); the dispatcher refreshes it each poll and **fails closed** on
+  collects tickets with an open blocking Command (`decision_store/calls.ex`,
+  `decision_store/withdrawals.ex`); the dispatcher refreshes it each poll and **fails closed** on
   store outage (`dispatcher.ex:453-459`, `dispatch_policy/eligibility.ex:181-185` →
   `{:skip, :blocked_on_decision}` at `dispatch_policy.ex:393`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
@@ -436,7 +436,7 @@ Failed CI in `agent:human-review` routes to rework when that head already passed
 CI or the head changed. An inherited failure on a dismissed head remains held;
 the existing test-only one-poll retry still applies.
 
-An operator comment directs the same agent.
+An operator comment directs the same agent. After rework, the slot is released only when a known dispatch head differs from the open PR head and no operator message is queued; unknown or unchanged heads keep it working. Pending checks go to `agent:ci-wait`; completed checks, including failures, go to `agent:human-review` for CI lifecycle handling.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)

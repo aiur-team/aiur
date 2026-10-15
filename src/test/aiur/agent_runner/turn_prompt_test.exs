@@ -116,6 +116,9 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert prompt =~ "rework"
       assert prompt =~ "Agent Workpad"
       assert prompt =~ "review feedback"
+      assert prompt =~ "latest Executor rework comment on the ticket"
+      assert prompt =~ "failing required checks"
+      assert prompt =~ "even when the PR is approved"
       assert prompt =~ "## Shared Agent Instructions"
       assert prompt =~ issue.title
       assert prompt =~ issue.description

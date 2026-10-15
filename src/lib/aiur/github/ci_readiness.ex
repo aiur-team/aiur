@@ -77,19 +77,19 @@ defmodule Aiur.GitHub.CiReadiness do
   @doc false
   @spec dispatch_check(keyword()) :: {:ok, result()} | {:error, term()}
   def dispatch_check(opts) do
-    case cached_result(opts) do
-      %{} = result -> {:ok, result}
-      :unavailable -> check_workflow_presence(opts)
+    case operator_token() do
+      token when is_binary(token) ->
+        opts |> Keyword.put(:token, token) |> check()
+
+      nil ->
+        {:ok, unavailable(Config.base_branch(opts), :ci_readiness_operator_token_required)}
     end
   end
 
-  defp check_workflow_presence(opts) do
-    case check(Keyword.put(opts, :workflow_presence_only, true)) do
-      {:error, :ci_readiness_operator_token_required} ->
-        {:ok, unavailable(Config.base_branch(opts), :ci_readiness_operator_token_required)}
-
-      result ->
-        result
+  defp operator_token do
+    case System.get_env(@operator_token_env) do
+      token when is_binary(token) and token != "" -> token
+      _ -> nil
     end
   end
 
@@ -321,6 +321,16 @@ defmodule Aiur.GitHub.CiReadiness do
   defp format_issue(:no_required_check), do: "no required status check is configured"
   defp format_issue({:required_check_not_produced, checks}), do: "required check is not produced: #{Enum.join(checks, ", ")}"
   defp format_issue({:required_check_integration_not_produced, checks}), do: "required check is pinned to a different GitHub App: #{Enum.join(checks, ", ")}"
+
+  defp format_issue({:unavailable, :ci_readiness_operator_token_required}),
+    do: "inspection unavailable: configure operator-only #{operator_token_env()} to inspect required checks and workflows"
+
+  defp format_issue({:unavailable, "ci_readiness_operator_token_required"}),
+    do: "inspection unavailable: configure operator-only #{operator_token_env()} to inspect required checks and workflows"
+
+  defp format_issue({:unavailable, ":ci_readiness_operator_token_required"}),
+    do: "inspection unavailable: configure operator-only #{operator_token_env()} to inspect required checks and workflows"
+
   defp format_issue({:unavailable, reason}), do: "inspection unavailable: #{inspect(reason)}"
 
   defp token_authorization_guidance(:classic_pat, organization) do

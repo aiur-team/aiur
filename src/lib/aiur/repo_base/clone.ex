@@ -120,7 +120,8 @@ defmodule Aiur.RepoBase.Clone do
   # credential prompt (the "could not read Username … Device not configured"
   # case) when no token is available. The header is HTTP-transport only, so it is
   # inert for the local rev-parse/reset calls that also route through `git/2`.
-  defp git_auth_env, do: git_auth_env(Aiur.GitHub.Config.token())
+  @spec git_auth_env() :: [{String.t(), String.t()}]
+  def git_auth_env, do: git_auth_env(Aiur.GitHub.Config.token())
 
   @doc false
   @spec git_auth_env(String.t() | nil) :: [{String.t(), String.t()}]
