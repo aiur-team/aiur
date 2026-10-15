@@ -28,8 +28,8 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) test(`section hea
       if (pc.length) expect(common.length).toBeGreaterThan(0)
       for (const card of common) expect(card).toEqual(byId.get(card.id))
     }
-    // Capture the header with its real type, spacing, colours and border.
-    for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '#bd-sec-hist .bd-sech { width: 1000px }' })
+    // Isolate the transparent header from unowned dot/edge backdrops (C9-T07/T10).
+    for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '#bd-sec-hist .bd-sech { width: 1000px; background: var(--bg) }' })
     for (const page of [pair.design, pair.product]) await page.clock.setSystemTime(FIXTURE_META.now)
     await expectDesignParity(pair, { name: 'history-header-' + dataset, region: '#bd-sec-hist .bd-sech' })
   } finally { await pair.close() }
