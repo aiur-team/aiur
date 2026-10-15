@@ -4,8 +4,7 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
   alias Aiur.AgentRunner.Handoff, as: Runner
   alias Aiur.GitHub.{DispatchAuthorization, Issues}
   alias Aiur.Handoff.{Adopter, Record}
-  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, EnvelopeStore, PressureAdmission, Slots, State}
-  alias Aiur.Orchestrator.Dispatcher.Candidates
+  alias Aiur.Orchestrator.{Dispatcher.Candidates, DispatchPolicy, EnvelopeResume, EnvelopeStore, PressureAdmission, Reconciler, Slots, State}
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("adopted-boot")
@@ -83,12 +82,13 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
 
     state = adopt(dir, 6, 4)
     ids = Enum.map(1..6, &Integer.to_string/1)
-    list = Enum.map(ids ++ ["99"], &issue_body/1)
+    list = Enum.map(ids ++ ["88", "99"], &issue_body/1)
 
     first_request = fn request ->
       if String.contains?(request.url, "/timeline?") do
-        assert request.url =~ "/99/timeline?"
-        timeline("99")
+        [_, id] = Regex.run(~r{/issues/(\d+)/timeline}, request.url)
+        assert id in ["88", "99"]
+        timeline(id)
       else
         {:ok, %{status: 200, headers: [{"etag", "list-v1"}], body: list}}
       end
@@ -96,6 +96,7 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
 
     assert {:ok, issues, cache} = Issues.fetch_candidate_issues_conditional(Candidates.candidate_list_cache(state), request_fun: first_request)
     assert Enum.find(issues, &(&1.id == "99")).dispatch_authorized?
+    assert Enum.find(issues, &(&1.id == "88")).dispatch_authorized?
 
     for id <- ids do
       issue = Enum.find(issues, &(&1.id == id))
@@ -104,7 +105,7 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
       assert match?({:skip, _}, DispatchPolicy.dispatch_decision(issue, state))
     end
 
-    reconciled = Aiur.Orchestrator.Reconciler.refresh_running_issue_states(state, issues, fn _ -> flunk("adopted lifecycle state was already listed") end)
+    reconciled = Reconciler.refresh_running_issue_states(state, issues, fn _ -> flunk("adopted lifecycle state was already listed") end)
     assert Enum.sort(Map.keys(reconciled.running)) == ids
 
     later = put_in(state.ci_lifecycle.poll_cache[:candidate_list_cache], cache)
@@ -123,7 +124,7 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
     end
 
     assert {:ok, refreshed, _} = Issues.fetch_candidate_issues_conditional(Candidates.candidate_list_cache(later), request_fun: request)
-    assert length(refreshed) == 7
+    assert length(refreshed) == 8
     assert Enum.all?(refreshed, & &1.dispatch_authorized?)
   end
 
