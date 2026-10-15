@@ -27,7 +27,9 @@ async function health(page) {
   return page.evaluate(() => window.ctx.el.dataset.buildHomeHook)
 }
 
-test('B1: fixture registration, stub health and every callback preserve context', async ({ page }) => {
+test('B1: loader registration, factory health and every callback preserve context', async ({ page }) => {
+  // Loader isolation uses a factory spy; the real hook now requires the server-rendered hosts.
+  await page.route('**/build-home/hook.js', route => route.fulfill({ contentType: 'text/javascript', body: spyModule }))
   await openFixture(page)
   expect(await page.evaluate(() => Object.keys(window.BrowserHarnessHooks.BuildHome).sort())).toEqual([...callbacks].sort())
   expect(await mount(page)).toBe('loading')

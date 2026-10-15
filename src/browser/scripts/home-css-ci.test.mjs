@@ -34,8 +34,10 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   }
 })
 
-test('home matrix has an independent deadline and stays in the local full suite', () => {
-  assert.equal(workflow.jobs.browser['timeout-minutes'], 30)
+test('browser shards have bounded timeouts and home matrix keeps an independent deadline', () => {
+  for (const job of ['browser', 'browser-2', 'browser-3']) {
+    assert.equal(workflow.jobs[job]['timeout-minutes'], 15)
+  }
   assert.match(workflow.jobs['home-css'].if, /outputs.full_ci == 'true'/)
   assert.equal(workflow.jobs['home-css']['timeout-minutes'], 25)
   assert.equal(workflow.jobs['home-css'].steps.at(-1).uses, './.github/actions/verify-home-css')
@@ -43,6 +45,6 @@ test('home matrix has an independent deadline and stays in the local full suite'
     'npm run fixture:preflight && npm run test:home-css')
   assert.equal(home.runs.steps.at(-1).if, '${{ always() }}')
   assert.equal(scripts.test, 'npm run test:core && npm run test:home-css')
-  assert.ok(!scripts['test:core'].includes('npm run test:home-css'))
+  assert.doesNotMatch(scripts['test:core'], /npm run test:home-css(?:\s|$)/)
   assert.match(scripts['test:home-css'], /home-css-census\.browser\.spec\.mjs tests\/home-css-parity\.browser\.spec\.mjs/)
 })

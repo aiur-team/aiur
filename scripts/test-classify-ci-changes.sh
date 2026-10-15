@@ -71,6 +71,7 @@ for draft in true false; do
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"website/new.md","previous_filename":"src/mix.exs"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"website/new.md"}]' '[{"name":"MAIN-FIX"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"website/new.md"}]' '[{"name":"urgent"}]'
+  expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[{"name":"CI:FULL"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"src/test/support/helper.exs"}]' '[]' full
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"scripts/example.sh"}]' '[]' full
@@ -79,10 +80,17 @@ for path in scripts/check-ci-gate.py scripts/classify-ci-changes.sh scripts/ci-p
   expect 'docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
 for event in push merge_group workflow_dispatch; do
-  expect 'docs_only=false full_ci=true' "$event" true '[]'
+  if [[ "$event" == push ]]; then
+    GITHUB_REF=refs/heads/v2 expect 'docs_only=false full_ci=true' "$event" true '[]'
+  else
+    expect 'docs_only=false full_ci=true' "$event" true '[]'
+  fi
 done
+GITHUB_REF=refs/heads/main expect 'docs_only=false full_ci=true' push true '[]'
+GITHUB_REF=refs/heads/main expect 'docs_only=false full_ci=false' schedule true '[]'
+GITHUB_REF=refs/heads/v2 expect 'docs_only=false full_ci=true' push true '[]'
 TEST_BIGPATCH=true expect 'docs_only=false full_ci=false' pull_request false '[]'
-TEST_LEGACY=true expect 'docs_only=true full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
+TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
 TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
 TEST_FILE_CAP=true expect 'docs_only=false full_ci=true' pull_request false '[]'
 expect 'docs_only=false full_ci=true' pull_request false '[]' '[]' '' true
