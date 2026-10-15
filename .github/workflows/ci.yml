@@ -68,17 +68,8 @@ jobs:
         with:
           otp-version: '28'
           elixir-version: '1.19.5'
-      - name: Check PR body and local-test evidence
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr-evidence.json"
-          python3 scripts/check-pr-body.py --pr-json "$RUNNER_TEMP/pr-evidence.json" --base "$PR_BASE"
       - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-check-pr-body.py && python3 scripts/check-hot-list-format.py && python3 scripts/test-hot-list-format.py
+        run: bash scripts/test-workflow-security.sh && python3 scripts/test-check-pr-body.py && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/test-check-pr-body-check-run.py && python3 scripts/check-hot-list-format.py && python3 scripts/test-hot-list-format.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -718,6 +709,13 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Require latest PR-body check
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check-pr-body-check-run.py
       - name: Require the event's selected jobs
         if: ${{ github.event_name != 'schedule' && !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         env:

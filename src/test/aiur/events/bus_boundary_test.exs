@@ -7,7 +7,7 @@ defmodule Aiur.Events.BusBoundaryTest do
 
   @members ~w(delivery exchange topic publisher id_generator subscription_store
               subscription_store_supervisor universal_subscriptions
-              agent_subscription_policy history_store trace)
+              agent_subscription_policy history_store trace source_policy source_policy/null)
            |> Enum.map(&"events/#{&1}.ex")
            |> Kernel.++(["ticket_observation.ex"])
 
@@ -20,10 +20,6 @@ defmodule Aiur.Events.BusBoundaryTest do
   # {member_file, referenced_module} => ticket that removes the edge.
   # Seam tickets delete their rows; that deletion is the proof the edge is gone.
   @ratchet %{
-    {"events/publisher.ex", "Aiur.GitHub.AgentMarker"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.GitHub.Config"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.GitHub.ResourceStore"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.Webhooks"} => "C2-T06",
     # Unassigned: tracker types in the L1 spine; MP-R1 decides (CONTRACT-REQUESTS).
     {"ticket_observation.ex", "Aiur.TrackerIdentity"} => "unassigned",
     {"ticket_observation.ex", "Aiur.OpaqueIdentifier"} => "unassigned"
