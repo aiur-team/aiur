@@ -4,6 +4,9 @@ The planning pack records approved intent and evidence. It is not a second
 ticket tracker: GitHub owns facts for promoted tickets and Aiur owns current
 runtime facts.
 
+Legacy pack JSON uses `scripts/publication/pack_format.py`: top-level keys and
+array records each occupy one line; the publisher and CI share this formatter.
+
 ## Collection and evidence contract
 
 A new feature outputs a collection into the repository's single continuous build.

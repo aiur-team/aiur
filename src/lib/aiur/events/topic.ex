@@ -20,7 +20,7 @@ defmodule Aiur.Events.Topic do
   `*` segments, then `#` segments. Ties break lexicographically by pattern
   string. Matches Executor intuition that the more-specific pattern wins.
   """
-
+  # aiur:event-bus-boundary-member
   @doc """
   Returns `true` iff `topic` matches `pattern` under AMQP topic-exchange
   semantics.

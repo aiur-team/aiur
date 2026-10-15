@@ -6,9 +6,9 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.AppServer.{Messages, RelayPort, Transport, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Codex.DynamicTool
   alias Aiur.ProcessTree
 
   @port_line_bytes 1_048_576
@@ -60,7 +60,7 @@ defmodule Aiur.AppServer.Adapter do
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
-        DynamicTool.execute(tool, arguments)
+        Dispatch.execute(tool, arguments)
       end)
 
     case pause_latched?(session) do
