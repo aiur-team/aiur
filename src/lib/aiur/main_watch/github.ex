@@ -6,7 +6,7 @@ defmodule Aiur.MainWatch.GitHub do
   @spec poll(String.t(), [String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def poll(branch, workflows, opts \\ []) do
     case poll_once(branch, workflows, opts) do
-      {:error, {:github, :auth, %{status: 401}} = reason} ->
+      {:error, {:github, :auth, %{status: 401, credential: "github_app_installation"}} = reason} ->
         retry_after_app_refresh(branch, workflows, opts, reason)
 
       result ->
@@ -17,10 +17,14 @@ defmodule Aiur.MainWatch.GitHub do
   defp poll_once(branch, workflows, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
-         {:ok, commit_window} <- commits(owner, repo, branch, token, opts),
+         request_opts =
+           opts
+           |> Keyword.put_new(:credential_source, credential_source(opts))
+           |> Keyword.put(:token, token),
+         {:ok, commit_window} <- commits(owner, repo, branch, token, request_opts),
          {commits, dates} = commit_window,
-         {:ok, runs} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
-         {:ok, observations} <- observations(commits, runs, workflows, opts) do
+         {:ok, runs} <- runs(owner, repo, branch, commits, dates, workflows, token, request_opts),
+         {:ok, observations} <- observations(commits, runs, workflows, request_opts) do
       {:ok, %{observations: observations, runs: runs, commits: commits, actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)}}
     end
   end
@@ -36,14 +40,41 @@ defmodule Aiur.MainWatch.GitHub do
   defp refresh_if_app_token(branch, workflows, opts, reason) do
     if credential_source(opts) == "github_app_installation" do
       refresh = Keyword.get(opts, :refresh_app_token_fun, &AppTokenRefresher.refresh_now/0)
+      rejected_token = Keyword.get(opts, :token) || AppTokenRefresher.current_token()
 
       case refresh.() do
-        :ok -> poll_once(branch, workflows, Keyword.put(opts, :app_token_refreshed?, true))
+        :ok -> retry_with_refreshed_token(branch, workflows, opts, rejected_token, reason)
         _ -> {:error, reason}
       end
     else
       {:error, reason}
     end
+  end
+
+  defp retry_with_refreshed_token(branch, workflows, opts, rejected_token, reason) do
+    refreshed_token = Keyword.get(opts, :current_app_token_fun, &AppTokenRefresher.current_token/0).()
+
+    if is_binary(refreshed_token) and refreshed_token != "" and refreshed_token != rejected_token do
+      retry_opts = opts |> Keyword.put(:token, refreshed_token) |> Keyword.put(:app_token_refreshed?, true)
+      poll_once(branch, workflows, retry_opts)
+    else
+      {:error, reason}
+    end
+  end
+
+  defp credential_source(opts) do
+    source = Keyword.get(opts, :credential_source, &Config.token_source/0)
+
+    case source.() do
+      :github_app -> "github_app_installation"
+      :env -> "github_token"
+      :keyring -> "github_keyring"
+      _ -> "unknown"
+    end
+  rescue
+    _ -> "unknown"
+  catch
+    _, _ -> "unknown"
   end
 
   @spec actions_write?(keyword()) :: boolean()
@@ -82,7 +113,7 @@ defmodule Aiur.MainWatch.GitHub do
   defp commits(owner, repo, branch, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
 
-    case request_fun(opts).(%{method: :get, url: url, token: token, caller: "main_watch_commits"}) do
+    case request_fun(opts).(github_request(token, "main_watch_commits", opts) |> Map.put(:url, url)) do
       {:ok, %{status: 200, body: commits}} when is_list(commits) ->
         if Enum.all?(commits, &(is_map(&1) and is_binary(&1["sha"]))) do
           window = Enum.take(commits, 20)
@@ -112,7 +143,7 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp runs_page(url, token, dates, opts) do
-    case request_fun(opts).(%{method: :get, url: url, token: token, caller: "main_watch_runs"}) do
+    case request_fun(opts).(github_request(token, "main_watch_runs", opts) |> Map.put(:url, url)) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
         incomplete = Transport.parse_next_page_url(Map.get(response, :headers, [])) && not window_covered?(runs, dates)
         if incomplete, do: {:error, :main_runs_incomplete}, else: {:ok, runs}
@@ -233,22 +264,13 @@ defmodule Aiur.MainWatch.GitHub do
 
   defp request_fun(opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
+  defp github_request(token, caller, _opts) do
+    %{method: :get, token: token, caller: caller}
+  end
+
   defp request_error(%{status: 401}, caller, opts) do
     {:github, :auth, %{status: 401, message: "Bad credentials", caller: caller, credential: credential_source(opts)}}
   end
 
   defp request_error(response, _caller, _opts), do: Errors.github_status_error(response)
-
-  defp credential_source(opts) do
-    case Keyword.get(opts, :credential_source, &Config.token_source/0).() do
-      :github_app -> "github_app_installation"
-      :env -> "github_token"
-      :keyring -> "github_keyring"
-      _ -> "unknown"
-    end
-  rescue
-    _ -> "unknown"
-  catch
-    _, _ -> "unknown"
-  end
 end

@@ -67,6 +67,8 @@ defmodule Aiur.MainWatch.GitHubTest do
                request_fun: request,
                actions_write: false,
                credential_source: fn -> :github_app end,
+               token: "old-app-token",
+               current_app_token_fun: fn -> if(:atomics.get(refreshes, 1) == 0, do: "old-app-token", else: "new-app-token") end,
                refresh_app_token_fun: fn ->
                  :atomics.add_get(refreshes, 1, 1)
                  :ok
@@ -75,6 +77,30 @@ defmodule Aiur.MainWatch.GitHubTest do
 
     assert :atomics.get(attempts, 1) == 2
     assert :atomics.get(refreshes, 1) == 1
+  end
+
+  test "does not retry a rejected App token when refresh leaves the token unchanged" do
+    attempts = :atomics.new(1, [])
+
+    request = fn %{url: url} ->
+      if String.contains?(url, "/commits?") do
+        :atomics.add(attempts, 1, 1)
+        {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}}
+      else
+        flunk("an unchanged rejected token must not be retried")
+      end
+    end
+
+    assert {:error, {:github, :auth, %{status: 401, caller: "main_watch_commits", credential: "github_app_installation"}}} =
+             GitHub.poll("main", [],
+               request_fun: request,
+               token: "rejected-app-token",
+               credential_source: fn -> :github_app end,
+               current_app_token_fun: fn -> "rejected-app-token" end,
+               refresh_app_token_fun: fn -> :ok end
+             )
+
+    assert :atomics.get(attempts, 1) == 1
   end
 
   test "reports the failing caller and credential class on an unrecoverable 401" do
