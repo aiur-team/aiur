@@ -266,8 +266,13 @@ defmodule Aiur.Application.Children do
     |> Kernel.++(
       cli_children ++
         [Aiur.BackgroundCpu] ++
-        Aiur.Experiments.children(recording?) ++ Auto.child_specs(recording?: recording?) ++ BuildOrders.child_specs(:label_projection, opts) ++ Aiur.Experiments.window_children(recording?)
+        Aiur.Experiments.children(recording?) ++
+        Auto.child_specs(recording?: recording?) ++ BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children() ++ Aiur.Experiments.window_children(recording?)
     )
+  end
+
+  defp landing_watch_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch], else: []
   end
 
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil

@@ -133,6 +133,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.Checkpointer,
     {Aiur.Experiments.Auto, [recording?: true]},
     Aiur.BuildOrder.Features.LabelProjection,
+    Aiur.LandingWatch,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager
   ]
